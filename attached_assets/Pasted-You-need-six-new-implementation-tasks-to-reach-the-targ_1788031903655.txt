@@ -1,0 +1,196 @@
+You need six new implementation tasks to reach the target:
+Sunbiz, public-web/AI, Serper, Outscraper, Apollo and ZeroBounce operating continuously in production; canonical companies and contacts created; contacts assigned and campaign-ready; actual outreach sending still globally paused.
+I would not create one task per provider—the CRO-03 factory already exists. The missing work divides into six architectural boundaries.
+The six tasks
+Order	Task	Outcome
+1	CRO-03A — South Florida Candidate Intake & Merchant Qualification	Creates the correct candidate universe from Sunbiz and existing sources
+2	CRO-03B — Unified Crawl Recipe & AI Evidence Pipeline	Implements the complete field-level enrichment waterfall
+3	CRO-03C — Live Enrichment Provider Activation	Safely enables Serper, Outscraper, Apollo and ZeroBounce production calls
+4	CRO-05A — Division, Group, Owner & Campaign Eligibility	Assigns each completed contact deterministically
+5	CRO-06 — Campaign & Sequence Production Readiness	Builds approved campaigns and sequences without enrolling or sending
+6	CRO-08A — Continuous Runtime, Backfill & Production Certification	Makes everything run automatically, recoverably and observably
+1. CRO-03A — Candidate intake and qualification
+This task would unify:
+Sunbiz entities
+Prospect-list imports
+Existing contacts and businesses
+Apollo/Outscraper CSV imports
+Existing SDR-discovered businesses
+Manual and administrative imports
+It would implement:
+South Florida geographic qualification
+Canonical vertical taxonomy
+Active-business requirements
+Registered-agent exclusion
+Existing-customer/opportunity suppression
+Entity/DBA/location deduplication
+Merchant-processing fit score
+Paid-enrichment spending threshold
+Immutable candidate-batch membership
+Idempotent reprocessing
+This task determines which businesses are worth enriching.
+2. CRO-03B — Unified crawl and AI recipe
+This task implements the actual enrichment decision tree:
+Use existing canonical/Sunbiz evidence.
+Resolve or discover the website with Serper.
+Crawl approved public pages.
+Extract structured evidence with AI.
+Use Outscraper for local-business identity and operating-location resolution.
+Use Apollo after the organization is confidently resolved.
+Arbitrate all competing field candidates.
+Project the deterministic winners.
+Generate ZeroBounce intent for the winning email.
+It must also add:
+Configurable field-level recipes
+Approved page types and crawl-depth limits
+Multi-result Outscraper matching
+AI prompt/model/version lineage
+Evidence citations and confidence
+Conflict handling
+Source precedence
+Stop conditions
+Cost-aware routing
+No direct AI or legacy Sunbiz canonical writes
+This task determines how every candidate gets enriched.
+3. CRO-03C — Live enrichment-provider activation
+This is the task CRO-03 originally prohibited but your current goal requires.
+It would activate:
+
+Serper search
+Outscraper Maps/business discovery
+Apollo organization/person enrichment
+ZeroBounce winning-email validation
+AI extraction transport
+Approved public website crawling
+It must include:
+Production credentials
+Per-provider readiness checks
+Budgets and quotas
+Concurrency and rate limits
+Reservation/accounting enforcement
+Timeout and retry policy
+Circuit breakers
+Administrative enable/disable controls
+Live provider canaries
+Cost/yield measurement
+Redacted provider errors
+Kill switches
+This task allows real enrichment calls and spending, while keeping email/SMS sending blocked.
+4. CRO-05A — Assignment and campaign eligibility
+The merged CRO-05 does not complete this.
+This addendum must implement:
+
+Territory
+Division
+Vertical group/pod
+Merchant segment
+Processor/switchability segment
+Campaign family
+Deterministic contact owner
+Capacity-aware balancing
+Manual override protection
+Assignment history
+Assignment policy version
+Reason codes
+Reassignment rules
+It would also produce a canonical readiness decision:
+enrichment_complete
+contactable
+assigned
+campaign_eligible
+blocked
+deferred
+It must not enroll contacts or send anything.
+5. CRO-06 — Campaign and sequence readiness
+CRO-06 should then consume the enriched, assigned cohort.
+It should implement:
+
+Canonical vertical-to-campaign mappings
+Campaign and sequence lifecycle states
+Approved five-email sequences
+Exact rendered email previews
+Content and claim evidence
+Sender and monitored reply identity
+Personalization controls
+Suppression feedback handling
+Bounce/complaint/unsubscribe handling
+Campaign capacity reservations
+Audience preview
+Enrollment dry runs
+Blocked-reason reporting
+At completion, campaigns can be approved and ready, but:
+No contacts are enrolled
+No GHL outbound mutation occurs
+No email is sent
+No SMS is enabled
+6. CRO-08A — Continuous runtime and production certification
+This is what turns working code into a continuously operating production system.
+It must cover:
+
+One authoritative scheduler per job
+Sunbiz discovery schedules
+Free/public-web enrichment schedules
+Paid-enrichment worker schedules
+ZeroBounce validation schedules
+Queue recovery and lease expiration
+Retry/dead-letter handling
+Provider-budget resets
+Automatic backlog processing
+Controlled historical backfill
+Provider health and yield dashboards
+Cost per usable contact
+Queue age and throughput
+Exact deployed web/worker SHA
+Migration-head verification
+Production alerts
+Restart and failover certification
+The final production proof should demonstrate:
+Sunbiz/source candidate
+→ qualification
+→ scheduled enrichment
+→ public-web/AI/Serper/Outscraper/Apollo evidence
+→ canonical company/contact
+→ ZeroBounce-valid winning email
+→ division/group/owner assignment
+→ campaign eligibility
+→ stopped before enrollment or sending
+Existing small tasks
+Tasks #1726 and #1727 remain prerequisite certification corrections if they are still open:
+#1726: import-idempotency/current partial-index contract
+#1727: consent-preservation certification while outbound is paused
+Therefore:
+Six new master build tasks
+Eight total task executions if #1726 and #1727 are still outstanding
+CRO-07 attribution is not required to start crawling
+CRO-07 can be implemented as a seventh program task, but its production revenue attribution cannot be fully proven until real outreach and merchant outcomes exist. It should not delay enrichment activation.
+The six tasks should all carry one shared boundary:
+
+Live enrichment, crawling, AI processing and enrichment-provider calls are authorized. Campaign construction, preview and dry-run eligibility are authorized. Contact enrollment, GHL outbound mutation, email delivery and SMS delivery remain prohibited by the canonical global outbound pause.
+I already have CR-06 about to be built right now..
+Right—then do not create another CR-06. I incorrectly counted your already-planned CR-06 as new work.
+You need five additional master tasks beyond the CR-06 that is about to be built:
+
+CRO-03A — South Florida Candidate Intake & Merchant Qualification
+CRO-03B — Unified Crawl Recipe, Public-Web & AI Evidence
+CRO-03C — Live Serper, Outscraper, Apollo & ZeroBounce Activation
+CRO-05A — Division, Group, Owner & Campaign-Eligibility Assignment
+CRO-08A — Continuous Scheduling, Backfill & Production Certification
+Your existing CR-06 remains the campaign/sequence task. It should consume the cohort created by those enrichment tasks and prepare campaigns without enrolling or sending.
+So the accurate count is:
+
+5 new task prompts
+6 outstanding program tasks including your existing CR-06
+8 outstanding executions if #1726 and #1727 are also still open
+CR-07 remains separate attribution work. It does not need to block enrichment, crawling, assignment, or campaign preparation.
+CR-06 can proceed now using synthetic qualified-contact fixtures. Its contract should expect the enrichment system eventually to provide:
+
+Canonical contact and company IDs
+Source/cohort lineage
+Canonical vertical
+Division/group/owner
+Winning ZeroBounce-valid email generation
+Campaign family
+Eligibility status and blocked reasons
+Evidence and enrichment-policy versions
+The critical cross-task rule remains:
+CR-06 may build campaigns, sequences, previews, approvals and delivery controls. It must not enroll contacts or send. Enrichment-provider transport is permitted in CRO-03C; outbound email/SMS transport remains globally paused.
