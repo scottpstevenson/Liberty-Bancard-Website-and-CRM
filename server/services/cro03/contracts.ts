@@ -4,6 +4,9 @@ export const CRO03_SCHEMA_VERSION = 1;
 export const CRO03_SELECTION_POLICY_VERSION = 1;
 export const CRO03_ROUTING_POLICY_VERSION = 1;
 export const CRO03_SOURCE_STAGING_RECIPE_VERSION = 1;
+/** Version of the immutable, per-step execution recipe. */
+export const CRO03_RECIPE_CONTRACT_VERSION = 1;
+export const CRO03_CRAWL_POLICY_VERSION = 1;
 export const CRO03_HASH_ALGORITHM_VERSION = "sha256-v1" as const;
 
 export const CRO03_SOURCE_SUBJECT_TYPES = [
@@ -96,6 +99,19 @@ export function stableCro03CommandFingerprint(input: {
     selectionPolicyVersion: input.selectionPolicyVersion,
     subjectIds: [...input.subjectIds].sort((a, b) => a - b),
   })).digest("hex");
+}
+
+/** Canonical JSON used when evidence must be hashed independently of key order. */
+export function stableCro03Json(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableCro03Json).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) =>
+    `${JSON.stringify(key)}:${stableCro03Json(record[key])}`).join(",")}}`;
+}
+
+export function stableCro03RecipeHash(recipe: unknown): string {
+  return createHash("sha256").update(stableCro03Json(recipe)).digest("hex");
 }
 
 export function normalizeProviderOutcome(value: unknown): Cro03ProviderOutcome {

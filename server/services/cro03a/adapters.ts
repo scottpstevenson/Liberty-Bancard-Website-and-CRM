@@ -17,7 +17,7 @@ export type Cro03aSourceDraft = {
   sourceSystem: string;
   sourceEventKey: string;
   sourceObservedAt?: string;
-  timestampProvenance: string;
+  timestampProvenance: "source" | "import" | "ingestion_only";
   payload: Record<string, unknown>;
   provenance: Record<string, unknown>;
   candidateValues: Partial<Record<Cro03CandidateField, string>>;
@@ -41,7 +41,7 @@ function base(
   return {
     subjectType, subjectKey, sourceSystem, sourceEventKey,
     sourceObservedAt: parsedObservedAt,
-    timestampProvenance: parsedObservedAt ? "source_record_timestamp" : "ingestion_attestation",
+    timestampProvenance: parsedObservedAt ? "source" : "ingestion_only",
     payload, candidateValues,
     provenance: { sourceSystem, sourceEventKey, ...provenance },
   };
@@ -110,7 +110,7 @@ export function providerCsvSourceSubject(input: {
         ...(zip ? { postal_code: zip } : {}),
       }, { importExecutionId: input.importExecutionId, sourceRowNumber: input.sourceRowNumber }),
     sourceObservedAt: input.sourceObservedAt,
-    timestampProvenance: input.sourceObservedAt ? "import_source_timestamp" : "ingestion_time",
+    timestampProvenance: input.sourceObservedAt ? "import" : "ingestion_only",
   };
 }
 
@@ -174,7 +174,7 @@ export function publicWebObservationSubject(input: {
   return {
     ...base("public_web", input.sourceKey, "public_web", input.eventKey, input.payload, {}),
     sourceObservedAt: input.observedAt,
-    timestampProvenance: input.observedAt ? "persisted_source_observed_at" : "ingestion_time",
+    timestampProvenance: input.observedAt ? "source" : "ingestion_only",
   };
 }
 

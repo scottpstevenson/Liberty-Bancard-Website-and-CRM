@@ -549,6 +549,14 @@ export const cro03ArbitrationDecisions = pgTable("cro03_arbitration_decisions", 
   decisionKey: text("decision_key").notNull().unique(),
   reasonCode: text("reason_code").notNull(),
   candidateCount: integer("candidate_count").notNull().default(0),
+  policyVersion: integer("policy_version"),
+  policyHash: text("policy_hash"),
+  candidateSetHash: text("candidate_set_hash"),
+  confidenceThreshold: integer("confidence_threshold"),
+  minimumMargin: integer("minimum_margin"),
+  topConfidence: integer("top_confidence"),
+  runnerUpConfidence: integer("runner_up_confidence"),
+  reviewReason: text("review_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
 }, (table) => [
@@ -633,6 +641,8 @@ export const cro03SourceOccurrences = pgTable("cro03_source_occurrences", {
   sourceSubjectId: uuid("source_subject_id").notNull().references(() => cro03SourceSubjects.id, { onDelete: "restrict" }),
   sourceObservationId: uuid("source_observation_id").notNull().references(() => cro03SourceObservations.id, { onDelete: "restrict" }),
   sourceObservedAt: timestamp("source_observed_at", { withTimezone: true }).notNull(),
+  importObservedAt: timestamp("import_observed_at", { withTimezone: true }),
+  manuallyAttestedAt: timestamp("manually_attested_at", { withTimezone: true }),
   ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
   timestampProvenance: text("timestamp_provenance").notNull(),
   sourceEventKey: text("source_event_key").notNull(),
@@ -674,6 +684,8 @@ export const cro03aQualificationRuns = pgTable("cro03a_qualification_runs", {
   actorRole: text("actor_role").notNull(),
   policyId: uuid("policy_id").notNull().references(() => cro03aPolicyDocuments.id, { onDelete: "restrict" }),
   policyHash: text("policy_hash").notNull(),
+  algorithmIdentity: jsonb("algorithm_identity"),
+  algorithmIdentityHash: text("algorithm_identity_hash"),
   scopeHash: text("scope_hash").notNull(),
   frozenOccurrenceIds: jsonb("frozen_occurrence_ids").notNull(),
   state: text("state").notNull().default("queued"),
@@ -723,6 +735,8 @@ export const cro03aQualificationDecisions = pgTable("cro03a_qualification_decisi
   missingFieldClasses: jsonb("missing_field_classes").notNull().default([]),
   frozenOccurrenceIds: jsonb("frozen_occurrence_ids").notNull(),
   policyId: uuid("policy_id").notNull().references(() => cro03aPolicyDocuments.id, { onDelete: "restrict" }),
+  algorithmIdentity: jsonb("algorithm_identity"),
+  algorithmIdentityHash: text("algorithm_identity_hash"),
   policyVersion: integer("policy_version").notNull(),
   policyHash: text("policy_hash").notNull(),
   selectionHash: text("selection_hash").notNull(),
@@ -746,6 +760,8 @@ export const cro03aHandoffs = pgTable("cro03a_handoffs", {
   missingFieldClasses: jsonb("missing_field_classes").notNull().default([]),
   selectionHash: text("selection_hash").notNull(),
   effectAuthorized: boolean("effect_authorized").notNull().default(false),
+  algorithmIdentity: jsonb("algorithm_identity"),
+  algorithmIdentityHash: text("algorithm_identity_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("cro03a_handoffs_source_idx").on(table.sourceType, table.sourceSystem, table.sourceKey),
@@ -758,6 +774,217 @@ export const cro03aConsumptionReceipts = pgTable("cro03a_consumption_receipts", 
   consumerKey: text("consumer_key").notNull().unique(),
   consumerName: text("consumer_name").notNull().default("cro03b"),
   receiptMetadata: jsonb("receipt_metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03aCensusCursors = pgTable("cro03a_census_cursors", {
+  sourceSystem: text("source_system").primaryKey(),
+  snapshotKey: text("snapshot_key").notNull(),
+  snapshotHighWater: bigint("snapshot_high_water", { mode: "number" }).notNull(),
+  cursorValue: bigint("cursor_value", { mode: "number" }).notNull().default(0),
+  snapshotHighWaterText: text("snapshot_high_water_text"),
+  cursorValueText: text("cursor_value_text"),
+  policyId: uuid("policy_id").notNull().references(() => cro03aPolicyDocuments.id, { onDelete: "restrict" }),
+  policyHash: text("policy_hash").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03bRecipeDefinitions = pgTable("cro03b_recipe_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  recipeKey: text("recipe_key").notNull(),
+  version: integer("version").notNull(),
+  recipe: jsonb("recipe").notNull(),
+  recipeHash: text("recipe_hash").notNull(),
+  status: text("status").notNull().default("draft"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03b_recipe_identity_uidx").on(table.recipeKey, table.version)]);
+
+export const cro03bRecipeCommands = pgTable("cro03b_recipe_commands", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandKey: text("command_key").notNull().unique(),
+  actorId: text("actor_id").notNull(),
+  actorRole: text("actor_role").notNull(),
+  recipeDefinitionId: uuid("recipe_definition_id").notNull().references(() => cro03bRecipeDefinitions.id, { onDelete: "restrict" }),
+  recipeVersion: integer("recipe_version").notNull(),
+  recipeHash: text("recipe_hash").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  reason: text("reason"),
+  state: text("state").notNull().default("queued"),
+  totalCount: integer("total_count").notNull(),
+  terminalCount: integer("terminal_count").notNull().default(0),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03bRecipeItems = pgTable("cro03b_recipe_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandId: uuid("command_id").notNull().references(() => cro03bRecipeCommands.id, { onDelete: "restrict" }),
+  handoffId: uuid("handoff_id").notNull().references(() => cro03aHandoffs.id, { onDelete: "restrict" }),
+  originatingRunId: uuid("originating_run_id").notNull().references(() => cro03aQualificationRuns.id, { onDelete: "restrict" }),
+  ownerActorId: text("owner_actor_id").notNull(),
+  recipeVersion: integer("recipe_version").notNull(),
+  frozenHandoffHash: text("frozen_handoff_hash").notNull(),
+  frozenRecipeHash: text("frozen_recipe_hash").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  state: text("state").notNull().default("queued"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  executionFence: integer("execution_fence").notNull().default(0),
+  terminalCode: text("terminal_code"),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").references(() => businesses.id, { onDelete: "restrict" }),
+  reviewRequestedAt: timestamp("review_requested_at", { withTimezone: true }),
+  reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro03b_handoff_recipe_uidx").on(table.handoffId, table.recipeVersion),
+  index("cro03b_item_claim_idx").on(table.state, table.leaseExpiresAt, table.createdAt),
+]);
+
+export const cro03bRecipeReceipts = pgTable("cro03b_recipe_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandId: uuid("command_id").notNull().references(() => cro03bRecipeCommands.id, { onDelete: "restrict" }),
+  itemId: uuid("item_id").references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  handoffId: uuid("handoff_id").notNull().references(() => cro03aHandoffs.id, { onDelete: "restrict" }),
+  receiptType: text("receipt_type").notNull(),
+  receiptKey: text("receipt_key").notNull().unique(),
+  payloadHash: text("payload_hash").notNull(),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03bStepExecutions = pgTable("cro03b_step_executions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  stepKey: text("step_key").notNull(),
+  stepIndex: integer("step_index").notNull(),
+  contractHash: text("contract_hash").notNull(),
+  executionOwner: text("execution_owner").notNull(),
+  accountingOwner: text("accounting_owner").notNull(),
+  state: text("state").notNull().default("queued"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  operationId: uuid("operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  evidenceExpiresAt: timestamp("evidence_expires_at", { withTimezone: true }),
+  outcomeCode: text("outcome_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03b_step_identity_uidx").on(table.itemId, table.stepKey)]);
+
+export const cro03bDomainLimits = pgTable("cro03b_domain_limits", {
+  registrableDomain: text("registrable_domain").primaryKey(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+  windowCount: integer("window_count").notNull().default(0),
+  activeCount: integer("active_count").notNull().default(0),
+  leaseVersion: bigint("lease_version", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03bEvidenceObservations = pgTable("cro03b_evidence_observations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  stepKey: text("step_key").notNull(),
+  sourceObservationId: uuid("source_observation_id").references(() => cro03SourceObservations.id, { onDelete: "restrict" }),
+  operationId: uuid("operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  evidenceHash: text("evidence_hash").notNull(),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  outcome: text("outcome").notNull(),
+  provenance: jsonb("provenance").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03b_evidence_identity_uidx").on(table.itemId, table.stepKey, table.evidenceHash)]);
+
+export const cro03bFieldCandidates = pgTable("cro03b_field_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  observationId: uuid("observation_id").notNull().references(() => cro03bEvidenceObservations.id, { onDelete: "restrict" }),
+  field: text("field").notNull(),
+  normalizedValue: text("normalized_value").notNull(),
+  displayValue: text("display_value").notNull(),
+  valueHash: text("value_hash").notNull(),
+  authorityRank: integer("authority_rank").notNull(),
+  confidence: integer("confidence").notNull(),
+  protectedManual: boolean("protected_manual").notNull().default(false),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro03b_candidate_identity_uidx").on(table.itemId, table.observationId, table.field, table.valueHash),
+]);
+
+export const cro03bFieldDecisions = pgTable("cro03b_field_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  field: text("field").notNull(),
+  policyVersion: integer("policy_version").notNull(),
+  policyHash: text("policy_hash").notNull(),
+  candidateSetHash: text("candidate_set_hash").notNull(),
+  threshold: integer("threshold").notNull(),
+  minimumMargin: integer("minimum_margin").notNull(),
+  winnerCandidateId: uuid("winner_candidate_id").references(() => cro03bFieldCandidates.id, { onDelete: "restrict" }),
+  outcome: text("outcome").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  topConfidence: integer("top_confidence"),
+  runnerUpConfidence: integer("runner_up_confidence"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03b_field_decision_uidx").on(table.itemId, table.field)]);
+
+export const cro03bTerminalHookRequests = pgTable("cro03b_terminal_hook_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }).unique(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  subjectGeneration: integer("subject_generation").notNull(),
+  requestKey: text("request_key").notNull().unique(),
+  state: text("state").notNull().default("pending"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03bStageOperations = pgTable("cro03b_stage_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  stepKey: text("step_key").notNull(),
+  executionOwner: text("execution_owner").notNull(),
+  accountingOwner: text("accounting_owner").notNull(),
+  operationKey: text("operation_key").notNull().unique(),
+  state: text("state").notNull(),
+  requestedUnits: integer("requested_units").notNull().default(0),
+  settledUnits: integer("settled_units").notNull().default(0),
+  outcomeCode: text("outcome_code").notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03b_stage_operation_identity_uidx").on(table.itemId, table.stepKey)]);
+
+export const cro03bStageAttempts = pgTable("cro03b_stage_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  operationId: uuid("operation_id").notNull().references(() => cro03bStageOperations.id, { onDelete: "restrict" }),
+  attemptNumber: integer("attempt_number").notNull(),
+  outcome: text("outcome").notNull(),
+  transportInvoked: boolean("transport_invoked").notNull().default(false),
+  errorCode: text("error_code"),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+}, (table) => [uniqueIndex("cro03b_stage_attempt_identity_uidx").on(table.operationId, table.attemptNumber)]);
+
+export const cro03bStageReceipts = pgTable("cro03b_stage_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  operationId: uuid("operation_id").notNull().references(() => cro03bStageOperations.id, { onDelete: "restrict" }).unique(),
+  receiptKey: text("receipt_key").notNull().unique(),
+  outcome: text("outcome").notNull(),
+  requestedUnits: integer("requested_units").notNull().default(0),
+  settledUnits: integer("settled_units").notNull().default(0),
+  evidenceHash: text("evidence_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -779,6 +1006,8 @@ export const validationIntents = pgTable("validation_intents", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
+  executionAuthorizedAt: timestamp("execution_authorized_at", { withTimezone: true }),
+  executionAuthority: text("execution_authority"),
 }, (table) => [
   uniqueIndex("validation_intents_current_schema_uidx")
     .on(table.contactId, table.normalizedEmailTokenHash, table.subjectGeneration, table.purpose),
@@ -7021,6 +7250,51 @@ export const legacyCompanyMappingDecisions = pgTable("legacy_company_mapping_dec
   decisionKey: text("decision_key").notNull().unique(), actorId: text("actor_id"), revision: integer("revision").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), supersededAt: timestamp("superseded_at", { withTimezone: true }),
 });
+
+export const cro03bProjectionReceipts = pgTable("cro03b_projection_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").references(() => businesses.id, { onDelete: "restrict" }),
+  contactSourceEventId: integer("contact_source_event_id").references(() => contactSourceEvents.id, { onDelete: "restrict" }),
+  linkDecisionId: uuid("link_decision_id").references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  field: text("field").notNull(),
+  candidateSetHash: text("candidate_set_hash").notNull(),
+  beforeValueHash: text("before_value_hash").notNull(),
+  afterValueHash: text("after_value_hash").notNull(),
+  subjectGeneration: integer("subject_generation"),
+  disposition: text("disposition").notNull(),
+  receiptKey: text("receipt_key").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03bFinalizationReceipts = pgTable("cro03b_finalization_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().unique().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  validationIntentId: uuid("validation_intent_id").references(() => validationIntents.id, { onDelete: "restrict" }),
+  subjectGeneration: integer("subject_generation").notNull(),
+  emailTokenHash: text("email_token_hash"),
+  linkDisposition: text("link_disposition").notNull(),
+  scoringRequestKey: text("scoring_request_key").notNull().unique(),
+  state: text("state").notNull().default("validation_pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const cro03bLegacyWriterFences = pgTable("cro03b_legacy_writer_fences", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  itemId: uuid("item_id").notNull().references(() => cro03bRecipeItems.id, { onDelete: "restrict" }),
+  subjectType: text("subject_type").notNull(),
+  subjectKey: text("subject_key").notNull(),
+  writerKey: text("writer_key").notNull(),
+  disposition: text("disposition").notNull(),
+  evidenceRef: text("evidence_ref"),
+  reasonCode: text("reason_code").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro03b_legacy_fence_identity_uidx").on(table.itemId, table.writerKey, table.subjectType, table.subjectKey),
+]);
 export const commercialRelationshipCandidates = pgTable("commercial_relationship_candidates", {
   id: uuid("id").primaryKey().defaultRandom(), contactId: integer("contact_id").notNull().references(() => contacts.id),
   businessId: integer("business_id").notNull().references(() => businesses.id), source: text("source").notNull(), sourceVersion: text("source_version"),

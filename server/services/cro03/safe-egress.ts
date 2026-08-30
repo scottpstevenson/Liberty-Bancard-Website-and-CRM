@@ -1,7 +1,30 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import { domainToASCII } from "node:url";
 
-export type EgressTransport = (url: string, init: RequestInit) => Promise<Response>;
+/**
+ * A transport receives the DNS answers validated for this hop and must connect
+ * only to one of them.  The production default is deliberately denied: callers
+ * must inject an adapter which can pin the connection rather than letting a
+ * generic fetch re-resolve DNS after validation.
+ */
+export type EgressTransport = (
+  url: string, init: RequestInit, connection: { hostname: string; pinnedAddresses: readonly string[] },
+) => Promise<Response>;
+
+export interface DurableEgressLimiter {
+  consume(input: { hostname: string; purpose: string; callSite: string }): Promise<{ allowed: boolean; retryAfterMs?: number }>;
+}
+
+export interface RobotsCache {
+  get(key: string): Promise<{ body: string; expiresAt: number } | undefined>;
+  set(key: string, value: { body: string; expiresAt: number }): Promise<void>;
+}
+
+export interface RobotsPolicyHook {
+  /** Called after cached/fetched robots.txt is parsed; false denies the request. */
+  allows(input: { url: URL; robotsTxt: string; fromCache: boolean; request: SafeEgressRequest }): boolean | Promise<boolean>;
+}
 
 export interface SafeEgressRequest {
   url: string;
@@ -11,6 +34,10 @@ export interface SafeEgressRequest {
   timeoutMs?: number;
   maxBytes?: number;
   allowedHosts?: readonly string[];
+  /** Redirects must remain on this registrable domain when crawling a site. */
+  sameRegistrableDomainAs?: string;
+  /** Apply robots.txt enforcement through the configured cache and policy hook. */
+  respectRobots?: boolean;
 }
 
 export interface SafeEgressResponse {
@@ -23,13 +50,37 @@ export interface SafeEgressResponse {
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 3;
+const ROBOTS_MAX_BYTES = 64 * 1024;
+
+function canonicalHostname(hostname: string): string {
+  const withoutTrailingDot = hostname.trim().replace(/\.+$/, "").toLowerCase();
+  const ascii = domainToASCII(withoutTrailingDot);
+  if (!ascii || ascii.includes("%") || ascii.includes("..")) throw new Error("CRO03_EGRESS_HOST_DENIED");
+  return ascii;
+}
+
+function registrableDomain(hostname: string): string {
+  const labels = canonicalHostname(hostname).split(".");
+  if (labels.length < 2) return labels.join(".");
+  const suffix = labels.slice(-2).join(".");
+  const twoPartSuffixes = new Set(["co.uk", "org.uk", "ac.uk", "com.au", "net.au", "co.nz", "com.br"]);
+  return twoPartSuffixes.has(suffix) && labels.length >= 3 ? labels.slice(-3).join(".") : suffix;
+}
+
+function mappedIpv4(normalized: string): string | undefined {
+  const direct = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)?.[1];
+  if (direct) return direct;
+  const hex = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (!hex) return undefined;
+  const high = Number.parseInt(hex[1], 16);
+  const low = Number.parseInt(hex[2], 16);
+  return `${high >>> 8}.${high & 255}.${low >>> 8}.${low & 255}`;
+}
 
 function isUnsafeIp(address: string): boolean {
   const normalized = address.toLowerCase().replace(/^\[|\]$/g, "");
-  if (normalized.startsWith("::ffff:")) {
-    const mapped = normalized.slice("::ffff:".length);
-    if (net.isIPv4(mapped)) return isUnsafeIp(mapped);
-  }
+  const mapped = mappedIpv4(normalized);
+  if (mapped) return isUnsafeIp(mapped);
   if (net.isIPv4(normalized)) {
     const octets = normalized.split(".").map(Number);
     const n = (((octets[0] * 256 + octets[1]) * 256 + octets[2]) * 256 + octets[3]) >>> 0;
@@ -52,7 +103,7 @@ function isUnsafeIp(address: string): boolean {
 }
 
 export function assertSafeHostname(hostname: string, resolvedAddresses: readonly string[]): void {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const host = canonicalHostname(hostname);
   if (!host || host === "localhost" || host === "metadata.google.internal" ||
       host.endsWith(".localhost") || host.endsWith(".internal") ||
       host === "169.254.169.254") {
@@ -87,10 +138,35 @@ async function readBounded(response: Response, maxBytes: number): Promise<{ body
 
 export class SafeEgress {
   constructor(
-    private readonly transport: EgressTransport = (url, init) => fetch(url, init),
+    private readonly transport: EgressTransport = async () => {
+      throw new Error("CRO03_EGRESS_TRANSPORT_DENIED");
+    },
     private readonly lookup: (hostname: string) => Promise<readonly string[]> =
       async (hostname) => (await dns.lookup(hostname, { all: true })).map((entry) => entry.address),
+    private readonly limiter?: DurableEgressLimiter,
+    private readonly robotsCache?: RobotsCache,
+    private readonly robotsPolicy?: RobotsPolicyHook,
   ) {}
+
+  private async robotsAllowed(current: URL, request: SafeEgressRequest, addresses: readonly string[]): Promise<void> {
+    if (!request.respectRobots || !this.robotsPolicy) return;
+    const key = `cro03:robots:${canonicalHostname(current.hostname)}`;
+    let cached = await this.robotsCache?.get(key);
+    let fromCache = Boolean(cached && cached.expiresAt > Date.now());
+    if (!cached || !fromCache) {
+      const robotsUrl = new URL("/robots.txt", current.origin);
+      const response = await this.transport(robotsUrl.toString(), {
+        method: "GET", redirect: "manual", headers: { Accept: "text/plain" },
+      }, { hostname: canonicalHostname(current.hostname), pinnedAddresses: addresses });
+      const body = response.ok ? (await readBounded(response, ROBOTS_MAX_BYTES)).body : "";
+      cached = { body, expiresAt: Date.now() + 60 * 60 * 1000 };
+      await this.robotsCache?.set(key, cached);
+      fromCache = false;
+    }
+    if (!await this.robotsPolicy.allows({ url: current, robotsTxt: cached.body, fromCache, request })) {
+      throw new Error("CRO03_EGRESS_ROBOTS_DENIED");
+    }
+  }
 
   async get(request: SafeEgressRequest): Promise<SafeEgressResponse> {
     let current = new URL(request.url);
@@ -99,11 +175,21 @@ export class SafeEgress {
     }
     const allowedHosts = request.allowedHosts;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const addresses = await this.lookup(current.hostname);
-      assertSafeHostname(current.hostname, addresses);
-      if (allowedHosts && !allowedHosts.map((host) => host.toLowerCase()).includes(current.hostname.toLowerCase())) {
+      const hostname = canonicalHostname(current.hostname);
+      const addresses = await this.lookup(hostname);
+      assertSafeHostname(hostname, addresses);
+      if (allowedHosts && !allowedHosts.map(canonicalHostname).includes(hostname)) {
         throw new Error("CRO03_EGRESS_HOST_NOT_ALLOWED");
       }
+      if (request.sameRegistrableDomainAs &&
+          registrableDomain(hostname) !== registrableDomain(request.sameRegistrableDomainAs)) {
+        throw new Error("CRO03_EGRESS_REGISTRABLE_DOMAIN_DENIED");
+      }
+      if (this.limiter) {
+        const allowance = await this.limiter.consume({ hostname, purpose: request.purpose, callSite: request.callSite });
+        if (!allowance.allowed) throw new Error("CRO03_EGRESS_RATE_LIMITED");
+      }
+      await this.robotsAllowed(current, request, addresses);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? DEFAULT_TIMEOUT_MS);
       let response: Response;
@@ -113,7 +199,7 @@ export class SafeEgress {
           redirect: "manual",
           signal: controller.signal,
           headers: { Accept: "text/html,application/json,text/plain;q=0.9" },
-        });
+        }, { hostname, pinnedAddresses: Object.freeze([...addresses]) });
       } finally {
         clearTimeout(timeout);
       }

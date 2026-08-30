@@ -1345,6 +1345,55 @@
       "when": 1797100000000,
       "tag": "0187_cro03a_candidate_qualification",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1797200000000,
+      "tag": "0188_cro03b_unified_recipe",
+      "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1797300000000,
+      "tag": "0189_cro03b_uuid_census_cursor",
+      "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "7",
+      "when": 1797400000000,
+      "tag": "0190_cro03b_recipe_evidence_projection_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "7",
+      "when": 1797500000000,
+      "tag": "0191_cro03b_terminal_hook_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1797600000000,
+      "tag": "0192_cro03b_denied_stage_accounting",
+      "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1797700000000,
+      "tag": "0193_cro03_ledger_lineage_drift_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1797800000000,
+      "tag": "0194_cro03b_validation_execution_fence",
+      "breakpoints": true
     }
   ]
 }

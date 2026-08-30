@@ -24,7 +24,7 @@ export interface Cro03SourceObservationDraft {
   subject: Cro03SourceSubject;
   observedAt: string;
   sourceEventKey?: string;
-  timestampProvenance?: string;
+  timestampProvenance?: "source" | "import" | "ingestion_only";
   actorType: string;
   actorId?: string;
   provenance: Readonly<Record<string, unknown>>;
@@ -114,7 +114,7 @@ export interface CreateCro03SourceBatchInput {
     candidateValues?: Partial<Record<Cro03CandidateField, string>>;
     sourceEventKey?: string;
     sourceObservedAt?: string;
-    timestampProvenance?: string;
+    timestampProvenance?: "source" | "import" | "ingestion_only";
   }>;
 }
 
@@ -128,12 +128,22 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
 }> {
   if (!input.idempotencyKey || input.idempotencyKey.length > 200) throw new Error("CRO03_INVALID_IDEMPOTENCY_KEY");
   if (!input.subjects.length || input.subjects.length > 1000) throw new Error("CRO03_INVALID_SOURCE_SELECTION");
+  if (input.actorId !== "cro03b") {
+    const { assertCro03bLegacySourceWriteAllowed } = await import("./admission-service");
+    for (const subject of input.subjects) {
+      await assertCro03bLegacySourceWriteAllowed({
+        subjectType: subject.subjectType,
+        subjectKey: subject.subjectKey,
+        writerKey: `source-staging:${input.actorType}:${subject.sourceSystem}`,
+      });
+    }
+  }
   const purpose = input.purpose ?? "staging_review";
   const drafts = input.subjects.map((entry) => makeCro03SourceObservation({
     subject: { subjectType: entry.subjectType, subjectKey: entry.subjectKey, sourceSystem: entry.sourceSystem },
     observedAt: entry.sourceObservedAt ?? new Date().toISOString(),
     sourceEventKey: entry.sourceEventKey,
-    timestampProvenance: entry.timestampProvenance ?? (entry.sourceObservedAt ? "source_record_timestamp" : "ingestion_time"),
+    timestampProvenance: entry.timestampProvenance ?? (entry.sourceObservedAt ? "source" : "ingestion_only"),
     actorType: input.actorType,
     actorId: input.actorId ?? undefined,
     provenance: entry.provenance ?? { sourceSystem: entry.sourceSystem },
@@ -197,11 +207,12 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
       const sourceEventKey = entry.sourceEventKey ?? `${input.idempotencyKey}:${ordinal}`;
       const occurrence = rows(await tx.execute(sql`
         INSERT INTO cro03_source_occurrences
-          (source_subject_id,source_observation_id,source_observed_at,ingested_at,
+          (source_subject_id,source_observation_id,source_observed_at,import_observed_at,ingested_at,
            timestamp_provenance,source_event_key,payload_hash,contract_version,
            normalization_version,hash_algorithm_version)
         VALUES (${subject.id}::uuid,${observation.id}::uuid,${draft.observedAt}::timestamptz,
-                NOW(),${draft.timestampProvenance ?? "ingestion_time"},${sourceEventKey},
+                ${draft.timestampProvenance === "import" ? draft.observedAt : null}::timestamptz,
+                NOW(),${draft.timestampProvenance ?? "ingestion_only"},${sourceEventKey},
                 ${draft.payloadHash},'cro03a-source-v1',1,${draft.hashAlgorithmVersion})
         ON CONFLICT(source_subject_id,source_event_key) DO NOTHING
         RETURNING id

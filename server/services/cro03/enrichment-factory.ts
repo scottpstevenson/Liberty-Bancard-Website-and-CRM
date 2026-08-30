@@ -932,21 +932,52 @@ async function arbitrateField(itemId: string, field: Cro03CandidateField): Promi
      ORDER BY confidence DESC, source_rank ASC, created_at ASC, id ASC
   `));
   if (!candidates.length) return null;
+  const candidateSetHash = hashCro03Evidence(candidates.map((candidate) => ({
+    id: candidate.id, valueHash: candidate.normalized_value_hash,
+    confidence: Number(candidate.confidence), sourceRank: Number(candidate.source_rank),
+    createdAt: candidate.created_at,
+  })));
+  const threshold = 70;
+  const minimumMargin = 10;
   const distinct = new Set(candidates.map((c) => c.normalized_value_hash));
-  const conflict = distinct.size > 1;
-  const winner = conflict ? null : candidates[0];
+  const top = candidates[0];
+  const runnerUp = candidates.find((candidate) => candidate.normalized_value_hash !== top.normalized_value_hash);
+  const corroborated = candidates.filter((candidate) =>
+    candidate.normalized_value_hash === top.normalized_value_hash).length > 1;
+  const margin = Number(top.confidence) - Number(runnerUp?.confidence ?? 0);
+  const highAuthorityConflict = Boolean(runnerUp && Number(runnerUp.source_rank) <= 20);
+  const winner = Number(top.confidence) >= threshold &&
+    (distinct.size === 1 || (corroborated && margin >= minimumMargin && !highAuthorityConflict))
+    ? top : null;
+  const state = winner ? "winner" : distinct.size > 1 ? "review_required" : "no_winner";
+  const reason = winner ? (corroborated ? "independent_corroboration" : "threshold_and_margin_met")
+    : Number(top.confidence) < threshold ? "below_confidence_threshold"
+      : highAuthorityConflict ? "high_authority_conflict"
+        : margin < minimumMargin ? "minimum_margin_not_met" : "conflicting_values";
   const decisionKey = `arbitrate:${itemId}:${field}`;
   const result = rows(await db.execute(sql`
     INSERT INTO cro03_arbitration_decisions
-      (item_id, field, state, winning_candidate_id, decision_key, reason_code, candidate_count, decided_at)
-    VALUES (${itemId}::uuid, ${field}, ${conflict ? "conflict" : "winner"},
-            ${winner?.id ?? null}::uuid, ${decisionKey}, ${conflict ? "conflicting_values" : "highest_ranked"},
-            ${candidates.length}, NOW())
+      (item_id, field, state, winning_candidate_id, decision_key, reason_code, candidate_count,
+       policy_version,policy_hash,candidate_set_hash,confidence_threshold,minimum_margin,
+       top_confidence,runner_up_confidence,review_reason,decided_at)
+    VALUES (${itemId}::uuid, ${field}, ${state},
+            ${winner?.id ?? null}::uuid, ${decisionKey}, ${reason},
+            ${candidates.length},2,${hashCro03Evidence({ version: 2, threshold, minimumMargin, protectedManualPrecedence: true })},
+            ${candidateSetHash},${threshold},${minimumMargin},${Number(top.confidence)},
+            ${runnerUp ? Number(runnerUp.confidence) : null},${winner ? null : reason},NOW())
     ON CONFLICT (item_id, field) DO UPDATE SET
       state = EXCLUDED.state,
       winning_candidate_id = EXCLUDED.winning_candidate_id,
       reason_code = EXCLUDED.reason_code,
       candidate_count = EXCLUDED.candidate_count,
+      policy_version = EXCLUDED.policy_version,
+      policy_hash = EXCLUDED.policy_hash,
+      candidate_set_hash = EXCLUDED.candidate_set_hash,
+      confidence_threshold = EXCLUDED.confidence_threshold,
+      minimum_margin = EXCLUDED.minimum_margin,
+      top_confidence = EXCLUDED.top_confidence,
+      runner_up_confidence = EXCLUDED.runner_up_confidence,
+      review_reason = EXCLUDED.review_reason,
       decided_at = EXCLUDED.decided_at
     RETURNING *
   `));

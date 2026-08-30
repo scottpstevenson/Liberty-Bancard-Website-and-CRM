@@ -373,6 +373,28 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-03B Unified Recipe, Admission, Arbitration, and Local Projection",
+    script: "scripts/test-cro03b-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03B Durable Recipe Lifecycle (database-backed, provider-denied)",
+    script: "scripts/test-cro03b-integration.ts",
+    timeoutSecs: 120,
+    env: { NODE_ENV: "test" },
+  },
+  {
+    name: "CRO-03B Legacy Writer Inventory",
+    script: "scripts/check-cro03b-legacy-writers.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03 Ledger Drift Repair Apply and Replay",
+    script: "scripts/test-cro03-ledger-drift-repair.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "CR-04 Channel Cohort Authority Contract",
     script: "scripts/test-cr04-authority-static.ts",
     timeoutSecs: 60,

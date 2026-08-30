@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { db, pool as dbPool } from "../db";
+import { db } from "../db";
 import { enrichmentRuns, businesses } from "@shared/schema";
 import type { Prospect } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -397,16 +397,13 @@ export async function enrichContactBatch(
           }
 
           if (Object.keys(updates).length > 0) {
+            if (updates.email || updates.phone) {
+              // Keep this in the canonical writer transaction so active
+              // CRO-03B recipe contacts cannot be mutated by a legacy worker.
+              updates.outreachQueueSkippedAt = null;
+            }
             await updateContactLocalFirst(contactId, updates);
             enqueueReadinessRecalculation(contactId).catch(() => {});
-            // Clear outreach queue skip flag if new contact data was found —
-            // this makes the contact re-appear in the Ready-for-Outreach queue.
-            if (updates.email || updates.phone) {
-              dbPool.query(
-                `UPDATE contacts SET outreach_queue_skipped_at = NULL WHERE id = $1 AND outreach_queue_skipped_at IS NOT NULL`,
-                [contactId],
-              ).catch(() => { /* non-critical */ });
-            }
           } else {
             processed++;
             continue;

@@ -9,6 +9,11 @@ import {
 } from "../services/cro03/enrichment-factory";
 import { CRO03_CANARY_DEFINITIONS } from "../services/cro03/routing-policy";
 import {
+  admitCro03bHandoffs, cancelCro03bCommand, CRO03B_MAX_HANDOFFS_PER_COMMAND,
+  CRO03B_RECIPE_HASH, CRO03B_RECIPE_VERSION, getCro03bCommand, reviewAndProjectCro03bItem,
+} from "../services/cro03/admission-service";
+import { CRO03B_UNIFIED_RECIPE } from "../services/cro03/recipe-contract";
+import {
   activateCro03aPolicy,
   cancelCro03aRun,
   createCro03aQualificationRun,
@@ -38,9 +43,13 @@ const policyActivationSchema = z.object({
 const censusStageSchema = z.object({
   limitPerSource: z.number().int().min(1).max(500).optional(),
 }).strict();
+const cro03bCommandSchema = z.object({
+  handoffIds: z.array(z.string().uuid()).min(1).max(CRO03B_MAX_HANDOFFS_PER_COMMAND),
+  reason: z.string().trim().min(8).max(500).optional(),
+}).strict();
 
 function safeError(error: unknown): { code: string; message: string } {
-  const code = error instanceof Error && /^CRO03A?_/.test(error.message)
+  const code = error instanceof Error && /^CRO03(?:A|B)?_/.test(error.message)
     ? error.message : "CRO03_REQUEST_FAILED";
   return { code, message: "The enrichment command could not be accepted." };
 }
@@ -110,6 +119,69 @@ export function registerCro03Routes(app: Express): void {
     res.json({
       schemaVersion: 1, routingPolicyVersion: 1, providers: ["zerobounce", "serper", "outscraper", "apollo"],
       liveTransport: false, canaries: CRO03_CANARY_DEFINITIONS,
+    });
+  });
+
+  app.post("/api/cro03b/commands", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    const parsed = cro03bCommandSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ code: "CRO03B_INVALID_REQUEST", message: "Invalid recipe command." });
+    }
+    try {
+      const user = req.user as any;
+      const command = await admitCro03bHandoffs({
+        ...parsed.data, actorId: String(user.id), actorRole: user.role,
+      });
+      res.status(command.replayed ? 200 : 202).json({
+        commandId: command.id, statusUrl: `/api/cro03b/commands/${command.id}`, ...command,
+      });
+    } catch (error) {
+      const safe = safeError(error);
+      const status = safe.code === "CRO03B_HANDOFF_NOT_FOUND" ? 404
+        : /CONFLICT|ALREADY_ADMITTED/.test(safe.code) ? 409 : 400;
+      res.status(status).json(safe);
+    }
+  });
+
+  app.get("/api/cro03b/commands/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const command = await getCro03bCommand(String(req.params.id), String(user.id), String(user.role));
+      if (!command) return res.status(404).json({ code: "not_found", message: "Not found" });
+      res.json(command);
+    } catch {
+      res.status(404).json({ code: "not_found", message: "Not found" });
+    }
+  });
+
+  app.post("/api/cro03b/commands/:id/cancel", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const changed = await cancelCro03bCommand(String(req.params.id), String(user.id), String(user.role));
+      if (!changed) return res.status(404).json({ code: "not_found", message: "Not found" });
+      res.status(202).json({ commandId: req.params.id, state: "cancel_requested" });
+    } catch {
+      res.status(404).json({ code: "not_found", message: "Not found" });
+    }
+  });
+
+  app.post("/api/cro03b/items/:id/review-and-project", isDashboardUser, requireRole("admin"), async (req, res) => {
+    if (Object.keys(req.body ?? {}).length > 0) {
+      return res.status(400).json({ code: "CRO03B_AUTHORITY_FIELDS_FORBIDDEN", message: "Review inputs are server-derived." });
+    }
+    try {
+      const user = req.user as any;
+      res.status(202).json(await reviewAndProjectCro03bItem(String(req.params.id), String(user.id)));
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(/NOT_FOUND|NOT_REVIEWABLE/.test(safe.code) ? 404 : 409).json(safe);
+    }
+  });
+
+  app.get("/api/cro03b/recipe", isDashboardUser, requireRole("admin"), (_req, res) => {
+    res.json({
+      version: CRO03B_RECIPE_VERSION, hash: CRO03B_RECIPE_HASH,
+      transportEnabled: false, recipe: CRO03B_UNIFIED_RECIPE,
     });
   });
 

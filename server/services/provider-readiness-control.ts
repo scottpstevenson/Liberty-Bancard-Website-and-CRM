@@ -231,6 +231,14 @@ export async function persistMarketingEligibilitySnapshot(
 /** Explicit queue ownership: a missing producer means a recoverable deferred intent. */
 export async function enqueueValidationIntent(intentId: string): Promise<boolean> {
   try {
+    const denied = await db.execute(sql`
+      UPDATE validation_intents
+         SET enqueue_state='deferred',terminal_code='cro03b_provider_denied',updated_at=NOW()
+       WHERE id=${intentId}::uuid AND purpose='cro03_winning_email'
+         AND (execution_authorized_at IS NULL OR execution_authority<>'cro03c_activation')
+      RETURNING id
+    `);
+    if (((denied as any).rows ?? []).length > 0) return false;
     const { getQueueManagerProducers, QUEUE_NAMES } = await import("./queue-manager");
     const manager = getQueueManagerProducers();
     const queue = manager?.getQueue(QUEUE_NAMES.ENRICHMENT);
@@ -262,6 +270,9 @@ export async function enqueueCurrentValidationIntent(contactId: number): Promise
     .where(and(
       eq(validationIntents.contactId, contactId),
       eq(validationIntents.state, "pending"),
+      sql`(${validationIntents.purpose}<>'cro03_winning_email'
+        OR (${validationIntents.executionAuthorizedAt} IS NOT NULL
+          AND ${validationIntents.executionAuthority}='cro03c_activation'))`,
     ))
     .orderBy(desc(validationIntents.createdAt))
     .limit(1);
@@ -275,6 +286,8 @@ export async function recoverValidationIntents(limit = 100): Promise<number> {
     SELECT id FROM validation_intents
      WHERE state = 'pending'
        AND next_attempt_at <= NOW()
+       AND (purpose <> 'cro03_winning_email'
+         OR (execution_authorized_at IS NOT NULL AND execution_authority='cro03c_activation'))
      ORDER BY created_at
      LIMIT ${limit}
   `);
@@ -311,6 +324,8 @@ export async function processValidationIntent(
            attempt_count = attempt_count + 1, updated_at = NOW()
      WHERE id = ${intentId}::uuid
        AND state IN ('pending', 'processing')
+        AND (purpose <> 'cro03_winning_email'
+          OR (execution_authorized_at IS NOT NULL AND execution_authority='cro03c_activation'))
        AND (state = 'pending' OR lease_expires_at IS NULL OR lease_expires_at < NOW())
      RETURNING *
   `);

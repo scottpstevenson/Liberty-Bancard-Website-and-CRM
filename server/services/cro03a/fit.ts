@@ -1,11 +1,25 @@
 import { evaluateSouthFloridaGeography, type GeographyResult } from "./geography";
 import { resolveCro03aVertical } from "./vertical";
+import { hashCro03Evidence } from "../cro03/source-staging";
 
 export const CRO03A_FIT_POLICY_VERSION = "fit-v1";
 export const CRO03A_FIT_COMPONENT_WEIGHTS = Object.freeze({
   targetCanonicalVertical: 25, eligibleGeography: 25, activeEntityEvidence: 15,
   operatingFootprintPlausibility: 10, merchantSizeComplexity: 10, sourceFreshness: 10, evidenceCoverage: 5,
 });
+/** Immutable algorithm identity for new qualification policies. */
+export const CRO03A_FIT_V2_COMPONENT_WEIGHTS = Object.freeze({
+  geography: 20, vertical: 25, active: 15, identity: 15, freshness: 10, complexity: 10, completeness: 5,
+});
+export const CRO03A_FIT_V2_POLICY_IDENTITY = Object.freeze({
+  fitVersion: "fit-v2",
+  componentWeights: CRO03A_FIT_V2_COMPONENT_WEIGHTS,
+  activeStatus: Object.freeze({ fields: Object.freeze(["entityStatus", "status", "enrichmentStatus", "lifecycle"]), missingOrUnknownIsActive: false }),
+  geographyReferenceVersion: "south-florida-fips-v1",
+  verticalAlgorithmVersion: "v1",
+});
+/** SHA-256 covers every immutable algorithm attribute, not merely its version label. */
+export const CRO03A_FIT_V2_POLICY_IDENTITY_HASH = hashCro03Evidence(CRO03A_FIT_V2_POLICY_IDENTITY);
 export type Cro03aDisposition = "selected" | "review_required" | "duplicate" | "existing_relationship" | "outside_geography" | "suppressed" | "inactive_entity" | "insufficient_evidence" | "excluded";
 
 export type Cro03aEvaluation = {
@@ -26,7 +40,7 @@ export function evaluateCro03aCandidate(input: {
   now?: string; geography?: Partial<Parameters<typeof evaluateSouthFloridaGeography>[0]>;
   identity?: { exactMatches?: string[]; conflictingExactMatches?: string[]; weakMatches?: string[] };
   relationship?: { existingCustomer?: boolean; openOpportunity?: boolean; dnc?: boolean; suppressed?: boolean };
-  policy?: { freshnessDays?: number; selectedMinimum?: number; reviewMinimum?: number };
+  policy?: { fitVersion?: "fit-v1" | "fit-v2"; freshnessDays?: number; selectedMinimum?: number; reviewMinimum?: number };
 }): Cro03aEvaluation {
   const payload = input.payload;
   const geography = evaluateSouthFloridaGeography({
@@ -43,8 +57,15 @@ export function evaluateCro03aCandidate(input: {
     manualOverride: payload.manualVerticalOverride === true, sourceSystem: input.sourceSystem,
     targetVerticals: (input.policy as any)?.targetVerticals,
   });
-  const activeRaw = value(payload, "entityStatus", "status", "enrichmentStatus", "lifecycle", "state");
-  const active = !activeRaw || !["inactive", "inactive entity", "dissolved", "revoked", "archived", "suppressed"].includes(activeRaw.toLowerCase());
+  const fitV2 = input.policy?.fitVersion === "fit-v2";
+  // fit-v1 deliberately retains its historical inference. fit-v2 only accepts
+  // an explicit affirmative entity-status field; geography is never status.
+  const activeRaw = fitV2
+    ? value(payload, "entityStatus", "status", "enrichmentStatus", "lifecycle")
+    : value(payload, "entityStatus", "status", "enrichmentStatus", "lifecycle", "state");
+  const active = fitV2
+    ? !!activeRaw && ["active", "active entity", "current", "operating", "good standing"].includes(activeRaw.toLowerCase())
+    : !activeRaw || !["inactive", "inactive entity", "dissolved", "revoked", "archived", "suppressed"].includes(activeRaw.toLowerCase());
   const synthetic = truth(payload, "synthetic", "isSynthetic", "test", "isTest");
   const relationship = input.relationship ?? {
     existingCustomer: truth(payload, "existingCustomerFlag", "existingCustomer"),
@@ -62,7 +83,7 @@ export function evaluateCro03aCandidate(input: {
   const hasBusiness = !!value(payload, "businessName", "company", "entityName", "name");
   const hasLocation = !!(value(payload, "state", "principalState") || value(payload, "zip", "postalCode", "principalZip") || value(payload, "city", "principalCity"));
   const hasSource = !!input.sourceSystem;
-  const components = {
+  const v1Components = {
     targetCanonicalVertical: vertical.targetVertical && !vertical.needsReview ? 25 : 0,
     eligibleGeography: geography.eligible && ["verified", "zip_inferred", "city_inferred"].includes(geography.evidenceClass) ? 25 : 0,
     activeEntityEvidence: active && !synthetic ? 15 : 0,
@@ -71,6 +92,15 @@ export function evaluateCro03aCandidate(input: {
     sourceFreshness: fresh ? 10 : 0,
     evidenceCoverage: hasBusiness && hasLocation && hasSource ? 5 : 0,
   };
+  const components = fitV2 ? {
+    geography: geography.eligible && ["verified", "zip_inferred", "city_inferred"].includes(geography.evidenceClass) ? 20 : 0,
+    vertical: vertical.targetVertical && !vertical.needsReview ? 25 : 0,
+    active: active && !synthetic ? 15 : 0,
+    identity: !exact.length && !conflict.length && !weak.length ? 15 : 0,
+    freshness: fresh ? 10 : 0,
+    complexity: Number(payload.locationCount) > 1 || !!value(payload, "estimatedVolume", "monthlyVolume", "employeeCount") ? 10 : 0,
+    completeness: hasBusiness && hasLocation && hasSource ? 5 : 0,
+  } : v1Components;
   const score = Object.values(components).reduce((sum, part) => sum + part, 0);
   const reasonCodes: string[] = [...geography.reasonCodes];
   const missing: string[] = [];

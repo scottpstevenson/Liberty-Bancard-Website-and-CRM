@@ -511,6 +511,30 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "injected transports and source checks only; live provider/network transport denied",
   },
   {
+    name: "CRO-03B Unified Recipe and Canonical Projection",
+    script: "scripts/test-cro03b-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "source and injected-transport checks only; live provider/public network transport denied",
+  },
+  {
+    name: "CRO-03B Durable Recipe Lifecycle",
+    script: "scripts/test-cro03b-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "database-backed certification mode suppresses queue transport; provider/public network transport remains denied",
+  },
+  {
+    name: "CRO-03B Legacy Writer Inventory",
+    script: "scripts/check-cro03b-legacy-writers.ts",
+    capability: "deterministic-static",
+    providerDenial: "source-only canonical-writer inventory; no providers, database, queues, or network",
+  },
+  {
+    name: "CRO-03 Ledger Drift Repair Apply and Replay",
+    script: "scripts/test-cro03-ledger-drift-repair.ts",
+    capability: "deterministic-integration",
+    providerDenial: "approved staging/test PostgreSQL transaction only; migration replay is rolled back and no provider transport is constructed",
+  },
+  {
     name: "CRO-03 Apollo Organization Resolution",
     script: "scripts/test-apollo-organization-resolution.ts",
     capability: "deterministic-static",

@@ -1806,7 +1806,7 @@ Guidelines:
                 ...(mapped.vertical ? { vertical: mapped.vertical } : {}),
               },
               sourceEventKey: `${importExecution.id}:${sourceRowNumber}`,
-              timestampProvenance: "import_execution_row",
+              timestampProvenance: "import",
               candidateValues: {
                 ...(mapped.companyName ? { business_name: mapped.companyName } : {}),
                 ...(mapped.website ? { website: mapped.website } : {}),

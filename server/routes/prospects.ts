@@ -87,7 +87,7 @@ export function registerProspectsRoutes(app: Express) {
       provenance: { sourceSystem: "sunbiz", entityId, importExecutionId: entity.importExecutionId ?? null },
       sourceEventKey: `sunbiz:${entityId}:${entity.updatedAt ? new Date(entity.updatedAt).toISOString() : "snapshot"}`,
       sourceObservedAt: entity.updatedAt ? new Date(entity.updatedAt).toISOString() : undefined,
-      timestampProvenance: entity.updatedAt ? "sunbiz_row_updated_at" : "ingestion_time",
+      timestampProvenance: entity.updatedAt ? "source" : "ingestion_only",
       candidateValues: {
         ...(companyName ? { business_name: String(companyName) } : {}),
         ...(entity.filingNumber ? { registry_id: String(entity.filingNumber) } : {}),

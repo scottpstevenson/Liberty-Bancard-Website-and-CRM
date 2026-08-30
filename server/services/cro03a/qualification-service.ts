@@ -1,10 +1,15 @@
-import { and, inArray, isNull, sql } from "drizzle-orm";
+import { and, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { prospects, sunbizEntities, sdrMerchants, leadDiscoveryResults, masterLeads } from "@shared/schema";
 import { hashCro03Evidence } from "../cro03/source-staging";
 import { createCro03SourceBatch } from "../cro03/source-staging";
 import { stableCro03aSelectionHash } from "../cro03/contracts";
-import { evaluateCro03aCandidate, type Cro03aEvaluation } from "./fit";
+import {
+  CRO03A_FIT_V2_POLICY_IDENTITY,
+  CRO03A_FIT_V2_POLICY_IDENTITY_HASH,
+  evaluateCro03aCandidate,
+  type Cro03aEvaluation,
+} from "./fit";
 import {
   CRO03A_SOURCE_CENSUS,
   leadDiscoverySourceSubject,
@@ -26,6 +31,38 @@ type FrozenOccurrence = {
   payload: Record<string, unknown>; provenance: Record<string, unknown>;
 };
 type ActivePolicy = { id: string; version: number; policyHash: string; policy: Record<string, any>; controlVersion: number };
+
+const algorithmIdentityFor = (policy: Record<string, any>) => policy.fitVersion === "fit-v2"
+  ? { ...CRO03A_FIT_V2_POLICY_IDENTITY, policy }
+  : { fitVersion: "fit-v1", policy };
+const algorithmIdentityHashFor = (policy: Record<string, any>) => hashCro03Evidence(algorithmIdentityFor(policy));
+const algorithmColumns = new Map<string, Promise<Set<string>>>();
+
+/** Optional during rolling upgrades: pre-migration installations lack these columns. */
+async function persistAlgorithmIdentityIfSupported(
+  executor: any, table: "cro03a_qualification_runs" | "cro03a_qualification_decisions" | "cro03a_handoffs",
+  id: string, identity: Record<string, unknown>, identityHash: string,
+) {
+  let columns = algorithmColumns.get(table);
+  if (!columns) {
+    const discovered = executor.execute(sql`
+      SELECT column_name FROM information_schema.columns
+       WHERE table_schema=current_schema() AND table_name=${table}
+         AND column_name IN ('algorithm_identity','algorithm_identity_hash')
+    `).then((result: any) => new Set(resultRows(result).map((row) => String(row.column_name))));
+    algorithmColumns.set(table, discovered);
+    columns = discovered;
+  }
+  const available = await columns!;
+  if (available.has("algorithm_identity") && available.has("algorithm_identity_hash")) {
+    // table is a closed union, never request input.
+    await executor.execute(sql`
+      UPDATE ${sql.raw(table)}
+         SET algorithm_identity=${JSON.stringify(identity)}::jsonb, algorithm_identity_hash=${identityHash}
+       WHERE id=${id}::uuid
+    `);
+  }
+}
 
 async function getActivePolicy(executor: any = db): Promise<ActivePolicy> {
   const row = resultRows(await executor.execute(sql`
@@ -56,7 +93,7 @@ async function loadOccurrences(
       FROM cro03_source_occurrences o
       JOIN cro03_source_subjects s ON s.id=o.source_subject_id
       JOIN cro03_source_observations v ON v.id=o.source_observation_id
-     WHERE o.id = ANY(${unique}::uuid[])
+     WHERE o.id IN (${sql.join(unique.map((id) => sql`${id}::uuid`), sql`,`)})
      ORDER BY o.id
   `);
   const loaded = resultRows(result).map((row) => ({
@@ -231,7 +268,8 @@ export async function createCro03aQualificationRun(input: {
     const authorityEvaluatedAt = new Date().toISOString();
     const frozenOccurrenceIds = occurrences.map((row) => row.occurrenceId).sort();
     const selectionHash = stableCro03aSelectionHash(frozenOccurrenceIds);
-    const scopeHash = hashCro03Evidence({ frozenOccurrenceIds, policyId: policy.id, policyHash: policy.policyHash });
+    const algorithmIdentityHash = algorithmIdentityHashFor(policy.policy);
+    const scopeHash = hashCro03Evidence({ frozenOccurrenceIds, policyId: policy.id, policyHash: policy.policyHash, algorithmIdentityHash });
     const run = resultRows(await tx.execute(sql`
       INSERT INTO cro03a_qualification_runs
         (idempotency_key,actor_id,actor_role,policy_id,policy_hash,scope_hash,frozen_occurrence_ids,
@@ -241,6 +279,8 @@ export async function createCro03aQualificationRun(input: {
                'queued',${occurrences.length})
       RETURNING id
     `))[0];
+    await persistAlgorithmIdentityIfSupported(tx, "cro03a_qualification_runs", String(run.id),
+      algorithmIdentityFor(policy.policy), algorithmIdentityHash);
     for (const [ordinal, occurrence] of occurrences.entries()) {
       await tx.execute(sql`
         INSERT INTO cro03a_qualification_items
@@ -252,16 +292,12 @@ export async function createCro03aQualificationRun(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03a_qualification_run_queued','cro03a_qualification_run',
-              ${String(run.id)},${JSON.stringify({ total: occurrences.length, selectionHash })}::jsonb,
+               ${String(run.id)},${JSON.stringify({ total: occurrences.length, selectionHash, algorithmIdentityHash })}::jsonb,
               'user',${input.actorId})
     `);
     return { id: String(run.id), replayed: false, state: "queued", totalCount: occurrences.length, selectedCount: 0, reviewCount: 0, terminalCount: 0 };
   });
-  if (!result.replayed) {
-    void processCro03aQualificationRun(result.id).catch((error) => {
-      console.error("CRO03A_QUALIFICATION_WORKER_FAILED", { runId: result.id, error });
-    });
-  }
+  if (!result.replayed) await enqueueCro03aQualificationRun(result.id);
   return result;
 }
 
@@ -274,10 +310,10 @@ type ClaimedQualificationItem = {
 async function claimNextCro03aItem(runId: string): Promise<ClaimedQualificationItem | null> {
   return db.transaction(async (tx) => {
     const run = resultRows(await tx.execute(sql`
-      SELECT id,policy_id,policy_hash,actor_id,state,created_at
+       SELECT id,policy_id,policy_hash,actor_id,state,created_at,cancel_requested_at
         FROM cro03a_qualification_runs WHERE id=${runId}::uuid FOR UPDATE
     `))[0];
-    if (!run || !["queued", "running"].includes(String(run.state))) return null;
+    if (!run || !["queued", "running"].includes(String(run.state)) || run.cancel_requested_at != null) return null;
     const activeClaim = resultRows(await tx.execute(sql`
       SELECT 1 FROM cro03a_qualification_items
        WHERE run_id=${runId}::uuid AND state='claimed' AND lease_expires_at > NOW()
@@ -327,6 +363,7 @@ async function reconcileCro03aRun(executor: any, runId: string) {
      WHERE i.run_id=${runId}::uuid
   `))[0];
   const completed = Number(totals.completed_count) === Number(totals.total_count);
+  const terminal = Number(totals.terminal_count) === Number(totals.total_count);
   const updated = resultRows(await executor.execute(sql`
     UPDATE cro03a_qualification_runs
        SET total_count=${Number(totals.total_count)},
@@ -334,8 +371,14 @@ async function reconcileCro03aRun(executor: any, runId: string) {
            review_count=${Number(totals.review_count)},
            terminal_count=${Number(totals.terminal_count)},
            cursor_position=${Number(totals.terminal_count)},
-           state=CASE WHEN state IN ('queued','running') AND ${completed} THEN 'completed' ELSE state END,
-           completed_at=CASE WHEN state IN ('queued','running') AND ${completed} THEN COALESCE(completed_at,NOW()) ELSE completed_at END,
+            state=CASE
+              WHEN state IN ('queued','running') AND cancel_requested_at IS NOT NULL AND ${terminal} THEN 'cancelled'
+              WHEN state IN ('queued','running') AND ${completed} THEN 'completed'
+              ELSE state END,
+            completed_at=CASE
+              WHEN state IN ('queued','running') AND (${completed} OR (cancel_requested_at IS NOT NULL AND ${terminal}))
+                THEN COALESCE(completed_at,NOW())
+              ELSE completed_at END,
            updated_at=NOW()
      WHERE id=${runId}::uuid
      RETURNING state
@@ -405,13 +448,17 @@ async function completeClaimedCro03aItem(claim: ClaimedQualificationItem): Promi
     const decisionSelectionHash = hashCro03Evidence({
       occurrenceIds: [occurrence.occurrenceId], payloadHash: occurrence.payloadHash,
       policyId: policy.id, policyHash: policy.policyHash, disposition: evaluation.disposition,
+      algorithmIdentityHash: algorithmIdentityHashFor(policy.policy),
       score: evaluation.score, components: evaluation.fitComponents,
     });
+    const algorithmIdentity = algorithmIdentityFor(policy.policy);
+    const algorithmIdentityHash = algorithmIdentityHashFor(policy.policy);
     const decision = resultRows(await tx.execute(sql`
       INSERT INTO cro03a_qualification_decisions
         (item_id,run_id,occurrence_id,disposition,score,geography_result,vertical_result,
          active_state_evidence,identity_relationship_evidence,fit_components,reason_codes,
-         missing_field_classes,frozen_occurrence_ids,policy_id,policy_version,policy_hash,selection_hash)
+         missing_field_classes,frozen_occurrence_ids,policy_id,policy_version,policy_hash,selection_hash,
+         algorithm_identity,algorithm_identity_hash)
       VALUES (${claim.id}::uuid,${claim.runId}::uuid,${occurrence.occurrenceId}::uuid,
               ${evaluation.disposition},${evaluation.score},${JSON.stringify(evaluation.geography)}::jsonb,
               ${JSON.stringify(evaluation.vertical)}::jsonb,${JSON.stringify(evaluation.activeStateEvidence)}::jsonb,
@@ -419,7 +466,8 @@ async function completeClaimedCro03aItem(claim: ClaimedQualificationItem): Promi
               ${JSON.stringify(evaluation.fitComponents)}::jsonb,${JSON.stringify(evaluation.reasonCodes)}::jsonb,
               ${JSON.stringify(evaluation.missingFieldClasses)}::jsonb,
               ${JSON.stringify([occurrence.occurrenceId])}::jsonb,${policy.id}::uuid,${policy.version},
-              ${policy.policyHash},${decisionSelectionHash})
+              ${policy.policyHash},${decisionSelectionHash},
+              ${JSON.stringify(algorithmIdentity)}::jsonb,${algorithmIdentityHash})
       ON CONFLICT(item_id) DO NOTHING
       RETURNING id
     `))[0];
@@ -429,12 +477,12 @@ async function completeClaimedCro03aItem(claim: ClaimedQualificationItem): Promi
         INSERT INTO cro03a_handoffs
           (run_id,decision_id,source_type,source_system,source_key,occurrence_ids,
            policy_id,policy_version,policy_hash,reason_codes,missing_field_classes,
-           selection_hash,effect_authorized)
+           selection_hash,effect_authorized,algorithm_identity,algorithm_identity_hash)
         VALUES (${claim.runId}::uuid,${decision.id}::uuid,${occurrence.subjectType},${occurrence.sourceSystem},
                 ${occurrence.subjectKey},${JSON.stringify([occurrence.occurrenceId])}::jsonb,
                 ${policy.id}::uuid,${policy.version},${policy.policyHash},
                 ${JSON.stringify(evaluation.reasonCodes)}::jsonb,${JSON.stringify(evaluation.missingFieldClasses)}::jsonb,
-                ${decisionSelectionHash},FALSE)
+                ${decisionSelectionHash},FALSE,${JSON.stringify(algorithmIdentity)}::jsonb,${algorithmIdentityHash})
       `);
     }
     const completed = resultRows(await tx.execute(sql`
@@ -469,6 +517,29 @@ export async function processCro03aQualificationRun(runId: string): Promise<void
   }
 }
 
+/** Queue-worker entrypoint.  It is safe to retry: item claims and fences own effects. */
+export async function processCro03aQualificationRunQueueSafe(runId: string): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) throw new Error("CRO03A_INVALID_RUN_ID");
+  await processCro03aQualificationRun(runId);
+}
+
+/** Recovery entrypoint for the queue's periodic sweep; it never steals live leases. */
+export async function recoverCro03aQualificationRunsQueueSafe(): Promise<void> {
+  const runs = resultRows(await db.execute(sql`
+    SELECT id FROM cro03a_qualification_runs
+     WHERE state IN ('queued','running')
+     ORDER BY created_at,id
+     LIMIT 100
+  `));
+  for (const run of runs) await processCro03aQualificationRunQueueSafe(String(run.id));
+}
+
+async function enqueueCro03aQualificationRun(runId: string): Promise<void> {
+  const { getQueueManagerProducers, QUEUE_NAMES } = await import("../queue-manager");
+  const queue = getQueueManagerProducers()?.getQueue(QUEUE_NAMES.CRO03A_QUALIFICATION);
+  if (queue) await queue.add("run", { runId }, { jobId: `cro03a-qualification:${runId}` });
+}
+
 export async function getCro03aRun(runId: string, actorId: string, role: string) {
   let run = resultRows(await db.execute(sql`
     SELECT id,actor_id,state,total_count,selected_count,review_count,terminal_count,
@@ -476,17 +547,6 @@ export async function getCro03aRun(runId: string, actorId: string, role: string)
       FROM cro03a_qualification_runs WHERE id=${runId}::uuid
   `))[0];
   if (!run || (role !== "admin" && String(run.actor_id) !== actorId)) return null;
-  if (["queued", "running"].includes(String(run.state))) {
-    await reconcileCro03aRun(db, runId);
-    void processCro03aQualificationRun(runId).catch((error) => {
-      console.error("CRO03A_QUALIFICATION_WORKER_FAILED", { runId, error });
-    });
-    run = resultRows(await db.execute(sql`
-      SELECT id,actor_id,state,total_count,selected_count,review_count,terminal_count,
-             cursor_position,created_at,completed_at,cancel_requested_at
-        FROM cro03a_qualification_runs WHERE id=${runId}::uuid
-    `))[0];
-  }
   const decisions = resultRows(await db.execute(sql`
     SELECT d.id,d.disposition,d.score,d.reason_codes,d.missing_field_classes,d.selection_hash,
            s.subject_type,s.source_system,encode(digest(s.subject_key,'sha256'),'hex') AS source_key_hash,
@@ -515,8 +575,8 @@ export async function getCro03aRun(runId: string, actorId: string, role: string)
 export async function cancelCro03aRun(runId: string, actorId: string, role: string): Promise<boolean> {
   return db.transaction(async (tx) => {
     const result = resultRows(await tx.execute(sql`
-      UPDATE cro03a_qualification_runs
-         SET state='cancelled',cancel_requested_at=NOW(),completed_at=NOW(),updated_at=NOW()
+       UPDATE cro03a_qualification_runs
+          SET cancel_requested_at=COALESCE(cancel_requested_at,NOW()),updated_at=NOW()
        WHERE id=${runId}::uuid AND state IN ('queued','running')
          AND (${role === "admin"} OR actor_id=${actorId})
        RETURNING id
@@ -524,8 +584,8 @@ export async function cancelCro03aRun(runId: string, actorId: string, role: stri
     if (!result) return false;
     await tx.execute(sql`
       UPDATE cro03a_qualification_items
-         SET state='cancelled',claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()
-       WHERE run_id=${runId}::uuid AND state IN ('queued','claimed')
+          SET state='cancelled',claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()
+        WHERE run_id=${runId}::uuid AND state='queued'
     `);
     await reconcileCro03aRun(tx, runId);
     return true;
@@ -549,7 +609,7 @@ export async function activateCro03aPolicy(input: {
         document.geographyReferenceVersion !== "south-florida-fips-v1" ||
         document.verticalAlgorithmVersion !== "v1" ||
         document.subverticalMapVersion !== "1" ||
-        document.fitVersion !== "v1" ||
+         !["fit-v1", "fit-v2"].includes(String(document.fitVersion)) ||
         !Array.isArray(document.targetVerticals) ||
         !["Auto", "Healthcare", "Salon/Spa"].every((value) => document.targetVerticals.includes(value))) {
       throw new Error("CRO03A_POLICY_INCOMPATIBLE");
@@ -572,31 +632,12 @@ export async function activateCro03aPolicy(input: {
   });
 }
 
-export async function appendCro03bConsumptionReceipt(input: {
-  handoffId: string; consumerKey: string; metadata?: Record<string, unknown>;
-}) {
-  const row = resultRows(await db.execute(sql`
-    INSERT INTO cro03a_consumption_receipts(handoff_id,consumer_key,consumer_name,receipt_metadata)
-    SELECT h.id,${input.consumerKey},'cro03b',${JSON.stringify(input.metadata ?? {})}::jsonb
-      FROM cro03a_handoffs h
-     WHERE h.id=${input.handoffId}::uuid AND h.effect_authorized=FALSE
-    ON CONFLICT(consumer_key) DO NOTHING
-    RETURNING id,handoff_id,consumer_key,created_at
-  `))[0];
-  const receipt = row ?? resultRows(await db.execute(sql`
-    SELECT id,handoff_id,consumer_key,created_at
-      FROM cro03a_consumption_receipts
-     WHERE consumer_key=${input.consumerKey} AND handoff_id=${input.handoffId}::uuid
-  `))[0];
-  if (!receipt) throw new Error("CRO03A_HANDOFF_OR_CONSUMER_CONFLICT");
-  return { id: receipt.id, handoffId: receipt.handoff_id, consumerKey: receipt.consumer_key, createdAt: receipt.created_at };
-}
-
 export async function getCro03aSourceCensus() {
-  const staged = resultRows(await db.execute(sql`
+  const [policy, staged] = await Promise.all([getActivePolicy(), db.execute(sql`
     SELECT source_system,subject_type,COUNT(*)::int AS count
       FROM cro03_source_subjects GROUP BY source_system,subject_type ORDER BY source_system,subject_type
-  `));
+  `)]);
+  const stagedRows = resultRows(staged);
   const candidates = resultRows(await db.execute(sql`
     SELECT DISTINCT ON (s.id)
            o.id AS occurrence_id,s.subject_type,s.source_system,
@@ -605,13 +646,15 @@ export async function getCro03aSourceCensus() {
       FROM cro03_source_occurrences o
       JOIN cro03_source_subjects s ON s.id=o.source_subject_id
      WHERE s.subject_type IN ('prospect','sunbiz_entity','sdr_merchant','provider_csv_row','lead_discovery_result','master_lead')
-     ORDER BY s.id,o.source_observed_at DESC,o.ingested_at DESC
+      ORDER BY s.id,o.source_observed_at DESC,o.ingested_at DESC,o.id DESC
      LIMIT 100
   `));
   return {
-    policyVersion: 1,
+    policyVersion: policy.version,
+    activePolicyHash: policy.policyHash,
+    activeAlgorithmIdentityHash: algorithmIdentityHashFor(policy.policy),
     sources: CRO03A_SOURCE_CENSUS.map((source) => ({
-      source, stagedCount: staged.filter((row) => String(row.source_system) === source).reduce((sum, row) => sum + Number(row.count), 0),
+      source, stagedCount: stagedRows.filter((row) => String(row.source_system) === source).reduce((sum, row) => sum + Number(row.count), 0),
     })),
     candidates: candidates.map((row) => ({
       occurrenceId: row.occurrence_id, sourceType: row.subject_type, sourceSystem: row.source_system,
@@ -625,17 +668,61 @@ export async function stageCro03aSourceCensus(input: {
   actorId: string; limitPerSource?: number;
 }) {
   const limit = Math.max(1, Math.min(input.limitPerSource ?? 100, 500));
+  const policy = await getActivePolicy();
+  const cursorFor = async (source: string, table: string, kind: "number" | "uuid" = "number") => db.transaction(async (tx) => {
+    let cursor = resultRows(await tx.execute(sql`
+      SELECT * FROM cro03a_census_cursors WHERE source_system=${source} FOR UPDATE
+    `))[0];
+    const exhausted = kind === "uuid"
+      ? !cursor || String(cursor.cursor_value_text ?? "") >= String(cursor.snapshot_high_water_text ?? "")
+      : !cursor || Number(cursor.cursor_value) >= Number(cursor.snapshot_high_water);
+    if (exhausted) {
+      const rawMaximum = resultRows(await tx.execute(sql.raw(kind === "uuid"
+        ? `SELECT COALESCE(MAX(id::text),'') AS high_water FROM "${table}"`
+        : `SELECT COALESCE(MAX(id),0)::bigint AS high_water FROM "${table}"`)))[0]?.high_water;
+      const maximum = kind === "uuid" ? String(rawMaximum ?? "") : Number(rawMaximum ?? 0);
+      const snapshotKey = `cro03a:${source}:${maximum}:${policy.policyHash}`;
+      cursor = resultRows(await tx.execute(sql`
+        INSERT INTO cro03a_census_cursors
+          (source_system,snapshot_key,snapshot_high_water,cursor_value,snapshot_high_water_text,cursor_value_text,
+           policy_id,policy_hash,updated_by)
+        VALUES (${source},${snapshotKey},${kind === "uuid" ? 0 : Number(maximum)},0,
+                ${kind === "uuid" ? String(maximum) : null},${kind === "uuid" ? "" : null},
+                ${policy.id}::uuid,${policy.policyHash},${input.actorId})
+        ON CONFLICT(source_system) DO UPDATE SET
+          snapshot_key=EXCLUDED.snapshot_key,snapshot_high_water=EXCLUDED.snapshot_high_water,
+          cursor_value=0,snapshot_high_water_text=EXCLUDED.snapshot_high_water_text,
+          cursor_value_text=EXCLUDED.cursor_value_text,policy_id=EXCLUDED.policy_id,policy_hash=EXCLUDED.policy_hash,
+          updated_by=EXCLUDED.updated_by,updated_at=NOW()
+        RETURNING *
+      `))[0];
+    }
+    return {
+      value: Number(cursor.cursor_value), highWater: Number(cursor.snapshot_high_water),
+      valueText: String(cursor.cursor_value_text ?? ""), highWaterText: String(cursor.snapshot_high_water_text ?? ""),
+      snapshotKey: String(cursor.snapshot_key),
+    };
+  });
+  const cursors = {
+    prospects: await cursorFor("prospects", "prospects"),
+    sunbiz: await cursorFor("sunbiz_entities", "sunbiz_entities"),
+    merchants: await cursorFor("sdr_merchants", "sdr_merchants"),
+    discovery: await cursorFor("lead_discovery_results", "lead_discovery_results"),
+    master: await cursorFor("master_leads", "master_leads", "uuid"),
+  };
   const [prospectRows, sunbizRows, merchantRows, discoveryRows, masterRows] = await Promise.all([
-    db.select().from(prospects).limit(limit),
-    db.select().from(sunbizEntities).limit(limit),
-    db.select().from(sdrMerchants).limit(limit),
-    db.select().from(leadDiscoveryResults).limit(limit),
+    db.select().from(prospects).where(and(gt(prospects.id, cursors.prospects.value), lte(prospects.id, cursors.prospects.highWater))).orderBy(prospects.id).limit(limit),
+    db.select().from(sunbizEntities).where(and(gt(sunbizEntities.id, cursors.sunbiz.value), lte(sunbizEntities.id, cursors.sunbiz.highWater))).orderBy(sunbizEntities.id).limit(limit),
+    db.select().from(sdrMerchants).where(and(gt(sdrMerchants.id, cursors.merchants.value), lte(sdrMerchants.id, cursors.merchants.highWater))).orderBy(sdrMerchants.id).limit(limit),
+    db.select().from(leadDiscoveryResults).where(and(gt(leadDiscoveryResults.id, cursors.discovery.value), lte(leadDiscoveryResults.id, cursors.discovery.highWater))).orderBy(leadDiscoveryResults.id).limit(limit),
     db.select().from(masterLeads).where(and(
+      gt(masterLeads.id, cursors.master.valueText),
+      lte(masterLeads.id, cursors.master.highWaterText),
       isNull(masterLeads.canonicalLeadId),
       isNull(masterLeads.duplicateOfId),
       isNull(masterLeads.promotedAt),
       inArray(masterLeads.status, ["staged", "imported", "needs_website_check", "needs_mx_verification", "ready_for_internal_test"]),
-    )).limit(limit),
+    )).orderBy(masterLeads.id).limit(limit),
   ]);
   const drafts: Cro03aSourceDraft[] = [
     ...prospectRows.map((row) => prospectSourceSubject(row as any)),
@@ -644,17 +731,12 @@ export async function stageCro03aSourceCensus(input: {
     ...discoveryRows.map((row) => leadDiscoverySourceSubject(row as any) ?? linkedDiscoveryEvidence(row as any)).filter((row): row is Cro03aSourceDraft => !!row),
     ...masterRows.map((row) => masterLeadSourceSubject(row as any)),
   ];
-  const attestedAt = new Date().toISOString();
-  for (const draft of drafts) {
-    if (!draft.sourceObservedAt) {
-      draft.sourceObservedAt = attestedAt;
-      draft.timestampProvenance = "ingestion_attestation";
-      draft.sourceEventKey = `${draft.sourceEventKey}:attested:${attestedAt}`;
-    }
-  }
+  // A census reports only attested source observations.  Do not manufacture a
+  // freshness timestamp or event key: doing so changes source identity.
+  const stageableDrafts = drafts.filter((draft) => !!draft.sourceObservedAt && !!draft.sourceEventKey);
   let created = 0;
   let replayed = 0;
-  for (const draft of drafts) {
+  for (const draft of stageableDrafts) {
     const result = await createCro03SourceBatch({
       idempotencyKey: `cro03a-census:${draft.subjectType}:${draft.sourceSystem}:${draft.sourceEventKey}`,
       actorType: "user", actorId: input.actorId, purpose: "staging_review",
@@ -662,8 +744,26 @@ export async function stageCro03aSourceCensus(input: {
     });
     result.replayed ? replayed++ : created++;
   }
+  const advances = [
+    ["prospects", prospectRows.at(-1)?.id ?? cursors.prospects.highWater],
+    ["sunbiz", sunbizRows.at(-1)?.id ?? cursors.sunbiz.highWater],
+    ["merchants", merchantRows.at(-1)?.id ?? cursors.merchants.highWater],
+    ["discovery", discoveryRows.at(-1)?.id ?? cursors.discovery.highWater],
+    ["master", masterRows.at(-1)?.id ?? cursors.master.highWaterText],
+  ] as const;
+  await db.transaction(async (tx) => {
+    for (const [source, value] of advances) {
+      await tx.execute(sql`
+        UPDATE cro03a_census_cursors
+           SET cursor_value=CASE WHEN snapshot_high_water_text IS NULL THEN ${Number(value) || 0} ELSE cursor_value END,
+               cursor_value_text=CASE WHEN snapshot_high_water_text IS NOT NULL THEN ${String(value)} ELSE cursor_value_text END,
+               updated_at=NOW()
+         WHERE source_system=${source}
+      `);
+    }
+  });
   return {
-    created, replayed, total: drafts.length,
+    created, replayed, total: stageableDrafts.length, skippedUnattested: drafts.length - stageableDrafts.length,
     sourceResults: {
       prospects: prospectRows.length, sunbiz_entities: sunbizRows.length,
       sdr_merchants: merchantRows.length, lead_discovery_results: discoveryRows.length,
@@ -672,5 +772,6 @@ export async function stageCro03aSourceCensus(input: {
       public_web: "existing_persisted_observations_only",
     },
     effectsAuthorized: false,
+    snapshots: Object.fromEntries(Object.entries(cursors).map(([source, cursor]) => [source, cursor.snapshotKey])),
   };
 }

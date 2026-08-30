@@ -10,6 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 type Census = {
   policyVersion: number;
+  policyHash?: string;
+  algorithm?: { id: string; version: number; hash: string };
   sources: Array<{ source: string; stagedCount: number }>;
   candidates: Array<{
     occurrenceId: string; sourceType: string; sourceSystem: string;
@@ -102,10 +104,16 @@ export function SouthFloridaQualificationPanel() {
               </CardDescription>
             </div>
           </div>
-          <Badge variant="outline">Policy v{census.data?.policyVersion ?? 1} · effects denied</Badge>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <Badge variant="outline">Policy v{census.data?.policyVersion ?? 1} · effects denied</Badge>
+            <Badge variant="secondary">CRO-03B local-only · providers denied</Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Qualified handoffs enter a governed evidence recipe. Ambiguous matches require review; canonical projection is local-only, creates no GHL work, and validation remains pending until the winning email is checked.
+        </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {(census.data?.sources ?? []).map((source) => (
             <div key={source.source} className="rounded-md border bg-background/80 p-2">

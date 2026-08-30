@@ -36,6 +36,7 @@ export const QUEUE_NAMES = {
   STATEMENT_UPLOAD: "statement-upload",
   DEAL_STAGE_EFFECTS: "deal-stage-effects",
   CHARGEBACK_COMMANDS: "chargeback-commands",
+  CRO03A_QUALIFICATION: "cro03a-qualification",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -121,6 +122,11 @@ const SLA_CHECKS_REPEAT_EVERY_MS = IS_DEV
     : SLA_CHECKS_REPEAT_DEFAULT_MS;
 
 export const QUEUE_CONFIGS: QueueConfig[] = [
+  {
+    name: QUEUE_NAMES.CRO03A_QUALIFICATION,
+    concurrency: 1, attempts: 3, backoffDelay: 10_000,
+    repeatEveryMs: 60_000, jobName: "recover",
+  },
   {
     name: QUEUE_NAMES.DEAL_STAGE_EFFECTS,
     concurrency: 1, attempts: 3, backoffDelay: 10_000,
@@ -1044,6 +1050,16 @@ class QueueManager {
       }
 
       switch (queueName) {
+        case QUEUE_NAMES.CRO03A_QUALIFICATION: {
+          const { processCro03aQualificationRunQueueSafe, recoverCro03aQualificationRunsQueueSafe } =
+            await import("./cro03a/qualification-service");
+          if (_job.name === "run" && typeof _job.data?.runId === "string") {
+            await processCro03aQualificationRunQueueSafe(_job.data.runId);
+          } else {
+            await recoverCro03aQualificationRunsQueueSafe();
+          }
+          break;
+        }
         case QUEUE_NAMES.DEAL_STAGE_EFFECTS: {
           const { dispatchDealStageEffectIntents } = await import("./deal-stage-effect-worker");
           await dispatchDealStageEffectIntents();
@@ -2169,12 +2185,16 @@ async function runSequencesTick(): Promise<void> {
 
 async function runEnrichmentTick(): Promise<void> {
   const { processNextCro03Item, processNextCro03Mutation } = await import("./cro03/enrichment-factory");
+  const { processNextCro03bRecipeItem } = await import("./cro03/admission-service");
   try {
     for (let processed = 0; processed < 5; processed++) {
       if (await processNextCro03Item() === "idle") break;
     }
     for (let processed = 0; processed < 10; processed++) {
       if (await processNextCro03Mutation() === "idle") break;
+    }
+    for (let processed = 0; processed < 10; processed++) {
+      if (await processNextCro03bRecipeItem() === "idle") break;
     }
     const { recordWorkerSuccess, JOB_NAMES } = await import("./job-registry");
     await recordWorkerSuccess(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR);

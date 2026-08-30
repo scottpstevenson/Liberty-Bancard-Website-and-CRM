@@ -11,7 +11,12 @@ import {
   CRO03A_DISABLED_COUNTY_FIPS,
   evaluateSouthFloridaGeography,
 } from "../server/services/cro03a/geography";
-import { CRO03A_FIT_COMPONENT_WEIGHTS, evaluateCro03aCandidate } from "../server/services/cro03a/fit";
+import {
+  CRO03A_FIT_COMPONENT_WEIGHTS,
+  CRO03A_FIT_V2_COMPONENT_WEIGHTS,
+  CRO03A_FIT_V2_POLICY_IDENTITY_HASH,
+  evaluateCro03aCandidate,
+} from "../server/services/cro03a/fit";
 
 let checks = 0;
 const check = (name: string, fn: () => void) => {
@@ -65,6 +70,14 @@ check("fit boundaries are deterministic", () => {
   assert.equal(evaluate(active({ vertical: "Unknown", locationCount: undefined })).disposition, "review_required");
   assert.equal(evaluate({ businessName: "Thin", state: "FL" }).disposition, "review_required");
 });
+check("fit-v2 identity is complete and never infers activity from geography", () => {
+  assert.equal(Object.values(CRO03A_FIT_V2_COMPONENT_WEIGHTS).reduce((a, b) => a + b, 0), 100);
+  assert.match(CRO03A_FIT_V2_POLICY_IDENTITY_HASH, /^[a-f0-9]{64}$/);
+  const v2 = evaluate(active({ entityStatus: undefined, status: undefined }), { policy: { fitVersion: "fit-v2" } });
+  assert.equal(v2.activeStateEvidence.active, false);
+  assert.equal(v2.disposition, "inactive_entity");
+  assert.equal(evaluate(active({ entityStatus: undefined, status: undefined })).activeStateEvidence.active, true);
+});
 check("block and review gates outrank score", () => {
   assert.equal(evaluate(active({ entityStatus: "Dissolved" })).disposition, "inactive_entity");
   assert.equal(evaluate(active(), { relationship: { dnc: true } }).disposition, "suppressed");
@@ -86,6 +99,8 @@ check("preview and execution share one evaluator and routes are strict", () => {
   const routes = readFileSync("server/routes/cro03.ts", "utf8");
   assert.match(service, /function evaluateOccurrenceSet/);
   assert.equal((service.match(/evaluateOccurrenceSet\(/g) ?? []).length >= 3, true);
+  assert.doesNotMatch(service, /void processCro03aQualificationRun/);
+  assert.match(service, /processCro03aQualificationRunQueueSafe/);
   assert.match(routes, /cro03a\/preview"[\s\S]*requireRole\("admin", "manager"\)/);
   assert.match(routes, /cro03a\/runs"[\s\S]*requireRole\("admin", "manager"\)/);
   assert.match(routes, /cro03a\/policies\/activate"[\s\S]*requireRole\("admin"\)/);

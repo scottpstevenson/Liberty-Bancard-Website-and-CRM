@@ -61,6 +61,7 @@ const VALID_SOURCE_COMBOS: ReadonlySet<string> = new Set([
   "discovery|outscraper",
   "discovery|apify",
   "discovery|serper",
+  "discovery|cro03",
   "partner_referral|partner_form",
   "partner_referral|partner_portal",
   "partner_referral|co_branded_proposal",
@@ -96,6 +97,15 @@ export interface ProvenanceInput {
   actorType: string;
   actorId?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface ContactWriterHookPolicy {
+  /** Internal CRO-03 intermediate writes must not fan out before finalization. */
+  source: "cro03";
+  deferValidation: true;
+  deferReadiness: true;
+  deferLeadScoring: true;
+  suppressProviderProjection: true;
 }
 
 export interface ActorCtx {
@@ -148,20 +158,33 @@ export async function writeContact(args: {
   mutation: Omit<InsertContact, "sourceCategory" | "primarySourceCategory" | "primarySourceType" | "primarySourceEventId"> & Record<string, unknown>;
   provenance: ProvenanceInput;
   actor: ActorCtx;
+  hookPolicy?: ContactWriterHookPolicy;
   /** CSV receipt written in the same local transaction as the contact. */
   rowDisposition?: { createdReasonCode: string; matchedReasonCode: string };
-}): Promise<Contact & { _ghlSyncPending: boolean; _intakeOutcome: "created" | "matched_existing" }> {
-  const { mode, provenance, actor, rowDisposition } = args;
+}): Promise<Contact & {
+  _ghlSyncPending: boolean;
+  _intakeOutcome: "created" | "matched_existing";
+  _sourceEventId: number;
+}> {
+  const { mode, provenance, actor, rowDisposition, hookPolicy } = args;
   const mutation = stripContactAuthorityFields(args.mutation);
 
   assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
+  if (!hookPolicy && provenance.sourceExternalId) {
+    const { assertCro03bLegacySourceWriteAllowed } = await import("./cro03/admission-service");
+    await assertCro03bLegacySourceWriteAllowed({
+      subjectType: provenance.sourceType,
+      subjectKey: provenance.sourceExternalId,
+      writerKey: `contact-writer:${provenance.sourceCategory}:${provenance.sourceType}`,
+    });
+  }
 
   // Normalize ghlContactId in mutation before any DB write — blank strings become null.
   if ((mutation as any).ghlContactId !== undefined) {
     (mutation as any).ghlContactId = normalizeGhlId((mutation as any).ghlContactId);
   }
 
-  const shouldProject = mode === "local_first";
+  const shouldProject = mode === "local_first" && !hookPolicy?.suppressProviderProjection;
   const email = String((mutation as any).email ?? "").trim().toLowerCase();
   const syntheticPlaceholder = /^no-email-[0-9a-f-]+@no-email\.libertybancard\.internal$/i.test(email);
   const initialEmailTokenHash = hashEmailToken(email);
@@ -227,7 +250,7 @@ export async function writeContact(args: {
     // not a newly discovered identity match. Resolve it before email matching
     // so a recovery worker preserves the original `created` disposition.
     const prior = await tx.execute(sql`
-      SELECT c.*
+      SELECT c.*, e.id AS _source_event_id
       FROM contact_source_events e
       JOIN contacts c ON c.id = e.contact_id
       WHERE e.event_key = ${provenance.eventKey}
@@ -240,7 +263,7 @@ export async function writeContact(args: {
         ? await tx.select().from(contacts).where(and(eq(contacts.email, email), isNull(contacts.archivedAt))).limit(1)
         : [];
     if (existing) {
-      await tx.execute(sql`
+      const sourceEventResult = await tx.execute(sql`
         INSERT INTO contact_source_events
           (contact_id, event_key, source_category, source_type, source_external_id,
            import_execution_id, source_row_number, row_fingerprint, actor_type, actor_id, metadata)
@@ -251,7 +274,10 @@ export async function writeContact(args: {
            ${provenance.actorType}, ${provenance.actorId ?? null},
            ${provenance.metadata ? JSON.stringify(provenance.metadata) : null}::jsonb)
         ON CONFLICT (contact_id, event_key) DO UPDATE SET last_seen_at = now()
+        RETURNING id
       `);
+      const sourceEventId = Number(((sourceEventResult as any).rows ?? [])[0]?.id);
+      if (!sourceEventId) throw new Error("CONTACT_SOURCE_EVENT_REPLAY_FAILED");
       await recordContactIdentityObservations(tx as any, existing, "contact_writer", provenance.eventKey);
       await auditChange({
         userId: actor.userId ?? null,
@@ -282,6 +308,7 @@ export async function writeContact(args: {
         contact: existing,
         outcome: replayedSourceContact ? "created" as const : "matched_existing" as const,
         pending: shouldProject && !existing.ghlContactId && !syntheticPlaceholder,
+        sourceEventId,
       };
     }
 
@@ -305,7 +332,7 @@ export async function writeContact(args: {
 
     // A: Insert contact
     const [newContact] = await tx.insert(contacts).values(contactPayload).returning();
-    if (initialEmailTokenHash) {
+    if (initialEmailTokenHash && !hookPolicy?.deferValidation) {
       await createValidationIntent(tx, {
         contactId: newContact.id,
         email: newContact.email,
@@ -357,11 +384,11 @@ export async function writeContact(args: {
         state: "pending",
       }).onConflictDoNothing();
     }
-    return { contact: updatedContact, outcome: "created" as const, pending };
+    return { contact: updatedContact, outcome: "created" as const, pending, sourceEventId: sourceEvent.id };
   });
   const contact = result.contact;
 
-  if (contact.emailMutationGeneration > 0) {
+  if (contact.emailMutationGeneration > 0 && !hookPolicy?.deferValidation) {
     const { enqueueCurrentValidationIntent } = await import("./provider-readiness-control");
     // Failure is intentionally non-fatal: the committed intent is recovered by
     // the queue-owned worker rather than being lost with this HTTP request.
@@ -369,21 +396,28 @@ export async function writeContact(args: {
   }
 
   // Step 3: Readiness hook
-  try {
-    await enqueueReadinessRecalculation(contact.id);
-  } catch (err) {
-    console.warn(`[ContactWriter] Readiness enqueue failed for new contact ${contact.id}: ${(err as Error).message}`);
+  if (!hookPolicy?.deferReadiness) {
+    try {
+      await enqueueReadinessRecalculation(contact.id);
+    } catch (err) {
+      console.warn(`[ContactWriter] Readiness enqueue failed for new contact ${contact.id}: ${(err as Error).message}`);
+    }
   }
 
   // Step 3b: Per-contact lead scoring hook
-  try {
-    const scoringStatus = await requestContactLeadScoring(contact.id, "contact_created");
-    console.debug(`[ContactWriter] Lead scoring enqueued for contact ${contact.id}: ${scoringStatus}`);
-  } catch (err) {
-    console.warn(`[ContactWriter] Lead scoring trigger failed for contact ${contact.id}: ${(err as Error).message}`);
+  if (!hookPolicy?.deferLeadScoring) {
+    try {
+      const scoringStatus = await requestContactLeadScoring(contact.id, "contact_created");
+      console.debug(`[ContactWriter] Lead scoring enqueued for contact ${contact.id}: ${scoringStatus}`);
+    } catch (err) {
+      console.warn(`[ContactWriter] Lead scoring trigger failed for contact ${contact.id}: ${(err as Error).message}`);
+    }
   }
 
-  return { ...contact, _ghlSyncPending: result.pending, _intakeOutcome: result.outcome };
+  return {
+    ...contact, _ghlSyncPending: result.pending, _intakeOutcome: result.outcome,
+    _sourceEventId: result.sourceEventId,
+  };
 }
 
 /**
@@ -466,7 +500,12 @@ export async function updateContactLocalFirst(
     expectedEmailGeneration?: number;
     authorityCheck?: (tx: any) => Promise<boolean>;
   },
+  hookPolicy?: ContactWriterHookPolicy,
 ): Promise<(Contact & { _ghlSyncFailed: boolean }) | null> {
+  if (!hookPolicy) {
+    const { assertCro03bLegacyContactWriteAllowed } = await import("./cro03/admission-service");
+    await assertCro03bLegacyContactWriteAllowed(contactId, "contact-writer:update-local-first");
+  }
   assertNoProtectedContactFields(updates as Record<string, unknown>);
   const safeUpdates = stripProvenanceFields(updates as Record<string, unknown>) as UpdateContactRequest;
   const changedKeys = Object.keys(safeUpdates) as Array<keyof typeof safeUpdates>;
@@ -501,7 +540,7 @@ export async function updateContactLocalFirst(
       } : {}),
     }).where(eq(contacts.id, contactId)).returning();
     if (!local) return null;
-    if (materialEmailChange && nextTokenHash) {
+    if (materialEmailChange && nextTokenHash && !hookPolicy?.deferValidation) {
       await createValidationIntent(tx, {
         contactId,
         email: local.email,
@@ -509,7 +548,7 @@ export async function updateContactLocalFirst(
       });
     }
     const syntheticPlaceholder = /^no-email-[0-9a-f-]+@no-email\.libertybancard\.internal$/i.test(local.email);
-    if (!syntheticPlaceholder) {
+    if (!syntheticPlaceholder && !hookPolicy?.suppressProviderProjection) {
       await tx.insert(contactProviderProjections).values({
         contactId,
         provider: "ghl",
@@ -527,7 +566,7 @@ export async function updateContactLocalFirst(
   });
   if (!updated) return null;
 
-  if (hasReadinessChange) {
+  if (hasReadinessChange && !hookPolicy?.deferReadiness) {
     try {
       await enqueueReadinessRecalculation(contactId);
     } catch (err) {
