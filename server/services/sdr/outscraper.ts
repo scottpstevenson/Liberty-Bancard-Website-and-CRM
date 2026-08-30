@@ -1,8 +1,10 @@
 import { storage } from "../../storage";
+import { createHash } from "node:crypto";
 import { assertProviderActivation } from "../provider-manifest";
+import type { Cro03WorkerProviderContext } from "../cro03/provider-context";
 import {
-  assertCurrentWorkerContext, type Cro03WorkerProviderContext,
-} from "../cro03/provider-context";
+  assertCro03cAuthorityBeforeIo, assertCro03cLiveContext, type Cro03cLiveProviderContext,
+} from "../cro03/live-execution";
 
 const OUTSCRAPER_API_URL = "https://api.app.outscraper.com";
 
@@ -20,6 +22,35 @@ export interface OutscraperBusiness {
   placeId: string | null;
   category: string | null;
   rawData: Record<string, any>;
+}
+
+/**
+ * CRO03C's request is deliberately much narrower than the historical batch
+ * search input.  A result-priced provider may not be given an open-ended
+ * query, and the durable stage reservation must cover its entire result cap.
+ */
+export interface Cro03cFrozenOutscraperQuery {
+  readonly provider: "outscraper";
+  readonly query: string;
+  readonly region: "US";
+  readonly consideredResultLimit: number;
+  readonly justification: Readonly<Record<string, unknown>>;
+  readonly amountMicros: number;
+  readonly reservedUnits: number;
+}
+
+export interface Cro03cOutscraperExecutionResult {
+  readonly outcome: "success" | "no_result" | "ambiguous";
+  readonly settledUnits: number;
+  readonly settledAmountMicros: number;
+  readonly billingCertainty: "certain" | "ambiguous";
+  /** A receipt-safe representation; it never contains the query or contacts. */
+  readonly evidence: Readonly<Record<string, unknown>>;
+}
+
+export interface Cro03cOutscraperExecutionOptions {
+  /** Test-only injected transport. Production always uses global fetch. */
+  readonly fetchOverride?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 interface OutscraperUsageStats {
@@ -136,6 +167,145 @@ function parseOutscraperResult(raw: Record<string, any>): OutscraperBusiness {
   };
 }
 
+function isFrozenTree(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value !== "object") return true;
+  if (seen.has(value)) return true;
+  if (!Object.isFrozen(value)) return false;
+  seen.add(value);
+  return Object.values(value as Record<string, unknown>).every((child) => isFrozenTree(child, seen));
+}
+
+function assertCro03cOutscraperQuery(input: Cro03cFrozenOutscraperQuery): void {
+  if (!isFrozenTree(input) || input.provider !== "outscraper" ||
+      typeof input.query !== "string" || !input.query.trim() || input.query.length > 500 ||
+      input.region !== "US" || !input.justification || Object.keys(input.justification).length === 0 ||
+      !Number.isInteger(input.consideredResultLimit) || input.consideredResultLimit < 1 ||
+      input.consideredResultLimit > 5) {
+    throw new Error("CRO03C_OUTSCRAPER_INPUT_INVALID");
+  }
+  // A reservation smaller than the requested result window would make an
+  // otherwise valid provider response impossible to settle exactly.
+  if (!Number.isInteger(input.amountMicros) || input.amountMicros < 0 ||
+      !Number.isInteger(input.reservedUnits) || input.reservedUnits < input.consideredResultLimit) {
+    throw new Error("CRO03C_PRICE_SCHEDULE_UNKNOWN");
+  }
+  if (!Number.isSafeInteger(input.amountMicros * input.consideredResultLimit)) {
+    throw new Error("CRO03C_PRICE_SCHEDULE_UNKNOWN");
+  }
+}
+
+function redactedCro03cEvidence(
+  results: readonly OutscraperBusiness[],
+  consideredResultCount: number,
+  status: number,
+): Record<string, unknown> {
+  // Email, phone, names, addresses, the original query, raw API payload, and
+  // API errors must not cross the operational receipt boundary. A one-way
+  // fingerprint permits duplicate/audit correlation without retaining PII.
+  return {
+    responseReceived: true,
+    status,
+    // Settlement follows the provider's bounded result count, not parser
+    // yield. A malformed record cannot silently turn a billed result free.
+    consideredResultCount,
+    normalizedResultCount: results.length,
+    resultHashes: results.map((business) => createHash("sha256").update(JSON.stringify({
+      name: business.name, website: business.website, address: business.address,
+      city: business.city, state: business.state, zip: business.zip, category: business.category,
+      placeId: business.placeId,
+    })).digest("hex")),
+  };
+}
+
+function ambiguousCro03cEvidence(status: number | null): Cro03cOutscraperExecutionResult {
+  return {
+    outcome: "ambiguous", settledUnits: 0, settledAmountMicros: 0, billingCertainty: "ambiguous",
+    evidence: { responseReceived: status !== null, status, billing: "unverifiable" },
+  };
+}
+
+/**
+ * Canonical CRO03C Outscraper adapter. It intentionally has no path through
+ * Cro03WorkerProviderContext, provider_operations, or the legacy batch ledger.
+ * A non-successful post-dispatch exchange is not guessed to be free: callers
+ * receive an ambiguous terminal result for durable quarantine/settlement.
+ */
+export async function executeCro03cOutscraper(
+  context: Cro03cLiveProviderContext,
+  input: Cro03cFrozenOutscraperQuery,
+  options: Cro03cOutscraperExecutionOptions = {},
+): Promise<Cro03cOutscraperExecutionResult> {
+  assertCro03cLiveContext(context);
+  if (context.provider !== "outscraper" ||
+      context.caller !== "server/services/cro03/live-provider-executors.ts") {
+    throw new Error("CRO03C_PROVIDER_CONTEXT_DENIED");
+  }
+  assertCro03cOutscraperQuery(input);
+  assertProviderActivation({
+    sourceId: "outscraper",
+    caller: "server/services/cro03/live-provider-executors.ts",
+    explicitPaidApproval: true,
+  });
+  const apiKey = process.env.OUTSCRAPER_API_KEY;
+  if (!apiKey) throw new Error("CRO03C_PROVIDER_NOT_CONFIGURED");
+
+  await acquireToken();
+  const params = new URLSearchParams({
+    query: input.query, limit: String(input.consideredResultLimit), region: input.region,
+    language: "en", async: "false",
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  let response: Response;
+  let authorityGranted = false;
+  try {
+    // This must remain adjacent to the transport call: a queued/rate-limited
+    // operation may have been cancelled while waiting for its token.
+    await assertCro03cAuthorityBeforeIo(context);
+    authorityGranted = true;
+    response = await (options.fetchOverride ?? fetch)(`${OUTSCRAPER_API_URL}/maps/search-v3?${params}`, {
+      method: "GET",
+      headers: { "X-API-KEY": apiKey, Accept: "application/json" },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (!authorityGranted) throw error;
+    return ambiguousCro03cEvidence(null);
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) return ambiguousCro03cEvidence(response.status);
+  try {
+    const data = await response.json();
+    const items: unknown[] = Array.isArray(data)
+      ? data.flat()
+      : data && typeof data === "object" && Array.isArray((data as { data?: unknown }).data)
+        ? (data as { data: unknown[] }).data.flat()
+        : [];
+    // More than the frozen requested window has an unknown billable count.
+    if (items.length > input.consideredResultLimit) return ambiguousCro03cEvidence(response.status);
+    const results = items
+      .filter((item): item is Record<string, any> => Boolean(item && typeof item === "object" && (item as any).name))
+      .map(parseOutscraperResult);
+    // Outscraper prices returned results. Preserve that exact, bounded provider
+    // count even when its payload contains a record our parser cannot use.
+    const settledUnits = items.length;
+    const settledAmountMicros = settledUnits * input.amountMicros;
+    if (settledUnits > input.reservedUnits || !Number.isSafeInteger(settledAmountMicros)) {
+      return ambiguousCro03cEvidence(response.status);
+    }
+    return {
+      outcome: settledUnits ? "success" : "no_result",
+      settledUnits,
+      settledAmountMicros,
+      billingCertainty: "certain",
+      evidence: redactedCro03cEvidence(results, settledUnits, response.status),
+    };
+  } catch {
+    return ambiguousCro03cEvidence(response.status);
+  }
+}
+
 export async function searchOutscraper(
   query: string,
   limit: number = 200,
@@ -143,65 +313,9 @@ export async function searchOutscraper(
   authorization?: Cro03WorkerProviderContext,
   fetchOverride?: (url: string, init: RequestInit) => Promise<Response>,
 ): Promise<OutscraperBusiness[]> {
-  assertProviderActivation({
-    sourceId: "outscraper",
-    caller: authorization?.caller ?? "unapproved",
-    explicitPaidApproval: authorization?.explicitPaidApproval ?? false,
-  });
-  if (!authorization || authorization.kind !== "cro03_worker" || authorization.provider !== "outscraper") {
-    throw new Error("CRO03_PROVIDER_CONTEXT_REQUIRED");
-  }
-  if (!process.env.OUTSCRAPER_API_KEY) {
-    console.warn("[Outscraper] No API key configured. Set OUTSCRAPER_API_KEY env variable.");
-    return [];
-  }
-
-  await acquireToken();
-  await assertCurrentWorkerContext(authorization);
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
-
-    const params = new URLSearchParams({
-      query,
-      limit: String(Math.min(limit, 500)),
-      region,
-      language: "en",
-      async: "false",
-    });
-
-    const response = await (fetchOverride ?? fetch)(`${OUTSCRAPER_API_URL}/maps/search-v3?${params}`, {
-      method: "GET",
-      headers: {
-        "X-API-KEY": process.env.OUTSCRAPER_API_KEY,
-        "Accept": "application/json",
-      },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(`OUTSCRAPER_HTTP_${response.status}:${errorText.slice(0, 80)}`);
-    }
-
-    const data = await response.json();
-    const results: OutscraperBusiness[] = [];
-
-    const items = Array.isArray(data) ? data.flat() : data.data ? [].concat(...data.data) : [];
-
-    for (const item of items) {
-      if (!item || !item.name) continue;
-      results.push(parseOutscraperResult(item));
-    }
-
-    return results;
-  } catch (err) {
-    if ((err as any)?.name === "AbortError") throw new Error("OUTSCRAPER_TIMEOUT");
-    throw err;
-  }
+  // CRO03's legacy batch factory is permanently denied. New paid execution
+  // must enter through executeCro03cOutscraper with CRO03C authority.
+  throw new Error("CRO03_OUTSCRAPER_LEGACY_CONTEXT_DENIED");
 }
 
 export async function searchOutscraperByVerticalMetro(

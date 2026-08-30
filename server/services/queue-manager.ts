@@ -1,5 +1,6 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
 import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { getBullMqTestPrefix, getRedisConnection, type QueueMode } from "./queue-connection";
 import { storage } from "../storage";
 import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
@@ -37,6 +38,7 @@ export const QUEUE_NAMES = {
   DEAL_STAGE_EFFECTS: "deal-stage-effects",
   CHARGEBACK_COMMANDS: "chargeback-commands",
   CRO03A_QUALIFICATION: "cro03a-qualification",
+  CRO03C_LIVE: "cro03c-live",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -122,6 +124,13 @@ const SLA_CHECKS_REPEAT_EVERY_MS = IS_DEV
     : SLA_CHECKS_REPEAT_DEFAULT_MS;
 
 export const QUEUE_CONFIGS: QueueConfig[] = [
+  {
+    // Event-owned dispatcher. Recovery is a separate bounded named schedule,
+    // never a repeatable successor batch.
+    name: QUEUE_NAMES.CRO03C_LIVE,
+    concurrency: 1, attempts: 3, backoffDelay: 10_000,
+    repeatEveryMs: 0, jobName: "dispatch",
+  },
   {
     name: QUEUE_NAMES.CRO03A_QUALIFICATION,
     concurrency: 1, attempts: 3, backoffDelay: 10_000,
@@ -412,6 +421,14 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
  * same queue coexist safely.
  */
 const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
+  {
+    queueName: QUEUE_NAMES.CRO03C_LIVE,
+    jobName: "recover",
+    repeatEveryMs: parseInt(process.env.CRO03C_LIVE_RECOVERY_INTERVAL_MS ?? "", 10) > 0
+      ? parseInt(process.env.CRO03C_LIVE_RECOVERY_INTERVAL_MS!, 10)
+      : (IS_DEV ? 5 * 60 * 1000 : 15 * 60 * 1000),
+    jobId: "cro03c-live-recovery-repeatable",
+  },
   {
     queueName:    QUEUE_NAMES.POST_ENRICHMENT,
     jobName:      "post-enrichment-intent-recovery",
@@ -739,6 +756,8 @@ class QueueManager {
 
   private connection!: ConnectionOptions;
   private redisKeyPrefix: string | undefined;
+  private cro03cHeartbeatTimer: NodeJS.Timeout | null = null;
+  private cro03cHeartbeatKey: string | null = null;
 
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
 
@@ -764,6 +783,7 @@ class QueueManager {
     await this.setupWorkers();
     await this.setupRepeatableJobs();
     await this.cleanupStaleActiveJobs();
+    await this.startCro03cWorkerHeartbeat();
 
     // Emit structured startup topology log — no credentials, no PII, no Redis URLs.
     // Connection math (BullMQ v5 shared-client architecture):
@@ -812,6 +832,34 @@ class QueueManager {
     } else {
       console.log("[HealthMonitor] Startup provider sweep skipped in certification deny mode.");
     }
+  }
+
+  private async startCro03cWorkerHeartbeat(): Promise<void> {
+    const {
+      CRO03C_WORKER_HEARTBEAT_INTERVAL_MS,
+      createCro03cWorkerHeartbeat,
+      cro03cHeartbeatKey,
+      publishCro03cWorkerHeartbeat,
+    } = await import("./cro03/runtime-heartbeat");
+    const redis = this.connection as any;
+    const heartbeat = createCro03cWorkerHeartbeat({
+      releaseSha: process.env.RELEASE_SHA ?? "",
+      processIdentity: process.env.PROCESS_IDENTITY,
+      queueTopologyHash: getCro03cQueueTopologyHash(),
+    });
+    const publish = async () => {
+      await publishCro03cWorkerHeartbeat(redis, this.redisKeyPrefix, {
+        ...heartbeat,
+        timestamp: new Date().toISOString(),
+      });
+    };
+    await publish();
+    this.cro03cHeartbeatKey = cro03cHeartbeatKey(this.redisKeyPrefix, heartbeat.bootIdentity);
+    this.cro03cHeartbeatTimer = setInterval(() => {
+      publish().catch((error: Error) =>
+        console.error("[QueueManager] CRO03C worker heartbeat publish failed:", error.message));
+    }, CRO03C_WORKER_HEARTBEAT_INTERVAL_MS);
+    this.cro03cHeartbeatTimer.unref?.();
   }
 
   /**
@@ -1050,6 +1098,12 @@ class QueueManager {
       }
 
       switch (queueName) {
+        case QUEUE_NAMES.CRO03C_LIVE: {
+          const { dispatchCro03cLive, recoverCro03cLiveDispatches } = await import("./cro03/live-worker");
+          if (_job.name === "recover") await recoverCro03cLiveDispatches();
+          else await dispatchCro03cLive(typeof _job.data?.commandId === "string" ? _job.data.commandId : undefined);
+          break;
+        }
         case QUEUE_NAMES.CRO03A_QUALIFICATION: {
           const { processCro03aQualificationRunQueueSafe, recoverCro03aQualificationRunsQueueSafe } =
             await import("./cro03a/qualification-service");
@@ -2083,6 +2137,13 @@ class QueueManager {
   async shutdown(timeoutMs = parseInt(process.env.QUEUE_SHUTDOWN_TIMEOUT_MS ?? "7000")): Promise<void> {
     console.log("[QueueManager] Graceful shutdown — waiting for in-flight jobs...");
 
+    if (this.cro03cHeartbeatTimer) clearInterval(this.cro03cHeartbeatTimer);
+    this.cro03cHeartbeatTimer = null;
+    if (this.cro03cHeartbeatKey) {
+      await (this.connection as any).del(this.cro03cHeartbeatKey).catch(() => undefined);
+      this.cro03cHeartbeatKey = null;
+    }
+
     const workerCloses = Array.from(this.workers.values()).map(w =>
       Promise.race([
         w.close(),
@@ -2097,6 +2158,18 @@ class QueueManager {
 
     console.log("[QueueManager] All queues and workers shut down");
   }
+}
+
+export function getCro03cQueueTopologyHash(): string {
+  const topology = {
+    queues: QUEUE_CONFIGS.map(({ name, concurrency, attempts, backoffDelay, repeatEveryMs, cronPattern, jobName }) => ({
+      name, concurrency, attempts, backoffDelay, repeatEveryMs, cronPattern: cronPattern ?? null, jobName,
+    })).sort((a, b) => a.name.localeCompare(b.name)),
+    namedSchedules: NAMED_QUEUE_SCHEDULES.map(({ queueName, jobName, repeatEveryMs, cronPattern, jobId }) => ({
+      queueName, jobName, repeatEveryMs, cronPattern: cronPattern ?? null, jobId,
+    })).sort((a, b) => a.jobId.localeCompare(b.jobId)),
+  };
+  return createHash("sha256").update(JSON.stringify(topology)).digest("hex");
 }
 
 async function runGhlSyncTick(): Promise<void> {

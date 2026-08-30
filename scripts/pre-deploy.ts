@@ -205,6 +205,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Queue Compliance (logical dispatch ownership and worker initialization boundaries)",
+    script: "scripts/check-queue-compliance.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Compliance Scan (send-gate coverage)",
     script: "scripts/compliance-scan.ts",
     timeoutSecs: 120,
@@ -375,6 +380,32 @@ const MANDATORY_SUITES: Suite[] = [
   {
     name: "CRO-03B Unified Recipe, Admission, Arbitration, and Local Projection",
     script: "scripts/test-cro03b-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03C Governed Live Activation (provider denied)",
+    script: "scripts/test-cro03c-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03C Initial Continuation Bridge Contract",
+    script: "scripts/test-cro03c-initial-continuation-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03C Worker, Lease, and Safe-Egress Contract",
+    script: "scripts/test-cro03c-worker-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-03C Live Dispatch Durability (disposable PostgreSQL/Redis, provider-denied)",
+    script: "scripts/test-cro03c-integration.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "CRO-03C Provider Executor Hardening (Apollo fail-closed, prompt authority, redacted receipts)",
+    script: "scripts/test-cro03c-provider-executors.ts",
     timeoutSecs: 60,
   },
   {

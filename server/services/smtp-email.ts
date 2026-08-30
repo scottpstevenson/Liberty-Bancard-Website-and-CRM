@@ -4,6 +4,7 @@ import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./s
 import type { MessageCategory } from "./sender-policy";
 import { getCommercialComplianceConfig, renderEmailPartsForPurpose } from "./can-spam-footer";
 import { redactToken } from "./audit-sanitizer";
+import { denyCro03cForbiddenEffect } from "./cro03/cro03c-effect-fence";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -129,6 +130,9 @@ export async function sendSmtpEmail(params: {
   inboundRequestId?: string;
   intendedRecipientContactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  // CRO-03C initial-batch continuations are evidence-only. This is a canonical
+  // SMTP boundary, so an inherited fence records and terminalizes the attempt.
+  await denyCro03cForbiddenEffect("smtp_email");
   const isCommercial = params.category === "cold_outreach" || params.commercialPurpose === "marketing_outreach";
   let rendered;
   try {

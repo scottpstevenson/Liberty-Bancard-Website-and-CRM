@@ -28,6 +28,7 @@ export async function resolveOrganization(input: {
   city?: string | null;
   state?: string | null;
   create?: Omit<InsertBusiness, "canonicalName" | "normalizedName" | "websiteDomain" | "googlePlaceId" | "mainPhone">;
+  authorityCheck?: (tx: any) => Promise<boolean>;
 }): Promise<OrganizationResolution> {
   const domain = normal(input.websiteDomain);
   const placeId = input.googlePlaceId?.trim() || null;
@@ -44,6 +45,9 @@ export async function resolveOrganization(input: {
   if (lockKeys.length === 0) return { kind: "deferred", reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE", candidateIds: [] };
 
   return db.transaction(async (tx) => {
+    if (input.authorityCheck && !(await input.authorityCheck(tx))) {
+      throw new Error("ORGANIZATION_RESOLUTION_AUTHORITY_FENCE_LOST");
+    }
     // Acquire every supplied strong-evidence lock in a stable order. A domain
     // lookup and a place-ID lookup for the same incoming organization therefore
     // serialize instead of creating two rows through different "strongest"
@@ -81,6 +85,9 @@ export async function resolveOrganization(input: {
     }
     if (candidates.length > 1) {
       return { kind: "deferred", reasonCode: "AMBIGUOUS_ORGANIZATION_MATCH", candidateIds: candidates.map((row) => row.id) };
+    }
+    if (input.authorityCheck && !(await input.authorityCheck(tx))) {
+      throw new Error("ORGANIZATION_RESOLUTION_AUTHORITY_FENCE_LOST");
     }
     const [business] = await tx.insert(businesses).values({
       canonicalName: input.canonicalName,

@@ -65,6 +65,7 @@ export async function recordContactBusinessLinkCandidate(input: {
 export async function decideContactBusinessLink(input: {
   contactId: number; businessId?: number | null; decision: LinkDecision; decisionKey: string;
   reviewerId: string; evidenceSourceEventId?: number | null; expectedRevision?: number;
+  authorityCheck?: (tx: any) => Promise<boolean>;
 }) {
   if (requiresBusiness(input.decision) !== Boolean(input.businessId)) {
     throw new Error("COMMERCIAL_LINK_DECISION_BUSINESS_MISMATCH");
@@ -72,6 +73,9 @@ export async function decideContactBusinessLink(input: {
   if (!input.reviewerId) throw new Error("COMMERCIAL_LINK_REVIEWER_REQUIRED");
   if (input.decision === "verified" && !input.evidenceSourceEventId) throw new Error("COMMERCIAL_LINK_EVIDENCE_REQUIRED");
   return db.transaction(async (tx) => {
+    if (input.authorityCheck && !(await input.authorityCheck(tx))) {
+      throw new Error("COMMERCIAL_LINK_AUTHORITY_FENCE_LOST");
+    }
     const reviewer = (await tx.execute(sql`SELECT role FROM users WHERE id=${input.reviewerId}`) as any).rows?.[0];
     if (!reviewer || reviewer.role !== "admin") throw new Error("COMMERCIAL_LINK_REVIEWER_ROLE_INVALID");
     const contactNode: CommercialGraphNode = { type: "contact", id: input.contactId };
@@ -108,6 +112,9 @@ export async function decideContactBusinessLink(input: {
       }
     }
     const current = (await tx.execute(sql`SELECT * FROM contact_business_link_decisions WHERE contact_id=${input.contactId} AND superseded_at IS NULL FOR UPDATE`) as any).rows?.[0];
+    if (input.authorityCheck && !(await input.authorityCheck(tx))) {
+      throw new Error("COMMERCIAL_LINK_AUTHORITY_FENCE_LOST");
+    }
     if (input.expectedRevision !== undefined && (current?.revision ?? 0) !== input.expectedRevision) throw new CommercialRevisionConflict();
     if (current) await tx.execute(sql`UPDATE contact_business_link_decisions SET superseded_at=now() WHERE id=${current.id}`);
     const revision = (current?.revision ?? 0) + 1;

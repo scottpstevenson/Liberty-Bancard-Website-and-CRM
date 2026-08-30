@@ -945,14 +945,15 @@ export function registerInboxRoutes(app: Express) {
           }
         }
 
-        // ── Pause authority gate (transport boundary) ─────────────────────────
+        // ── Dual outbound gate (transport boundary) ───────────────────────────
         // Required ordering (prevents pause-activation race):
         //   1. authorize()         — check current state
         //   2. registerInflight()  — hold the token so the activation barrier
         //                            counts us; drain waits for us before pausing
         //   3. recheckEpoch()      — verify epoch unchanged after we hold the token
-        //   4. ghlFetch()          — network I/O (the actual send)
-        //   5. deregisterInflight() — release in finally
+        //   4. coordinator.canExecute() — check logical holds (fail closed)
+        //   5. ghlFetch()          — network I/O (the actual send)
+        //   6. deregisterInflight() — release in finally
         //
         // Placing recheckEpoch() AFTER registerInflight() closes the race window
         // where a pause could commit between check and hold with no token visible.
@@ -960,6 +961,7 @@ export function registerInboxRoutes(app: Express) {
         try {
           const { authorize, recheckEpoch } = await import("../services/outbound-pause-authority");
           const { registerInflight, deregisterInflight } = await import("../services/outbound-control-service");
+          const { canExecute } = await import("../services/outbound-queue-coordinator");
 
           // Step 1: authorize
           const pauseDecision = await authorize({});
@@ -978,13 +980,20 @@ export function registerInboxRoutes(app: Express) {
               return res.status(503).json({ message: "Outbound paused: epoch changed before send" });
             }
 
-            // Step 4: network I/O
+            // Step 4: canonical logical-hold check immediately before the effect.
+            // canExecute fails closed on coordinator/DB errors.
+            const coordinatorAllowed = await canExecute("inbox-reply");
+            if (!coordinatorAllowed) {
+              return res.status(503).json({ message: "Outbound paused: coordinator hold active for inbox-reply" });
+            }
+
+            // Step 5: network I/O
             sendResult = await ghlFetch("/conversations/messages", {
               method: "POST",
               body: JSON.stringify(ghlPayload),
             });
           } finally {
-            // Step 5: always deregister, even on error or early return
+            // Step 6: always deregister, even on error or early return
             deregisterInflight(inflightToken);
           }
           ghlMessageId = sendResult?.messageId || sendResult?.id || null;
@@ -1347,8 +1356,6 @@ export function registerInboxRoutes(app: Express) {
         });
       }
 
-      const { sendSmtpEmail } = await import("../services/smtp-email");
-
       let deliveryOutcome: "sent" | "blocked" | "failed" | "not_configured" = "sent";
       let deliveryError: string | null = null;
 
@@ -1356,13 +1363,32 @@ export function registerInboxRoutes(app: Express) {
       // { success: false } (does not throw) when pause-blocked or unconfigured.
       let smtpResult: { success: boolean; error?: string };
       try {
-        smtpResult = await sendSmtpEmail({
-          to: contact.email,
-          subject: subject || `Re: Your inquiry`,
-          html: replyBody.replace(/\n/g, "<br>"),
-          category: "support",
-          contactId,
-        });
+        // Route-level dual gate immediately before dispatch. sendSmtpEmail also
+        // retains its transport-boundary authority/epoch gate; this coordinator
+        // check adds the independent logical-hold boundary without owning a queue.
+        const { authorize } = await import("../services/outbound-pause-authority");
+        const { canExecute } = await import("../services/outbound-queue-coordinator");
+        const pauseDecision = await authorize({});
+        const coordinatorAllowed = pauseDecision.allowed
+          ? await canExecute("inbox-reply")
+          : false;
+        if (!pauseDecision.allowed || !coordinatorAllowed) {
+          smtpResult = {
+            success: false,
+            error: !pauseDecision.allowed
+              ? `Outbound paused: ${pauseDecision.reasonCode}`
+              : "Outbound paused: coordinator hold active for inbox-reply",
+          };
+        } else {
+          const { sendSmtpEmail } = await import("../services/smtp-email");
+          smtpResult = await sendSmtpEmail({
+            to: contact.email,
+            subject: subject || `Re: Your inquiry`,
+            html: replyBody.replace(/\n/g, "<br>"),
+            category: "support",
+            contactId,
+          });
+        }
       } catch (smtpErr: any) {
         smtpResult = { success: false, error: smtpErr.message || "SMTP delivery failed" };
       }

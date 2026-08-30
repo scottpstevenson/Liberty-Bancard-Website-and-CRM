@@ -3,8 +3,14 @@ import { assertProviderActivation } from "../provider-manifest";
 import {
   assertCurrentWorkerContext, type Cro03WorkerProviderContext,
 } from "../cro03/provider-context";
+import {
+  assertCro03cAuthorityBeforeIo,
+  assertCro03cLiveContext,
+  type Cro03cLiveProviderContext,
+} from "../cro03/live-execution";
 
 const APOLLO_API_URL = "https://api.apollo.io/v1";
+const CRO03C_APOLLO_CALLER = "server/services/cro03/live-provider-executors.ts";
 
 export interface ApolloBusiness {
   name: string;
@@ -72,6 +78,34 @@ export type ApolloOrganizationResolution =
   | ApolloOrganizationResolutionAmbiguous;
 
 export type ApolloFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/** A response-safe projection: provider payloads are never durable evidence. */
+export type ApolloRedactedBusiness = Omit<ApolloBusiness, "rawData">;
+
+export interface ApolloCreditCertainty {
+  certainty: "exact" | "unknown";
+  /** Present only where Apollo explicitly reported an unambiguous credit count. */
+  creditedUnits?: number;
+  providerReference?: string;
+}
+
+export type Cro03cApolloExecution =
+  | {
+    outcome: "success";
+    organizationId: string;
+    organization: ApolloRedactedBusiness;
+    people: ApolloRedactedBusiness[];
+    billing: ApolloCreditCertainty & { certainty: "exact"; creditedUnits: number };
+  }
+  | {
+    outcome: "no_result";
+    billing: ApolloCreditCertainty & { certainty: "exact"; creditedUnits: number };
+  }
+  | {
+    /** A received response whose credit cost cannot be proven is quarantined. */
+    outcome: "ambiguous";
+    billing: ApolloCreditCertainty;
+  };
 
 interface ApolloUsageStats {
   totalCalls: number;
@@ -252,6 +286,193 @@ async function postApollo(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function redactedApolloBusiness(value: ApolloBusiness): ApolloRedactedBusiness {
+  const { rawData: _rawData, ...evidence } = value;
+  return evidence;
+}
+
+function exactNonNegativeInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  if (typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * Apollo does not publish one universal credit receipt field. Only these
+ * explicit receipt fields count; rate-limit headers and inferred result counts
+ * deliberately do not. Conflicting receipts are not exact billing evidence.
+ */
+function apolloCreditReceipt(response: Response, body: Record<string, any>): ApolloCreditCertainty {
+  const values: number[] = [];
+  for (const header of ["x-apollo-credits-used", "x-credits-used", "x-credit-cost"]) {
+    const value = response.headers.get(header);
+    if (value !== null) {
+      const parsed = exactNonNegativeInteger(value);
+      if (parsed === null) return { certainty: "unknown" };
+      values.push(parsed);
+    }
+  }
+  for (const key of ["credits_used", "creditsUsed", "credit_cost", "creditCost"]) {
+    if (body[key] !== undefined) {
+      const parsed = exactNonNegativeInteger(body[key]);
+      if (parsed === null) return { certainty: "unknown" };
+      values.push(parsed);
+    }
+  }
+  const providerReference = response.headers.get("x-request-id")
+    ?? response.headers.get("x-apollo-request-id")
+    ?? (typeof body.request_id === "string" ? body.request_id : undefined);
+  if (values.length === 0 || values.some((value) => value !== values[0])) {
+    return { certainty: "unknown", providerReference };
+  }
+  return { certainty: "exact", creditedUnits: values[0], providerReference };
+}
+
+async function postApolloForCro03c(
+  context: Cro03cLiveProviderContext,
+  path: string,
+  body: Record<string, unknown>,
+  fetchOverride: ApolloFetch,
+): Promise<{ body: Record<string, any>; billing: ApolloCreditCertainty; ok: boolean }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    // Keep this adjacent to fetch: authority is checked for each individual
+    // request, including each frozen-identity query and the people lookup.
+    await assertCro03cAuthorityBeforeIo(context);
+    const response = await fetchOverride(`${APOLLO_API_URL}${path}`, {
+      method: "POST", headers: apolloHeaders(), body: JSON.stringify(body), signal: controller.signal,
+    });
+    let responseBody: Record<string, any>;
+    try {
+      const parsed = await response.json();
+      responseBody = parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      responseBody = {};
+    }
+    return { body: responseBody, billing: apolloCreditReceipt(response, responseBody), ok: response.ok };
+  } catch (err: any) {
+    if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Canonical CRO03C Apollo entrypoint. It intentionally does not accept the
+ * legacy worker context. The only caller may provide an injected transport for
+ * deterministic tests; production supplies the global fetch explicitly.
+ */
+export async function executeApolloForCro03c(
+  context: Cro03cLiveProviderContext,
+  frozenIdentity: Readonly<ApolloFrozenOrganizationIdentity>,
+  resultCap: number,
+  fetchOverride: ApolloFetch,
+): Promise<Cro03cApolloExecution> {
+  if (!context || context.kind !== "cro03c_live" || context.provider !== "apollo") {
+    throw new Error("CRO03C_PROVIDER_CONTEXT_REQUIRED");
+  }
+  assertCro03cLiveContext(context);
+  // The CRO03C authority check below is the paid approval; retain the manifest
+  // caller gate rather than creating a parallel Apollo activation path.
+  assertProviderActivation({
+    sourceId: "apollo", caller: context.caller, explicitPaidApproval: true,
+  });
+  if (context.caller !== CRO03C_APOLLO_CALLER) throw new Error("CRO03C_PROVIDER_CONTEXT_DENIED");
+  if (!Object.isFrozen(frozenIdentity)) throw new Error("CRO03C_INPUT_NOT_FROZEN");
+  if (!Number.isInteger(resultCap) || resultCap < 0 || resultCap > 100) {
+    throw new Error("CRO03C_RESULT_CAP_INVALID");
+  }
+  if (!fetchOverride) throw new Error("APOLLO_FETCH_OVERRIDE_REQUIRED");
+  if (resultCap === 0 || !process.env.APOLLO_API_KEY) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+  }
+
+  const identity = normalizedFrozenIdentity(frozenIdentity);
+  if (!identity.domain && !identity.legalName && !identity.dbaName) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+  }
+
+  await acquireToken();
+  const queries: Record<string, unknown>[] = [];
+  if (identity.domain) queries.push({ q_organization_domains: [identity.domain] });
+  if (identity.legalName) queries.push({ q_organization_name: identity.legalName });
+  if (identity.dbaName && identity.dbaName !== identity.legalName) queries.push({ q_organization_name: identity.dbaName });
+  const organizations = new Map<string, Record<string, any>>();
+  let creditedUnits = 0;
+  let providerReference: string | undefined;
+  for (const query of queries) {
+    // Apollo can bill returned results. Bound each individual request to the
+    // operation's *remaining* worst-case units before it leaves the process;
+    // do not issue a full-size second/third lookup and discover the aggregate
+    // cap only from its receipt afterwards.
+    const remainingUnits = resultCap - creditedUnits;
+    if (remainingUnits < 1) break;
+    const response = await postApolloForCro03c(context, "/organizations/search", {
+      ...query,
+      ...(frozenIdentity.city || frozenIdentity.state
+        ? { organization_locations: [`${frozenIdentity.city?.trim() ?? ""}${frozenIdentity.city && frozenIdentity.state ? ", " : ""}${frozenIdentity.state?.trim() ?? ""}`] }
+        : {}),
+      page: 1, per_page: Math.min(resultCap, remainingUnits),
+    }, fetchOverride);
+    const responseCredits = response.billing.creditedUnits;
+    if (!response.ok || response.billing.certainty !== "exact" || responseCredits === undefined) {
+      return { outcome: "ambiguous", billing: response.billing };
+    }
+    creditedUnits += responseCredits;
+    providerReference ??= response.billing.providerReference;
+    for (const raw of Array.isArray(response.body.organizations) ? response.body.organizations : []) {
+      const id = raw && typeof raw === "object" ? organizationId(raw) : null;
+      if (id) organizations.set(id, raw);
+    }
+  }
+  const alternatives = [...organizations.values()].filter((raw) => isExactFrozenOrganizationMatch(raw, identity));
+  if (alternatives.length === 0) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits, providerReference } };
+  }
+  if (alternatives.length !== 1) {
+    return { outcome: "ambiguous", billing: { certainty: "exact", creditedUnits, providerReference } };
+  }
+  const selected = alternatives[0];
+  const selectedId = organizationId(selected)!;
+  const remainingUnits = resultCap - creditedUnits;
+  // Organization resolution is still a successful, bounded operation when
+  // its reservation is exhausted. A people request would be new paid I/O and
+  // is therefore prohibited rather than sent optimistically.
+  if (remainingUnits < 1) {
+    return {
+      outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
+      people: [], billing: { certainty: "exact", creditedUnits, providerReference },
+    };
+  }
+  const peopleResponse = await postApolloForCro03c(context, "/mixed_people/search", {
+    organization_ids: [selectedId], page: 1, per_page: Math.min(resultCap, remainingUnits),
+  }, fetchOverride);
+  const peopleCredits = peopleResponse.billing.creditedUnits;
+  if (!peopleResponse.ok || peopleResponse.billing.certainty !== "exact" || peopleCredits === undefined) {
+    return {
+      outcome: "ambiguous",
+      billing: peopleResponse.billing.certainty === "exact"
+        ? peopleResponse.billing
+        : { certainty: "unknown", providerReference: peopleResponse.billing.providerReference ?? providerReference },
+    };
+  }
+  creditedUnits += peopleCredits;
+  providerReference ??= peopleResponse.billing.providerReference;
+  const people = (Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [])
+    .filter((person: Record<string, any>) => organizationId(person.organization || person) === selectedId)
+    .slice(0, resultCap)
+    .map((person: Record<string, any>) => redactedApolloBusiness(parseApolloPerson(person)));
+  return {
+    outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
+    people, billing: { certainty: "exact", creditedUnits, providerReference },
+  };
 }
 
 /**

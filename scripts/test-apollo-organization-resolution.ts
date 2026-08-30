@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import {
+  executeApolloForCro03c,
   resolveApolloOrganizationForCro03Worker,
   resolveApolloOrganizationForFrozenIdentity,
   type ApolloFetch,
@@ -99,5 +100,23 @@ try {
 } finally {
   globalThis.fetch = originalFetch;
 }
+
+// The CRO03C entry rejects a legacy context before its injected transport can
+// be reached. This remains a network-free regression check for the hard
+// authority boundary.
+let cro03cTransportCalls = 0;
+await assert.rejects(
+  () => executeApolloForCro03c(
+    { kind: "cro03_worker", provider: "apollo" } as any,
+    Object.freeze({ domain: "acmepay.test" }),
+    1,
+    async () => {
+      cro03cTransportCalls++;
+      throw new Error("CRO03C transport must not be reached");
+    },
+  ),
+  /CRO03C_PROVIDER_CONTEXT_REQUIRED/,
+);
+assert.equal(cro03cTransportCalls, 0);
 
 console.log("Apollo organization resolution checks passed.");

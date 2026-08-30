@@ -23,6 +23,7 @@ import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./con
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
 import { eq, sql } from "drizzle-orm";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness } from "./go-live-gate";
+import { canExecute } from "./outbound-queue-coordinator";
 
 const CONTACT_PROJECTION_MAX_ATTEMPTS = 8;
 
@@ -297,6 +298,12 @@ async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigi
     "Version": "2021-07-28",
     ...(options.headers as Record<string, string> || {}),
   };
+  if (GHL_MUTATION_METHODS.has(method)) {
+    const coordinatorAllowed = await canExecute("ghl-sync");
+    if (!coordinatorAllowed) {
+      throw new Error(`GHL mutation blocked by outbound queue coordinator (${method} ${path.split("?")[0]})`);
+    }
+  }
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");

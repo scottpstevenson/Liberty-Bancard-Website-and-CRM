@@ -6,6 +6,8 @@ import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { renderEmailHtmlForPurpose } from "./can-spam-footer";
 import { isValidEmail } from "./contact-readiness";
 import { applyConsentCommand } from "./consent-authority";
+import { denyCro03cForbiddenEffect } from "./cro03/cro03c-effect-fence";
+import { canExecute } from "./outbound-queue-coordinator";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -102,6 +104,14 @@ async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), GHL_REQUEST_TIMEOUT_MS);
     try {
+      if (GHL_MUTATION_METHODS.has(method)) {
+        const coordinatorAllowed = await canExecute("ghl-sync");
+        if (!coordinatorAllowed) {
+          throw new Error(
+            `[GHL] Outbound blocked by queue coordinator (${method} ${path.split("?")[0]})`,
+          );
+        }
+      }
       const response = await fetch(url, { ...fetchOptions, headers, signal: controller.signal });
       clearTimeout(timeoutId);
 
@@ -440,6 +450,7 @@ async function writeInvalidContactSkipAudit(contactId: number | null, reason: st
  * known email-validation 422s from GHL into sanitized terminal skips.
  */
 export async function upsertGhlContact(contact: GhlContactInput): Promise<string> {
+  await denyCro03cForbiddenEffect("ghl_mutation");
   const identity = validateGhlIdentityFields({ email: contact.email, phone: contact.phone });
   if (!identity.ok) {
     console.warn(`[GHL] Contact ${contact.id || "(new)"} skipped — no usable identity fields (invalid email, no valid phone)`);
@@ -791,6 +802,7 @@ export async function sendGhlEmail(params: {
   inboundRequestId?: string;
   intendedRecipientContactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  await denyCro03cForbiddenEffect("email");
   // ── Unavoidable commercial-classification gate (transport boundary) ───────
   try {
     const { authorizeCommercialUse } = await import("./commercial-resolution");
@@ -1087,6 +1099,7 @@ export async function sendGhlSms(params: {
   inboundRequestId?: string;
   intendedRecipientContactId?: number;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  await denyCro03cForbiddenEffect("sms");
   // ── Unavoidable commercial-classification gate (transport boundary) ───────
   try {
     const { authorizeCommercialUse } = await import("./commercial-resolution");

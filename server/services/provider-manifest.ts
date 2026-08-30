@@ -151,7 +151,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "zerobounce", capability: ["email_validation"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/zerobounce.ts"],
-    approvedCallers: ["server/services/zerobounce-campaign-worker.ts"], secretNames: ["ZEROBOUNCE_API_KEY"],
+    approvedCallers: ["server/services/zerobounce-campaign-worker.ts", "server/services/cro03/live-provider-executors.ts"], secretNames: ["ZEROBOUNCE_API_KEY"],
     durableOperation: "batch", budget: { required: true, accounting: "control_row", unit: "request" },
     timeoutMs: 10_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["email"], redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT,
@@ -160,7 +160,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "serper", capability: ["business_discovery", "directory_lookup"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/serper-gateway.ts"],
-    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts"],
+    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts"],
     secretNames: ["SERPER_API_KEY"], durableOperation: "request",
     budget: { required: true, accounting: "control_row", unit: "request" }, timeoutMs: 15_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
@@ -171,7 +171,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "outscraper", capability: ["business_discovery"], billing: "paid_per_result", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/outscraper.ts"],
-    approvedCallers: ["server/services/cro03/enrichment-factory.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
+    approvedCallers: ["server/services/cro03/live-provider-executors.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
     durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
     timeoutMs: 60_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category"],
@@ -190,7 +190,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "apollo", capability: ["business_discovery", "contact_enrichment"], billing: "paid_subscription", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/apollo.ts"],
-    approvedCallers: ["server/services/cro03/enrichment-factory.ts"], secretNames: ["APOLLO_API_KEY"],
+    approvedCallers: ["server/services/cro03/live-provider-executors.ts"], secretNames: ["APOLLO_API_KEY"],
     durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
     timeoutMs: 30_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],
@@ -216,7 +216,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "first_party_web", capability: ["website_parsing"], billing: "free", parser: "html_parser",
     activationPolicy: "free", approvedAdapters: ["server/services/sdr/contactpage-enrichment.ts", "server/services/sunbiz-enrichment.ts"],
-    approvedCallers: ["server/services/sdr/lead-finder.ts"], secretNames: [], durableOperation: "request",
+    approvedCallers: ["server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/live-safe-egress.ts"], secretNames: [], durableOperation: "request",
     budget: { required: false, accounting: "none", unit: "none" }, timeoutMs: 6_000, retry: TRANSIENT_RETRY,
     normalizedOutcomes: STANDARD_OUTCOMES, candidateFields: ["website", "email", "phone", "address"],
     redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Only the business's own public site; cap body size and redirects.",
@@ -238,14 +238,14 @@ export const PROVIDER_SOURCE_MANIFEST = [
   },
   {
     id: "rdap", capability: ["domain_registration_lookup"], billing: "free", parser: "rdap", activationPolicy: "free",
-    approvedAdapters: ["server/services/sdr/rdap-enrichment.ts"], approvedCallers: ["server/services/sdr/contactpage-enrichment.ts"],
+    approvedAdapters: ["server/services/sdr/rdap-enrichment.ts"], approvedCallers: ["server/services/sdr/contactpage-enrichment.ts", "server/services/cro03/live-execution.ts"],
     secretNames: [], durableOperation: "request", budget: { required: false, accounting: "none", unit: "none" }, timeoutMs: 10_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES, candidateFields: ["website", "domain_registrant"],
     redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Registrant data is sensitive and must not be used as a contact fallback.",
   },
   {
     id: "jsonld", capability: ["structured_data_parsing"], billing: "free", parser: "json_parser", activationPolicy: "free",
-    approvedAdapters: ["server/services/sdr/jsonld-enrichment.ts"], approvedCallers: ["server/services/sdr/contactpage-enrichment.ts"],
+    approvedAdapters: ["server/services/sdr/jsonld-enrichment.ts"], approvedCallers: ["server/services/sdr/contactpage-enrichment.ts", "server/services/cro03/live-execution.ts"],
     secretNames: [], durableOperation: "none", budget: { required: false, accounting: "none", unit: "none" }, timeoutMs: null,
     retry: NO_RETRY, normalizedOutcomes: STANDARD_OUTCOMES, candidateFields: ["business_name", "website", "email", "phone", "address", "category"],
     redaction: STANDARD_REDACTION, testTransport: NO_TRANSPORT, notes: "Parser only; it operates on an already-authorized first-party page body.",
@@ -253,7 +253,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "openai_classification", capability: ["classification"], billing: "paid_per_call", parser: "llm",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sunbiz-enrichment.ts"],
-    approvedCallers: ["server/services/sunbiz-enrichment.ts"], secretNames: ["AI_INTEGRATIONS_OPENAI_API_KEY"],
+    approvedCallers: ["server/services/sunbiz-enrichment.ts", "server/services/cro03/live-provider-executors.ts"], secretNames: ["AI_INTEGRATIONS_OPENAI_API_KEY"],
     durableOperation: "queue_job", budget: { required: true, accounting: "ai_audit", unit: "token" }, timeoutMs: 30_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES, candidateFields: ["classification", "summary", "owner_name"],
     redaction: STANDARD_REDACTION,

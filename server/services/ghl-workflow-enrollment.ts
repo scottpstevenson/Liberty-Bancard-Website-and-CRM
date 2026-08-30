@@ -38,6 +38,7 @@ import {
 import { createPreferenceAwareNotification } from "./digest-service";
 import { getWorkflowEnvValue } from "./ghl-workflows";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
+import { denyCro03cForbiddenEffect } from "./cro03/cro03c-effect-fence";
 
 const SALES_CALENDAR = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
 const AM_CALENDAR = "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";
@@ -365,6 +366,7 @@ export async function enrollContactInGhlWorkflow(params: {
    */
   outboundChannels?: Array<import("./contactability").ContactabilityChannel>;
 }): Promise<GhlEnrollmentResult> {
+  await denyCro03cForbiddenEffect("sequence_enrollment");
   const { contactId, sequenceName, sequenceId, vertical, dealId } = params;
 
   const contact = await storage.getContact(contactId);

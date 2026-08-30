@@ -52,6 +52,9 @@ export type BacklogSource =
   | "promotional_enrollment_jobs"
   | "post_enrichment_enrollment_intents"
   | "statement_upload_commands"
+  | "deal_stage_effect_intents"
+  | "chargeback_submission_commands"
+  | "cro03a_qualification_runs"
   | "none";
 
 // ---------------------------------------------------------------------------
@@ -91,6 +94,72 @@ export interface ManifestEntry {
 // ---------------------------------------------------------------------------
 
 export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
+  {
+    logicalKey: "cro03c-live-dispatch",
+    physicalQueue: QUEUE_NAMES.CRO03C_LIVE,
+    jobNamePattern: "dispatch",
+    handler: "CRO-03C governed live command dispatch",
+    owner: "cro03/live-worker.dispatchCro03cLive",
+    effect: "external_data_sync",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "bullmq",
+    releaseController: "cro03c_activation_policy",
+  },
+  {
+    logicalKey: "cro03c-live-recovery",
+    physicalQueue: QUEUE_NAMES.CRO03C_LIVE,
+    jobNamePattern: "recover",
+    handler: "CRO-03C expired-lease and queued-generation recovery",
+    owner: "cro03/live-worker.recoverCro03cLiveDispatches",
+    effect: "external_data_sync",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "bullmq",
+    releaseController: "cro03c_activation_policy",
+  },
+  {
+    logicalKey: "cro03a-qualification-run",
+    physicalQueue: QUEUE_NAMES.CRO03A_QUALIFICATION,
+    jobNamePattern: "run",
+    handler: "CRO-03A frozen-policy candidate qualification run",
+    owner: "cro03a/qualification-service.processCro03aQualificationRunQueueSafe",
+    effect: "infrastructure",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "cro03a_qualification_runs",
+    releaseController: null,
+  },
+  {
+    logicalKey: "cro03a-qualification-recovery",
+    physicalQueue: QUEUE_NAMES.CRO03A_QUALIFICATION,
+    jobNamePattern: "recover",
+    handler: "CRO-03A queued-run and expired item-lease recovery sweep",
+    owner: "cro03a/qualification-service.recoverCro03aQualificationRunsQueueSafe",
+    effect: "infrastructure",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "cro03a_qualification_runs",
+    releaseController: null,
+  },
+  {
+    logicalKey: "deal-stage-effects",
+    physicalQueue: QUEUE_NAMES.DEAL_STAGE_EFFECTS,
+    jobNamePattern: "dispatch",
+    handler: "Durable deal-stage material effect intent dispatch and expired-lease recovery",
+    owner: "deal-stage-effect-worker.dispatchDealStageEffectIntents",
+    effect: "transactional_external",
+    canRunWhileGlobalOutboundPaused: false,
+    backlogSource: "deal_stage_effect_intents",
+    releaseController: "deal-stage-effect-worker",
+  },
+  {
+    logicalKey: "chargeback-commands",
+    physicalQueue: QUEUE_NAMES.CHARGEBACK_COMMANDS,
+    jobNamePattern: "dispatch",
+    handler: "Durable chargeback provider submission dispatch and reconciliation-safe recovery",
+    owner: "chargeback-submission-service.recoverChargebackSubmissionCommands",
+    effect: "transactional_external",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "chargeback_submission_commands",
+    releaseController: "chargeback-submission-service",
+  },
   {
     logicalKey: "statement-upload-command",
     physicalQueue: QUEUE_NAMES.STATEMENT_UPLOAD,
@@ -619,6 +688,17 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     canRunWhileGlobalOutboundPaused: true,
     backlogSource: "none",
     releaseController: null,
+  },
+  {
+    logicalKey: "inbox-reply",
+    physicalQueue: "non_bullmq",
+    jobNamePattern: "inbox-reply",
+    handler: "User-initiated inbox reply dispatch via GHL or SMTP",
+    owner: "inbox-routes",
+    effect: "lifecycle_send",
+    canRunWhileGlobalOutboundPaused: false,
+    backlogSource: "none",
+    releaseController: "OutboundQueueCoordinator",
   },
   {
     logicalKey: "sdr-orchestrator",

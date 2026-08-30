@@ -1014,6 +1014,355 @@ export const validationIntents = pgTable("validation_intents", {
   index("validation_intents_claim_schema_idx").on(table.state, table.nextAttemptAt, table.leaseExpiresAt),
 ]);
 
+// CRO-03C governed live execution authority is deliberately separate from the
+// immutable CRO-03B denied-generation records.
+export type Cro03cBillingSemantics = "not_billable" | "per_unit_no_result_free" | "per_unit_no_result_billable";
+export interface Cro03cPriceScheduleRecord {
+  version: number;
+  unitType: string;
+  currency: string;
+  amountMicros: number;
+  billingSemantics: Cro03cBillingSemantics;
+}
+export interface Cro03cApprovalEvidenceRecord {
+  approvalId: string;
+  version: number;
+  approvedBy: string;
+  approvedAt: string;
+  scopeHash: string;
+}
+export const cro03cApprovalReceipts = pgTable("cro03c_approval_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  dimension: text("dimension").notNull(),
+  issuerId: text("issuer_id").notNull(),
+  issuerReceiptId: text("issuer_receipt_id").notNull(),
+  scope: jsonb("scope").notNull(),
+  scopeHash: text("scope_hash").notNull(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  signature: text("signature").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_approval_receipt_issuer_uidx").on(table.dimension, table.issuerId, table.issuerReceiptId)]);
+export const cro03cApprovalReceiptRevocations = pgTable("cro03c_approval_receipt_revocations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  receiptId: uuid("receipt_id").notNull().unique().references(() => cro03cApprovalReceipts.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  reason: text("reason").notNull(),
+  revokedBy: text("revoked_by").notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const cro03cDeploymentInventories = pgTable("cro03c_deployment_inventories", {
+  id: uuid("id").primaryKey(),
+  issuerId: text("issuer_id").notNull(),
+  deploymentIdentity: text("deployment_identity").notNull(),
+  environmentIdentity: text("environment_identity").notNull(),
+  releaseSha: text("release_sha").notNull(),
+  queueTopologyHash: text("queue_topology_hash").notNull(),
+  identityKind: text("identity_kind").notNull(),
+  workerIdentities: jsonb("worker_identities").$type<string[]>().notNull(),
+  expectedCount: integer("expected_count").notNull(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  payload: jsonb("payload").notNull(),
+  payloadHash: text("payload_hash").notNull().unique(),
+  signature: text("signature").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const cro03cDeploymentInventoryRevocations = pgTable("cro03c_deployment_inventory_revocations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  inventoryId: uuid("inventory_id").notNull().unique().references(() => cro03cDeploymentInventories.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  reason: text("reason").notNull(),
+  revokedBy: text("revoked_by").notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const cro03cActivationPolicies = pgTable("cro03c_activation_policies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  policyKey: text("policy_key").notNull(),
+  version: integer("version").notNull(),
+  policy: jsonb("policy").notNull(),
+  policyHash: text("policy_hash").notNull(),
+  // Immutable, versioned authority artifacts. Request schemas must never
+  // accept these fields from the browser.
+  priceSchedules: jsonb("price_schedules").$type<Record<string, Cro03cPriceScheduleRecord>>().notNull().default({}),
+  requiredApprovals: jsonb("required_approvals").$type<Record<string, Cro03cApprovalEvidenceRecord>>().notNull(),
+  status: text("status").notNull().default("draft"),
+  expectedRevision: integer("expected_revision").notNull().default(0),
+  reason: text("reason").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_activation_policy_identity_uidx").on(table.policyKey, table.version)]);
+
+export const cro03cRuntimeAttestations = pgTable("cro03c_runtime_attestations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  inventoryId: uuid("inventory_id").notNull().references(() => cro03cDeploymentInventories.id, { onDelete: "restrict" }),
+  workerIdentities: jsonb("worker_identities").$type<string[]>().notNull(),
+  artifactSha: text("artifact_sha").notNull(),
+  migrationHead: text("migration_head").notNull(),
+  deploymentIdentity: text("deployment_identity").notNull(),
+  environmentIdentity: text("environment_identity").notNull(),
+  webBootIdentity: text("web_boot_identity").notNull(),
+  workerBootIdentity: text("worker_boot_identity").notNull(),
+  queueTopologyHash: text("queue_topology_hash").notNull(),
+  workerHeartbeatAt: timestamp("worker_heartbeat_at", { withTimezone: true }).notNull(),
+  dbHealthy: boolean("db_healthy").notNull(),
+  redisHealthy: boolean("redis_healthy").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  attestationHash: text("attestation_hash").notNull().unique(),
+  createdBy: text("created_by").notNull(),
+});
+
+export const cro03cCommands = pgTable("cro03c_commands", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandKey: text("command_key").notNull().unique(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  commandType: text("command_type").notNull(),
+  actorId: text("actor_id").notNull(),
+  activationPolicyId: uuid("activation_policy_id").notNull().references(() => cro03cActivationPolicies.id, { onDelete: "restrict" }),
+  activationRevision: integer("activation_revision").notNull(),
+  recipeVersion: integer("recipe_version").notNull(),
+  recipeHash: text("recipe_hash").notNull(),
+  stagePlanHash: text("stage_plan_hash").notNull(),
+  cohortHash: text("cohort_hash"),
+  runtimeAttestationId: uuid("runtime_attestation_id").notNull().references(() => cro03cRuntimeAttestations.id, { onDelete: "restrict" }),
+  caps: jsonb("caps").notNull(),
+  stopPolicyHash: text("stop_policy_hash").notNull(),
+  approvalEvidence: jsonb("approval_evidence").notNull(),
+  preRunSnapshotId: uuid("pre_run_snapshot_id"),
+  effectAuthorized: boolean("effect_authorized").notNull().default(false),
+  effectCorrelationId: uuid("effect_correlation_id").notNull().defaultRandom(),
+  prePauseEpoch: bigint("pre_pause_epoch", { mode: "number" }),
+  state: text("state").notNull().default("queued"),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cRuns = pgTable("cro03c_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandId: uuid("command_id").notNull().unique().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  runKey: text("run_key").notNull().unique(),
+  mode: text("mode").notNull(),
+  state: text("state").notNull().default("queued"),
+  claimToken: uuid("claim_token"),
+  executionFence: integer("execution_fence").notNull().default(0),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  stopReason: text("stop_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cGenerations = pgTable("cro03c_generations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  handoffId: uuid("handoff_id").notNull().references(() => cro03aHandoffs.id, { onDelete: "restrict" }),
+  recipeVersion: integer("recipe_version").notNull(),
+  recipeHash: text("recipe_hash").notNull(),
+  mode: text("mode").notNull().default("cro03c_live_v1"),
+  activationRevision: integer("activation_revision").notNull(),
+  commandId: uuid("command_id").notNull().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  runId: uuid("run_id").notNull().references(() => cro03cRuns.id, { onDelete: "restrict" }),
+  frozenHandoffHash: text("frozen_handoff_hash").notNull(),
+  stagePlanHash: text("stage_plan_hash").notNull(),
+  cohortHash: text("cohort_hash").notNull(),
+  runtimeAttestationId: uuid("runtime_attestation_id").notNull().references(() => cro03cRuntimeAttestations.id, { onDelete: "restrict" }),
+  state: text("state").notNull().default("queued"),
+  claimToken: uuid("claim_token"),
+  executionFence: integer("execution_fence").notNull().default(0),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_generation_handoff_recipe_uidx").on(table.handoffId, table.recipeVersion)]);
+
+export const cro03cStageDispositions = pgTable("cro03c_stage_dispositions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  stageKey: text("stage_key").notNull(),
+  disposition: text("disposition").notNull(),
+  inputHash: text("input_hash").notNull(),
+  evidenceHash: text("evidence_hash").notNull(),
+  recipeHash: text("recipe_hash").notNull(),
+  policyHash: text("policy_hash").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  frozenInput: jsonb("frozen_input").notNull().default({}),
+  stageInputReferenceId: uuid("stage_input_reference_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_stage_disposition_identity_uidx").on(table.generationId, table.stageKey)]);
+
+export const cro03cStageInputReferences = pgTable("cro03c_stage_input_references", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  stageKey: text("stage_key").notNull(),
+  sourceObservationId: uuid("source_observation_id").notNull().references(() => cro03SourceObservations.id, { onDelete: "restrict" }),
+  sourcePayloadHash: text("source_payload_hash").notNull(),
+  evidenceHash: text("evidence_hash").notNull(),
+  provider: text("provider").notNull(),
+  priceScheduleVersion: integer("price_schedule_version").notNull(),
+  priceScheduleHash: text("price_schedule_hash").notNull(),
+  reservedUnits: integer("reserved_units").notNull(),
+  unitsHash: text("units_hash").notNull(),
+  capHash: text("cap_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro03c_stage_input_reference_identity_uidx").on(table.generationId, table.stageKey),
+]);
+
+export const cro03cStageOperations = pgTable("cro03c_stage_operations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  stageKey: text("stage_key").notNull(),
+  provider: text("provider").notNull(),
+  operationType: text("operation_type").notNull(),
+  operationKey: text("operation_key").notNull().unique(),
+  providerOperationId: uuid("provider_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  commandId: uuid("command_id").references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  runId: uuid("run_id").references(() => cro03cRuns.id, { onDelete: "restrict" }),
+  claimToken: uuid("claim_token"),
+  executionFence: integer("execution_fence"),
+  attemptId: uuid("attempt_id"),
+  preIoAuthorizedAt: timestamp("pre_io_authorized_at", { withTimezone: true }),
+  dispatchState: text("dispatch_state").notNull().default("not_dispatched"),
+  reconciliationRequired: boolean("reconciliation_required").notNull().default(false),
+  caller: text("caller").notNull(),
+  unitType: text("unit_type").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  priceScheduleVersion: integer("price_schedule_version").notNull(),
+  priceScheduleHash: text("price_schedule_hash").notNull(),
+  maxReservedUnits: integer("max_reserved_units").notNull().default(0),
+  maxReservedAmountMicros: bigint("max_reserved_amount_micros", { mode: "number" }).notNull().default(0),
+  settledUnits: integer("settled_units").notNull().default(0),
+  settledAmountMicros: bigint("settled_amount_micros", { mode: "number" }).notNull().default(0),
+  providerReceiptReference: text("provider_receipt_reference"),
+  billingCertainty: text("billing_certainty").notNull().default("none"),
+  terminalDisposition: text("terminal_disposition"),
+  state: text("state").notNull().default("reserved"),
+  dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_stage_operation_identity_uidx").on(table.generationId, table.stageKey)]);
+
+export const cro03cDomainRequestLimits = pgTable("cro03c_domain_request_limits", {
+  hostnameHash: text("hostname_hash").notNull(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+  requestCount: integer("request_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_domain_request_limit_uidx").on(table.hostnameHash, table.windowStartedAt)]);
+
+export const cro03cDispatchCheckpoints = pgTable("cro03c_dispatch_checkpoints", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stageOperationId: uuid("stage_operation_id").notNull().references(() => cro03cStageOperations.id, { onDelete: "restrict" }),
+  attemptId: uuid("attempt_id").notNull(),
+  checkpoint: text("checkpoint").notNull(),
+  authorityHash: text("authority_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_dispatch_checkpoint_uidx").on(table.stageOperationId, table.attemptId, table.checkpoint)]);
+
+export const cro03cReceipts = pgTable("cro03c_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  stageOperationId: uuid("stage_operation_id").references(() => cro03cStageOperations.id, { onDelete: "restrict" }),
+  receiptKey: text("receipt_key").notNull().unique(),
+  receiptType: text("receipt_type").notNull(),
+  normalizedOutcome: text("normalized_outcome").notNull(),
+  evidenceHash: text("evidence_hash").notNull(),
+  providerReceiptReference: text("provider_receipt_reference"),
+  redactedMetadata: jsonb("redacted_metadata").notNull().default({}),
+  settledUnits: integer("settled_units").notNull().default(0),
+  settledAmountMicros: bigint("settled_amount_micros", { mode: "number" }).notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cRequestHopReceipts = pgTable("cro03c_request_hop_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stageOperationId: uuid("stage_operation_id").notNull().references(() => cro03cStageOperations.id, { onDelete: "restrict" }),
+  hopNumber: integer("hop_number").notNull(),
+  requestHash: text("request_hash").notNull(),
+  hostname: text("hostname").notNull(),
+  pinnedAddressHash: text("pinned_address_hash").notNull(),
+  responseStatus: integer("response_status"),
+  redirectTargetHash: text("redirect_target_hash"),
+  bytes: integer("bytes").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_hop_receipt_identity_uidx").on(table.stageOperationId, table.hopNumber)]);
+
+export const cro03cNoOutboundSnapshots = pgTable("cro03c_no_outbound_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandId: uuid("command_id").notNull().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  runId: uuid("run_id").references(() => cro03cRuns.id, { onDelete: "restrict" }),
+  phase: text("phase").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  counters: jsonb("counters").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_snapshot_identity_uidx").on(table.commandId, table.phase)]);
+
+export const cro03cForbiddenEffects = pgTable("cro03c_forbidden_effects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commandId: uuid("command_id").notNull().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  runId: uuid("run_id").references(() => cro03cRuns.id, { onDelete: "restrict" }),
+  effectKind: text("effect_kind").notNull(),
+  correlationId: text("correlation_id"),
+  attemptedCount: integer("attempted_count").notNull().default(0),
+  effectiveCount: integer("effective_count").notNull().default(0),
+  disposition: text("disposition").notNull(),
+  evidenceHash: text("evidence_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cValidationAuthorizations = pgTable("cro03c_validation_authorizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  validationIntentId: uuid("validation_intent_id").notNull().unique().references(() => validationIntents.id, { onDelete: "restrict" }),
+  commandId: uuid("command_id").notNull().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  runId: uuid("run_id").notNull().references(() => cro03cRuns.id, { onDelete: "restrict" }),
+  generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  activationRevision: integer("activation_revision").notNull(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  normalizedEmailHash: text("normalized_email_hash").notNull(),
+  subjectGeneration: integer("subject_generation").notNull(),
+  runtimeAttestationId: uuid("runtime_attestation_id").notNull().references(() => cro03cRuntimeAttestations.id, { onDelete: "restrict" }),
+  expectedProviderControlRevision: integer("expected_provider_control_revision").notNull(),
+  unitCap: integer("unit_cap").notNull(),
+  costCapMicros: bigint("cost_cap_micros", { mode: "number" }).notNull().default(0),
+  authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revocationReason: text("revocation_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cValidationRevocations = pgTable("cro03c_validation_revocations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  authorizationId: uuid("authorization_id").notNull().unique().references(() => cro03cValidationAuthorizations.id, { onDelete: "restrict" }),
+  reason: text("reason").notNull(),
+  actorId: text("actor_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cInitialRollouts = pgTable("cro03c_initial_rollouts", {
+  rolloutKey: text("rollout_key").primaryKey(),
+  commandId: uuid("command_id").unique().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  activationRevision: integer("activation_revision"),
+  membershipHash: text("membership_hash"),
+  state: text("state").notNull().default("reserved"),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const cro03cInitialMemberships = pgTable("cro03c_initial_memberships", {
+  rolloutKey: text("rollout_key").notNull().references(() => cro03cInitialRollouts.rolloutKey, { onDelete: "restrict" }),
+  generationId: uuid("generation_id").notNull().unique().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  ordinal: integer("ordinal").notNull(),
+  handoffHash: text("handoff_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("cro03c_initial_membership_identity_uidx").on(table.rolloutKey, table.ordinal)]);
+
 export const eligibilitySnapshots = pgTable("eligibility_snapshots", {
   id: uuid("id").primaryKey().defaultRandom(),
   // Retained readiness/commercial evidence must not silently disappear when a

@@ -106,6 +106,9 @@ export interface ContactWriterHookPolicy {
   deferReadiness: true;
   deferLeadScoring: true;
   suppressProviderProjection: true;
+  /** Optional caller-owned database authority check, evaluated inside the
+   * contact/source-event transaction immediately before any mutation. */
+  authorityCheck?: (tx: any) => Promise<boolean>;
 }
 
 export interface ActorCtx {
@@ -197,6 +200,9 @@ export async function writeContact(args: {
   const { auditChange } = await import("./audit-change");
 
   const result = await db.transaction(async (tx) => {
+    if (hookPolicy?.authorityCheck && !(await hookPolicy.authorityCheck(tx))) {
+      throw new Error("CONTACT_WRITE_AUTHORITY_FENCE_LOST");
+    }
     const importOwned = Boolean(provenance.importExecutionId || provenance.importClaimToken || rowDisposition);
     if (importOwned) {
       if (

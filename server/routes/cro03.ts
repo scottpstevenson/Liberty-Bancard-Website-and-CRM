@@ -22,6 +22,18 @@ import {
   previewCro03aQualification,
   stageCro03aSourceCensus,
 } from "../services/cro03a/qualification-service";
+import {
+  cancelCro03cCommand,
+  createCro03cActivationPolicy,
+  createCro03cCommand,
+  createCro03cRuntimeAttestation,
+  getCro03cStatus,
+  importCro03cApprovalArtifact,
+  revokeCro03cApprovalReceipt,
+} from "../services/cro03/live-execution";
+import {
+  importCro03cDeploymentInventory, revokeCro03cDeploymentInventory,
+} from "../services/cro03/deployment-inventory";
 
 const createBatchSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(200),
@@ -47,9 +59,102 @@ const cro03bCommandSchema = z.object({
   handoffIds: z.array(z.string().uuid()).min(1).max(CRO03B_MAX_HANDOFFS_PER_COMMAND),
   reason: z.string().trim().min(8).max(500).optional(),
 }).strict();
+const cro03cActivationSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  expectedRevision: z.number().int().nonnegative(),
+  reason: z.string().trim().min(8).max(500),
+  confirm: z.literal("ACTIVATE CRO03C LIVE POLICY"),
+}).strict();
+const cro03cReceiptReferencesSchema = z.object({
+  receiptIds: z.object({
+    operator: z.string().uuid(), data: z.string().uuid(), finance: z.string().uuid(), legal: z.string().uuid(),
+  }).strict(),
+}).strict();
+const cro03cReceiptRevocationSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  expectedRevision: z.number().int().nonnegative(),
+  reason: z.string().trim().min(8).max(500),
+  confirm: z.literal("REVOKE CRO03C APPROVAL RECEIPT"),
+}).strict();
+const cro03cApprovalArtifactImportSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  reason: z.string().trim().min(8).max(500),
+  artifact: z.object({
+    payload: z.object({
+      artifactVersion: z.literal("cro03c-approval-ed25519-v1"),
+      receiptId: z.string().uuid(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      issuerId: z.string().trim().min(1).max(200),
+      dimension: z.enum(["operator", "data", "finance", "legal"]),
+      scope: z.record(z.string(), z.unknown()),
+      scopeHash: z.string().regex(/^[0-9a-f]{64}$/),
+      issuedAt: z.string().datetime(),
+      expiresAt: z.string().datetime(),
+    }).strict(),
+    signature: z.string().min(1).max(200),
+  }).strict(),
+}).strict();
+const cro03cAttestationSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  ttlMs: z.number().int().min(1000).max(15 * 60_000).optional(),
+}).strict();
+const cro03cDeploymentInventoryImportSchema = z.object({
+  reason: z.string().trim().min(8).max(500),
+  artifact: z.object({
+    payload: z.object({
+      artifactVersion: z.literal("cro03c-deployment-inventory-ed25519-v1"),
+      inventoryId: z.string().uuid(),
+      issuerId: z.string().trim().min(1).max(200),
+      deploymentIdentity: z.string().trim().min(1).max(200),
+      environmentIdentity: z.string().trim().min(1).max(200),
+      releaseSha: z.string().regex(/^[0-9a-f]{40}$/),
+      queueTopologyHash: z.string().regex(/^[0-9a-f]{64}$/),
+      identityKind: z.enum(["worker", "ordinal"]),
+      workerIdentities: z.array(z.string().trim().min(1).max(200)).min(1).max(1000),
+      expectedCount: z.number().int().min(1).max(1000),
+      issuedAt: z.string().datetime(),
+      expiresAt: z.string().datetime(),
+    }).strict(),
+    signature: z.string().min(1).max(200),
+  }).strict(),
+}).strict();
+const cro03cDeploymentInventoryRevocationSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  reason: z.string().trim().min(8).max(500),
+  confirm: z.literal("REVOKE CRO03C DEPLOYMENT INVENTORY"),
+}).strict();
+const cro03cCommandBaseSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  expectedActivationRevision: z.number().int().positive(),
+  runtimeAttestationId: z.string().uuid(),
+  handoffIds: z.array(z.string().uuid()).min(1).max(100),
+  reason: z.string().trim().min(8).max(500),
+  expiresAt: z.coerce.date(),
+  confirm: z.literal("I UNDERSTAND THIS MAY USE LIVE PROVIDERS"),
+});
+const cro03cCommandSchema = z.discriminatedUnion("commandType", [
+  cro03cCommandBaseSchema.extend({
+    commandType: z.literal("micro_canary"),
+    provider: z.enum(["internal_source", "first_party_web", "rdap", "jsonld", "serper", "outscraper", "openai", "apollo", "zerobounce"]),
+    maxUnits: z.number().int().nonnegative(),
+    maxAmountMicros: z.number().int().nonnegative(),
+  }).strict(),
+  // Initial validation authority is derived exclusively from frozen membership
+  // and the approved ZeroBounce schedule. There are deliberately no browser
+  // fields for either validation cap.
+  cro03cCommandBaseSchema.extend({
+    commandType: z.literal("initial_batch"),
+  }).strict(),
+]);
+const cro03cCancelSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(200),
+  expectedRevision: z.number().int().nonnegative(),
+  reason: z.string().trim().min(8).max(500),
+  confirm: z.literal(true),
+}).strict();
 
 function safeError(error: unknown): { code: string; message: string } {
-  const code = error instanceof Error && /^CRO03(?:A|B)?_/.test(error.message)
+  const code = error instanceof Error && /^CRO03(?:A|B|C)?_/.test(error.message)
     ? error.message : "CRO03_REQUEST_FAILED";
   return { code, message: "The enrichment command could not be accepted." };
 }
@@ -65,6 +170,141 @@ async function canManageBatch(req: any, batchId: string): Promise<boolean> {
 }
 
 export function registerCro03Routes(app: Express): void {
+  app.post("/api/cro03c/deployment-inventories/import", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cDeploymentInventoryImportSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid signed deployment inventory." });
+    try {
+      const result = await importCro03cDeploymentInventory({ ...parsed.data, actorId: String((req.user as any).id) });
+      res.status(result.replayed ? 200 : 201).json(result);
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(/CONFLICT/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
+  app.post("/api/cro03c/deployment-inventories/:id/revoke", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cDeploymentInventoryRevocationSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid deployment inventory revocation." });
+    try {
+      const { confirm: _confirm, ...input } = parsed.data;
+      const result = await revokeCro03cDeploymentInventory({
+        ...input, inventoryId: String(req.params.id), actorId: String((req.user as any).id),
+      });
+      res.status(result.replayed ? 200 : 202).json(result);
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(/NOT_FOUND/.test(safe.code) ? 404 : /CONFLICT|ALREADY/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
+  app.get("/api/cro03c/status", isDashboardUser, requireRole("admin"), async (_req, res) => {
+    try {
+      res.json(await getCro03cStatus());
+    } catch {
+      res.status(503).json({ code: "CRO03C_STATUS_UNAVAILABLE", message: "Live enrichment status is unavailable." });
+    }
+  });
+
+  app.post("/api/cro03c/activation-policies", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cActivationSchema.merge(cro03cReceiptReferencesSchema).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid activation policy." });
+    try {
+      // The browser may reference receipts but cannot create approval evidence,
+      // pricing, or scope.  All are verified from immutable database receipts.
+      const result = await createCro03cActivationPolicy({
+        idempotencyKey: parsed.data.idempotencyKey, expectedRevision: parsed.data.expectedRevision,
+        reason: parsed.data.reason, actorId: String((req.user as any).id),
+        receiptIds: parsed.data.receiptIds,
+      });
+      res.status(result.replayed ? 200 : 201).json(result);
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(/CONFLICT/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
+  app.post("/api/cro03c/approval-artifacts/import", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cApprovalArtifactImportSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid signed approval artifact." });
+    try {
+      const result = await importCro03cApprovalArtifact({
+        ...parsed.data, actorId: String((req.user as any).id),
+      });
+      res.status(result.replayed ? 200 : 201).json(result);
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(/CONFLICT/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
+  app.post("/api/cro03c/approval-receipts/:id/revoke", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cReceiptRevocationSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid receipt revocation." });
+    try {
+      const result = await revokeCro03cApprovalReceipt({
+        receiptId: String(req.params.id), idempotencyKey: parsed.data.idempotencyKey, expectedRevision: parsed.data.expectedRevision,
+        reason: parsed.data.reason, actorId: String((req.user as any).id),
+      });
+      res.status(result.replayed ? 200 : 202).json(result);
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(safe.code === "CRO03C_APPROVAL_RECEIPT_NOT_FOUND" ? 404 : /CONFLICT|ALREADY/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
+  app.post("/api/cro03c/runtime-attestations", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cAttestationSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid runtime attestation request." });
+    try {
+      // Release, migration, deployment, process identities, health, capture time,
+      // and actor are server-derived. The browser supplies no authority fields.
+      const result = await createCro03cRuntimeAttestation({
+        idempotencyKey: parsed.data.idempotencyKey,
+        actorId: String((req.user as any).id),
+        ttlMs: parsed.data.ttlMs,
+      });
+      res.status(result.replayed ? 200 : 201).json(result);
+    } catch (error) {
+      res.status(400).json(safeError(error));
+    }
+  });
+
+  app.post("/api/cro03c/commands", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cCommandSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid live command." });
+    try {
+      const { confirm: _confirm, ...command } = parsed.data;
+      const result = await createCro03cCommand({
+        ...command, actorId: String((req.user as any).id),
+      });
+      res.status(result.replayed ? 200 : 202).json(result);
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(/CONFLICT|CONSUMED|ALREADY/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
+  app.post("/api/cro03c/commands/:id/cancel", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = cro03cCancelSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid cancellation request." });
+    try {
+      const result = await cancelCro03cCommand({
+        commandId: String(req.params.id),
+        actorId: String((req.user as any).id),
+        idempotencyKey: parsed.data.idempotencyKey,
+        expectedRevision: parsed.data.expectedRevision,
+        reason: parsed.data.reason,
+      });
+      res.status(result.replayed ? 200 : 202).json({
+        commandId: req.params.id, state: "cancelled", revision: result.revision, replayed: result.replayed,
+      });
+    } catch (error) {
+      const safe = safeError(error);
+      res.status(safe.code === "CRO03C_COMMAND_NOT_FOUND" ? 404
+        : /CONFLICT|NOT_CANCELLABLE|IDEMPOTENCY/.test(safe.code) ? 409 : 400).json(safe);
+    }
+  });
+
   app.post("/api/cro03/batches", requireRole("admin", "manager"), async (req, res) => {
     const parsed = createBatchSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ code: "CRO03_INVALID_REQUEST", message: "Invalid enrichment batch request." });

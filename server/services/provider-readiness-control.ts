@@ -10,6 +10,7 @@ import { createHash, randomUUID } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contacts, eligibilitySnapshots, providerObservations, validationIntents } from "@shared/schema";
+import { CRO03C_CURRENT_MIGRATION_HEAD } from "./cro03/contracts";
 
 export const EMAIL_VALIDATION_POLICY_VERSION = 1;
 export const EMAIL_VALIDATION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -307,6 +308,79 @@ export type ValidationIntentWorkerDeps = {
   }>;
 };
 
+async function hasCurrentCro03cValidationAuthority(
+  intent: any,
+  emailTokenHash?: string | null,
+  subjectGeneration?: number,
+  checkpoint?: "claim" | "pre_reservation" | "pre_io",
+): Promise<boolean> {
+  if (intent.purpose !== "cro03_winning_email") return true;
+  const result = await db.execute(sql`
+    SELECT a.id,
+           c.id AS command_id,r.id AS run_id,g.id AS generation_id,
+           c.runtime_attestation_id,c.activation_revision
+      FROM cro03c_validation_authorizations a
+      JOIN validation_intents i ON i.id=a.validation_intent_id
+      JOIN contacts contact ON contact.id=a.contact_id
+      JOIN cro03c_commands c ON c.id=a.command_id
+      JOIN cro03c_runs r ON r.id=a.run_id
+      JOIN cro03c_generations g ON g.id=a.generation_id
+      JOIN cro03c_runtime_attestations t ON t.id=a.runtime_attestation_id
+       JOIN cro03c_activation_policies policy ON policy.id=c.activation_policy_id
+      JOIN provider_controls pc ON pc.provider='zerobounce'
+     WHERE a.validation_intent_id=${intent.id}::uuid
+       AND a.contact_id=${intent.contact_id}
+       AND a.subject_generation=${subjectGeneration ?? intent.subject_generation}
+       AND (${emailTokenHash ?? intent.normalized_email_token_hash}::text IS NULL
+         OR a.normalized_email_hash=${emailTokenHash ?? intent.normalized_email_token_hash})
+        AND a.command_id=c.id AND a.run_id=r.id AND a.generation_id=g.id
+        AND a.runtime_attestation_id=t.id AND a.activation_revision=c.activation_revision
+        AND contact.email_mutation_generation=a.subject_generation
+        AND contact.email_token_hash=a.normalized_email_hash
+        AND i.normalized_email_token_hash=a.normalized_email_hash
+        AND i.subject_generation=a.subject_generation
+        AND i.purpose='cro03_winning_email'
+       AND (${checkpoint ?? "claim"}='claim'
+         OR (${checkpoint ?? "claim"}='pre_reservation' AND pc.version=a.expected_provider_control_revision)
+         OR (${checkpoint ?? "claim"}='pre_io' AND pc.version=a.expected_provider_control_revision + 1))
+       AND NOT EXISTS (
+         SELECT 1 FROM cro03c_validation_revocations rv WHERE rv.authorization_id=a.id
+       )
+       AND a.authorized_at <= NOW() AND a.expires_at > NOW()
+        AND a.unit_cap=1
+        AND a.cost_cap_micros=((policy.price_schedules->'zerobounce'->>'amountMicros')::bigint)
+         AND (c.caps->>'validationMaxUnits')::int BETWEEN 1 AND 100
+         AND (c.caps->>'validationMaxAmountMicros')::bigint =
+             (c.caps->>'validationMaxUnits')::bigint *
+             ((policy.price_schedules->'zerobounce'->>'amountMicros')::bigint)
+         AND (c.caps->>'validationPriceScheduleVersion')::int =
+             ((policy.price_schedules->'zerobounce'->>'version')::int)
+       AND c.command_type='initial_batch' AND c.state='running'
+       AND c.cancel_requested_at IS NULL AND c.expires_at > NOW()
+       AND r.state='running' AND g.state='running'
+       AND t.expires_at > NOW() AND t.db_healthy=TRUE AND t.redis_healthy=TRUE
+       AND t.worker_heartbeat_at > NOW() - INTERVAL '60 seconds'
+       AND t.artifact_sha=${process.env.RELEASE_SHA ?? ""}
+        AND t.migration_head=${CRO03C_CURRENT_MIGRATION_HEAD}
+     LIMIT 1
+  `);
+  const authority = ((result as any).rows ?? [])[0];
+  if (!authority) return false;
+  try {
+    const { assertCro03cCommandAuthorityBeforeIo } = await import("./cro03/live-execution");
+    await assertCro03cCommandAuthorityBeforeIo({
+      commandId: String(authority.command_id),
+      runId: String(authority.run_id),
+      generationId: String(authority.generation_id),
+      runtimeAttestationId: String(authority.runtime_attestation_id),
+      activationRevision: Number(authority.activation_revision),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Execute one validation intent under a durable claim. Provider controls are
  * deliberately checked and reserved before transport; a missing/disabled
@@ -331,6 +405,14 @@ export async function processValidationIntent(
   `);
   const intent = (claim as any).rows?.[0];
   if (!intent) return "not_found";
+  if (!await hasCurrentCro03cValidationAuthority(intent)) {
+    await db.execute(sql`
+      UPDATE validation_intents SET state='blocked',terminal_code='cro03c_authority_invalid',
+             lease_expires_at=NULL,claim_token=NULL,completed_at=NOW(),updated_at=NOW()
+       WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid
+    `);
+    return "failed";
+  }
 
   const contactResult = await db.execute(sql`
     SELECT id, email, email_mutation_generation
@@ -364,7 +446,7 @@ export async function processValidationIntent(
   // secret or from a queue job; enablement and budget are explicit controls.
   const control = await db.execute(sql`
     SELECT provider, enabled, circuit_state, local_budget_units,
-           reserved_units, consumed_units
+           reserved_units, consumed_units, version
       FROM provider_controls WHERE provider = 'zerobounce' LIMIT 1
   `);
   const c = (control as any).rows?.[0];
@@ -377,6 +459,16 @@ export async function processValidationIntent(
        WHERE id = ${intentId}::uuid AND claim_token = ${claimToken}::uuid
     `);
     return "deferred";
+  }
+  if (!await hasCurrentCro03cValidationAuthority(
+    intent, tokenHash, Number(intent.subject_generation), "pre_reservation",
+  )) {
+    await db.execute(sql`
+      UPDATE validation_intents SET state='blocked',terminal_code='cro03c_authority_invalid',
+             lease_expires_at=NULL,claim_token=NULL,completed_at=NOW(),updated_at=NOW()
+       WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid
+    `);
+    return "failed";
   }
 
   const operationKey = `validation-intent:${intentId}`;
@@ -411,7 +503,7 @@ export async function processValidationIntent(
     INSERT INTO provider_operations
       (provider, operation_type, purpose, idempotency_key, actor_type, actor_id,
        target_fingerprint, state, requested_units, reserved_units, billing_state, started_at)
-    SELECT provider, 'email_validation', 'marketing_outreach', ${operationKey},
+    SELECT provider, 'email_validation', ${intent.purpose === "cro03_winning_email" ? "cro03_winning_email" : "marketing_outreach"}, ${operationKey},
            'system', 'validation-intent', ${tokenHash}, 'running', 1, 1, 'reserved', NOW()
       FROM reservation
     RETURNING id
@@ -434,6 +526,24 @@ export async function processValidationIntent(
     RETURNING id
   `);
   const attemptId = (attempt as any).rows?.[0]?.id;
+  if (!await hasCurrentCro03cValidationAuthority(
+    intent, tokenHash, Number(intent.subject_generation), "pre_io",
+  )) {
+    await db.execute(sql`
+      UPDATE provider_operations SET state='cancelled',billing_state='released',completed_at=NOW(),updated_at=NOW()
+       WHERE id=${operationId}::uuid AND state='running'
+    `);
+    await db.execute(sql`
+      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-1),version=version+1,updated_at=NOW()
+       WHERE provider='zerobounce'
+    `);
+    await db.execute(sql`
+      UPDATE validation_intents SET state='blocked',terminal_code='cro03c_authority_invalid',
+             lease_expires_at=NULL,claim_token=NULL,completed_at=NOW(),updated_at=NOW()
+       WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid
+    `);
+    return "failed";
+  }
   const verifyEmail = deps.verifyEmail ?? (await import("./sdr/zerobounce")).verifyEmail;
   let result;
   try {

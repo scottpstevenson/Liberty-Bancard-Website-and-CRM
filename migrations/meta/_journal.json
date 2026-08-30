@@ -1394,6 +1394,62 @@
       "when": 1797800000000,
       "tag": "0194_cro03b_validation_execution_fence",
       "breakpoints": true
+    },
+    {
+      "idx": 199,
+      "version": "7",
+      "when": 1797900000000,
+      "tag": "0195_cro03c_live_activation_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 200,
+      "version": "7",
+      "when": 1798000000000,
+      "tag": "0196_cro03c_dispatch_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 201,
+      "version": "7",
+      "when": 1798100000000,
+      "tag": "0197_cro03c_initial_membership_ordinals",
+      "breakpoints": true
+    },
+    {
+      "idx": 202,
+      "version": "7",
+      "when": 1798200000000,
+      "tag": "0198_cro03c_initial_continuation",
+      "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1798300000000,
+      "tag": "0199_cro03c_opaque_stage_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1798400000000,
+      "tag": "0200_cro03c_deployment_inventory",
+      "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1798500000000,
+      "tag": "0201_cro03c_validation_command_caps",
+      "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1798600000000,
+      "tag": "0202_cro03c_transport_invocation_checkpoint",
+      "breakpoints": true
     }
   ]
 }

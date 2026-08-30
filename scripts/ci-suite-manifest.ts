@@ -299,6 +299,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "none (pure AST/file check)",
   },
   {
+    name: "Queue Compliance",
+    script: "scripts/check-queue-compliance.ts",
+    capability: "deterministic-static",
+    providerDenial: "source and logical queue ownership manifest validation only; no providers",
+  },
+  {
     name: "Compliance Scan",
     script: "scripts/compliance-scan.ts",
     capability: "deterministic-static",
@@ -515,6 +521,36 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     script: "scripts/test-cro03b-static.ts",
     capability: "deterministic-static",
     providerDenial: "source and injected-transport checks only; live provider/public network transport denied",
+  },
+  {
+    name: "CRO-03C Governed Live Activation (provider denied)",
+    script: "scripts/test-cro03c-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "realistic secret names with denied provider/public transport; no live receipt is represented as production evidence",
+  },
+  {
+    name: "CRO-03C Initial Continuation Bridge Contract",
+    script: "scripts/test-cro03c-initial-continuation-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "source and migration contract only; no database, queue, network, or provider transport",
+  },
+  {
+    name: "CRO-03C Worker, Lease, and Safe-Egress Contract",
+    script: "scripts/test-cro03c-worker-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "injected SafeEgress transport and source-backed worker ownership/fencing checks; no database, queue, or provider transport",
+  },
+  {
+    name: "CRO-03C Live Dispatch Durability",
+    script: "scripts/test-cro03c-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and suite-isolated Redis; all provider and public-network transport is denied",
+  },
+  {
+    name: "CRO-03C Provider Executor Hardening",
+    script: "scripts/test-cro03c-provider-executors.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure hash and source-boundary assertions; no provider client method is invoked",
   },
   {
     name: "CRO-03B Durable Recipe Lifecycle",

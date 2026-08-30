@@ -1,5 +1,7 @@
 import dns from "node:dns/promises";
+import https from "node:https";
 import net from "node:net";
+import { Readable } from "node:stream";
 import { domainToASCII } from "node:url";
 
 /**
@@ -11,6 +13,55 @@ import { domainToASCII } from "node:url";
 export type EgressTransport = (
   url: string, init: RequestInit, connection: { hostname: string; pinnedAddresses: readonly string[] },
 ) => Promise<Response>;
+
+export interface EgressHopReceipt {
+  url: string;
+  hostname: string;
+  pinnedAddresses: readonly string[];
+  status: number;
+  redirectTarget?: string;
+  /** Bytes retained for a completed response.  Failure receipts use zero. */
+  bytes?: number;
+  kind: "robots" | "content";
+}
+
+export type EgressReceiptObserver = (receipt: EgressHopReceipt) => void | Promise<void>;
+
+/** HTTPS transport whose socket lookup is pinned to an address already
+ * validated by SafeEgress. Hostname/SNI and Host remain the original origin. */
+export const createPinnedHttpsTransport = (): EgressTransport =>
+  async (url, init, connection) => new Promise<Response>((resolve, reject) => {
+    const pinned = connection.pinnedAddresses[0];
+    if (!pinned) return reject(new Error("CRO03_EGRESS_ADDRESS_DENIED"));
+    const headers = Object.fromEntries(new Headers(init.headers).entries());
+    const request = https.request(url, {
+      method: init.method ?? "GET",
+      headers,
+      servername: connection.hostname,
+      lookup: ((_: string, options: any, callback: any) => {
+        const family = net.isIPv6(pinned) ? 6 : 4;
+        if (options?.all) callback(null, [{ address: pinned, family }]);
+        else callback(null, pinned, family);
+      }) as any,
+    }, (response) => {
+      const responseHeaders = new Headers();
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (Array.isArray(value)) value.forEach((entry) => responseHeaders.append(name, entry));
+        else if (value != null) responseHeaders.set(name, String(value));
+      }
+      resolve(new Response(Readable.toWeb(response) as any, {
+        status: response.statusCode ?? 502,
+        statusText: response.statusMessage,
+        headers: responseHeaders,
+      }));
+    });
+    request.once("error", reject);
+    if (init.signal) {
+      if (init.signal.aborted) request.destroy(new Error("AbortError"));
+      else init.signal.addEventListener("abort", () => request.destroy(new Error("AbortError")), { once: true });
+    }
+    request.end();
+  });
 
 export interface DurableEgressLimiter {
   consume(input: { hostname: string; purpose: string; callSite: string }): Promise<{ allowed: boolean; retryAfterMs?: number }>;
@@ -146,6 +197,7 @@ export class SafeEgress {
     private readonly limiter?: DurableEgressLimiter,
     private readonly robotsCache?: RobotsCache,
     private readonly robotsPolicy?: RobotsPolicyHook,
+    private readonly receiptObserver?: EgressReceiptObserver,
   ) {}
 
   private async robotsAllowed(current: URL, request: SafeEgressRequest, addresses: readonly string[]): Promise<void> {
@@ -158,6 +210,10 @@ export class SafeEgress {
       const response = await this.transport(robotsUrl.toString(), {
         method: "GET", redirect: "manual", headers: { Accept: "text/plain" },
       }, { hostname: canonicalHostname(current.hostname), pinnedAddresses: addresses });
+      await this.receiptObserver?.({
+        url: robotsUrl.toString(), hostname: canonicalHostname(current.hostname),
+        pinnedAddresses: addresses, status: response.status, kind: "robots",
+      });
       const body = response.ok ? (await readBounded(response, ROBOTS_MAX_BYTES)).body : "";
       cached = { body, expiresAt: Date.now() + 60 * 60 * 1000 };
       await this.robotsCache?.set(key, cached);
@@ -207,14 +263,36 @@ export class SafeEgress {
         if (hop === MAX_REDIRECTS) throw new Error("CRO03_EGRESS_REDIRECT_LIMIT");
         const location = response.headers.get("location");
         if (!location) throw new Error("CRO03_EGRESS_REDIRECT_INVALID");
-        current = new URL(location, current);
+        const next = new URL(location, current);
+        await this.receiptObserver?.({
+          url: current.toString(), hostname, pinnedAddresses: addresses, status: response.status,
+          redirectTarget: next.toString(), bytes: 0, kind: "content",
+        });
+        current = next;
         continue;
       }
       const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
       if (contentType && !["text/html", "application/json", "text/plain", "application/xhtml+xml"].includes(contentType)) {
+        await this.receiptObserver?.({
+          url: current.toString(), hostname, pinnedAddresses: addresses, status: response.status, bytes: 0, kind: "content",
+        });
         throw new Error("CRO03_EGRESS_CONTENT_TYPE_DENIED");
       }
-      const bounded = await readBounded(response, request.maxBytes ?? DEFAULT_MAX_BYTES);
+      let bounded: { body: string; bytes: number };
+      try {
+        bounded = await readBounded(response, request.maxBytes ?? DEFAULT_MAX_BYTES);
+      } catch (error) {
+        // The request reached a pinned peer but no response body was accepted;
+        // accounting stays an immutable, explicit zero-byte receipt.
+        await this.receiptObserver?.({
+          url: current.toString(), hostname, pinnedAddresses: addresses, status: response.status, bytes: 0, kind: "content",
+        });
+        throw error;
+      }
+      await this.receiptObserver?.({
+        url: current.toString(), hostname, pinnedAddresses: addresses, status: response.status,
+        bytes: bounded.bytes, kind: "content",
+      });
       return { status: response.status, contentType, ...bounded };
     }
     throw new Error("CRO03_EGRESS_REDIRECT_LIMIT");

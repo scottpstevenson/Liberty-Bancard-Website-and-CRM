@@ -8,6 +8,10 @@ export const CRO03_SOURCE_STAGING_RECIPE_VERSION = 1;
 export const CRO03_RECIPE_CONTRACT_VERSION = 1;
 export const CRO03_CRAWL_POLICY_VERSION = 1;
 export const CRO03_HASH_ALGORITHM_VERSION = "sha256-v1" as const;
+/** Single release/migration binding shared by CRO03C authorities and workers.
+ * Kept here rather than live-execution so provider-readiness-control can verify
+ * it without importing an executor that itself calls readiness control. */
+export const CRO03C_CURRENT_MIGRATION_HEAD = "0202_cro03c_transport_invocation_checkpoint" as const;
 
 export const CRO03_SOURCE_SUBJECT_TYPES = [
   "contact", "prospect", "sunbiz_entity", "sdr_merchant", "provider_csv_row", "public_web",
