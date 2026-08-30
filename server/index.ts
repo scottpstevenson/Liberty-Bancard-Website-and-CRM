@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
+import { initializeCro02PurposePolicies } from "./services/cro02-purpose-policy-initializer";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
@@ -249,6 +250,12 @@ app.use((req, res, next) => {
   // Fail closed before route registration if an operator attempts an
   // unauthorized CRO-02 compare/enforce activation.
   assertCro02ShadowOnly();
+  // Insert-only convergence: production is provisioned by Replit Publish
+  // schema sync, not the Drizzle migration runner, so the table can exist
+  // without the eight frozen v1 seed rows. This never updates/deletes an
+  // existing row and fails closed on any conflict before the strict
+  // assertion below runs.
+  await initializeCro02PurposePolicies();
   await assertCro02PurposePolicies();
   await registerRoutes(httpServer, app);
   // Resume only durable, expired CSV executions after routes are registered.
