@@ -14,6 +14,7 @@ import { startDailyMaintenanceScheduler, seedScottSendingIdentity } from "./serv
 import { startContentScheduler } from "./services/content-scheduler";
 import { seedContentEngine } from "./services/seed-content-engine";
 import { runDrizzleMigrations } from "./db-migrate";
+import { shouldRunStartupMigrations } from "./startup-migration-policy";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
 import { validateEnv } from "./lib/validate-env";
 import { storage } from "./storage";
@@ -228,7 +229,11 @@ app.use((req, res, next) => {
     installGhlFailFastTransport();
   }
 
-  await runDrizzleMigrations();
+  if (shouldRunStartupMigrations(process.env.NODE_ENV)) {
+    await runDrizzleMigrations();
+  } else {
+    console.log("[DB Migrate] Production startup migrations skipped — schema is managed by Replit Publish.");
+  }
   const { reconcileEnrichmentState, reconcileScoringState, seedAutomationRegistry } = await import("./services/startup-reconcile");
   await reconcileEnrichmentState();
   await reconcileScoringState();
