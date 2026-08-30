@@ -1,11 +1,8 @@
 // OUTBOUND CONTRACT: This service writes only to the database.
 // It must never call: sendProposalEmail, sendSmtpEmail, autoGenerateProposal,
 // autoEnrollFromTrigger, createGhlTask, sendGhlEmailForMerchant, or any sequence/workflow.
-// autoGenerateProposal fires independently from statement-upload-chain.ts:373.
-// That is a separate pre-existing flow outside this analyzer's scope.
+// Proposal generation is intentionally not launched by statement processing.
 
-import fs from "fs";
-import path from "path";
 import OpenAI from "openai";
 import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { z } from "zod";
@@ -13,6 +10,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
 import { documents, statementProposals } from "@shared/schema";
+import { getProtectedObject, getProtectedObjectMetadata } from "./protected-object";
 
 function getOpenAI(): OpenAI {
   return new OpenAI({
@@ -51,12 +49,11 @@ const FIXTURE_EXTRACTION: Extraction = {
   topCostDrivers: ["Interchange Downgrades", "PCI Non-Compliance Fee", "Monthly Service Fee"],
 };
 
-async function readFileText(filePath: string, label: string): Promise<string | null> {
-  const ext = path.extname(filePath).toLowerCase();
+async function readBufferText(buffer: Buffer, fileName: string, label: string): Promise<string | null> {
+  const ext = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
   if (ext === ".pdf") {
     try {
       const { PDFParse } = await import("pdf-parse");
-      const buffer = fs.readFileSync(filePath);
       const parser = new PDFParse({ data: new Uint8Array(buffer), verbosity: 0 });
       const textResult = await parser.getText();
       const text = textResult?.text || "";
@@ -68,7 +65,7 @@ async function readFileText(filePath: string, label: string): Promise<string | n
       console.error(`[StatementAnalyzer] PDF parse failed for ${label}:`, pdfErr);
     }
   } else if ([".txt", ".csv"].includes(ext)) {
-    const text = fs.readFileSync(filePath, "utf-8");
+    const text = buffer.toString("utf8");
     if (text.trim().length > 50) {
       console.log(`[StatementAnalyzer] Read ${text.length} chars from ${label}`);
       return text.trim();
@@ -77,62 +74,28 @@ async function readFileText(filePath: string, label: string): Promise<string | n
   return null;
 }
 
-async function extractTextFromDisk(storageKey: string | null, fileName: string): Promise<string | null> {
-  const uploadsDir = path.join(process.cwd(), "uploads");
-  if (!fs.existsSync(uploadsDir)) return null;
-
-  // Build a priority-ordered list of candidate paths.
-  // storageKey is typically "statements/<diskFileName>" so the file lives at
-  // uploads/statements/<diskFileName> — NOT in the uploads/ root.
-  const candidates: string[] = [];
-
-  if (storageKey) {
-    // Primary: treat storageKey as relative to uploads/
-    candidates.push(path.join(uploadsDir, storageKey.replace(/^uploads\//, "")));
-    // Secondary: storageKey might itself be an absolute path
-    if (path.isAbsolute(storageKey)) candidates.push(storageKey);
-    // Tertiary: basename only inside known subdirs
-    candidates.push(path.join(uploadsDir, "statements", path.basename(storageKey)));
-    candidates.push(path.join(uploadsDir, "merchant_docs", path.basename(storageKey)));
-    candidates.push(path.join(uploadsDir, path.basename(storageKey)));
+async function extractTextFromProtectedObject(objectRef: string | null, fileName: string, tenantScope: string | null): Promise<string | null> {
+  if (!objectRef || !/^[0-9a-f-]{36}$/i.test(objectRef)) {
+    throw new Error("LEGACY_LOCAL_PATH_UNRECOVERABLE");
   }
-
-  // Always try basename of fileName inside known locations
-  candidates.push(path.join(uploadsDir, "statements", path.basename(fileName)));
-  candidates.push(path.join(uploadsDir, fileName));
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      const result = await readFileText(candidate, path.relative(process.cwd(), candidate));
-      if (result) return result;
-    }
+  if (!tenantScope) throw new Error("PROTECTED_OBJECT_TENANT_SCOPE_REQUIRED");
+  try {
+    const authorization = {
+      tenantScope,
+      environmentScope: process.env.NODE_ENV || "development",
+    };
+    const metadata = await getProtectedObjectMetadata(objectRef, authorization);
+    if (!metadata) throw new Error("PROTECTED_OBJECT_SCOPE_MISMATCH");
+    const bytes = await getProtectedObject(objectRef, authorization);
+    return readBufferText(bytes, fileName, `protected-object:${objectRef}`);
+  } catch (error) {
+    console.error("[StatementAnalyzer] Protected object unavailable:", error instanceof Error ? error.message : "unknown");
+    if (error instanceof Error && (
+      error.message === "PROTECTED_OBJECT_SCOPE_MISMATCH" ||
+      error.message === "LEGACY_LOCAL_PATH_UNRECOVERABLE"
+    )) throw error;
+    return null;
   }
-
-  // Last resort: recursive scan of uploads/ and subdirs
-  const scanDir = (dir: string): string[] => {
-    try {
-      return fs.readdirSync(dir).flatMap((entry) => {
-        const full = path.join(dir, entry);
-        try {
-          return fs.statSync(full).isDirectory() ? scanDir(full) : [full];
-        } catch { return []; }
-      });
-    } catch { return []; }
-  };
-
-  const allFiles = scanDir(uploadsDir);
-  const baseName = path.basename(fileName);
-  const match = allFiles.find(
-    (f) =>
-      (storageKey && (f.endsWith(storageKey) || path.basename(f) === path.basename(storageKey))) ||
-      path.basename(f) === baseName,
-  );
-  if (match) {
-    const result = await readFileText(match, path.relative(process.cwd(), match));
-    if (result) return result;
-  }
-
-  return null;
 }
 
 async function callOpenAIExtraction(statementText: string): Promise<Extraction | null> {
@@ -346,7 +309,11 @@ export async function analyzeStatement(dealId: number): Promise<void> {
   const selectedDoc = statementDocs[0];
   console.log(`[StatementAnalyzer] Selected documentId=${selectedDoc.id} fileName=${selectedDoc.fileName} for deal #${dealId}`);
 
-  const statementText = await extractTextFromDisk(selectedDoc.storageKey, selectedDoc.fileName);
+  const statementText = await extractTextFromProtectedObject(
+    selectedDoc.storageKey,
+    selectedDoc.fileName,
+    selectedDoc.contactId ? `contact:${selectedDoc.contactId}` : null,
+  );
 
   if (!statementText) {
     console.warn(`[StatementAnalyzer] Could not extract text from document #${selectedDoc.id} for deal #${dealId}`);

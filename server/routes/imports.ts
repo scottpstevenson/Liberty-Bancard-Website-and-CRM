@@ -1,5 +1,4 @@
 import type { Express } from "express";
-import { randomUUID } from "crypto";
 import { isAuthenticated, isAdmin, isAffiliate, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
@@ -11,17 +10,12 @@ import { contacts, users } from "@shared/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { INDUSTRY_SLUGS, LOCATION_CITIES, LOCATION_VERTICALS, STATIC_BLOG_SLUGS } from "@shared/blog-slugs";
 import { getSerperUsage, isSerperConfigured } from "../services/serper";
-import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
-import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { calculateQuizBonusFn, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, scoreContact } from "../services/lead-scoring";
-import { generateDealBlueprint } from "../services/deal-blueprint";
-import { routeContact } from "../services/smart-router";
 import { importCordataEnrichment, importFullCorevt, isWorkerRunning, startDailyOutreachInBackground, stopDailyOutreachWorker } from "../services/daily-outreach";
 import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
-import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
+import { ingestBusiness } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
-import { enrollInInboundConfirmation } from "../services/ghl-workflow-enrollment";
 import { updateContactLocalFirst, createContactLocalFirst, writeContact } from "../services/contact-writer";
 import { importExecutions, contactSourceEvents, importRowDispositions } from "@shared/schema";
 import { classifyCsvSourceFormat, computeFileHash } from "../services/import-normalizer";
@@ -36,9 +30,8 @@ import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
-import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalForImport, sendConfirmationSms } from "./helpers";
+import { uploadLarge, normalizePhoneForImport, classifyVerticalForImport } from "./helpers";
 import { recordPewcDecision } from "../services/consent-evidence";
-import { evaluateContactability } from "../services/contactability";
 import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sanitizeFirstName } from "../services/contact-name-utils";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
@@ -46,6 +39,7 @@ import { serverError } from "../utils/server-error";
 import { registerPersistedCsvProcessor, processPersistedCsvImport } from "../services/csv-import-processor";
 import { recordContactBusinessLinkCandidate } from "../services/commercial-link-authority";
 import { importDispositionCompatibility } from "@shared/import-disposition-summary";
+import { claimInboundRequest, orchestrateInboundRequest, setInboundRequestLifecycle } from "../services/inbound-request-authority";
 
 export function registerImportsRoutes(app: Express) {
   app.get("/api/import-executions/:executionId/ledger", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
@@ -771,8 +765,9 @@ Guidelines:
 
   app.post("/api/public/free-analysis", publicLeadRateLimit, async (req, res) => {
     if (req.query.probe === "1") return res.json({ probe: true, endpoint: "/api/public/free-analysis" });
+    let claimedRequestId: string | null = null;
+    let mutationStarted = false;
     try {
-      const submissionId = randomUUID();
       const {
         businessType, industry, monthlyVolume, currentProcessor,
         painPoint, painPoints: painPointsArr,
@@ -784,6 +779,32 @@ Guidelines:
       if (!firstName || !email) {
         return res.status(400).json({ message: "First name and email are required." });
       }
+      const idempotencyKey = req.header("Idempotency-Key");
+      if (!idempotencyKey) {
+        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required" });
+      }
+      const inboundClaim = await claimInboundRequest({
+        idempotencyKey,
+        sourceCategory: "website_form",
+        sourceType: "free_analysis",
+        callerScope: `public:${req.ip || "unknown"}`,
+        actorType: "public",
+        payload: req.body || {},
+      });
+      if (inboundClaim.outcome === "conflict") {
+        return res.status(409).json({ code: "IDEMPOTENCY_KEY_CONFLICT", message: "Idempotency-Key was used with different content" });
+      }
+      if (inboundClaim.outcome === "scope_mismatch") {
+        return res.status(404).json({ message: "Request not found" });
+      }
+      if (inboundClaim.outcome === "replay") {
+        return res.status(200).json({
+          requestReceipt: inboundClaim.request.id,
+          status: inboundClaim.request.lifecycleState,
+        });
+      }
+      const submissionId = inboundClaim.request.id;
+      claimedRequestId = submissionId;
 
       const sanitizedPromo = promoCode
         ? promoCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 20)
@@ -849,6 +870,7 @@ Guidelines:
 
       let contact: Awaited<ReturnType<typeof createContactLocalFirst>> | Awaited<ReturnType<typeof storage.getContactByEmail>> & { _ghlSyncPending?: boolean };
       try {
+        mutationStarted = true;
         contact = await createContactLocalFirst({
           firstName,
           lastName: lastName || "",
@@ -950,80 +972,26 @@ Guidelines:
         },
       });
 
-      trackReferral(referralCode, `${firstName} ${lastName || ""}`, email, phone, companyName).catch(err => console.error("Referral tracking error:", err));
-
-      ingestBusinessFromContact(contact.id, "ghl_form", "free_analysis_quiz").catch(err => console.warn("[Quiz] Business ingest failed:", err));
-
-      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
-      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
-
-      (async () => {
-        try {
-          const searchName = companyName || `${firstName} ${lastName || ""}`;
-          const matches = await storage.searchSunbizEntitiesByNameCity(searchName);
-          if (matches.length > 0) {
-            const match = matches[0];
-            const enrichUpdates: Record<string, any> = {};
-            if (match.vertical && !contact.vertical) enrichUpdates.vertical = match.vertical;
-            if (match.ownerName) enrichUpdates.notes = `${contact.notes || ""}\nSunbiz Match: ${match.entityName} (Filing: ${match.filingNumber || "N/A"})`.trim();
-            const existingTags = contact.tags || [];
-            enrichUpdates.tags = [...existingTags, "sunbiz_matched"];
-            if (match.aiSummary) {
-              enrichUpdates.notes = `${enrichUpdates.notes || contact.notes || ""}\nSunbiz AI: ${match.aiSummary}`.trim();
-            }
-            await updateContactLocalFirst(contact.id, enrichUpdates);
-            await storage.updateSunbizEntity(match.id, {
-              tags: [...(match.tags || []), "quiz_lead_linked"],
-              notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${firstName} ${lastName || ""})`.trim(),
-            });
-          }
-        } catch (err) {
-          console.error("Sunbiz match error:", err);
+      const searchName = companyName || `${firstName} ${lastName || ""}`;
+      const matches = await storage.searchSunbizEntitiesByNameCity(searchName);
+      if (matches.length > 0) {
+        const match = matches[0];
+        const enrichUpdates: Record<string, any> = {};
+        if (match.vertical && !contact.vertical) enrichUpdates.vertical = match.vertical;
+        if (match.ownerName) enrichUpdates.notes = `${contact.notes || ""}\nSunbiz Match: ${match.entityName} (Filing: ${match.filingNumber || "N/A"})`.trim();
+        const existingTags = contact.tags || [];
+        enrichUpdates.tags = [...existingTags, "sunbiz_matched"];
+        if (match.aiSummary) {
+          enrichUpdates.notes = `${enrichUpdates.notes || contact.notes || ""}\nSunbiz AI: ${match.aiSummary}`.trim();
         }
-      })();
-
-      triggerWorkflowsByEvent("form_submitted", {
-        entityType: "contact",
-        entityId: contact.id,
-        contactId: contact.id,
-        dealId: deal.id,
-      }, { formType: "free_analysis" }).catch(err => console.error("Workflow trigger error:", err));
-
-      enqueuePromotionalEnrollment({
-        contactId: contact.id,
-        triggerType: "form_submitted",
-        formType: "free_analysis",
-        sourceEventId: `deal-${deal.id}-form_submitted-free_analysis`,
-      }).catch(err => console.error("Auto-enroll error:", err));
-
-      enqueuePromotionalEnrollment({
-        contactId: contact.id,
-        triggerType: "quiz_completed",
-        sourceEventId: `deal-${deal.id}-quiz_completed`,
-      }).catch(err => console.error("Auto-enroll quiz error:", err));
-
-      if (pewcConsent && phone) {
-        const inboundRequestId = `deal-${deal.id}-form_submitted-free_analysis`;
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement", inboundRequestId, intendedRecipientContactId: contact.id })
-          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id, inboundRequestId).catch(err => console.error("Confirm SMS error:", err)); })
-          .catch(err => console.error("[FreeAnalysis] Contactability check error:", err));
+        await updateContactLocalFirst(contact.id, enrichUpdates);
+        await storage.updateSunbizEntity(match.id, {
+          tags: [...(match.tags || []), "quiz_lead_linked"],
+          notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${firstName} ${lastName || ""})`.trim(),
+        });
       }
 
-      syncFormSubmissionToGhl({
-        contactId: contact.id,
-        dealId: deal.id,
-        leadSource: "free_analysis",
-        formData: {
-          lb_estimated_savings: `$${estimatedSavings.toLocaleString()}`,
-          lb_recommended_program: recommendedProgram,
-          lb_business_type: businessType || "",
-        },
-      }).catch(err => console.error("GHL form sync error:", err));
-
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "free_analysis", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
-
-      storage.createReviewQueueItem({
+      await storage.createReviewQueueItem({
         sourceType: "quiz",
         sourceId: contact.id,
         status: "pending",
@@ -1048,24 +1016,30 @@ Guidelines:
           contactId: contact.id,
           dealId: deal.id,
         },
-      }).catch((err: any) => console.error("[ReviewQueue] Free-analysis enqueue failed:", err.message));
+      });
 
-      res.status(201).json({
-        success: true,
+      const request = await orchestrateInboundRequest({
+        requestId: inboundClaim.request.id,
         contactId: contact.id,
         dealId: deal.id,
-        estimatedSavings,
-        recommendedProgram,
-        recommendedTerminal,
-        monthlyVolume: monthlyVolume || "0",
       });
+      res.status(201).json({ requestReceipt: request.id, status: request.lifecycleState });
     } catch (err: any) {
       console.error("Free analysis submission error:", err);
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      if (claimedRequestId) {
+        await setInboundRequestLifecycle(
+          claimedRequestId,
+          mutationStarted ? "review_required" : "failed",
+          mutationStarted ? "FREE_ANALYSIS_PARTIAL_MUTATION" : "FREE_ANALYSIS_PROCESSING_FAILED",
+        );
+      }
+      res.status(500).json({ code: "FREE_ANALYSIS_SUBMISSION_FAILED", message: "Unable to process submission." });
     }
   });
 
   app.post("/api/affiliate/referral", publicLeadRateLimit, async (req, res) => {
+    let claimedRequestId: string | null = null;
+    let mutationStarted = false;
     try {
       const { affiliateCode, name, email, phone, company, source } = req.body;
       if (!affiliateCode || !name || !email) {
@@ -1073,8 +1047,55 @@ Guidelines:
       }
       const partner = await storage.getPartnerByCode(affiliateCode);
       if (!partner) return res.status(404).json({ message: "Invalid affiliate code." });
-      const referral = await storage.createReferral({
+      const idempotencyKey = req.header("Idempotency-Key");
+      if (!idempotencyKey) {
+        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required for a partner referral" });
+      }
+      const inboundClaim = await claimInboundRequest({
+        idempotencyKey,
+        occurrenceKey: `partner-referral:${partner.id}:${idempotencyKey}`,
+        sourceCategory: "partner_referral",
+        sourceType: "partner_form",
+        callerScope: `partner:${partner.id}`,
+        actorType: "partner",
+        actorId: String(partner.id),
+        payload: { name, email, phone: phone || null, company: company || null, source: source || null },
+      });
+      if (inboundClaim.outcome === "conflict") {
+        return res.status(409).json({ code: "IDEMPOTENCY_KEY_CONFLICT", message: "Idempotency-Key was used with a different referral" });
+      }
+      if (inboundClaim.outcome === "scope_mismatch") {
+        return res.status(403).json({ code: "IDEMPOTENCY_KEY_SCOPE_MISMATCH", message: "Idempotency-Key belongs to another partner" });
+      }
+      if (inboundClaim.outcome === "replay") {
+        return res.status(200).json({ requestReceipt: inboundClaim.request.id, status: inboundClaim.request.lifecycleState });
+      }
+      claimedRequestId = inboundClaim.request.id;
+      const nameParts = String(name).trim().split(/\s+/);
+      mutationStarted = true;
+      const contact = await writeContact({
+        mode: "local_only",
+        mutation: {
+          firstName: nameParts[0] || "Referral",
+          lastName: nameParts.slice(1).join(" "),
+          email: String(email).trim().toLowerCase(),
+          phone: phone || "",
+          companyName: company || undefined,
+          status: "New",
+          leadSource: "Partner Referral",
+        },
+        provenance: {
+          sourceCategory: "partner_referral",
+          sourceType: "partner_form",
+          eventKey: `partner-referral:${inboundClaim.request.id}`,
+          actorType: "partner",
+          actorId: String(partner.id),
+        },
+        actor: { actorType: "partner", actorId: String(partner.id) },
+      });
+      await storage.createReferral({
         partnerId: partner.id,
+        contactId: contact.id,
         referredName: name,
         referredEmail: email,
         referredPhone: phone || null,
@@ -1084,9 +1105,18 @@ Guidelines:
         notes: source ? `Source: ${source}` : null,
       });
       await storage.updatePartner(partner.id, { totalReferrals: (partner.totalReferrals || 0) + 1 } as any);
-      res.status(201).json({ success: true, referralId: referral.id });
+      const request = await orchestrateInboundRequest({ requestId: inboundClaim.request.id, contactId: contact.id });
+      res.status(201).json({ requestReceipt: request.id, status: request.lifecycleState });
     } catch (err: any) {
-      serverError(res, err);
+      console.error("Affiliate referral submission error:", err);
+      if (claimedRequestId) {
+        await setInboundRequestLifecycle(
+          claimedRequestId,
+          mutationStarted ? "review_required" : "failed",
+          mutationStarted ? "AFFILIATE_REFERRAL_PARTIAL_MUTATION" : "AFFILIATE_REFERRAL_PROCESSING_FAILED",
+        );
+      }
+      res.status(500).json({ code: "AFFILIATE_REFERRAL_SUBMISSION_FAILED", message: "Unable to process referral." });
     }
   });
 
@@ -2104,36 +2134,12 @@ Guidelines:
             const { auditChange } = await import("../services/audit-change");
             auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: r.id, before: null, after: r as unknown as Record<string, unknown> }).catch(() => {});
           }
-          for (const r of result) {
-            // Provider exports are evidence/staging inputs. Import must not
-            // implicitly score or create a qualifying deal.
-            if (sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list") {
-              coldLeads++;
-              continue;
-            }
-            try {
-              const scoreResult = await scoreContact(r.id);
-              if (scoreResult) {
-                const tier = (scoreResult as any)?.tier || (scoreResult as any)?.breakdown?.tier;
-                if (tier === "hot") {
-                  hotLeads++;
-                  await storage.createDeal({
-                    contactId: r.id,
-                    pipeline: "sales",
-                    stage: "New Lead",
-                    leadSource: sourceFormat,
-                    notes: `Auto-created from CSV import: ${fileName}`,
-                  });
-                  dealsCreated++;
-                } else if (tier === "warm") {
-                  warmLeads++;
-                } else {
-                  coldLeads++;
-                }
-              }
-            } catch (scoreErr) {
-              coldLeads++;
-            }
+          for (const _row of result) {
+            // CSV rows are acquisition evidence, never an inbound occurrence.
+            // A later explicit request must enter through its own adapter and
+            // claim its own request key; import does not score/create a deal,
+            // claim an inbound request, or infer consent.
+            coldLeads++;
           }
         } catch (batchErr: any) {
           // Do not fall back to a raw insert. The execution remains recoverable

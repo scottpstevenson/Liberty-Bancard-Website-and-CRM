@@ -78,6 +78,31 @@ interface AiAnalysis {
   verticals: any[];
 }
 
+interface InboundRequest {
+  requestReceipt: string;
+  sourceClass: string;
+  sourceCategory: string;
+  sourceType: string;
+  lifecycleState: string;
+  effects: Array<{
+    effectKey: string;
+    effectType: string;
+    state: string;
+    required: boolean;
+    externalSideEffect: boolean;
+    terminalReason: string | null;
+  }>;
+  assignmentStatus: string;
+  assignmentReason?: string | null;
+  assignedTo: string | null;
+  slaDueAt: string | null;
+  contactId: number | null;
+  dealId: number | null;
+  ticketId: number | null;
+  createdAt: string;
+  terminalReason: string | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function scoreBadge(score: string | null) {
   if (score === "hot")  return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300";
@@ -94,6 +119,19 @@ function statusBadge(status: string) {
   return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
+function inboundStatusBadge(status: string | null | undefined) {
+  if (status === "accepted" || status === "completed" || status === "sent" || status === "assigned") return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300";
+  if (status === "failed" || status === "cancelled" || status === "suppressed" || status === "unassigned_policy_missing") return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300";
+  if (status === "review_required" || status === "pending" || status === "held") return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300";
+  return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300";
+}
+
+function formatInboundDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function LeadOpsCenter() {
   const { user } = useAuth();
@@ -108,6 +146,10 @@ export default function LeadOpsCenter() {
   const [filterContactable, setFilterContactable] = useState(false);
   const [filterNoContact,   setFilterNoContact]   = useState(false);
   const LIMIT = 100;
+  const [inboundPage, setInboundPage] = useState(0);
+  const [inboundSourceClass, setInboundSourceClass] = useState("all");
+  const [inboundLifecycle, setInboundLifecycle] = useState("all");
+  const INBOUND_LIMIT = 25;
 
   // ── Selection state ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -173,6 +215,23 @@ export default function LeadOpsCenter() {
   const entities = entitiesQuery.data?.data || [];
   const total    = entitiesQuery.data?.total || 0;
   const totalPages = Math.ceil(total / LIMIT);
+
+  const inboundParams = new URLSearchParams({
+    limit: String(INBOUND_LIMIT),
+    offset: String(inboundPage * INBOUND_LIMIT),
+    ...(inboundSourceClass !== "all" ? { sourceClass: inboundSourceClass } : {}),
+    ...(inboundLifecycle !== "all" ? { lifecycleState: inboundLifecycle } : {}),
+  });
+  const inboundRequestsQuery = useQuery<InboundRequest[]>({
+    queryKey: ["/api/lead-ops/inbound-requests", inboundPage, inboundSourceClass, inboundLifecycle],
+    queryFn: async () => {
+      const response = await fetch(`/api/lead-ops/inbound-requests?${inboundParams}`, { credentials: "include" });
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    },
+    placeholderData: (previous) => previous,
+  });
+  const inboundRequests = inboundRequestsQuery.data || [];
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const bulkEnrichMutation = useMutation({
@@ -351,6 +410,159 @@ export default function LeadOpsCenter() {
       </div>
 
       <SouthFloridaQualificationPanel />
+
+      {/* ── Inbound request operations ─────────────────────────────────────── */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-base">Inbound Request Operations</CardTitle>
+              <CardDescription className="text-xs mt-1">
+                Bounded operational view of governed inbound receipts and their canonical work links.
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 shrink-0"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/inbound-requests"] })}
+              disabled={inboundRequestsQuery.isFetching}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${inboundRequestsQuery.isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Select value={inboundSourceClass} onValueChange={(value) => { setInboundSourceClass(value); setInboundPage(0); }}>
+              <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All source classes" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All source classes</SelectItem>
+                <SelectItem value="sales_request">Sales request</SelectItem>
+                <SelectItem value="support_request">Support request</SelectItem>
+                <SelectItem value="fulfillment_request">Fulfillment request</SelectItem>
+                <SelectItem value="content_reputation">Content &amp; reputation</SelectItem>
+                <SelectItem value="marketing_opt_in">Marketing opt-in</SelectItem>
+                <SelectItem value="imported_provider_event">Imported provider event</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={inboundLifecycle} onValueChange={(value) => { setInboundLifecycle(value); setInboundPage(0); }}>
+              <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All lifecycle states" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All lifecycle states</SelectItem>
+                <SelectItem value="claimed">Claimed</SelectItem>
+                <SelectItem value="processing">Processing</SelectItem>
+                <SelectItem value="accepted">Accepted</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="review_required">Review required</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {inboundRequestsQuery.isError ? (
+            <div className="px-6 py-8 text-sm text-destructive">
+              Unable to load inbound requests. {inboundRequestsQuery.error instanceof Error ? inboundRequestsQuery.error.message : ""}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[1300px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Source / received</TableHead>
+                    <TableHead>Opaque receipt</TableHead>
+                    <TableHead>Assignment</TableHead>
+                    <TableHead>SLA due</TableHead>
+                    <TableHead>Lifecycle / effect truth</TableHead>
+                    <TableHead>Terminal reason (redacted)</TableHead>
+                    <TableHead>Canonical links</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {inboundRequestsQuery.isLoading
+                    ? Array.from({ length: 5 }).map((_, index) => (
+                      <TableRow key={index}>
+                        {Array.from({ length: 7 }).map((__, cell) => <TableCell key={cell}><Skeleton className="h-4 w-full" /></TableCell>)}
+                      </TableRow>
+                    ))
+                    : inboundRequests.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">
+                          No inbound requests match the current filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : inboundRequests.map((request) => (
+                      <TableRow key={request.requestReceipt}>
+                        <TableCell className="text-xs">
+                          <div className="font-medium">{request.sourceClass}</div>
+                          <div className="text-muted-foreground">{request.sourceCategory} / {request.sourceType}</div>
+                          <div className="text-muted-foreground mt-1">{formatInboundDate(request.createdAt)}</div>
+                        </TableCell>
+                        <TableCell className="max-w-[190px] font-mono text-[11px] break-all">{request.requestReceipt}</TableCell>
+                        <TableCell className="text-xs">
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${inboundStatusBadge(request.assignmentStatus)}`}>
+                            {request.assignmentStatus}
+                          </Badge>
+                          {(request.assignedTo || request.assignmentReason) && (
+                            <div className="text-muted-foreground mt-1 max-w-[180px] break-words">
+                              {request.assignedTo || request.assignmentReason}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">{formatInboundDate(request.slaDueAt)}</TableCell>
+                        <TableCell className="text-xs space-y-1">
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 ${inboundStatusBadge(request.lifecycleState)}`}>
+                            {request.lifecycleState}
+                          </Badge>
+                          <div className="space-y-1 pt-0.5">
+                            {request.effects.length === 0 ? (
+                              <div className="text-muted-foreground">No effects reported</div>
+                            ) : request.effects.map((effect) => (
+                              <div key={effect.effectKey} className="flex flex-wrap items-center gap-1 text-[10px]">
+                                <span className="text-muted-foreground">{effect.effectKey}</span>
+                                <Badge variant="outline" className={`text-[9px] px-1 py-0 h-4 ${inboundStatusBadge(effect.state)}`}>
+                                  {effect.state}
+                                </Badge>
+                                {effect.externalSideEffect && <span className="text-muted-foreground">(external effect)</span>}
+                                {effect.terminalReason && <span className="text-muted-foreground">{effect.terminalReason}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[220px] text-xs text-muted-foreground break-words">
+                          {request.terminalReason || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <div className="flex flex-col items-start gap-1">
+                            {request.contactId && <a className="text-blue-600 hover:underline" href={`/dashboard/contacts/${request.contactId}`}>Contact #{request.contactId}</a>}
+                            {request.dealId && <a className="text-blue-600 hover:underline" href="/dashboard/pipeline">Deal #{request.dealId}</a>}
+                            {request.ticketId && <a className="text-blue-600 hover:underline" href="/dashboard/tickets">Ticket #{request.ticketId}</a>}
+                            {!request.contactId && !request.dealId && !request.ticketId && <span className="text-muted-foreground">—</span>}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  }
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+        <div className="flex items-center justify-between border-t px-6 py-3">
+          <span className="text-xs text-muted-foreground">
+            {inboundRequestsQuery.isLoading ? "Loading receipts…" : `Page ${inboundPage + 1} · up to ${INBOUND_LIMIT} receipts`}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={inboundPage === 0 || inboundRequestsQuery.isFetching} onClick={() => setInboundPage((page) => page - 1)}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+            </Button>
+            <Button variant="outline" size="sm" disabled={inboundRequests.length < INBOUND_LIMIT || inboundRequestsQuery.isFetching} onClick={() => setInboundPage((page) => page + 1)}>
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {/* ── Stats row ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

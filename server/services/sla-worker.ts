@@ -103,6 +103,26 @@ const DEFAULT_SLA_RULES = [
 
 const SLA_THROTTLE_HOURS = 6;
 
+async function auditUnassignedTaskReview(input: {
+  taskId: number;
+  entityType: string;
+  entityId: number;
+  taskSource: string;
+}) {
+  await storage.createAuditLog({
+    action: "task_assignment_review_required",
+    entityType: input.entityType,
+    entityId: input.entityId,
+    actorType: "system",
+    details: {
+      taskId: input.taskId,
+      taskSource: input.taskSource,
+      assignmentStatus: "unassigned_review_required",
+      reasonCode: "REVIEW_REQUIRED_NO_ASSIGNEE",
+    },
+  });
+}
+
 /**
  * Find the most recent matching breach audit row inside the throttle window.
  * Returns the row (so the caller can collapse into it) or null.
@@ -244,14 +264,22 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
       } catch { /* non-critical — fall through to create task */ }
     }
 
-    await storage.createAuthorityTask({
+    const task = await storage.createAuthorityTask({
       dealId: deal.id,
       contactId: deal.contactId || undefined,
       title: `SLA: ${rule.name} — Deal #${deal.id} (${hoursStuck}hr overdue)`,
-      assignedTo: deal.owner || "Scott Stevenson",
+      assignedTo: deal.owner || undefined,
       priority: "high",
       dueDate: new Date(Date.now() + 60 * 60 * 1000),
     });
+    if (!task.assignedTo) {
+      await auditUnassignedTaskReview({
+        taskId: task.id,
+        entityType: "deal",
+        entityId: deal.id,
+        taskSource: "deal_sla_breach",
+      });
+    }
 
     await createPreferenceAwareNotification({
       channel: "internal",
@@ -541,10 +569,10 @@ async function checkLeadFreshnessSla(): Promise<{ escalated: number }> {
         );
         const contactName =
           [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email;
-        const assignee = contact.assignedTo || "Scott Stevenson";
+        const assignee = contact.assignedTo || undefined;
 
         // Create in-app task for the assigned rep
-        await storage.createAuthorityTask({
+        const task = await storage.createAuthorityTask({
           contactId: contact.id,
           title: `Speed-to-Lead SLA Breach: ${contactName} overdue ${minutesOverdue}m`,
           assignedTo: assignee,
@@ -553,12 +581,20 @@ async function checkLeadFreshnessSla(): Promise<{ escalated: number }> {
           source: "sla",
           automationKey: `lead-freshness-sla-${contact.id}`,
         });
+        if (!task.assignedTo) {
+          await auditUnassignedTaskReview({
+            taskId: task.id,
+            entityType: "contact",
+            entityId: contact.id,
+            taskSource: "lead_freshness_sla_breach",
+          });
+        }
 
         // Internal notification
         await createPreferenceAwareNotification({
           channel: "internal",
           title: "Speed-to-Lead SLA Breach",
-          message: `High-score lead ${contactName} (score ${contact.leadScore}) has not been contacted within ${LEAD_SLA_MINUTES} minutes. Assigned to: ${assignee}`,
+          message: `High-score lead ${contactName} (score ${contact.leadScore}) has not been contacted within ${LEAD_SLA_MINUTES} minutes. Assigned to: ${assignee || "Unassigned"}`,
           type: "urgent",
           metadata: {
             contactId: contact.id,
@@ -578,7 +614,7 @@ async function checkLeadFreshnessSla(): Promise<{ escalated: number }> {
             contactName,
             leadScore: contact.leadScore,
             minutesOverdue,
-            assignedTo: assignee,
+            assignedTo: assignee || "Unassigned",
             nextSlaDueAt: contact.nextSlaDueAt?.toISOString(),
           },
         });
@@ -885,14 +921,22 @@ async function checkDocumentReadiness() {
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       if (!contact) continue;
 
-      await storage.createAuthorityTask({
+      const task = await storage.createAuthorityTask({
         dealId: deal.id,
         contactId: deal.contactId || undefined,
         title: `Doc Nudge: ${contact.firstName} ${contact.lastName} missing ${missing.join(", ")}`,
-        assignedTo: deal.owner || "Scott Stevenson",
+        assignedTo: deal.owner || undefined,
         priority: completed >= 2 ? "high" : "medium",
         dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000),
       });
+      if (!task.assignedTo) {
+        await auditUnassignedTaskReview({
+          taskId: task.id,
+          entityType: "deal",
+          entityId: deal.id,
+          taskSource: "document_readiness_nudge",
+        });
+      }
 
       if (isGhlConfigured() && completed >= 1) {
         const compliance = checkCompliance(contact);
@@ -1053,14 +1097,21 @@ async function checkChargebackDeadlines() {
         ? Math.round((Date.now() - new Date(cb.responseDeadline).getTime()) / (1000 * 60 * 60 * 24))
         : 0;
 
-      await storage.createAuthorityTask({
+      const task = await storage.createAuthorityTask({
         contactId: cb.contactId || undefined,
         dealId: cb.dealId || undefined,
         title: `OVERDUE Chargeback #${cb.id} — $${cb.amount.toFixed(2)} (${cb.cardBrand}) past deadline by ${deadlineDays}d`,
-        assignedTo: "Scott Stevenson",
         priority: "high",
         dueDate: new Date(),
       });
+      if (!task.assignedTo) {
+        await auditUnassignedTaskReview({
+          taskId: task.id,
+          entityType: "chargeback",
+          entityId: cb.id,
+          taskSource: "chargeback_deadline_overdue",
+        });
+      }
 
       await createPreferenceAwareNotification({
         channel: "internal",
@@ -1210,16 +1261,23 @@ async function checkRetentionCampaigns() {
         }
       }
 
-      await storage.createAuthorityTask({
+      const task = await storage.createAuthorityTask({
         contactId: alert.contactId || undefined,
         dealId: alert.dealId || undefined,
         title: `[Retention] ${config.campaignName} — ${alert.title}`,
         description: message || `Follow up with merchant regarding: ${alert.title}`,
-        assignedTo: "Scott Stevenson",
         priority: config.taskPriority || "high",
         dueDate,
         status: "pending",
       });
+      if (!task.assignedTo) {
+        await auditUnassignedTaskReview({
+          taskId: task.id,
+          entityType: "health_alert",
+          entityId: alert.id,
+          taskSource: "retention_campaign",
+        });
+      }
 
       await storage.updateHealthAlert(alert.id, { retentionTaskCreated: true } as any);
       console.log(`[Retention] Task created for alert #${alert.id} (${alert.alertType}) using campaign "${config.campaignName}"`);

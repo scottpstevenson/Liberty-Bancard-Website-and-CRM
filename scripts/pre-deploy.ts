@@ -398,6 +398,21 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-05A Inbound Revenue Operations Static Certification",
+    script: "scripts/test-cro05a-static.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-05A Inbound Lifecycle Pure Contract",
+    script: "server/tests/inbound-request-lifecycle.test.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "CRO-05A Non-Public Adapter Classification Certification",
+    script: "scripts/test-cro05a-nonpublic-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRO-03C Live Dispatch Durability (disposable PostgreSQL/Redis, provider-denied)",
     script: "scripts/test-cro03c-integration.ts",
     timeoutSecs: 120,

@@ -1,19 +1,12 @@
 import type { Express } from "express";
-import { createHash } from "crypto";
 import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
 import { verifyUnsubscribeToken } from "../services/unsubscribe-token";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
-import { enqueuePromotionalEnrollment } from "../services/promotional-enrollment-eligibility";
-import { triggerWorkflowsByEvent } from "../services/workflow-executor";
-import { enrollInInboundConfirmation, isGhlInboundActive } from "../services/ghl-workflow-enrollment";
-import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { autoGenerateProposal } from "../services/proposal-engine";
-import { processNewLead } from "../services/process-new-lead";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
-import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
 import { writeContact, upsertContactSourceEvent } from "../services/contact-writer";
 import { processExistingPublicFormSubmission } from "../services/public-form-submission";
 import { buildPublicContactPayload } from "../services/public-form-payload";
@@ -31,20 +24,120 @@ import {
 import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
-import { upload, trackReferral, sendConfirmationSms } from "./helpers";
+import { upload, trackReferral } from "./helpers";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { recordPewcDecision } from "../services/consent-evidence";
 import { applyConsentCommand } from "../services/consent-authority";
-import { evaluateContactability } from "../services/contactability";
 // StatementChainTracker removed — not exported from statement-upload-chain
 import { resolveReferralAttribution } from "../services/attribution";
 import { serverError } from "../utils/server-error";
 import { recordAnalyticsEvent } from "../services/analytics-events";
 import { FORM_SUBMITTED, DEAL_CREATED } from "@shared/analytics-events";
+import {
+  claimInboundRequest,
+  getPublicInboundRequestStatus,
+  inboundSlaDueAt,
+  orchestrateInboundRequest,
+  setInboundRequestLifecycle,
+} from "../services/inbound-request-authority";
+
+const PUBLIC_INBOUND_SOURCES: Record<string, [string, string]> = {
+  "/api/public/estimate": ["website_form", "estimate_form"],
+  "/api/public/support": ["website_form", "support_form"],
+  "/api/public/get-started": ["website_form", "get_started_form"],
+  "/api/public/integration-request": ["website_form", "integration_request"],
+  "/api/public/callback": ["website_form", "callback_form"],
+  "/api/equipment-order": ["website_form", "equipment_order"],
+  "/api/public/testimonial-submit": ["website_form", "testimonial_submit"],
+  "/api/newsletter/subscribe": ["website_form", "newsletter_signup"],
+};
+
+function publicInboundCallerScope(req: { ip?: string }): string {
+  return `public:${req.ip || "unknown"}`;
+}
 
 export function registerPublicRoutes(app: Express) {
+  // Claim JSON public requests before any business mutation. The multipart
+  // statement adapter has its own atomic command claim and is linked by its
+  // command ID, so it is intentionally excluded from this middleware.
+  app.use(async (req, res, next) => {
+    if (req.method !== "POST") return next();
+    const source = PUBLIC_INBOUND_SOURCES[req.path];
+    if (!source) return next();
+    const suppliedKey = req.header("Idempotency-Key");
+    if (!suppliedKey) {
+      return res.status(400).json({ error: "MISSING_IDEMPOTENCY_KEY" });
+    }
+    const idempotencyKey = suppliedKey;
+    res.setHeader("Idempotency-Key", idempotencyKey);
+    try {
+      const claim = await claimInboundRequest({
+        idempotencyKey,
+        sourceCategory: source[0],
+        sourceType: source[1],
+        callerScope: publicInboundCallerScope(req),
+        actorType: "public",
+        payload: req.body || {},
+      });
+      if (claim.outcome === "conflict") return res.status(409).json({ error: "Idempotency key conflicts with another request" });
+      if (claim.outcome === "scope_mismatch") return res.status(404).json({ error: "Request not found" });
+      if (claim.outcome === "replay") {
+        return res.status(200).json({
+          success: true,
+          replayed: true,
+          requestReceipt: claim.request.id,
+          status: claim.request.lifecycleState,
+        });
+      }
+      (req as any).inboundRequestId = claim.request.id;
+      (req as any).inboundRequest = claim.request;
+      return next();
+    } catch (error) {
+      const code = error instanceof Error ? error.message.split(":")[0] : "INBOUND_REQUEST_REJECTED";
+      return res.status(code === "INVALID_INBOUND_IDEMPOTENCY_KEY" ? 400 : 503).json({ error: code });
+    }
+  });
+
+  // A receipt is not sufficient to read a request. The caller must also prove
+  // possession of the original idempotency key and arrive from its bound
+  // caller scope. All failed capability checks intentionally look identical.
+  app.get("/api/public/inbound-requests/:receipt/status", async (req, res) => {
+    const idempotencyKey = req.header("Idempotency-Key");
+    if (!idempotencyKey) return res.status(404).json({ error: "Request not found" });
+    try {
+      const status = await getPublicInboundRequestStatus({
+        requestReceipt: req.params.receipt,
+        idempotencyKey,
+        callerScope: publicInboundCallerScope(req),
+      });
+      if (!status) return res.status(404).json({ error: "Request not found" });
+      return res.status(200).json(status);
+    } catch {
+      // Do not disclose whether a supplied receipt was syntactically valid or
+      // exists when the public capability cannot be verified.
+      return res.status(404).json({ error: "Request not found" });
+    }
+  });
   const autoProposalRateLimit = new Map<string, number>();
   const AUTO_PROPOSAL_COOLDOWN_MS = 60 * 1000;
+
+  async function acceptInbound(req: any, refs: {
+    contactId?: number | null;
+    dealId?: number | null;
+    ticketId?: number | null;
+    equipmentOrderIds?: number[];
+    notificationId?: number | null;
+  }) {
+    const requestId = req.inboundRequestId as string | undefined;
+    if (!requestId) return null;
+    const request = await orchestrateInboundRequest({ requestId, ...refs });
+    return { success: true, requestReceipt: request.id, status: request.lifecycleState };
+  }
+
+  async function failInbound(req: any, status: number) {
+    const requestId = req.inboundRequestId as string | undefined;
+    if (requestId) await setInboundRequestLifecycle(requestId, "failed", `HTTP_${status}`);
+  }
 
   async function legacyAutoProposalEmail(dealId: number, contactId: number, meta: { vertical?: string; businessName?: string; contactName?: string; email?: string; consentEmail?: boolean }) {
     try {
@@ -193,13 +286,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", publicLeadRateLimit, upload.single("statementFile"), async (req, res) => {
-    // Tracks the idempotency slot we own so route-level errors after the claim
-    // can honestly mark the command recoverable-failed instead of leaving it
-    // stuck in_progress.
     let ownedCommandId: string | null = null;
+    let ownedInboundRequestId: string | null = null;
     try {
-      // ── Idempotency-Key guard ───────────────────────────────────────────────
-      // A UUIDv4 Idempotency-Key header is REQUIRED before any business mutation.
       const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
       if (!idempotencyKey) {
         return res.status(400).json({
@@ -214,9 +303,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      // Per-request UUID: each HTTP submission is a distinct event. BullMQ job retries
-      // use this same UUID (stored in job data), ensuring intra-retry dedup stability.
-      const submissionId = crypto.randomUUID();
       const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: bodyReferrerUrl } = req.body;
       const referrerUrl = bodyReferrerUrl || req.headers["referer"] || req.headers["referrer"] || undefined;
       const nameParts = (contactName || "").split(" ");
@@ -244,8 +330,9 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }
       }
 
-      // ── Compute fingerprint + claim idempotency slot ───────────────────────
-      // Fingerprint: normalized target identity + source/workflow metadata + file
+      // The request authority owns the public occurrence. Its multipart
+      // fingerprint includes the statement bytes, while its caller scope is
+      // identical to other public intake capability checks.
       const normalizedEmailForFp = (email || "").trim().toLowerCase();
       const fingerprint = computeRequestFingerprint({
         fields: {
@@ -265,28 +352,41 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         fileBuffer: req.file?.buffer ?? Buffer.alloc(0),
       });
 
-      // Owner scope: authenticated user or session-bound anonymous identity.
-      // For anonymous callers we bind to the express session so that a different
-      // browser/session cannot replay this key even with the same email.
-      // The email hash is included so the scope is stable across session resets
-      // when the same email is used, while still preventing cross-session leaks.
-      const ownerScope = (() => {
-        if (authUserId) return `user:${authUserId}`;
-        // Build a short, stable hash from the normalized email (or IP as fallback).
-        const emailOrIp = normalizedEmailForFp || req.ip || "unknown";
-        const emailHash = createHash("sha256")
-          .update(emailOrIp)
-          .digest("hex")
-          .slice(0, 16);
-        // Bind to the session so a different session cannot claim the same key.
-        const sessionSuffix = req.sessionID ? req.sessionID.slice(0, 16) : emailHash;
-        return `anon:${emailHash}:${sessionSuffix}`;
-      })();
+      const callerScope = publicInboundCallerScope(req);
+      const inboundClaim = await claimInboundRequest({
+        idempotencyKey,
+        sourceCategory: "website_form",
+        sourceType: "statement_upload",
+        callerScope,
+        actorType: "public",
+        requestFingerprint: fingerprint,
+        payload: req.body || {},
+      });
+      if (inboundClaim.outcome === "conflict") {
+        return res.status(409).json({ error: "Idempotency key conflicts with another request" });
+      }
+      if (inboundClaim.outcome === "scope_mismatch") {
+        return res.status(404).json({ error: "Request not found" });
+      }
+      if (inboundClaim.outcome === "replay") {
+        const status = inboundClaim.request.lifecycleState;
+        return res.status(status === "claimed" || status === "processing" ? 202 : 200).json({
+          success: true,
+          requestReceipt: inboundClaim.request.id,
+          status,
+        });
+      }
+      const submissionId = inboundClaim.request.id;
+      ownedInboundRequestId = submissionId;
+      (req as any).inboundRequestId = submissionId;
 
+      // The statement command remains the protected-object/worker authority.
+      // It deliberately shares the request fingerprint and caller scope with
+      // the occurrence claim; it is never a public receipt.
       const claim = await claimCommand({
         requestId: idempotencyKey,
         fingerprint,
-        ownerScope,
+        ownerScope: callerScope,
         source: "website",
         context: {
           email: normalizedEmailForFp,
@@ -311,36 +411,21 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
       if (claim.outcome === "claimed_by_other") {
         return res.status(202).json({
-          error: "IDEMPOTENCY_IN_PROGRESS",
-          message: "This upload is already being processed. Please poll or retry later.",
-          commandId: claim.commandId,
+          success: true,
+          requestReceipt: submissionId,
+          status: inboundClaim.request.lifecycleState,
         });
       }
       if (claim.outcome === "replay") {
-        // Return stored result with idempotency headers (200 = replayed, not newly created)
-        const stored = claim.command.result as Record<string, unknown> | null;
-        res.setHeader("Idempotency-Key", idempotencyKey);
-        res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
         return res.status(200).json({
           success: true,
-          replayed: true,
-          statement_upload_request_id: claim.command.id,
-          ...(stored ?? {}),
+          requestReceipt: submissionId,
+          status: inboundClaim.request.lifecycleState,
         });
       }
       if (claim.outcome === "recoverable_failed_replay") {
-        // The prior attempt for this key ended in recoverable_failed. Return the
-        // honest stored failure — never fall through to a fresh mutation.
-        const stored = claim.command.result as Record<string, unknown> | null;
-        res.setHeader("Idempotency-Key", idempotencyKey);
-        res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
-        return res.status(422).json({
-          error: "IDEMPOTENCY_KEY_RECOVERABLE_FAILED",
-          message: "A prior attempt with this Idempotency-Key failed. Retry with a new Idempotency-Key.",
-          replayed: true,
-          statement_upload_request_id: claim.command.id,
-          ...(stored ?? {}),
-        });
+        await setInboundRequestLifecycle(submissionId, "failed", "STATEMENT_COMMAND_RECOVERABLE_FAILED");
+        return res.status(422).json({ error: "REQUEST_PROCESSING_FAILED" });
       }
 
       // claim.outcome === "claimed" — we own this slot, proceed with business mutations
@@ -479,14 +564,37 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         fileName: statementFileName,
         source: "website",
         businessName: businessName || undefined,
-        consentEmail: parseBool(consentSms),
         partnerOrgId: resolvedPartnerOrgId,
         commandId,
         requestId: idempotencyKey,
+         inboundRequestId: submissionId,
       });
       if (!statementQueued) {
-        return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
+        await markRecoverableFailed(commandId, {
+          code: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE",
+        }).catch(() => {});
+        await setInboundRequestLifecycle(
+          submissionId,
+          "failed",
+          "STATEMENT_COMMAND_QUEUE_UNAVAILABLE",
+        ).catch(() => {});
+        ownedCommandId = null;
+        ownedInboundRequestId = null;
+        return res.status(503).json({ error: "REQUEST_PROCESSING_UNAVAILABLE" });
       }
+      // Durable command/object/queue ownership has transferred. Later
+      // route-local bookkeeping must not terminalize the worker-owned command.
+      ownedCommandId = null;
+      // The contact and protected-object command handoff both exist before
+      // request orchestration creates request-derived sales work.
+      const inboundResponse = await acceptInbound(req, {
+        contactId: contact.id,
+        dealId: existingDealId || null,
+      });
+      if (!inboundResponse) throw new Error("INBOUND_REQUEST_HANDOFF_MISSING");
+      // Required inbound orchestration is now durable. Optional route-local
+      // records below cannot rewrite the canonical request lifecycle.
+      ownedInboundRequestId = null;
 
       // Fire-and-forget side effects — owner execution only (replays returned early above).
       // NOTE: statement_review enrollment is owned by enrollInInboundConfirmation inside
@@ -508,7 +616,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }).catch(() => {});
       trackReferral(referralCode, contactName, email, mobile, businessName).catch((err: Error) => console.error("Referral tracking error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch((err: Error) => console.warn("[Statement] Business ingest failed:", err));
-      processNewLead(contact.id, { source: "website_statement_upload", trigger: "form_submit" }).catch((err: Error) => console.error("Lead pipeline error:", err));
       // Acknowledge canonical inbound persistence before accepting the form.
       const { recordInboundEvent } = await import("../services/communication-events");
       await recordInboundEvent({
@@ -533,14 +640,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       // onStatementReceived() is now called inside runStatementUploadChain() (STEP 5b)
       // so it runs for all upload paths uniformly. Do not call it here again.
 
-      res.setHeader("Idempotency-Key", idempotencyKey);
-      res.setHeader("X-Statement-Upload-Request-Id", commandId);
-      res.status(202).json({
-        success: true,
-        contactId: contact.id,
-        dealId: existingDealId || null,
-        statement_upload_request_id: commandId,
-      });
+      res.status(202).json(inboundResponse);
     } catch (err: any) {
       // If we owned an idempotency slot and failed before/around handing off to
       // the chain, honestly mark it recoverable-failed so the key never replays
@@ -551,13 +651,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           code: err?.code ?? null,
         }).catch(() => { /* best-effort */ });
       }
+      if (ownedInboundRequestId) {
+        await setInboundRequestLifecycle(ownedInboundRequestId, "failed", "STATEMENT_UPLOAD_FAILED").catch(() => {});
+      }
       res.status(400).json({ message: err.message || "Invalid submission" });
     }
   });
 
   app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: estimateReferrerUrlBody } = req.body;
       const estimateReferrerUrl = estimateReferrerUrlBody || req.headers["referer"] || req.headers["referrer"] || undefined;
       const nameParts = (contactName || "").split(" ");
@@ -691,21 +794,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }
       }).catch(err => console.error("[Attribution] estimate error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_estimate").catch(err => console.warn("[Estimate] Business ingest failed:", err));
-      processNewLead(contact.id, { source: "website_estimate_form", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "estimate", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "estimate", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
-      if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, contactId: contact.id, inboundRequestId: submissionId, metadata: { formType: "estimate", dealId: deal.id } }).catch(err => console.error("[Estimate] GHL inbound_lead enrollment error:", err));
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "estimate" }).catch(err => console.error("GHL form sync error:", err));
-      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      await failInbound(req, 400);
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
   app.post("/api/public/support", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = req.body;
       const nameParts = (name || "").trim().split(" ").filter(Boolean);
       const firstName = nameParts[0] || "there";
@@ -766,12 +864,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }
       }
 
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createAuthorityTicket({
         contactId: contact.id,
         subject: `${issueType || "Support"} - ${businessName || firstName}`,
         description: msg || "",
         priority: priority || "Normal",
         category: issueType || "Other",
+      }, {
+        producer: "inbound_request",
+        commandKey: `inbound:${(req as any).inboundRequestId}:ticket`,
+        issueKey: `inbound-support:${(req as any).inboundRequestId}`,
       });
 
       const ackMessages: Record<string, string> = {
@@ -797,29 +899,17 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         metadata: { ticketId: ticket.id, contactId: contact.id },
       });
 
-      triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
-      if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "support_ticket", ghlContactId: contact.ghlContactId, contactId: contact.id, inboundRequestId: submissionId, metadata: { ticketId: ticket.id, issueType: issueType || "Other" } }).catch(err => console.error("[Support] GHL support_ticket enrollment error:", err));
-      if (consentSms && mobile) {
-        evaluateContactability({
-          contactId: contact.id, channel: "sms", campaignType: "confirmation",
-          commercialPurpose: "transactional_response", mode: "enforcement",
-          inboundRequestId: submissionId, intendedRecipientContactId: contact.id,
-        }).then((decision) => {
-          if (decision.allowed) return sendConfirmationSms(contact.id, firstName, "support", undefined, submissionId);
-        }).catch(err => console.error("Confirm SMS error:", err));
-      }
-      syncFormSubmissionToGhl({ contactId: contact.id, leadSource: "support", skipWorkflowTrigger: true }).catch(err => console.error("GHL form sync error:", err));
-      syncSupportTicketToGhl(contact.id, ticket.id, issueType || "General", msg || "").catch(err => console.error("GHL support sync error:", err));
 
-      res.status(201).json({ success: true, ticketId: ticket.id });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id, ticketId: ticket.id }));
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      await failInbound(req, 400);
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
   app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
 
       let offerPath = "Not Sure";
@@ -961,7 +1051,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           await storage.updateContact(contact.id, { referralSource: attr.referralSource });
         }
       }).catch(err => console.error("[Attribution] get-started error:", err));
-      processNewLead(contact.id, { source: "website_get_started_form", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
       if (!contact.primaryOfferPath) {
         import("../services/offer-router").then(({ routeOfferDeterministic }) => {
           const deterministicResult = routeOfferDeterministic(contact);
@@ -978,16 +1067,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         }).catch(err => console.error("[OfferRouter] Import error:", err));
       }
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "get_started", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
-      if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, contactId: contact.id, inboundRequestId: submissionId, metadata: { formType: "get_started", dealId: deal.id } }).catch(err => console.error("[GetStarted] GHL inbound_lead enrollment error:", err));
-      if (!isGhlInboundActive() && pewcConsent === true && phone) {
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement", inboundRequestId: submissionId, intendedRecipientContactId: contact.id })
-          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "get_started", deal.id, submissionId).catch(err => console.error("Confirm SMS error:", err)); })
-          .catch(err => console.error("[GetStarted] Contactability check error:", err));
-      }
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "get_started", formData: { lb_quiz_goal: goal || "", lb_monthly_volume: monthlyVolume || "", lb_interested_0_percent: interestedIn0Percent ? "yes" : "no", lb_terminal_need: needTerminal ? "yes" : "no" } }).catch(err => console.error("GHL form sync error:", err));
       storage.createReviewQueueItem({
         sourceType: "quiz",
         sourceId: contact.id,
@@ -1010,9 +1089,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           dealId: deal.id,
         },
       }).catch((err: any) => console.error("[ReviewQueue] Get-started enqueue failed:", err.message));
-      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      await failInbound(req, 400);
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
@@ -1020,7 +1100,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // === INTEGRATION REQUEST ===
   app.post("/api/public/integration-request", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const schema = z.object({
         softwareName: z.string().min(1, "Software name is required").max(120),
         softwareCategory: z.string().max(80).optional().default(""),
@@ -1105,15 +1185,14 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         },
       });
 
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "integration_request", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id }, { formType: "integration_request", software: data.softwareName }).catch(err => console.error("Workflow trigger error:", err));
 
-      res.status(201).json({ success: true, contactId: contact.id });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id }));
     } catch (err: any) {
+      await failInbound(req, 400);
       if (err?.issues) {
-        return res.status(400).json({ message: err.issues[0]?.message || "Invalid submission" });
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
@@ -1126,7 +1205,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // is needed here; this handler is safe to remain as a direct writeContact() call.
   app.post("/api/public/callback", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const { name, phone, bestTime, notes, pewcConsent: pewcConsentRaw } = req.body;
       const pewcConsent = pewcConsentRaw === true;
       const nameParts = (name || "").split(" ");
@@ -1187,38 +1266,36 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         formId: "callback_form",
         metadata: { formType: "callback", stage: "New Lead" },
       }).catch(() => {});
-      processNewLead(contact.id, { source: "website_callback_form", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "callback", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "callback", dealId: deal.id, submissionId }).catch(err => console.error("GHL inbound confirmation error:", err));
-      if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "callback_request", ghlContactId: contact.ghlContactId, contactId: contact.id, inboundRequestId: submissionId, metadata: { dealId: deal.id, bestTime: bestTime || "anytime" } }).catch(err => console.error("[Callback] GHL callback_request enrollment error:", err));
-      if (!isGhlInboundActive() && pewcConsent && phone) {
-        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", commercialPurpose: "transactional_response", mode: "enforcement", inboundRequestId: submissionId, intendedRecipientContactId: contact.id })
-          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "callback", deal.id, submissionId).catch(err => console.error("Confirm SMS error:", err)); })
-          .catch(err => console.error("[Callback] Contactability check error:", err));
-      }
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "callback" }).catch(err => console.error("GHL form sync error:", err));
-      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id, dealId: deal.id }));
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      await failInbound(req, 400);
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
   app.post("/api/equipment-order", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
+      const claimedRequest = (req as any).inboundRequest;
+      if (!submissionId || claimedRequest?.id !== submissionId) {
+        return res.status(503).json({ error: "INBOUND_REQUEST_CLAIM_REQUIRED" });
+      }
       const { firstName, lastName, email, phone, businessName, message, items, referralCode, promoCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
-        return res.status(400).json({ message: "Valid first name is required" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
-        return res.status(400).json({ message: "Valid email is required" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       if (!phone || typeof phone !== "string" || phone.length > 30) {
-        return res.status(400).json({ message: "Valid phone number is required" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       if (!Array.isArray(items) || items.length === 0 || items.length > 20) {
-        return res.status(400).json({ message: "At least one item is required" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       const validatedItems = items.map((i: any) => ({
         name: String(i.name || "").slice(0, 100),
@@ -1289,9 +1366,12 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const primaryTerminal = validatedItems[0]?.name || "Unknown";
       const allTerminals = validatedItems.map((i: any) => i.name).join(", ");
       const orderedAt = new Date();
+      const fulfillmentDueAt = inboundSlaDueAt("fulfillment_request", claimedRequest.sourceReceivedAt);
+      if (!fulfillmentDueAt) throw new Error("FULFILLMENT_SLA_UNAVAILABLE");
 
       const deal = await storage.createDeal({
-        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        inboundRequestId: submissionId,
+        contactId: contact.id, pipeline: "fulfillment", stage: "Order Received",
         notes: `Equipment order: ${itemSummary}. ${safeMessage}${sanitizedPromo ? `\nPromo Code: ${sanitizedPromo}` : ""}`.trim(),
         promoCode: sanitizedPromo,
         terminalRecommendation: allTerminals,
@@ -1302,69 +1382,40 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         ...(contact.partnerOrgId ? { partnerOrgId: contact.partnerOrgId } : {}),
       });
 
-      for (const item of validatedItems) {
-        await storage.createEquipmentOrder({
+      const equipmentOrderIds: number[] = [];
+      for (const [itemIndex, item] of validatedItems.entries()) {
+        const order = await storage.createEquipmentOrder({
+          inboundRequestId: submissionId,
+          commandKey: `inbound:${submissionId}:equipment-order:${itemIndex}`,
           dealId: deal.id,
           contactId: contact.id,
           equipmentType: item.name,
           quantity: item.quantity,
           status: "pending",
           orderedAt,
+          fulfillmentDueAt,
           notes: `Price: ${item.price}. 24-hour setup & testing period before shipment.`,
         });
+        equipmentOrderIds.push(order.id);
       }
 
-      await storage.createAuthorityTask({
-        dealId: deal.id, contactId: contact.id,
-        title: `Setup & test terminal: ${primaryTerminal} (24hr processing)`.slice(0, 255),
-        assignedTo: "Scott Stevenson",
-        priority: "high", status: "open",
-      });
-
-      await storage.createNotification({
+      const notification = await storage.createNotification({
+        inboundRequestId: submissionId,
+        commandKey: `inbound:${submissionId}:equipment-notification`,
         channel: "#sales", title: "Equipment Order Received",
         message: `${firstName} ${safeLastName} ordered: ${itemSummary}${sanitizedPromo ? ` (promo: ${sanitizedPromo})` : ""}`.slice(0, 500),
         type: "alert",
       });
 
-      trackReferral(referralCode, `${firstName} ${safeLastName}`, email, phone, safeBusiness).catch(err => console.error("Referral tracking error:", err));
-      resolveReferralAttribution(referralCode, contact.partnerOrgId).then(async attr => {
-        if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
-          if (!contact.partnerOrgId) {
-            const orgUpdates: Record<string, unknown> = { partnerOrgId: attr.partnerOrgId, referralSource: attr.referralSource };
-            if (attr.promoCode && !contact.promoCode) orgUpdates.promoCode = attr.promoCode;
-            await storage.updateContact(contact.id, orgUpdates as Parameters<typeof storage.updateContact>[1]);
-            await storage.updateDeal(deal.id, { partnerOrgId: attr.partnerOrgId });
-          } else {
-            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has partnerOrgId", existing: contact.partnerOrgId, inbound: attr.partnerOrgId } });
-          }
-        } else if (attr.partnerType === "affiliate_partner" && attr.promoCode) {
-          if (!contact.promoCode) {
-            await storage.updateContact(contact.id, { promoCode: attr.promoCode, referralSource: attr.referralSource });
-          } else {
-            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has promoCode", existing: contact.promoCode, inbound: attr.promoCode } });
-          }
-        } else if (attr.partnerType !== "none" && attr.referralSource && !contact.referralSource) {
-          await storage.updateContact(contact.id, { referralSource: attr.referralSource });
-        }
-      }).catch(err => console.error("[Attribution] equipment-order error:", err));
-      processNewLead(contact.id, { source: "website_equipment_order", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "form_submitted", formType: "equipment_order", sourceEventId: submissionId }).catch(err => console.error("Enqueue error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "equipment_order" }).catch(err => console.error("Workflow trigger error:", err));
-      if (contact.ghlContactId) enrollInGhlWorkflowCompliant({ workflowKey: "equipment_order", ghlContactId: contact.ghlContactId, contactId: contact.id, inboundRequestId: submissionId, metadata: { dealId: deal.id, items: validatedItems.map((i: any) => i.name) } }).catch(err => console.error("[EquipmentOrder] GHL equipment_order enrollment error:", err));
-      if (phone) {
-        evaluateContactability({
-          contactId: contact.id, channel: "sms", campaignType: "confirmation",
-          commercialPurpose: "transactional_response", mode: "enforcement",
-          inboundRequestId: submissionId, intendedRecipientContactId: contact.id,
-        }).then((decision) => {
-          if (decision.allowed) return sendConfirmationSms(contact.id, firstName, "equipment_order", deal.id, submissionId);
-        }).catch(err => console.error("Confirm SMS error:", err));
-      }
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "equipment_order" }).catch(err => console.error("GHL form sync error:", err));
-      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+      res.status(201).json(await acceptInbound(req, {
+        contactId: contact.id,
+        dealId: deal.id,
+        equipmentOrderIds,
+        notificationId: notification.id,
+      }));
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      await failInbound(req, 400);
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
@@ -1393,16 +1444,19 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/testimonial-submit", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const { name, businessName, email, phone, industry, videoLink, savingsAmount, story } = req.body;
       if (!name || typeof name !== "string" || name.length > 200) {
-        return res.status(400).json({ message: "Valid name is required" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
-        return res.status(400).json({ message: "Valid email is required" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       if (!story || typeof story !== "string" || story.length < 10) {
-        return res.status(400).json({ message: "Please share your story" });
+        await failInbound(req, 400);
+        return res.status(400).json({ error: "INVALID_SUBMISSION" });
       }
       const nameParts = (name || "").split(" ");
       const firstName = nameParts[0] || "";
@@ -1449,20 +1503,6 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      const noteContent = [
-        `TESTIMONIAL SUBMISSION`,
-        `Business: ${safeBusiness}`,
-        `Industry: ${safeIndustry}`,
-        `Savings: ${safeSavings}`,
-        `Video Link: ${safeVideoLink || "None"}`,
-        `Story: ${safeStory}`,
-      ].join("\n");
-
-      const deal = await storage.createDeal({
-        contactId: contact.id, pipeline: "sales", stage: "New Lead",
-        notes: noteContent,
-      });
-
       const submission = await storage.createTestimonialSubmission({
         name: `${firstName} ${lastName}`.trim().slice(0, 200),
         businessName: safeBusiness || null,
@@ -1475,7 +1515,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         status: "pending",
         publish: false,
         contactId: contact.id,
-        dealId: deal.id,
+        dealId: null,
       });
 
       await storage.createNotification({
@@ -1484,18 +1524,17 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         type: "info",
       });
 
-      processNewLead(contact.id, { source: "website_testimonial_submit", trigger: "form_submit" }).catch(err => console.error("Lead pipeline error:", err));
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "testimonial_submit" as any }).catch(err => console.error("GHL form sync error:", err));
-      res.status(201).json({ success: true, contactId: contact.id, submissionId: submission.id });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id }));
     } catch (err: any) {
-      res.status(400).json({ message: err.message || "Invalid submission" });
+      await failInbound(req, 400);
+      res.status(400).json({ error: "INVALID_SUBMISSION" });
     }
   });
 
   // === NEWSLETTER SIGNUP ===
   app.post("/api/newsletter/subscribe", publicLeadRateLimit, async (req, res) => {
     try {
-      const submissionId = crypto.randomUUID();
+      const submissionId = (req as any).inboundRequestId;
       const schema = z.object({
         firstName: z.string().min(1).max(100),
         email: z.string().email(),
@@ -1563,23 +1602,10 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      syncFormSubmissionToGhl({
-        contactId: contact.id,
-        leadSource: "newsletter_signup" as any,
-        formData: {
-          lb_newsletter_source: "blog_inline",
-          ...(sourceArticle ? { lb_newsletter_article: sourceArticle } : {}),
-        },
-      }).catch(err => console.error("[Newsletter] GHL sync error:", err));
-
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "newsletter_signup", formType: "newsletter", sourceEventId: submissionId }).catch(err =>
-        console.error("[Newsletter] Enqueue error:", err),
-      );
-
-      res.status(201).json({ success: true, contactId: contact.id });
+      res.status(201).json(await acceptInbound(req, { contactId: contact.id }));
     } catch (err: any) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(400).json({ message: err.message || "Subscription failed" });
+      await failInbound(req, 400);
+      return res.status(400).json({ error: "INVALID_SUBSCRIPTION" });
     }
   });
 

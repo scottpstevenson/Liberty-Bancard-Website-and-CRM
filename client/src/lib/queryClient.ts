@@ -24,6 +24,19 @@ export async function apiRequest(
   if (data) headers["Content-Type"] = "application/json";
 
   const upperMethod = method.toUpperCase();
+  const publicInboundPaths = [
+    "/api/public/estimate",
+    "/api/public/support",
+    "/api/public/get-started",
+    "/api/public/integration-request",
+    "/api/public/callback",
+    "/api/equipment-order",
+    "/api/public/testimonial-submit",
+    "/api/newsletter/subscribe",
+  ];
+  if (upperMethod === "POST" && publicInboundPaths.includes(url) && !headers["Idempotency-Key"]) {
+    headers["Idempotency-Key"] = crypto.randomUUID();
+  }
   if (upperMethod !== "GET" && upperMethod !== "HEAD" && upperMethod !== "OPTIONS") {
     const csrfToken = getCsrfToken();
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;

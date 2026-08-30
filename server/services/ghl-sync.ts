@@ -668,15 +668,9 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       });
 
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);
-      try {
-        await enqueuePromotionalEnrollment({
-          contactId: contact.id,
-          triggerType: "contact_created",
-          sourceEventId: stableEventKey,
-        });
-      } catch (enrollErr: any) {
-        console.warn(`[GHL Sync] enqueuePromotionalEnrollment failed for contact ${contact.id}:`, enrollErr?.message);
-      }
+      // An ordinary GHL sync is a projection/acquisition update, not an
+      // inbound request or promotional authorization. Any later explicit
+      // merchant event must claim its own provider occurrence.
       return { contactId: contact.id, created: true };
     } catch (createErr: any) {
       // 23505 = Postgres unique_violation — a concurrent create beat us to it.

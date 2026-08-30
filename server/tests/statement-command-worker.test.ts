@@ -1,7 +1,7 @@
 /**
  * Durable statement-command worker regression tests.
  *
- * Uses only intentionally missing local file paths. The statement chain is
+ * Uses only intentionally missing protected-object references. The statement chain is
  * never invoked, so this suite cannot send mail, call GHL, or reach a provider.
  *
  * Run with:
@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { statementUploadCommands } from "@shared/schema";
 import { claimCommand, computeRequestFingerprint, getCommandForOwner, updateContext } from "../services/statement-upload-idempotency";
-import { executeStatementUploadCommand, resolveStatementCommandDirectory } from "../services/statement-command-worker";
+import { executeStatementUploadCommand } from "../services/statement-command-worker";
 
 let passed = 0;
 let failed = 0;
@@ -28,7 +28,7 @@ function assert(condition: boolean, label: string): void {
   }
 }
 
-async function makeMissingFileCommand(tag: string) {
+async function makeMissingObjectCommand(tag: string) {
   const requestId = randomUUID();
   const ownerScope = `statement-worker-test:${tag}`;
   const claimed = await claimCommand({
@@ -41,7 +41,7 @@ async function makeMissingFileCommand(tag: string) {
   await updateContext(claimed.command.id, {
     contactId: 999999999,
     source: "website",
-    durableFilePath: `/tmp/statement-worker-test-missing-${requestId}.pdf`,
+    protectedObjectRef: randomUUID(),
   });
   return { id: claimed.command.id, ownerScope };
 }
@@ -49,28 +49,13 @@ async function makeMissingFileCommand(tag: string) {
 async function run(): Promise<void> {
   console.log("\n=== Durable Statement Command Worker Tests ===\n");
 
-  console.log("T0: production storage default is unchanged and test storage is disposable");
-  const productionRoot = await resolveStatementCommandDirectory(
-    { NODE_ENV: "production", STATEMENT_COMMAND_TEST_STORAGE: "true" },
-    "/srv/liberty",
-  );
-  assert(productionRoot.dir === "/srv/liberty/uploads/statement-command", "production uses the existing checkout-relative durable path");
-  assert(productionRoot.disposableTestRoot === false, "production ignores the test-storage override");
-  const testRoot = await resolveStatementCommandDirectory({
-    NODE_ENV: "test",
-    STATEMENT_COMMAND_TEST_STORAGE: "true",
-  });
-  assert(testRoot.disposableTestRoot === true, "test mode creates a disposable root");
-  assert(testRoot.dir.startsWith("/tmp/liberty-statement-command-test-"), "test root is collision-safe and outside the checkout");
-  await (await import("fs/promises")).rm(testRoot.dir, { recursive: true, force: true });
-
-  console.log("T1: missing durable file is terminally recoverable, never chained");
-  const missing = await makeMissingFileCommand("missing");
+  console.log("T1: missing protected object is terminally recoverable, never chained");
+  const missing = await makeMissingObjectCommand("missing");
   await executeStatementUploadCommand(missing.id);
   const afterMissing = await getCommandForOwner(missing.id, missing.ownerScope);
-  assert(afterMissing?.status === "recoverable_failed", "missing file becomes recoverable_failed");
-  assert((afterMissing?.result as { code?: string } | null)?.code === "durable_upload_unreadable", "missing file records safe failure code");
-  assert(afterMissing?.attemptCount === 1, "missing file consumes exactly one claimed attempt");
+  assert(afterMissing?.status === "recoverable_failed", "missing object becomes recoverable_failed");
+  assert((afterMissing?.result as { code?: string } | null)?.code === "PROTECTED_OBJECT_UNAVAILABLE", "missing object records safe failure code");
+  assert(afterMissing?.attemptCount === 1, "missing object consumes exactly one claimed attempt");
 
   console.log("\nT2: duplicate delivery cannot reclaim terminal command");
   await executeStatementUploadCommand(missing.id);
@@ -79,7 +64,7 @@ async function run(): Promise<void> {
   assert(afterDuplicate?.status === "recoverable_failed", "duplicate terminal delivery preserves outcome");
 
   console.log("\nT3: expired lease is taken over by one worker");
-  const stale = await makeMissingFileCommand("expired-lease");
+  const stale = await makeMissingObjectCommand("expired-lease");
   await db.update(statementUploadCommands).set({
     leaseToken: randomUUID(),
     leaseExpiresAt: new Date(Date.now() - 1_000),
@@ -92,7 +77,7 @@ async function run(): Promise<void> {
   assert(afterTakeover?.leaseToken === null, "worker releases its lease after terminal recovery");
 
   console.log("\nT4: stale lease cannot receive an unfenced terminal write");
-  const fenced = await makeMissingFileCommand("fenced-terminal");
+  const fenced = await makeMissingObjectCommand("fenced-terminal");
   const activeToken = randomUUID();
   await db.update(statementUploadCommands).set({
     leaseToken: activeToken,

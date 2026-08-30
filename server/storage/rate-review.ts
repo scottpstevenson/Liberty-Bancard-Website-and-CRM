@@ -13,6 +13,14 @@ export class RateReviewStorage {
     return row;
   }
 
+  async getRateReviewRequestByStatementUploadCommandId(commandId: string): Promise<RateReviewRequest | undefined> {
+    const [row] = await db
+      .select()
+      .from(rateReviewRequests)
+      .where(eq(rateReviewRequests.statementUploadCommandId, commandId));
+    return row;
+  }
+
   async getRateReviewRequestsByContact(contactId: number): Promise<RateReviewRequest[]> {
     return db
       .select()

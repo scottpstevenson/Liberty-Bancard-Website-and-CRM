@@ -454,7 +454,7 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     name: "Statement Command Durability",
     script: "server/tests/statement-command-worker.test.ts",
     capability: "deterministic-integration",
-    providerDenial: "intentionally missing local files; statement chain and all providers are unreachable",
+    providerDenial: "intentionally missing protected objects; statement chain and all providers are unreachable",
   },
   {
     name: "Redis Queue Topology",
@@ -545,6 +545,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     script: "scripts/test-cro03c-worker-static.ts",
     capability: "deterministic-integration",
     providerDenial: "loads the DB-bound live-execution graph against disposable PostgreSQL; SafeEgress transport is injected and provider/public transport remains denied",
+  },
+  {
+    name: "CRO-05A Inbound Revenue Operations Static Certification",
+    script: "scripts/test-cro05a-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "source, schema, and migration certification only; no database, queue, network, or provider transport",
+  },
+  {
+    name: "CRO-05A Inbound Lifecycle Pure Contract",
+    script: "server/tests/inbound-request-lifecycle.test.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure lifecycle decision only; no database, queue, network, or provider transport",
+  },
+  {
+    name: "CRO-05A Non-Public Adapter Classification Certification",
+    script: "scripts/test-cro05a-nonpublic-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "source classification only; no database, queue, network, or provider transport",
   },
   {
     name: "CRO-03C Live Dispatch Durability",

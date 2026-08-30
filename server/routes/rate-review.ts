@@ -2,13 +2,14 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { upload } from "./helpers";
-import { autoGenerateProposal } from "../services/proposal-engine";
 import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
+import { putProtectedObject } from "../services/protected-object";
 import {
   claimCommand,
   computeRequestFingerprint,
   isValidUUIDv4,
   updateContext,
+  updateCommandFKs,
   markRecoverableFailed,
 } from "../services/statement-upload-idempotency";
 import path from "path";
@@ -108,12 +109,16 @@ export function registerRateReviewRoutes(app: Express) {
       }
       if (claim.outcome === "replay") {
         const stored = claim.command.result as Record<string, unknown> | null;
+        const review = await storage.getRateReviewRequestByStatementUploadCommandId(claim.command.id);
+        const document = review?.documentId ? await storage.getDocumentById(review.documentId) : null;
         res.setHeader("Idempotency-Key", idempotencyKey);
         res.setHeader("X-Statement-Upload-Request-Id", claim.command.id);
         return res.status(200).json({
           success: true,
           replayed: true,
           statement_upload_request_id: claim.command.id,
+          ...(document ? { document } : {}),
+          ...(review ? { rate_review: review } : {}),
           ...(stored ?? {}),
         });
       }
@@ -160,19 +165,22 @@ export function registerRateReviewRoutes(app: Express) {
       }
 
       const fileName = req.file.originalname;
-      const timestamp = Date.now();
-      const safeFileName = `${timestamp}_${fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const storageKey = `merchant_docs/${safeFileName}`;
-
-      const uploadsDir = path.join(process.cwd(), "uploads", "merchant_docs");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      fs.writeFileSync(path.join(uploadsDir, safeFileName), req.file.buffer);
+      const object = await putProtectedObject({
+        bytes: req.file.buffer,
+        mimeType: req.file.mimetype,
+        fileName,
+        tenantScope: `contact:${contact.id}`,
+      });
+      const storageKey = object.objectRef;
 
       const uploadedBy = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Merchant";
 
+      const contactDeals = await storage.getDealsByContact(contact.id);
+      const contactDeal = contactDeals.find(d => d.pipeline === "sales") ?? contactDeals[0];
+
       const doc = await storage.createDocument({
         contactId: contact.id,
-        dealId: null,
+        dealId: contactDeal?.id ?? null,
         type: "rate_review_statement",
         category: "Rate Review Statement",
         fileName,
@@ -183,59 +191,26 @@ export function registerRateReviewRoutes(app: Express) {
         accessScope: "merchant",
       });
 
-      const contactDeals = await storage.getDealsByContact(contact.id);
-      const contactDeal = contactDeals.find(d => d.pipeline === "sales") ?? contactDeals[0];
-
-      const rateReview = await storage.createRateReviewRequest({
+      // This is an internal, request-owned CRM record, not a proposal or
+      // delivery effect.  It must exist before the generic statement handoff
+      // so portal/CRM status endpoints can immediately see and progress it.
+      const review = await storage.createRateReviewRequest({
+        statementUploadCommandId: commandId,
         contactId: contact.id,
         dealId: contactDeal?.id ?? null,
         documentId: doc.id,
         status: "requested",
         requestNotes: req.body?.notes || null,
       });
-
-      const merchantName = contact.companyName || `${contact.firstName} ${contact.lastName}`;
-      const taskTitle = `Rate Review Requested — ${merchantName}`;
-      const assignedTo = (contact as any).assignedTo || null;
-
-      await storage.createAuthorityTask({
+      await updateCommandFKs(commandId, {
         contactId: contact.id,
-        dealId: contactDeal?.id ?? null,
-        title: taskTitle,
-        description: `${merchantName} has requested a rate review via the merchant portal. A current processing statement has been uploaded for your analysis. Review the statement and generate a retention proposal within 1 business day.`,
-        assignedTo: assignedTo || undefined,
-        priority: "high",
-        status: "pending",
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        dealId: contactDeal?.id ?? undefined,
+        documentId: doc.id,
       });
 
-      await storage.createNotification({
-        channel: "internal",
-        title: "Rate Review Requested",
-        message: `${merchantName} has requested a rate review. Statement uploaded — please review within 1 business day.`,
-        type: "info",
-        recipientId: assignedTo || undefined,
-        metadata: {
-          contactId: contact.id,
-          dealId: contactDeal?.id,
-          rateReviewId: rateReview.id,
-          documentId: doc.id,
-        },
-      });
-
-      await storage.createAuditLog({
-        action: "rate_review_requested",
-        entityType: "rate_review_request",
-        entityId: rateReview.id,
-        actorType: "merchant",
-        actorId: userId,
-        details: {
-          contactId: contact.id,
-          documentId: doc.id,
-          merchantName,
-          dealId: contactDeal?.id ?? null,
-        },
-      });
+      // The leased statement command owns all generic downstream work. The
+      // route does not send proposals or invoke external effects.
+      const merchantName = contact.companyName || `${contact.firstName} ${contact.lastName}`;
 
       // Persist the accepted initial response into context so the slot is
       // recoverable. The chain is authoritative for the TERMINAL command result
@@ -249,38 +224,41 @@ export function registerRateReviewRoutes(app: Express) {
         fileName: req.file.originalname,
         notes: req.body?.notes || null,
         acceptedResponse: {
-          rateReview: rateReview as unknown as Record<string, unknown>,
           document: doc as unknown as Record<string, unknown>,
+          rate_review: review as unknown as Record<string, unknown>,
           statement_upload_request_id: commandId,
         },
       });
 
-      // Fire the full 11-step statement upload chain (non-blocking).
-      // This handles GHL sync, pipeline advance, rep notification with correct userId,
-      // proposal draft entity creation, and sequence enrollment — same as all other upload paths.
-      // commandId ensures the chain marks the idempotency slot terminal on completion.
+      // Hand off to the durable generic statement command (non-blocking).
+      // commandId ensures the worker marks the idempotency slot terminal on completion.
       // existingDocumentId makes chain Step 4 reuse the rate_review_statement document
       // created above instead of writing a duplicate file + document row.
       // Do NOT markSucceeded here — the chain owns its own terminal result.
       const statementQueued = await persistAndEnqueueStatementCommand({
         contactId: contact.id,
         dealId: contactDeal?.id ?? null,
-        fileBuffer: req.file.buffer,
         fileName: req.file.originalname,
+        protectedObjectRef: object.objectRef,
+        protectedObjectChecksum: object.checksumSha256,
         source: "portal-rate-review",
         businessName: merchantName,
         commandId,
         existingDocumentId: doc.id,
       });
       if (!statementQueued) {
+        await markRecoverableFailed(commandId, {
+          error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE",
+          rate_review_request_id: review.id,
+        });
         return res.status(503).json({ error: "STATEMENT_COMMAND_QUEUE_UNAVAILABLE", statement_upload_request_id: commandId });
       }
 
       res.setHeader("Idempotency-Key", idempotencyKey);
       res.setHeader("X-Statement-Upload-Request-Id", commandId);
       res.status(202).json({
-        rateReview,
         document: doc,
+        rate_review: review,
         statement_upload_request_id: commandId,
       });
     } catch (err: any) {
@@ -422,44 +400,12 @@ export function registerRateReviewRoutes(app: Express) {
       const deal = await authorizeDealAccess(req, res, review.dealId);
       if (!deal) return;
 
-      const contact = review.contactId ? await storage.getContact(review.contactId) : null;
-
-      await storage.updateDeal(review.dealId, {
-        notes: `${deal.notes || ""}\n[RETENTION] Rate review requested by merchant on ${new Date().toLocaleDateString()}. Proposal type: retention.`.trim(),
-        statementReceived: true,
+      // Direct proposal launches are retired. Proposal creation/sending requires
+      // the reviewed proposal authority and a durable held effect intent.
+      res.status(409).json({
+        code: "PROPOSAL_REVIEW_REQUIRED",
+        message: "Direct proposal generation is unavailable; submit through the reviewed proposal workflow.",
       });
-
-      autoGenerateProposal(review.dealId).catch(err =>
-        console.error("[RateReview] Retention proposal generation error:", err)
-      );
-
-      await storage.updateRateReviewRequest(id, { status: "proposal_sent" });
-
-      await storage.createAuditLog({
-        action: "rate_review_proposal_generated",
-        entityType: "rate_review_request",
-        entityId: id,
-        actorType: "user",
-        actorId: (req.user as any)?.id,
-        details: {
-          dealId: review.dealId,
-          contactId: review.contactId,
-          proposalType: "retention",
-          isOptimalPricing: review.isOptimalPricing,
-        },
-      });
-
-      if (contact) {
-        await storage.createNotification({
-          channel: "internal",
-          title: "Retention Proposal Queued",
-          message: `Retention proposal generation started for ${contact.companyName || contact.firstName} — rate review #${id}`,
-          type: "info",
-          metadata: { contactId: contact.id, dealId: review.dealId, rateReviewId: id },
-        });
-      }
-
-      res.json({ message: "Retention proposal generation started", dealId: review.dealId });
     } catch (err: any) {
       serverError(res, err);
     }

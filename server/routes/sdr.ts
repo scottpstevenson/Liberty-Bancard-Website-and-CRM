@@ -23,6 +23,7 @@ import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { applyConsentCommand } from "../services/consent-authority";
 import { authorizeBusinessAccess } from "../services/crm-object-access";
 import { updateOrganizationDescriptive } from "../services/organization-service";
+import { claimVerifiedProviderEvent, linkInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
 
 // ── Build identity — frozen at process start, never derived at request time ──
 // RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
@@ -43,6 +44,35 @@ if (!_RELEASE_SHA_VALID) {
 }
 
 export function registerSdrRoutes(app: Express) {
+  /**
+   * Provider sync/contact-updated events are projections and deliberately do
+   * not enter inbound authority. Callers use this only after signature
+   * verification for an explicit merchant event with a provider-issued ID.
+   */
+  const claimExplicitGhlOccurrence = async (
+    sourceType: "inbound_message" | "inbound_call" | "appointment_booked" | "chat_message" | "chat_booking",
+    payload: Record<string, unknown>,
+    eventId: unknown,
+  ) => {
+    if (typeof eventId !== "string" || !eventId.trim()) {
+      throw new Error("VERIFIED_PROVIDER_EVENT_ID_REQUIRED");
+    }
+    const claim = await claimVerifiedProviderEvent({ sourceType, eventId, payload });
+    if (claim.outcome === "conflict" || claim.outcome === "scope_mismatch") {
+      throw new Error("VERIFIED_PROVIDER_EVENT_CLAIM_CONFLICT");
+    }
+    return claim.request;
+  };
+
+  const linkExplicitGhlOccurrence = async (requestId: string, payload: Record<string, unknown>) => {
+    const ghlContactId = typeof payload.contactId === "string" ? payload.contactId : undefined;
+    if (!ghlContactId) return;
+    const [contact] = await db.select({ id: contacts.id }).from(contacts)
+      .where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+    await linkInboundRequest(requestId, { contactId: contact?.id ?? null });
+    await orchestrateInboundRequest({ requestId, contactId: contact?.id ?? null });
+  };
+
   // === HEALTH ENDPOINTS ===
   // Public minimal health check — intentionally reveals nothing about internals.
   // Build identity fields (sha, builtAt, env) are frozen at process start.
@@ -740,7 +770,13 @@ export function registerSdrRoutes(app: Express) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      await handleMessageReceived(req.body);
+      const payload = req.body as Record<string, unknown>;
+      const inbound = payload.direction === "inbound";
+      const occurrence = inbound
+        ? await claimExplicitGhlOccurrence("inbound_message", payload, payload.messageId ?? payload.eventId)
+        : null;
+      await handleMessageReceived(payload);
+      if (occurrence) await linkExplicitGhlOccurrence(occurrence.id, payload);
       res.json({ received: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -757,7 +793,12 @@ export function registerSdrRoutes(app: Express) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      await handleCallOutcome(req.body);
+      const payload = req.body as Record<string, unknown>;
+      const occurrence = payload.direction === "inbound"
+        ? await claimExplicitGhlOccurrence("inbound_call", payload, payload.callId ?? payload.eventId)
+        : null;
+      await handleCallOutcome(payload);
+      if (occurrence) await linkExplicitGhlOccurrence(occurrence.id, payload);
       res.json({ received: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -774,7 +815,10 @@ export function registerSdrRoutes(app: Express) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      await handleAppointmentBooked(req.body);
+      const payload = req.body as Record<string, unknown>;
+      const occurrence = await claimExplicitGhlOccurrence("appointment_booked", payload, payload.appointmentId ?? payload.id ?? payload.eventId);
+      await handleAppointmentBooked(payload);
+      await linkExplicitGhlOccurrence(occurrence.id, payload);
       res.json({ received: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -860,7 +904,12 @@ export function registerSdrRoutes(app: Express) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const result = await handleChatMessage(req.body);
+      const payload = req.body as Record<string, unknown>;
+      const occurrence = payload.direction === "inbound"
+        ? await claimExplicitGhlOccurrence("chat_message", payload, payload.messageId ?? payload.eventId)
+        : null;
+      const result = await handleChatMessage(payload);
+      if (occurrence) await linkExplicitGhlOccurrence(occurrence.id, payload);
       res.json({ received: true, ...(result || {}) });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -911,7 +960,10 @@ export function registerSdrRoutes(app: Express) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      await handleChatBooking(req.body);
+      const payload = req.body as Record<string, unknown>;
+      const occurrence = await claimExplicitGhlOccurrence("chat_booking", payload, payload.appointmentId ?? payload.eventId);
+      await handleChatBooking(payload);
+      await linkExplicitGhlOccurrence(occurrence.id, payload);
       res.json({ received: true });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -1665,11 +1717,19 @@ export function registerSdrRoutes(app: Express) {
           });
 
           const { persistAndEnqueueStatementCommand } = await import("../services/statement-command-worker");
+          const { putProtectedObject } = await import("../services/protected-object");
+          const protectedObject = await putProtectedObject({
+            bytes: fileBuffer,
+            mimeType: (req as any).file?.mimetype || "application/pdf",
+            fileName: (req as any).file.originalname,
+            tenantScope: `contact:${statementReq.contactId}`,
+          });
           const statementQueued = await persistAndEnqueueStatementCommand({
             contactId: statementReq.contactId,
             dealId: statementReq.dealId ?? undefined,
-            fileBuffer,
             fileName: (req as any).file?.originalname,
+            protectedObjectRef: protectedObject.objectRef,
+            protectedObjectChecksum: protectedObject.checksumSha256,
             source: "token-upload",
             commandId,
           });
@@ -1776,11 +1836,19 @@ export function registerSdrRoutes(app: Express) {
         });
 
         const { persistAndEnqueueStatementCommand } = await import("../services/statement-command-worker");
+        const { putProtectedObject } = await import("../services/protected-object");
+        const protectedObject = await putProtectedObject({
+          bytes: fileBuffer,
+          mimeType: (req as any).file?.mimetype || "application/pdf",
+          fileName: (req as any).file.originalname,
+          tenantScope: `contact:${lead.contactId}`,
+        });
         const statementQueued = await persistAndEnqueueStatementCommand({
           contactId: lead.contactId,
           dealId: lead.dealId ?? undefined,
-          fileBuffer,
           fileName: (req as any).file?.originalname,
+          protectedObjectRef: protectedObject.objectRef,
+          protectedObjectChecksum: protectedObject.checksumSha256,
           source: "token-upload",
           commandId,
         });

@@ -41,6 +41,7 @@ import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
 import { readPeople } from "../services/revenue-read-authority";
 import { createCro03Batch } from "../services/cro03/enrichment-factory";
+import { claimInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
 // Moved to server/services/zerobounce-eligibility.ts in #1541 so the durable
@@ -352,31 +353,44 @@ export function registerContactsRoutes(app: Express) {
     try {
       const input = insertContactSchema.parse(req.body);
       const userId = (req.user as any)?.id ?? null;
+      const idempotencyKey = req.header("Idempotency-Key");
+      if (!idempotencyKey) {
+        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required for manual CRM creation" });
+      }
+      const inboundClaim = await claimInboundRequest({
+        idempotencyKey,
+        sourceCategory: "manual_crm",
+        sourceType: "dashboard",
+        callerScope: `user:${String(userId ?? "unknown")}`,
+        actorType: "user",
+        actorId: userId ? String(userId) : null,
+        payload: input,
+      });
+      if (inboundClaim.outcome === "conflict") {
+        return res.status(409).json({ code: "IDEMPOTENCY_KEY_CONFLICT", message: "Idempotency-Key was used with a different request" });
+      }
+      if (inboundClaim.outcome === "scope_mismatch") {
+        return res.status(403).json({ code: "IDEMPOTENCY_KEY_SCOPE_MISMATCH", message: "Idempotency-Key belongs to a different user" });
+      }
+      if (inboundClaim.outcome === "replay" && inboundClaim.request.contactId) {
+        const existing = await storage.getContact(inboundClaim.request.contactId);
+        if (existing) return res.status(200).json(existing);
+      }
       const contact = await writeContact({
         mode: "local_first",
         mutation: input as any,
         provenance: {
           sourceCategory: "manual_crm",
           sourceType: "dashboard",
-          eventKey: `manual:${crypto.randomUUID()}`,
+          eventKey: `manual:${inboundClaim.request.id}`,
           actorType: "user",
           actorId: userId ? String(userId) : undefined,
         },
         actor: { actorType: "user", actorId: userId ? String(userId) : null, userId },
       });
-      await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
-      sendPushToAllReps({ title: "New Lead Assigned", body: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} added to CRM`, url: "/mobile/contacts" }).catch(() => {});
-      triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
-      ingestBusinessFromContact(contact.id, "manual_upload", "crm_contact_create").catch(err => console.warn("[CRM] Business ingest failed:", err));
-      // Scoring follows the canonical contact writer's durable follow-up path;
-      // never publish a score from a route-owned detached promise.
-      extractRelationshipsForContact(contact.id).catch(err => console.warn("[Relationships] Extraction failed:", err));
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "contact_created", sourceEventId: crypto.randomUUID() }).catch(err => console.error("Enqueue error:", err));
-      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      assignNextRep(contact.id, `${contact.firstName} ${contact.lastName}`.trim()).catch(err => console.error("Round-robin assignment error:", err));
-      if (contact.leadScore && contact.leadScore >= 80) {
-        sendCriticalEmailNotification({ eventType: "hot_lead", subject: `Hot Lead Alert: ${contact.firstName} ${contact.lastName}`, body: `<h3>Hot Lead Alert</h3><p><strong>${contact.firstName} ${contact.lastName}</strong>${contact.companyName ? ` (${contact.companyName})` : ""} has a lead score of ${contact.leadScore}.</p><p>Email: ${contact.email || "N/A"}<br/>Phone: ${contact.phone || "N/A"}</p><p>Take action immediately.</p>` }).catch(err => console.error("Hot lead email error:", err));
-      }
+      // The request authority owns the only task/assignment handoff.  All
+      // external effects remain held in its frozen manifest.
+      await orchestrateInboundRequest({ requestId: inboundClaim.request.id, contactId: contact.id });
 
       const statusCode = contact._ghlSyncPending ? 202 : 201;
       res.status(statusCode).json(contact);

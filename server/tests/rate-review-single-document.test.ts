@@ -13,6 +13,10 @@
  *   3. Route invokes runStatementUploadChain with existingDocumentId.
  *
  * Asserts:
+ *   - A request-owned rate review is created and linked to its document/deal
+ *     before the statement command is handed to the generic chain.
+ *   - The command/request link is replay-safe and the open-review guard sees it.
+ *   - Portal/CRM status queries can see and progress the linked review.
  *   - Chain Step 4 REUSES the pre-created document (no duplicate file/document).
  *   - The chain result and command row reference that same document.
  *   - The command reaches a terminal state owned by the chain.
@@ -76,6 +80,7 @@ async function countDocumentsForContact(): Promise<number> {
 
 async function cleanup(): Promise<void> {
   // FK-safe order. Audit logs are append-only (cannot be cleaned).
+  await db.execute(sql`DELETE FROM rate_review_requests WHERE contact_id = ${contactId}`).catch(() => {});
   await db.execute(sql`DELETE FROM statement_proposals WHERE deal_id = ${dealId}`).catch(() => {});
   await db.execute(sql`DELETE FROM underwriting_decisions WHERE deal_id = ${dealId}`).catch(() => {});
   await db.execute(sql`DELETE FROM tasks WHERE contact_id = ${contactId}`).catch(() => {});
@@ -91,6 +96,19 @@ async function cleanup(): Promise<void> {
 
 async function runTests(): Promise<void> {
   console.log("\n=== Rate-review single-document tests ===\n");
+  const { readFileSync } = await import("fs");
+  const routeSource = readFileSync("server/routes/rate-review.ts", "utf8");
+  const guardOffset = routeSource.indexOf("getOpenRateReviewsByContact");
+  const createOffset = routeSource.indexOf("createRateReviewRequest");
+  const handoffOffset = routeSource.lastIndexOf("persistAndEnqueueStatementCommand");
+  assert(
+    guardOffset >= 0 && createOffset > guardOffset && handoffOffset > createOffset,
+    "route guards then persists request-owned review before command handoff",
+  );
+  assert(
+    /statementUploadCommandId:\s*commandId/.test(routeSource),
+    "route binds the review to the claimed command identity",
+  );
   await createFixtures();
   console.log(`(fixtures: contact ${contactId}, deal ${dealId})\n`);
 
@@ -101,7 +119,7 @@ async function runTests(): Promise<void> {
   // ── Step 1 shape: route creates the rate_review_statement document ─────────
   const doc = await storage.createDocument({
     contactId,
-    dealId: null, // route does not know the deal yet — chain must backfill it
+    dealId, // route resolves the contact deal before creating its review document
     type: "rate_review_statement",
     category: "Rate Review Statement",
     fileName,
@@ -132,7 +150,29 @@ async function runTests(): Promise<void> {
   const commandId = claim.command.id;
   commandIds.push(commandId);
 
-  // ── Step 3 shape: chain runs with existingDocumentId ───────────────────────
+  // ── Step 3 shape: route owns the review before generic chain handoff ───────
+  const review = await storage.createRateReviewRequest({
+    statementUploadCommandId: commandId,
+    contactId,
+    dealId,
+    documentId: doc.id,
+    status: "requested",
+    requestNotes: "Please review my rates",
+  });
+  assert(review.statementUploadCommandId === commandId, "review is owned by the claimed command");
+  assert(review.documentId === doc.id && review.dealId === dealId, "review is associated to document and deal");
+
+  const linkedReview = await storage.getRateReviewRequestByStatementUploadCommandId(commandId);
+  assert(linkedReview?.id === review.id, "command replay lookup resolves the original review");
+  const openReviews = await storage.getOpenRateReviewsByContact(contactId);
+  assert(openReviews.some(r => r.id === review.id), "open-review guard sees the new review");
+
+  const portalReviews = await storage.getRateReviewRequestsByContact(contactId);
+  assert(portalReviews.some(r => r.id === review.id && r.status === "requested"), "portal status query sees requested review");
+  const repViewed = await storage.updateRateReviewRequest(review.id, { status: "rep_viewed", repViewedAt: new Date() });
+  assert(repViewed?.status === "rep_viewed", "CRM can progress review to rep_viewed");
+
+  // ── Step 4 shape: chain runs with existingDocumentId ───────────────────────
   const result = await runStatementUploadChain({
     contactId,
     dealId,
@@ -163,6 +203,25 @@ async function runTests(): Promise<void> {
     cmd?.status === "succeeded" || cmd?.status === "recoverable_failed",
     "command reached a chain-owned terminal state",
     `got ${cmd?.status}`
+  );
+
+  // A completed command is a replay, not a second request/review. (A chain
+  // step failure remains honestly recoverable_failed under the same contract.)
+  const replay = await claimCommand({
+    requestId: idempotencyKey,
+    fingerprint,
+    ownerScope,
+    source: "portal-rate-review",
+    contactId,
+  });
+  assert(
+    replay.outcome === "replay" || replay.outcome === "recoverable_failed_replay",
+    "same idempotency key resolves to the owned command rather than a new review",
+    `got ${replay.outcome}`,
+  );
+  assert(
+    (await storage.getRateReviewRequestByStatementUploadCommandId(commandId))?.id === review.id,
+    "replay preserves exactly one request-owned review",
   );
 
   // ── Retry shape: a second chain execution must not add a document either ───

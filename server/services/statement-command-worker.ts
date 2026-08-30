@@ -2,31 +2,42 @@
  * Queue-owned executor for durable statement-upload commands.
  * The command row owns lifecycle and recovery; BullMQ only transports its ID.
  */
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 import { randomUUID } from "crypto";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { statementUploadCommands } from "@shared/schema";
 import { runStatementUploadChain, type StatementUploadInput } from "./statement-upload-chain";
 import { markRecoverableFailed } from "./statement-upload-idempotency";
+import { getProtectedObject, getProtectedObjectMetadata, putProtectedObject } from "./protected-object";
+import {
+  linkInboundRequest,
+  reconcileInboundRequestLifecycle,
+  setInboundRequestLifecycle,
+  transitionInboundEffectByKey,
+} from "./inbound-request-authority";
 
 const LEASE_MS = 2 * 60 * 1000;
 
-type PersistedInput = Omit<StatementUploadInput, "fileBuffer"> & { durableFilePath?: string };
+type PersistedInput = Omit<StatementUploadInput, "fileBuffer"> & {
+  protectedObjectRef?: string;
+  protectedObjectChecksum?: string;
+};
 
-export async function resolveStatementCommandDirectory(
-  env: NodeJS.ProcessEnv = process.env,
-  cwd = process.cwd(),
-): Promise<{ dir: string; disposableTestRoot: boolean }> {
-  if (env.NODE_ENV !== "production" && env.STATEMENT_COMMAND_TEST_STORAGE === "true") {
-    return {
-      dir: await fs.mkdtemp(path.join(os.tmpdir(), "liberty-statement-command-test-")),
-      disposableTestRoot: true,
-    };
-  }
-  return { dir: path.join(cwd, "uploads", "statement-command"), disposableTestRoot: false };
+async function requireStatementObject(
+  objectRef: string,
+  expectedChecksum: string | undefined,
+  contactId: number,
+): Promise<Buffer> {
+  // A reference alone is not authority. Bind every command read to the
+  // environment and contact tenant that were claimed with the command.
+  if (!/^[0-9a-f-]{36}$/i.test(objectRef)) throw new Error("PROTECTED_OBJECT_REF_INVALID");
+  const authorization = {
+    tenantScope: `contact:${contactId}`,
+    environmentScope: process.env.NODE_ENV || "development",
+  };
+  const metadata = await getProtectedObjectMetadata(objectRef, authorization);
+  if (!metadata) throw new Error("PROTECTED_OBJECT_UNAVAILABLE");
+  return getProtectedObject(objectRef, authorization, expectedChecksum);
 }
 
 async function releaseStatementCommandLease(commandId: string, token: string): Promise<void> {
@@ -58,17 +69,55 @@ export async function executeStatementUploadCommand(commandId: string): Promise<
   if (!command) return; // terminal, leased, or duplicate delivery
 
   const input = command.context as PersistedInput | null;
-  if (!input?.contactId || !input.source || !input.durableFilePath) {
-    await markRecoverableFailed(commandId, { code: "missing_durable_upload" }, token);
+  const inboundRequestId = input?.inboundRequestId;
+  if (inboundRequestId) {
+    await transitionInboundEffectByKey({
+      requestId: inboundRequestId,
+      effectKey: "statement_review",
+      state: "attempting",
+      terminalReason: "STATEMENT_WORKER_CLAIMED",
+    });
+    await setInboundRequestLifecycle(inboundRequestId, "processing", null);
+  }
+  if (!input?.contactId || !input.source || !input.protectedObjectRef) {
+    await markRecoverableFailed(commandId, {
+      code: (input as any)?.durableFilePath ? "LEGACY_LOCAL_PATH_UNRECOVERABLE" : "MISSING_PROTECTED_OBJECT",
+    }, token);
     await releaseStatementCommandLease(commandId, token);
+    if (inboundRequestId) {
+      await transitionInboundEffectByKey({
+        requestId: inboundRequestId,
+        effectKey: "statement_review",
+        state: "failed",
+        terminalReason: "STATEMENT_COMMAND_INPUT_INVALID",
+      });
+      await reconcileInboundRequestLifecycle({
+        requestId: inboundRequestId,
+        terminalReason: "STATEMENT_COMMAND_INPUT_INVALID",
+      });
+    }
     return;
   }
   let fileBuffer: Buffer;
   try {
-    fileBuffer = await fs.readFile(input.durableFilePath);
-  } catch {
-    await markRecoverableFailed(commandId, { code: "durable_upload_unreadable" }, token);
+    fileBuffer = await requireStatementObject(input.protectedObjectRef, input.protectedObjectChecksum, input.contactId);
+  } catch (error) {
+    await markRecoverableFailed(commandId, {
+      code: error instanceof Error ? error.message : "PROTECTED_OBJECT_UNAVAILABLE",
+    }, token);
     await releaseStatementCommandLease(commandId, token);
+    if (inboundRequestId) {
+      await transitionInboundEffectByKey({
+        requestId: inboundRequestId,
+        effectKey: "statement_review",
+        state: "failed",
+        terminalReason: "STATEMENT_PROTECTED_OBJECT_UNAVAILABLE",
+      });
+      await reconcileInboundRequestLifecycle({
+        requestId: inboundRequestId,
+        terminalReason: "STATEMENT_PROTECTED_OBJECT_UNAVAILABLE",
+      });
+    }
     return;
   }
   const heartbeat = setInterval(() => {
@@ -83,9 +132,47 @@ export async function executeStatementUploadCommand(commandId: string): Promise<
     ));
   }, 30_000);
   try {
-    await runStatementUploadChain({ ...input, fileBuffer, commandId, commandLeaseToken: token });
+    const result = await runStatementUploadChain({ ...input, fileBuffer, commandId, commandLeaseToken: token });
+    if (inboundRequestId) {
+      if (result.allSuccess) {
+        await transitionInboundEffectByKey({
+          requestId: inboundRequestId,
+          effectKey: "statement_review",
+          state: "sent",
+          terminalReason: "STATEMENT_WORKER_COMPLETED",
+        });
+        await reconcileInboundRequestLifecycle({
+          requestId: inboundRequestId,
+          incompleteState: "review_required",
+          completedState: "completed",
+        });
+      } else {
+        await transitionInboundEffectByKey({
+          requestId: inboundRequestId,
+          effectKey: "statement_review",
+          state: "failed",
+          terminalReason: "STATEMENT_COMMAND_STEP_FAILURE",
+        });
+        await reconcileInboundRequestLifecycle({
+          requestId: inboundRequestId,
+          terminalReason: "STATEMENT_COMMAND_STEP_FAILURE",
+        });
+      }
+    }
   } catch (error) {
     await markRecoverableFailed(commandId, { code: "retryable_worker_failure" }, token);
+    if (inboundRequestId) {
+      await transitionInboundEffectByKey({
+        requestId: inboundRequestId,
+        effectKey: "statement_review",
+        state: "failed",
+        terminalReason: "STATEMENT_COMMAND_RETRYABLE_FAILURE",
+      });
+      await reconcileInboundRequestLifecycle({
+        requestId: inboundRequestId,
+        terminalReason: "STATEMENT_COMMAND_RETRYABLE_FAILURE",
+      });
+    }
     throw error;
   } finally {
     clearInterval(heartbeat);
@@ -115,17 +202,54 @@ export async function enqueueStatementUploadCommandId(commandId: string): Promis
 }
 
 export async function persistAndEnqueueStatementCommand(input: StatementUploadInput): Promise<boolean> {
-  if (!input.commandId || !input.fileBuffer || !input.fileName) return false;
-  const { dir } = await resolveStatementCommandDirectory();
-  await fs.mkdir(dir, { recursive: true });
-  const durableFilePath = path.join(dir, `${input.commandId}-${path.basename(input.fileName).replace(/[^a-zA-Z0-9._-]/g, "_")}`);
-  await fs.writeFile(durableFilePath, input.fileBuffer, { flag: "wx" }).catch(async (error: NodeJS.ErrnoException) => {
-    if (error.code !== "EEXIST") throw error;
-  });
+  if (!input.commandId || !input.fileName) return false;
+  const object = input.protectedObjectRef
+    ? await getProtectedObjectMetadata(input.protectedObjectRef, {
+        tenantScope: `contact:${input.contactId}`,
+        environmentScope: process.env.NODE_ENV || "development",
+      })
+    : input.fileBuffer ? await putProtectedObject({
+        bytes: input.fileBuffer,
+        mimeType: "application/pdf",
+        fileName: input.fileName,
+        tenantScope: `contact:${input.contactId}`,
+      }) : null;
+  if (!object || object.tenantScope !== `contact:${input.contactId}` ||
+      object.environmentScope !== (process.env.NODE_ENV || "development") ||
+      object.validationState !== "validated" || object.retentionState !== "active") {
+    throw new Error("PROTECTED_OBJECT_SCOPE_MISMATCH");
+  }
   const persisted = await db.update(statementUploadCommands).set({
-    context: { ...input, fileBuffer: undefined, durableFilePath },
+    context: {
+      ...input,
+      fileBuffer: undefined,
+      protectedObjectRef: object.objectRef,
+      protectedObjectChecksum: input.protectedObjectChecksum || object.checksumSha256,
+    },
     updatedAt: new Date(),
   }).where(and(eq(statementUploadCommands.id, input.commandId), eq(statementUploadCommands.status, "in_progress"))).returning({ id: statementUploadCommands.id });
-  if (persisted.length !== 1) return false;
-  return enqueueStatementUploadCommandId(input.commandId);
+  if (persisted.length !== 1) {
+    // Do not delete a caller-owned object here: its retention and cleanup are
+    // governed by the protected-object authority, not an enqueue race.
+    return false;
+  }
+  if (input.inboundRequestId) {
+    await linkInboundRequest(input.inboundRequestId, {
+      contactId: input.contactId,
+      dealId: input.dealId,
+      protectedObjectRef: object.objectRef,
+      lifecycleState: "processing",
+    });
+  }
+  const queued = await enqueueStatementUploadCommandId(input.commandId);
+  if (input.inboundRequestId && queued) {
+    const transitioned = await transitionInboundEffectByKey({
+      requestId: input.inboundRequestId,
+      effectKey: "statement_review",
+      state: "ready",
+      terminalReason: "DURABLE_STATEMENT_COMMAND_HANDOFF",
+    });
+    if (!transitioned) throw new Error("STATEMENT_HANDOFF_EFFECT_MISSING");
+  }
+  return queued;
 }

@@ -1,9 +1,11 @@
 import type { Express } from "express";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { requireRole } from "../replit_integrations/auth";
 import OpenAI from "openai";
+import { listInboundRequests } from "../services/inbound-request-authority";
+import { inboundRequestEffects } from "@shared/schema";
 
 function getOpenAI() {
   return new OpenAI({
@@ -17,6 +19,54 @@ let _healthCache: { data: any; ts: number } | null = null;
 const HEALTH_CACHE_TTL_MS = 60_000;
 
 export function registerLeadOpsRoutes(app: Express) {
+  app.get("/api/lead-ops/inbound-requests", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const rows = await listInboundRequests({
+        limit: Number(req.query.limit) || 50,
+        offset: Number(req.query.offset) || 0,
+        sourceClass: typeof req.query.sourceClass === "string" ? req.query.sourceClass : undefined,
+        lifecycleState: typeof req.query.lifecycleState === "string" ? req.query.lifecycleState : undefined,
+      });
+      const requestIds = rows.map((row) => row.id);
+      const effects = requestIds.length
+        ? await db.select({
+          effectKey: inboundRequestEffects.effectKey,
+          effectType: inboundRequestEffects.effectType,
+          state: inboundRequestEffects.state,
+          required: inboundRequestEffects.required,
+          externalSideEffect: inboundRequestEffects.externalSideEffect,
+          terminalReason: inboundRequestEffects.terminalReason,
+          requestId: inboundRequestEffects.requestId,
+        }).from(inboundRequestEffects).where(inArray(inboundRequestEffects.requestId, requestIds))
+        : [];
+      const effectsByRequest = new Map<string, typeof effects>();
+      for (const effect of effects) {
+        const requestEffects = effectsByRequest.get(effect.requestId) || [];
+        requestEffects.push(effect);
+        effectsByRequest.set(effect.requestId, requestEffects);
+      }
+      res.json(rows.map((row) => ({
+        requestReceipt: row.id,
+        sourceClass: row.sourceClass,
+        sourceCategory: row.sourceCategory,
+        sourceType: row.sourceType,
+        lifecycleState: row.lifecycleState,
+        assignmentStatus: row.assignmentStatus,
+        assignedTo: row.assignedTo,
+        slaDueAt: row.slaDueAt,
+        contactId: row.contactId,
+        dealId: row.dealId,
+        ticketId: row.ticketId,
+        createdAt: row.createdAt,
+        terminalReason: row.terminalReason,
+        effects: effectsByRequest.get(row.id) || [],
+      })));
+    } catch (error) {
+      console.error("[LeadOps] inbound request list failed:", error instanceof Error ? error.message : "unknown");
+      res.status(500).json({ error: "Failed to load inbound requests" });
+    }
+  });
+
   // ── GET /api/lead-ops/stats ────────────────────────────────────────────────
   // Aggregate stats for the entire sunbiz entity lead pool.
   app.get("/api/lead-ops/stats", requireRole("admin", "manager"), async (req, res) => {

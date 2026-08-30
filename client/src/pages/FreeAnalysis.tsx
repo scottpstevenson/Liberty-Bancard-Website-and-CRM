@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Footer } from "@/components/Footer";
@@ -279,6 +279,7 @@ export default function FreeAnalysis() {
   const [utmParams, setUtmParams] = useState<Record<string, string>>({});
   const [affiliateName, setAffiliateName] = useState<string | null>(null);
   const [affiliateCompany, setAffiliateCompany] = useState<string | null>(null);
+  const submissionIdempotencyKey = useRef<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -383,31 +384,37 @@ export default function FreeAnalysis() {
 
   const handleSubmit = async () => {
     if (!canProceed()) return;
+    submissionIdempotencyKey.current ??= crypto.randomUUID();
     setSubmitting(true);
     setSubmitError(null);
     try {
       const cookieRef = document.cookie.match(/(?:^|; )lb_ref=([^;]*)/)?.[1];
       const storedRef = refCode || localStorage.getItem("lb_ref_code") || (cookieRef ? decodeURIComponent(cookieRef) : undefined) || undefined;
       const storedPromo = promoCode || localStorage.getItem("lb_promo_code") || undefined;
-      await apiRequest("POST", "/api/public/free-analysis", {
-        industry,
-        monthlyVolume: volume,
-        currentProcessor: processor,
-        painPoints,
-        firstName,
-        lastName,
-        email,
-        phone,
-        consentSms: consent,
-        referralCode: storedRef,
-        promoCode: storedPromo,
-        utmSource: utmParams.utm_source,
-        utmMedium: utmParams.utm_medium,
-        utmCampaign: utmParams.utm_campaign,
-        utmContent: utmParams.utm_content,
-        utmTerm: utmParams.utm_term,
-        gclid: utmParams.gclid,
-      });
+      await apiRequest(
+        "POST",
+        "/api/public/free-analysis",
+        {
+          industry,
+          monthlyVolume: volume,
+          currentProcessor: processor,
+          painPoints,
+          firstName,
+          lastName,
+          email,
+          phone,
+          consentSms: consent,
+          referralCode: storedRef,
+          promoCode: storedPromo,
+          utmSource: utmParams.utm_source,
+          utmMedium: utmParams.utm_medium,
+          utmCampaign: utmParams.utm_campaign,
+          utmContent: utmParams.utm_content,
+          utmTerm: utmParams.utm_term,
+          gclid: utmParams.gclid,
+        },
+        { "Idempotency-Key": submissionIdempotencyKey.current },
+      );
       setSubmitted(true);
       trackQuizComplete();
       trackFormSubmission("free_analysis_quiz", results?.estimatedAnnualSavings);

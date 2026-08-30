@@ -131,3 +131,4 @@
 - [Publish inline NOT VALID failure](publish-inline-not-valid.md) — validate dev constraints before Publish; inline CREATE TABLE constraints cannot carry NOT VALID.
 - [Production schema ownership](production-schema-ownership.md) — Replit Publish owns production DDL; app startup must not replay Drizzle migrations against the published schema.
 - [Disposable database capabilities](disposable-database-capabilities.md) — local rehearsal SQL sinks must accept launcher-minted targets only; migration ledger proof must account for duplicate hashes.
+- [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA/work links, and opaque receipts.

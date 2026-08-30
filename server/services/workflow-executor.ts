@@ -155,16 +155,31 @@ export async function executeWorkflowActions(
     const action = actions[i];
     try {
       if (action.type === "create_task") {
-        await storage.createAuthorityTask({
+        const task = await storage.createAuthorityTask({
           title: await interpolateTemplate(action.title || "Auto-task", contactId, dealId),
-          assignedTo: action.assignedTo || "Scott Stevenson",
+          assignedTo: action.assignedTo || undefined,
           priority: action.priority || "medium",
           dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
           dealId,
           contactId,
           description: action.description ? await interpolateTemplate(action.description, contactId, dealId) : undefined,
         });
-        logEntries.push({ step: i + 1, action: "create_task", title: action.title, status: "completed", timestamp: new Date().toISOString() });
+        const assignmentStatus = task.assignedTo ? "assigned" : "unassigned_review_required";
+        if (!task.assignedTo) {
+          await storage.createAuditLog({
+            action: "workflow_task_assignment_review_required",
+            entityType: ctx.entityType || "workflow",
+            entityId: ctx.entityId || createdRunId,
+            details: {
+              workflowId,
+              workflowRunId: createdRunId,
+              step: i + 1,
+              taskId: task.id,
+              reasonCode: "REVIEW_REQUIRED_NO_ASSIGNEE",
+            },
+          });
+        }
+        logEntries.push({ step: i + 1, action: "create_task", title: action.title, assignmentStatus, status: "completed", timestamp: new Date().toISOString() });
 
       } else if (action.type === "send_notification") {
         await storage.createNotification({

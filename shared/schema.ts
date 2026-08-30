@@ -1,8 +1,14 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, customType, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const OPEN_SALES_LEAD_STAGES = [
   "New Lead",
@@ -1431,6 +1437,10 @@ export const insertCompanySchema = createInsertSchema(companies).omit({
 
 export const deals = pgTable("deals", {
   id: serial("id").primaryKey(),
+  // Public fulfillment deals are owned by one inbound occurrence. Sales and
+  // legacy deals leave this null; the unique fence makes fulfillment replay
+  // safe without creating a competing deal authority.
+  inboundRequestId: uuid("inbound_request_id").references((): AnyPgColumn => inboundRequests.id, { onDelete: "restrict" }),
   contactId: integer("contact_id").references(() => contacts.id),
   companyId: integer("company_id").references(() => companies.id),
   pipeline: text("pipeline").notNull().default("sales"),
@@ -1542,6 +1552,7 @@ export const deals = pgTable("deals", {
   // BT-06: mutable projection maintained only by CommercialClassificationAuthority.
   recordClass: text("record_class").notNull().default("unknown"),
 }, (table) => [
+  uniqueIndex("deals_inbound_request_uidx").on(table.inboundRequestId).where(sql`inbound_request_id IS NOT NULL`),
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),
   index("deals_stage_idx").on(table.stage),
@@ -1812,6 +1823,8 @@ export const workflowRuns = pgTable("workflow_runs", {
 
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
+  inboundRequestId: uuid("inbound_request_id").references((): AnyPgColumn => inboundRequests.id, { onDelete: "restrict" }),
+  commandKey: text("command_key"),
   channel: text("channel").notNull(),
   recipientId: text("recipient_id"),
   title: text("title").notNull(),
@@ -1820,7 +1833,10 @@ export const notifications = pgTable("notifications", {
   read: boolean("read").default(false),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("notifications_command_key_uidx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
+  index("notifications_inbound_request_idx").on(table.inboundRequestId),
+]);
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({
   id: true,
@@ -3429,6 +3445,8 @@ export type InsertMerchantProfile = z.infer<typeof insertMerchantProfileSchema>;
 
 export const equipmentOrders = pgTable("equipment_orders", {
   id: serial("id").primaryKey(),
+  inboundRequestId: uuid("inbound_request_id").references((): AnyPgColumn => inboundRequests.id, { onDelete: "restrict" }),
+  commandKey: text("command_key"),
   applicationId: integer("application_id").references(() => merchantApplications.id),
   dealId: integer("deal_id").references(() => deals.id),
   contactId: integer("contact_id").references(() => contacts.id),
@@ -3441,6 +3459,7 @@ export const equipmentOrders = pgTable("equipment_orders", {
   trackingNumber: text("tracking_number"),
   status: text("status").default("pending"),
   orderedAt: timestamp("ordered_at"),
+  fulfillmentDueAt: timestamp("fulfillment_due_at"),
   shippedAt: timestamp("shipped_at"),
   deliveredAt: timestamp("delivered_at"),
   notes: text("notes"),
@@ -3453,7 +3472,10 @@ export const equipmentOrders = pgTable("equipment_orders", {
   approvedByUserId: varchar("approved_by_user_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("equipment_orders_command_key_uidx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
+  index("equipment_orders_inbound_request_idx").on(table.inboundRequestId),
+]);
 
 export const insertEquipmentOrderSchema = createInsertSchema(equipmentOrders).omit({
   id: true,
@@ -6142,6 +6164,10 @@ export type InsertOnboardingChecklistItem = z.infer<typeof insertOnboardingCheck
 
 export const rateReviewRequests = pgTable("rate_review_requests", {
   id: serial("id").primaryKey(),
+  // The statement-upload command is the request occurrence authority for
+  // portal submissions.  This unique link makes a retry/recovery unable to
+  // create a second review for the same claimed command.
+  statementUploadCommandId: uuid("statement_upload_command_id").references(() => statementUploadCommands.id),
   contactId: integer("contact_id").references(() => contacts.id),
   dealId: integer("deal_id").references(() => deals.id),
   documentId: integer("document_id").references(() => documents.id),
@@ -6156,6 +6182,9 @@ export const rateReviewRequests = pgTable("rate_review_requests", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
+  uniqueIndex("rate_review_requests_statement_command_uidx")
+    .on(table.statementUploadCommandId)
+    .where(sql`statement_upload_command_id IS NOT NULL`),
   index("rate_review_requests_contact_id_idx").on(table.contactId),
   index("rate_review_requests_status_idx").on(table.status),
   index("rate_review_requests_created_at_idx").on(table.createdAt),
@@ -6284,6 +6313,143 @@ export const insertStatementUploadCommandSchema = createInsertSchema(statementUp
 
 export type StatementUploadCommand = typeof statementUploadCommands.$inferSelect;
 export type InsertStatementUploadCommand = z.infer<typeof insertStatementUploadCommandSchema>;
+
+// ─── CRO-05A Inbound Revenue Operations ─────────────────────────────────────
+// These tables are the request-occurrence authority. They deliberately store
+// hashes and references instead of raw intake payloads or protected bytes.
+export const protectedObjects = pgTable("protected_objects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  objectRef: uuid("object_ref").notNull().defaultRandom(),
+  encryptedBytes: bytea("encrypted_bytes").notNull(),
+  checksumSha256: text("checksum_sha256").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileName: text("file_name").notNull(),
+  tenantScope: text("tenant_scope").notNull().default("default"),
+  environmentScope: text("environment_scope").notNull(),
+  validationState: text("validation_state").notNull().default("validated"),
+  retentionState: text("retention_state").notNull().default("active"),
+  legalHold: boolean("legal_hold").notNull().default(false),
+  uploadCompleteAt: timestamp("upload_complete_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("protected_objects_object_ref_uidx").on(table.objectRef),
+  index("protected_objects_retention_idx").on(table.retentionState, table.legalHold),
+  check("protected_objects_validation_state_chk", sql`validation_state IN ('pending', 'validated', 'rejected')`),
+  check("protected_objects_retention_state_chk", sql`retention_state IN ('active', 'expired', 'deleted')`),
+  check("protected_objects_size_chk", sql`size_bytes >= 0`),
+]);
+
+export type ProtectedObject = typeof protectedObjects.$inferSelect;
+
+export const inboundRequests = pgTable("inbound_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  occurrenceKey: text("occurrence_key").notNull(),
+  requestFingerprint: text("request_fingerprint").notNull(),
+  sourceCategory: text("source_category").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceClass: text("source_class").notNull(),
+  callerScope: text("caller_scope").notNull(),
+  actorType: text("actor_type").notNull(),
+  actorId: text("actor_id"),
+  sourceReceivedAt: timestamp("source_received_at", { withTimezone: true }).notNull().defaultNow(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  ticketId: integer("ticket_id").references(() => tickets.id),
+  // Store the externally usable opaque reference, not the protected_objects
+  // row primary key. object_ref is unique and remains a database-enforced link.
+  protectedObjectRef: uuid("protected_object_ref").references(() => protectedObjects.objectRef),
+  consentEvidenceRefs: jsonb("consent_evidence_refs"),
+  attributionRefs: jsonb("attribution_refs"),
+  manifestVersion: text("manifest_version").notNull(),
+  manifestHash: text("manifest_hash").notNull(),
+  lifecycleState: text("lifecycle_state").notNull().default("claimed"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  terminalReason: text("terminal_reason"),
+  reconciliationState: text("reconciliation_state").notNull().default("not_required"),
+  assignmentStatus: text("assignment_status").notNull().default("pending"),
+  assignedTo: text("assigned_to"),
+  slaDueAt: timestamp("sla_due_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("inbound_requests_idempotency_uidx").on(table.idempotencyKey),
+  uniqueIndex("inbound_requests_occurrence_uidx").on(table.sourceCategory, table.sourceType, table.occurrenceKey),
+  index("inbound_requests_operator_idx").on(table.sourceClass, table.lifecycleState, table.createdAt),
+  index("inbound_requests_contact_idx").on(table.contactId, table.createdAt),
+  check("inbound_requests_lifecycle_state_chk", sql`lifecycle_state IN ('claimed', 'processing', 'accepted', 'completed', 'failed', 'cancelled', 'review_required')`),
+  check("inbound_requests_reconciliation_state_chk", sql`reconciliation_state IN ('not_required', 'pending', 'reconciled', 'orphaned')`),
+  check("inbound_requests_assignment_status_chk", sql`assignment_status IN ('pending', 'assigned', 'unassigned_policy_missing', 'review_required', 'preserved')`),
+]);
+
+export const inboundRequestEffects = pgTable("inbound_request_effects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  requestId: uuid("request_id").notNull().references(() => inboundRequests.id, { onDelete: "cascade" }),
+  effectKey: text("effect_key").notNull(),
+  effectType: text("effect_type").notNull(),
+  state: text("state").notNull().default("held"),
+  required: boolean("required").notNull().default(false),
+  externalSideEffect: boolean("external_side_effect").notNull().default(false),
+  prerequisites: jsonb("prerequisites"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  providerReceipt: text("provider_receipt"),
+  terminalReason: text("terminal_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("inbound_request_effects_key_uidx").on(table.requestId, table.effectKey),
+  index("inbound_request_effects_state_idx").on(table.state, table.nextAttemptAt),
+  check("inbound_request_effects_state_chk", sql`state IN ('held', 'ready', 'attempting', 'sent', 'failed', 'suppressed')`),
+]);
+
+export const inboundAssignmentDecisions = pgTable("inbound_assignment_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  requestId: uuid("request_id").notNull().references(() => inboundRequests.id, { onDelete: "cascade" }),
+  decisionOrdinal: integer("decision_ordinal").notNull().default(0),
+  status: text("status").notNull(),
+  assignedTo: text("assigned_to"),
+  reasonCode: text("reason_code").notNull(),
+  policyVersion: text("policy_version").notNull(),
+  policyHash: text("policy_hash").notNull(),
+  territory: text("territory"),
+  capacitySnapshot: jsonb("capacity_snapshot"),
+  serviceHoursSnapshot: jsonb("service_hours_snapshot"),
+  actorType: text("actor_type").notNull(),
+  actorId: text("actor_id"),
+  priorAssignee: text("prior_assignee"),
+  fence: integer("fence").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("inbound_assignment_decisions_ordinal_uidx").on(table.requestId, table.decisionOrdinal),
+  index("inbound_assignment_decisions_request_idx").on(table.requestId, table.createdAt),
+]);
+
+export const inboundRequestWorkLinks = pgTable("inbound_request_work_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  requestId: uuid("request_id").notNull().references(() => inboundRequests.id, { onDelete: "cascade" }),
+  workType: text("work_type").notNull(),
+  taskId: integer("task_id").references(() => tasks.id),
+  ticketId: integer("ticket_id").references(() => tickets.id),
+  commandKey: text("command_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("inbound_request_work_links_request_type_uidx").on(table.requestId, table.workType),
+  uniqueIndex("inbound_request_work_links_command_uidx").on(table.commandKey),
+  check("inbound_request_work_links_target_chk", sql`(work_type = 'task' AND task_id IS NOT NULL AND ticket_id IS NULL) OR (work_type = 'ticket' AND ticket_id IS NOT NULL AND task_id IS NULL)`),
+]);
+
+export const insertInboundRequestSchema = createInsertSchema(inboundRequests).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type InboundRequest = typeof inboundRequests.$inferSelect;
+export type InsertInboundRequest = z.infer<typeof insertInboundRequestSchema>;
+export type InboundRequestEffect = typeof inboundRequestEffects.$inferSelect;
+export type InboundAssignmentDecision = typeof inboundAssignmentDecisions.$inferSelect;
+export type InboundRequestWorkLink = typeof inboundRequestWorkLinks.$inferSelect;
 
 // ─── Underwriting Rules Engine ───────────────────────────────────────────────
 export const underwritingRules = pgTable("underwriting_rules", {

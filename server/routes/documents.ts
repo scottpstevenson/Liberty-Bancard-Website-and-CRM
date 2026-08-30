@@ -1,12 +1,12 @@
 import type { Express } from "express";
-import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
+import { authStorage, isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBaseSchema } from "@shared/schema";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { advanceDealStage } from "../services/deal-stage-service";
-import { autoGenerateProposal } from "../services/proposal-engine";
 import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
+import { getProtectedObject, putProtectedObject } from "../services/protected-object";
 import {
   claimCommand,
   computeRequestFingerprint,
@@ -19,6 +19,7 @@ import { generateDocumentToken, verifyDocumentToken } from "../services/document
 import { generateCoBrandedProposalPdf } from "../services/co-branded-proposal";
 import path from "path";
 import fs from "fs";
+import { Readable } from "stream";
 import { upload, parseId } from "./helpers";
 import { ZipArchive } from "archiver";
 import { serverError } from "../utils/server-error";
@@ -97,6 +98,97 @@ export function registerDocumentsRoutes(app: Express) {
       actorId: userId || null,
       details: { role: role || null },
     }).catch(err => console.error('[doc-audit] failed:', err));
+  }
+
+  // Protected object references are UUIDs. Local paths remain readable only for
+  // rows written before the protected-object migration; new uploads never write
+  // to the checkout filesystem.
+  const PROTECTED_OBJECT_REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function isProtectedObjectRef(storageKey: string | null | undefined): storageKey is string {
+    return typeof storageKey === "string" && PROTECTED_OBJECT_REF.test(storageKey);
+  }
+
+  function protectedObjectAuthorization(doc: { contactId: number | null }) {
+    return {
+      // This is intentionally derived from the already-authorized document,
+      // never from caller input or process-local state.
+      tenantScope: doc.contactId ? `contact:${doc.contactId}` : "internal",
+      environmentScope: process.env.NODE_ENV || "development",
+    };
+  }
+
+  function safeDownloadFileName(fileName: string | null | undefined): string {
+    const safe = (fileName || "document")
+      .replace(/[\u0000-\u001f\u007f]/g, "")
+      .replace(/[\\/]/g, "_")
+      .replace(/["\\]/g, "_")
+      .trim()
+      .slice(0, 180);
+    return safe || "document";
+  }
+
+  function safeMimeType(mimeType: string | null | undefined): string {
+    return mimeType && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(mimeType)
+      ? mimeType
+      : "application/octet-stream";
+  }
+
+  function setDownloadHeaders(res: any, doc: { fileName: string; mimeType?: string | null }, contentLength?: number) {
+    const fileName = safeDownloadFileName(doc.fileName);
+    const encodedFileName = encodeURIComponent(fileName)
+      .replace(/'/g, "%27")
+      .replace(/\(/g, "%28")
+      .replace(/\)/g, "%29");
+    res.setHeader("Content-Type", safeMimeType(doc.mimeType));
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (typeof contentLength === "number") res.setHeader("Content-Length", String(contentLength));
+  }
+
+  function findLegacyDocumentFile(storageKey: string): string | null {
+    const uploadsDir = path.resolve(process.cwd(), "uploads");
+    const withinUploads = (candidate: string) => {
+      const resolved = path.resolve(candidate);
+      return (resolved === uploadsDir || resolved.startsWith(`${uploadsDir}${path.sep}`)) && fs.existsSync(resolved)
+        ? resolved
+        : null;
+    };
+    const candidates = [
+      path.join(uploadsDir, storageKey.replace(/^uploads[\\/]/, "")),
+      path.join(uploadsDir, "merchant_docs", path.basename(storageKey)),
+      path.join(uploadsDir, path.basename(storageKey)),
+    ];
+    for (const candidate of candidates) {
+      const found = withinUploads(candidate);
+      if (found) return found;
+    }
+    try {
+      const match = fs.readdirSync(uploadsDir).find(file => (
+        storageKey.includes(file) || file.includes(path.basename(storageKey))
+      ));
+      return match ? withinUploads(path.join(uploadsDir, match)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function streamDocumentBytes(res: any, doc: { fileName: string; mimeType?: string | null }, bytes: Buffer) {
+    setDownloadHeaders(res, doc, bytes.length);
+    Readable.from(bytes).pipe(res);
+  }
+
+  function streamLegacyDocument(res: any, doc: { fileName: string; mimeType?: string | null; storageKey: string | null }) {
+    if (!doc.storageKey) return false;
+    const filePath = findLegacyDocumentFile(doc.storageKey);
+    if (!filePath) return false;
+    setDownloadHeaders(res, doc);
+    fs.createReadStream(filePath).on("error", () => {
+      if (!res.headersSent) res.status(404).json({ message: "File not found on disk" });
+      else res.destroy();
+    }).pipe(res);
+    return true;
   }
 
   // GET /api/merchant-documents - admin/manager index of all documents
@@ -284,13 +376,13 @@ export function registerDocumentsRoutes(app: Express) {
       const fileName = req.file.originalname;
       const fileSize = req.file.size;
       const mimeType = req.file.mimetype;
-      const timestamp = Date.now();
-      const safeFileName = `${timestamp}_${fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const storageKey = `merchant_docs/${safeFileName}`;
-
-      const uploadsDir = path.join(process.cwd(), "uploads", "merchant_docs");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      fs.writeFileSync(path.join(uploadsDir, safeFileName), req.file.buffer);
+      const object = await putProtectedObject({
+        bytes: req.file.buffer,
+        mimeType,
+        fileName,
+        tenantScope: contactId ? `contact:${contactId}` : "internal",
+      });
+      const storageKey = object.objectRef;
 
       const uploadedBy = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Unknown" : "Unknown";
 
@@ -329,7 +421,7 @@ export function registerDocumentsRoutes(app: Express) {
         "Voided Check":          "voided_check",
       };
       const checklistKey = CATEGORY_TO_CHECKLIST_KEY[category as string];
-      if (checklistKey && contactId) {
+      if (!isStatementType && checklistKey && contactId) {
         (async () => {
           try {
             const cid = Number(contactId);
@@ -354,65 +446,6 @@ export function registerDocumentsRoutes(app: Express) {
         })().catch(() => {});
       }
 
-      // ── Statement upload → create inbox item + statement review ──────────
-      if (isStatementType && contactId) {
-        (async () => {
-          try {
-            const cid = Number(contactId);
-            const { upsertInboxItem, createStatementReview, getStatementReviewByDocument } = await import("../storage/inbox");
-
-            // Create/update inbox item assigned to analyst queue
-            const inboxSourceId = `statement-doc-${doc.id}`;
-            await upsertInboxItem({
-              sourceItemId: inboxSourceId,
-              sourceItemType: "statement",
-              contactId: cid,
-              dealId: dealId ? Number(dealId) : null,
-              department: "accounts",
-              status: "new",
-              priority: "high",
-              slaDueAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h SLA
-              nextAction: "review_statement",
-            });
-
-            // Create statement review record (if not already exists)
-            const existing = await getStatementReviewByDocument(doc.id).catch(() => null);
-            if (!existing) {
-              await createStatementReview({
-                documentId: doc.id,
-                contactId: cid,
-                dealId: dealId ? Number(dealId) : null,
-                status: "received",
-              });
-            }
-
-            // Create analyst review task
-            await storage.createAuthorityTask({
-              title: `Review statement — ${fileName}`,
-              description: `Processing statement uploaded by ${uploadedBy}. Document ID: ${doc.id}. Review and prepare savings proposal.`,
-              contactId: cid,
-              dealId: dealId ? Number(dealId) : null,
-              status: "pending",
-              priority: "high",
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              assignedTo: "Scott Stevenson",
-              source: "statement_upload",
-              automationKey: `statement_review_doc_${doc.id}`,
-            });
-
-            await storage.createAuditLog({
-              action: "statement_review_created_on_upload",
-              entityType: "document",
-              entityId: doc.id,
-              actorType: "system",
-              details: { contactId: cid, documentId: doc.id, fileName, category },
-            });
-          } catch (e: any) {
-            console.warn("[doc-upload] statement review creation failed (non-critical):", e.message);
-          }
-        })().catch(() => {});
-      }
-
       // Statement commands are terminalized only by the queue-owned worker.
       // This generic document endpoint may persist the document, but it must not
       // claim workflow completion or race a leased command executor.
@@ -420,8 +453,9 @@ export function registerDocumentsRoutes(app: Express) {
         const statementQueued = await persistAndEnqueueStatementCommand({
           contactId: Number(contactId),
           dealId: dealId ? Number(dealId) : null,
-          fileBuffer: req.file.buffer,
           fileName,
+          protectedObjectRef: object.objectRef,
+          protectedObjectChecksum: object.checksumSha256,
           source: "dashboard",
           commandId,
           existingDocumentId: doc.id,
@@ -536,6 +570,13 @@ export function registerDocumentsRoutes(app: Express) {
       const doc = await storage.getDocumentById(payload.documentId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
+      // A token identifies the user it was issued to, but does not replace the
+      // current ownership/scope check (roles or assignments may have changed).
+      const user = await authStorage.getUser(payload.userId);
+      if (!user || !await canAccessContactDocs(user, doc.contactId) || !canAccessDocument(user, doc)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
       storage.createDocumentAccessLog({
         documentId: doc.id,
         userId: payload.userId,
@@ -544,25 +585,16 @@ export function registerDocumentsRoutes(app: Express) {
 
       logDocumentAccess(payload.userId, doc.id, 'download');
 
-      if (doc.storageKey) {
-        const uploadsDir = path.join(process.cwd(), "uploads");
-        const relativePath = doc.storageKey.replace(/^uploads\//, "");
-        const filePath = path.join(uploadsDir, relativePath);
+      if (isProtectedObjectRef(doc.storageKey)) {
+        // Authorization context is derived only after token/user/document
+        // authorization above, binding the opaque UUID to this document tenant.
+        const bytes = await getProtectedObject(doc.storageKey, protectedObjectAuthorization(doc));
+        streamDocumentBytes(res, doc, bytes);
+        return;
+      }
 
-        if (fs.existsSync(filePath)) {
-          return res.download(filePath, doc.fileName);
-        }
-
-        const merchantDocPath = path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey));
-        if (fs.existsSync(merchantDocPath)) {
-          return res.download(merchantDocPath, doc.fileName);
-        }
-
-        const allFiles = fs.readdirSync(uploadsDir);
-        const match = allFiles.find(f => doc.storageKey?.includes(f) || f.includes(path.basename(doc.storageKey || "")));
-        if (match) {
-          return res.download(path.join(uploadsDir, match), doc.fileName);
-        }
+      if (doc.storageKey && streamLegacyDocument(res, doc)) {
+        return;
       }
 
       return res.status(404).json({ message: "File not found on disk" });
@@ -626,30 +658,30 @@ export function registerDocumentsRoutes(app: Express) {
       });
       archive.pipe(res);
 
-      const uploadsDir = path.join(process.cwd(), "uploads");
       const usedNames = new Map<string, number>();
 
       for (const doc of docs) {
         if (!doc.storageKey) continue;
 
-        const tryPaths = [
-          path.join(uploadsDir, doc.storageKey.replace(/^uploads\//, "")),
-          path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey)),
-          path.join(uploadsDir, path.basename(doc.storageKey)),
-        ];
+        // requireRole has authenticated this route; retain document-level
+        // authorization before deriving any protected-object authority.
+        if (!await canAccessContactDocs(user, doc.contactId) || !canAccessDocument(user, doc)) continue;
 
-        let filePath: string | null = null;
-        for (const p of tryPaths) {
-          if (fs.existsSync(p)) { filePath = p; break; }
-        }
-        if (!filePath) continue;
-
-        const baseName = doc.fileName;
+        const baseName = safeDownloadFileName(doc.fileName);
         const count = usedNames.get(baseName) || 0;
         usedNames.set(baseName, count + 1);
         const entryName = count > 0 ? `${path.parse(baseName).name}_${count}${path.extname(baseName)}` : baseName;
 
-        archive.file(filePath, { name: entryName });
+        if (isProtectedObjectRef(doc.storageKey)) {
+          const bytes = await getProtectedObject(doc.storageKey, protectedObjectAuthorization(doc));
+          archive.append(bytes, { name: entryName });
+        } else {
+          // Explicit compatibility for records persisted before protected
+          // objects. This branch must not be used for UUID object references.
+          const filePath = findLegacyDocumentFile(doc.storageKey);
+          if (!filePath) continue;
+          archive.file(filePath, { name: entryName });
+        }
 
         logDocumentAccess(String(user?.id || ''), doc.id, 'bulk_download', user?.role);
       }
@@ -936,18 +968,23 @@ export function registerDocumentsRoutes(app: Express) {
         return res.status(202).json(acceptedResponse);
       }
 
-      // Non-statement document — legacy path
-      const storageKey = `uploads/${Date.now()}_${fileName}`;
-      const uploadsDir = path.join(process.cwd(), "uploads");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
+      // Non-statement documents use the same durable protected-object authority.
+      // Filesystem reads remain below only for explicitly legacy database rows.
+      const object = await putProtectedObject({
+        bytes: req.file.buffer,
+        mimeType: req.file.mimetype,
+        fileName,
+        tenantScope: contactId ? `contact:${Number(contactId)}` : "internal",
+      });
 
       const doc = await storage.createDocument({
         contactId: contactId ? Number(contactId) : null,
         dealId: dealId ? Number(dealId) : null,
         type: type || "general",
         fileName,
-        storageKey,
+        storageKey: object.objectRef,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
         accessScope: accessScope || "internal",
         status: "pending",
       });
@@ -968,11 +1005,14 @@ export function registerDocumentsRoutes(app: Express) {
 
   app.get("/api/documents/download/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const docs = await storage.getDocuments();
       const dlDocId = parseId(req.params.id);
       if (dlDocId === null) return res.status(404).json({ message: "Document not found" });
-      const doc = docs.find(d => d.id === dlDocId);
+      const doc = await storage.getDocumentById(dlDocId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
+      const user = req.user as any;
+      if (!await canAccessContactDocs(user, doc.contactId) || !canAccessDocument(user, doc)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
 
       // ── Co-branded proposal: generate PDF on the fly from the token ──────────
       if (doc.storageKey?.startsWith("co-branded-proposal:")) {
@@ -1004,15 +1044,15 @@ export function registerDocumentsRoutes(app: Express) {
         return res.send(pdfBuffer);
       }
 
-      const uploadsDir = path.join(process.cwd(), "uploads");
-      const files = fs.readdirSync(uploadsDir);
-      const matchingFile = files.find(f => doc.storageKey?.includes(f) || f.includes(doc.fileName));
-
-      if (matchingFile) {
-        res.download(path.join(uploadsDir, matchingFile), doc.fileName);
-      } else {
-        res.status(404).json({ message: "File not found on disk" });
+      // requireRole authorization and document lookup have completed before
+      // deriving protected-object authorization from the document itself.
+      if (isProtectedObjectRef(doc.storageKey)) {
+        const bytes = await getProtectedObject(doc.storageKey, protectedObjectAuthorization(doc));
+        streamDocumentBytes(res, doc, bytes);
+        return;
       }
+      if (doc.storageKey && streamLegacyDocument(res, doc)) return;
+      res.status(404).json({ message: "File not found on disk" });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -1425,10 +1465,13 @@ export function registerDocumentsRoutes(app: Express) {
         application: "Application",
       };
 
-      const storageKey = `statements/${Date.now()}_${fileName}`;
-      const uploadsDir = path.join(process.cwd(), "uploads");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
+      const object = await putProtectedObject({
+        bytes: req.file.buffer,
+        mimeType: req.file.mimetype,
+        fileName,
+        tenantScope: uploaderContactId ? `contact:${uploaderContactId}` : "merchant",
+      });
+      const storageKey = object.objectRef;
 
       const targetDealId = req.body?.dealId ? parseId(req.body.dealId) : null;
       let associatedDealId: number | null = null;
