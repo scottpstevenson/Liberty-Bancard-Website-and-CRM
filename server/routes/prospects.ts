@@ -9,7 +9,7 @@ import { scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { getRoutingRecommendation, routeContact } from "../services/smart-router";
 import { getEntityDetail, parseSunbizCsv, searchSunbiz, streamCorevtFromZip } from "../services/sunbiz-scraper";
-import { isMassEnrichmentRunning, promoteQualifiedToContacts, reEnrichAllSunbizEntities, runMassEnrichment } from "../services/daily-outreach";
+import { isMassEnrichmentRunning, reEnrichAllSunbizEntities, runMassEnrichment } from "../services/daily-outreach";
 import { importExecutions } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
@@ -81,17 +81,21 @@ export function registerProspectsRoutes(app: Express) {
       subjectType: "sunbiz_entity", subjectKey: String(entityId), sourceSystem: "sunbiz",
       payload: {
         entityId, filingNumber: entity.filingNumber ?? null, companyName,
-        status: entity.status ?? null, address, city: entity.city ?? null,
-        state: entity.state ?? "FL", postalCode: entity.zip ?? entity.postalCode ?? null,
+        entityStatus: entity.entityStatus ?? null, address, city: entity.principalCity ?? null,
+        state: entity.principalState ?? null, postalCode: entity.principalZip ?? null,
       },
-      provenance: { sourceSystem: "sunbiz", entityId },
+      provenance: { sourceSystem: "sunbiz", entityId, importExecutionId: entity.importExecutionId ?? null },
+      sourceEventKey: `sunbiz:${entityId}:${entity.updatedAt ? new Date(entity.updatedAt).toISOString() : "snapshot"}`,
+      sourceObservedAt: entity.updatedAt ? new Date(entity.updatedAt).toISOString() : undefined,
+      timestampProvenance: entity.updatedAt ? "sunbiz_row_updated_at" : "ingestion_time",
       candidateValues: {
         ...(companyName ? { business_name: String(companyName) } : {}),
         ...(entity.filingNumber ? { registry_id: String(entity.filingNumber) } : {}),
         ...(address ? { address: String(address) } : {}),
-        ...(entity.city ? { city: String(entity.city) } : {}),
-        state: String(entity.state ?? "FL"),
-        ...(entity.zip || entity.postalCode ? { postal_code: String(entity.zip ?? entity.postalCode) } : {}),
+        ...(entity.principalCity ? { city: String(entity.principalCity) } : {}),
+        ...(entity.principalState ? { state: String(entity.principalState) } : {}),
+        ...(entity.principalZip ? { postal_code: String(entity.principalZip) } : {}),
+        ...(entity.entityStatus ? { entity_status: String(entity.entityStatus) } : {}),
       },
     };
   }
@@ -1564,12 +1568,10 @@ export function registerProspectsRoutes(app: Express) {
 
   app.post("/api/sunbiz/promote-qualified", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    try {
-      const result = await promoteQualifiedToContacts();
-      res.json(result);
-    } catch (err: any) {
-      serverError(res, err);
-    }
+    return res.status(503).json({
+      code: "CRO03A_GOVERNED_HANDOFF_REQUIRED",
+      message: "Legacy Sunbiz bulk promotion is retired. Use the effect-denied CRO-03A handoff for CRO-03B.",
+    });
   });
 
   app.post("/api/sunbiz/bulk-ai-classify", isAuthenticated, async (req, res) => {

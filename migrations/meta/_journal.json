@@ -1338,6 +1338,13 @@
       "when": 1797000000000,
       "tag": "0186_cr06_scoped_reservation_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1797100000000,
+      "tag": "0187_cro03a_candidate_qualification",
+      "breakpoints": true
     }
   ]
 }

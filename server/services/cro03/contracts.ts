@@ -8,6 +8,7 @@ export const CRO03_HASH_ALGORITHM_VERSION = "sha256-v1" as const;
 
 export const CRO03_SOURCE_SUBJECT_TYPES = [
   "contact", "prospect", "sunbiz_entity", "sdr_merchant", "provider_csv_row", "public_web",
+  "lead_discovery_result", "master_lead",
 ] as const;
 export type Cro03SourceSubjectType = typeof CRO03_SOURCE_SUBJECT_TYPES[number];
 
@@ -76,6 +77,11 @@ export function maskCandidate(field: Cro03CandidateField, value: string): string
 
 export function stableSelectionHash(subjectIds: readonly number[]): string {
   return createHash("sha256").update([...subjectIds].sort((a, b) => a - b).join(",")).digest("hex");
+}
+
+/** CRO-03A hashes the complete source identity, never an array ordinal. */
+export function stableCro03aSelectionHash(occurrenceIds: readonly string[]): string {
+  return createHash("sha256").update([...occurrenceIds].sort().join("\0")).digest("hex");
 }
 
 export function stableCro03CommandFingerprint(input: {

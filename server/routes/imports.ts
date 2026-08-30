@@ -1796,7 +1796,17 @@ Guidelines:
               subjectKey: `${importExecution.id}:${sourceRowNumber}`,
               sourceSystem: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
               provenance: { importExecutionId: importExecution.id, sourceRowNumber, rowFingerprint },
-              payload: { sourceRowNumber, rowFingerprint, sourceFormat },
+              payload: {
+                sourceRowNumber, rowFingerprint, sourceFormat,
+                ...(mapped.companyName ? { businessName: mapped.companyName } : {}),
+                ...(mapped.website ? { website: mapped.website } : {}),
+                ...(mapped.address ? { address: mapped.address } : {}),
+                ...(mapped.city ? { city: mapped.city } : {}),
+                ...(mapped.state ? { state: mapped.state } : {}),
+                ...(mapped.vertical ? { vertical: mapped.vertical } : {}),
+              },
+              sourceEventKey: `${importExecution.id}:${sourceRowNumber}`,
+              timestampProvenance: "import_execution_row",
               candidateValues: {
                 ...(mapped.companyName ? { business_name: mapped.companyName } : {}),
                 ...(mapped.website ? { website: mapped.website } : {}),

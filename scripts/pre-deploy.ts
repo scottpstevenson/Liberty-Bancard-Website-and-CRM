@@ -368,6 +368,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-03A South Florida Candidate Qualification (source census, policy, effects boundary)",
+    script: "scripts/test-cro03a-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CR-04 Channel Cohort Authority Contract",
     script: "scripts/test-cr04-authority-static.ts",
     timeoutSecs: 60,

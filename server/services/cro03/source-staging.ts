@@ -23,6 +23,8 @@ export interface Cro03SourceSubject {
 export interface Cro03SourceObservationDraft {
   subject: Cro03SourceSubject;
   observedAt: string;
+  sourceEventKey?: string;
+  timestampProvenance?: string;
   actorType: string;
   actorId?: string;
   provenance: Readonly<Record<string, unknown>>;
@@ -110,6 +112,9 @@ export interface CreateCro03SourceBatchInput {
     payload: Record<string, unknown>;
     provenance?: Record<string, unknown>;
     candidateValues?: Partial<Record<Cro03CandidateField, string>>;
+    sourceEventKey?: string;
+    sourceObservedAt?: string;
+    timestampProvenance?: string;
   }>;
 }
 
@@ -126,14 +131,16 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
   const purpose = input.purpose ?? "staging_review";
   const drafts = input.subjects.map((entry) => makeCro03SourceObservation({
     subject: { subjectType: entry.subjectType, subjectKey: entry.subjectKey, sourceSystem: entry.sourceSystem },
-    observedAt: new Date().toISOString(),
+    observedAt: entry.sourceObservedAt ?? new Date().toISOString(),
+    sourceEventKey: entry.sourceEventKey,
+    timestampProvenance: entry.timestampProvenance ?? (entry.sourceObservedAt ? "source_record_timestamp" : "ingestion_time"),
     actorType: input.actorType,
     actorId: input.actorId ?? undefined,
     provenance: entry.provenance ?? { sourceSystem: entry.sourceSystem },
     payload: entry.payload,
   }));
   const selectionHash = hashCro03Evidence(drafts.map((draft) => ({
-    type: draft.subject.subjectType, key: draft.subject.subjectKey, payloadHash: draft.payloadHash,
+    type: draft.subject.subjectType, system: draft.subject.sourceSystem, key: draft.subject.subjectKey, payloadHash: draft.payloadHash,
   })).sort((a, b) => `${a.type}:${a.key}`.localeCompare(`${b.type}:${b.key}`)));
   const recipeHash = hashCro03Evidence(SOUTH_FLORIDA_STAGING_RECIPE);
   const commandFingerprint = hashCro03Evidence({
@@ -165,12 +172,13 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
       let subject = rows(await tx.execute(sql`
         INSERT INTO cro03_source_subjects(subject_type,subject_key,source_system)
         VALUES (${draft.subject.subjectType},${draft.subject.subjectKey},${draft.subject.sourceSystem})
-        ON CONFLICT(subject_type,subject_key) DO NOTHING
+        ON CONFLICT(subject_type,source_system,subject_key) DO NOTHING
         RETURNING id
       `))[0];
       subject ??= rows(await tx.execute(sql`
         SELECT id FROM cro03_source_subjects
-         WHERE subject_type=${draft.subject.subjectType} AND subject_key=${draft.subject.subjectKey}
+         WHERE subject_type=${draft.subject.subjectType} AND source_system=${draft.subject.sourceSystem}
+           AND subject_key=${draft.subject.subjectKey}
       `))[0];
       let observation = rows(await tx.execute(sql`
         INSERT INTO cro03_source_observations
@@ -185,6 +193,22 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
       observation ??= rows(await tx.execute(sql`
         SELECT id FROM cro03_source_observations
          WHERE source_subject_id=${subject.id}::uuid AND payload_hash=${draft.payloadHash}
+      `))[0];
+      const sourceEventKey = entry.sourceEventKey ?? `${input.idempotencyKey}:${ordinal}`;
+      const occurrence = rows(await tx.execute(sql`
+        INSERT INTO cro03_source_occurrences
+          (source_subject_id,source_observation_id,source_observed_at,ingested_at,
+           timestamp_provenance,source_event_key,payload_hash,contract_version,
+           normalization_version,hash_algorithm_version)
+        VALUES (${subject.id}::uuid,${observation.id}::uuid,${draft.observedAt}::timestamptz,
+                NOW(),${draft.timestampProvenance ?? "ingestion_time"},${sourceEventKey},
+                ${draft.payloadHash},'cro03a-source-v1',1,${draft.hashAlgorithmVersion})
+        ON CONFLICT(source_subject_id,source_event_key) DO NOTHING
+        RETURNING id
+      `))[0];
+      const occurrenceRow = occurrence ?? rows(await tx.execute(sql`
+        SELECT id FROM cro03_source_occurrences
+         WHERE source_subject_id=${subject.id}::uuid AND source_event_key=${sourceEventKey}
       `))[0];
       for (const [field, rawValue] of Object.entries(entry.candidateValues ?? {}) as Array<[Cro03CandidateField, string]>) {
         if (!rawValue?.trim()) continue;
@@ -213,21 +237,21 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
           )
         `);
       }
-      const membershipHash = hashCro03Evidence({ batchId: batch.id, ordinal, subjectId: subject.id, observationId: observation.id });
+       const membershipHash = hashCro03Evidence({ batchId: batch.id, ordinal, subjectId: subject.id, observationId: observation.id, occurrenceId: occurrenceRow.id });
       const membership = rows(await tx.execute(sql`
         INSERT INTO cro03_batch_memberships
           (batch_id,ordinal,subject_type,subject_id,root_subject_type,root_subject_id,
            selection_policy_version,dependency_fingerprint,pre_spend_decision,disposition,
            disposition_reason,membership_hash,subject_snapshot,subject_snapshot_hash,
            frozen_route_plan,route_plan_hash,discovery_eligible,paid_enrichment_eligible,
-           source_subject_id,source_observation_id,source_recipe_key,source_recipe_version)
+            source_subject_id,source_observation_id,source_recipe_key,source_recipe_version)
         VALUES (${batch.id}::uuid,${ordinal},${draft.subject.subjectType},${ordinal + 1},
                 ${draft.subject.subjectType},${ordinal + 1},${CRO03_SOURCE_STAGING_RECIPE_VERSION},
                 ${recipeHash},'quarantined','blocked','STAGING_RECIPE_DISABLED',${membershipHash},
                 ${JSON.stringify(draft.payload)}::jsonb,${draft.payloadHash},
                 ${JSON.stringify(SOUTH_FLORIDA_STAGING_RECIPE.route)}::jsonb,
                 ${hashCro03Evidence(SOUTH_FLORIDA_STAGING_RECIPE.route)},FALSE,FALSE,
-                ${subject.id}::uuid,${observation.id}::uuid,${SOUTH_FLORIDA_STAGING_RECIPE.recipeKey},
+                 ${subject.id}::uuid,${observation.id}::uuid,${SOUTH_FLORIDA_STAGING_RECIPE.recipeKey},
                 ${CRO03_SOURCE_STAGING_RECIPE_VERSION})
         RETURNING id
       `))[0];

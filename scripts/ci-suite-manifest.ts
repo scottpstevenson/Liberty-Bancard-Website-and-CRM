@@ -83,6 +83,12 @@ type SuiteManifestDefinition = Omit<
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   // ── deterministic-static ─────────────────────────────────────────────────
   {
+    name: "CRO-03A South Florida Candidate Qualification",
+    script: "scripts/test-cro03a-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure source adapters, geography, fit, and source-boundary scans; no providers",
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Authority Guard",
     script: "scripts/test-bt12-revenue-state-reconciliation.ts",
     capability: "deterministic-static",

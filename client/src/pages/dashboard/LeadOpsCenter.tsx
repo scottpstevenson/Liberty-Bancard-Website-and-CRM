@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LeadOpsStats {
@@ -348,6 +349,8 @@ export default function LeadOpsCenter() {
           )}
         </div>
       </div>
+
+      <SouthFloridaQualificationPanel />
 
       {/* ── Stats row ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

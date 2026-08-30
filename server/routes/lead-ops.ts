@@ -311,98 +311,11 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   });
 
   // ── POST /api/lead-ops/run-writeback ───────────────────────────────────────
-  // Backfill enrichment data to prospects/contacts for already-enriched entities.
-  // Safe to run multiple times (only fills in blank fields).
-  app.post("/api/lead-ops/run-writeback", requireRole("admin"), async (req, res) => {
-    try {
-      const { limit: limitParam = 1000 } = req.body as { limit?: number };
-      const limit = Math.min(limitParam, 10000);
-
-      // Find entities that have owner data but whose linked prospect is missing it
-      const entitiesResult = await db.execute(sql`
-        SELECT se.id, se.owner_name, se.owner_email, se.owner_phone,
-               se.email, se.phone, se.vertical, se.score, se.website,
-               se.prospect_id
-        FROM sunbiz_entities se
-        JOIN prospects p ON se.prospect_id = p.id
-        WHERE (se.owner_name IS NOT NULL OR se.owner_email IS NOT NULL OR se.email IS NOT NULL)
-          AND (p.owner_first_name IS NULL OR p.owner_email IS NULL)
-        ORDER BY se.enriched_at DESC NULLS LAST
-        LIMIT ${limit}
-      `);
-      const entities = (entitiesResult as any).rows ?? entitiesResult;
-
-      let processed = 0;
-      let prospectUpdates = 0;
-      let contactUpdates = 0;
-
-      for (const row of entities) {
-        processed++;
-        if (!row.prospect_id) continue;
-
-        const ownerName = row.owner_name?.trim() || null;
-        let ownerFirstName: string | null = null;
-        let ownerLastName: string | null = null;
-        if (ownerName) {
-          const parts = ownerName.split(/\s+/);
-          ownerFirstName = parts[0] || null;
-          ownerLastName  = parts.length > 1 ? parts.slice(1).join(" ") : null;
-        }
-        const ownerEmail = row.owner_email || row.email || null;
-        const ownerPhone = row.owner_phone || row.phone || null;
-
-        try {
-          const prospect = await storage.getProspect(row.prospect_id);
-          if (!prospect) continue;
-
-          const pu: Record<string, any> = {};
-          if (ownerFirstName && !prospect.ownerFirstName) pu.ownerFirstName = ownerFirstName;
-          if (ownerLastName  && !prospect.ownerLastName)  pu.ownerLastName  = ownerLastName;
-          if (ownerEmail     && !prospect.ownerEmail)     pu.ownerEmail     = ownerEmail;
-          if (ownerPhone     && !prospect.ownerPhone)     pu.ownerPhone     = ownerPhone;
-          if (row.vertical   && !prospect.vertical)       pu.vertical       = row.vertical;
-          if (row.score      && !prospect.score)          pu.score          = row.score;
-          if (Object.keys(pu).length > 0) {
-            await storage.updateProspect(row.prospect_id, pu as any);
-            prospectUpdates++;
-          }
-
-          if (prospect.contactId) {
-            const contact = await storage.getContact(prospect.contactId);
-            if (contact) {
-              const cu: Record<string, any> = {};
-              if (ownerFirstName && !contact.firstName) cu.firstName = ownerFirstName;
-              if (ownerLastName  && !contact.lastName)  cu.lastName  = ownerLastName;
-              if (ownerEmail     && !contact.email)     cu.email     = ownerEmail;
-              if (ownerPhone     && !contact.phone)     { cu.phone = ownerPhone; cu.phoneType = "main_line"; }
-              if (row.vertical   && !contact.vertical)  cu.vertical  = row.vertical;
-              if (row.website    && !contact.website)   cu.website   = row.website;
-              if (Object.keys(cu).length > 0) {
-                await storage.updateContact(prospect.contactId, cu as any);
-                contactUpdates++;
-              }
-            }
-          }
-        } catch (e: any) {
-          console.error(`[Writeback backfill] entity ${row.id}:`, e?.message);
-        }
-      }
-
-      await storage.createAuditLog({
-        action: "lead_ops_writeback_run",
-        entityType: "system",
-        entityId: 0,
-        details: { processed, prospectUpdates, contactUpdates },
-      });
-
-      res.json({
-        processed, prospectUpdates, contactUpdates,
-        message: `Processed ${processed} entities — updated ${prospectUpdates} prospect records and ${contactUpdates} contact records.`,
-      });
-    } catch (err: any) {
-      console.error("[LeadOps] run-writeback error:", err?.message);
-      res.status(500).json({ error: err?.message || "Writeback failed" });
-    }
+  app.post("/api/lead-ops/run-writeback", requireRole("admin"), async (_req, res) => {
+    return res.status(503).json({
+      code: "CRO03A_GOVERNED_HANDOFF_REQUIRED",
+      message: "Legacy enrichment writeback is retired. CRO-03A may only publish an effect-denied CRO-03B handoff.",
+    });
   });
 
   // ── GET /api/lead-ops/config ───────────────────────────────────────────────
