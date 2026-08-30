@@ -13,6 +13,21 @@ export const CRO03_HASH_ALGORITHM_VERSION = "sha256-v1" as const;
  * it without importing an executor that itself calls readiness control. */
 export const CRO03C_CURRENT_MIGRATION_HEAD = "0202_cro03c_transport_invocation_checkpoint" as const;
 
+/** The one-time initial-rollout singleton key. Kept here (not live-execution)
+ * so dependency-free callers — e.g. an operator discovery tool that must not
+ * pull in server/db — can reference the exact key without importing an
+ * executor that itself imports the database. */
+export const CRO03C_INITIAL_ROLLOUT_KEY = "cro03c_initial_v1" as const;
+
+/** Canonical list of CRO-03C provider keys (mirrors the keys of
+ * CRO03C_PROVIDER_CONTRACTS in live-execution.ts). Kept here, dependency-free,
+ * for the same reason as CRO03C_INITIAL_ROLLOUT_KEY above. live-execution.ts
+ * asserts its contract-object keys equal this list, so the two cannot drift
+ * silently. */
+export const CRO03C_PROVIDER_KEYS = [
+  "internal_source", "first_party_web", "rdap", "jsonld", "serper", "outscraper", "openai", "apollo", "zerobounce",
+] as const;
+
 export const CRO03_SOURCE_SUBJECT_TYPES = [
   "contact", "prospect", "sunbiz_entity", "sdr_merchant", "provider_csv_row", "public_web",
   "lead_discovery_result", "master_lead",

@@ -22,11 +22,16 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
+// Deliberately imported from the dependency-free contracts.ts, NOT from
+// live-execution.ts: live-execution.ts imports server/db, which throws at
+// module load time when DATABASE_URL is unset, which would make the
+// dependency-injected static test suite below unrunnable without a live
+// database — defeating the entire point of injecting `deps`.
 import {
+  CRO03C_CURRENT_MIGRATION_HEAD as CRO03C_MIGRATION_HEAD,
   CRO03C_INITIAL_ROLLOUT_KEY,
-  CRO03C_MIGRATION_HEAD,
-  CRO03C_PROVIDER_CONTRACTS,
-} from "../server/services/cro03/live-execution";
+  CRO03C_PROVIDER_KEYS,
+} from "../server/services/cro03/contracts";
 import { PROVIDER_SOURCE_MANIFEST } from "../server/services/provider-manifest";
 
 /**
@@ -158,7 +163,7 @@ export const REAL_CRO03D_DEPS: Cro03dDiscoveryDeps = {
 
 export function deriveSecretPresence(env: NodeJS.ProcessEnv): Record<string, Cro03dSecretPresenceEntry> {
   const out: Record<string, Cro03dSecretPresenceEntry> = {};
-  for (const provider of Object.keys(CRO03C_PROVIDER_CONTRACTS)) {
+  for (const provider of CRO03C_PROVIDER_KEYS) {
     const manifestId = CRO03C_TO_MANIFEST_ID[provider] ?? null;
     if (!manifestId) {
       out[provider] = { manifestId: null, secretNames: [], allPresent: true };

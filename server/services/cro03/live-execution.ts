@@ -4,7 +4,13 @@ import { db } from "../../db";
 import { CRO03B_RECIPE_HASH, CRO03B_RECIPE_VERSION } from "./admission-service";
 import { CRO03B_UNIFIED_RECIPE } from "./recipe-contract";
 import { hashCro03Evidence } from "./source-staging";
-import { CRO03C_CURRENT_MIGRATION_HEAD, stableCro03RecipeHash, type Cro03Provider } from "./contracts";
+import {
+  CRO03C_CURRENT_MIGRATION_HEAD,
+  CRO03C_INITIAL_ROLLOUT_KEY,
+  CRO03C_PROVIDER_KEYS,
+  stableCro03RecipeHash,
+  type Cro03Provider,
+} from "./contracts";
 import { getPauseState } from "../outbound-pause-authority";
 import { readCro03cGlobalNoOutboundCounters } from "./cro03c-effect-fence";
 import { getBullMqTestPrefix, getSharedRedisClient } from "../queue-connection";
@@ -27,7 +33,10 @@ const SHA1 = /^[0-9a-f]{40}$/i;
 
 export const CRO03C_MODE = "cro03c_live_v1" as const;
 export const CRO03C_CANARY_MODE = "cro03c_micro_canary_v1" as const;
-export const CRO03C_INITIAL_ROLLOUT_KEY = "cro03c_initial_v1" as const;
+// Re-exported for backward compatibility; canonical definition lives in the
+// dependency-free contracts.ts so callers that must not import server/db
+// (e.g. operator discovery tooling) can reference the exact key.
+export { CRO03C_INITIAL_ROLLOUT_KEY };
 export const CRO03C_MAX_INITIAL_HANDOFFS = 100;
 export const CRO03C_MIGRATION_HEAD = CRO03C_CURRENT_MIGRATION_HEAD;
 export const CRO03C_RECIPE_HASH = CRO03B_RECIPE_HASH;
@@ -85,6 +94,20 @@ export const CRO03C_PROVIDER_CONTRACTS: Readonly<Record<string, {
   apollo: { unitType: "result", currency: "USD", maxCanaryUnits: 25, legitimateNoResult: true, noResultBillable: false, minimumSample: 5, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_free" },
   zerobounce: { unitType: "request", currency: "USD", maxCanaryUnits: 10, legitimateNoResult: true, noResultBillable: true, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_billable" },
 });
+
+// Guard against silent drift between this contract object and the
+// dependency-free CRO03C_PROVIDER_KEYS list in contracts.ts (which
+// dependency-free callers, e.g. operator discovery tooling, rely on instead
+// of importing this module and its server/db chain).
+{
+  const actual = Object.keys(CRO03C_PROVIDER_CONTRACTS).sort();
+  const expected = [...CRO03C_PROVIDER_KEYS].sort();
+  if (actual.length !== expected.length || actual.some((k, i) => k !== expected[i])) {
+    throw new Error(
+      `CRO03C_PROVIDER_KEYS_DRIFT: contracts.ts CRO03C_PROVIDER_KEYS (${expected.join(",")}) no longer matches CRO03C_PROVIDER_CONTRACTS keys (${actual.join(",")})`
+    );
+  }
+}
 
 export interface Cro03cRuntimeAttestation {
   inventoryId?: string;
