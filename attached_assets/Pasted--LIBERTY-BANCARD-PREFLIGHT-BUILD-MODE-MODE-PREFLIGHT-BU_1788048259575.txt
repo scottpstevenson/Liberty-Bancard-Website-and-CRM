@@ -1,0 +1,195 @@
+# LIBERTY BANCARD — PREFLIGHT + BUILD MODE
+
+## MODE
+
+PREFLIGHT + BUILD
+
+Verify current release-identity, process-topology, queue/schedule, failure-completeness, heartbeat, Redis, and alert claims against current source and current repository state. If safe code-owned gaps remain, implement them immediately through existing queue, job-registry, release-health, and operator-metrics owners. Do not deploy, tune production capacity, call providers, unpause outbound, or treat a sampled/log snapshot as complete runtime proof.
+
+Required sequence:
+
+Repository baseline → certification evidence lineage → VFC → complete owner/caller inventory → root cause → source-of-truth check → blast radius → data/auth/concurrency/network checks → verdict → corrected plan → kill lines → implementation → isolated tests → static gates → post-build searches → diff review → final VFC → operations handoff.
+
+**Absolute audit rule:** Do not stop after finding one duplicate owner, stale SHA, or incomplete metric. Continue through every process, logical job, starter, schedule, heartbeat, failure source, endpoint, and alert sink and return a complete P0/P1/P2 correction matrix.
+
+## 1. TASK IDENTITY
+
+**RVR-05 — Exact Release Identity, Worker Topology, Complete Queue Telemetry, and Alert Truth**
+
+**Runtime rows supported:** `RV-1548-01`, `RV-1548-04`–`RV-1548-07`, and `RV-QUE-01`–`RV-QUE-04`.
+
+**Parallelism:** May run beside CRO-01 on a separate branch with no schema/migration and a strict ownership fence. Own queue/release/telemetry services and focused tests only; do not modify contacts, prospects, deals, revenue reads, campaigns, providers, or CRO UI.
+
+## 2. WHAT & WHY
+
+The August 27 certification observed a stale deployed SHA across web and 25 queues, a single numeric process ID with `processIdentity: null`, unavailable repeatable-job/topology export, no 24-hour health series, incomplete Redis plan/headroom evidence, and no isolated alert-injection proof. Current source already records `RELEASE_SHA` and optional `PROCESS_IDENTITY`, exposes queue snapshots/metrics, maintains logical job manifests and locks, and has multiple operator endpoints. The repair must compose those owners into truthful, complete, redacted evidence—not create another operations registry.
+
+## 3. BASELINE
+
+Drafting evidence to independently recapture:
+
+- `origin/main`: `c5d0baa8c697778caccaed4dba74e456c9a07063`.
+- Migration head: `0165_outbound_send_claim_lease`; migration expected: NO by default.
+- Certification tested `78ae07e8…` but observed deployed `f2cfa4aa…`; this historical mismatch is not current proof after later releases.
+- `queue-manager.ts` includes structured `worker:ready` events with `PROCESS_IDENTITY`/`RELEASE_SHA`, named schedules, topology snapshots, metrics, and alert classification.
+- Current admin/live-health and queue endpoints are role-guarded; certification received 401 without an approved login.
+- Current live-health includes direct AI health probing; verify whether evidence collection can consume provider I/O and whether that remains appropriate.
+
+Capture exact current code SHA/tree, release/environment configuration names without values, all process types/start commands, logical/physical queue counts, schedule owners, metrics/DLQ scope, authentication, and current tests.
+
+## 4. VERIFIED FROM CODE — PREFLIGHT
+
+| ID | Claim | Verdict | Verified Reality | Evidence |
+|---|---|---|---|---|
+| VFC-01 | Every process must expose one exact release SHA | CONFIRMED/PARTIAL/FALSE/OUTDATED | Web/worker/scheduler coverage and fail-closed status | `file:line` |
+| VFC-02 | Process identity can remain null | CONFIRMED/PARTIAL/FALSE/OUTDATED | Deployment contract/defaults | source/runtime evidence |
+| VFC-03 | One logical owner per job is statically complete | CONFIRMED/PARTIAL/FALSE/OUTDATED | manifest vs starters/intervals/repeatables/commands | inventory |
+| VFC-04 | Repeatable schedule evidence is complete | CONFIRMED/PARTIAL/FALSE/OUTDATED | named/base schedules, next run, duplicate keys | service/API |
+| VFC-05 | Queue failure evidence is complete | CONFIRMED/PARTIAL/FALSE/OUTDATED | sampled/paginated/failed probe semantics | service/API |
+| VFC-06 | 24-hour health/throughput history exists | CONFIRMED/PARTIAL/FALSE/OUTDATED | durable vs in-memory/windowed telemetry | service/schema |
+| VFC-07 | Redis headroom is code-verifiable | CONFIRMED/PARTIAL/FALSE/OUTDATED | live connections/errors vs provider plan | evidence boundary |
+| VFC-08 | Alert delivery/cooldown can be safely injected | CONFIRMED/PARTIAL/FALSE/OUTDATED | isolated test path and redaction | tests/service |
+| VFC-09 | Health collection performs no unapproved provider mutation/call | CONFIRMED/PARTIAL/FALSE/OUTDATED | provider probes and budgets | `file:line` |
+
+## 5. COMPLETE OWNER AND CALLER INVENTORY
+
+Inventory every BullMQ queue, base/named repeatable, legacy interval/cron, startup caller, durable command/recovery loop, process type, `job-registry` key, heartbeat writer/reader, queue metrics/DLQ consumer, alert sink, release-health endpoint, and deployment start command.
+
+Search for `setInterval`, `setTimeout` loops, cron/repeat, `new Worker`, `new Queue`, schedule removal/update, job locks, worker-ready logs, `RELEASE_SHA`, `PROCESS_IDENTITY`, queue metrics, DLQ sampling, heartbeat settings, provider health probes, and alert cooldown state. Surrounding ownership and startup reachability are required; grep counts are not proof.
+
+## 6. ROOT CAUSE AND SOURCE OF TRUTH
+
+Verify whether the current gap is a combination of:
+
+1. Deployment not setting stable process identity and exact SHA for every process.
+2. Fragmented static/runtime owner inventory.
+3. Sampled or best-effort metrics being insufficient for a complete failed-backlog verdict.
+4. No approved authenticated redacted evidence endpoint/export.
+5. Runtime facts requiring hosting/Redis-plan access that source cannot prove.
+
+Canonical owners to extend:
+
+- Queue topology/schedules/workers: `server/services/queue-manager.ts`.
+- Logical job classification: `server/services/logical-job-manifest.ts`.
+- Singleton locks/heartbeats: `server/services/job-registry.ts`.
+- Queue/coordinator holds: existing coordinator/pause owners.
+- Operator metrics/live health: existing admin/queue-metrics routes.
+- Release identity verification: health routes, `verify-release-identity.ts`, and pre-deploy.
+
+Do not create a parallel scheduler, queue registry, health authority, or pause mechanism.
+
+## 7. BLAST RADIUS
+
+### In scope
+
+- Fail-closed process identity/release identity contract.
+- Automatic complete logical-owner inventory and duplicate/unowned invariant.
+- Named/base repeatable enumeration with next-run/owner/process identity.
+- Complete or explicitly paginated failed-job evidence; truthful incomplete/degraded markers.
+- Backlog oldest-age, retry/stall, throughput, heartbeat freshness, and redacted error classes.
+- Safe authenticated read-only evidence export.
+- Isolated alert injection/cooldown proof.
+- Provider-call-free infrastructure health collection by default.
+
+### Out of scope
+
+- Deploying/tuning Redis, changing provider plan, production restart, worker scaling, unpause, provider calls, CRM/revenue data, campaign/outreach work, or broad operations UI redesign.
+- Claiming 24-hour production health from local tests.
+- Adding durable telemetry schema unless preflight proves current Redis/system settings cannot meet the acceptance window and the migration can avoid CRO conflicts.
+
+## 8. DATA, AUTHORIZATION, CONCURRENCY, AND EXTERNAL EFFECTS
+
+Migration required: NO by default. Any proposed telemetry table requires a material correction, next journal entry, disposable reapply proof, and coordination with active migration-owning tasks.
+
+Metrics/topology endpoints must be admin/approved-manager read-only, tenant/single-instance appropriate, privacy-safe, bounded, and non-mutating. No raw job payloads, contact identities, provider errors, credentials, or customer content.
+
+Process identities must be unique/stable per process instance and distinguish web/worker/scheduler roles. Duplicate logical owners must fail readiness. Schedule updates must remove only the caller-owned matching schedule. Alert dedupe/cooldown must be atomic or explicitly process-scoped and must not suppress a distinct incident.
+
+Evidence collection must not call AI/GHL/ZeroBounce/Serper/Outscraper/SMTP unless separately authorized and budgeted. Prefer configured/readiness state and last durable observation.
+
+## 9. PREFLIGHT VERDICT
+
+Use one Liberty verdict. Complete static/infrastructure code gaps immediately. Leave provider plan, exact deployed SHA, 24-hour series, authenticated production capture, and actual alert delivery as explicit operations evidence—not reasons to redesign working code.
+
+## 10. CORRECTED BUILD PLAN
+
+1. Recapture release/process/startup topology and current runtime-evidence contracts.
+2. Reconcile every logical job to exactly one mechanism and owner.
+3. Make process identity and release SHA mandatory/fail-closed for production-capable workers.
+4. Expose redacted topology and repeatable schedule inventory with next-run/owner/freshness.
+5. Replace sampled-success semantics with complete pagination or explicit non-ready incompleteness.
+6. Add truthful backlog/retry/stall/throughput/heartbeat/error facts and freshness.
+7. Remove unapproved live provider probes from generic infrastructure health or gate them behind explicit provider-health authority.
+8. Add isolated duplicate-owner, stale heartbeat, failed probe, alert cooldown, and no-provider-call tests.
+9. Produce a runtime handoff for exact-SHA deploy, Redis plan/headroom, 24-hour series, and alert delivery.
+
+## 11. DONE LOOKS LIKE
+
+- Every production-capable process reports one full exact SHA and non-null unique process identity.
+- Every logical job has exactly one declared and observed owner; duplicates/unowned jobs fail readiness.
+- Operators can retrieve complete/paginated repeatables, next run, heartbeat, backlog age, failures, retries, stalls, throughput, freshness, and redacted error classes.
+- Sampled, stale, failed-probe, unavailable, mixed-SHA, mock, and healthy states are distinct.
+- Evidence endpoints perform no provider calls or mutations by default.
+- Alert injection produces one actionable redacted alert per incident/cooldown in isolation.
+- Production capacity/24-hour health remains pending until exact-release evidence is actually captured.
+
+## 12. KILL LINES
+
+- **KILL LINE:** If any production-capable worker can start with missing/malformed release SHA or null process identity and still report healthy, the task has failed.
+- STOP if one logical job can be owned by two reachable mechanisms.
+- STOP if incomplete/sampled/failed telemetry is presented as complete healthy evidence.
+- STOP if a metrics endpoint exposes raw job data, identities, secrets, provider payloads, or unsafe errors.
+- STOP if health collection performs an unapproved provider call or spends credits.
+- STOP if schedule administration can remove unrelated named schedules.
+- STOP if local/isolated evidence is called 24-hour production proof.
+
+## 13. TESTS AND GATES
+
+Cover missing/malformed/mixed SHA, null/duplicate process identity, web/worker role identity, duplicate/unowned logical job, named/base schedule preservation, pagination completeness, failed probe, stale freshness, oldest backlog, retry/stall buckets, error redaction, concurrent alert cooldown, Redis unavailable/capacity-unknown, no provider network, authorization matrix, and exact-SHA verification.
+
+Run focused topology/queue/release tests, BullMQ resilience, Redis topology, stale locks, alerts, route guards, security/compliance scans, capability manifest, affected static/integration/server suites, typecheck/build, migration integrity, and `git diff --check`. Use disposable Redis/DB and provider denial for stateful proof.
+
+## 14. POST-BUILD SEARCH AND DIFF REVIEW
+
+Prove all starters are inventoried, no duplicate legacy/BullMQ owner remains, no null healthy identity path remains, no sample masquerades as complete, no raw payload/error leaves the boundary, no provider probe occurs in generic health, and no CRM/CRO/schema scope entered the diff.
+
+## 15. RUNTIME VERIFICATION
+
+After merge and a separately authorized exact-SHA deployment, capture all web/worker SHAs and process identities, repeatables/owners, Redis plan/max clients/current connections/rejections/headroom, 24-hour queue/heartbeat/failure/stall/completion series, coordinator convergence, complete failed backlog/oldest age, and alert delivery. Update the validated register/evidence packet; do not overwrite historical artifacts or infer a pass.
+
+## 16. FINAL VFC AND RESPONSE
+
+| ID | Requirement | Evidence | Test/Gate | Status |
+|---|---|---|---|---|
+| VFC-F01 | Exact SHA and process identity | source/runtime contract | identity tests | PASS/FAIL |
+| VFC-F02 | One owner per logical job | manifest/topology | exclusivity tests | PASS/FAIL |
+| VFC-F03 | Complete truthful queue evidence | service/API | pagination/failure tests | PASS/FAIL |
+| VFC-F04 | Alert behavior | alert owner | injection/cooldown | PASS/FAIL |
+| VFC-F05 | Provider-free evidence collection | health path | network-denial test | PASS/FAIL |
+| VFC-F06 | Runtime proof separated | evidence packet | final review | PASS/FAIL |
+
+Return full Liberty final format with starting/ending SHA, migration head, owner inventory, implementation `file:line`, tests/exits, grep and kill lines, repository versus isolated versus production evidence, exact pending owner actions, realistic risks, and final merge status. Never merge/deploy without explicit authorization.
+
+## 17. RELEVANT FILES
+
+- `server/services/queue-manager.ts`
+- `server/services/queue-connection.ts`
+- `server/services/logical-job-manifest.ts`
+- `server/services/job-registry.ts`
+- `server/services/outbound-queue-coordinator.ts`
+- `server/routes/queue-metrics.ts`
+- `server/routes/admin.ts`
+- `server/routes/sdr.ts`
+- `server/index.ts`
+- `scripts/verify-release-identity.ts`
+- `scripts/pre-deploy.ts`
+- `scripts/run-pre-deploy.sh`
+- `scripts/test-build-identity.ts`
+- `scripts/test-redis-topology.ts`
+- `scripts/test-bullmq-resilience.ts`
+- `scripts/test-stale-job-lock.ts`
+- current alert/topology tests and August 27 certification artifacts
+
+## FINAL DIRECTIVE
+
+Build only current code-owned observability and identity corrections. Preserve canonical scheduler/queue/pause owners, fail closed on ambiguous evidence, and reserve deployment, provider-plan, and 24-hour runtime claims for separately authorized exact-release verification.
