@@ -1,4 +1,5 @@
 import type { ProbeResult } from "./probes/ghl-sync";
+import { createHash } from "crypto";
 
 function webhookUrl(): string | null {
   return process.env.SLACK_AUDIT_WEBHOOK_URL ?? null;
@@ -102,20 +103,68 @@ export async function sendAuditReport(opts: {
   }
 }
 
-export async function sendCriticalAlert(probe: ProbeResult, context?: string): Promise<void> {
-  // Always persist to the admin alert feed regardless of Slack config
+export type CriticalAlertResult = {
+  claimStatus: "claimed" | "duplicate" | "unavailable";
+  feedStatus: "persisted" | "duplicate" | "failed";
+  transportStatus: "sent" | "not_configured" | "skipped_duplicate" | "skipped_test" | "skipped_unclaimed" | "failed";
+  incidentFingerprint: string;
+  alertId?: number;
+  feedCreatedAt?: string;
+  retryAt?: string;
+  error?: string;
+};
+
+export async function sendCriticalAlert(probe: ProbeResult, context?: string): Promise<CriticalAlertResult> {
+  const { alertFingerprint } = await import("../alert-feed");
+  const alert = {
+    severity: "critical" as const,
+    subsystem: probe.subsystem ?? "unknown",
+    summary: context ?? probe.summary ?? "Critical alert fired",
+    details: { probe },
+    incidentBucket: new Date().toISOString().slice(0, 13),
+  };
+  const incidentFingerprint = alertFingerprint(alert);
+  let claimStatus: CriticalAlertResult["claimStatus"] = "unavailable";
+  let claimKey: string | null = null;
+  let redis: ReturnType<typeof import("../queue-connection")["getSharedRedisClientIfReady"]> = null;
+  const retryLeaseSeconds = 60;
+  const deliveredCooldownSeconds = 60 * 60;
+  try {
+    const { getBullMqTestPrefix, getSharedRedisClientIfReady } = await import("../queue-connection");
+    redis = getSharedRedisClientIfReady();
+    if (redis) {
+      const namespace = getBullMqTestPrefix() ?? "bull:";
+      claimKey = `${namespace}system-alert-transport:${createHash("sha256").update(incidentFingerprint).digest("base64url")}`;
+      const claimed = await redis.set(claimKey, "claimed", "EX", retryLeaseSeconds, "NX");
+      claimStatus = claimed === "OK" ? "claimed" : "duplicate";
+    }
+  } catch (err: any) {
+    console.error("[SystemAudit] critical alert claim failed:", err?.message ?? "unknown");
+  }
+
+  // Feed persistence is independent from rate-claim and Slack availability.
+  let feedStatus: CriticalAlertResult["feedStatus"] = "failed";
+  let alertId: number | undefined;
+  let feedCreatedAt: string | undefined;
   try {
     const { persistAlert } = await import("../alert-feed");
-    await persistAlert({
-      severity: "critical",
-      subsystem: probe.subsystem ?? "unknown",
-      summary: context ?? probe.summary ?? "Critical alert fired",
-      details: { probe },
-    });
-  } catch (_) {}
+    const stored = await persistAlert(alert);
+    feedStatus = stored.created ? "persisted" : "duplicate";
+    alertId = stored.alertId;
+    feedCreatedAt = stored.createdAt;
+  } catch (err: any) {
+    console.error("[SystemAudit] critical alert feed failed:", err?.message ?? "unknown");
+  }
 
   const url = webhookUrl();
-  if (!url) return;
+  const base = { claimStatus, feedStatus, incidentFingerprint, alertId, feedCreatedAt };
+  if (process.env.NODE_ENV === "test") return { ...base, transportStatus: "skipped_test" };
+  if (claimStatus === "duplicate") return { ...base, transportStatus: "skipped_duplicate" };
+  if (claimStatus !== "claimed") return { ...base, transportStatus: "skipped_unclaimed" };
+  if (!url) {
+    if (redis && claimKey) await redis.del(claimKey).catch(() => 0);
+    return { ...base, transportStatus: "not_configured" };
+  }
 
   try {
     const body = {
@@ -146,12 +195,24 @@ export async function sendCriticalAlert(probe: ProbeResult, context?: string): P
       ],
     };
 
-    await fetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!response.ok) {
+      const retryAt = new Date(Date.now() + retryLeaseSeconds * 1000).toISOString();
+      return { ...base, transportStatus: "failed", retryAt, error: `Slack HTTP ${response.status}` };
+    }
+    if (redis && claimKey) await redis.expire(claimKey, deliveredCooldownSeconds);
+    return { ...base, transportStatus: "sent" };
   } catch (err: any) {
     console.error("[SystemAudit] sendCriticalAlert failed:", err.message);
+    return {
+      ...base,
+      transportStatus: "failed",
+      retryAt: new Date(Date.now() + retryLeaseSeconds * 1000).toISOString(),
+      error: err?.message ?? "transport_failed",
+    };
   }
 }

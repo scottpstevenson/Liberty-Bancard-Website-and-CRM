@@ -441,6 +441,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Task 1720 DLQ History and Alert Feed Contract",
+    script: "scripts/test-task1720-dlq-alert-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CR-06 Content, Cadence, and Deterministic Renderer Certification",
     script: "scripts/test-cr06-governance.ts",
     timeoutSecs: 60,

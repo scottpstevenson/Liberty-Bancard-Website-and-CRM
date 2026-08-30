@@ -18,7 +18,10 @@ export async function probeQueues(): Promise<ProbeResult> {
       };
     }
 
-    const { queues, queueMode, status: metricsStatus } = await qm.getAllQueueMetrics();
+    const evidence = await qm.getTelemetryEvidence();
+    const { queues } = evidence;
+    const queueMode = evidence.topology.queueMode;
+    const metricsStatus = evidence.status;
 
     const criticalQueues = ["ghl-sync", "sla-checks", "sequences"];
     const stuckThreshold = 50;
@@ -49,16 +52,10 @@ export async function probeQueues(): Promise<ProbeResult> {
     const totalFailed = measuredQueues.reduce((s, q) => s + (q.failed ?? 0), 0);
     const totalWaiting = measuredQueues.reduce((s, q) => s + (q.waiting ?? 0), 0);
 
-    const dlqRead = await qm.getDeadLetterItemsWithStatus();
-    const dlqCount = dlqRead.items.length;
-    if (dlqCount > 20) {
-      problems.push(`DLQ has ${dlqCount} items (critical overflow threshold exceeded)`);
-    } else if (dlqCount > 5) {
-      problems.push(`DLQ has ${dlqCount} items (warn threshold exceeded)`);
-    }
+    const dlqSampleCount = evidence.dlq.sampleCount;
 
     let status: "ok" | "warn" | "error" = "ok";
-    let summary = `${queues.length} queues healthy. Failed: ${totalFailed}, Waiting: ${totalWaiting}, DLQ: ${dlqCount}`;
+    let summary = `${queues.length} queue probes complete. Failed: ${totalFailed}, Waiting: ${totalWaiting}; sampled terminal failures: ${dlqSampleCount} (incomplete)`;
 
     if (problems.length > 0) {
       const hasCritical = problems.some(p =>
@@ -68,7 +65,7 @@ export async function probeQueues(): Promise<ProbeResult> {
       summary = `Queue issues detected: ${problems.slice(0, 3).join("; ")}`;
     }
 
-    if (metricsStatus === "degraded" || dlqRead.queueStatus.some((source) => source.status !== "sampled")) {
+    if (metricsStatus === "degraded") {
       status = status === "ok" ? "warn" : status;
       summary = `Queue diagnostics are degraded; totals are sampled or incomplete. ${summary}`;
     }
@@ -83,11 +80,16 @@ export async function probeQueues(): Promise<ProbeResult> {
         totalQueues: queues.length,
         totalFailed,
         totalWaiting,
-        dlqCount,
+        dlqSampleCount,
+        dlqComplete: false,
+        dlqResultScope: evidence.dlq.resultScope,
         metricsStatus,
-        dlqQueueStatus: dlqRead.queueStatus,
-        dlqWarnThreshold: 5,
-        dlqErrorThreshold: 20,
+        dlqQueueStatus: evidence.dlq.queueStatus,
+        telemetryScope: evidence.scope,
+        fleet: evidence.fleet,
+        redis: evidence.redis,
+        backlog: evidence.backlog,
+        degradations: evidence.degradations,
         problems,
         queues: queueSummary,
       },

@@ -279,3 +279,55 @@ export function sanitizeAuditPayload(payload: unknown, depth = 0): unknown {
 
   return payload;
 }
+
+/**
+ * DLQ rows are an operator index, not an error dump.  Unlike the general audit
+ * sanitizer this is deliberately an allowlist: new fields in a job payload
+ * cannot become visible merely because nobody has added them to a denylist.
+ */
+const DLQ_SAFE_FIELDS = new Set([
+  "eventversion", "jobid", "queuename", "jobname", "failurecode",
+  "attempts", "maxattempts", "occurredat", "source", "retryable",
+]);
+const DLQ_SAFE_STRING = /^[a-zA-Z0-9_.:-]{1,128}$/;
+
+export type DeadLetterEventSnapshot = {
+  eventVersion: 1;
+  jobId: number | null;
+  queueName: string | null;
+  jobName: string | null;
+  failureCode: string;
+  attempts: number | null;
+  maxAttempts: number | null;
+  occurredAt: string | null;
+  source: string | null;
+  retryable: boolean | null;
+};
+
+/** Return only stable, non-identifying DLQ diagnostics. Never include errors. */
+export function sanitizeDeadLetterEvent(value: unknown): DeadLetterEventSnapshot {
+  const input = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  const get = (key: string) => input[key];
+  const safeText = (key: string): string | null => {
+    if (!DLQ_SAFE_FIELDS.has(key.toLowerCase()) || typeof get(key) !== "string") return null;
+    const text = get(key) as string;
+    return DLQ_SAFE_STRING.test(text) && !/https?:|@|\/|stack|error|payload|body/i.test(text) ? text : null;
+  };
+  const safeInt = (key: string): number | null => {
+    const value = get(key);
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  };
+  return {
+    eventVersion: 1,
+    jobId: safeInt("jobId"),
+    queueName: safeText("queueName"),
+    jobName: safeText("jobName"),
+    failureCode: safeText("failureCode") ?? "unknown",
+    attempts: safeInt("attempts"),
+    maxAttempts: safeInt("maxAttempts"),
+    occurredAt: safeText("occurredAt"),
+    source: safeText("source"),
+    retryable: typeof get("retryable") === "boolean" ? get("retryable") as boolean : null,
+  };
+}

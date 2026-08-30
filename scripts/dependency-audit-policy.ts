@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 
 export type AuditSummary = {
   critical: number;
@@ -38,7 +39,7 @@ export function runAudit(args: string[]): AuditSummary {
   return enforceAuditJson(result.stdout, result.status);
 }
 
-if (process.argv[1]?.endsWith("dependency-audit-policy.ts")) {
+if (path.basename(process.argv[1] ?? "") === "dependency-audit-policy.ts") {
   const full = runAudit([]);
   const production = runAudit(["--omit=dev"]);
   console.log(JSON.stringify({ policy: "fail on reachable critical/high", full, production }, null, 2));

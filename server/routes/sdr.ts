@@ -46,17 +46,7 @@ export function registerSdrRoutes(app: Express) {
   // === HEALTH ENDPOINTS ===
   // Public minimal health check — intentionally reveals nothing about internals.
   // Build identity fields (sha, builtAt, env) are frozen at process start.
-  app.get("/health", async (_req, res) => {
-    let dbOk = false;
-    try {
-      await pool.query("SELECT 1");
-      dbOk = true;
-    } catch (err) {
-      console.error("[Health] DB check failed:", err);
-    }
-    if (!dbOk) {
-      return res.status(503).json({ status: "degraded", sha: BUILD_SHA, builtAt: BUILD_AT, env: BUILD_ENV });
-    }
+  app.get("/health", (_req, res) => {
     return res.status(200).json({
       status: _RELEASE_SHA_VALID ? "ok" : "release-unverified",
       sha: BUILD_SHA,
@@ -67,27 +57,12 @@ export function registerSdrRoutes(app: Express) {
 
   // Public minimal API health check — no internals exposed.
   // Build identity fields (sha, builtAt, env) are frozen at process start.
-  app.get("/api/health", async (_req, res) => {
-    let dbOk = false;
-    try {
-      const result = await pool.query("SELECT 1 AS check");
-      dbOk = result.rows.length > 0;
-    } catch {}
-    if (!dbOk) {
-      return res.status(503).json({ status: "degraded", sha: BUILD_SHA, builtAt: BUILD_AT, env: BUILD_ENV });
-    }
-    // C-03 (#1626): report whether the fail-fast GHL test transport is
-    // installed so pre-deploy scripts can VERIFY isolation, not just assume it.
-    const { isGhlFailFastTransportInstalled } = await import("../services/ghl-test-transport");
+  app.get("/api/health", (_req, res) => {
     res.json({
       status: _RELEASE_SHA_VALID ? "ok" : "release-unverified",
       sha: BUILD_SHA,
       builtAt: BUILD_AT,
       env: BUILD_ENV,
-      ghlTransportFailFast: isGhlFailFastTransportInstalled(),
-      statementCommandTestStorage:
-        process.env.NODE_ENV !== "production" &&
-        process.env.STATEMENT_COMMAND_TEST_STORAGE === "true",
     });
   });
 

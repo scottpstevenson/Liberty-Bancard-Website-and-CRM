@@ -99,6 +99,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { sanitizeDeadLetterEvent } from "../services/audit-sanitizer";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class WorkflowsStorage {
@@ -228,6 +229,39 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async updateReviewQueueItem(id: number, updates: Partial<InsertReviewQueueItem>) {
     const [updated] = await db.update(reviewQueue).set({ ...updates, updatedAt: new Date() }).where(eq(reviewQueue.id, id)).returning();
     return updated;
+  }
+
+  /**
+   * Immutable, ID-keyset DLQ history.  The caller supplies the first-page high
+   * water mark so inserts during paging cannot shift or duplicate a result.
+   */
+  async getDeadLetterEventHistory(opts: { snapshotId: number; afterId?: number; limit?: number }) {
+    const limit = Math.min(Math.max(Math.floor(opts.limit ?? 50), 1), 100);
+    const conditions = [
+      eq(reviewQueue.sourceType, "dead_letter_job"),
+      lte(reviewQueue.id, opts.snapshotId),
+    ];
+    if (opts.afterId != null) conditions.push(lt(reviewQueue.id, opts.afterId));
+    const rows = await db.select().from(reviewQueue)
+      .where(and(...conditions))
+      .orderBy(desc(reviewQueue.id))
+      .limit(limit);
+    return rows.map((row) => ({
+      id: row.id,
+      source_type: "dead_letter_job" as const,
+      source_id: row.sourceId,
+      status: row.status,
+      event: sanitizeDeadLetterEvent(row.metadata),
+      created_at: row.createdAt?.toISOString?.() ?? row.createdAt,
+    }));
+  }
+
+  async getDeadLetterEventSnapshotId(): Promise<number> {
+    const [row] = await db.select({ id: reviewQueue.id }).from(reviewQueue)
+      .where(eq(reviewQueue.sourceType, "dead_letter_job"))
+      .orderBy(desc(reviewQueue.id))
+      .limit(1);
+    return row?.id ?? 0;
   }
 
   }

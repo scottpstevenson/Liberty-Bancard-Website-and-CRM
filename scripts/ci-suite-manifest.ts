@@ -251,10 +251,16 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source and migration authority assertions only; no database, network, queues, or providers",
   },
   {
+    name: "Task 1720 DLQ History and Alert Feed Contract",
+    script: "scripts/test-task1720-dlq-alert-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure sanitizer and source contract assertions; no database, network, queues, or providers",
+  },
+  {
     name: "CR-06 Content, Cadence, and Deterministic Renderer Certification",
     script: "scripts/test-cr06-governance.ts",
-    capability: "deterministic-static",
-    providerDenial: "immutable content/cadence and pure MIME-equivalent renderer certification; no database, AI, network, queue, or provider calls",
+    capability: "deterministic-integration",
+    providerDenial: "loads the DB-bound CR-06 service graph against disposable PostgreSQL; provider denial proves content/cadence/rendering assertions create no provider traffic",
   },
   {
     name: "CR-06 Promotional Enrollment Boundary Inventory",
@@ -525,8 +531,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "CRO-03C Governed Live Activation (provider denied)",
     script: "scripts/test-cro03c-static.ts",
-    capability: "deterministic-static",
-    providerDenial: "realistic secret names with denied provider/public transport; no live receipt is represented as production evidence",
+    capability: "deterministic-integration",
+    providerDenial: "loads the DB-bound live-execution graph only against disposable PostgreSQL; realistic secret names run with denied provider/public transport",
   },
   {
     name: "CRO-03C Initial Continuation Bridge Contract",
@@ -537,8 +543,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "CRO-03C Worker, Lease, and Safe-Egress Contract",
     script: "scripts/test-cro03c-worker-static.ts",
-    capability: "deterministic-static",
-    providerDenial: "injected SafeEgress transport and source-backed worker ownership/fencing checks; no database, queue, or provider transport",
+    capability: "deterministic-integration",
+    providerDenial: "loads the DB-bound live-execution graph against disposable PostgreSQL; SafeEgress transport is injected and provider/public transport remains denied",
   },
   {
     name: "CRO-03C Live Dispatch Durability",
@@ -549,8 +555,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "CRO-03C Provider Executor Hardening",
     script: "scripts/test-cro03c-provider-executors.ts",
-    capability: "deterministic-static",
-    providerDenial: "pure hash and source-boundary assertions; no provider client method is invoked",
+    capability: "deterministic-integration",
+    providerDenial: "loads the DB-bound live provider executor graph against disposable PostgreSQL; no provider client method is invoked",
   },
   {
     name: "CRO-03B Durable Recipe Lifecycle",
@@ -573,8 +579,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "CRO-03 Apollo Organization Resolution",
     script: "scripts/test-apollo-organization-resolution.ts",
-    capability: "deterministic-static",
-    providerDenial: "mocked transport only; authorized production wrapper is verified fail-closed",
+    capability: "deterministic-integration",
+    providerDenial: "loads the DB-bound SDR Apollo graph against disposable PostgreSQL; transport is mocked and the production wrapper is verified fail-closed",
   },
   {
     name: "CRO-03 Retired Client Endpoint Scan",

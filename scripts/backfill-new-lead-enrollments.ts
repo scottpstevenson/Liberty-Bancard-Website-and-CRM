@@ -40,6 +40,7 @@ import { and, eq, isNull, inArray } from "drizzle-orm";
 import { storage } from "../server/storage";
 import { canEnrollContactInSequence } from "../server/services/sequence-eligibility";
 import { evaluateContactability } from "../server/services/contactability";
+import { sanitizeDeadLetterEvent } from "../server/services/audit-sanitizer";
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 
@@ -317,27 +318,32 @@ async function main() {
       }
     } catch (err) {
       counts.errors++;
-      console.error(
-        `  [ERR ] deal=${dealId} contactId=${contactId} — ${err instanceof Error ? err.message : String(err)}`
-      );
+      console.error(JSON.stringify({
+        event: "new-lead-enrollment-backfill-failed",
+        failureCode: "enrollment_failed",
+      }));
       // Write review queue item so operator can see the failure in the dashboard
       try {
         await storage.createReviewQueueItem({
           sourceType: "dead_letter_job" as any,
           sourceId: dealId,
           status: "pending",
-          notes: `Backfill script: new-lead enrollment failed for deal ${dealId} (contact ${contactId}): ${err instanceof Error ? err.message : String(err)}`,
-          metadata: {
-            alertType: "new_lead_enrollment_error",
-            dealId,
-            contactId,
-            vertical: row.dealVertical ?? null,
-            error: err instanceof Error ? err.message : String(err),
-            source: "backfill-new-lead-enrollments-script",
-          },
+          notes: "New-lead enrollment backfill failed; inspect the protected job record.",
+          metadata: sanitizeDeadLetterEvent({
+            eventVersion: 1,
+            jobId: dealId,
+            jobName: "new_lead_enrollment",
+            queueName: "new_lead",
+            failureCode: "enrollment_failed",
+            source: "new_lead_enrollment_backfill",
+            retryable: true,
+          }),
         });
-      } catch (rqErr) {
-        console.error(`  [ERR ] Failed to write review queue item for deal ${dealId}:`, rqErr);
+      } catch {
+        console.error(JSON.stringify({
+          event: "new-lead-enrollment-backfill-review-persist-failed",
+          failureCode: "review_persistence_failed",
+        }));
       }
     }
   }

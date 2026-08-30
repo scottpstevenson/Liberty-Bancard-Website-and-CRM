@@ -266,6 +266,8 @@ export interface IStorage {
   getReviewQueueItem(id: number): Promise<import("@shared/schema").ReviewQueueItem | undefined>;
   createReviewQueueItem(data: import("@shared/schema").InsertReviewQueueItem): Promise<import("@shared/schema").ReviewQueueItem>;
   updateReviewQueueItem(id: number, updates: Partial<import("@shared/schema").InsertReviewQueueItem>): Promise<import("@shared/schema").ReviewQueueItem | undefined>;
+  getDeadLetterEventHistory(opts: { snapshotId: number; afterId?: number; limit?: number }): Promise<Array<{ id: number; source_type: "dead_letter_job"; source_id: number; status: string; event: import("./services/audit-sanitizer").DeadLetterEventSnapshot; created_at: string | Date | null | undefined }>>;
+  getDeadLetterEventSnapshotId(): Promise<number>;
 
   getMessageTemplates(): Promise<typeof messageTemplates.$inferSelect[]>;
   getMessageTemplate(id: number): Promise<typeof messageTemplates.$inferSelect | undefined>;

@@ -2596,8 +2596,9 @@ export function registerAdminRoutes(app: Express) {
       const hasMailingAddress = !!mailingAddress && String(mailingAddress).trim().length > 0;
       const hasAppUrl = !!(appUrl && appUrl.trim().length > 0);
 
-      const outboundGlobalPaused = await storage.getSystemSetting("outboundGlobalPaused").catch(() => false);
-      const isPaused = outboundGlobalPaused === true || outboundGlobalPaused === "true";
+      const { getPauseState } = await import("../services/outbound-pause-authority");
+      const pauseState = await getPauseState();
+      const isPaused = pauseState.state !== "unpaused" || pauseState.source === "safe_default";
 
       const sendChannelReady = ghlOk || smtpOk;
       const coldEmailReady = hasMailingAddress && unsubscribeSecret && hasAppUrl && sendChannelReady;
@@ -2840,8 +2841,7 @@ export function registerAdminRoutes(app: Express) {
         const { getQueueMode } = await import("../services/queue-manager");
         return res.status(503).json({ status: "not_initialized", queueMode: getQueueMode(), queues: [] });
       }
-      const { queues, queueMode, status } = await qm.getAllQueueMetrics();
-      res.json({ status, queues, queueMode, timestamp: new Date().toISOString() });
+      res.json(await qm.getTelemetryEvidence());
     } catch (err: any) {
       serverError(res, err);
     }
@@ -2852,8 +2852,8 @@ export function registerAdminRoutes(app: Express) {
     try {
       const { getRecentAlerts } = await import("../services/alert-feed");
       const limit = Math.min(Number(req.query.limit) || 50, 200);
-      const alerts = await getRecentAlerts(limit);
-      res.json(alerts);
+      const result = await getRecentAlerts(limit);
+      res.status(result.degraded ? 503 : 200).json(result);
     } catch (err: any) {
       serverError(res, err);
     }
@@ -2862,7 +2862,9 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/alerts/:id/acknowledge", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { acknowledgeAlert } = await import("../services/alert-feed");
-      const ok = await acknowledgeAlert(Number(req.params.id));
+      const reason = typeof req.body?.reason === "string" ? req.body.reason : undefined;
+      const actor = (req.user as any)?.email ?? (req.user as any)?.id ?? "unknown";
+      const ok = await acknowledgeAlert(Number(req.params.id), String(actor), reason);
       if (!ok) return res.status(404).json({ message: "Alert not found" });
       res.json({ ok: true });
     } catch (err: any) {
@@ -2921,8 +2923,8 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
 
       // ── Alert feed ────────────────────────────────────────────────────────────
-      const alerts = await getRecentAlerts(20);
-      const criticalAlerts = alerts.filter((a) => a.severity === "critical" && !a.acknowledged);
+      const alertFeed = await getRecentAlerts(20);
+      const criticalAlerts = alertFeed.alerts.filter((a) => a.severity === "critical" && !a.acknowledged);
 
       // ── Audit log probes ──────────────────────────────────────────────────────
       const { sql: auditSql } = await import("drizzle-orm");
@@ -2974,18 +2976,20 @@ export function registerAdminRoutes(app: Express) {
       const { outboundSendCounters } = await import("@shared/schema");
       const { eq: eqOp, and: andOp } = await import("drizzle-orm");
       const [
-        globalPausedRaw, globalPausedReasonRaw, dailyCapRaw,
+        dailyCapRaw,
         emailChannelPausedRaw, smsChannelPausedRaw, coldEmailChannelPausedRaw,
       ] = await Promise.all([
-        storage.getSystemSetting("outboundGlobalPaused"),
-        storage.getSystemSetting("outboundGlobalPausedReason"),
         storage.getSystemSetting("outboundDailyEmailCap"),
         storage.getSystemSetting("emailChannelPaused"),
         storage.getSystemSetting("smsChannelPaused"),
         storage.getSystemSetting("coldEmailChannelPaused"),
       ]);
-      const globalPaused = globalPausedRaw === true || globalPausedRaw === "true";
-      const globalPausedReason = typeof globalPausedReasonRaw === "string" ? globalPausedReasonRaw : null;
+      const { getPauseState } = await import("../services/outbound-pause-authority");
+      const canonicalPause = await getPauseState();
+      const globalPaused = canonicalPause.state !== "unpaused" || canonicalPause.source === "safe_default";
+      const globalPausedReason = canonicalPause.reason ?? (
+        canonicalPause.source === "safe_default" ? "Canonical pause authority unavailable" : null
+      );
       const dailyCap = typeof dailyCapRaw === "number" ? dailyCapRaw : parseInt(String(dailyCapRaw ?? "200"), 10) || 200;
       const emailChannelPaused = emailChannelPausedRaw === true || emailChannelPausedRaw === "true";
       const smsChannelPaused = smsChannelPausedRaw === true || smsChannelPausedRaw === "true";
@@ -3292,7 +3296,8 @@ export function registerAdminRoutes(app: Express) {
         queues: queueMetrics,
         queueStatus,
         backups: backups.slice(0, 5),
-        recentAlerts: alerts,
+        recentAlerts: alertFeed.alerts,
+        alertFeedDegraded: alertFeed.degraded,
         envChecks,
         ownerActions: gates.filter((g) => g.ownerAction).map((g) => ({ gate: g.label, action: (g as any).ownerAction })),
         // Extended
@@ -3397,8 +3402,9 @@ export function registerAdminRoutes(app: Express) {
       });
 
       // 5. Global outbound pause = false (this is a pre-launch check — it SHOULD be true before launch)
-      const globalPausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
-      const globalPaused = globalPausedRaw === true || globalPausedRaw === "true";
+      const { getPauseState } = await import("../services/outbound-pause-authority");
+      const canonicalPause = await getPauseState();
+      const globalPaused = canonicalPause.state !== "unpaused" || canonicalPause.source === "safe_default";
       checks.push({
         id: "global_pause",
         label: "Global outbound pause state",
@@ -4114,7 +4120,7 @@ export function registerAdminRoutes(app: Express) {
   // ?refresh=1 forces a fresh check even if a cached result is recent.
   // Cached for up to 10 minutes to avoid hammering services on every poll.
   //
-  // Critical checks (gate exit-1 if any fail): db, sequenceWorker, redis, ai, kpiQuery
+  // Critical checks (gate exit-1 if any fail): db, sequenceWorker, redis, kpiQuery
   // Informational checks (stale is a warning, not a failure): slaWorker, ghlSync, dbBackup, outboundPause
 
   let _liveHealthCache: { result: any; fetchedAt: number } | null = null;
@@ -4243,35 +4249,27 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
       checks.push({ name: "redis", status: redisOk ? "ok" : "error", detail: redisDetail, durationMs: redisMs, critical: true });
 
-      // 6. ai — OpenAI key check + optional lightweight probe
-      let aiOk = false;
-      let aiMs = 0;
-      let aiDetail = "AI_INTEGRATIONS_OPENAI_API_KEY not set";
+      // 6. ai — configuration only. Generic health must not call providers.
       const aiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-      if (aiKey) {
-        try {
-          const t0 = Date.now();
-          const r = await fetch("https://api.openai.com/v1/models", {
-            headers: { Authorization: `Bearer ${aiKey}` },
-            signal: AbortSignal.timeout(8000),
-          });
-          aiMs = Date.now() - t0;
-          aiOk = r.ok || r.status === 200;
-          aiDetail = aiOk ? `${aiMs}ms` : `API returned ${r.status}`;
-        } catch (err: any) {
-          aiDetail = `Request failed: ${err?.message ?? "timeout"}`;
-        }
-      }
-      checks.push({ name: "ai", status: aiOk ? "ok" : "error", detail: aiDetail, durationMs: aiMs, critical: true });
+      checks.push({
+        name: "ai",
+        status: aiKey ? "ok" : "warn",
+        detail: aiKey ? "API key configured (not probed)" : "AI_INTEGRATIONS_OPENAI_API_KEY not set",
+        critical: false,
+      });
 
-      // 7. dbBackup — last successful backup
+      // 7. dbBackup — persisted backup history only; do not query backup providers.
       let backupStatus: "ok" | "warn" = "warn";
-      let backupDetail = "No backups found";
+      let backupDetail = "No successful backup recorded";
       try {
-        const { listBackups } = await import("../services/db-backup");
-        const backups = await listBackups();
-        if (backups.length > 0) {
-          const latestMs = new Date(backups[0].createdAt).getTime();
+        const backupResult = await db.execute(drizzleSqlRaw.raw(`
+          SELECT MAX(created_at) AS created_at
+          FROM audit_logs
+          WHERE action IN ('db_backup_completed', 'db_backup_success')
+        `));
+        const latestBackup = (backupResult.rows[0] as any)?.created_at;
+        if (latestBackup) {
+          const latestMs = new Date(latestBackup).getTime();
           const ageMs = now - latestMs;
           const ageHours = Math.round(ageMs / 3600000);
           backupStatus = "ok";
@@ -4299,14 +4297,13 @@ export function registerAdminRoutes(app: Express) {
       let pauseStatus: "ok" | "warn" = "warn";
       let pauseDetail = "Could not read pause state";
       try {
-        const rawPause = await storage.getSystemSetting("outboundGlobalPaused");
-        const isPaused = rawPause === true || rawPause === "true";
-        pauseStatus = "ok";
-        pauseDetail = `paused=${isPaused}`;
+        const { getPauseState } = await import("../services/outbound-pause-authority");
+        const pause = await getPauseState();
+        pauseStatus = pause.source === "safe_default" ? "warn" : "ok";
+        pauseDetail = `state=${pause.state} source=${pause.source} epoch=${pause.epoch.toString()}${pause.reason ? ` reason=${pause.reason}` : ""}`;
       } catch {}
       checks.push({ name: "outboundPause", status: pauseStatus, detail: pauseDetail, critical: false });
 
-      const CRITICAL_NAMES = ["db", "sequenceWorker", "redis", "ai", "kpiQuery"];
       const criticalChecks = checks.filter(c => c.critical);
       const allCriticalOk = criticalChecks.every(c => c.status === "ok");
       const overallOk = allCriticalOk;

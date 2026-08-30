@@ -253,12 +253,13 @@ async function main(): Promise<void> {
   const migration = source("migrations/0195_cro03c_live_activation_authority.sql");
   const opaqueInputMigration = source("migrations/0199_cro03c_opaque_stage_inputs.sql");
   const queues = source("server/services/queue-manager.ts");
+  const queueNames = source("server/services/queue-names.ts");
 
   // CRO-03C has exactly one event-owned queue and a bounded recovery schedule.
   // Command creation can only obtain a producer; it cannot start a worker.
   assert.match(live, /transportEnabled: false/);
   assert.match(live, /getQueueManagerProducers\(\)\?\.getQueue\(QUEUE_NAMES\.CRO03C_LIVE\)/);
-  assert.match(queues, /CRO03C_LIVE: "cro03c-live"/);
+  assert.match(queueNames, /CRO03C_LIVE: "cro03c-live"/);
   assert.match(queues, /name: QUEUE_NAMES\.CRO03C_LIVE,\s*concurrency: 1, attempts: 3,[\s\S]*?repeatEveryMs: 0, jobName: "dispatch"/);
   assert.match(queues, /queueName: QUEUE_NAMES\.CRO03C_LIVE,\s*jobName: "recover"[\s\S]*?jobId: "cro03c-live-recovery-repeatable"/);
   assert.match(queues, /case QUEUE_NAMES\.CRO03C_LIVE:[\s\S]*?dispatchCro03cLive[\s\S]*?recoverCro03cLiveDispatches/);

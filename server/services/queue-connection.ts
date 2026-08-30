@@ -13,12 +13,12 @@ export type QueueMode = "bullmq_redis" | "legacy_interval_partial" | "unavailabl
  *   • Worker instances: non-blocking parent connection → "shared" → 0 new connections.
  *                       blocking connection → always .duplicate()'d internally → 1 new connection per Worker.
  *
- * Net result for 11 queues: 1 (shared) + 11 (blocking duplicates) = 12 connections.
- * Upstash free tier allows 20 → well within limits, zero timeout storms.
+ * Net result is 1 shared client plus one blocking duplicate for each instantiated
+ * Worker. Capacity must be evaluated against the configured provider limit.
  *
  * Before this fix: passing ConnectionOptions (plain object) caused BullMQ to create a
- * fresh ioredis instance per Queue AND per Worker, totalling 33 connections and tripping
- * Upstash's 20-connection cap — the resulting rejected connections sent commands into
+ * fresh ioredis instance per Queue AND per Worker, multiplying connection use and risking
+ * provider connection-limit rejections. Rejected connections sent commands into
  * ioredis's offline queue where commandTimeout:10_000 fired every 10 s ("Command timed out").
  */
 let _sharedClient: Redis | null = null;
@@ -46,8 +46,8 @@ export function getBullMqTestPrefix(): string | undefined {
  * has not yet been initialised (e.g. REDIS_URL not set / startup not complete).
  *
  * Use this for lightweight probe calls (PING, GET) rather than creating a new
- * Redis connection — every extra connection counts against Upstash's 20-connection
- * free-tier cap and can cause ETIMEDOUT for the actual BullMQ workers.
+ * Redis connection — every extra connection counts against the configured provider
+ * limit and can cause ETIMEDOUT for the actual BullMQ workers.
  */
 export function getSharedRedisClient(): Redis | null {
   return _sharedClient;
@@ -192,8 +192,8 @@ export function getSharedRedisClientIfReady(): Redis | null {
 // Formula for this process:
 //   estimatedProcessConnections = sharedClientCount + physicalWorkerCount
 //
-// With 23 instantiated Workers: 1 + 23 = 24 connections from this process.
-// When legacy GHL sync is claimed (GHL_SYNC Worker not instantiated): 1 + 22 = 23.
+// With N instantiated Workers: 1 + N connections from this process.
+// When legacy GHL sync is claimed, the omitted Worker reduces N by one.
 //
 // Fleet estimate (optional, requires REDIS_DEPLOYMENT_PROCESS_COUNT env var):
 //   estimatedFleetConnections = estimatedProcessConnections × deploymentProcessCount
@@ -245,12 +245,10 @@ export function diagnoseRedisCapacity(opts: DiagnoseRedisCapacityOpts): RedisCap
   const configuredConnectionLimit =
     Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : (opts.configuredConnectionLimit ?? null);
 
-  // Read fleet process count from env var — null until explicitly supplied.
-  const rawProcCount = parseInt(process.env.REDIS_DEPLOYMENT_PROCESS_COUNT ?? "", 10);
-  const deploymentProcessCount =
-    Number.isFinite(rawProcCount) && rawProcCount > 0
-      ? rawProcCount
-      : (opts.deploymentProcessCount ?? null);
+  // Fleet size is accepted only from a reconciled runtime observation supplied
+  // by the caller. A configured process count is expected topology, not proof of
+  // observed membership, and must never drive a capacity-safety conclusion.
+  const deploymentProcessCount = opts.deploymentProcessCount ?? null;
 
   const estimatedProcessConnections = sharedClientCount + physicalWorkerCount;
   const estimatedFleetConnections =

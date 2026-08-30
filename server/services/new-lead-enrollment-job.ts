@@ -27,6 +27,7 @@ import { storage } from "../storage";
 import { canEnrollContactInSequence } from "./sequence-eligibility";
 import { evaluateContactability } from "./contactability";
 import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
+import { sanitizeDeadLetterEvent } from "./audit-sanitizer";
 
 const NEW_LEAD_PROGRESS_KEY = "new_lead_enrollment_progress";
 const NEW_LEAD_CANCEL_KEY = "new_lead_enrollment_cancel_requested";
@@ -592,11 +593,11 @@ async function _runAsync(opts: {
           status: "active",
           currentStep: 0,
           nextActionAt: new Date(),
-          metadata: {
+          metadata: sanitizeDeadLetterEvent({
             enrolledBy: "new_lead_enrollment_job",
             vertical: deal.vertical ?? null,
             dealId: deal.id,
-          },
+          }),
         });
         progress.enrolled++;
         await storage.createAuditLog({
@@ -614,13 +615,17 @@ async function _runAsync(opts: {
           sourceType: "dead_letter_job" as any,
           sourceId: row.deal?.id ?? 0,
           status: "pending",
-          notes: `New-lead enrollment failed for deal ${row.deal?.id} (contact ${row.contact?.id ?? "unknown"}): ${err instanceof Error ? err.message : String(err)}`,
+          // A DLQ row is a stable, non-PII event index. Do not store the
+          // provider error, contact identity, payload, or stack here.
+          notes: "New-lead enrollment failed; inspect the protected job record.",
           metadata: {
-            alertType: "new_lead_enrollment_error",
-            dealId: row.deal?.id ?? null,
-            contactId: row.contact?.id ?? null,
-            vertical: row.deal?.vertical ?? null,
-            error: err instanceof Error ? err.message : String(err),
+            eventVersion: 1,
+            jobId: row.deal?.id ?? null,
+            jobName: "new_lead_enrollment",
+            queueName: "new_lead",
+            failureCode: "enrollment_failed",
+            source: "new_lead_enrollment_job",
+            retryable: true,
           },
         }).catch((e) =>
           console.error("[NewLeadEnrollJob] Failed to write review queue item for deal", row.deal?.id, e)

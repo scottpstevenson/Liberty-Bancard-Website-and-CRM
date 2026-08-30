@@ -20,8 +20,6 @@
  * workflow ownership.
  */
 
-import { storage } from "../storage";
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type MessageCategory =
@@ -159,6 +157,7 @@ export async function assertNotProhibited(addr: string, context: string): Promis
   if (!isProhibitedAddress(addr)) return;
   const msg = buildProhibitedMessage(addr, context);
   try {
+    const { storage } = await import("../storage");
     await storage.createAuditLog({
       action: "PROHIBITED_SENDER_BLOCKED",
       entityType: "system",

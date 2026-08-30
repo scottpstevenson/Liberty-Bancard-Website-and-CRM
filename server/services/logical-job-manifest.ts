@@ -23,7 +23,7 @@
  * NOTE: Comments here are supplementary. validateManifest() is the proof.
  */
 
-import { QUEUE_NAMES, type QueueName } from "./queue-manager";
+import { QUEUE_NAMES, type QueueName } from "./queue-names";
 
 // ---------------------------------------------------------------------------
 // Effect types

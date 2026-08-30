@@ -1,47 +1,20 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
 import { sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
-import { getBullMqTestPrefix, getRedisConnection, type QueueMode } from "./queue-connection";
+import {
+  diagnoseRedisCapacity,
+  getBullMqTestPrefix,
+  getRedisConnection,
+  getSharedRedisClientIfReady,
+  type QueueMode,
+  type RedisCapacityDiagnosis,
+} from "./queue-connection";
 import { storage } from "../storage";
 import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
-
-const dlqAlertCooldown = new Map<string, number>();
-const DLQ_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+import { sanitizeDeadLetterEvent } from "./audit-sanitizer";
+import { QUEUE_NAMES, type QueueName } from "./queue-names";
+export { QUEUE_NAMES, type QueueName } from "./queue-names";
 let seqNoOpAlertCooldown = 0;
-
-export const QUEUE_NAMES = {
-  GHL_SYNC: "ghl-sync",
-  SLA_CHECKS: "sla-checks",
-  SEQUENCES: "sequences",
-  ENRICHMENT: "enrichment",
-  DISCOVERY: "discovery",
-  DIGESTS: "digests",
-  MID_INGESTION: "mid-ingestion",
-  ONBOARDING_REMINDER: "onboarding-reminder",
-  ABANDONED_STATEMENT: "abandoned-statement",
-  SYSTEM_AUDIT: "system-audit",
-  DB_BACKUP: "db-backup",
-  ENROLLMENT_RECOVERY: "enrollment-recovery",
-  GHL_ENROLLMENT_RECOVERY: "ghl-enrollment-recovery",
-  HEALTH_MONITOR: "health-monitor",
-  EXECUTIVE_SNAPSHOT: "executive-snapshot",
-  PIPELINE_SILENCE_CHECK: "pipeline-silence-check",
-  PROPOSAL_FOLLOWUP: "proposal-followup",
-  PARTNER_MONTHLY_DIGEST: "partner-monthly-digest",
-  ACTIVATION_MONITOR: "activation-monitor",
-  MERCHANT_SUCCESS: "merchant-success",
-  WINBACK_OUTREACH: "winback-outreach",
-  VOICEMAIL_SYNC: "voicemail-sync",
-  POST_ENRICHMENT: "post-enrichment",
-  ZEROBOUNCE_BATCH: "zerobounce-batch-validate",
-  STATEMENT_UPLOAD: "statement-upload",
-  DEAL_STAGE_EFFECTS: "deal-stage-effects",
-  CHARGEBACK_COMMANDS: "chargeback-commands",
-  CRO03A_QUALIFICATION: "cro03a-qualification",
-  CRO03C_LIVE: "cro03c-live",
-} as const;
-
-export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 interface QueueConfig {
   name: QueueName;
@@ -473,13 +446,11 @@ export interface DlqItem {
   id: string;
   queueName: string;
   jobName: string;
-  failedReason: string;
+  failureCode: string;
   attemptsMade: number;
-  stacktrace: string[];
   timestamp: number;
   processedOn: number | null;
   finishedOn: number | null;
-  data: any;
 }
 
 export interface DlqReadResult {
@@ -492,7 +463,7 @@ export interface QueueTopologySnapshot {
   activeConfigCount: number;
   instantiatedQueueCount: number;
   instantiatedWorkerCount: number;
-  logicalJobCount: number;        // equals instantiatedWorkerCount until #1523B
+  logicalJobCount: number;
   legacyGhlClaimed: boolean;
   /** BullMQ is only active when backed by a real Redis connection. */
   queueMode: QueueMode;
@@ -500,6 +471,60 @@ export interface QueueTopologySnapshot {
   processIdentity: string | null;
   releaseSha: string | null;
   capturedAt: string;
+}
+
+export interface QueueFleetEvidence {
+  status: "reconciled" | "unknown" | "degraded";
+  scope: "cro03c_worker_inventory";
+  authoritativeComplete: boolean;
+  expectedProcessCount: number | null;
+  observedProcessCount: number | null;
+  observedBootCount: number | null;
+  errorCode?: string;
+}
+
+export interface QueueHistoryEvidence {
+  observationStartedAt: string;
+  requestedWindowHours: number;
+  availableWindowHours: number;
+  partial: boolean;
+  processIdentity: string;
+  releaseSha: string | null;
+  points: Record<string, Array<{
+    startedAt: string;
+    completed: number;
+    failed: number;
+  }>>;
+}
+
+export interface QueueTelemetryEvidence {
+  status: "ok" | "degraded";
+  scope: "local_process_with_reconciled_cro03c_worker_fleet";
+  freshness: { capturedAt: string; observationStartedAt: string };
+  topology: QueueTopologySnapshot;
+  fleet: QueueFleetEvidence;
+  queues: QueueMetric[];
+  backlog: {
+    probeStatus: "ok" | "error";
+    dueEnrollmentCount: number | null;
+    oldestDueMs: number | null;
+    lastSequenceRunMs: number | null;
+    errorCode?: string;
+  };
+  redis: {
+    infoProbeStatus: "ok" | "error" | "not_initialized";
+    observedAccountConnectedClients: number | null;
+    capacity: RedisCapacityDiagnosis;
+    errorCode?: string;
+  };
+  dlq: {
+    sampleCount: number;
+    complete: false;
+    resultScope: "sampled_per_queue";
+    queueStatus: DlqReadResult["queueStatus"];
+  };
+  history: QueueHistoryEvidence;
+  degradations: string[];
 }
 
 type WorkerFailureClass =
@@ -762,6 +787,7 @@ class QueueManager {
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
 
   private jobHistory: Map<string, HistoryBucket[]> = new Map();
+  private readonly observationStartedAt = new Date();
 
   /** Runtime-effective repeat intervals. Populated from QUEUE_CONFIGS at startup
    * and updated by updateQueueRepeatInterval() when an admin changes a setting. */
@@ -985,31 +1011,53 @@ class QueueManager {
       worker.on("failed", async (job: Job | undefined, err: Error) => {
         if (!job) return;
         const attemptsRemaining = (job.opts.attempts ?? 1) - job.attemptsMade;
-        console.error(`[Queue:${config.name}] Job ${job.id} failed (${job.attemptsMade}/${job.opts.attempts ?? 1} attempts): ${err.message}`);
+        const failureCode = classifyWorkerError(err);
+        console.error(JSON.stringify({
+          event: "queue:job-failed",
+          queueName: config.name,
+          jobName: job.name,
+          attempts: job.attemptsMade,
+          maxAttempts: job.opts.attempts ?? 1,
+          failureCode,
+        }));
         this.recordHistoryEvent(config.name, "failed");
 
         // Persist the failure to background_jobs and get the durable consecutive count.
         // This keeps health monitoring accurate across restarts and surfaced on the
         // Operator Dashboard (which reads background_jobs via getJobStatuses()).
         const { recordWorkerFailure } = await import("./job-registry");
-        const consecutiveCount = await recordWorkerFailure(config.name, err.message).catch(() => 0);
+        const consecutiveCount = await recordWorkerFailure(config.name, failureCode).catch(() => 0);
 
         if (consecutiveCount >= WORKER_FAILURE_ALERT_THRESHOLD) {
-          const alertMsg = `Worker alert: queue="${config.name}" has ${consecutiveCount} consecutive failures. Last error: ${err.message}`;
-          console.error(`[QueueManager] ${alertMsg}`);
+          const event = sanitizeDeadLetterEvent({
+            queueName: config.name,
+            jobName: job.name,
+            failureCode,
+            attempts: job.attemptsMade,
+            maxAttempts: job.opts.attempts ?? 1,
+            occurredAt: new Date().toISOString(),
+            source: "consecutive_failure_threshold",
+            retryable: attemptsRemaining > 0,
+          });
+          console.error(JSON.stringify({
+            event: "queue:consecutive-failure-threshold",
+            queueName: event.queueName,
+            jobName: event.jobName,
+            failureCode: event.failureCode,
+            consecutiveFailures: consecutiveCount,
+            threshold: WORKER_FAILURE_ALERT_THRESHOLD,
+          }));
           storage.createReviewQueueItem({
             sourceType: "dead_letter_job" as any,
             sourceId: 0,
             status: "pending",
-            notes: alertMsg,
-            metadata: {
-              alertType: "consecutive_failure_threshold",
-              queueName: config.name,
-              consecutiveFailures: consecutiveCount,
-              threshold: WORKER_FAILURE_ALERT_THRESHOLD,
-              lastError: err.message,
-            },
-          }).catch(e => console.error("[QueueManager] Failed to write consecutive-failure alert:", e));
+            notes: "Queue crossed the consecutive-failure review threshold. See canonical BullMQ retention for operational details.",
+            metadata: event,
+          }).catch(() => console.error(JSON.stringify({
+            event: "queue:threshold-review-persist-failed",
+            queueName: event.queueName,
+            failureCode: event.failureCode,
+          })));
         }
 
         if (attemptsRemaining <= 0) {
@@ -1036,9 +1084,6 @@ class QueueManager {
 
       // Extend existing error listener with structured classification + redaction.
       worker.on("error", (err: Error) => {
-        // Original behavior preserved
-        console.error(`[Queue:${config.name}] Worker error:`, err.message);
-        // Extended structured log with classification
         const failureClass = classifyWorkerError(err);
         const redactedMessage = redactWorkerErrorMessage(err.message ?? "");
         console.error(JSON.stringify({
@@ -1799,11 +1844,11 @@ class QueueManager {
       activeConfigCount: this.activeConfigs().length,
       instantiatedQueueCount: this.queues.size,
       instantiatedWorkerCount: this.workers.size,
-      logicalJobCount: this.workers.size, // equals instantiatedWorkerCount until #1523B
+      logicalJobCount: QUEUE_CONFIGS.length + NAMED_QUEUE_SCHEDULES.length,
       legacyGhlClaimed: isLegacyGhlSyncClaimed(),
       queueMode: getQueueMode(),
       processId: process.pid,
-      processIdentity: process.env.PROCESS_IDENTITY ?? null,
+      processIdentity: process.env.PROCESS_IDENTITY?.trim() || `process:${process.pid}`,
       releaseSha: process.env.RELEASE_SHA ?? null,
       capturedAt: new Date().toISOString(),
     };
@@ -1825,66 +1870,90 @@ class QueueManager {
     else bucket.failed++;
   }
 
-  getJobHistory(): Record<string, Array<{ label: string; completed: number; failed: number }>> {
-    const result: Record<string, Array<{ label: string; completed: number; failed: number }>> = {};
+  getJobHistory(): QueueHistoryEvidence {
+    const result: QueueHistoryEvidence["points"] = {};
     const nowHour = Math.floor(Date.now() / (1000 * 60 * 60));
 
     for (const [name, buckets] of this.jobHistory.entries()) {
-      result[name] = Array.from({ length: HISTORY_HOURS }, (_, i) => {
-        const hour = nowHour - (HISTORY_HOURS - 1 - i);
-        const bucket = buckets.find(b => b.hour === hour);
-        const date = new Date(hour * 60 * 60 * 1000);
-        const label = `${date.getUTCHours()}:00`;
-        return { label, completed: bucket?.completed ?? 0, failed: bucket?.failed ?? 0 };
-      });
+      result[name] = buckets
+        .filter((bucket) => bucket.hour <= nowHour)
+        .sort((a, b) => a.hour - b.hour)
+        .map((bucket) => ({
+          startedAt: new Date(bucket.hour * 60 * 60 * 1000).toISOString(),
+          completed: bucket.completed,
+          failed: bucket.failed,
+        }));
     }
-    return result;
+    const availableWindowHours = Math.min(
+      HISTORY_HOURS,
+      Math.max(1, Math.ceil((Date.now() - this.observationStartedAt.getTime()) / (60 * 60 * 1000))),
+    );
+    return {
+      observationStartedAt: this.observationStartedAt.toISOString(),
+      requestedWindowHours: HISTORY_HOURS,
+      availableWindowHours,
+      partial: availableWindowHours < HISTORY_HOURS,
+      processIdentity: process.env.PROCESS_IDENTITY?.trim() || `process:${process.pid}`,
+      releaseSha: process.env.RELEASE_SHA?.trim() || null,
+      points: result,
+    };
   }
 
   private async createReviewQueueItem(queueName: string, job: Job, err: Error): Promise<void> {
+    const failureCode = classifyWorkerError(err);
+    const event = sanitizeDeadLetterEvent({
+      queueName,
+      jobName: job.name,
+      failureCode,
+      attempts: job.attemptsMade,
+      maxAttempts: job.opts.attempts ?? 1,
+      occurredAt: new Date().toISOString(),
+      source: "bullmq",
+      retryable: false,
+    });
     try {
       await storage.createReviewQueueItem({
         sourceType: "dead_letter_job" as any,
         sourceId: 0,
         status: "pending",
-        notes: `Queue: ${queueName}\nJob: ${job.id} (${job.name})\nAttempts: ${job.attemptsMade}\nError: ${err.message}`,
-        metadata: {
-          queueName,
-          jobId: job.id,
-          jobName: job.name,
-          attemptsMade: job.attemptsMade,
-          failedReason: err.message,
-          stacktrace: err.stack?.slice(0, 2000),
-          jobData: job.data,
-        },
+        notes: "BullMQ job exhausted all configured attempts. See canonical BullMQ retention for operational details.",
+        metadata: event,
       });
-      console.warn(`[QueueManager] Dead-letter review item created: queue=${queueName} job=${job.id} after ${job.attemptsMade} attempts — ${err.message}`);
-      const nowMs = Date.now();
-      const lastDlqAlert = dlqAlertCooldown.get(queueName) ?? 0;
-      if (nowMs - lastDlqAlert > DLQ_ALERT_COOLDOWN_MS) {
-        dlqAlertCooldown.set(queueName, nowMs);
-        import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {
-          sendCriticalAlert({
-            subsystem: "queues",
-            status: "error",
-            summary: `DLQ overflow — queue "${queueName}": job ${job.name} exhausted all retries after ${job.attemptsMade} attempts.`,
-            details: { queueName, jobId: job.id, jobName: job.name, attemptsMade: job.attemptsMade, failedReason: err.message },
-          });
-        }).catch(() => {});
+      console.warn(JSON.stringify({
+        event: "queue:terminal-exhaustion",
+        queueName: event.queueName,
+        jobName: event.jobName,
+        attempts: event.attempts,
+        failureCode: event.failureCode,
+      }));
+      const { sendCriticalAlert } = await import("./system-audit/slack-notifier");
+      const alertResult = await sendCriticalAlert({
+        subsystem: "queues",
+        status: "error",
+        summary: `Queue terminal exhaustion: ${event.queueName ?? "unknown"}/${event.jobName ?? "unknown"}`,
+        details: event,
+      });
+      if (alertResult.feedStatus === "failed" || alertResult.transportStatus === "failed") {
+        console.error(JSON.stringify({
+          event: "queue:terminal-exhaustion-alert-degraded",
+          claimStatus: alertResult.claimStatus,
+          feedStatus: alertResult.feedStatus,
+          transportStatus: alertResult.transportStatus,
+          incidentFingerprint: alertResult.incidentFingerprint,
+        }));
       }
     } catch (storageErr: any) {
-      console.error("[QueueManager] Could not create review queue item for dead-letter job:", storageErr.message);
+      console.error(JSON.stringify({
+        event: "queue:dead-letter-review-persist-failed",
+        queueName: event.queueName,
+        jobName: event.jobName,
+        failureCode: event.failureCode,
+      }));
       await storage.createAuditLog({
         action: "dead_letter_job",
         entityType: "system",
-        details: {
-          queueName,
-          jobId: job.id,
-          jobName: job.name,
-          attemptsMade: job.attemptsMade,
-          failedReason: err.message,
-        },
-      }).catch(() => {});
+        details: event,
+      });
     }
   }
 
@@ -1893,7 +1962,25 @@ class QueueManager {
 
     for (const config of QUEUE_CONFIGS) {
       const queue = this.queues.get(config.name);
-      if (!queue) continue;
+      if (!queue) {
+        metrics.push({
+          name: config.name,
+          waiting: null,
+          active: null,
+          completed: null,
+          failed: null,
+          delayed: null,
+          paused: null,
+          repeatEveryMs: this.effectiveIntervals.get(config.name) ?? config.repeatEveryMs,
+          lastCompletedAt: null,
+          lastFailedAt: null,
+          avgDurationMs: null,
+          throughputPerHour: null,
+          probeStatus: "error",
+          errorCode: "QUEUE_METRICS_READ_FAILED",
+        });
+        continue;
+      }
 
       try {
         const [waiting, active, completed, failed, delayed, isPaused] = await Promise.all([
@@ -1945,7 +2032,7 @@ class QueueManager {
           failed,
           delayed,
           paused: isPaused,
-          repeatEveryMs: config.repeatEveryMs,
+            repeatEveryMs: this.effectiveIntervals.get(config.name) ?? config.repeatEveryMs,
           lastCompletedAt,
           lastFailedAt,
           avgDurationMs,
@@ -1979,6 +2066,165 @@ class QueueManager {
     };
   }
 
+  private async getFleetEvidence(topology: QueueTopologySnapshot): Promise<QueueFleetEvidence> {
+    const releaseSha = topology.releaseSha ?? "";
+    const deploymentIdentity = process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? "";
+    const environmentIdentity = process.env.NODE_ENV ?? "";
+    const redis = getSharedRedisClientIfReady();
+    if (!/^[a-f0-9]{40}$/i.test(releaseSha) || !deploymentIdentity || !environmentIdentity || !redis) {
+      return {
+        status: "unknown",
+        scope: "cro03c_worker_inventory",
+        authoritativeComplete: false,
+        expectedProcessCount: null,
+        observedProcessCount: null,
+        observedBootCount: null,
+        errorCode: "FLEET_AUTHORITY_UNAVAILABLE",
+      };
+    }
+    try {
+      const [{ currentCro03cDeploymentInventory }, { readCro03cWorkerFleet }] = await Promise.all([
+        import("./cro03/deployment-inventory"),
+        import("./cro03/runtime-heartbeat"),
+      ]);
+      const inventory = await currentCro03cDeploymentInventory({
+        deploymentIdentity,
+        environmentIdentity,
+        releaseSha,
+        queueTopologyHash: getCro03cQueueTopologyHash(),
+      });
+      const fleet = await readCro03cWorkerFleet({
+        redis,
+        prefix: this.redisKeyPrefix,
+        expectedReleaseSha: releaseSha,
+        expectedQueueTopologyHash: getCro03cQueueTopologyHash(),
+        expectedProcessIdentities: inventory.workerIdentities,
+      });
+      return {
+        status: fleet.complete ? "reconciled" : "degraded",
+        scope: "cro03c_worker_inventory",
+        authoritativeComplete: fleet.complete,
+        expectedProcessCount: inventory.workerIdentities.length,
+        observedProcessCount: fleet.heartbeats.length,
+        observedBootCount: new Set(fleet.heartbeats.map((heartbeat) => heartbeat.bootIdentity)).size,
+        ...(fleet.complete ? {} : { errorCode: "FLEET_SCAN_INCOMPLETE" }),
+      };
+    } catch (error) {
+      return {
+        status: "degraded",
+        scope: "cro03c_worker_inventory",
+        authoritativeComplete: false,
+        expectedProcessCount: null,
+        observedProcessCount: null,
+        observedBootCount: null,
+        errorCode: error instanceof Error ? error.message.slice(0, 100) : "FLEET_RECONCILIATION_FAILED",
+      };
+    }
+  }
+
+  async getTelemetryEvidence(): Promise<QueueTelemetryEvidence> {
+    const capturedAt = new Date().toISOString();
+    const topology = this.getTopologySnapshot();
+    const [metrics, dlqRead, fleet] = await Promise.all([
+      this.getAllQueueMetrics(),
+      this.getDeadLetterItemsWithStatus(),
+      this.getFleetEvidence(topology),
+    ]);
+    const degradations: string[] = [];
+
+    let dueEnrollmentCount: number | null = null;
+    let oldestDueMs: number | null = null;
+    let lastSequenceRunMs: number | null = null;
+    let backlogStatus: QueueTelemetryEvidence["backlog"]["probeStatus"] = "ok";
+    let backlogErrorCode: string | undefined;
+    try {
+      const { db } = await import("../db");
+      const backlogResult = await db.execute(sql`
+        SELECT COUNT(*)::int AS backlog, MIN(next_action_at) AS oldest_due_at
+        FROM sequence_enrollments
+        WHERE status = 'active' AND next_action_at IS NOT NULL AND next_action_at <= NOW()
+      `);
+      const row = backlogResult.rows[0] as any;
+      dueEnrollmentCount = Number(row?.backlog ?? 0);
+      oldestDueMs = row?.oldest_due_at ? Date.now() - new Date(row.oldest_due_at).getTime() : null;
+      const lastRunRaw = await storage.getSystemSetting("sequence_worker_last_run");
+      lastSequenceRunMs =
+        lastRunRaw && typeof lastRunRaw === "object" && (lastRunRaw as any).duration_ms !== undefined
+          ? Number((lastRunRaw as any).duration_ms)
+          : null;
+    } catch {
+      backlogStatus = "error";
+      backlogErrorCode = "SEQUENCE_BACKLOG_READ_FAILED";
+      degradations.push(backlogErrorCode);
+    }
+
+    let observedAccountConnectedClients: number | null = null;
+    let infoProbeStatus: QueueTelemetryEvidence["redis"]["infoProbeStatus"] = "not_initialized";
+    let redisErrorCode: string | undefined;
+    const redis = getSharedRedisClientIfReady();
+    if (redis) {
+      try {
+        const infoRaw = await redis.info("clients");
+        const match = infoRaw.match(/(?:^|\r?\n)connected_clients:(\d+)/);
+        if (!match) throw new Error("CONNECTED_CLIENTS_MISSING");
+        observedAccountConnectedClients = Number(match[1]);
+        infoProbeStatus = "ok";
+      } catch {
+        infoProbeStatus = "error";
+        redisErrorCode = "REDIS_CLIENT_INFO_READ_FAILED";
+        degradations.push(redisErrorCode);
+      }
+    } else {
+      redisErrorCode = "REDIS_CLIENT_NOT_INITIALIZED";
+      degradations.push(redisErrorCode);
+    }
+    const capacity = diagnoseRedisCapacity({
+      physicalWorkerCount: topology.instantiatedWorkerCount,
+      observedAccountConnectedClients,
+      deploymentProcessCount: fleet.authoritativeComplete ? fleet.observedProcessCount : null,
+    });
+
+    if (metrics.status === "degraded") degradations.push("QUEUE_METRICS_DEGRADED");
+    if (dlqRead.queueStatus.some((source) => source.status !== "sampled")) {
+      degradations.push("DLQ_SAMPLE_INCOMPLETE");
+    }
+    if (fleet.status !== "reconciled") degradations.push("FLEET_NOT_RECONCILED");
+    if (capacity.status !== "safe") degradations.push(`REDIS_CAPACITY_${capacity.status.toUpperCase()}`);
+
+    return {
+      status: degradations.length ? "degraded" : "ok",
+      scope: "local_process_with_reconciled_cro03c_worker_fleet",
+      freshness: {
+        capturedAt,
+        observationStartedAt: this.observationStartedAt.toISOString(),
+      },
+      topology,
+      fleet,
+      queues: metrics.queues,
+      backlog: {
+        probeStatus: backlogStatus,
+        dueEnrollmentCount,
+        oldestDueMs,
+        lastSequenceRunMs,
+        ...(backlogErrorCode ? { errorCode: backlogErrorCode } : {}),
+      },
+      redis: {
+        infoProbeStatus,
+        observedAccountConnectedClients,
+        capacity,
+        ...(redisErrorCode ? { errorCode: redisErrorCode } : {}),
+      },
+      dlq: {
+        sampleCount: dlqRead.items.length,
+        complete: false,
+        resultScope: "sampled_per_queue",
+        queueStatus: dlqRead.queueStatus,
+      },
+      history: this.getJobHistory(),
+      degradations: [...new Set(degradations)],
+    };
+  }
+
   async getDeadLetterItemsWithStatus(): Promise<DlqReadResult> {
     const items: DlqItem[] = [];
     const queueStatus: DlqReadResult["queueStatus"] = [];
@@ -2000,13 +2246,11 @@ class QueueManager {
               id: `${config.name}::${job.id}`,
               queueName: config.name,
               jobName: job.name,
-              failedReason: job.failedReason || "Unknown",
+              failureCode: "terminal_exhaustion",
               attemptsMade: job.attemptsMade,
-              stacktrace: job.stacktrace || [],
               timestamp: job.timestamp,
               processedOn: job.processedOn ?? null,
               finishedOn: job.finishedOn ?? null,
-              data: job.data,
             });
           }
         }

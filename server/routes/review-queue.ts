@@ -5,6 +5,38 @@ import { z } from "zod";
 import { enrollInGhlWorkflow, enrollInGhlWorkflowCompliant } from "../services/ghl-workflows";
 import { REVIEW_CHECKLIST_ITEMS } from "@shared/schema";
 import { serverError } from "../utils/server-error";
+import crypto from "crypto";
+import { sanitizeDeadLetterEvent } from "../services/audit-sanitizer";
+
+const DLQ_CURSOR_VERSION = 1;
+const MAX_DLQ_CURSOR_BYTES = 512;
+const MAX_DLQ_PAGE_SIZE = 100;
+type DlqCursor = { v: number; snapshotId: number; afterId: number };
+function dlqCursorSecret(): string {
+  const secret = process.env.SESSION_SECRET || process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+  if (!secret) throw new Error("DLQ_CURSOR_SECRET_UNAVAILABLE");
+  return secret;
+}
+export function encodeDlqCursor(cursor: DlqCursor): string {
+  const json = JSON.stringify(cursor);
+  if (Buffer.byteLength(json) > MAX_DLQ_CURSOR_BYTES) throw new Error("DLQ_CURSOR_TOO_LARGE");
+  const encoded = Buffer.from(json).toString("base64url");
+  return `${encoded}.${crypto.createHmac("sha256", dlqCursorSecret()).update(encoded).digest("base64url")}`;
+}
+export function decodeDlqCursor(raw: unknown): DlqCursor | null {
+  try {
+    if (typeof raw !== "string" || raw.length > MAX_DLQ_CURSOR_BYTES * 2) return null;
+    const [encoded, signature, extra] = raw.split(".");
+    if (!encoded || !signature || extra) return null;
+    const expected = crypto.createHmac("sha256", dlqCursorSecret()).update(encoded).digest();
+    const actual = Buffer.from(signature, "base64url");
+    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+    const value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    return value?.v === DLQ_CURSOR_VERSION
+      && Number.isSafeInteger(value.snapshotId) && value.snapshotId >= 0
+      && Number.isSafeInteger(value.afterId) && value.afterId >= 0 ? value : null;
+  } catch { return null; }
+}
 
 export function registerReviewQueueRoutes(app: Express) {
   app.get("/api/review-queue/checklist-items", isDashboardUser, requireRole("admin", "manager"), (_req, res) => {
@@ -24,7 +56,38 @@ export function registerReviewQueueRoutes(app: Express) {
     try {
       const status = req.query.status as string | undefined;
       const items = await storage.getReviewQueue(status);
-      res.json(items);
+      res.json(items.map((item) => item.sourceType === "dead_letter_job"
+        ? {
+            ...item,
+            notes: "Dead-letter event; operational details remain in canonical BullMQ retention.",
+            metadata: sanitizeDeadLetterEvent(item.metadata),
+          }
+        : item));
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.get("/api/review-queue/dead-letter-events", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const requestedLimit = Number(req.query.limit ?? 50);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_DLQ_PAGE_SIZE) {
+        return res.status(400).json({ message: "limit must be an integer between 1 and 100" });
+      }
+      const supplied = req.query.cursor;
+      const cursor = supplied == null ? null : decodeDlqCursor(supplied);
+      if (supplied != null && !cursor) return res.status(400).json({ message: "Invalid DLQ history cursor" });
+      const snapshotId = cursor?.snapshotId ?? await storage.getDeadLetterEventSnapshotId();
+      const events = await storage.getDeadLetterEventHistory({ snapshotId, afterId: cursor?.afterId, limit: requestedLimit });
+      const last = events[events.length - 1];
+      res.json({
+        source_type: "dead_letter_job",
+        snapshot_id: snapshotId,
+        events,
+        next_cursor: events.length === requestedLimit && last
+          ? encodeDlqCursor({ v: DLQ_CURSOR_VERSION, snapshotId, afterId: last.id })
+          : null,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -34,7 +97,13 @@ export function registerReviewQueueRoutes(app: Express) {
     try {
       const item = await storage.getReviewQueueItem(Number(req.params.id));
       if (!item) return res.status(404).json({ message: "Not found" });
-      res.json(item);
+      res.json(item.sourceType === "dead_letter_job"
+        ? {
+            ...item,
+            notes: "Dead-letter event; operational details remain in canonical BullMQ retention.",
+            metadata: sanitizeDeadLetterEvent(item.metadata),
+          }
+        : item);
     } catch (err: any) {
       serverError(res, err);
     }

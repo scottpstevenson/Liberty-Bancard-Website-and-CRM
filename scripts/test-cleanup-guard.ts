@@ -4,8 +4,8 @@
  * Verifies that destructive utility scripts all rely on the shared pre-import
  * guard and refuse before their application database module can be loaded.
  */
-import { spawnSync } from "child_process";
 import { readFileSync } from "fs";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 let failed = 0;
 for (const script of [
@@ -14,16 +14,6 @@ for (const script of [
   "scripts/cleanup-test-data.ts",
   "scripts/cleanup-smoke-contacts.ts",
 ]) {
-  const result = spawnSync("npx", ["tsx", script], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODE_ENV: "development",
-      DATABASE_URL: "postgresql://user:pass@localhost:5432/app",
-      TEST_DATABASE_URL: "",
-    },
-  });
-  const output = `${result.stdout}\n${result.stderr}`;
   const source = readFileSync(script, "utf8");
   const importsSharedGuard =
     source.includes('from "./test-infrastructure-guard"') &&
@@ -34,7 +24,20 @@ for (const script of [
           return index === -1 ? Number.MAX_SAFE_INTEGER : index;
         }),
       );
-  const guarded = result.status !== 0 && output.includes("refused") && importsSharedGuard;
+  let refused = false;
+  try {
+    await assertDisposableTestInfrastructure({
+      operation: `guard-contract:${script}`,
+      env: {
+        NODE_ENV: "development",
+        DATABASE_URL: "postgresql://user:pass@localhost:5432/app",
+        TEST_DATABASE_URL: "",
+      },
+    });
+  } catch (error: any) {
+    refused = String(error?.message ?? "").includes("refused");
+  }
+  const guarded = refused && importsSharedGuard;
   if (guarded) {
     console.log(`  PASS ${script} uses the pre-import guard and refuses a non-test invocation`);
   } else {

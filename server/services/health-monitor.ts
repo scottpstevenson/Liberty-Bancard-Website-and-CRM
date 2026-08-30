@@ -1,6 +1,7 @@
 /**
  * Continuous Health Monitor
- * Runs all system-health checks in parallel and persists the result to system_settings.
+ * Runs local and persisted system-health checks in parallel and persists the result
+ * to system_settings. Generic health deliberately performs no provider I/O.
  * Wired into BullMQ via HEALTH_MONITOR queue (5-min prod / 15-min dev cadence).
  */
 
@@ -25,7 +26,6 @@ export interface CheckResult {
   message?: string;
   latencyMs?: number;
 }
-
 export interface HealthReport {
   runAt: string;
   overallOk: boolean;
@@ -35,10 +35,7 @@ export interface HealthReport {
     sequenceWorker: CheckResult;
     slaWorker: CheckResult;
     ghlSync: CheckResult;
-    emailTransport: CheckResult;
-    smsTransport: CheckResult;
     redis: CheckResult;
-    ai: CheckResult;
     dbBackup: CheckResult;
     kpiQuery: CheckResult;
     outboundPause: CheckResult;
@@ -46,75 +43,16 @@ export interface HealthReport {
     slaHeartbeatWriteDegraded: CheckResult; // #1326 — heartbeat write failure counter
   };
 }
-
 export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
 
 // Critical checks — failures make overallOk false
-// "ai" is intentionally excluded from critical — AI availability is validated by
-// the dedicated AI Assistant Boundaries suite.  The custom AI_INTEGRATIONS_OPENAI_BASE_URL
-// may use a different auth scheme that returns 401 in CI/gate contexts.
 // sequenceWorker is critical: a stalled outbound worker means no sequences deliver.
 // Wave 1A restores it to the critical set — a green health report must confirm the
 // worker is alive, not just that the DB and Redis are reachable.
 const CRITICAL_CHECKS = new Set(["db", "sequenceWorker", "redis", "kpiQuery"]);
 
-/**
- * Startup grace period — suppress critical alert *emails* for the first 3 minutes
- * after this module loads.  Dependencies (Redis, DB) may not be fully ready
- * immediately after a deployment restart, and we don't want false-positive
- * critical incidents on every deploy.  Checks still run and results are stored;
- * only the email dispatch is inhibited during the grace window.
- */
-const STARTUP_TIME = Date.now();
-const STARTUP_GRACE_MS = 3 * 60 * 1000; // 3 minutes
-
 // In-memory cache of last result
 let _lastResult: HealthReport | null = null;
-
-// ── Cooldown helpers ─────────────────────────────────────────────────────────
-// Health alerts read their cooldown timestamps from system_settings (DB).
-// When the DB is itself degraded — exactly the situation that triggers health
-// alerts — those reads can throw, making lastAlertAt=0 and bypassing the
-// cooldown entirely.  The in-memory map below serves as a fallback:
-// even if the DB is down, the in-process cooldown still applies for the
-// lifetime of the current process.  On restart the DB value is re-hydrated.
-
-const _inMemoryCooldown = new Map<string, number>();
-
-/**
- * Returns true if the cooldown for `key` is still active.
- * Checks in-memory first (DB-failure resilient), then falls back to DB.
- */
-async function _isCooldownActive(key: string, cooldownMs: number): Promise<boolean> {
-  // In-memory is always reliable
-  const inMem = _inMemoryCooldown.get(key) ?? 0;
-  if (Date.now() - inMem < cooldownMs) return true;
-  // DB may be more up-to-date (e.g. after a restart)
-  try {
-    const raw = await storage.getSystemSetting(key);
-    const dbAt = raw ? new Date(raw as string).getTime() : 0;
-    if (Date.now() - dbAt < cooldownMs) {
-      _inMemoryCooldown.set(key, dbAt); // sync back so subsequent DB failures honour it
-      return true;
-    }
-  } catch {
-    // DB unavailable — in-memory already checked above
-  }
-  return false;
-}
-
-/**
- * Stamps the cooldown key now (both in-memory and DB).
- * DB write failure is non-fatal — in-memory stamp is always set.
- */
-async function _stampCooldown(key: string): Promise<void> {
-  _inMemoryCooldown.set(key, Date.now());
-  try {
-    await storage.setSystemSetting(key, new Date().toISOString());
-  } catch {
-    // DB unavailable — in-memory stamp still suppresses duplicates this process lifetime
-  }
-}
 
 export function getLastHealthResult(): HealthReport | null {
   return _lastResult;
@@ -348,51 +286,6 @@ async function checkRedis(): Promise<CheckResult> {
   }
 }
 
-async function checkAi(): Promise<CheckResult> {
-  const t0 = Date.now();
-  try {
-    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return { status: "error", message: "No OpenAI API key configured", latencyMs: Date.now() - t0 };
-    }
-
-    const { checkAiGate: gate, recordAiSpend } = await import("./ai-audit-logger");
-    const slot = await gate("gpt-4o-mini");
-    const OpenAI = (await import("openai")).default;
-    const openai = new OpenAI({
-      apiKey,
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    });
-
-    let completion;
-    try {
-      completion = await Promise.race([
-        openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: "Reply with the single word: ok" }],
-          max_tokens: 5,
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("AI probe timeout (8s)")), 8000)
-        ),
-      ]);
-    } catch (providerErr) {
-      slot.refund();
-      throw providerErr;
-    }
-
-    const latencyMs = Date.now() - t0;
-    const text = (completion.choices[0]?.message?.content ?? "").toLowerCase();
-    slot.settle(recordAiSpend("gpt-4o-mini", completion.usage?.prompt_tokens ?? 0, completion.usage?.completion_tokens ?? 0, "system-health"));
-    if (text.includes("ok")) {
-      return { status: "ok", message: `Responded in ${latencyMs}ms`, latencyMs };
-    }
-    return { status: "degraded", message: `Unexpected response: "${text.slice(0, 50)}"`, latencyMs };
-  } catch (err: any) {
-    return { status: "error", message: err.message, latencyMs: Date.now() - t0 };
-  }
-}
-
 async function checkDbBackup(): Promise<CheckResult> {
   const t0 = Date.now();
   const THRESHOLD_OK_MS = 26 * 60 * 60 * 1000;   // 26 hours
@@ -488,41 +381,16 @@ async function checkKpiQuery(): Promise<CheckResult> {
   }
 }
 
-async function checkEmailTransport(): Promise<CheckResult> {
-  const t0 = Date.now();
-  try {
-    const { channelOrchestrator } = await import("./transports/index");
-    const result = await channelOrchestrator.healthCheck();
-    const latencyMs = Date.now() - t0;
-    const { email } = result;
-    if (email.healthy) {
-      return { status: "ok", message: `Email transport (${email.provider}) connected — ${email.latencyMs ?? latencyMs}ms`, latencyMs };
-    }
-    return {
-      status: "degraded",
-      message: `Email transport (${email.provider}) unhealthy: ${email.error ?? "unknown"}`,
-      latencyMs,
-    };
-  } catch (err: any) {
-    return { status: "error", message: `Email transport check threw: ${err.message}`, latencyMs: Date.now() - t0 };
-  }
-}
 async function checkOutboundPause(): Promise<CheckResult> {
   const t0 = Date.now();
   try {
-    const value = await storage.getSystemSetting("outboundGlobalPaused");
+    const { getPauseState } = await import("./outbound-pause-authority");
+    const pause = await getPauseState();
     const latencyMs = Date.now() - t0;
-
-    if (value === true || value === false) {
-      return { status: "ok", message: `outboundGlobalPaused=${value}`, latencyMs };
-    }
-    if (value === null || value === undefined) {
-      // Key missing — treat as unconfigured but not misconfigured
-      return { status: "ok", message: "Key not set (defaults to unpaused)", latencyMs };
-    }
+    const healthy = pause.state === "unpaused" && pause.source !== "safe_default";
     return {
-      status: "misconfigured",
-      message: `Unexpected value type: ${typeof value} (${String(value).slice(0, 40)})`,
+      status: healthy ? "ok" : "degraded",
+      message: `state=${pause.state} source=${pause.source} epoch=${pause.epoch.toString()}${pause.reason ? ` reason=${pause.reason}` : ""}`,
       latencyMs,
     };
   } catch (err: any) {
@@ -556,27 +424,13 @@ export async function runHealthChecks(): Promise<HealthReport> {
   const runAt = new Date().toISOString();
   const t0 = Date.now();
 
-  // Read previous result for change-detection before running checks
-  let previousReport: HealthReport | null = _lastResult;
-  if (!previousReport) {
-    try {
-      const stored = await storage.getSystemSetting(HEALTH_MONITOR_KEY);
-      if (stored) previousReport = stored as HealthReport;
-    } catch {
-      // best-effort
-    }
-  }
-
   // Run all checks in parallel
   const [
     dbRes,
     sequenceWorkerRes,
     slaWorkerRes,
     ghlSyncRes,
-    emailTransportRes,
-    smsTransportRes,
     redisRes,
-    aiRes,
     dbBackupRes,
     kpiQueryRes,
     outboundPauseRes,
@@ -587,10 +441,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
     checkSequenceWorker(),
     checkSlaWorker(),
     checkGhlSync(),
-    checkEmailTransport(),
-    checkSmsTransport(),
     checkRedis(),
-    checkAi(),
     checkDbBackup(),
     checkKpiQuery(),
     checkOutboundPause(),
@@ -608,10 +459,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
     sequenceWorker: settle(sequenceWorkerRes, "sequenceWorker"),
     slaWorker: settle(slaWorkerRes, "slaWorker"),
     ghlSync: settle(ghlSyncRes, "ghlSync"),
-    emailTransport: settle(emailTransportRes, "emailTransport"),
-    smsTransport: settle(smsTransportRes, "smsTransport"),
     redis: settle(redisRes, "redis"),
-    ai: settle(aiRes, "ai"),
     dbBackup: settle(dbBackupRes, "dbBackup"),
     kpiQuery: settle(kpiQueryRes, "kpiQuery"),
     outboundPause: settle(outboundPauseRes, "outboundPause"),
@@ -643,120 +491,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
   // Update in-memory cache
   _lastResult = report;
 
-  // Change-detection: alert if any critical check newly became non-ok.
-  // Cooldown-gated (1 hour) so a flapping check doesn't flood the inbox.
-  if (previousReport) {
-    const newlyFailed: string[] = [];
-    for (const name of CRITICAL_CHECKS) {
-      const prev = (previousReport.checks as Record<string, CheckResult>)[name]?.status ?? "unknown";
-      const curr = (checks as Record<string, CheckResult>)[name]?.status ?? "unknown";
-      const wasOk = ["ok", "stale", "unknown"].includes(prev);
-      const isNowBad = !["ok", "stale", "unknown"].includes(curr);
-      if (wasOk && isNowBad) newlyFailed.push(name);
-    }
-
-    const inGracePeriod = Date.now() - STARTUP_TIME < STARTUP_GRACE_MS;
-
-    if (newlyFailed.length > 0) {
-      if (inGracePeriod) {
-        console.warn(`[HealthMonitor] Critical alert suppressed (startup grace period, ${Math.round((Date.now() - STARTUP_TIME) / 1000)}s elapsed): ${newlyFailed.join(", ")}`);
-      } else {
-        // Fire-and-forget alert email — rate-limited to at most 1 per hour.
-        // Uses _isCooldownActive/_stampCooldown which fall back to in-memory when
-        // the DB is itself degraded (the exact condition that fires these alerts).
-        const CRITICAL_COOLDOWN_KEY = "health_monitor_critical_alert_at";
-        const CRITICAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-        (async () => {
-          try {
-            if (await _isCooldownActive(CRITICAL_COOLDOWN_KEY, CRITICAL_COOLDOWN_MS)) {
-              console.warn(`[HealthMonitor] Critical alert suppressed (cooldown): ${newlyFailed.join(", ")}`);
-              return;
-            }
-            await _stampCooldown(CRITICAL_COOLDOWN_KEY);
-            const { sendSmtpEmail } = await import("./smtp-email");
-            const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
-            const details = newlyFailed
-              .map(n => `  • ${n}: ${(checks as Record<string, CheckResult>)[n]?.status} — ${(checks as Record<string, CheckResult>)[n]?.message ?? ""}`)
-              .join("\n");
-            await sendSmtpEmail({
-              to: recipient,
-              subject: `[HealthMonitor] CRITICAL — ${newlyFailed.join(", ")} degraded`,
-              html: `<pre style="font-family:monospace">HealthMonitor detected new critical failures at ${runAt}:\n\n${details}\n\nOverall ok: ${overallOk}</pre>`,
-              category: "internal_ops",
-            });
-            console.warn(`[HealthMonitor] Critical alert sent: ${newlyFailed.join(", ")}`);
-          } catch (emailErr: any) {
-            console.warn("[HealthMonitor] Alert email failed (non-fatal):", emailErr.message);
-          }
-        })().catch(() => {});
-      }
-    }
-
-    // Recovery notification: when a critical check transitions bad → ok, send RESOLVED email.
-    // Uses a separate cooldown key so recovery emails don't block future critical alerts.
-    const newlyRecovered: string[] = [];
-    for (const name of CRITICAL_CHECKS) {
-      const prev = (previousReport.checks as Record<string, CheckResult>)[name]?.status ?? "unknown";
-      const curr = (checks as Record<string, CheckResult>)[name]?.status ?? "unknown";
-      const wasBad = !["ok", "stale", "unknown"].includes(prev);
-      const isNowOk = ["ok", "stale"].includes(curr);
-      if (wasBad && isNowOk) newlyRecovered.push(name);
-    }
-
-    if (newlyRecovered.length > 0 && !inGracePeriod) {
-      const RECOVERY_COOLDOWN_KEY = "health_monitor_recovery_alert_at";
-      const RECOVERY_COOLDOWN_MS = 15 * 60 * 1000; // 15 min — recovery emails are less urgent
-      (async () => {
-        try {
-          if (await _isCooldownActive(RECOVERY_COOLDOWN_KEY, RECOVERY_COOLDOWN_MS)) return;
-          await _stampCooldown(RECOVERY_COOLDOWN_KEY);
-          const { sendSmtpEmail } = await import("./smtp-email");
-          const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
-          await sendSmtpEmail({
-            to: recipient,
-            subject: `[HealthMonitor] RESOLVED — ${newlyRecovered.join(", ")} recovered`,
-            html: `<pre style="font-family:monospace">HealthMonitor: the following critical checks have recovered at ${runAt}:\n\n${newlyRecovered.map(n => `  ✓ ${n}: ${(checks as Record<string, CheckResult>)[n]?.status}`).join("\n")}\n\nOverall ok: ${overallOk}</pre>`,
-            category: "internal_ops",
-          });
-          console.log(`[HealthMonitor] Recovery notification sent: ${newlyRecovered.join(", ")}`);
-        } catch (emailErr: any) {
-          console.warn("[HealthMonitor] Recovery email failed (non-fatal):", emailErr.message);
-        }
-      })().catch(() => {});
-    }
-  }
-
-  // Threshold alert: if fewer than 3 checks are ok, fire a separate cooldown-gated email
   const okCount = Object.values(checks).filter(c => c.status === "ok").length;
   const TOTAL_CHECKS = Object.keys(checks).length;
-  const HEALTH_LOW_OK_THRESHOLD = 3;
-  const HEALTH_LOW_OK_COOLDOWN_KEY = "health_monitor_low_ok_alert_at";
-  const HEALTH_LOW_OK_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-
-  if (okCount < HEALTH_LOW_OK_THRESHOLD) {
-    (async () => {
-      try {
-        if (await _isCooldownActive(HEALTH_LOW_OK_COOLDOWN_KEY, HEALTH_LOW_OK_COOLDOWN_MS)) return;
-        await _stampCooldown(HEALTH_LOW_OK_COOLDOWN_KEY);
-
-        const { sendSmtpEmail } = await import("./smtp-email");
-        const recipient = process.env.ADMIN_ALERT_EMAIL || "accounts@libertybancard.com";
-        const failingChecks = Object.entries(checks)
-          .filter(([, c]) => c.status !== "ok")
-          .map(([name, c]) => `  • ${name}: ${c.status} — ${c.message ?? ""}`)
-          .join("\n");
-        await sendSmtpEmail({
-          to: recipient,
-          subject: `[HealthMonitor] System health critical — only ${okCount}/${TOTAL_CHECKS} checks ok`,
-          html: `<pre style="font-family:monospace">HealthMonitor: only ${okCount}/${TOTAL_CHECKS} checks are OK at ${runAt} (threshold: ${HEALTH_LOW_OK_THRESHOLD}).\n\nFailing/degraded checks:\n${failingChecks}\n\nOverall ok: ${overallOk}\nCritical failures: ${criticalFailures.join(", ") || "none"}</pre>`,
-          category: "internal_ops",
-        });
-        console.warn(`[HealthMonitor] Low-ok alert sent: ok=${okCount}/9`);
-      } catch (alertErr: any) {
-        console.warn("[HealthMonitor] Low-ok alert email failed (non-fatal):", alertErr.message);
-      }
-    })().catch(() => {});
-  }
 
   // One-line summary log
   const totalMs = Date.now() - t0;
@@ -770,7 +506,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
 /**
  * Arbitration error monitor (#1412).
  * Queries audit_logs for ARBITRATION_ERROR events in the last 24 hours.
- * A degraded status triggers the standard health-monitor email alert.
+ * A degraded status is persisted in the health report for operators.
  */
 async function checkArbitrationErrors(): Promise<CheckResult> {
   const t0 = Date.now();
@@ -795,23 +531,4 @@ async function checkArbitrationErrors(): Promise<CheckResult> {
     return { status: "error", message: `Arbitration check threw: ${err.message}`, latencyMs: Date.now() - t0 };
   }
 }
-
-async function checkSmsTransport(): Promise<CheckResult> {
-  const t0 = Date.now();
-  try {
-    const { channelOrchestrator } = await import("./transports/index");
-    const result = await channelOrchestrator.healthCheck();
-    const latencyMs = Date.now() - t0;
-    const { sms } = result;
-    if (sms.healthy) {
-      return { status: "ok", message: `SMS transport (${sms.provider}) connected — ${sms.latencyMs ?? latencyMs}ms`, latencyMs };
-    }
-    return {
-      status: "degraded",
-      message: `SMS transport (${sms.provider}) unhealthy: ${sms.error ?? "unknown"}`,
-      latencyMs,
-    };
-  } catch (err: any) {
-    return { status: "error", message: `SMS transport check threw: ${err.message}`, latencyMs: Date.now() - t0 };
-  }
-}
+// Provider checks intentionally do not belong in the generic health monitor.

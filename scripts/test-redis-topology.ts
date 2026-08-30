@@ -11,14 +11,15 @@
  * Kill-line assertions:
  *  - Object.keys(metrics).length must NOT be used for Worker capacity
  *  - status === "safe" must NOT be returned when limit is unknown
- *  - QUEUE_CONFIGS.length must equal 27 (current verified fleet)
- *  - Any QUEUE_CONFIGS entry changed by this task causes this test to fail
+ *  - QUEUE_CONFIGS must exactly match the certified 29-name roster
+ *  - A same-count queue replacement must fail roster and digest assertions
  *
  * Exits 0 if all assertions pass, 1 if any fail.
  */
 
 import { QUEUE_CONFIGS, QUEUE_NAMES } from "../server/services/queue-manager";
 import { diagnoseRedisCapacity } from "../server/services/queue-connection";
+import { createHash } from "node:crypto";
 import { readFileSync } from "fs";
 
 let passed = 0;
@@ -37,28 +38,40 @@ function assert(label: string, condition: boolean, detail?: string) {
 }
 
 // ── 1. QUEUE_CONFIGS baseline snapshot ───────────────────────────────────────
-// IMPORTANT: 27 is the current verified fleet, not a capacity conclusion.
-// production truth. If the roster grows or shrinks, update this number AND the
-// comment. The capacity calculation below uses the DERIVED count, not 27.
+// This is an intentional certification snapshot, not a capacity conclusion.
+// Update the roster and digest together only after a deliberate topology change.
 
 async function testQueueConfigsBaseline() {
-  console.log("\n1. QUEUE_CONFIGS baseline — roster count and no mutations from this task");
+  console.log("\n1. QUEUE_CONFIGS baseline — exact certified roster");
 
-  const BASELINE_COUNT = 27;
-  const actualCount = QUEUE_CONFIGS.length;
-
-  if (actualCount !== BASELINE_COUNT) {
-    console.error(
-      `\n  ⚠️  QUEUE_CONFIGS.length changed from baseline ${BASELINE_COUNT} to ${actualCount}.\n` +
-      `  If this is intentional, update BASELINE_COUNT in scripts/test-redis-topology.ts\n` +
-      `  and document the change in the PR description.\n`
-    );
-  }
+  const CERTIFIED_ROSTER = [
+    "abandoned-statement", "activation-monitor", "chargeback-commands",
+    "cro03a-qualification", "cro03c-live", "db-backup", "deal-stage-effects",
+    "digests", "discovery", "enrichment", "enrollment-recovery",
+    "executive-snapshot", "ghl-enrollment-recovery", "ghl-sync",
+    "health-monitor", "merchant-success", "mid-ingestion", "onboarding-reminder",
+    "partner-monthly-digest", "pipeline-silence-check", "post-enrichment",
+    "proposal-followup", "sequences", "sla-checks", "statement-upload",
+    "system-audit", "voicemail-sync", "winback-outreach", "zerobounce-batch-validate",
+  ] as const;
+  const CERTIFIED_ROSTER_DIGEST = "db4ca92c2144507d5f2ef97139eb7150f441a0f927396d730441db82494a8590";
+  const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
+  const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 
   assert(
-    `QUEUE_CONFIGS.length equals baseline (${BASELINE_COUNT})`,
-    actualCount === BASELINE_COUNT,
-    `actual=${actualCount}, baseline=${BASELINE_COUNT} — update BASELINE_COUNT in this file if intentional`
+    `QUEUE_CONFIGS.length equals certified roster (${CERTIFIED_ROSTER.length})`,
+    actualRoster.length === CERTIFIED_ROSTER.length,
+    `actual=${actualRoster.length}, certified=${CERTIFIED_ROSTER.length}`
+  );
+  assert(
+    "QUEUE_CONFIGS sorted roster exactly matches certification (catches same-count replacements)",
+    JSON.stringify(actualRoster) === JSON.stringify(CERTIFIED_ROSTER),
+    `actual=${JSON.stringify(actualRoster)}`
+  );
+  assert(
+    "QUEUE_CONFIGS sorted roster SHA-256 matches certification",
+    actualDigest === CERTIFIED_ROSTER_DIGEST,
+    `actual=${actualDigest}, certified=${CERTIFIED_ROSTER_DIGEST}`
   );
 
   // Verify all named queues from QUEUE_NAMES are present in QUEUE_CONFIGS
@@ -177,16 +190,16 @@ async function testObservedClientLabeling() {
     // The diagnosis should reflect the higher observed count.
     const result = diagnoseRedisCapacity({
       physicalWorkerCount: 5,           // process estimate = 6
-      observedAccountConnectedClients: 28, // server-wide, near limit
+      observedAccountConnectedClients: TEST_LIMIT - 2, // server-wide, near limit
     });
     assert(
       "observedAccountConnectedClients is preserved in output",
-      result.observedAccountConnectedClients === 28
+      result.observedAccountConnectedClients === TEST_LIMIT - 2
     );
-    // Status should reflect the higher of observed (28) vs process estimate (6)
-    // 28 vs limit=30, headroom=2, default warning threshold=3 → warning or unsafe
+    // Status should reflect the higher of the observed count vs process estimate.
+    // TEST_LIMIT - 2 leaves headroom below the default warning threshold.
     assert(
-      "status reflects observed account count (28 near limit 30)",
+      "status reflects observed account count near the configured limit",
       result.status === "warning" || result.status === "unsafe",
       `got ${result.status}`
     );
@@ -271,16 +284,16 @@ async function testSourceCodeKillLines() {
     "Object.keys(metrics).length was used for capacity — this was always 2 (response shape), not Worker count"
   );
 
-  // Kill line 2: UPSTASH_FREE_MAX=20 must not be hardcoded as production fact
+  // Kill line 2: capacity must not hardcode a provider-plan limit.
   assert(
-    "queue-connection.ts: UPSTASH_FREE_MAX = 20 absent (not a hardcoded production truth)",
-    !queueConnectionSrc.includes("UPSTASH_FREE_MAX = 20"),
-    "UPSTASH_FREE_MAX=20 is hardcoded as a production truth — it must be read from REDIS_CONNECTION_LIMIT env var"
+    "queue-connection.ts: provider-plan capacity constant absent",
+    !queueConnectionSrc.includes("UPSTASH_FREE_MAX"),
+    "a provider-plan capacity constant is hardcoded — capacity must use REDIS_CONNECTION_LIMIT"
   );
 
-  // Kill line 3: safeForUpstashFree must be removed from return type
+  // Kill line 3: the retired provider-specific capacity field must remain absent.
   assert(
-    "queue-connection.ts: safeForUpstashFree absent (replaced by status field)",
+    "queue-connection.ts: retired provider-specific capacity field absent (replaced by status)",
     !queueConnectionSrc.includes("safeForUpstashFree:"),
     "safeForUpstashFree still present in return type"
   );

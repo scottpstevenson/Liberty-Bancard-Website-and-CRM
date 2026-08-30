@@ -1,13 +1,8 @@
 import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { isAdmin } from "../replit_integrations/auth";
-import { getQueueManager, requireQueueManagerReady } from "../services/queue-manager";
+import { requireQueueManagerReady } from "../services/queue-manager";
 import { serverError } from "../utils/server-error";
-import { storage } from "../storage";
-import { db } from "../db";
-import { sql } from "drizzle-orm";
-import { diagnoseRedisCapacity } from "../services/queue-connection";
-import type { QueueTopologySnapshot } from "../services/queue-manager";
 
 const DLQ_ALERT_WARN = 5;
 const DLQ_ALERT_ERROR = 20;
@@ -39,82 +34,7 @@ export function registerQueueMetricsRoutes(app: Express) {
         const { getQueueMode } = await import("../services/queue-manager");
         return res.status(503).json({ status: "not_initialized", queueMode: getQueueMode(), queues: [], capturedAt: new Date().toISOString() });
       }
-      const metrics = await qm.getAllQueueMetrics();
-
-      // Extended sequence + Redis metrics
-      let sequenceBacklog = 0;
-      let sequenceOldestDueMs: number | null = null;
-      let sequenceLastRunMs: number | null = null;
-      let redisConnectionCount: number | null = null;
-
-      try {
-        const backlogResult = await db.execute(sql`
-          SELECT
-            COUNT(*)::int AS backlog,
-            MIN(next_action_at) AS oldest_due_at
-          FROM sequence_enrollments
-          WHERE status = 'active'
-            AND next_action_at IS NOT NULL
-            AND next_action_at <= NOW()
-        `);
-        const row = backlogResult.rows[0] as any;
-        sequenceBacklog = row?.backlog ?? 0;
-        if (row?.oldest_due_at) {
-          sequenceOldestDueMs = Date.now() - new Date(row.oldest_due_at).getTime();
-        }
-      } catch (_e) {}
-
-      try {
-        const lastRunRaw = await storage.getSystemSetting("sequence_worker_last_run");
-        if (lastRunRaw && typeof lastRunRaw === "object" && (lastRunRaw as any).duration_ms !== undefined) {
-          sequenceLastRunMs = (lastRunRaw as any).duration_ms;
-        }
-      } catch (_e) {}
-
-      try {
-        const { getSharedRedisClientIfReady } = await import("../services/queue-connection");
-        const redisClient = getSharedRedisClientIfReady();
-        if (redisClient) {
-          const infoRaw = await redisClient.info("clients");
-          const match = infoRaw.match(/connected_clients:(\d+)/);
-          if (match) redisConnectionCount = parseInt(match[1], 10);
-        }
-      } catch (_e) {}
-
-      // Redis capacity diagnosis — uses actual instantiated Worker count from the
-      // topology snapshot, not the response-shape key count (which was always 2).
-      const { queues: queueMetrics, queueMode } = metrics;
-
-      let topologySnapshot: QueueTopologySnapshot | null = null;
-      let redisCapacity = null;
-      try {
-        topologySnapshot = qm.getTopologySnapshot();
-        redisCapacity = diagnoseRedisCapacity({
-          physicalWorkerCount: topologySnapshot.instantiatedWorkerCount,
-          observedAccountConnectedClients: redisConnectionCount,
-        });
-      } catch (_capacityErr) {
-        // Probe failure must not produce a false-green — leave status unknown.
-        redisCapacity = {
-          status: "unknown",
-          reasons: ["Capacity probe failed — topology unavailable"],
-          estimatedProcessConnections: null,
-          capturedAt: new Date().toISOString(),
-        };
-      }
-
-      res.json({
-        status: "ok",
-        queues: queueMetrics,
-        queueMode,
-        sequenceBacklog,
-        sequenceOldestDueMs,
-        sequenceLastRunMs,
-        redisConnectionCount,
-        redisCapacity,
-        topologySnapshot,
-        capturedAt: topologySnapshot?.capturedAt ?? new Date().toISOString(),
-      });
+      res.json(await qm.getTelemetryEvidence());
     } catch (err: any) {
       serverError(res, err);
     }
@@ -126,10 +46,20 @@ export function registerQueueMetricsRoutes(app: Express) {
       try {
         qm = requireQueueManagerReady();
       } catch {
-        return res.status(503).json({ status: "not_initialized", history: [], resultScope: "fixed_24_hour_memory" });
+        return res.status(503).json({
+          status: "not_initialized",
+          resultScope: "local_process_observation",
+          partial: true,
+          history: null,
+        });
       }
       const history = qm.getJobHistory();
-      res.json({ status: "ok", resultScope: "fixed_24_hour_memory", history });
+      res.json({
+        status: history.partial ? "degraded" : "ok",
+        resultScope: "local_process_observation",
+        partial: history.partial,
+        history,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -151,7 +81,7 @@ export function registerQueueMetricsRoutes(app: Express) {
         id: item.id,
         queue: item.queue ?? item.queueName ?? "unknown",
         name: item.name ?? item.jobName ?? "unknown",
-        failedReason: typeof item.failedReason === "string" ? item.failedReason.slice(0, 500) : null,
+        failureCode: item.failureCode ?? "terminal_exhaustion",
         attemptsMade: Number(item.attemptsMade ?? 0),
         failedAt: item.failedAt ?? item.finishedOn ?? item.timestamp ?? null,
       }));
