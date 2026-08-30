@@ -21,7 +21,10 @@
     "merchant:migrate": "npx tsx scripts/migrate-merchant-protected-data.ts",
     "merchant:migrate:execute": "MERCHANT_DATA_BACKFILL_AUTHORIZED=true npx tsx scripts/migrate-merchant-protected-data.ts --execute",
     "merchant:migrate:verify": "npx tsx scripts/migrate-merchant-protected-data.ts --verify",
-    "test:merchant-migration-safety": "npx tsx scripts/test-merchant-migration-safety.ts"
+    "test:merchant-migration-safety": "npx tsx scripts/test-merchant-migration-safety.ts",
+    "db:rehearsal": "npx tsx scripts/run-local-rehearsal.ts"
+    ,"test:db-rehearsal": "npx tsx scripts/test-local-rehearsal-core.ts"
+    ,"test:db-rehearsal:integration": "npx tsx scripts/test-local-rehearsal-integration.ts"
     ,"test:consent-authority": "npx tsx scripts/test-consent-authority.ts"
     ,"test:consent-writer-dominance": "npx tsx scripts/test-consent-writer-dominance.ts"
     ,"test:task1721-structure": "npx tsx scripts/test-task1721-inbox-statement-structure.ts && npx tsx scripts/test-task1721-inbox-pagination.ts"
