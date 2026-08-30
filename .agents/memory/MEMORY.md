@@ -128,3 +128,4 @@
 - [Certification capability isolation](certification-capability-isolation.md) — classify HTTP suites as server-required; reserve exact per-suite Redis prefixes; snapshot completion must cover omitted pre-snapshot DDL.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or advancing source cursors silently drops them.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version and retain prior history.
+- [Publish inline NOT VALID failure](publish-inline-not-valid.md) — validate dev constraints before Publish; inline CREATE TABLE constraints cannot carry NOT VALID.

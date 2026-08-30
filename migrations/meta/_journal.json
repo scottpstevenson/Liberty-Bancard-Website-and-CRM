@@ -1450,6 +1450,13 @@
       "when": 1798600000000,
       "tag": "0202_cro03c_transport_invocation_checkpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "7",
+      "when": 1798700000000,
+      "tag": "0203_validate_publish_constraints",
+      "breakpoints": true
     }
   ]
 }
