@@ -1,0 +1,238 @@
+## Verdict: BUILD-READY AFTER 5 BLOCKING EDITS
+
+This rewrite fixes nearly all findings from the previous audit. It correctly incorporates #1730, the 28-queue roster, stored DLQ exposure, provider calls from scheduled health, fleet-versus-local scope, alert concurrency, and the runtime-evidence boundary.
+
+Do not send it unchanged, though. Five remaining ambiguities could still let Replit implement something technically green but untruthful. These belong inside this same #1720 task—no additional tasks are needed.
+
+No repository files were modified.
+
+### Verified current baseline
+
+| Item              | Result                                                                                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository SHA    | [`773c50d`](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/commit/773c50d13584578045026c5923b59ff5c7994a22)                                                                    |
+| Migration head    | `0194_cro03b_validation_execution_fence`, index 198, 199 entries                                                                                                                                   |
+| Queue roster      | 28 configurations                                                                                                                                                                                  |
+| CRO-03A queue     | Present with `run` and periodic `recover` jobs                                                                                                                                                     |
+| CRO-03B execution | Runs as a logical sub-handler inside the existing enrichment queue                                                                                                                                 |
+| Production SHA    | Still `f2cfa4a…`, not current `main`, at the [live health endpoint](https://libertybancard.com/api/health)                                                                                         |
+| GitHub Actions    | Exact-SHA [run 144 failed](https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/actions/runs/33311370886) in deterministic static suites; integration and release build were skipped |
+| Worktree          | Clean                                                                                                                                                                                              |
+
+## P0-1 — The pinned baseline is already red
+
+Section 3 must not imply a verified build baseline. The exact SHA’s static job failed before integration or release build ran.
+
+There are also two independently confirmed queue-governance inconsistencies:
+
+* `cro03a-qualification` exists in `QUEUE_NAMES` and `QUEUE_CONFIGS` but has no entry in `LOGICAL_JOB_MANIFEST`.
+* `check-queue-compliance.ts`, which would catch this missing manifest entry, is not registered in either the canonical suite manifest or pre-deploy gate.
+* `test-redis-topology.ts` still expects 27 queues, but because integration was skipped, this was not the cause of the current static failure.
+
+Add to Section 3:
+
+> **Current CI state:** GitHub Actions run 144 for exact SHA `773c50d` is red. Deterministic static suites failed; integration and release-artifact build were skipped. Before implementation, inspect and record the exact failing suite. If the failure is unrelated to RVR-05, stop and resolve ownership before building. If it is within this task’s declared scope, fix it first and preserve the failure-to-pass evidence.
+
+The manifest correction must represent the merged lifecycle accurately:
+
+* `cro03a-qualification/run` — requested qualification execution
+* `cro03a-qualification/recover` — periodic recovery sweep
+* CRO-03B — logical sub-handler of the existing enrichment tick, not a separate physical worker or schedule
+
+Register the strengthened owner/compliance census in both `pre-deploy.ts` and `ci-suite-manifest.ts`.
+
+## P0-2 — TTL presence alone cannot prove a complete fleet
+
+A Redis heartbeat registry can show observed processes and identify mixed SHAs among them. It cannot prove that every Replit autoscale replica registered, because an entirely missing process leaves no key.
+
+Replace fleet-complete language with this exact contract:
+
+* `scope: "local_process"` — one responding process
+* `scope: "observed_fleet"` — all nonexpired Redis members found during a bounded complete scan
+* `completeness: "verified"` only when an authoritative expected process count or deployment inventory is available and reconciles
+* Otherwise `completeness: "unknown"`—never fleet-ready
+* Mixed SHA, duplicate identity, stale heartbeat, Redis failure, truncated scan, or expected-count mismatch produces `degraded`
+* An unobservable missing replica remains an operations verification gap
+
+Use the existing shared Redis connection—do not create another connection. Custom fleet and alert keys must have an explicit namespace derived from the disposable `TEST_REDIS_PREFIX` in test/CI and a fixed Liberty runtime namespace in production. BullMQ’s `prefix` does not automatically namespace arbitrary application keys.
+
+A safe implementation contract is:
+
+* Heartbeat every 15 seconds
+* TTL of 60 seconds
+* Best-effort deletion on graceful shutdown
+* Full bounded `SCAN`, with `complete: false` if the maximum key budget is exceeded
+* No hostnames, Redis URLs, credentials, or infrastructure IDs returned to operators
+* Public liveness unaffected by Redis/fleet unavailability
+* Authenticated readiness becomes unverified/degraded
+
+Update the kill line from “local evidence described as fleet-complete” to:
+
+> **KILL LINE:** Observed Redis membership is described as a complete deployed fleet without reconciliation to authoritative expected process inventory.
+
+## P0-3 — The privacy kill line is currently impossible
+
+The prompt says raw job payloads and identities must not enter “new persistence.” BullMQ necessarily persists operational job data in Redis so workers can execute it.
+
+Narrow the rule:
+
+> Raw operational job payloads may exist only in BullMQ’s canonical execution store under its configured retention policy. They must never be copied into secondary failure telemetry, review rows, audit rows, logs, alerts, metrics, history aggregates, or API responses.
+
+This distinction must appear in Sections 9, 16, 18, and 20.
+
+Use two explicit evidence sources:
+
+* Exact current queue counts: BullMQ
+* Stable sanitized failure-event detail: `review_queue` rows with `source_type='dead_letter_job'`
+
+`review_queue.id` is a serial primary key, so no new schema is needed for stable pagination:
+
+1. Capture `snapshotMaxId`.
+2. Return rows with `id <= snapshotMaxId AND id < cursorId`.
+3. Order by `id DESC`.
+4. Enforce a maximum page size.
+5. Encode `snapshotMaxId`, `cursorId`, filters, and schema version into an opaque cursor.
+6. Label coverage start and distinguish terminal failures from threshold alerts.
+
+The remediation must be a guarded maintenance script, not an HTTP route:
+
+* Dry run by default
+* Execution requires an explicit authorization environment flag
+* Restrict to `source_type='dead_letter_job'`
+* Snapshot a maximum ID before mutation
+* Rewrite notes and metadata to the sanitizer allowlist
+* Never print old field values
+* Report counts only
+* Be resumable and idempotent
+* Verify non-DLQ rows are unchanged
+
+## P0-4 — Alert idempotency needs an exact database contract
+
+The current prompt says the durable alert feed must not duplicate, but `persistAlert()` writes ordinary `audit_logs` rows. `audit_logs.entity_key` is indexed but not unique, and `persistAlert()` swallows errors.
+
+Redis can coordinate transport attempts, but it cannot by itself guarantee idempotent durable database persistence across a crash between PostgreSQL and Redis.
+
+Specify this design:
+
+1. Calculate a normalized, sanitized incident fingerprint.
+2. Atomically claim the transport attempt in namespaced Redis.
+3. Persist the durable feed through a PostgreSQL transaction using:
+
+   * `pg_advisory_xact_lock()` derived from the fingerprint; and
+   * lookup/insert by `action='system_alert'` and `entity_key=<fingerprint:cooldown-bucket>`.
+4. Return the existing audit-log ID when the feed event already exists.
+5. Store no raw provider response.
+6. Track feed and external transport independently.
+
+Required result shape:
+
+```ts
+{
+  incidentFingerprint,
+  claimStatus: "claimed" | "suppressed" | "unavailable",
+  feedStatus: "persisted" | "already_present" | "failed",
+  transportStatus: "delivered" | "failed" | "not_configured" | "not_attempted",
+  alertLogId?: number,
+  attemptedAt?: string,
+  completedAt?: string,
+  retryAfter?: string
+}
+```
+
+Cooldown semantics:
+
+* A persisted admin-feed event can satisfy durable internal delivery even when Slack is not configured.
+* A configured Slack failure receives a shorter transport-retry lease.
+* Retrying Slack must not create a second feed record.
+* A different incident fingerprint must not be suppressed.
+* `getRecentAlerts()` must return an explicit unavailable/degraded result on database failure—not `[]`, which falsely means “no alerts.”
+
+## P0-5 — Required gates still omit essential commands
+
+Section 20 must explicitly require:
+
+```bash
+npx tsx scripts/check-queue-compliance.ts
+npx tsx scripts/ci-suite-manifest.ts --check
+npx tsx scripts/check-migration-integrity.ts
+npm run check
+npm run build
+git diff --check
+```
+
+It must also require all relevant capability groups through `run-ci-suites.ts`, including the release-artifact build/scanner.
+
+Clarify the “source-only assertions” kill line:
+
+> AST/static census is valid proof of declared source ownership. Source-string assertions may not substitute for runtime behavior, Redis concurrency, database remediation, route authorization, provider denial, or delivery-outcome tests.
+
+Otherwise the current wording accidentally prohibits the static owner census that the task requires.
+
+## P1 corrections
+
+### Remove stale Redis capacity claims
+
+`queue-connection.ts` still says:
+
+* 11 queues
+* 12 process connections
+* Upstash free tier allows 20
+* “well within limits”
+
+Current source has 28 queue configurations, and the actual provider plan remains unknown. Remove those claims.
+
+Report:
+
+* Instantiated worker count
+* Shared connection count
+* Estimated per-process demand
+* Observed fleet-member count
+* Estimated observed-fleet demand
+* Observed account clients
+* Configured provider limit, if authoritative
+* `unknown` when the plan/limit is absent
+
+Do not treat `REDIS_DEPLOYMENT_PROCESS_COUNT` as observed fleet truth once the presence registry exists.
+
+### Keep public liveness genuinely minimal
+
+`/api/health` currently exposes `ghlTransportFailFast` and a test-storage indicator. Those are useful for isolated certification but are not part of minimal production liveness.
+
+Move them to an authenticated readiness/certification surface, or emit them only outside production. Public production health should contain only status, exact SHA, start/build timestamp, and environment if intentionally retained.
+
+### Use one queue telemetry read model
+
+Both operator and admin queue surfaces currently construct related responses differently. Build one QueueManager evidence object and project it through existing authorized routes. Do not let one route propagate degradation while another hardcodes `ok`.
+
+### Update known file scope
+
+Add these known touched or census-relevant files:
+
+* `server/services/alert-feed.ts`
+* `scripts/check-queue-compliance.ts`
+* `server/routes/merchants.ts`
+* `server/routes/boarding.ts`
+* `server/routes/wizard.ts`
+* `server/services/merchant-application-outbox-worker.ts`
+* `server/services/deal-boarding-outbox-worker.ts`
+* `server/services/wizard-flag-overrides.ts`
+* `server/services/content-scheduler.ts`
+* `server/services/sdr/inbox-rotation.ts`
+
+### Correct stale test labels
+
+Update the `24-config` and 27-queue comments to the exact 28-queue roster. Freeze the sorted queue-name roster or digest—not only the count—so replacing one queue with another cannot pass.
+
+## Corrected preflight verdict
+
+Replace Section 14 with:
+
+> **BUILD-READY AFTER BLOCKING PREFLIGHT CORRECTIONS.**
+>
+> The revised architecture is executable within one task, but the pinned SHA currently has a failed GitHub Actions run, an unregistered queue-compliance gate, and a missing manifest declaration for the merged CRO-03A queue. Implementation may proceed only after the exact CI failure is classified and the five P0 contracts in this plan are applied. No additional tasks should be created; implement these corrections directly within #1720.
+
+## Final assessment
+
+This is no longer a fundamentally broken plan. The prior audit’s major architecture findings were incorporated correctly. After these five edits, #1720 is safe to return to Replit as one consolidated build task.
+
+Current approval status: **DO NOT SEND UNCHANGED — APPROVE AFTER THE FIVE P0 EDITS ABOVE ARE INSERTED.**
