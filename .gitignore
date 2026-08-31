@@ -39,4 +39,5 @@ backups/
 /scope.json
 /prepared.json
 /signed.json
+/signed-deployment-inventory.json
 /cro03d-keys/

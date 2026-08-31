@@ -144,5 +144,6 @@ GHL_DEFAULT_CALENDAR_ID = "YFiIy7oIOUXN2qZZPnOr"
 GHL_CALENDAR_BOOKING_URL = "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr"
 SENDER_DOMAIN_SPF_VERIFIED = "true"
 CRO03C_TRUSTED_APPROVAL_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFcovVqe++ZaPNQgtlEJmxJP+Dr3IKNrzeOhlGUyYuw0=\n-----END PUBLIC KEY-----\n"}'
+CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFcovVqe++ZaPNQgtlEJmxJP+Dr3IKNrzeOhlGUyYuw0=\n-----END PUBLIC KEY-----\n"}'
 
 [userenv.production]
