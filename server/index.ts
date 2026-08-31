@@ -3,8 +3,7 @@ import cookieParser from "cookie-parser";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
-import { initializeCro02PurposePolicies } from "./services/cro02-purpose-policy-initializer";
-import { initializeCro03aPolicy } from "./services/cro03a-policy-initializer";
+import { runProductionSeedConvergence } from "./services/production-seed-convergence";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
@@ -258,18 +257,14 @@ app.use((req, res, next) => {
   // Fail closed before route registration if an operator attempts an
   // unauthorized CRO-02 compare/enforce activation.
   assertCro02ShadowOnly();
-  // Insert-only convergence: production is provisioned by Replit Publish
-  // schema sync, not the Drizzle migration runner, so the table can exist
-  // without the eight frozen v1 seed rows. This never updates/deletes an
-  // existing row and fails closed on any conflict before the strict
-  // assertion below runs.
-  await initializeCro02PurposePolicies();
+  // Task #1750: single cross-cutting authority for every production-required
+  // seed/backfill row a migration bakes in as an imperative INSERT/UPDATE.
+  // Production is provisioned by Replit Publish schema sync, not the Drizzle
+  // migration runner, so a table can exist with zero of its seed rows. Every
+  // target here is insert-only and fails closed (throws, blocking startup)
+  // on any conflict with canonical content.
+  await runProductionSeedConvergence();
   await assertCro02PurposePolicies();
-  // Same convergence pattern as CRO-02 above: Replit Publish schema sync can
-  // leave cro03a_policy_documents/cro03a_policy_control without the frozen
-  // v1 seed row a Drizzle-migrated dev database already has. Insert-only,
-  // fails closed on conflict, never reassigns an existing activation.
-  await initializeCro03aPolicy();
   await registerRoutes(httpServer, app);
   // Resume only durable, expired CSV executions after routes are registered.
   // The recovery processor is request-free and uses the canonical contact

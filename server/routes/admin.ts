@@ -4304,6 +4304,26 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
       checks.push({ name: "outboundPause", status: pauseStatus, detail: pauseDetail, critical: false });
 
+      // 10. productionSeedConvergence (Task #1750) — read-only re-verification
+      // that every migration-embedded seed/backfill row this deploy requires
+      // (CRO-02/03/03A, CR-04, CR-06, inbound-effect orchestration) is
+      // actually present, since Replit Publish schema sync never runs a
+      // migration's imperative INSERT/UPDATE statements.
+      let seedStatus: "ok" | "error" = "error";
+      let seedDetail = "Check failed to run";
+      try {
+        const { verifyProductionSeedConvergence } = await import("../services/production-seed-convergence");
+        const report = await verifyProductionSeedConvergence();
+        seedStatus = report.ok ? "ok" : "error";
+        seedDetail = report.ok
+          ? `${report.results.length}/${report.results.length} seed targets converged`
+          : report.results.filter(r => r.outcome === "unexpected" || r.outcome === "conflicted" || r.outcome === "blocked")
+              .map(r => `${r.id}: ${r.detail}`).join("; ");
+      } catch (e: any) {
+        seedDetail = e?.message ?? String(e);
+      }
+      checks.push({ name: "productionSeedConvergence", status: seedStatus, detail: seedDetail, critical: true });
+
       const criticalChecks = checks.filter(c => c.critical);
       const allCriticalOk = criticalChecks.every(c => c.status === "ok");
       const overallOk = allCriticalOk;

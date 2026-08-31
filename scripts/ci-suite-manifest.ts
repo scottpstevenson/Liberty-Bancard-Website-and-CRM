@@ -149,6 +149,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "offline root lock/source/integrity scan; no providers",
   },
   {
+    name: "Migration Seed Registration Guard (#1750)",
+    script: "scripts/check-migration-seed-registration.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure file scan of migrations/*.sql plus a static import of SEED_TARGETS; no DB queries, no providers",
+  },
+  {
+    name: "CRO-03 Ledger Convergence Under Live Triggers (#1750)",
+    script: "scripts/test-cro03-ledger-convergence.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (DB-only fixture proving the seed-convergence repair coexists with the real cro03_ledger_immutable/cro03_ledger_lineage_guard triggers and unique indexes)",
+  },
+  {
+    name: "Seed Convergence Verifier Detects Deletion/Substitution (#1750)",
+    script: "scripts/test-seed-convergence-verifier-integrity.ts",
+    capability: "deterministic-integration",
+    providerDenial: "no provider calls (DB-only fixture that deletes/substitutes each tightened canonical seed row, bypassing that table's own immutability trigger for the duration of the test, and asserts verifyProductionSeedConvergence flips to critical, then restores original state)",
+  },
+  {
     name: "Dependency Policy Negative Fixtures",
     script: "scripts/test-dependency-policy-evidence.ts",
     capability: "deterministic-static",

@@ -89,6 +89,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Migration Seed Registration Guard (#1750 — every migration seed/backfill write is a registered convergence target or an exempted historical write)",
+    script: "scripts/check-migration-seed-registration.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Dependency Policy Negative Fixtures",
     script: "scripts/test-dependency-policy-evidence.ts",
     timeoutSecs: 60,
@@ -433,6 +438,16 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-cro03b-integration.ts",
     timeoutSecs: 120,
     env: { NODE_ENV: "test" },
+  },
+  {
+    name: "CRO-03 Ledger Convergence Under Live Triggers (#1750 — production-seed-convergence repair vs. real cro03_ledger_immutable/cro03_ledger_lineage_guard triggers and unique indexes)",
+    script: "scripts/test-cro03-ledger-convergence.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Seed Convergence Verifier Detects Deletion/Substitution (#1750)",
+    script: "scripts/test-seed-convergence-verifier-integrity.ts",
+    timeoutSecs: 60,
   },
   {
     name: "CRO-03B Legacy Writer Inventory",

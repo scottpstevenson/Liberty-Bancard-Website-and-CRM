@@ -41,6 +41,7 @@ export interface HealthReport {
     outboundPause: CheckResult;
     arbitrationErrors: CheckResult;
     slaHeartbeatWriteDegraded: CheckResult; // #1326 — heartbeat write failure counter
+    productionSeedConvergence: CheckResult; // #1750 — required migration seed/backfill rows
   };
 }
 export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
@@ -49,7 +50,10 @@ export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
 // sequenceWorker is critical: a stalled outbound worker means no sequences deliver.
 // Wave 1A restores it to the critical set — a green health report must confirm the
 // worker is alive, not just that the DB and Redis are reachable.
-const CRITICAL_CHECKS = new Set(["db", "sequenceWorker", "redis", "kpiQuery"]);
+// productionSeedConvergence is critical: several systems (CRO-02/03/03A, CR-04,
+// CR-06, inbound-effect orchestration) fail closed or misbehave when their
+// required seed/backfill rows are silently absent (Task #1750).
+const CRITICAL_CHECKS = new Set(["db", "sequenceWorker", "redis", "kpiQuery", "productionSeedConvergence"]);
 
 // In-memory cache of last result
 let _lastResult: HealthReport | null = null;
@@ -418,6 +422,28 @@ async function checkSlaHeartbeatWriteDegraded(): Promise<CheckResult> {
   }
 }
 
+// Task #1750 — production seed convergence. Read-only re-verification (no
+// writes) so a deploy cannot report healthy while a required migration
+// seed/backfill row is absent, even if it was present at the last restart.
+async function checkProductionSeedConvergence(): Promise<CheckResult> {
+  const t0 = Date.now();
+  try {
+    const { verifyProductionSeedConvergence } = await import("./production-seed-convergence");
+    const report = await verifyProductionSeedConvergence();
+    if (report.ok) {
+      return { status: "ok", message: `${report.results.length}/${report.results.length} seed targets converged`, latencyMs: Date.now() - t0 };
+    }
+    const bad = report.results.filter((r) => r.outcome !== "already_present" && r.outcome !== "inserted" && r.outcome !== "backfilled");
+    return {
+      status: "error",
+      message: `${bad.length} seed target(s) diverged: ${bad.map((r) => `${r.id} (${r.detail})`).join("; ")}`,
+      latencyMs: Date.now() - t0,
+    };
+  } catch (err: any) {
+    return { status: "error", message: `Convergence check threw: ${err.message}`, latencyMs: Date.now() - t0 };
+  }
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function runHealthChecks(): Promise<HealthReport> {
@@ -436,6 +462,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
     outboundPauseRes,
     arbitrationErrorsRes,
     slaHeartbeatRes,
+    productionSeedConvergenceRes,
   ] = await Promise.allSettled([
     checkDb(),
     checkSequenceWorker(),
@@ -447,6 +474,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
     checkOutboundPause(),
     checkArbitrationErrors(),
     checkSlaHeartbeatWriteDegraded(),
+    checkProductionSeedConvergence(),
   ]);
 
   function settle(r: PromiseSettledResult<CheckResult>, name: string): CheckResult {
@@ -465,6 +493,7 @@ export async function runHealthChecks(): Promise<HealthReport> {
     outboundPause: settle(outboundPauseRes, "outboundPause"),
     arbitrationErrors: settle(arbitrationErrorsRes, "arbitrationErrors"),
     slaHeartbeatWriteDegraded: settle(slaHeartbeatRes, "slaHeartbeatWriteDegraded"),
+    productionSeedConvergence: settle(productionSeedConvergenceRes, "productionSeedConvergence"),
   };
 
   // Determine overall health (only critical checks matter)

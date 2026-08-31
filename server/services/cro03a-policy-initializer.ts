@@ -15,6 +15,17 @@
  * row at it only while that control row is still unset) and verifies the
  * result. Same shape and guarantees as
  * server/services/cro02-purpose-policy-initializer.ts.
+ *
+ * Task #1750 fix: `migrations/0187_cro03a_candidate_qualification.sql` also
+ * seeds the `cro03a_policy_control` singleton row (id=1, expected_version=0)
+ * as part of its `CREATE TABLE` block, and appends an `audit_logs` activation
+ * record after activating the v1 policy. Because production is provisioned by
+ * Replit Publish schema sync (not this migration's imperative statements),
+ * the control row itself could be entirely absent in production, which made
+ * step 3 below throw `CRO03A_POLICY_INIT_CONTROL_ROW_MISSING` on every
+ * startup. Step 0 now converges that singleton row first, and step 4 records
+ * the same idempotent activation audit entry the migration would have
+ * written.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
@@ -84,6 +95,14 @@ export async function initializeCro03aPolicy(): Promise<void> {
     await assertTableShape(tx as unknown as Tx, "cro03a_policy_documents", EXPECTED_DOC_COLUMNS);
     await assertTableShape(tx as unknown as Tx, "cro03a_policy_control", EXPECTED_CONTROL_COLUMNS);
 
+    // Step 0: converge the singleton control row itself. Production schema
+    // sync creates the table shape but not this seed row, so without this the
+    // "FOR UPDATE" read below finds nothing and startup fails closed forever.
+    await tx.execute(sql`
+      INSERT INTO cro03a_policy_control(id, expected_version) VALUES (1, 0)
+      ON CONFLICT (id) DO NOTHING
+    `);
+
     const existingDoc = rows(
       await tx.execute(sql`
         SELECT id, policy, policy_hash, status FROM cro03a_policy_documents
@@ -146,5 +165,24 @@ export async function initializeCro03aPolicy(): Promise<void> {
     if (!finalControl || finalControl.active_policy_id !== doc.id) {
       throw new Error("CRO03A_POLICY_INIT_VERIFY_FAILED:control");
     }
+
+    // Step 5: append the same idempotent activation audit entry
+    // `migrations/0187_cro03a_candidate_qualification.sql` writes. Guarded by
+    // NOT EXISTS so it is written exactly once regardless of how many times
+    // convergence runs.
+    await tx.execute(sql`
+      INSERT INTO audit_logs(action, entity_type, entity_key, details, actor_type, actor_id)
+      SELECT 'cro03a_policy_activated', 'cro03a_policy', p.id::text,
+             jsonb_build_object('reason', 'initial governed policy activation',
+                                'policyVersion', p.version, 'policyHash', p.policy_hash,
+                                'controlVersion', 1),
+             'system', 'system'
+        FROM cro03a_policy_documents p
+       WHERE p.policy_key = ${CRO03A_SEED_POLICY_KEY} AND p.version = ${CRO03A_SEED_POLICY_VERSION}
+         AND NOT EXISTS (
+           SELECT 1 FROM audit_logs a
+            WHERE a.action = 'cro03a_policy_activated' AND a.entity_key = p.id::text
+         )
+    `);
   });
 }
