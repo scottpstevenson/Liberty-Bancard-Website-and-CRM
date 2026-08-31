@@ -1,0 +1,26 @@
+  agent/1629-ghl-route-pause-gates                           [m ca891bae [[34morigin/agent/1629-ghl-route-pause-gates[m] Liberty public design system rebuild (corrected implementation plan)
+  agent/1675-bt12-isolated-verification                      [m b02a05e1 [[34morigin/agent/1675-bt12-isolated-verification[m: ahead 3] Add audit findings for Task 1687
+  agent/1681-restore-outreach-compliance-gates               [m b621bdcd Sanitize remaining raw audit payloads
+  agent/1687-vg-runtime-certification                        [m 56b6d80d [[34morigin/agent/1687-vg-runtime-certification[m: ahead 1] Add documentation for task 1698 regarding authority and scope correction
+  agent/1698-campaign-sequence-truth                         [m c5d0baa8 [[34morigin/main[m: behind 66] Add test statement PDF to uploads
+  agent/pause-scan-authority                                 [m ea308cc1 [[34morigin/agent/pause-scan-authority[m: gone] Update pre-deploy script and add pause scan test utility
+  agent/post-merge-1628-1640-repairs                         [m ec4a0232 Repair CI and commercial safeguards after audit
+* [32mmain                                                       [m 956c1658 [[34morigin/main[m: ahead 3, behind 8] CRO-07: fix experiment freeze atomicity, add CAS-locked experiment decisions, and remove shared-default webhook secret
+  pr5-head                                                   [m 922f9ce2 Keep provider readiness kill lines static
+  replit-agent                                               [m f8ab41ee Published your App
+  safety/pre-sync-1734                                       [m 956c1658 CRO-07: fix experiment freeze atomicity, add CAS-locked experiment decisions, and remove shared-default webhook secret
+  subrepl-01lx2psk                                           [m 9ee3e435 Task 713: Contactability Bridge — Manual Email Enrollment for SDR Contacts
+  subrepl-0631as7d                                           [m 1dedcb37 Harden background job workers: tick isolation + GHL sync dedupe (Task #759) + follow-ups #771/#772
+  subrepl-07wudu9c                                           [m f0508f18 Task #9: Merchant Onboarding Automation
+  subrepl-092omcke                                           [m ae39880c Update API documentation and improve contact credit tracking
+  subrepl-0ad81wt8                                           [m b9ea169a feat: Filter contacts list by email health status (bounced / opted-out)
+  subrepl-0dmplwne                                           [m f7aac9b9 Task #23: AI SDR — Florida Vertical Playbooks (Auto, Med Spa, Medical/Dental)
+  subrepl-0fu36ugn                                           [m eb13c5b4 Connect vertical sequence IDs to the outreach orchestrator's vertical-detection logic
+  subrepl-0gh00ip3                                           [m 449985d4 Task #75: Security & API Hardening
+  subrepl-0gqxidla                                           [m 24657494 KL-7: Registry Importer — Phone Confidence Threshold & Merge Safety
+  subrepl-0hbo8e3h                                           [m 58bbba36 Add 9 new verticals to CRM contact and deal forms (create + edit)
+  subrepl-0p2vipik                                           [m 062857d2 Task #860: Per-vertical enrollment coverage gaps on Stage Health panel
+  subrepl-0pi8y649                                           [m 293d8275 Task #1009: Per-Contact Behavioral Scoring — Durable Architecture
+  subrepl-0tth3peo                                           [m 46989cad Update contact information and add disclaimers across multiple pages
+  subrepl-0uevt47i                                           [m b72df7c1 Statement acquisition automation: chase until received, then stop (W4.1)
+  subrepl-0uq3v4d7                                           [m 9d7a8aa2 Wave dashboard UI features batch: urgency/past_golive URL init, deals-per-rep summary bar, churn-risk KPI row (server-side aggregate in /api/kpi/summary), underwriting+closing-this-month stat cards (agent-merchant scoped), leaderboard contacts-added
