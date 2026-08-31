@@ -535,6 +535,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "loads the DB-bound live-execution graph only against disposable PostgreSQL; realistic secret names run with denied provider/public transport",
   },
   {
+    name: "CRO-03D Ceremony Scope Derivation and Ephemeral Signing Tool",
+    script: "scripts/test-cro03d-ceremony-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure scope/signing tool; no database, network, or provider transport; ephemeral key material confined to local temp dirs",
+  },
+  {
     name: "CRO-03C Initial Continuation Bridge Contract",
     script: "scripts/test-cro03c-initial-continuation-static.ts",
     capability: "deterministic-static",

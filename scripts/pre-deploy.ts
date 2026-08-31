@@ -388,6 +388,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "CRO-03D Ceremony Scope Derivation and Ephemeral Signing Tool",
+    script: "scripts/test-cro03d-ceremony-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRO-03C Initial Continuation Bridge Contract",
     script: "scripts/test-cro03c-initial-continuation-static.ts",
     timeoutSecs: 60,
