@@ -1,0 +1,346 @@
+{
+  "operator": {
+    "payload": {
+      "artifactVersion": "cro03c-approval-ed25519-v1",
+      "receiptId": "6322835b-9529-4eb4-b471-f35380c15df7",
+      "idempotencyKey": "cro03d-pricing-operator-db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+      "issuerId": "cro03d-operator",
+      "dimension": "operator",
+      "scope": {
+        "policyKey": "cro03c_live_activation",
+        "recipeVersion": 1,
+        "recipeHash": "897bb0e84a1ce09a4e60fb5e5fc60bec2ea1b3ee4023be3a88f5213b1b14dd8a",
+        "stagePlanHash": "ce00c8987232f2bde43180cde8509b9ce5eb0acbd5eed26aae32535f0938d585",
+        "migrationHead": "0202_cro03c_transport_invocation_checkpoint",
+        "releaseSha": "db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+        "priceSchedules": {
+          "internal_source": {
+            "version": 1,
+            "unitType": "none",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "jsonld": {
+            "version": 1,
+            "unitType": "parse",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "first_party_web": {
+            "version": 1,
+            "unitType": "page",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "rdap": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "serper": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1000,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "outscraper": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 3000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "apollo": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 350000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "openai": {
+            "version": 1,
+            "unitType": "token",
+            "currency": "USD",
+            "amountMicros": 30,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "zerobounce": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 8000,
+            "billingSemantics": "per_unit_no_result_billable"
+          }
+        }
+      },
+      "scopeHash": "7af858924fdaa744a4b129f9eae0f00580dd7543ffcf843794619a68c31e274a",
+      "issuedAt": "2026-08-31T18:47:05.385Z",
+      "expiresAt": "2026-09-01T18:47:05.385Z"
+    },
+    "signature": "n1xEv83RdLVfAmd6vFgQ+yPDmRzzUHUg/NHHBJLgnnq5c6FAQCGMHd2biRHoznGcjr8Wsj3HvXtJMLMVtPYXAg=="
+  },
+  "data": {
+    "payload": {
+      "artifactVersion": "cro03c-approval-ed25519-v1",
+      "receiptId": "d66d8f29-4903-4a7a-aafc-a8e4992c8263",
+      "idempotencyKey": "cro03d-pricing-data-db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+      "issuerId": "cro03d-operator",
+      "dimension": "data",
+      "scope": {
+        "policyKey": "cro03c_live_activation",
+        "recipeVersion": 1,
+        "recipeHash": "897bb0e84a1ce09a4e60fb5e5fc60bec2ea1b3ee4023be3a88f5213b1b14dd8a",
+        "stagePlanHash": "ce00c8987232f2bde43180cde8509b9ce5eb0acbd5eed26aae32535f0938d585",
+        "migrationHead": "0202_cro03c_transport_invocation_checkpoint",
+        "releaseSha": "db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+        "priceSchedules": {
+          "internal_source": {
+            "version": 1,
+            "unitType": "none",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "jsonld": {
+            "version": 1,
+            "unitType": "parse",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "first_party_web": {
+            "version": 1,
+            "unitType": "page",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "rdap": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "serper": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1000,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "outscraper": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 3000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "apollo": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 350000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "openai": {
+            "version": 1,
+            "unitType": "token",
+            "currency": "USD",
+            "amountMicros": 30,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "zerobounce": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 8000,
+            "billingSemantics": "per_unit_no_result_billable"
+          }
+        }
+      },
+      "scopeHash": "7af858924fdaa744a4b129f9eae0f00580dd7543ffcf843794619a68c31e274a",
+      "issuedAt": "2026-08-31T18:47:05.385Z",
+      "expiresAt": "2026-09-01T18:47:05.385Z"
+    },
+    "signature": "In4D1YgHr66bVmjJykNwvs8/e9r3LqETS9FvwSsU8CpflgG7bNAggxitdLJLTg8qoRvK7aoCP8Ht8OcsR/lpDQ=="
+  },
+  "finance": {
+    "payload": {
+      "artifactVersion": "cro03c-approval-ed25519-v1",
+      "receiptId": "e96c50ab-a358-41d1-9802-f9c904c3bebe",
+      "idempotencyKey": "cro03d-pricing-finance-db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+      "issuerId": "cro03d-operator",
+      "dimension": "finance",
+      "scope": {
+        "policyKey": "cro03c_live_activation",
+        "recipeVersion": 1,
+        "recipeHash": "897bb0e84a1ce09a4e60fb5e5fc60bec2ea1b3ee4023be3a88f5213b1b14dd8a",
+        "stagePlanHash": "ce00c8987232f2bde43180cde8509b9ce5eb0acbd5eed26aae32535f0938d585",
+        "migrationHead": "0202_cro03c_transport_invocation_checkpoint",
+        "releaseSha": "db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+        "priceSchedules": {
+          "internal_source": {
+            "version": 1,
+            "unitType": "none",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "jsonld": {
+            "version": 1,
+            "unitType": "parse",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "first_party_web": {
+            "version": 1,
+            "unitType": "page",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "rdap": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "serper": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1000,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "outscraper": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 3000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "apollo": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 350000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "openai": {
+            "version": 1,
+            "unitType": "token",
+            "currency": "USD",
+            "amountMicros": 30,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "zerobounce": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 8000,
+            "billingSemantics": "per_unit_no_result_billable"
+          }
+        }
+      },
+      "scopeHash": "7af858924fdaa744a4b129f9eae0f00580dd7543ffcf843794619a68c31e274a",
+      "issuedAt": "2026-08-31T18:47:05.385Z",
+      "expiresAt": "2026-09-01T18:47:05.385Z"
+    },
+    "signature": "UJA0EBbRseCHGU4tvqzuQx5+fUFqdyZjyB+oVhkfNeS7HsgPDahj22m4AEKrYA4w62J8BwFmcgMXqdI9of4LCw=="
+  },
+  "legal": {
+    "payload": {
+      "artifactVersion": "cro03c-approval-ed25519-v1",
+      "receiptId": "544710cc-e899-45ac-9e5b-34272a23ffbb",
+      "idempotencyKey": "cro03d-pricing-legal-db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+      "issuerId": "cro03d-operator",
+      "dimension": "legal",
+      "scope": {
+        "policyKey": "cro03c_live_activation",
+        "recipeVersion": 1,
+        "recipeHash": "897bb0e84a1ce09a4e60fb5e5fc60bec2ea1b3ee4023be3a88f5213b1b14dd8a",
+        "stagePlanHash": "ce00c8987232f2bde43180cde8509b9ce5eb0acbd5eed26aae32535f0938d585",
+        "migrationHead": "0202_cro03c_transport_invocation_checkpoint",
+        "releaseSha": "db92fd7f053aa72f3cf4dea881cfd057f74e47ce",
+        "priceSchedules": {
+          "internal_source": {
+            "version": 1,
+            "unitType": "none",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "jsonld": {
+            "version": 1,
+            "unitType": "parse",
+            "currency": "USD",
+            "amountMicros": 0,
+            "billingSemantics": "not_billable"
+          },
+          "first_party_web": {
+            "version": 1,
+            "unitType": "page",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "rdap": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "serper": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 1000,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "outscraper": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 3000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "apollo": {
+            "version": 1,
+            "unitType": "result",
+            "currency": "USD",
+            "amountMicros": 350000,
+            "billingSemantics": "per_unit_no_result_free"
+          },
+          "openai": {
+            "version": 1,
+            "unitType": "token",
+            "currency": "USD",
+            "amountMicros": 30,
+            "billingSemantics": "per_unit_no_result_billable"
+          },
+          "zerobounce": {
+            "version": 1,
+            "unitType": "request",
+            "currency": "USD",
+            "amountMicros": 8000,
+            "billingSemantics": "per_unit_no_result_billable"
+          }
+        }
+      },
+      "scopeHash": "7af858924fdaa744a4b129f9eae0f00580dd7543ffcf843794619a68c31e274a",
+      "issuedAt": "2026-08-31T18:47:05.385Z",
+      "expiresAt": "2026-09-01T18:47:05.385Z"
+    },
+    "signature": "QzzDL4Bymr/QqY0mKhdMC11lAgITu6iOLY3HOd+KeumqblRVxOLMP2AOWdfNJpJee4GiEElaIpIl92WfVVbuAQ=="
+  }
+}
