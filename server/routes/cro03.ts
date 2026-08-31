@@ -170,6 +170,21 @@ async function canManageBatch(req: any, batchId: string): Promise<boolean> {
 }
 
 export function registerCro03Routes(app: Express): void {
+  // Read-only diagnostic: reports the exact facts this process would use to look up
+  // (or self-attest against) its CRO-03C deployment inventory. Exists because these
+  // facts (deploymentIdentity in particular) are only knowable from inside the live
+  // process — REPL_ID differs between the dev workspace and a published deployment,
+  // and cannot be discovered from outside it. No secrets are exposed.
+  app.get("/api/admin/cro03c/runtime-identity", isDashboardUser, requireRole("admin"), async (_req, res) => {
+    const { getCro03cQueueTopologyHash } = await import("../services/queue-manager");
+    res.json({
+      deploymentIdentity: process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? null,
+      environmentIdentity: process.env.NODE_ENV ?? null,
+      releaseSha: process.env.RELEASE_SHA ?? null,
+      queueTopologyHash: getCro03cQueueTopologyHash(),
+    });
+  });
+
   app.post("/api/cro03c/deployment-inventories/import", isDashboardUser, requireRole("admin"), async (req, res) => {
     const parsed = cro03cDeploymentInventoryImportSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ code: "CRO03C_INVALID_REQUEST", message: "Invalid signed deployment inventory." });
