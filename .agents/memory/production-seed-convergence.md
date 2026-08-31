@@ -46,6 +46,29 @@ Only the first three need a live convergence target in `SEED_TARGETS`; the
 rest just need a documented, classified exemption — don't try to build
 repair machinery for every migration that ever ran an UPDATE.
 
+## Verified live in production (2026-08-31)
+
+After the first deploy carrying this service, production startup logs showed
+`[ProductionSeedConvergence] All 9 targets converged` with every target
+`inserted` or `already_present` (none `unexpected`/`blocked`/`conflicted`),
+and an `audit_logs` row `production_seed_convergence_completed`. Direct
+production queries on all 10 target tables confirmed: 5 singleton/version-seed
+tables (`commercial_shadow_controls`, `cro03_staging_recipes`,
+`cr04_qualification_policies`, `cro03a_policy_documents`,
+`cro03a_policy_control`) each hold exactly the canonical 1 row. The other 5
+(`commercial_subject_revisions`, `commercial_membership_revisions`,
+`cro03_provider_ledger` reservation-lineage rows, `cr06_campaign_gate_revisions`,
+`inbound_request_effects`) are `historical_backfill` targets and correctly
+show 0 rows in this production DB, because their live *source* tables
+(`contact_business_link_decisions`, `legacy_company_mapping_decisions`,
+`commercial_relationship_reviews`, `contact_identity_observations`,
+`contact_merge_redirects`, `cr06_campaign_gates`, terminal
+`cro03_provider_ledger` rows, equipment-order `inbound_requests`) are
+themselves empty in production — 0 backfilled rows is the correct outcome,
+not a failure. **When re-verifying a historical_backfill target's row count,
+always check its source table's count too** — 0 is only suspicious if the
+source has rows the backfill should have picked up.
+
 ## Pitfalls hit while building this
 
 - **jsonb key order is not stable.** Comparing a stored jsonb document
@@ -103,3 +126,4 @@ repair machinery for every migration that ever ran an UPDATE.
   (not a bare table with no guards) — that is the only way to catch the
   cross-guard ordering contradiction above; a green test against unguarded
   columns proves nothing about the guarded production case.
+</content>
