@@ -1,0 +1,19 @@
+{
+  "releaseSha": "4327df8a10e4dedbab5dac16f813ef7c032abffc",
+  "releaseTree": "a409318d85225ba53c6b478847605493bc729254",
+  "migrationHead": "0202_cro03c_transport_invocation_checkpoint",
+  "recipeStagePlanHash": "dc623f961b7dd96e57c992bda6d5919a7ecb422d2c07faaa6a900c4eb810beda",
+  "rolloutKey": "cro03c_initial_v1",
+  "providersInScope": [
+    "apollo",
+    "openai",
+    "outscraper",
+    "serper"
+  ],
+  "cohortCap": 100,
+  "canaryCapPerProvider": 10,
+  "maxSpendMicros": 150000000,
+  "currency": "USD",
+  "derivedAt": "2026-08-31T16:06:34.339Z",
+  "scopeHash": "696eec9c00e25bc53f995cb61db32eaa22521db02b4060d74ab60889bdfb8cd1"
+}
