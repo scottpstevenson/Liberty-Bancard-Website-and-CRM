@@ -132,3 +132,5 @@
 - [Production schema ownership](production-schema-ownership.md) — Replit Publish owns production DDL; app startup must not replay Drizzle migrations against the published schema.
 - [Disposable database capabilities](disposable-database-capabilities.md) — local rehearsal SQL sinks must accept launcher-minted targets only; migration ledger proof must account for duplicate hashes.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA/work links, and opaque receipts.
+- [Migration ledger hash-only proof](migration-ledger-hash-proof.md) — drizzle.__drizzle_migrations row count/position is NOT a valid applied-migration proof in this repo; only an exact content-hash match is sound.
+- [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; put any constant a DB-less operator/CLI tool needs there, never import live-execution.ts (eager server/db import) from such tools.
