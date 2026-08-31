@@ -239,6 +239,13 @@ app.use((req, res, next) => {
   await reconcileEnrichmentState();
   await reconcileScoringState();
   await seedAutomationRegistry();
+  try {
+    const { ensureCro07TaxonomyRegistered } = await import("./services/cro07-taxonomy");
+    const taxonomy = await ensureCro07TaxonomyRegistered();
+    console.log(`[CRO07] Canonical event taxonomy v${taxonomy.version} registered (${taxonomy.inserted} new entries)`);
+  } catch (e: any) {
+    console.error("[CRO07] Taxonomy registration failed — controlled-delivery taxonomy endpoints will be empty:", e?.message);
+  }
   // Mark any previews left 'running' by a previous server process as interrupted.
   // This prevents stale running previews from ever being used for queuing after a restart.
   try {

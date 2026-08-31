@@ -293,6 +293,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "two freshly created disposable PostgreSQL databases; production migration harness only and no providers",
   },
   {
+    name: "CRO-07 Controlled Delivery, Reply, Growth & Conversion Feedback Certification",
+    script: "scripts/test-cro07-disposable-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and suite-isolated Redis only; denied-by-default transport adapter never accepts a real send, CR-06 dispatch remains unavailable, and no provider or public-network transport is invoked",
+  },
+  {
     name: "Release Artifact Gate",
     script: "scripts/release-artifact-gate.ts",
     capability: "writable-build",

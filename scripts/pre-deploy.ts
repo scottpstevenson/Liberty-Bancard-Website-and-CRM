@@ -499,6 +499,12 @@ const MANDATORY_SUITES: Suite[] = [
     requiresDisposableTestDatabase: true,
   },
   {
+    name: "CRO-07 Controlled Delivery, Reply, Growth & Conversion Feedback Certification",
+    script: "scripts/test-cro07-disposable-certification.ts",
+    timeoutSecs: 180,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "CRO-03 Apollo Organization Resolution",
     script: "scripts/test-apollo-organization-resolution.ts",
     timeoutSecs: 60,
