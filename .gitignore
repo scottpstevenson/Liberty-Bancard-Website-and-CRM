@@ -34,3 +34,9 @@ backups/
 *.sql
 !migrations/**/*.sql
 !server/add-indexes.sql
+
+# CRO-03D ceremony working files — must never be committed
+/scope.json
+/prepared.json
+/signed.json
+/cro03d-keys/
