@@ -280,6 +280,11 @@ const CASES: GuardCase[] = [
   { method: "PATCH", path: "/api/payouts/99999/approve",                anon: [401], merchant: [403], admin: [404, 403], agent: [403], manager: [404, 403], description: "payout approve (requireRole admin/manager; 404 when not found or 403 CSRF)" },
   // PATCH /api/payouts/99999/mark-paid — admin/manager; 404 when payout not found
   { method: "PATCH", path: "/api/payouts/99999/mark-paid",              anon: [401], merchant: [403], admin: [404, 403], agent: [403], manager: [404, 403], description: "payout mark-paid (requireRole admin/manager; 404 when not found or 403 CSRF)" },
+  // CRO-07 governed-experiment sample ingestion — admin ONLY (agent/manager
+  // must be denied; production sample writes come from the internal
+  // attribution/feedback pipeline, not manual role-based agent input).
+  { method: "POST", path: "/api/admin/cro07/experiments/00000000-0000-0000-0000-000000000000/samples", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "CRO-07 experiment sample ingestion (requireRole admin only; agent/manager now denied; CSRF required so admin also 403 in test harness)" },
+  { method: "GET",  path: "/api/admin/cro07/status", anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "CRO-07 truthful status endpoint (admin/manager read-only)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

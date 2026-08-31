@@ -16,6 +16,21 @@ type Manifest = {
   dispatchAvailable: boolean;
 };
 
+type Cro07Status = {
+  codeComplete: boolean;
+  productionConnected: boolean;
+  sendingEnabled: boolean;
+  outreach: string;
+  authorized: boolean;
+  message: string;
+};
+
+type Cro07TaxonomyEntry = {
+  version: number;
+  canonical_event: string;
+  aliases: string[] | null;
+};
+
 type Catalog = {
   governed: Array<{
     id: string;
@@ -51,6 +66,12 @@ export default function Cr06Governance() {
   });
   const catalog = useQuery<Catalog>({
     queryKey: ["/api/admin/cr06/catalog"],
+  });
+  const cro07Status = useQuery<Cro07Status>({
+    queryKey: ["/api/admin/cro07/status"],
+  });
+  const cro07Taxonomy = useQuery<Cro07TaxonomyEntry[]>({
+    queryKey: ["/api/admin/cro07/taxonomy"],
   });
   const programs = useMemo(
     () => catalog.data?.governed.filter((artifact) => artifact.artifactKind === "program") ?? [],
@@ -174,6 +195,42 @@ export default function Cr06Governance() {
           </CardContent>
         </Card>
       </div>
+
+      <Card data-testid="cro07-status-panel">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5" /> CRO-07 controlled delivery, reply & feedback
+          </CardTitle>
+          <CardDescription>
+            Separate release/reconciliation authority layered on immutable CR-06 held intents. Never overwrites CR-06 history.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {cro07Status.data ? (
+            <>
+              <div className="flex flex-wrap gap-2 text-sm">
+                <Badge variant="secondary">Code complete: {cro07Status.data.codeComplete ? "YES" : "NO"}</Badge>
+                <Badge variant={cro07Status.data.productionConnected ? "destructive" : "outline"}>
+                  Production connected: {cro07Status.data.productionConnected ? "YES" : "NO"}
+                </Badge>
+                <Badge variant={cro07Status.data.sendingEnabled ? "destructive" : "outline"}>
+                  Sending enabled: {cro07Status.data.sendingEnabled ? "YES" : "NO"}
+                </Badge>
+                <Badge variant="outline">Outreach: {cro07Status.data.outreach}</Badge>
+                <Badge variant={cro07Status.data.authorized ? "destructive" : "outline"}>
+                  {cro07Status.data.authorized ? "AUTHORIZED" : "NOT AUTHORIZED"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">{cro07Status.data.message}</p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading CRO-07 status…</p>
+          )}
+          <div className="text-xs text-muted-foreground">
+            Canonical event taxonomy: {cro07Taxonomy.data ? `v${cro07Taxonomy.data[0]?.version ?? 1} · ${cro07Taxonomy.data.length} canonical events registered` : "loading…"}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

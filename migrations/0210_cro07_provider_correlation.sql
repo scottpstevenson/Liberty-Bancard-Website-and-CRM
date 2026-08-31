@@ -1,0 +1,16 @@
+-- CRO-07 provider/source correlation binding.
+--
+-- Fixes a code-review finding: authenticated feedback previously verified
+-- only that `attemptId` named a real CRO-07 attempt, without confirming the
+-- signed event's source/provider account actually matches the provider
+-- account the attempt was claimed under. A holder of a valid signing key
+-- for ANY registered source could otherwise submit a correctly signed
+-- event for ANY known attemptId and affect that attempt's contact.
+--
+-- provider_account_id is populated once, at claim time, from the release's
+-- approved sender_route (the immutable, human-approved sender identity for
+-- that release) — never from the webhook payload. ingestCro07Feedback then
+-- requires the incoming event's providerAccountId to exactly match this
+-- stored value before applying any side effect; a mismatch is durable
+-- evidence only (CRO07_PROVIDER_ACCOUNT_MISMATCH), never an effect.
+ALTER TABLE cro07_attempts ADD COLUMN IF NOT EXISTS provider_account_id text;

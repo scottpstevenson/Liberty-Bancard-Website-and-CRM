@@ -8231,3 +8231,243 @@ export const cr06FeedbackReceipts = pgTable("cr06_feedback_receipts", {
 }, (table) => [
   uniqueIndex("cr06_feedback_receipt_source_key_schema_uidx").on(table.source, table.eventKey),
 ]);
+
+// ─── CRO-07 — Controlled Delivery, Reply, Growth & Conversion Feedback ──────
+// CRO-07 NEVER writes to any cr06_* table above. It references CR-06 delivery
+// intents by id only. CR06_DISPATCH_AVAILABLE / the /release route contract
+// in server/routes/cr06.ts stay unchanged — CRO-07 owns a separate,
+// denied-by-default release/attempt/reconciliation authority for its own
+// intents so that a future authorized adapter has somewhere durable to live.
+
+// Immutable, compare-and-set release revisions bound to one exact CR-06
+// delivery intent. Only one release chain may be active/approved/draft per
+// intent at a time — enforced by the partial unique index below (kill line).
+export const cro07Releases = pgTable("cro07_releases", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cr06DeliveryIntentId: uuid("cr06_delivery_intent_id").notNull().references(() => cr06DeliveryIntents.id, { onDelete: "restrict" }),
+  revision: integer("revision").notNull().default(1),
+  state: text("state").notNull().default("draft"), // draft | approved | active | expired | revoked
+  reviewedSha: text("reviewed_sha").notNull(),
+  migrationHead: text("migration_head").notNull(),
+  cr06GateId: uuid("cr06_gate_id").references(() => cr06CampaignGates.id, { onDelete: "restrict" }),
+  cr06ProgramArtifactId: uuid("cr06_program_artifact_id").references(() => cr06Artifacts.id, { onDelete: "restrict" }),
+  cr06CohortRunId: uuid("cr06_cohort_run_id").references(() => cr04CohortRuns.id, { onDelete: "restrict" }),
+  senderRoute: text("sender_route").notNull(), // approved sender/reply-route identity key
+  // Approved webhook source (the URL path segment / HMAC-secret selector a
+  // provider's feedback events must arrive under). Immutable input to the
+  // release, like senderRoute — copied onto the claimed attempt and checked
+  // together with providerAccountId before any feedback event can apply a
+  // side effect (see cro07-feedback.ts / migration 0211).
+  providerSource: text("provider_source"),
+  adapterKey: text("adapter_key").notNull().default("denied_fake"),
+  environment: text("environment").notNull().default("disabled"),
+  readinessSnapshot: jsonb("readiness_snapshot").notNull(),
+  suppressionGeneration: text("suppression_generation").notNull(),
+  pauseEpoch: text("pause_epoch").notNull(),
+  caps: jsonb("caps").notNull(),
+  canarySize: integer("canary_size").notNull().default(0),
+  stopThresholds: jsonb("stop_thresholds").notNull(),
+  dependencySnapshot: jsonb("dependency_snapshot").notNull(),
+  dependencyFingerprint: text("dependency_fingerprint").notNull(),
+  approverId: text("approver_id"),
+  reason: text("reason").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revisionHash: text("revision_hash").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("cro07_release_active_chain_per_intent_uidx")
+    .on(table.cr06DeliveryIntentId)
+    .where(sql`state IN ('draft','approved','active')`),
+  index("cro07_release_intent_idx").on(table.cr06DeliveryIntentId),
+]);
+export type Cro07Release = typeof cro07Releases.$inferSelect;
+
+// One durable capacity reservation per (release, capacity key). Reserved
+// BEFORE any attempt is allowed to claim a unit.
+export const cro07Reservations = pgTable("cro07_reservations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  releaseId: uuid("release_id").notNull().references(() => cro07Releases.id, { onDelete: "restrict" }),
+  capacityKey: text("capacity_key").notNull(), // daily_cap | canary | per_hour
+  reservedCap: integer("reserved_cap").notNull(),
+  usedCount: integer("used_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro07_reservation_release_key_uidx").on(table.releaseId, table.capacityKey),
+]);
+
+// Durable provider attempt — persisted BEFORE any transport I/O (kill line).
+export const cro07Attempts = pgTable("cro07_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Unique: a release must claim exactly one attempt (hard DB guarantee,
+  // not just an idempotency-key convention).
+  releaseId: uuid("release_id").notNull().unique().references(() => cro07Releases.id, { onDelete: "restrict" }),
+  cr06DeliveryIntentId: uuid("cr06_delivery_intent_id").notNull().references(() => cr06DeliveryIntents.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  leaseToken: uuid("lease_token").notNull().defaultRandom(),
+  fenceEpoch: text("fence_epoch").notNull(),
+  provider: text("provider").notNull(),
+  // Immutable provider/source correlation, set ONCE at claim time from the
+  // release's approved sender_route — never from a webhook payload. This is
+  // the anchor authenticated feedback must match before applying any effect
+  // (see cro07-feedback.ts); it prevents a signer for one source/account
+  // from asserting feedback against an attempt sent under a different one.
+  providerAccountId: text("provider_account_id"),
+  // Immutable webhook-source correlation, copied from the release's
+  // providerSource at claim time. Checked together with providerAccountId
+  // — a signer for a DIFFERENT registered source can never assert feedback
+  // against this attempt even if it somehow names a matching account id.
+  providerSource: text("provider_source"),
+  adapterKey: text("adapter_key").notNull(),
+  state: text("state").notNull().default("reserved"),
+  // reserved -> in_flight -> {accepted|rejected|timeout_unknown} -> {reconciled_success|reconciled_failed|duplicate}
+  providerAttemptId: text("provider_attempt_id"),
+  redactedError: text("redacted_error"),
+  attemptedAt: timestamp("attempted_at", { withTimezone: true }),
+  terminalAt: timestamp("terminal_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("cro07_attempt_intent_idx").on(table.cr06DeliveryIntentId),
+  index("cro07_attempt_release_state_idx").on(table.releaseId, table.state),
+]);
+export type Cro07Attempt = typeof cro07Attempts.$inferSelect;
+
+export const cro07Reconciliations = pgTable("cro07_reconciliations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  attemptId: uuid("attempt_id").notNull().references(() => cro07Attempts.id, { onDelete: "restrict" }),
+  fromState: text("from_state").notNull(),
+  toState: text("to_state").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  actorId: text("actor_id").notNull(),
+  evidence: jsonb("evidence").notNull().default(sql`'{}'::jsonb`),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Authenticated CRO-07 provider ingress — deliberately separate from
+// ingestCr06SyntheticFeedback(); never widen that function into this one.
+export const cro07FeedbackReceipts = pgTable("cro07_feedback_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  source: text("source").notNull(), // provider name
+  providerAccountId: text("provider_account_id"),
+  providerEventId: text("provider_event_id").notNull(),
+  signatureValid: boolean("signature_valid").notNull(),
+  attemptId: uuid("attempt_id").references(() => cro07Attempts.id, { onDelete: "restrict" }),
+  releaseId: uuid("release_id").references(() => cro07Releases.id, { onDelete: "restrict" }),
+  cr06DeliveryIntentId: uuid("cr06_delivery_intent_id").references(() => cr06DeliveryIntents.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  contactGeneration: integer("contact_generation"),
+  eventType: text("event_type").notNull(),
+  // ordinary_reply | explicit_unsubscribe | complaint | hard_bounce | soft_bounce | delivered | ambiguous_reply
+  canonicalEffect: text("canonical_effect").notNull(),
+  providerOccurredAt: timestamp("provider_occurred_at", { withTimezone: true }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro07_feedback_source_event_uidx").on(table.source, table.providerEventId),
+  index("cro07_feedback_intent_idx").on(table.cr06DeliveryIntentId),
+]);
+export type Cro07FeedbackReceipt = typeof cro07FeedbackReceipts.$inferSelect;
+
+// A durable, idempotent CR-05 reply-work occurrence. Ordinary replies stop
+// outreach immediately and create exactly one owned task via
+// storage.createAuthorityTask(..., { commandKey }); they are never treated
+// as unsubscribe/complaint/consent withdrawal.
+export const cro07ReplyWork = pgTable("cro07_reply_work", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  feedbackReceiptId: uuid("feedback_receipt_id").notNull().unique().references(() => cro07FeedbackReceipts.id, { onDelete: "restrict" }),
+  // Nullable: a provider event whose identity cannot be resolved to a known
+  // contact still gets a review-required reply-work row for human follow-up.
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  occurrenceKey: text("occurrence_key").notNull().unique(),
+  cr05TaskId: integer("cr05_task_id").references(() => tasks.id, { onDelete: "restrict" }),
+  ownerResolution: text("owner_resolution").notNull().default("review_required"), // deterministic | review_required
+  stoppedIntentIds: jsonb("stopped_intent_ids").notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Versioned canonical event taxonomy — additive alias mapping only; never
+// rewrites the historical raw rows it maps.
+export const cro07EventTaxonomy = pgTable("cro07_event_taxonomy", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  version: integer("version").notNull(),
+  canonicalEvent: text("canonical_event").notNull(),
+  subject: text("subject").notNull(),
+  requiredIdentity: jsonb("required_identity").notNull().default(sql`'[]'::jsonb`),
+  producerAuthority: text("producer_authority").notNull(),
+  occurrenceRule: text("occurrence_rule").notNull().default("at_most_once"),
+  aliases: jsonb("aliases").notNull().default(sql`'[]'::jsonb`),
+  deprecated: boolean("deprecated").notNull().default(false),
+  effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().defaultNow(),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("cro07_taxonomy_canonical_version_uidx").on(table.canonicalEvent, table.version),
+]);
+
+// Truthful source-to-revenue attribution graph. revenueStatus stays
+// 'unknown' until a future REV-06A processor-confirmed receipt exists;
+// 'synthetic_fixture' is disposable-certification only and must never leak
+// into a production report.
+export const cro07AttributionEdges = pgTable("cro07_attribution_edges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  edgeType: text("edge_type").notNull(),
+  fromType: text("from_type").notNull(),
+  fromId: text("from_id").notNull(),
+  toType: text("to_type").notNull(),
+  toId: text("to_id").notNull(),
+  revenueStatus: text("revenue_status").notNull().default("unknown"), // unknown | synthetic_fixture | processor_confirmed
+  revenueAmountCents: bigint("revenue_amount_cents", { mode: "number" }),
+  isSynthetic: boolean("is_synthetic").notNull().default(false),
+  metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro07_attribution_edge_uidx").on(table.edgeType, table.fromType, table.fromId, table.toType, table.toId),
+  index("cro07_attribution_from_idx").on(table.fromType, table.fromId),
+  index("cro07_attribution_to_idx").on(table.toType, table.toId),
+]);
+
+// Frozen experiment design + guarded decision. A winner never edits approved
+// CR-06 content — it only produces a newVersionHandoffId for a fresh draft.
+export const cro07Experiments = pgTable("cro07_experiments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull().unique(),
+  hypothesis: text("hypothesis").notNull(),
+  metric: text("metric").notNull(),
+  populationDefinition: jsonb("population_definition").notNull(),
+  allocation: jsonb("allocation").notNull(),
+  versions: jsonb("versions").notNull(),
+  minSampleSize: integer("min_sample_size").notNull(),
+  minDurationDays: integer("min_duration_days").notNull(),
+  confidenceRule: jsonb("confidence_rule").notNull(),
+  guardrails: jsonb("guardrails").notNull(),
+  contaminationExclusions: jsonb("contamination_exclusions").notNull().default(sql`'[]'::jsonb`),
+  state: text("state").notNull().default("frozen_design"), // frozen_design | collecting | stopped_guardrail | ready_for_review | decided
+  frozenBy: text("frozen_by").notNull(),
+  frozenAt: timestamp("frozen_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  decision: text("decision"), // winner_a | winner_b | inconclusive | stopped_guardrail
+  decidedBy: text("decided_by"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  newVersionHandoffKey: text("new_version_handoff_key"),
+  designHash: text("design_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type Cro07Experiment = typeof cro07Experiments.$inferSelect;
+
+// Durable per-arm sample counters, updated only via atomic increments.
+export const cro07ExperimentSamples = pgTable("cro07_experiment_samples", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  experimentId: uuid("experiment_id").notNull().references(() => cro07Experiments.id, { onDelete: "restrict" }),
+  arm: text("arm").notNull(),
+  exposureCount: integer("exposure_count").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  guardrailBreachCount: integer("guardrail_breach_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro07_experiment_sample_arm_uidx").on(table.experimentId, table.arm),
+]);
