@@ -6,7 +6,7 @@ import { checkAiGate, recordAiSpend } from "./ai-audit-logger";
 import { renderEmailHtmlForPurpose } from "./can-spam-footer";
 import { isValidEmail } from "./contact-readiness";
 import { applyConsentCommand } from "./consent-authority";
-import { denyCro03cForbiddenEffect } from "./cro03/cro03c-effect-fence";
+import { denyCro03OrCro08aForbiddenEffect as denyCro03cForbiddenEffect } from "./cro03/cro08a-effect-fence";
 import { canExecute } from "./outbound-queue-coordinator";
 
 function getOpenAI() {

@@ -4,7 +4,7 @@ import { resolvePolicy, assertNotProhibitedSync, isProhibitedAddress } from "./s
 import type { MessageCategory } from "./sender-policy";
 import { getCommercialComplianceConfig, renderEmailPartsForPurpose } from "./can-spam-footer";
 import { redactToken } from "./audit-sanitizer";
-import { denyCro03cForbiddenEffect } from "./cro03/cro03c-effect-fence";
+import { denyCro03OrCro08aForbiddenEffect as denyCro03cForbiddenEffect } from "./cro03/cro08a-effect-fence";
 
 let transporter: nodemailer.Transporter | null = null;
 

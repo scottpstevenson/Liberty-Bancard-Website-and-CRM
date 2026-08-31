@@ -20,7 +20,8 @@ import {
   readCro03cGlobalNoOutboundCounters,
   withCro03cInitialBatchEffectFence,
 } from "./cro03c-effect-fence";
-import { continueCro03cInitialGeneration } from "./initial-continuation";
+import { withCro08aContinuousOccurrenceEffectFence } from "./cro08a-effect-fence";
+import { continueCro03cInitialGeneration, type Cro03cInitialContinuationClaim } from "./initial-continuation";
 import { CRO03B_UNIFIED_RECIPE } from "./recipe-contract";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
@@ -128,7 +129,8 @@ type ClaimedGeneration = {
   runtime_attestation_id: string;
   pre_run_snapshot_hash: string;
   effect_correlation_id: string;
-  command_type: "initial_batch" | "micro_canary";
+  command_type: "initial_batch" | "micro_canary" | "continuous_occurrence";
+  schedule_occurrence_id: string | null;
   claim_token: string;
   execution_fence: number;
 };
@@ -190,6 +192,7 @@ async function claimGeneration(commandId?: string): Promise<ClaimedGeneration | 
       RETURNING c.id AS command_id,g.run_id,g.id AS generation_id,c.activation_revision,
                 c.runtime_attestation_id,s.snapshot_hash AS pre_run_snapshot_hash,
                  c.effect_correlation_id, c.command_type,
+                 (c.caps->>'scheduleOccurrenceId') AS schedule_occurrence_id,
                  ${claimToken}::text AS claim_token,r.execution_fence
     `))[0];
     return claimed ? claimed as ClaimedGeneration : null;
@@ -533,7 +536,11 @@ async function dispatchClaim(claim: ClaimedGeneration): Promise<"completed" | "w
   }
 
   if (claim.command_type === "initial_batch") {
-    const continuation = await continueCro03cInitialGeneration(claim);
+    // TS narrows the accessed `claim.command_type` expression above but not
+    // the whole `claim` object's type (ClaimedGeneration is a single
+    // interface, not a discriminated union of object types); the runtime
+    // check above already guarantees command_type is "initial_batch" here.
+    const continuation = await continueCro03cInitialGeneration(claim as unknown as Cro03cInitialContinuationClaim);
     if (continuation === "review_required") {
       await stopClaimForRequiredReview(claim, "initial-continuation");
       return "inconclusive";
@@ -580,13 +587,23 @@ export async function dispatchCro03cLive(commandId?: string): Promise<"idle" | "
   const claim = await claimGeneration(commandId);
   if (!claim) return "idle";
   try {
-    // Only initial-batch continuation receives the deny context. In
-    // particular, micro canaries cannot inherit or manufacture this fence.
+    // initial_batch gets the zero-spend "no outbound effect at all" fence.
+    // continuous_occurrence gets its own, narrower fence: it is expected to
+    // reserve/settle real provider spend, so it denies only the forbidden
+    // campaign/CR-04/CR-06/GHL-mutation/messaging effect kinds rather than
+    // every effect. micro_canary receives neither fence and cannot inherit
+    // or manufacture one.
     let progression: "completed" | "waiting" | "inconclusive";
     if (claim.command_type === "initial_batch") {
       progression = await withCro03cInitialBatchEffectFence({
         commandId: claim.command_id, runId: claim.run_id,
         correlationId: claim.effect_correlation_id, commandType: "initial_batch",
+      }, () => dispatchClaim(claim));
+    } else if (claim.command_type === "continuous_occurrence") {
+      progression = await withCro08aContinuousOccurrenceEffectFence({
+        commandId: claim.command_id, runId: claim.run_id,
+        correlationId: claim.effect_correlation_id, commandType: "continuous_occurrence",
+        scheduleOccurrenceId: claim.schedule_occurrence_id ?? "",
       }, () => dispatchClaim(claim));
     } else {
       progression = await dispatchClaim(claim);

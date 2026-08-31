@@ -33,6 +33,27 @@ const SHA1 = /^[0-9a-f]{40}$/i;
 
 export const CRO03C_MODE = "cro03c_live_v1" as const;
 export const CRO03C_CANARY_MODE = "cro03c_micro_canary_v1" as const;
+/** CRO-08A recurring-schedule command mode. Distinct from the fixed-size
+ * micro-canary and the singleton one-shot initial batch: every command of
+ * this type is bound 1:1 to a CRO-08A schedule occurrence (see
+ * cro08a_schedule_occurrences.cro03c_command_id, unique). */
+export const CRO03C_CONTINUOUS_MODE = "cro03c_continuous_occurrence_v1" as const;
+
+/**
+ * Single source of truth for the mode column written to BOTH cro03c_runs and
+ * every cro03c_generations row a command produces. Run-mode and generation-
+ * mode previously diverged (generations were always hardcoded to CRO03C_MODE
+ * regardless of commandType) — extracted as one pure function so the two
+ * insert sites can never drift apart again, and so this exact mapping is
+ * directly unit-testable without needing to clear the permanent CRO-03A
+ * effect_authorized=FALSE wall that otherwise blocks any committed
+ * continuous_occurrence generation row in this environment.
+ */
+export function resolveCro03cGenerationMode(commandType: string): string {
+  if (commandType === "micro_canary") return CRO03C_CANARY_MODE;
+  if (commandType === "continuous_occurrence") return CRO03C_CONTINUOUS_MODE;
+  return CRO03C_MODE;
+}
 // Re-exported for backward compatibility; canonical definition lives in the
 // dependency-free contracts.ts so callers that must not import server/db
 // (e.g. operator discovery tooling) can reference the exact key.
@@ -337,7 +358,7 @@ export interface Cro03cEvidenceStagePlan {
  */
 export function planCro03cEvidenceStages(input: {
   payload: any;
-  commandType: "micro_canary" | "initial_batch";
+  commandType: "micro_canary" | "initial_batch" | "continuous_occurrence";
   caps: { provider?: string | null; maxUnits?: number; maxAmountMicros?: number };
   pricing: Record<string, Cro03cPriceSchedule>;
   source: { observation_id: string; payload_hash: string };
@@ -740,7 +761,7 @@ export async function revokeCro03cApprovalReceipt(input: {
 export async function createCro03cCommand(input: {
   actorId: string;
   idempotencyKey: string;
-  commandType: "micro_canary" | "initial_batch";
+  commandType: "micro_canary" | "initial_batch" | "continuous_occurrence";
   expectedActivationRevision: number;
   runtimeAttestationId: string;
   handoffIds: string[];
@@ -749,6 +770,14 @@ export async function createCro03cCommand(input: {
   maxAmountMicros?: number;
   reason: string;
   expiresAt: Date | string;
+  /** Required for commandType==="continuous_occurrence": binds this command
+   * 1:1 to a CRO-08A schedule occurrence (cro08a_schedule_occurrences.id).
+   * The occurrence row itself enforces the 1:1 relationship via a unique FK
+   * column; this identifier is folded into the command key so a second
+   * attempt against the same occurrence always replays instead of minting a
+   * second command. */
+  scheduleOccurrenceId?: string;
+  scheduleDefinitionHash?: string;
 }): Promise<{ commandId: string; runId: string; replayed: boolean }> {
   if (!input.idempotencyKey || input.idempotencyKey.length > 200) throw new Error("CRO03C_IDEMPOTENCY_KEY_INVALID");
   if (!input.reason?.trim() || input.reason.trim().length > 500) throw new Error("CRO03C_REASON_INVALID");
@@ -763,6 +792,13 @@ export async function createCro03cCommand(input: {
     if (!input.provider) throw new Error("CRO03C_PROVIDER_REQUIRED");
     assertCro03cCanaryTarget(input.provider, distinctHandoffs.length, distinctHandoffs.length);
     if (distinctHandoffs.length !== CRO03C_MICRO_TARGETS[input.provider]) throw new Error("CRO03C_CANARY_SCOPE_INVALID");
+  } else if (input.commandType === "continuous_occurrence") {
+    // Caps for a continuous_occurrence command are NEVER trusted from the
+    // caller: they are derived below, inside the transaction, from the
+    // locked schedule occurrence row and its active schedule definition's
+    // budgets. Any caller-supplied maxUnits/maxAmountMicros is ignored.
+    if (!input.provider) throw new Error("CRO03C_PROVIDER_REQUIRED");
+    if (!input.scheduleOccurrenceId || !input.scheduleDefinitionHash) throw new Error("CRO08A_SCHEDULE_OCCURRENCE_REQUIRED");
   } else if (input.provider) {
     throw new Error("CRO03C_INITIAL_BATCH_CAP_INVALID");
   }
@@ -792,6 +828,58 @@ export async function createCro03cCommand(input: {
     const validationUnitAmountMicros = Number(pricing.zerobounce.amountMicros);
     const validationMaxAmountMicros = validationMaxUnits * validationUnitAmountMicros;
     if (!Number.isSafeInteger(validationMaxAmountMicros)) throw new Error("CRO03C_INITIAL_BATCH_CAP_INVALID");
+
+    // continuous_occurrence: lock the schedule occurrence row NOW, inside
+    // this same command-creation transaction, and derive caps from it and
+    // its active schedule definition's budgets. The caller-supplied
+    // maxUnits/maxAmountMicros are never trusted — this closes the gap where
+    // a continuous command could otherwise be minted with an
+    // arbitrary/nonexistent occurrence id and caller-chosen caps. The row
+    // stays locked (FOR UPDATE) until this transaction commits or rolls
+    // back, so a concurrent second command-creation attempt against the
+    // same occurrence blocks here and then fails the cro03c_command_id
+    // IS NULL check below once this transaction commits — guaranteeing at
+    // most one continuous_occurrence command per occurrence even under a
+    // race, without relying on a separate, optional bind step.
+    let continuousDerivedMaxUnits = 0;
+    let continuousDerivedMaxAmountMicros = 0;
+    if (input.commandType === "continuous_occurrence") {
+      const occurrence = rows(await tx.execute(sql`
+        SELECT o.id, o.definition_hash, o.enumeration_checkpoint, o.selected_count, o.cro03c_command_id,
+               d.id AS definition_id, d.active, d.certification_receipt_id, d.budgets
+          FROM cro08a_schedule_occurrences o
+          JOIN cro08a_schedule_definitions d ON d.id = o.schedule_definition_id
+         WHERE o.id = ${input.scheduleOccurrenceId}::uuid
+         FOR UPDATE OF o
+      `))[0];
+      if (!occurrence) throw new Error("CRO08A_SCHEDULE_OCCURRENCE_NOT_FOUND");
+      if (occurrence.definition_hash !== input.scheduleDefinitionHash) throw new Error("CRO08A_SCHEDULE_DEFINITION_HASH_MISMATCH");
+      if (occurrence.enumeration_checkpoint !== "committed") throw new Error("CRO08A_OCCURRENCE_ENUMERATION_NOT_COMMITTED");
+      if (occurrence.cro03c_command_id) throw new Error("CRO08A_OCCURRENCE_ALREADY_BOUND_TO_COMMAND");
+      if (!occurrence.active) throw new Error("CRO08A_SCHEDULE_DEFINITION_NOT_ACTIVE");
+      if (!occurrence.certification_receipt_id) throw new Error("CRO08A_SCHEDULE_DEFINITION_UNCERTIFIED");
+      const budgets = (occurrence.budgets ?? {}) as Record<string, { maxUnitsPerOccurrence?: number }>;
+      const providerBudget = budgets[input.provider!];
+      if (!providerBudget || !Number.isInteger(providerBudget.maxUnitsPerOccurrence) || providerBudget.maxUnitsPerOccurrence! < 0) {
+        throw new Error("CRO08A_PROVIDER_BUDGET_UNDEFINED");
+      }
+      continuousDerivedMaxUnits = Math.min(Number(occurrence.selected_count), providerBudget.maxUnitsPerOccurrence!);
+      // The occurrence's frozen enumeration is the sole authority for which
+      // handoffs may receive provider work under this command: every
+      // caller-supplied handoffId must be exact membership of the durable
+      // selected-handoff set recorded at enumeration-commit time. A bare
+      // selected_count comparison (above) cannot stop a caller from
+      // substituting handoffs outside that authorized population.
+      const authorizedRows = rows(await tx.execute(sql`
+        SELECT handoff_id FROM cro08a_occurrence_selected_handoffs WHERE occurrence_id=${input.scheduleOccurrenceId}::uuid
+      `));
+      const authorizedSet = new Set(authorizedRows.map((r) => String(r.handoff_id)));
+      if (authorizedSet.size === 0) throw new Error("CRO08A_OCCURRENCE_SELECTED_HANDOFFS_MISSING");
+      for (const handoffId of distinctHandoffs) {
+        if (!authorizedSet.has(handoffId)) throw new Error("CRO08A_HANDOFF_NOT_IN_OCCURRENCE_POPULATION");
+      }
+    }
+
     if (input.provider) {
       const schedule = pricing[input.provider] as Cro03cPriceSchedule;
       const contract = CRO03C_PROVIDER_CONTRACTS[input.provider];
@@ -800,6 +888,10 @@ export async function createCro03cCommand(input: {
           (input.maxUnits !== contract.maxCanaryUnits ||
            input.maxAmountMicros !== input.maxUnits * schedule.amountMicros)) {
         throw new Error("CRO03C_CANARY_CAP_INVALID");
+      }
+      if (input.commandType === "continuous_occurrence") {
+        continuousDerivedMaxAmountMicros = continuousDerivedMaxUnits * schedule.amountMicros;
+        if (!Number.isSafeInteger(continuousDerivedMaxAmountMicros)) throw new Error("CRO03C_CONTINUOUS_CAP_INVALID");
       }
     }
     const attestation = rows(await tx.execute(sql`
@@ -888,12 +980,26 @@ export async function createCro03cCommand(input: {
           validationPriceScheduleVersion: Number(pricing.zerobounce.version),
           validationPriceScheduleHash: stableCro03RecipeHash(pricing.zerobounce),
         }
+      : input.commandType === "continuous_occurrence"
+      ? {
+          // A continuous_occurrence command reserves and settles real
+          // provider spend (unlike initial_batch) but, unlike micro_canary,
+          // its unit ceiling is server-derived above from the locked
+          // schedule occurrence/definition budgets — never from the caller.
+          provider: input.provider, maxUnits: continuousDerivedMaxUnits, maxAmountMicros: continuousDerivedMaxAmountMicros,
+          scheduleOccurrenceId: input.scheduleOccurrenceId, scheduleDefinitionHash: input.scheduleDefinitionHash,
+        }
       : { provider: input.provider, maxUnits: input.maxUnits, maxAmountMicros: input.maxAmountMicros };
     // The command key binds the server-derived caps into command identity; an
-    // idempotency token can never silently identify a differently capped scope.
+    // idempotency token can never silently identify a differently capped
+    // scope. For continuous_occurrence, the schedule occurrence id is also
+    // folded in directly (in addition to being inside commandCaps) so a
+    // second create attempt against the same occurrence always replays
+    // rather than minting a second command bound to the same occurrence.
     const commandKey = `cro03c:${input.commandType}:${stableCro03RecipeHash({
       idempotencyKey: input.idempotencyKey, cohortHash, caps: commandCaps,
       activationRevision: Number(policy.expected_revision), runtimeAttestationId: input.runtimeAttestationId,
+      scheduleOccurrenceId: input.scheduleOccurrenceId ?? null,
     })}`;
     await tx.execute(sql`
       INSERT INTO cro03c_commands
@@ -910,8 +1016,23 @@ export async function createCro03cCommand(input: {
     await tx.execute(sql`
       INSERT INTO cro03c_runs(id,command_id,run_key,mode)
       VALUES (${runId}::uuid,${commandId}::uuid,${`cro03c:run:${commandId}`},
-              ${input.commandType === "micro_canary" ? CRO03C_CANARY_MODE : CRO03C_MODE})
+              ${resolveCro03cGenerationMode(input.commandType)})
     `);
+    if (input.commandType === "continuous_occurrence") {
+      // Bind the occurrence to this command in the SAME transaction as
+      // command creation, while the occurrence row is still locked from the
+      // earlier SELECT ... FOR UPDATE above. This is the atomic 1:1 bind
+      // (not the separate, optional bindCro08aOccurrenceCommand helper,
+      // which remains only as a manual repair utility for operators).
+      const bound = await tx.execute(sql`
+        UPDATE cro08a_schedule_occurrences
+           SET cro03c_command_id=${commandId}::uuid, state='reconciling', updated_at=NOW()
+         WHERE id=${input.scheduleOccurrenceId}::uuid
+           AND enumeration_checkpoint='committed'
+           AND cro03c_command_id IS NULL
+      `);
+      if (((bound as any).rowCount ?? 0) !== 1) throw new Error("CRO08A_OCCURRENCE_BIND_FAILED");
+    }
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.command.created','cro03c_command',${commandId},
@@ -953,7 +1074,7 @@ export async function createCro03cCommand(input: {
         INSERT INTO cro03c_generations
           (handoff_id,recipe_version,recipe_hash,mode,activation_revision,command_id,run_id,
            frozen_handoff_hash,stage_plan_hash,cohort_hash,runtime_attestation_id)
-        VALUES (${handoffId}::uuid,${CRO03C_RECIPE_VERSION},${CRO03C_RECIPE_HASH},${CRO03C_MODE},
+        VALUES (${handoffId}::uuid,${CRO03C_RECIPE_VERSION},${CRO03C_RECIPE_HASH},${resolveCro03cGenerationMode(input.commandType)},
                 ${policy.expected_revision},${commandId}::uuid,${runId}::uuid,${frozenHandoffHash},
                  ${stagePlanHash},${cohortHash},${input.runtimeAttestationId}::uuid)
         RETURNING id
@@ -1448,27 +1569,6 @@ export async function reserveCro03cProviderOperation(input: {
       !Number.isInteger(input.maxAmountMicros) || input.maxAmountMicros < 0) throw new Error("CRO03C_CAP_INVALID");
   if (!Number.isInteger(input.priceScheduleVersion) || input.priceScheduleVersion < 1) throw new Error("CRO03C_PRICE_SCHEDULE_INVALID");
   requireHash(input.priceScheduleHash, "PRICE_SCHEDULE");
-  if (input.requestedUnits > contract.maxCanaryUnits && input.stageKey !== "initial_batch") {
-    throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
-  }
-  const authority = rows(await db.execute(sql`
-    SELECT c.caps,c.command_type,c.state,c.cancel_requested_at,c.expires_at,a.price_schedules
-      FROM cro03c_generations g
-      JOIN cro03c_commands c ON c.id=g.command_id
-      JOIN cro03c_activation_policies a ON a.id=c.activation_policy_id
-     WHERE g.id=${input.generationId}::uuid
-  `))[0];
-  if (!authority || authority.state !== "running" || authority.cancel_requested_at ||
-      new Date(authority.expires_at).getTime() <= Date.now()) throw new Error("CRO03C_AUTHORITY_REVOKED");
-  const schedule = (authority.price_schedules ?? {})[input.provider] as Cro03cPriceSchedule | undefined;
-  if (!schedule || schedule.version !== input.priceScheduleVersion ||
-      stableCro03RecipeHash(schedule) !== input.priceScheduleHash) throw new Error("CRO03C_PRICE_SCHEDULE_UNKNOWN");
-  const caps = authority.caps ?? {};
-  if (caps.provider !== input.provider || input.requestedUnits > Number(caps.maxUnits) ||
-      input.maxAmountMicros > Number(caps.maxAmountMicros) ||
-      input.maxAmountMicros !== input.requestedUnits * schedule.amountMicros) {
-    throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
-  }
   const prior = rows(await db.execute(sql`
     SELECT id,max_reserved_units,max_reserved_amount_micros FROM cro03c_stage_operations WHERE operation_key=${input.operationKey}
   `))[0];
@@ -1477,16 +1577,73 @@ export async function reserveCro03cProviderOperation(input: {
         Number(prior.max_reserved_amount_micros) !== input.maxAmountMicros) throw new Error("CRO03C_OPERATION_IDENTITY_CONFLICT");
     return { id: String(prior.id), replayed: true };
   }
-  const operation = rows(await db.execute(sql`
-    INSERT INTO cro03c_stage_operations
-      (generation_id,stage_key,provider,operation_type,operation_key,caller,unit_type,currency,
-       price_schedule_version,price_schedule_hash,max_reserved_units,max_reserved_amount_micros)
-    VALUES (${input.generationId}::uuid,${input.stageKey},${input.provider},${input.operationType},${input.operationKey},
-            ${input.caller},${contract.unitType},${contract.currency},${input.priceScheduleVersion},
-            ${input.priceScheduleHash},${input.requestedUnits},${input.maxAmountMicros})
-    RETURNING id
-  `))[0];
-  return { id: String(operation.id), replayed: false };
+  // The remainder runs inside a transaction that locks the owning command row
+  // (FOR UPDATE OF c). That lock serializes every concurrent reservation
+  // attempt against the same command, which is what makes the continuous_
+  // occurrence aggregate-budget check below atomic: two concurrent stage
+  // operations for the same command can never both read the same "sum so
+  // far" and both slip under the cap — the second reservation always sees
+  // the first one's committed row before it computes its own sum.
+  return db.transaction(async (tx) => {
+    const authority = rows(await tx.execute(sql`
+      SELECT c.id AS command_id,c.caps,c.command_type,c.state,c.cancel_requested_at,c.expires_at,a.price_schedules
+        FROM cro03c_generations g
+        JOIN cro03c_commands c ON c.id=g.command_id
+        JOIN cro03c_activation_policies a ON a.id=c.activation_policy_id
+       WHERE g.id=${input.generationId}::uuid
+       FOR UPDATE OF c
+    `))[0];
+    if (!authority || authority.state !== "running" || authority.cancel_requested_at ||
+        new Date(authority.expires_at).getTime() <= Date.now()) throw new Error("CRO03C_AUTHORITY_REVOKED");
+    // continuous_occurrence commands carry their own server-derived, per-command
+    // caps.maxUnits ceiling (validated below against authority.caps) rather than
+    // the fixed micro-canary sample-size ceiling; the canary ceiling only
+    // applies to actual micro_canary commands and legacy initial_batch stages.
+    if (input.requestedUnits > contract.maxCanaryUnits && input.stageKey !== "initial_batch" &&
+        authority.command_type !== "continuous_occurrence") {
+      throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
+    }
+    const schedule = (authority.price_schedules ?? {})[input.provider] as Cro03cPriceSchedule | undefined;
+    if (!schedule || schedule.version !== input.priceScheduleVersion ||
+        stableCro03RecipeHash(schedule) !== input.priceScheduleHash) throw new Error("CRO03C_PRICE_SCHEDULE_UNKNOWN");
+    const caps = authority.caps ?? {};
+    if (caps.provider !== input.provider || input.requestedUnits > Number(caps.maxUnits) ||
+        input.maxAmountMicros > Number(caps.maxAmountMicros) ||
+        input.maxAmountMicros !== input.requestedUnits * schedule.amountMicros) {
+      throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
+    }
+    if (authority.command_type === "continuous_occurrence") {
+      // Aggregate cap: sum every reservation already made under this command
+      // (across all its generations/stages, excluding ones that were fully
+      // released back with zero settlement) plus this new request must not
+      // exceed the command's own caps.maxUnits/maxAmountMicros ceiling. A
+      // per-reservation check alone (above) is not sufficient — many small
+      // reservations under the per-op ceiling could otherwise sum past the
+      // occurrence's overall provider budget.
+      const agg = rows(await tx.execute(sql`
+        SELECT COALESCE(SUM(o.max_reserved_units),0)::bigint AS units,
+               COALESCE(SUM(o.max_reserved_amount_micros),0)::bigint AS amount
+          FROM cro03c_stage_operations o
+          JOIN cro03c_generations g2 ON g2.id=o.generation_id
+         WHERE g2.command_id=${authority.command_id}::uuid
+           AND o.terminal_disposition IS DISTINCT FROM 'released'
+      `))[0] ?? { units: 0, amount: 0 };
+      if (Number(agg.units) + input.requestedUnits > Number(caps.maxUnits) ||
+          Number(agg.amount) + input.maxAmountMicros > Number(caps.maxAmountMicros)) {
+        throw new Error("CRO08A_OCCURRENCE_AGGREGATE_BUDGET_EXCEEDED");
+      }
+    }
+    const operation = rows(await tx.execute(sql`
+      INSERT INTO cro03c_stage_operations
+        (generation_id,stage_key,provider,operation_type,operation_key,caller,unit_type,currency,
+         price_schedule_version,price_schedule_hash,max_reserved_units,max_reserved_amount_micros)
+      VALUES (${input.generationId}::uuid,${input.stageKey},${input.provider},${input.operationType},${input.operationKey},
+              ${input.caller},${contract.unitType},${contract.currency},${input.priceScheduleVersion},
+              ${input.priceScheduleHash},${input.requestedUnits},${input.maxAmountMicros})
+      RETURNING id
+    `))[0];
+    return { id: String(operation.id), replayed: false };
+  });
 }
 
 export async function settleCro03cProviderOperation(input: {

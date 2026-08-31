@@ -1520,6 +1520,41 @@
       "when": 1799600000000,
       "tag": "0212_cro07_immutability_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 217,
+      "version": "7",
+      "when": 1799700000000,
+      "tag": "0213_cro08a_continuous_candidate_factory",
+      "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "7",
+      "when": 1799800000000,
+      "tag": "0214_cro08a_run_mode_widen",
+      "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1799800100000,
+      "tag": "0215_cro08a_occurrence_selected_handoffs",
+      "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "7",
+      "when": 1799800200000,
+      "tag": "0216_cro08a_generation_mode_widen",
+      "breakpoints": true
+    },
+    {
+      "idx": 221,
+      "version": "7",
+      "when": 1799800300000,
+      "tag": "0217_cro08a_generation_mode_widen_canary",
+      "breakpoints": true
     }
   ]
 }

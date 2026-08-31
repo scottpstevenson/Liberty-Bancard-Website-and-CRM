@@ -38,7 +38,7 @@ import {
 import { createPreferenceAwareNotification } from "./digest-service";
 import { getWorkflowEnvValue } from "./ghl-workflows";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
-import { denyCro03cForbiddenEffect } from "./cro03/cro03c-effect-fence";
+import { denyCro03OrCro08aForbiddenEffect as denyCro03cForbiddenEffect } from "./cro03/cro08a-effect-fence";
 
 const SALES_CALENDAR = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
 const AM_CALENDAR = "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";

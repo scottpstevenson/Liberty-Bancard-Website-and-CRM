@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, customType, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, customType, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1322,6 +1322,121 @@ export const cro03cForbiddenEffects = pgTable("cro03c_forbidden_effects", {
   evidenceHash: text("evidence_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// CRO-08A: Continuous Candidate Factory & Enrichment Operations.
+// Scope is deliberately narrow: versioned schedule authority + durable
+// occurrence/checkpoint contract for discovery/enrichment/freshness/backfill
+// only, a real daily/monthly provider budget rollover ledger, and a minimal
+// CRO-03D production-certification receipt gating schedule activation.
+// Provider I/O itself is created via a new continuous_occurrence CRO-03C
+// command type (see cro03cCommands.commandType) and goes through the
+// existing, unchanged CRO-03C authority/reservation/settlement pathway.
+// ---------------------------------------------------------------------------
+export const cro08aCertificationReceipts = pgTable("cro08a_certification_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  releaseSha: text("release_sha").notNull(),
+  migrationHead: text("migration_head").notNull(),
+  providerSet: jsonb("provider_set").$type<string[]>().notNull(),
+  priceScheduleHash: text("price_schedule_hash").notNull(),
+  approvalReceiptIds: jsonb("approval_receipt_ids").$type<string[]>().notNull(),
+  runtimeAttestationId: uuid("runtime_attestation_id").notNull().references(() => cro03cRuntimeAttestations.id, { onDelete: "restrict" }),
+  outboundPauseEpoch: bigint("outbound_pause_epoch", { mode: "number" }).notNull(),
+  issuedBy: text("issued_by").notNull(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedReason: text("revoked_reason"),
+});
+
+export const cro08aScheduleDefinitions = pgTable("cro08a_schedule_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  logicalKey: text("logical_key").notNull(),
+  definitionVersion: integer("definition_version").notNull(),
+  purpose: text("purpose").notNull(),
+  sourceRecipePolicyVersions: jsonb("source_recipe_policy_versions").notNull().default({}),
+  cadenceCron: text("cadence_cron").notNull(),
+  timezone: text("timezone").notNull().default("UTC"),
+  windowSeconds: integer("window_seconds").notNull(),
+  overlapSeconds: integer("overlap_seconds").notNull().default(0),
+  batchSize: integer("batch_size").notNull(),
+  concurrencyLimit: integer("concurrency_limit").notNull(),
+  cursorSemantics: jsonb("cursor_semantics").notNull().default({}),
+  budgets: jsonb("budgets").notNull().default({}),
+  timeoutMs: integer("timeout_ms").notNull(),
+  leaseMs: integer("lease_ms").notNull(),
+  heartbeatMs: integer("heartbeat_ms").notNull(),
+  retryPolicy: jsonb("retry_policy").notNull().default({}),
+  deadLetterPolicy: jsonb("dead_letter_policy").notNull().default({}),
+  downstreamOwner: text("downstream_owner").notNull(),
+  cancellationBehavior: text("cancellation_behavior").notNull().default("preserve_completed_evidence"),
+  definitionHash: text("definition_hash").notNull().unique(),
+  active: boolean("active").notNull().default(false),
+  activeVersion: integer("active_version").notNull().default(0),
+  activationEpoch: bigint("activation_epoch", { mode: "number" }),
+  activatedBy: text("activated_by"),
+  activationReason: text("activation_reason"),
+  activationExpiresAt: timestamp("activation_expires_at", { withTimezone: true }),
+  certificationReceiptId: uuid("certification_receipt_id").references(() => cro08aCertificationReceipts.id, { onDelete: "restrict" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro08a_schedule_definition_version_uidx").on(table.logicalKey, table.definitionVersion),
+]);
+
+export const cro08aScheduleOccurrences = pgTable("cro08a_schedule_occurrences", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scheduleDefinitionId: uuid("schedule_definition_id").notNull().references(() => cro08aScheduleDefinitions.id, { onDelete: "restrict" }),
+  definitionHash: text("definition_hash").notNull(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
+  frozenCursorSnapshot: jsonb("frozen_cursor_snapshot").notNull(),
+  frozenPopulationHash: text("frozen_population_hash").notNull(),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  state: text("state").notNull().default("open"),
+  enumerationCheckpoint: text("enumeration_checkpoint").notNull().default("pending"),
+  enumerationCommittedAt: timestamp("enumeration_committed_at", { withTimezone: true }),
+  selectionReceiptHash: text("selection_receipt_hash"),
+  selectedCount: integer("selected_count").notNull().default(0),
+  reconciliationCheckpoint: text("reconciliation_checkpoint").notNull().default("pending"),
+  reconciliationCompletedAt: timestamp("reconciliation_completed_at", { withTimezone: true }),
+  terminalCount: integer("terminal_count").notNull().default(0),
+  cro03cCommandId: uuid("cro03c_command_id").references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cro08a_occurrence_window_uidx").on(table.scheduleDefinitionId, table.windowStart, table.windowEnd),
+  uniqueIndex("cro08a_occurrence_command_uidx").on(table.cro03cCommandId),
+  index("cro08a_occurrence_claim_idx").on(table.state, table.leaseExpiresAt),
+]);
+
+export const cro08aOccurrenceSelectedHandoffs = pgTable("cro08a_occurrence_selected_handoffs", {
+  occurrenceId: uuid("occurrence_id").notNull().references(() => cro08aScheduleOccurrences.id, { onDelete: "restrict" }),
+  handoffId: uuid("handoff_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.occurrenceId, table.handoffId] }),
+  index("cro08a_occurrence_selected_handoffs_occurrence_idx").on(table.occurrenceId),
+]);
+
+export const providerBudgetPeriodLedger = pgTable("provider_budget_period_ledger", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull().references(() => providerControls.provider, { onDelete: "restrict" }),
+  periodKey: text("period_key").notNull(),
+  periodStartedAt: timestamp("period_started_at", { withTimezone: true }).notNull(),
+  periodEndedAt: timestamp("period_ended_at", { withTimezone: true }).notNull(),
+  consumedUnits: integer("consumed_units").notNull(),
+  localBudgetUnits: integer("local_budget_units"),
+  closedReservationVersion: integer("closed_reservation_version").notNull(),
+  closedBy: text("closed_by").notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("provider_budget_period_uidx").on(table.provider, table.periodKey, table.periodStartedAt),
+]);
 
 export const cro03cValidationAuthorizations = pgTable("cro03c_validation_authorizations", {
   id: uuid("id").primaryKey().defaultRandom(),
