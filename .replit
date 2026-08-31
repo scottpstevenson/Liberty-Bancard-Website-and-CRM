@@ -147,3 +147,4 @@ CRO03C_TRUSTED_APPROVAL_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY----
 CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFcovVqe++ZaPNQgtlEJmxJP+Dr3IKNrzeOhlGUyYuw0=\n-----END PUBLIC KEY-----\n"}'
 
 [userenv.production]
+PROCESS_IDENTITY = "ordinal:0"
