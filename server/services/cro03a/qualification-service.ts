@@ -119,8 +119,8 @@ async function loadOccurrences(
                EXISTS (
                  SELECT 1 FROM deals d
                   WHERE d.contact_id=COALESCE(p.contact_id,p.conversion_contact_id)
-                    AND lower(COALESCE(d.status,'')) NOT LIKE '%closed%'
-                    AND lower(COALESCE(d.status,'')) NOT LIKE '%lost%'
+                    AND lower(COALESCE(d.stage,'')) NOT LIKE '%closed%'
+                    AND lower(COALESCE(d.stage,'')) NOT LIKE '%lost%'
                ) AS open_opportunity
           FROM prospects p
           LEFT JOIN contacts c ON c.id=COALESCE(p.contact_id,p.conversion_contact_id)
