@@ -143,8 +143,8 @@ VITE_GHL_CALENDAR_URL = "https://api.leadconnectorhq.com/widget/booking/YFiIy7oI
 GHL_DEFAULT_CALENDAR_ID = "YFiIy7oIOUXN2qZZPnOr"
 GHL_CALENDAR_BOOKING_URL = "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr"
 SENDER_DOMAIN_SPF_VERIFIED = "true"
-CRO03C_TRUSTED_APPROVAL_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAeLJAS2A2w0qOJEKdJioiTLgXzLg1s3nr0/wFMMxgfvA=\n-----END PUBLIC KEY-----\n"}'
-CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjp675Cw0sNV1xfy24zt+IwlhL8FxqUqMwaiaMV8p9YM=\n-----END PUBLIC KEY-----\n"}'
+CRO03C_TRUSTED_APPROVAL_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAsgt87U3vG4PWLKj3MU/5yjKYRzEFhWc58lEkD8R69Kk=\n-----END PUBLIC KEY-----\n"}'
+CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS = '{"cro03d-operator":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAE2JcCFvn2NmMo2wPUVYUmjBiKfJr8/gCu2f2jzuaQf4=\n-----END PUBLIC KEY-----\n"}'
 
 [userenv.production]
 PROCESS_IDENTITY = "ordinal:0"
