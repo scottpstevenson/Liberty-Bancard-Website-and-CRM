@@ -715,8 +715,13 @@ export async function stageCro03aSourceCensus(input: {
     db.select().from(sunbizEntities).where(and(gt(sunbizEntities.id, cursors.sunbiz.value), lte(sunbizEntities.id, cursors.sunbiz.highWater))).orderBy(sunbizEntities.id).limit(limit),
     db.select().from(sdrMerchants).where(and(gt(sdrMerchants.id, cursors.merchants.value), lte(sdrMerchants.id, cursors.merchants.highWater))).orderBy(sdrMerchants.id).limit(limit),
     db.select().from(leadDiscoveryResults).where(and(gt(leadDiscoveryResults.id, cursors.discovery.value), lte(leadDiscoveryResults.id, cursors.discovery.highWater))).orderBy(leadDiscoveryResults.id).limit(limit),
-    db.select().from(masterLeads).where(and(
-      gt(masterLeads.id, cursors.master.valueText),
+    // uuid cursors: empty-string sentinels are not valid uuid literals, so they must
+    // never be passed into a uuid-column comparison. An empty highWaterText means the
+    // source table had zero rows at snapshot time — nothing to fetch. An empty
+    // valueText means scanning has not started yet — omit the lower bound instead of
+    // comparing against ''.
+    !cursors.master.highWaterText ? Promise.resolve([]) : db.select().from(masterLeads).where(and(
+      ...(cursors.master.valueText ? [gt(masterLeads.id, cursors.master.valueText)] : []),
       lte(masterLeads.id, cursors.master.highWaterText),
       isNull(masterLeads.canonicalLeadId),
       isNull(masterLeads.duplicateOfId),
