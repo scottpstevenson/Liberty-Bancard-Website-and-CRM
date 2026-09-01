@@ -26,6 +26,17 @@ export type Cro03aSourceDraft = {
 const text = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
+// Drizzle returns timestamp columns as JS Date objects (not strings), so any
+// observed-at field sourced from a `db.select()` row must accept both shapes.
+// A string-only check here silently drops every real row's timestamp.
+const toIsoTimestamp = (value: unknown): string | undefined => {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : undefined;
+  const raw = text(value);
+  if (!raw) return undefined;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
+};
+
 function base(
   subjectType: Cro03SourceSubjectType,
   subjectKey: string,
@@ -35,9 +46,7 @@ function base(
   candidateValues: Partial<Record<Cro03CandidateField, string>>,
   provenance: Record<string, unknown> = {},
 ): Cro03aSourceDraft {
-  const rawObservedAt = text(payload.updatedAt) ?? text(payload.createdAt) ?? text(payload.sourceModifiedDate);
-  const parsedObservedAt = rawObservedAt && Number.isFinite(Date.parse(rawObservedAt))
-    ? new Date(rawObservedAt).toISOString() : undefined;
+  const parsedObservedAt = toIsoTimestamp(payload.updatedAt) ?? toIsoTimestamp(payload.createdAt) ?? toIsoTimestamp(payload.sourceModifiedDate);
   return {
     subjectType, subjectKey, sourceSystem, sourceEventKey,
     sourceObservedAt: parsedObservedAt,
