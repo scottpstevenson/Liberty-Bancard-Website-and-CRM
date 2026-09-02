@@ -89,6 +89,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "pure source adapters, geography, fit, and source-boundary scans; no providers",
   },
   {
+    name: "CRO-03A Geography Reference v2",
+    script: "scripts/test-cro03a-geography.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure geography evaluator; no DB, no providers",
+  },
+  {
+    name: "CRO-03A Batch Processor Semantic Equivalence",
+    script: "scripts/test-cro03a-batch-equivalence.ts",
+    capability: "server-required",
+    providerDenial: "qualification-service batch processor vs per-item evaluator; no GHL/SMTP",
+  },
+  {
+    name: "CRO-03A Batch Processor Performance & Recovery",
+    script: "scripts/test-cro03a-batch-performance.ts",
+    capability: "server-required",
+    providerDenial: "batch processor timing, idempotency, crash-resume, cancellation; no GHL/SMTP",
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Authority Guard",
     script: "scripts/test-bt12-revenue-state-reconciliation.ts",
     capability: "deterministic-static",
