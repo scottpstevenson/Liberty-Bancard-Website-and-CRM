@@ -549,7 +549,7 @@ export async function getCro03aRun(runId: string, actorId: string, role: string)
   if (!run || (role !== "admin" && String(run.actor_id) !== actorId)) return null;
   const decisions = resultRows(await db.execute(sql`
     SELECT d.id,d.disposition,d.score,d.reason_codes,d.missing_field_classes,d.selection_hash,
-           s.subject_type,s.source_system,encode(digest(s.subject_key,'sha256'),'hex') AS source_key_hash,
+           s.subject_type,s.source_system,encode(sha256(s.subject_key::bytea),'hex') AS source_key_hash,
            h.id AS handoff_id,h.effect_authorized
       FROM cro03a_qualification_decisions d
       JOIN cro03_source_occurrences o ON o.id=d.occurrence_id
@@ -641,7 +641,7 @@ export async function getCro03aSourceCensus() {
   const candidates = resultRows(await db.execute(sql`
     SELECT DISTINCT ON (s.id)
            o.id AS occurrence_id,s.subject_type,s.source_system,
-           encode(digest(s.subject_key,'sha256'),'hex') AS source_key_hash,
+           encode(sha256(s.subject_key::bytea),'hex') AS source_key_hash,
            o.source_observed_at
       FROM cro03_source_occurrences o
       JOIN cro03_source_subjects s ON s.id=o.source_subject_id
