@@ -517,10 +517,331 @@ export async function processCro03aQualificationRun(runId: string): Promise<void
   }
 }
 
+// ---------------------------------------------------------------------------
+// Single-pass batch processor (replaces processCro03aQualificationRun).
+//
+// Complexity: O(N) queries + O(N) data loaded regardless of population size.
+//
+// Safety guarantees preserved from the per-item implementation:
+//   - Execution fences (claim_token + execution_fence verified before each write)
+//   - Lease-based stale-worker denial (15-minute batch lease)
+//   - Per-subject advisory locks within each write chunk
+//   - Immutable decisions and handoffs (ON CONFLICT DO NOTHING)
+//   - Crash recovery: re-run claims stale-claimed + queued remainders
+//   - Cancellation: checked before every chunk; queued items cancelled in bulk
+//   - Run counter reconciliation after every chunk and at completion
+// ---------------------------------------------------------------------------
+
+/**
+ * Bulk-load prior-handoff flags for a set of occurrences.
+ * Replaces N individual "SELECT id FROM cro03a_handoffs WHERE source_type=… LIMIT 1" queries.
+ * Sets occurrence.provenance.priorSelectedHandoff = true for any occurrence whose subject
+ * already has a handoff in cro03a_handoffs (from any run, including earlier runs).
+ */
+async function bulkMarkPriorHandoffs(occurrences: FrozenOccurrence[], executor: any = db): Promise<void> {
+  if (!occurrences.length) return;
+  const occurrenceIds = occurrences.map((o) => o.occurrenceId);
+  // Join through source_subjects so we can filter by occurrence id without building
+  // an N-element (type, system, key) tuple literal in the query.
+  const priorRows = resultRows(await executor.execute(sql`
+    SELECT DISTINCT s.subject_type, s.source_system, s.subject_key
+      FROM cro03a_handoffs h
+      JOIN cro03_source_subjects s
+        ON s.subject_type = h.source_type
+       AND s.source_system = h.source_system
+       AND s.subject_key   = h.source_key
+     WHERE s.id IN (
+       SELECT o.source_subject_id
+         FROM cro03_source_occurrences o
+        WHERE o.id IN (${sql.join(occurrenceIds.map((id) => sql`${id}::uuid`), sql`,`)})
+     )
+  `));
+  if (!priorRows.length) return;
+  const priorSet = new Set(priorRows.map((r) => `${r.subject_type}|${r.source_system}|${r.subject_key}`));
+  for (const occ of occurrences) {
+    if (priorSet.has(`${occ.subjectType}|${occ.sourceSystem}|${occ.subjectKey}`)) {
+      occ.provenance.priorSelectedHandoff = true;
+    }
+  }
+}
+
+const BATCH_CHUNK_SIZE = 20;
+const BATCH_LEASE_INTERVAL = "15 minutes";
+
+/**
+ * Single-pass batch qualification processor.
+ *
+ * Query profile vs. the legacy per-item loop (N = population size):
+ *   Legacy:  2N occurrence loads + N authority-evidence loads + N handoff probes
+ *            + N full-set evaluations  →  O(N²) total work
+ *   Batch:   1 occurrence load + 1 authority-evidence load + 1 handoff bulk probe
+ *            + 1 full-set evaluation + ⌈N/chunk⌉ write transactions  →  O(N) total work
+ *
+ * Semantic equivalence:
+ *   - Same frozen occurrence set, policy, algorithm identity, and evaluatedAsOf timestamp
+ *   - Provenance assembled from stored authority_evidence (captured at run-creation time)
+ *     plus a single up-to-date prior-handoff scan (mirrors the per-item handoff probe)
+ *   - evaluateOccurrenceSet called once in deterministic ordinal order → same duplicate
+ *     winner and same dispositions, scores, reason codes, and selection hashes
+ */
+export async function processCro03aQualificationRunBatch(runId: string): Promise<void> {
+  // ── Step 1: Claim all queued (and stale-claimed) items in one shot ─────────
+  type BatchMeta = {
+    policyId: string; policyHash: string; actorId: string; evaluatedAsOf: string;
+    frozenOccurrenceIds: string[];
+    items: Array<{
+      id: string; occurrenceId: string; claimToken: string; executionFence: number;
+      authorityEvidence: Record<string, unknown>; authorityEvaluatedAt: string; ordinal: number;
+    }>;
+  };
+
+  const meta = await db.transaction(async (tx): Promise<BatchMeta | null> => {
+    const run = resultRows(await tx.execute(sql`
+      SELECT id,policy_id,policy_hash,actor_id,state,created_at,cancel_requested_at,frozen_occurrence_ids
+        FROM cro03a_qualification_runs WHERE id=${runId}::uuid FOR UPDATE
+    `))[0];
+    if (!run) throw new Error("CRO03A_RUN_NOT_FOUND");
+    if (!["queued","running"].includes(String(run.state))) return null;
+    // Cancellation requested before any items were claimed: drain all queued items
+    // and terminate the run so the state machine reaches 'cancelled'.
+    if (run.cancel_requested_at != null) {
+      await tx.execute(sql`
+        UPDATE cro03a_qualification_items
+           SET state='cancelled',claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()
+         WHERE run_id=${runId}::uuid AND state='queued'
+      `);
+      await reconcileCro03aRun(tx, runId);
+      return null;
+    }
+
+    // Claim queued items and expired-lease claimed items atomically.
+    const claimedRows = resultRows(await tx.execute(sql`
+      UPDATE cro03a_qualification_items
+         SET state='claimed', claim_token=gen_random_uuid(),
+             lease_expires_at=NOW()+INTERVAL ${sql.raw(`'${BATCH_LEASE_INTERVAL}'`)},
+             execution_fence=execution_fence+1, updated_at=NOW()
+       WHERE run_id=${runId}::uuid
+         AND (state='queued' OR (state='claimed' AND lease_expires_at <= NOW()))
+       RETURNING id,occurrence_id,claim_token,execution_fence,authority_evidence,authority_evaluated_at,ordinal
+    `));
+
+    // Transition run to 'running'.
+    await tx.execute(sql`
+      UPDATE cro03a_qualification_runs
+         SET state='running',started_at=COALESCE(started_at,NOW()),updated_at=NOW()
+       WHERE id=${runId}::uuid AND state IN ('queued','running')
+    `);
+
+    return {
+      policyId: String(run.policy_id), policyHash: String(run.policy_hash),
+      actorId: String(run.actor_id),
+      evaluatedAsOf: new Date(run.created_at).toISOString(),
+      frozenOccurrenceIds: json<string[]>(run.frozen_occurrence_ids),
+      items: claimedRows.map((row) => ({
+        id: String(row.id), occurrenceId: String(row.occurrence_id),
+        claimToken: String(row.claim_token), executionFence: Number(row.execution_fence),
+        authorityEvidence: json<Record<string, unknown>>(row.authority_evidence),
+        authorityEvaluatedAt: new Date(row.authority_evaluated_at).toISOString(),
+        ordinal: Number(row.ordinal),
+      })),
+    };
+  });
+
+  // Nothing to do: run completed, cancelled, or all items already claimed by a live worker.
+  if (!meta || !meta.items.length) return;
+
+  const { policyId, policyHash, actorId, evaluatedAsOf, frozenOccurrenceIds } = meta;
+
+  // ── Step 2: Load policy once ────────────────────────────────────────────────
+  const policyRow = resultRows(await db.execute(sql`
+    SELECT id,version,policy_hash,policy FROM cro03a_policy_documents WHERE id=${policyId}::uuid
+  `))[0];
+  if (!policyRow || String(policyRow.policy_hash) !== policyHash) throw new Error("CRO03A_FROZEN_POLICY_INVALID");
+  const policy: ActivePolicy = {
+    id: String(policyRow.id), version: Number(policyRow.version),
+    policyHash: String(policyRow.policy_hash), policy: json(policyRow.policy), controlVersion: 0,
+  };
+
+  // ── Step 3: Load all frozen occurrences once (no per-item relationship queries) ──
+  const allOccurrences = await loadOccurrences(frozenOccurrenceIds, db, { enrichRelationships: false });
+  const occurrenceMap = new Map(allOccurrences.map((o) => [o.occurrenceId, o]));
+
+  // ── Step 4: Apply stored authority evidence to every occurrence (one query) ──
+  // authority_evidence was captured at run-creation time and contains relationship
+  // flags (existingCustomerFlag, doNotContactFlag, openOpportunity, etc.) that were
+  // loaded via loadOccurrences(…, { enrichRelationships: true }) at that moment.
+  // We merge it into provenance exactly as the per-item path does.
+  const allAuthorityRows = resultRows(await db.execute(sql`
+    SELECT occurrence_id,authority_evidence,authority_evaluated_at
+      FROM cro03a_qualification_items WHERE run_id=${runId}::uuid
+  `));
+  for (const row of allAuthorityRows) {
+    const occ = occurrenceMap.get(String(row.occurrence_id));
+    if (occ) {
+      occ.provenance = {
+        ...occ.provenance,
+        ...json<Record<string, unknown>>(row.authority_evidence),
+        authorityEvaluatedAt: new Date(row.authority_evaluated_at).toISOString(),
+      };
+    }
+  }
+
+  // ── Step 5: Bulk-load prior-handoff flags (one query, mirrors per-item probe) ──
+  // Only check newly-claimed occurrences; completed items already have stable evidence.
+  const claimedOccurrenceIds = new Set(meta.items.map((ci) => ci.occurrenceId));
+  const claimedOccs = meta.items
+    .map((ci) => occurrenceMap.get(ci.occurrenceId))
+    .filter((o): o is FrozenOccurrence => !!o);
+  await bulkMarkPriorHandoffs(claimedOccs);
+
+  // ── Step 6: Evaluate full frozen occurrence set once in ordinal order ────────
+  // frozenOccurrenceIds is sorted alphabetically (same sort used to assign ordinals
+  // at run-creation time), so iterating it gives the correct ordinal sequence for
+  // DUPLICATE_SUBJECT_IN_RUN deduplication.
+  const orderedOccurrences = frozenOccurrenceIds
+    .map((id) => occurrenceMap.get(id))
+    .filter((o): o is FrozenOccurrence => !!o);
+  const allEvaluations = evaluateOccurrenceSet(orderedOccurrences, policy, evaluatedAsOf);
+
+  // Build a lookup from occurrenceId → item (for the write phase).
+  const itemByOccurrence = new Map(meta.items.map((ci) => [ci.occurrenceId, ci]));
+
+  // Only persist decisions for newly-claimed items; already-completed items have
+  // immutable decisions in the DB.  Preserve ordinal order within the write batches.
+  const toPersist = allEvaluations.filter(({ occurrence }) => claimedOccurrenceIds.has(occurrence.occurrenceId));
+
+  // Pre-compute algorithm identity once (same for all items in the run).
+  const algorithmIdentity = algorithmIdentityFor(policy.policy);
+  const algorithmIdentityHash = algorithmIdentityHashFor(policy.policy);
+
+  // ── Step 7: Persist decisions in bounded, crash-safe chunks ─────────────────
+  for (let i = 0; i < toPersist.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = toPersist.slice(i, i + BATCH_CHUNK_SIZE);
+
+    await db.transaction(async (tx) => {
+      // Check cancellation before every chunk.
+      const runCheck = resultRows(await tx.execute(sql`
+        SELECT cancel_requested_at FROM cro03a_qualification_runs
+         WHERE id=${runId}::uuid FOR UPDATE
+      `))[0];
+      if (runCheck?.cancel_requested_at != null) {
+        await tx.execute(sql`
+          UPDATE cro03a_qualification_items
+             SET state='cancelled',claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()
+           WHERE run_id=${runId}::uuid AND state='claimed'
+        `);
+        await reconcileCro03aRun(tx, runId);
+        return;
+      }
+
+      for (const { occurrence, evaluation } of chunk) {
+        const item = itemByOccurrence.get(occurrence.occurrenceId);
+        if (!item) continue;
+
+        // Per-subject advisory lock prevents concurrent runs writing the same handoff.
+        await tx.execute(sql`
+          SELECT pg_advisory_xact_lock(hashtextextended(${"cro03a-subject:" + occurrence.subjectId},0))
+        `);
+
+        // Verify execution fence — denies stale workers that lost their lease.
+        const locked = resultRows(await tx.execute(sql`
+          SELECT i.id
+            FROM cro03a_qualification_items i
+            JOIN cro03a_qualification_runs r ON r.id=i.run_id
+           WHERE i.id=${item.id}::uuid AND i.state='claimed'
+             AND i.claim_token=${item.claimToken}::uuid
+             AND i.execution_fence=${item.executionFence}
+             AND i.lease_expires_at > NOW()
+             AND r.state='running'
+           FOR UPDATE
+        `))[0];
+        if (!locked) continue; // stale worker or concurrent modification — skip safely
+
+        const decisionSelectionHash = hashCro03Evidence({
+          occurrenceIds: [occurrence.occurrenceId], payloadHash: occurrence.payloadHash,
+          policyId: policy.id, policyHash: policy.policyHash, disposition: evaluation.disposition,
+          algorithmIdentityHash, score: evaluation.score, components: evaluation.fitComponents,
+        });
+
+        // Immutable decision — ON CONFLICT is the idempotency guard.
+        const decision = resultRows(await tx.execute(sql`
+          INSERT INTO cro03a_qualification_decisions
+            (item_id,run_id,occurrence_id,disposition,score,geography_result,vertical_result,
+             active_state_evidence,identity_relationship_evidence,fit_components,reason_codes,
+             missing_field_classes,frozen_occurrence_ids,policy_id,policy_version,policy_hash,
+             selection_hash,algorithm_identity,algorithm_identity_hash)
+          VALUES (${item.id}::uuid,${runId}::uuid,${occurrence.occurrenceId}::uuid,
+                  ${evaluation.disposition},${evaluation.score},
+                  ${JSON.stringify(evaluation.geography)}::jsonb,
+                  ${JSON.stringify(evaluation.vertical)}::jsonb,
+                  ${JSON.stringify(evaluation.activeStateEvidence)}::jsonb,
+                  ${JSON.stringify(evaluation.identityRelationshipEvidence)}::jsonb,
+                  ${JSON.stringify(evaluation.fitComponents)}::jsonb,
+                  ${JSON.stringify(evaluation.reasonCodes)}::jsonb,
+                  ${JSON.stringify(evaluation.missingFieldClasses)}::jsonb,
+                  ${JSON.stringify([occurrence.occurrenceId])}::jsonb,
+                  ${policy.id}::uuid,${policy.version},${policy.policyHash},
+                  ${decisionSelectionHash},
+                  ${JSON.stringify(algorithmIdentity)}::jsonb,${algorithmIdentityHash})
+          ON CONFLICT(item_id) DO NOTHING
+          RETURNING id
+        `))[0];
+
+        // Immutable handoff — only for selected occurrences; advisory lock prevents duplicate.
+        if (evaluation.disposition === "selected" && decision) {
+          await tx.execute(sql`
+            INSERT INTO cro03a_handoffs
+              (run_id,decision_id,source_type,source_system,source_key,occurrence_ids,
+               policy_id,policy_version,policy_hash,reason_codes,missing_field_classes,
+               selection_hash,effect_authorized,algorithm_identity,algorithm_identity_hash)
+            VALUES (${runId}::uuid,${decision.id}::uuid,
+                    ${occurrence.subjectType},${occurrence.sourceSystem},${occurrence.subjectKey},
+                    ${JSON.stringify([occurrence.occurrenceId])}::jsonb,
+                    ${policy.id}::uuid,${policy.version},${policy.policyHash},
+                    ${JSON.stringify(evaluation.reasonCodes)}::jsonb,
+                    ${JSON.stringify(evaluation.missingFieldClasses)}::jsonb,
+                    ${decisionSelectionHash},FALSE,
+                    ${JSON.stringify(algorithmIdentity)}::jsonb,${algorithmIdentityHash})
+            ON CONFLICT DO NOTHING
+          `);
+        }
+
+        // Mark item completed — execution fence protects against double-write.
+        await tx.execute(sql`
+          UPDATE cro03a_qualification_items
+             SET state='completed',claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()
+           WHERE id=${item.id}::uuid AND state='claimed'
+             AND claim_token=${item.claimToken}::uuid
+             AND execution_fence=${item.executionFence}
+        `);
+      }
+
+      // Reconcile counters after every chunk so polling sees live progress.
+      await reconcileCro03aRun(tx, runId);
+    });
+  }
+
+  // ── Step 8: Final reconcile + completion audit log ───────────────────────────
+  await db.transaction(async (tx) => {
+    const state = await reconcileCro03aRun(tx, runId);
+    if (state === "completed") {
+      await tx.execute(sql`
+        INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
+        SELECT ${actorId},'cro03a_qualification_run_completed','cro03a_qualification_run',
+               ${runId},jsonb_build_object('reconciled',TRUE,'batchMode',TRUE),'user',${actorId}
+         WHERE NOT EXISTS (
+           SELECT 1 FROM audit_logs
+            WHERE action='cro03a_qualification_run_completed' AND entity_key=${runId}
+         )
+      `);
+    }
+  });
+}
+
 /** Queue-worker entrypoint.  It is safe to retry: item claims and fences own effects. */
 export async function processCro03aQualificationRunQueueSafe(runId: string): Promise<void> {
   if (!/^[0-9a-f-]{36}$/i.test(runId)) throw new Error("CRO03A_INVALID_RUN_ID");
-  await processCro03aQualificationRun(runId);
+  await processCro03aQualificationRunBatch(runId);
 }
 
 /** Recovery entrypoint for the queue's periodic sweep; it never steals live leases. */
