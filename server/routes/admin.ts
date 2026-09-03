@@ -3118,16 +3118,29 @@ export function registerAdminRoutes(app: Express) {
       const smtpOk = isSmtpConfigured();
       const ghlCircuit = getGhlCircuitStatus();
 
+      // ── Per-operation timeout helper ──────────────────────────────────────────
+      // The launch-readiness endpoint must respond within the smoke-role-guards
+      // 30-second abort window. Wrap slow async operations with a bounded race
+      // so one stalled subsystem cannot block the whole response.
+      function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+        return Promise.race([
+          promise,
+          new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+        ]);
+      }
+
       // ── Queue metrics ─────────────────────────────────────────────────────────
       let queueMetrics: any[] = [];
       let queueMode: "bullmq_redis" | "legacy_interval_partial" | "unavailable" = "unavailable";
       let queueStatus: "ok" | "not_initialized" = "not_initialized";
       try {
         const qm = requireQueueManagerReady();
-        const m = await qm.getAllQueueMetrics();
-        queueMetrics = m.queues;
-        queueMode = m.queueMode;
-        queueStatus = "ok";
+        const m = await withTimeout(qm.getAllQueueMetrics(), 8_000, null);
+        if (m) {
+          queueMetrics = m.queues;
+          queueMode = m.queueMode;
+          queueStatus = "ok";
+        }
       } catch {}
 
       const dlqCount = queueMetrics.reduce((sum, q) => sum + (q.failed || 0), 0);
@@ -3137,7 +3150,7 @@ export function registerAdminRoutes(app: Express) {
 
       // ── Backups ───────────────────────────────────────────────────────────────
       let backups: any[] = [];
-      try { backups = await listBackups(); } catch {}
+      try { backups = await withTimeout(listBackups(), 8_000, []); } catch {}
 
       // ── DB health ─────────────────────────────────────────────────────────────
       let dbOk = false;
@@ -3150,7 +3163,11 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
 
       // ── Alert feed ────────────────────────────────────────────────────────────
-      const alertFeed = await getRecentAlerts(20);
+      const alertFeed: Awaited<ReturnType<typeof getRecentAlerts>> = await withTimeout(
+        getRecentAlerts(20),
+        8_000,
+        { alerts: [], degraded: true, error: "timed out" },
+      );
       const criticalAlerts = alertFeed.alerts.filter((a) => a.severity === "critical" && !a.acknowledged);
 
       // ── Audit log probes ──────────────────────────────────────────────────────

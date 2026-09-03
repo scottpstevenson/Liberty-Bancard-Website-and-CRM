@@ -131,6 +131,33 @@ function buildApplicantPayload(p: MerchantProfile): Record<string, unknown> {
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
+/**
+ * Configurable rate-limit back-off delay (ms). Applied when Payarc returns
+ * X-RateLimit-Remaining ≤ 1 or when the header is absent (fail-safe).
+ * Default: 2 000 ms. Override via PAYARC_RATE_LIMIT_BACKOFF_MS env var.
+ */
+function getRateLimitBackoffMs(): number {
+  const val = parseInt(process.env.PAYARC_RATE_LIMIT_BACKOFF_MS ?? "", 10);
+  return Number.isFinite(val) && val > 0 ? val : 2_000;
+}
+
+/**
+ * After every Payarc response, inspect X-RateLimit-Remaining.
+ * If the value is 0, absent, or unparseable, insert a back-off delay
+ * before the next request to prevent 429 exhaustion.
+ */
+async function applyRateLimitBackoff(headers: Headers, path: string): Promise<void> {
+  const remaining = headers.get("x-ratelimit-remaining") ?? headers.get("X-RateLimit-Remaining");
+  const remainingCount = remaining !== null ? parseInt(remaining, 10) : NaN;
+  if (isNaN(remainingCount) || remainingCount <= 1) {
+    const delayMs = getRateLimitBackoffMs();
+    console.warn(
+      `[PayarcAdapter] Rate-limit back-off: X-RateLimit-Remaining=${remaining ?? "absent"} on ${path} — pausing ${delayMs}ms`,
+    );
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+}
+
 async function payarcRequest<T = unknown>(
   apiKey: string,
   baseUrl: string,
@@ -139,7 +166,7 @@ async function payarcRequest<T = unknown>(
   body?: unknown,
   attempt = 0,
   extraHeaders?: Record<string, string>,
-): Promise<{ ok: boolean; status: number; data: T; text: string }> {
+): Promise<{ ok: boolean; status: number; data: T; text: string; headers: Headers }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -147,11 +174,14 @@ async function payarcRequest<T = unknown>(
     const resp = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
+        // extraHeaders first — any caller-supplied overrides are placed here.
+        // The four required headers below ALWAYS win; they cannot be displaced
+        // by extraHeaders regardless of what the caller passes.
+        ...extraHeaders,
         "Content-Type": "application/json",
         Accept: "application/json",
         Authorization: `Bearer ${apiKey}`,
         "X-Source": "LibertyBancard-CRM",
-        ...extraHeaders,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
@@ -166,7 +196,11 @@ async function payarcRequest<T = unknown>(
     }
 
     clearTimeout(timer);
-    return { ok: resp.ok, status: resp.status, data, text };
+
+    // Apply rate-limit back-off before returning so every call site is protected.
+    await applyRateLimitBackoff(resp.headers, path);
+
+    return { ok: resp.ok, status: resp.status, data, text, headers: resp.headers };
   } catch (err: any) {
     clearTimeout(timer);
     // REV-05A: Never retry POST/PATCH/DELETE on AbortError or network errors.
@@ -182,6 +216,63 @@ async function payarcRequest<T = unknown>(
     }
     throw err;
   }
+}
+
+/**
+ * Paginated list fetch for Payarc list endpoints.
+ *
+ * Payarc list responses use the shape: { data: [...], meta: { current_page, last_page } }
+ * or { data: { data: [...], current_page, last_page } }.
+ * This helper fetches all pages and returns the concatenated item array.
+ *
+ * Exported so adapter callers and smoke tests can exercise it directly with
+ * controlled fetch stubs to verify multi-page looping behavior.
+ *
+ * @param pageSize — items per page (default 100, Payarc's safe ceiling).
+ */
+export async function payarcFetchAll<T = unknown>(
+  apiKey: string,
+  baseUrl: string,
+  basePath: string,
+  pageSize = 100,
+  extraHeaders?: Record<string, string>,
+): Promise<T[]> {
+  const items: T[] = [];
+  let page = 1;
+
+  while (true) {
+    const sep = basePath.includes("?") ? "&" : "?";
+    const path = `${basePath}${sep}limit=${pageSize}&page=${page}`;
+
+    const { ok, data } = await payarcRequest<any>(
+      apiKey,
+      baseUrl,
+      "GET",
+      path,
+      undefined,
+      0,
+      extraHeaders,
+    );
+
+    if (!ok) break;
+
+    // Support both shapes
+    const envelope = data?.data ?? data;
+    const rows: T[] = Array.isArray(envelope) ? envelope : (Array.isArray(envelope?.data) ? envelope.data : []);
+    items.push(...rows);
+
+    // Pagination termination: partial page, or explicit last_page reached
+    const lastPage: number | undefined = data?.meta?.last_page ?? data?.data?.last_page ?? envelope?.last_page;
+    const currentPage: number = data?.meta?.current_page ?? data?.data?.current_page ?? envelope?.current_page ?? page;
+
+    if ((lastPage !== undefined && currentPage >= lastPage) || rows.length < pageSize) {
+      break;
+    }
+
+    page++;
+  }
+
+  return items;
 }
 
 // ─── Adapter ──────────────────────────────────────────────────────────────────
@@ -285,13 +376,14 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           : {};
 
         // Program-aware endpoint routing (REV-05A §5):
-        // Traditional: POST /v1/applicants
-        // Payfac: POST /v1/agent-hub/apply/add-lead/
+        // Traditional: POST /v1/applications  (canonical path for sandbox and production)
+        // Payfac:      POST /v1/agent-hub/apply/add-lead/  (NOT activated — owner must
+        //              set processorProgram='payfac' in activation snapshot)
         // The program is sourced from the activation snapshot, passed via profile.
         const program = (profile as any).processorProgram ?? "traditional";
         const submitPath = program === "payfac"
           ? "/agent-hub/apply/add-lead/"
-          : "/applicants";
+          : "/applications";
 
         // REV-05A: fail-closed when no snapshot-authorized URL is provided.
         // No fallback to the env-var URL — using an unapproved endpoint for
@@ -396,7 +488,7 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           this.apiKey!,
           effectiveBaseUrl,
           "GET",
-          `/applicants/${processorApplicationId}`,
+          `/applications/${processorApplicationId}`,
         );
 
         if (!ok) {
@@ -500,7 +592,7 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           this.apiKey!,
           options.snapshotAuthorizedBaseUrl.replace(/\/$/, ""),
           "PATCH",
-          `/applicants/${processorApplicationId}`,
+          `/applications/${processorApplicationId}`,
           body,
         );
 
