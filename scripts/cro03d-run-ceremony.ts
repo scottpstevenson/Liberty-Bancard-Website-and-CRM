@@ -100,10 +100,16 @@ async function login(): Promise<{ cookie: string; csrf: string }> {
 
 async function main() {
   // 1. Load and validate the durable private key
-  const privKeyPem = process.env.CRO03D_OPERATOR_PRIVATE_KEY;
-  if (!privKeyPem?.includes("BEGIN")) {
+  const rawKey = process.env.CRO03D_OPERATOR_PRIVATE_KEY;
+  if (!rawKey?.includes("BEGIN")) {
     throw new Error("CRO03D_OPERATOR_PRIVATE_KEY must be a PEM-encoded Ed25519 private key");
   }
+  // Replit secrets UI can collapse newlines to spaces — normalize back to PEM line breaks.
+  const privKeyPem = rawKey
+    .replace(/-----BEGIN PRIVATE KEY----- /g, "-----BEGIN PRIVATE KEY-----\n")
+    .replace(/ -----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----")
+    .replace(/-----BEGIN PRIVATE KEY-----\n(\S+)\n-----END PRIVATE KEY-----/g,
+      (_m, b64) => `-----BEGIN PRIVATE KEY-----\n${b64}\n-----END PRIVATE KEY-----\n`);
   const privateKey = createPrivateKey(privKeyPem);
   if (privateKey.asymmetricKeyType !== "ed25519") {
     throw new Error(`Expected Ed25519 key, got: ${privateKey.asymmetricKeyType}`);
