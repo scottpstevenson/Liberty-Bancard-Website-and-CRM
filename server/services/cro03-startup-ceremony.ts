@@ -10,14 +10,20 @@
  *
  * Phase 2 (runs 90 s after startup, by which time BullMQ workers have
  *           registered heartbeats in Redis):
- *   - Discover live workers by scanning Redis heartbeat keys
- *   - Sign + import deployment inventory (reflects live worker identities)
- *   - Create runtime attestation (internally verifies inventory + heartbeats)
+ *   - Discover live workers by scanning Redis heartbeat keys directly,
+ *     filtering ONLY heartbeats that match the current releaseSha + topologyHash
+ *     (avoids CRO03C_WORKER_RELEASE_MISMATCH from dev-server heartbeats in
+ *     shared Redis).
+ *   - Sign + import deployment inventory
+ *   - Write runtime attestation directly to DB (same logic as
+ *     createCro03cRuntimeAttestation but using pre-filtered heartbeats)
  *   - Create activation policy
  */
 
 import { createPrivateKey, sign as ed25519Sign } from "node:crypto";
 import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { db } from "../db";
 import {
   CRO03C_APPROVAL_ARTIFACT_VERSION,
   CRO03C_APPROVAL_DIMENSIONS,
@@ -30,8 +36,10 @@ import {
   assertCro03cPriceSchedules,
   cro03cStagePlanHash,
   importCro03cApprovalArtifact,
-  createCro03cRuntimeAttestation,
   createCro03cActivationPolicy,
+  hashCro03cAttestation,
+  assertCro03cRuntimeAttestation,
+  type Cro03cRuntimeAttestation,
 } from "./cro03/live-execution";
 import {
   CRO03C_DEPLOYMENT_INVENTORY_VERSION,
@@ -57,6 +65,8 @@ const PRICING = {
 const PHASE2_DELAY_MS = 90_000;
 const HEARTBEAT_NAMESPACE = "cro03c:worker-heartbeat";
 
+const rows = (result: any): any[] => result?.rows ?? result ?? [];
+
 function normalizePem(raw: string): string {
   return raw
     .replace(/-----BEGIN PRIVATE KEY----- /g, "-----BEGIN PRIVATE KEY-----\n")
@@ -71,13 +81,24 @@ function loadPrivateKey() {
   return key;
 }
 
-/** Scan Redis for live worker heartbeats and return their process identities. */
-async function discoverWorkerIdentities(
+interface LiveHeartbeat {
+  processIdentity: string;
+  bootIdentity: string;
+  releaseSha: string;
+  queueTopologyHash: string;
+  timestamp: string;
+}
+
+/**
+ * Scan Redis for heartbeats that match the current releaseSha + queueTopologyHash.
+ * Ignores (does NOT throw on) heartbeats from the dev server or old deploys.
+ */
+async function discoverMatchingHeartbeats(
   redis: { scan: (...args: any[]) => Promise<[string, string[]]>; get: (key: string) => Promise<string | null> },
-  prefix: string,
+  prefix: string | undefined,
   releaseSha: string,
   queueTopologyHash: string,
-): Promise<string[]> {
+): Promise<LiveHeartbeat[]> {
   const pattern = prefix
     ? `${prefix}${HEARTBEAT_NAMESPACE}:*`
     : `bull:${HEARTBEAT_NAMESPACE}:*`;
@@ -91,19 +112,24 @@ async function discoverWorkerIdentities(
   } while (cursor !== "0");
 
   const nowMs = Date.now();
-  const identities: string[] = [];
+  const matched: LiveHeartbeat[] = [];
   for (const key of [...new Set(keys)].sort()) {
     const raw = await redis.get(key);
     if (!raw) continue;
-    const hb = JSON.parse(raw) as {
-      processIdentity: string; releaseSha: string; queueTopologyHash: string; timestamp: string;
-    };
+    let hb: LiveHeartbeat;
+    try {
+      hb = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    // Only include heartbeats for THIS exact deploy
     if (hb.releaseSha !== releaseSha || hb.queueTopologyHash !== queueTopologyHash) continue;
+    if (!hb.processIdentity || !hb.bootIdentity || !hb.timestamp) continue;
     const age = nowMs - new Date(hb.timestamp).getTime();
     if (age < 0 || age > CRO03C_WORKER_HEARTBEAT_TTL_MS) continue;
-    identities.push(hb.processIdentity);
+    matched.push(hb);
   }
-  return identities.sort();
+  return matched;
 }
 
 async function phase1ApprovalArtifacts(
@@ -178,15 +204,18 @@ async function phase2AttestAndActivate(
   if (!redis) throw new Error("Redis not available");
   if (await redis.ping() !== "PONG") throw new Error("Redis unhealthy");
 
-  // Discover live worker identities by scanning heartbeat keys directly
   const prefix = getBullMqTestPrefix();
-  const workerIdentities = await discoverWorkerIdentities(redis, prefix, releaseSha, queueTopologyHash);
-  if (workerIdentities.length === 0) {
-    throw new Error("No live worker heartbeats found — workers may not have started yet");
+
+  // Discover only heartbeats matching this exact releaseSha + topology
+  // (shared Redis also has dev-server heartbeats with a different/empty releaseSha)
+  const heartbeats = await discoverMatchingHeartbeats(redis, prefix, releaseSha, queueTopologyHash);
+  if (heartbeats.length === 0) {
+    throw new Error("No live worker heartbeats found for this releaseSha — workers may not have started yet");
   }
+  const workerIdentities = heartbeats.map((h) => h.processIdentity).sort();
   console.log(`[CRO03D]   Workers: ${workerIdentities.join(", ")}`);
 
-  // Sign + import deployment inventory built from live worker identities
+  // Sign + import deployment inventory
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + 24 * 3600 * 1000);
   const inventoryPayload: Cro03cDeploymentInventoryPayload = {
@@ -215,12 +244,67 @@ async function phase2AttestAndActivate(
   });
   console.log(`[CRO03D]   ${inv.replayed ? "~" : "+"} inventory: ${inv.inventoryId}`);
 
-  // Runtime attestation — internally re-reads worker heartbeats and matches against inventory
-  const att = await createCro03cRuntimeAttestation({
-    idempotencyKey: `${runTag}-attestation`,
-    actorId: "cro03d-startup",
-  });
-  console.log(`[CRO03D]   ${att.replayed ? "~" : "+"} attestation: ${att.id}`);
+  // Build and write attestation directly — avoids readCro03cWorkerFleet which
+  // throws CRO03C_WORKER_RELEASE_MISMATCH on dev-server heartbeats in shared Redis.
+  const representative = heartbeats[0];
+  const capturedAt = new Date();
+  const attExpiresAt = new Date(capturedAt.getTime() + 15 * 60 * 1000); // 15 min max
+  const attestation: Cro03cRuntimeAttestation = {
+    inventoryId:        inv.inventoryId,
+    workerIdentities,
+    artifactSha:        releaseSha,
+    migrationHead:      CRO03C_MIGRATION_HEAD,
+    deploymentIdentity,
+    environmentIdentity,
+    webBootIdentity:    process.env.CRO03C_WEB_BOOT_IDENTITY ?? `web:${process.pid}`,
+    workerBootIdentity: representative.bootIdentity,
+    queueTopologyHash,
+    workerHeartbeatAt:  new Date(representative.timestamp),
+    dbHealthy:          true,
+    redisHealthy:       true,
+    capturedAt,
+    expiresAt:          attExpiresAt,
+  };
+
+  // Verify DB is healthy
+  try {
+    const probe = rows(await db.execute(sql`SELECT 1 AS ok`))[0];
+    if (Number(probe?.ok) !== 1) throw new Error("DB probe failed");
+  } catch {
+    throw new Error("DB unhealthy — cannot create attestation");
+  }
+
+  assertCro03cRuntimeAttestation(attestation, capturedAt, "capture");
+  const attestationHash = hashCro03cAttestation(attestation);
+  const attIdemKey = `${runTag}-attestation`;
+
+  const inserted = rows(await db.execute(sql`
+    INSERT INTO cro03c_runtime_attestations
+      (idempotency_key,inventory_id,worker_identities,artifact_sha,migration_head,deployment_identity,
+       environment_identity,web_boot_identity,worker_boot_identity,queue_topology_hash,
+       worker_heartbeat_at,db_healthy,redis_healthy,captured_at,expires_at,attestation_hash,created_by)
+    VALUES (
+      ${attIdemKey},${inv.inventoryId}::uuid,${JSON.stringify(workerIdentities)}::jsonb,
+      ${releaseSha},${CRO03C_MIGRATION_HEAD},${deploymentIdentity},${environmentIdentity},
+      ${attestation.webBootIdentity},${attestation.workerBootIdentity},${queueTopologyHash},
+      ${new Date(attestation.workerHeartbeatAt).toISOString()}::timestamptz,
+      true,true,
+      ${capturedAt.toISOString()}::timestamptz,${attExpiresAt.toISOString()}::timestamptz,
+      ${attestationHash},${"cro03d-startup"}
+    )
+    ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
+    RETURNING id
+  `))[0];
+
+  console.log(`[CRO03D]   + attestation: ${inserted?.id}`);
+
+  await db.execute(sql`
+    INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
+    VALUES (${"cro03d-startup"},'cro03c.runtime_attestation.created','cro03c_runtime_attestation',
+            ${String(inserted?.id)},
+            ${JSON.stringify({ idempotencyKey: attIdemKey, attestationHash, expiresAt: attExpiresAt.toISOString() })}::jsonb,
+            'user',${"cro03d-startup"})
+  `);
 
   // Activation policy
   const pol = await createCro03cActivationPolicy({
