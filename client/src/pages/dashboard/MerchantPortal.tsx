@@ -393,6 +393,9 @@ type BoardingStatusData = {
   processorApplicationId: string | null;
   boardingLog: { timestamp: string; event: string; message?: string; moreInfoRequest?: string }[];
   mid: string | null;
+  /** REV-05A: masked MID for display; full MID never returned to client */
+  midMasked: string | null;
+  hasMid: boolean;
   boardingSubmittedAt: string | null;
   boardingApprovedAt: string | null;
 };
@@ -540,13 +543,13 @@ function ApplicationStatusCard() {
         )}
 
         {/* MID (approved) */}
-        {status === "approved" && data?.mid && (
+        {status === "approved" && (data?.midMasked || data?.hasMid) && (
           <div className={`rounded-lg p-3 border ${meta.color}`}>
             <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4" />
               🎉 Your Merchant ID (MID) has been assigned!
             </p>
-            <p className="text-sm font-mono font-bold mt-1" data-testid="text-approved-mid">{data.mid}</p>
+            <p className="text-sm font-mono font-bold mt-1" data-testid="text-approved-mid">{data.midMasked || data.mid}</p>
             <p className="text-xs text-muted-foreground mt-1">Keep this number for your records. Your processing account is now active.</p>
           </div>
         )}

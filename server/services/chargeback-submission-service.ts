@@ -73,18 +73,30 @@ export async function processChargebackSubmissionCommand(commandId: string): Pro
       responseDeadline: chargeback.responseDeadline?.toISOString(),
       providerIdempotencyKey: String(row.idempotency_key),
     });
+    // REV-05A: submitChargeback now returns HeldResult | ChargebackResult.
+    // If held, do not attempt canonical state mutation.
+    if ("status" in result && (result as any).status === "held") {
+      await db.execute(sql`
+        UPDATE chargeback_submission_commands
+        SET state='retryable', last_error='held_pending_task_1737',
+            lease_token=NULL, lease_expires_at=NULL, updated_at=now()
+        WHERE id=${commandId}::uuid AND state='processing' AND lease_token=${row.lease_token}::uuid
+      `);
+      return;
+    }
+    const cbResult = result as import("./processors/IProcessorAdapter").ChargebackResult;
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         UPDATE chargeback_submission_commands
-      SET state=${result.success ? "succeeded" : "retryable"}, provider_case_id=${result.caseId ?? null},
-          provider_result=${JSON.stringify({ status: result.status, success: result.success })}::jsonb,
-          submitted_at=${result.success ? new Date() : null},
-          last_error=${result.success ? null : (result.error ?? result.message ?? "provider_rejected")},
-          next_attempt_at=${result.success ? new Date() : sql`now() + (LEAST(3600, 2 ^ LEAST(attempts, 10)) * interval '1 second')`},
+      SET state=${cbResult.success ? "succeeded" : "retryable"}, provider_case_id=${cbResult.caseId ?? null},
+          provider_result=${JSON.stringify({ status: cbResult.status, success: cbResult.success })}::jsonb,
+          submitted_at=${cbResult.success ? new Date() : null},
+          last_error=${cbResult.success ? null : (cbResult.error ?? cbResult.message ?? "provider_rejected")},
+          next_attempt_at=${cbResult.success ? new Date() : sql`now() + (LEAST(3600, 2 ^ LEAST(attempts, 10)) * interval '1 second')`},
           lease_token=NULL, lease_expires_at=NULL, updated_at=now()
         WHERE id=${commandId}::uuid AND state='processing' AND lease_token=${row.lease_token}::uuid
       `);
-      if (result.success) {
+      if (cbResult.success) {
         await tx.execute(sql`
           UPDATE chargebacks SET status='Responded', responded_at=now(), updated_at=now()
           WHERE id=${chargeback.id} AND status IN ('New', 'In Progress', 'Pending')

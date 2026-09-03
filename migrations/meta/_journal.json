@@ -1555,6 +1555,27 @@
       "when": 1799800300000,
       "tag": "0217_cro08a_generation_mode_widen_canary",
       "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "7",
+      "when": 1799900000000,
+      "tag": "0218_rev05a_processor_activation",
+      "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "7",
+      "when": 1799900100000,
+      "tag": "0219_rev05a_mid_access_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 224,
+      "version": "7",
+      "when": 1799900200000,
+      "tag": "0220_rev05a_boarding_status_fields",
+      "breakpoints": true
     }
   ]
 }

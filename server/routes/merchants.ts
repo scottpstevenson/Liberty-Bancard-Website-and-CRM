@@ -999,9 +999,13 @@ export function registerMerchantsRoutes(app: Express) {
 
       const avgDailyVol30 = stats30.length > 0 ? vol30 / stats30.length : 0;
 
+      // REV-05A: Raw MID must not be returned to the merchant portal.
+      // hasMid lets the UI know a MID is assigned without exposing the value.
+      const { maskMid: _maskMidOverview } = await import("../utils/mask-mid");
       res.json({
         hasData: allStats.length > 0,
-        mid,
+        midMasked: _maskMidOverview(mid),
+        hasMid: !!mid,
         overview: {
           vol30: Math.round(vol30),
           vol60: Math.round(vol60),

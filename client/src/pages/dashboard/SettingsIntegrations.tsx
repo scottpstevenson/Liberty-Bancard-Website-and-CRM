@@ -759,16 +759,43 @@ function GhlWorkflowEnvTab() {
   );
 }
 
+type ProcessorHealthState =
+  | "disabled"
+  | "missing_contract"
+  | "missing_credentials"
+  | "configured_unverified"
+  | "sandbox_verified"
+  | "production_authorized"
+  | "expired_or_drifted"
+  | "held";
+
 interface AdapterStatus {
   name: string;
   enabled: boolean;
   configured: boolean;
+  healthState?: ProcessorHealthState;
   lastSuccessAt: string | null;
   lastErrorAt: string | null;
   lastError: string | null;
   callCount: number;
   errorCount: number;
   errorRate: number;
+}
+
+function ProcessorHealthStateBadge({ state }: { state?: ProcessorHealthState }) {
+  if (!state) return null;
+  const configs: Record<ProcessorHealthState, { label: string; className: string }> = {
+    disabled:              { label: "Disabled",             className: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" },
+    missing_contract:      { label: "Missing Contract",     className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+    missing_credentials:   { label: "No Credentials",      className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+    configured_unverified: { label: "Unverified",          className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+    sandbox_verified:      { label: "Sandbox Verified",    className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+    production_authorized: { label: "Production Ready",    className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
+    expired_or_drifted:    { label: "Expired / Drifted",   className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
+    held:                  { label: "Held",                className: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
+  };
+  const cfg = configs[state] ?? configs.configured_unverified;
+  return <Badge className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>;
 }
 
 interface ProcessorAdaptersResponse {
@@ -839,7 +866,7 @@ function ProcessorAdaptersTab() {
               <TableRow>
                 <TableHead>Adapter</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Configured</TableHead>
+                <TableHead>Readiness State</TableHead>
                 <TableHead>Last Success</TableHead>
                 <TableHead>Last Error</TableHead>
                 <TableHead>Calls</TableHead>
@@ -862,10 +889,13 @@ function ProcessorAdaptersTab() {
                     }
                   </TableCell>
                   <TableCell>
-                    {adapter.configured
-                      ? <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 gap-1"><CheckCircle2 className="w-3 h-3" />Configured</Badge>
-                      : <Badge variant="outline" className="text-amber-600 border-amber-300 gap-1"><AlertTriangle className="w-3 h-3" />Not set</Badge>
-                    }
+                    {adapter.healthState ? (
+                      <ProcessorHealthStateBadge state={adapter.healthState} />
+                    ) : adapter.configured ? (
+                      <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 gap-1"><CheckCircle2 className="w-3 h-3" />Configured</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-amber-600 border-amber-300 gap-1"><AlertTriangle className="w-3 h-3" />Not set</Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{formatTimeAgo(adapter.lastSuccessAt)}</TableCell>
                   <TableCell>

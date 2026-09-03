@@ -115,7 +115,7 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
     onSuccess: (data: any) => {
       toast({
         title: `Status: ${STATUS_CONFIG[data.status]?.label || data.status}`,
-        description: data.mid ? `MID assigned: ${data.mid}` : data.message,
+        description: data.midMasked ? `MID assigned: ${data.midMasked}` : data.message,
       });
       invalidate();
     },

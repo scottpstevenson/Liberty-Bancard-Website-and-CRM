@@ -11,6 +11,8 @@ import type {
   ChargebackSubmission,
   ChargebackResult,
   MerchantUpdateResult,
+  ProcessorHealthState,
+  HeldResult,
 } from "./IProcessorAdapter";
 
 function parseNmiResponse(raw: string): Record<string, string> {
@@ -98,6 +100,18 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
   }
 
   async boardMerchant(profile: MerchantProfile): Promise<BoardingResult> {
+    // REV-05A: fail-closed unless a snapshot-authorized URL is provided via the profile.
+    // Using the env-var base URL without an owner-approved snapshot allows authenticated
+    // POST traffic to unapproved endpoints.
+    const snapshotAuthorizedBaseUrl = (profile as any).snapshotAuthorizedBaseUrl as string | undefined;
+    if (!snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        error: "[REV-05A] NmiAdapter.boardMerchant blocked: snapshotAuthorizedBaseUrl required. " +
+               "Obtain an activation snapshot before calling adapter transport methods.",
+      };
+    }
+
     if (this.isFullyConfigured()) {
       try {
         // Forward the stable provider idempotency key as the standard HTTP
@@ -106,7 +120,8 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
         const idempotencyHeaders: Record<string, string> = profile.providerIdempotencyKey
           ? { "Idempotency-Key": profile.providerIdempotencyKey }
           : {};
-        const resp = await fetch(`${this.apiBase}/api/boarding/submit`, {
+        const effectiveBase = snapshotAuthorizedBaseUrl.replace(/\/$/, "");
+        const resp = await fetch(`${effectiveBase}/api/boarding/submit`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -133,31 +148,41 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
         };
       } catch {
         // Never log raw exception message — generic status-based error only.
-        console.error("[NmiAdapter] boardMerchant exception");
-        return { success: false, error: "NMI boarding request failed" };
+        // REV-05A: ALL exceptions from a POST transport call are ambiguous —
+        // any network error may mean the provider received the request but we lost
+        // the response. Blind retry risks duplicate merchant applications.
+        console.error("[NmiAdapter] boardMerchant network_exception (ambiguous)");
+        return {
+          success: false,
+          ambiguous: true,
+          error: "NMI boarding request failed (network_exception) — ambiguous result, hold for reconciliation",
+        };
       }
     }
 
-    console.log("[NmiAdapter] Running in simulation mode — no PROCESSOR_API_KEY configured");
-    await new Promise(r => setTimeout(r, 300));
-    const ts = Date.now().toString(36).toUpperCase();
-    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const applicationId = `APP-${ts}-${rand}`;
-    const estimatedDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    return {
-      success: true,
-      processorApplicationId: applicationId,
-      status: "submitted",
-      message: `Application ${applicationId} submitted to NMI. Estimated decision: ${estimatedDate}.`,
-      estimatedDecisionDate: estimatedDate,
-    };
+    // REV-05A: NMI boarding is fail-closed when credentials are absent.
+    const errMsg = "[REV-05A] NMI boarding blocked: PROCESSOR_API_KEY not configured.";
+    console.error(`[NmiAdapter] ${errMsg}`);
+    return { success: false, error: errMsg };
   }
 
-  async getMerchantStatus(processorApplicationId: string): Promise<BoardingStatusResult> {
+  async getMerchantStatus(processorApplicationId: string, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<BoardingStatusResult> {
+    // REV-05A: fail-closed unless a snapshot-authorized URL is provided.
+    if (!options?.snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        processorApplicationId,
+        status: "submitted",
+        error: "[REV-05A] NmiAdapter.getMerchantStatus blocked: snapshotAuthorizedBaseUrl required. " +
+               "Obtain an activation snapshot before calling adapter transport methods.",
+      };
+    }
+
     if (this.isFullyConfigured()) {
       try {
+        const effectiveBase = options.snapshotAuthorizedBaseUrl.replace(/\/$/, "");
         const resp = await fetch(
-          `${this.apiBase}/api/boarding/status/${processorApplicationId}`,
+          `${effectiveBase}/api/boarding/status/${processorApplicationId}`,
           {
             headers: {
               Authorization: `Bearer ${this.apiKey}`,
@@ -186,169 +211,61 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
           declineReason: data.declineReason,
           approvedAt: data.approvedAt,
         };
-      } catch (err: any) {
+      } catch {
         return {
           success: false,
           processorApplicationId,
           status: "submitted",
-          error: err.message,
+          error: "NMI status request failed",
         };
       }
     }
 
-    await new Promise(r => setTimeout(r, 150));
-    const seed = processorApplicationId.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 100;
-    let status: BoardingStatusResult["status"] = "under_review";
-    let mid: string | undefined;
-    let message = "Application is under review by the processor.";
-    let moreInfoRequest: string | undefined;
-
-    if (seed < 20) {
-      status = "submitted";
-      message = "Application received and queued for review.";
-    } else if (seed < 55) {
-      status = "under_review";
-      message = "Underwriting team is reviewing your application.";
-    } else if (seed < 70) {
-      status = "approved";
-      mid = generateMockMid();
-      message = `Application approved. MID ${mid} has been assigned.`;
-    } else if (seed < 80) {
-      status = "more_info_needed";
-      message = "Processor requires additional information.";
-      moreInfoRequest = "Please provide the most recent 3 months of business bank statements and a copy of a void check.";
-    } else {
-      status = "under_review";
-      message = "Application pending final underwriting review.";
-    }
-
-    return {
-      success: true,
-      processorApplicationId,
-      status,
-      mid,
-      message,
-      moreInfoRequest,
-      approvedAt: status === "approved" ? new Date().toISOString() : undefined,
-    };
+    // REV-05A: NMI status polling is fail-closed when credentials are absent.
+    const errMsg = "[REV-05A] NMI status poll blocked: PROCESSOR_API_KEY not configured.";
+    console.error(`[NmiAdapter] ${errMsg}`);
+    return { success: false, processorApplicationId, status: "submitted", error: errMsg };
   }
 
-  async getTransactions(mid: string, startDate: string, endDate: string): Promise<Transaction[]> {
+  // REV-05A §13/#1737: getTransactions is a #1737-domain function.
+  // Returns held result — pending_task_1737 owns transaction data.
+  async getTransactions(_mid: string, _startDate: string, _endDate: string): Promise<HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
+
+  // REV-05A §13/#1737: getResiduals is a #1737-domain function.
+  // Returns held result — pending_task_1737 owns residual data.
+  async getResiduals(_month: string, _agentId?: string): Promise<HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
+
+  // REV-05A §13/#1737: getDailyStats is a #1737-domain function.
+  // Returns held result — pending_task_1737 owns daily stats and
+  // all simulation data generation has been removed.
+  async getDailyStats(_mid: string, _startDate: string, _endDate: string): Promise<HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
+
+  // REV-05A §13/#1737: submitChargeback is a #1737-domain function.
+  // Returns held result — pending_task_1737 owns chargeback submissions.
+  async submitChargeback(_submission: ChargebackSubmission): Promise<HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
+
+  async updateMerchant(processorApplicationId: string, updates: Partial<MerchantProfile>, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<MerchantUpdateResult> {
+    // REV-05A: fail-closed unless a snapshot-authorized URL is provided.
+    if (!options?.snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        error: "[REV-05A] NmiAdapter.updateMerchant blocked: snapshotAuthorizedBaseUrl required. " +
+               "Obtain an activation snapshot before calling adapter transport methods.",
+      };
+    }
+
     if (this.isFullyConfigured()) {
       try {
-        const resp = await fetch(
-          `${this.apiBase}/api/reporting/mid/${mid}/transactions?start=${startDate}&end=${endDate}`,
-          { headers: { Authorization: `Bearer ${this.apiKey}`, "X-Source": "LibertyBancard-CRM" } },
-        );
-        if (!resp.ok) return [];
-        return (await resp.json()) as Transaction[];
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  }
-
-  async getResiduals(month: string, _agentId?: string): Promise<Residual[]> {
-    if (this.isFullyConfigured()) {
-      try {
-        const resp = await fetch(
-          `${this.apiBase}/api/reporting/residuals?month=${month}`,
-          { headers: { Authorization: `Bearer ${this.apiKey}`, "X-Source": "LibertyBancard-CRM" } },
-        );
-        if (!resp.ok) return [];
-        return (await resp.json()) as Residual[];
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  }
-
-  async getDailyStats(mid: string, startDate: string, endDate: string): Promise<DailyStats[]> {
-    if (this.isFullyConfigured()) {
-      try {
-        const resp = await fetch(
-          `${this.apiBase}/api/reporting/mid/${mid}/daily?start=${startDate}&end=${endDate}`,
-          { headers: { Authorization: `Bearer ${this.apiKey}`, "X-Source": "LibertyBancard-CRM" } },
-        );
-        if (!resp.ok) {
-          console.error(`[NmiAdapter] getDailyStats failed: ${resp.status}`);
-          return [];
-        }
-        return (await resp.json()) as DailyStats[];
-      } catch (err: any) {
-        console.error("[NmiAdapter] getDailyStats exception:", err.message);
-        return [];
-      }
-    }
-
-    const results: DailyStats[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const current = new Date(start);
-
-    while (current <= end) {
-      const dateStr = current.toISOString().split("T")[0];
-      const dayOfWeek = current.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        const seed = (mid + dateStr).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-        const rng = (o: number) => { const x = Math.sin(seed + o) * 10000; return x - Math.floor(x); };
-        const baseVolume = 15000 + rng(1) * 85000;
-        const txCount = Math.floor(50 + rng(2) * 450);
-        const avgTicket = txCount > 0 ? baseVolume / txCount : 0;
-        const effectiveRate = 0.015 + rng(3) * 0.025;
-        const chargebackCount = rng(4) < 0.03 ? Math.floor(rng(5) * 3) : 0;
-        const chargebackAmount = chargebackCount * avgTicket;
-        const refundCount = Math.floor(rng(6) * 5);
-        results.push({
-          mid,
-          date: dateStr,
-          volume: Math.round(baseVolume * 100) / 100,
-          txCount,
-          avgTicket: Math.round(avgTicket * 100) / 100,
-          effectiveRate: Math.round(effectiveRate * 10000) / 10000,
-          chargebackCount,
-          chargebackAmount: Math.round(chargebackAmount * 100) / 100,
-          refundCount,
-        });
-      }
-      current.setDate(current.getDate() + 1);
-    }
-    return results;
-  }
-
-  async submitChargeback(submission: ChargebackSubmission): Promise<ChargebackResult> {
-    if (this.securityKey) {
-      try {
-        const params: Record<string, string> = {
-          type: "chargeback",
-          transactionid: submission.transactionId,
-          amount: String(submission.amount),
-          merchant_id: submission.mid,
-        };
-        if (submission.providerIdempotencyKey) params.idempotency_key = submission.providerIdempotencyKey;
-        const parsed = await postToNmiBoarding(this.securityKey, "/api/transact.php", params);
-        const approved = parsed.response === "1";
-        return {
-          success: approved,
-          caseId: parsed.transactionid,
-          status: approved ? "submitted" : "failed",
-          message: parsed.responsetext,
-          error: approved ? undefined : parsed.responsetext,
-        };
-      } catch (err: any) {
-        return { success: false, error: err.message };
-      }
-    }
-
-    return { success: false, status: "not_configured", error: "NMI chargeback submission is not configured" };
-  }
-
-  async updateMerchant(processorApplicationId: string, updates: Partial<MerchantProfile>): Promise<MerchantUpdateResult> {
-    if (this.isFullyConfigured()) {
-      try {
-        const resp = await fetch(`${this.apiBase}/api/boarding/merchant/${processorApplicationId}`, {
+        const effectiveBase = options.snapshotAuthorizedBaseUrl.replace(/\/$/, "");
+        const resp = await fetch(`${effectiveBase}/api/boarding/merchant/${processorApplicationId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -361,12 +278,14 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
           return { success: false, error: `NMI API error: ${resp.status}` };
         }
         return { success: true, message: "Merchant profile updated." };
-      } catch (err: any) {
-        return { success: false, error: err.message };
+      } catch {
+        return { success: false, error: "NMI update request failed" };
       }
     }
-    console.log(`[NmiAdapter] updateMerchant simulation: ${processorApplicationId}`);
-    return { success: true, message: "Merchant profile updated (simulation)." };
+    // REV-05A: updateMerchant is fail-closed when credentials are absent.
+    const errMsg = "[REV-05A] NMI updateMerchant blocked: PROCESSOR_API_KEY not configured.";
+    console.error(`[NmiAdapter] ${errMsg}`);
+    return { success: false, error: errMsg };
   }
 
   async ping(): Promise<boolean> {
@@ -393,6 +312,46 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
       }
     }
     return false;
+  }
+
+  // REV-05A: Processor health state (NMI adapter).
+  async getHealthState(snapshotAuthorizedBaseUrl?: string | null): Promise<ProcessorHealthState> {
+    if (!this.apiBase && !this.securityKey) return "missing_credentials";
+    if (!this.isFullyConfigured()) return "configured_unverified";
+
+    // REV-05A: A health probe is an authenticated request to the processor.
+    // It MUST use the owner-approved snapshot URL — calling ping() against
+    // this.apiBase would send credentials to an endpoint not authorized by
+    // the activation snapshot. Without a snapshot URL, return missing_contract.
+    if (!snapshotAuthorizedBaseUrl) {
+      return "missing_contract";
+    }
+
+    if (this.securityKey) {
+      // NMI HTTPS POST boarding — no URL substitution needed (fixed endpoint).
+      try {
+        const parsed = await postToNmiBoarding(this.securityKey, "/api/transact.php", {
+          type: "validate",
+          amount: "0.00",
+        });
+        return (parsed.response === "1" || !!parsed.responsetext)
+          ? "sandbox_verified"
+          : "configured_unverified";
+      } catch {
+        return "configured_unverified";
+      }
+    }
+
+    // REST-style NMI: use the snapshot-authorized base URL, not this.apiBase.
+    try {
+      const resp = await fetch(`${snapshotAuthorizedBaseUrl.replace(/\/$/, "")}/health`, {
+        headers: { Authorization: `Bearer ${this.apiKey ?? ""}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      return resp.ok ? "sandbox_verified" : "configured_unverified";
+    } catch {
+      return "configured_unverified";
+    }
   }
 }
 

@@ -20,7 +20,7 @@ import { deals, dealBoardingOutbox, merchantApplications, tasks } from "@shared/
 import { storage } from "../storage";
 import { auditChange } from "./audit-change";
 import { decryptProtectedFields } from "./merchant-protected-data";
-import { getProcessor, getDefaultProcessor } from "./processors/registry";
+import { getProcessor, getDefaultProcessor, requireConfirmedActivationSnapshot } from "./processors/registry";
 
 const MAX_ATTEMPTS = 6;
 const POLL_INTERVAL_MS = 20_000;
@@ -97,6 +97,19 @@ async function reclaimStale(): Promise<void> {
     .update(dealBoardingOutbox)
     .set({ status: "pending", lockedAt: null, updatedAt: new Date() })
     .where(and(eq(dealBoardingOutbox.status, "processing"), lt(dealBoardingOutbox.lockedAt, threshold)));
+}
+
+/**
+ * Sentinel thrown by handleProcessorSubmit when the outbox row has already been
+ * placed in a terminal state (dead_letter) internally. tick() catches this class
+ * and skips markDelivered — the DB state is already correct.
+ */
+class AlreadyTerminalError extends Error {
+  readonly alreadyHandled = true;
+  constructor(reason: string) {
+    super(reason);
+    this.name = "AlreadyTerminalError";
+  }
 }
 
 async function markDelivered(id: string): Promise<void> {
@@ -346,7 +359,109 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
   };
 
   const processor = row.processorName ? getProcessor(row.processorName) : getDefaultProcessor();
+
+  // REV-05A §6: Activation snapshot gate — fail-closed before any provider I/O.
+  // No boarding transport without an owner-confirmed activation snapshot.
+  //
+  // Exception: Mock adapter in non-production environments is explicitly exempt.
+  // Mock is a test-only adapter that has no activation snapshot (creating one is
+  // rejected by the snapshot management endpoint). Requiring a snapshot from Mock
+  // would dead-letter every dev/test boarding, which contradicts the registry's
+  // stated non-production sandbox support. Production Mock is already hard-disabled.
+  const isMockInNonProd = processor.name === "mock" && process.env.NODE_ENV !== "production";
+
+  // Build a synthetic snapshot for Mock so the rest of the boarding flow proceeds
+  // identically without branching on adapter type.
+  // "mock://internal.mock.local" is a clearly non-network synthetic URL so
+  // adapter transport guards (which require a non-null authorizedBaseUrl) can
+  // proceed. Mock never makes real network calls, so the URL is a sentinel only.
+  const MOCK_SYNTHETIC_SNAPSHOT = {
+    processorProgram: "traditional",
+    authorizedBaseUrl: "mock://internal.mock.local",
+    supportedOperations: ["board_merchant", "get_merchant_status"],
+    status: "sandbox_only",
+  };
+
+  let snapshot: Awaited<ReturnType<typeof requireConfirmedActivationSnapshot>>;
+  if (isMockInNonProd) {
+    snapshot = MOCK_SYNTHETIC_SNAPSHOT;
+  } else try {
+    snapshot = await requireConfirmedActivationSnapshot(processor.name);
+  } catch (err: any) {
+    if (err?.code === "ACTIVATION_SNAPSHOT_REQUIRED") {
+      // Write a clear audit and dead-letter — this is a configuration gap, not a transient error.
+      await auditChange({
+        actorType: "system",
+        action: "deal_boarding_blocked_no_snapshot",
+        entityType: "deal",
+        entityId: dealId,
+        details: {
+          errorCode: "ACTIVATION_SNAPSHOT_REQUIRED",
+          processorName: processor.name,
+          note: "Transport blocked: owner has not confirmed activation snapshot. " +
+                "Create a snapshot via POST /api/admin/processor-activation-snapshots.",
+        },
+      });
+      await db.update(dealBoardingOutbox)
+        .set({ status: "dead_letter", lockedAt: null,
+               lastError: "ACTIVATION_SNAPSHOT_REQUIRED",
+               availableAt: new Date(), updatedAt: new Date() })
+        .where(eq(dealBoardingOutbox.id, row.id));
+      // Throw AlreadyTerminalError so tick() skips markDelivered and
+      // markRetryOrDeadLetter — the outbox row is already in terminal state.
+      throw new AlreadyTerminalError("ACTIVATION_SNAPSHOT_REQUIRED: dead_letter written, skip markDelivered");
+    }
+    throw err;
+  }
+
+  // Attach the confirmed program to the deal record before I/O.
+  await db.update(deals)
+    .set({ processorProgram: snapshot.processorProgram, updatedAt: new Date() } as any)
+    .where(eq(deals.id, dealId));
+
+  // Pass processorProgram and authorizedBaseUrl from the activation snapshot to
+  // boardMerchant so the adapter can route to the correct endpoint and use
+  // only the owner-authorized base URL (not the environment-configured default).
+  (payload as any).processorProgram = snapshot.processorProgram;
+  (payload as any).snapshotAuthorizedBaseUrl = snapshot.authorizedBaseUrl;
+
   const result = await processor.boardMerchant(payload);
+
+  // REV-05A: Ambiguous result handling.
+  // If the provider call timed out or returned no application ID, classify as
+  // ambiguous_reconciliation_required. Do NOT retry immediately — the operator
+  // must reconcile via provider status poll before retrying.
+  if (!result.success && result.ambiguous) {
+    await db.transaction(async (tx) => {
+      // REV-05A: Persist boarding_ambiguous_at timestamp (migration 0220 column).
+      await tx.update(deals)
+        .set({
+          boardingStatus: "ambiguous_reconciliation_required",
+          boardingAmbiguousAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+        .where(eq(deals.id, dealId));
+      await auditChange({
+        actorType: "system",
+        action: "deal_boarding_ambiguous",
+        entityType: "deal",
+        entityId: dealId,
+        details: {
+          errorClass: "ambiguous_reconciliation_required",
+          attempts: row.attempts,
+          note: "Submission result is ambiguous — provider call timed out or returned no application ID. " +
+                "Do NOT retry without reconciliation via provider status endpoint.",
+        },
+      }, tx);
+    });
+    // Mark the outbox row as failed (not dead_letter) — it will not be retried
+    // automatically. Operator must initiate reconciliation and reset the row.
+    const safeErr = "ambiguous_reconciliation_required";
+    await db.update(dealBoardingOutbox)
+      .set({ status: "dead_letter", lockedAt: null, lastError: safeErr, availableAt: new Date(), updatedAt: new Date() })
+      .where(eq(dealBoardingOutbox.id, row.id));
+    return;
+  }
 
   if (!result.success) {
     // Do NOT log result.error (may contain provider payload) — just propagate.
@@ -379,9 +494,15 @@ async function tick(): Promise<void> {
       try {
         await handleProcessorSubmit(row);
         await markDelivered(row.id);
-      } catch (err) {
-        process.stderr.write(`[BoardingOutbox] processor_submit deal#${row.dealId} attempt#${row.attempts} failed (${scrubError(err)})\n`);
-        await markRetryOrDeadLetter(row.id, row.dealId, row.attempts, err);
+      } catch (err: any) {
+        if (err?.alreadyHandled) {
+          // AlreadyTerminalError: handleProcessorSubmit already wrote dead_letter.
+          // Skip markDelivered and markRetryOrDeadLetter — DB state is correct.
+          process.stderr.write(`[BoardingOutbox] deal#${row.dealId} already terminal: ${scrubError(err)}\n`);
+        } else {
+          process.stderr.write(`[BoardingOutbox] processor_submit deal#${row.dealId} attempt#${row.attempts} failed (${scrubError(err)})\n`);
+          await markRetryOrDeadLetter(row.id, row.dealId, row.attempts, err);
+        }
       }
     }
   } catch (err) {

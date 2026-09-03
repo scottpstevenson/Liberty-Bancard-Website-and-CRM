@@ -259,7 +259,8 @@ export function registerRelationshipsRoutes(app: Express) {
           } else if (counterpartyType === "mid") {
             const deal = await storage.getDeal(counterpartyId).catch(() => null);
             if (deal) {
-              label = deal.mid ? `MID: ${deal.mid}` : `Deal #${counterpartyId}`;
+              const { maskMid: _maskMidRelGraph } = await import("../utils/mask-mid");
+              label = deal.mid ? `MID: ${_maskMidRelGraph(deal.mid)}` : `Deal #${counterpartyId}`;
             }
           } else if (counterpartyType === "iso_partner") {
             const partner = await storage.getPartner(counterpartyId).catch(() => null);

@@ -43,7 +43,9 @@ export function registerDealsRoutes(app: Express) {
         .from(deals)
         .where(eq(deals.contactId, contactId))
         .orderBy(desc(deals.createdAt));
-      res.json(rows);
+      // REV-05A: Serialize each deal — masks mid and sanitizes boardingLog.
+      const { serializeDeal: _serializeDeal1 } = await import("../utils/mask-mid");
+      res.json(rows.map((d: any) => _serializeDeal1(d)));
     } catch (err: any) {
       serverError(res, err);
     }
@@ -74,7 +76,15 @@ export function registerDealsRoutes(app: Express) {
       }
       const { limit, offset } = pagination;
       const result = await readRevenueDeals(req.user as any, { pipeline, limit, offset });
-      res.json(result);
+      // REV-05A: Serialize each deal — masks mid and sanitizes boardingLog.
+      const { serializeDeal: _serializeDeal2 } = await import("../utils/mask-mid");
+      const maskedResult = {
+        ...result,
+        data: Array.isArray((result as any).data)
+          ? (result as any).data.map((d: any) => _serializeDeal2(d))
+          : (result as any).data,
+      };
+      res.json(maskedResult);
     } catch {
       console.error(JSON.stringify({
         route: "GET /api/deals",
@@ -114,7 +124,9 @@ export function registerDealsRoutes(app: Express) {
           console.error(`[Deals] Checklist init failed for new onboarding deal #${deal.id}:`, err?.message)
         );
       }
-      res.status(201).json(deal);
+      // REV-05A: Serialize deal — masks mid and sanitizes boardingLog.
+      const { serializeDeal: _serializeDealCreate } = await import("../utils/mask-mid");
+      res.status(201).json(_serializeDealCreate(deal as any));
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
@@ -125,7 +137,9 @@ export function registerDealsRoutes(app: Express) {
     try {
       const deal = await authorizeDealAccess(req, res, Number(req.params.id));
       if (!deal) return;
-      res.json(deal);
+      // REV-05A: Serialize deal — masks mid and sanitizes boardingLog.
+      const { serializeDeal: _serializeDeal3 } = await import("../utils/mask-mid");
+      res.json(_serializeDeal3(deal as any));
     } catch (err: any) {
       serverError(res, err);
     }
@@ -141,7 +155,10 @@ export function registerDealsRoutes(app: Express) {
       // Split stage from the rest so stage transitions always go through the service layer,
       // which guarantees GHL sync + Closed Won onboarding kickoff for every code path.
       // overrideReason is a UI-only field for go-live gate overrides — strip it before persisting.
-      const { stage: newStageRaw, overrideReason, ...otherFields } = req.body as Record<string, unknown>;
+      // REV-05A: `mid` must never be written via the generic deal PUT — all MID changes must go
+      // through assignMerchantMidToCanonical() via PUT /api/admin/merchants/:id/mid. Strip it here
+      // so a dashboard user cannot bypass the canonical MID service.
+      const { stage: newStageRaw, overrideReason, mid: _strippedMid, ...otherFields } = req.body as Record<string, unknown>;
       const newStage = typeof newStageRaw === "string" ? newStageRaw : undefined;
       const stageChanging = newStage !== undefined && newStage !== old.stage;
 
@@ -409,7 +426,9 @@ export function registerDealsRoutes(app: Express) {
         })();
       }
 
-      res.json(updated);
+      // REV-05A: Serialize deal — masks mid and sanitizes boardingLog.
+      const { serializeDeal: _serializeDealUpdate } = await import("../utils/mask-mid");
+      res.json(_serializeDealUpdate(updated as any));
     } catch (err: any) {
       // Surface go-live gate blocks as 422 rather than 500
       if (err instanceof GoLiveGateError) {

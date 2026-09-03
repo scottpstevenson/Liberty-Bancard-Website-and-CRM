@@ -16,7 +16,7 @@ import { merchantMids, equipmentShipments, deals } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { serverError } from "../utils/server-error";
-import { createMerchantMid, MerchantMidTransitionError, updateMerchantMid } from "../services/merchant-mid-service";
+import { createMerchantMid, MerchantMidTransitionError, updateMerchantMid, writeMidAccessReceipt } from "../services/merchant-mid-service";
 
 export function registerMerchantMidRoutes(app: Express) {
   // ── MID Registry ─────────────────────────────────────────────────────────────
@@ -31,7 +31,22 @@ export function registerMerchantMidRoutes(app: Express) {
         const contactId = parseInt(String(req.params.contactId), 10);
         if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
         const rows = await db.select().from(merchantMids).where(eq(merchantMids.contactId, contactId));
-        res.json({ mids: rows });
+        // REV-05A: Write access receipt for each MID returned — awaited, durable before response.
+        const userId = String((req.user as any)?.id ?? "");
+        await Promise.all(rows.map((row) =>
+          writeMidAccessReceipt({ midId: row.id, contactId, userId, endpoint: req.path, purpose: "list_mids" })
+        ));
+        // REV-05A: Mask MID in list response; full MID via dedicated receipted endpoint only.
+        const { maskMid: _maskMidList } = await import("../utils/mask-mid");
+        const maskedRows = rows.map((row) => {
+          const { mid: _rawMid, ...rowWithoutMid } = row;
+          return {
+            ...rowWithoutMid,
+            midMasked: _maskMidList(row.mid),
+            hasMid: !!row.mid,
+          };
+        });
+        res.json({ mids: maskedRows });
       } catch (err: any) { serverError(res, err); }
     }
   );
@@ -62,7 +77,16 @@ export function registerMerchantMidRoutes(app: Express) {
           processorName, monthlyVolumeCap: monthlyVolumeCap != null ? String(monthlyVolumeCap) : null,
           notes, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
         });
-        res.status(201).json(row);
+        // REV-05A: Mask MID in create response; write access receipt.
+        const userId = String((req.user as any)?.id ?? "");
+        await writeMidAccessReceipt({ midId: row.id, contactId, userId, endpoint: req.path, purpose: "mid_create" });
+        const { mid: _rawMidCreate, ...rowWithoutMidCreate } = row;
+        const { maskMid: _maskMidCreate } = await import("../utils/mask-mid");
+        res.status(201).json({
+          ...rowWithoutMidCreate,
+          midMasked: _maskMidCreate(row.mid),
+          hasMid: !!row.mid,
+        });
       } catch (err: any) {
         if (err instanceof MerchantMidTransitionError) return res.status(422).json({ code: err.code, message: err.message });
         if (err?.code === "23505") return res.status(409).json({ message: "MID already registered" });
@@ -93,7 +117,16 @@ export function registerMerchantMidRoutes(app: Express) {
           id, status, tids, monthlyVolumeCap: monthlyVolumeCap != null ? String(monthlyVolumeCap) : monthlyVolumeCap,
           notes, suspensionReason, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
         });
-        res.json(updated);
+        // REV-05A: Mask MID in update response.
+        const userId = String((req.user as any)?.id ?? "");
+        await writeMidAccessReceipt({ midId: updated.id, contactId: updated.contactId ?? 0, userId, endpoint: req.path, purpose: "mid_update" });
+        const { mid: _rawMidUpdate, ...updatedWithoutMid } = updated;
+        const { maskMid: _maskMidUpdate } = await import("../utils/mask-mid");
+        res.json({
+          ...updatedWithoutMid,
+          midMasked: _maskMidUpdate(updated.mid),
+          hasMid: !!updated.mid,
+        });
       } catch (err: any) {
         if (err instanceof MerchantMidTransitionError) return res.status(err.code === "MID_NOT_FOUND" ? 404 : 422).json({ code: err.code, message: err.message });
         serverError(res, err);

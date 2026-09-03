@@ -6,7 +6,7 @@ import { db, pool } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
 import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs, automationRegistry, merchantMids, insertMerchantMidSchema } from "@shared/schema";
-import { createMerchantMid, updateMerchantMid } from "../services/merchant-mid-service";
+import { createMerchantMid, updateMerchantMid, writeMidAccessReceipt } from "../services/merchant-mid-service";
 import { desc, eq, isNull, and, gte, or, like, count, not, sql } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -287,7 +287,9 @@ export function registerAdminRoutes(app: Express) {
     try {
       const agentId = req.query.agentId ? Number(req.query.agentId) : undefined;
       const rows = await storage.getAgentMerchants(agentId);
-      res.json(rows);
+      // REV-05A: Mask MID in agent-merchant list response.
+      const { maskMid } = await import("../utils/mask-mid");
+      res.json(rows.map((r: any) => ({ ...r, mid: maskMid(r.mid), hasMid: !!r.mid })));
     } catch (err: any) {
       serverError(res, err);
     }
@@ -296,7 +298,11 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/agent-merchants/deal/:dealId", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const rows = await storage.getAgentMerchantsByDeal(Number(req.params.dealId));
-      res.json(rows[0] ?? null);
+      const row = rows[0] ?? null;
+      if (!row) return res.json(null);
+      // REV-05A: Mask MID in agent-merchant detail response.
+      const { maskMid } = await import("../utils/mask-mid");
+      res.json({ ...row, mid: maskMid(row.mid), hasMid: !!row.mid });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -336,7 +342,10 @@ export function registerAdminRoutes(app: Express) {
         merchantName,
         mid: deal.mid || undefined,
       });
-      res.json({ success: true, assignment: row });
+      // REV-05A: Mask MID in assignment response.
+      const { maskMid: _maskMidAssign } = await import("../utils/mask-mid");
+      const safeRow = { ...row, mid: _maskMidAssign((row as any).mid), hasMid: !!(row as any).mid };
+      res.json({ success: true, assignment: safeRow });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -350,7 +359,9 @@ export function registerAdminRoutes(app: Express) {
         return res.status(409).json({ message: "Merchant is already assigned to an agent. Unassign it first." });
       }
       const row = await storage.assignMerchantToAgent(input);
-      res.status(201).json(row);
+      // REV-05A: Mask MID in agent-merchant create response.
+      const { maskMid: _maskMidCreate } = await import("../utils/mask-mid");
+      res.status(201).json({ ...row, mid: _maskMidCreate((row as any).mid), hasMid: !!(row as any).mid });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
       serverError(res, err);
@@ -366,7 +377,9 @@ export function registerAdminRoutes(app: Express) {
       if (Object.keys(updates).length === 0) return res.status(400).json({ message: "No editable fields supplied" });
       const updated = await storage.updateAgentMerchant(Number(req.params.id), updates as any);
       if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
+      // REV-05A: Mask MID in agent-merchant update response.
+      const { maskMid: _maskMidUpdate } = await import("../utils/mask-mid");
+      res.json({ ...updated, mid: _maskMidUpdate((updated as any).mid), hasMid: !!(updated as any).mid });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -694,6 +707,197 @@ export function registerAdminRoutes(app: Express) {
       const pingResults = await pingAllAdapters();
       const statuses = getAllAdapterStatuses();
       res.json({ ping: pingResults, adapters: statuses });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ─── REV-05A: Processor Activation Snapshot Management ──────────────────────
+  //
+  // Transport is fail-closed until a confirmed snapshot exists.
+  // Owner must provide: processorProgram, entitlements, authorized base URL,
+  // and supported operations before boarding activates.
+
+  // GET /api/admin/processor-activation-snapshots — list all snapshots
+  app.get("/api/admin/processor-activation-snapshots", requireRole("admin"), async (_req, res) => {
+    try {
+      const { db: _db } = await import("../db");
+      const { processorActivationSnapshots } = await import("@shared/schema");
+      const { desc } = await import("drizzle-orm");
+      const rows = await _db.select().from(processorActivationSnapshots)
+        .orderBy(desc(processorActivationSnapshots.createdAt));
+      res.json({ snapshots: rows });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // POST /api/admin/processor-activation-snapshots — create a new snapshot
+  // Requires admin + explicit owner confirmation fields.
+  app.post("/api/admin/processor-activation-snapshots", requireRole("admin"), async (req, res) => {
+    try {
+      const {
+        processorName, processorProgram, sandboxEntitlement, productionEntitlement,
+        authorizedBaseUrl, supportedOperations, ownerConfirm, notes,
+      } = req.body as {
+        processorName?: string;
+        processorProgram?: string;
+        sandboxEntitlement?: boolean;
+        productionEntitlement?: boolean;
+        authorizedBaseUrl?: string;
+        supportedOperations?: string[];
+        ownerConfirm?: boolean;  // explicit confirmation from the owner
+        notes?: string;
+      };
+
+      if (!processorName || !processorProgram) {
+        return res.status(400).json({ message: "processorName and processorProgram are required" });
+      }
+      // REV-05A: Reject activation snapshots for non-production processors.
+      // Mock is a test-only adapter and must never be authorized for real transport.
+      // An admin-created Mock snapshot would allow fake MID production via the
+      // activation snapshot gate and violates the boarding authority contract.
+      //
+      // NMI is listed here once a processor-specific domain allowlist is established;
+      // until then it is excluded to prevent an unvalidatable snapshot that would
+      // authorize NMI transport against an arbitrary URL.
+      const PRODUCTION_PROCESSOR_NAMES = ["payarc"];
+      if (!PRODUCTION_PROCESSOR_NAMES.includes(processorName.toLowerCase())) {
+        return res.status(400).json({
+          message: `processorName '${processorName}' is not a supported production processor for activation snapshots. ` +
+                   `Supported processors: ${PRODUCTION_PROCESSOR_NAMES.join(", ")}. ` +
+                   `NMI and other processors require a processor-specific domain allowlist before being enabled here.`,
+        });
+      }
+      const validPrograms = ["traditional", "payfac"];
+      if (!validPrograms.includes(processorProgram)) {
+        return res.status(400).json({ message: `processorProgram must be one of: ${validPrograms.join(", ")}` });
+      }
+      if (!ownerConfirm) {
+        return res.status(400).json({
+          message: "ownerConfirm: true is required. The account owner must explicitly confirm the processor program, " +
+                   "entitlements, and authorized endpoints before transport activates.",
+        });
+      }
+
+      // REV-05A: Require at least one entitlement, an authorized base URL, and
+      // at least one supported operation before marking as owner_confirmed.
+      // An incomplete snapshot would allow real provider I/O on an unconfigured processor.
+      if (!sandboxEntitlement && !productionEntitlement) {
+        return res.status(400).json({
+          message: "At least one of sandboxEntitlement or productionEntitlement must be true. " +
+                   "Confirm with Liberty's Payarc account which environments are authorized.",
+        });
+      }
+      if (!authorizedBaseUrl) {
+        return res.status(400).json({
+          message: "authorizedBaseUrl is required. This is the processor API base URL authorized for this environment. " +
+                   "For Payarc, use https://api.payarc.net or the sandbox equivalent. Confirm with the processor.",
+        });
+      }
+
+      // REV-05A: SSRF guard — authorizedBaseUrl must be HTTPS and match the
+      // processor-specific domain allowlist. An arbitrary URL would allow an admin
+      // to exfiltrate merchant/owner/bank PII and the processor bearer token to an
+      // attacker-controlled server.
+      //
+      // Domain allowlists are processor-specific. Adding a new processor here requires:
+      //   1. Confirmed domain names from the processor's official documentation.
+      //   2. Owner confirmation that the processor program is correct (already checked above).
+      //   3. Separate allowlist entry below — never share allowlists across processors.
+      const PROCESSOR_DOMAIN_ALLOWLISTS: Record<string, RegExp> = {
+        payarc: /^(api\.|sandbox\.|staging\.)?payarc\.(net|com)$/i,
+        // nmi: not yet defined — add *.nmi.net / *.tnmi.net once confirmed.
+      };
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(authorizedBaseUrl);
+      } catch {
+        return res.status(400).json({
+          message: "authorizedBaseUrl must be a valid absolute URL (e.g. https://api.payarc.net).",
+        });
+      }
+      if (parsedUrl.protocol !== "https:") {
+        return res.status(400).json({
+          message: "authorizedBaseUrl must use HTTPS. HTTP URLs are not permitted for processor transport.",
+        });
+      }
+      const domainAllowlist = PROCESSOR_DOMAIN_ALLOWLISTS[processorName.toLowerCase()];
+      if (!domainAllowlist) {
+        return res.status(400).json({
+          message: `No domain allowlist is configured for processor '${processorName}'. ` +
+                   "A processor-specific domain allowlist must be added to the server before creating a snapshot.",
+        });
+      }
+      if (!domainAllowlist.test(parsedUrl.hostname)) {
+        return res.status(400).json({
+          message: `authorizedBaseUrl hostname '${parsedUrl.hostname}' is not on the ${processorName} domain allowlist. ` +
+                   "Confirm the correct endpoint with the processor before creating the snapshot.",
+        });
+      }
+      if (!supportedOperations || supportedOperations.length === 0) {
+        return res.status(400).json({
+          message: "supportedOperations is required (array of operation names like ['board_merchant','get_merchant_status']). " +
+                   "Confirm the full list with Payarc before activating transport.",
+        });
+      }
+
+      const now = new Date();
+      const actorEmail = (req.user as any)?.email ?? "unknown";
+      const status = "owner_confirmed";
+
+      const { db: _db } = await import("../db");
+      const { processorActivationSnapshots } = await import("@shared/schema");
+      const [row] = await _db.insert(processorActivationSnapshots).values({
+        processorName: processorName.toLowerCase(),
+        processorProgram,
+        sandboxEntitlement: sandboxEntitlement ?? false,
+        productionEntitlement: productionEntitlement ?? false,
+        authorizedBaseUrl: authorizedBaseUrl ?? null,
+        supportedOperations: supportedOperations ?? [],
+        ownerConfirmedAt: now,
+        ownerConfirmedBy: actorEmail,
+        status,
+        notes: notes ?? null,
+      }).returning();
+
+      const { storage: _storage } = await import("../storage");
+      await _storage.createAuditLog({
+        action: "processor_activation_snapshot_created",
+        entityType: "processor_activation_snapshot",
+        entityId: row.id,
+        details: {
+          processorName: row.processorName,
+          processorProgram: row.processorProgram,
+          sandboxEntitlement: row.sandboxEntitlement,
+          productionEntitlement: row.productionEntitlement,
+          status: row.status,
+          ownerConfirmedBy: row.ownerConfirmedBy,
+          note: "Owner confirmed activation snapshot — processor transport now permitted.",
+        },
+      });
+
+      res.status(201).json({ snapshot: row, message: "Activation snapshot created. Processor transport is now permitted for qualifying submissions." });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PATCH /api/admin/processor-activation-snapshots/:id/expire — mark a snapshot as expired/held
+  app.patch("/api/admin/processor-activation-snapshots/:id/expire", requireRole("admin"), async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid snapshot ID" });
+
+      const { db: _db } = await import("../db");
+      const { processorActivationSnapshots } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [row] = await _db.update(processorActivationSnapshots)
+        .set({ status: "expired_or_drifted", updatedAt: new Date() })
+        .where(eq(processorActivationSnapshots.id, id))
+        .returning();
+      if (!row) return res.status(404).json({ message: "Snapshot not found" });
+      res.json({ snapshot: row, message: "Snapshot marked as expired_or_drifted. Transport will be blocked until a new snapshot is created." });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4874,7 +5078,24 @@ export function registerAdminRoutes(app: Express) {
         ? await query.where(conditions.length === 1 ? conditions[0] : and(...conditions)).orderBy(desc(merchantMids.assignedAt))
         : await query.orderBy(desc(merchantMids.assignedAt));
 
-      res.json(rows);
+      // REV-05A: List endpoint returns masked MIDs only; write an access receipt
+      // for each row returned so every full-MID read is durably audited.
+      const userId = String((req.user as any)?.id ?? "");
+      const { maskMid: _maskMidList } = await import("../utils/mask-mid");
+      const maskedRows = rows.map((row) => {
+        const { mid: _rawMid, ...rowWithoutMid } = row;
+        return {
+          ...rowWithoutMid,
+          midMasked: _maskMidList(row.mid),
+          hasMid: !!row.mid,
+        };
+      });
+      // Write receipts after masking (use raw row.id, contactId).
+      await Promise.all(rows.map((row) =>
+        writeMidAccessReceipt({ midId: row.id, contactId: row.contactId ?? 0, userId, endpoint: req.path, purpose: "admin_mid_list" })
+      ));
+
+      res.json(maskedRows);
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4890,7 +5111,16 @@ export function registerAdminRoutes(app: Express) {
       const row = await createMerchantMid({
         ...parsed.data, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
       });
-      res.status(201).json(row);
+      // REV-05A: Mask MID in create response; full MID only via dedicated receipted endpoint.
+      const userId = String((req.user as any)?.id ?? "");
+      await writeMidAccessReceipt({ midId: row.id, contactId: row.contactId ?? 0, userId, endpoint: req.path, purpose: "admin_mid_create" });
+      const { mid: _rawMid2, ...rowWithoutMid2 } = row;
+      const { maskMid: _maskMidCreate2 } = await import("../utils/mask-mid");
+      res.status(201).json({
+        ...rowWithoutMid2,
+        midMasked: _maskMidCreate2(row.mid),
+        hasMid: !!row.mid,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4911,7 +5141,16 @@ export function registerAdminRoutes(app: Express) {
       const row = await updateMerchantMid({
         id, ...parsed.data, actorId: String((req.user as any)?.id ?? ""), actorType: "user",
       });
-      res.json(row);
+      // REV-05A: Mask MID in update response.
+      const userId = String((req.user as any)?.id ?? "");
+      await writeMidAccessReceipt({ midId: row.id, contactId: row.contactId ?? 0, userId, endpoint: req.path, purpose: "admin_mid_update" });
+      const { mid: _rawMid3, ...rowWithoutMid3 } = row;
+      const { maskMid: _maskMidUpdate3 } = await import("../utils/mask-mid");
+      res.json({
+        ...rowWithoutMid3,
+        midMasked: _maskMidUpdate3(row.mid),
+        hasMid: !!row.mid,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4921,8 +5160,16 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/mids/unactivated", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { findUnactivatedMids } = await import("../services/merchant-activation-monitor");
+      const { maskMid: _maskMidUnactivated } = await import("../utils/mask-mid");
       const items = await findUnactivatedMids();
-      res.json(items);
+      // REV-05A: Mask raw MID in unactivated list response.
+      const maskedItems = items.map((i: any) => ({
+        ...i,
+        mid: _maskMidUnactivated(i.mid),
+        midMasked: _maskMidUnactivated(i.mid),
+        hasMid: !!i.mid,
+      }));
+      res.json(maskedItems);
     } catch (err: any) {
       serverError(res, err);
     }

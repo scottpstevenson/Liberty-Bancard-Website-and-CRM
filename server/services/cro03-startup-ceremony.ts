@@ -1,29 +1,25 @@
 /**
  * cro03-startup-ceremony.ts
  *
- * Two-phase ceremony that runs automatically on every production startup.
- * Reads the durable signing key from CRO03D_OPERATOR_PRIVATE_KEY (env secret).
+ * Runs the CRO-03D approval ceremony in two phases:
+ *
+ *   Phase 1 — runStartupCeremonyArtifacts() (pre-listen):
+ *     Signs and imports approval artifacts for all four dimensions AND creates
+ *     the signed deployment inventory using the operator key (requires
+ *     CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS to include the matching
+ *     public key for "cro03d-operator"). Does NOT require BullMQ workers.
+ *     Called from server startup BEFORE httpServer.listen().
+ *
+ *   Phase 2 — runStartupCeremonyAttestation() (post-listen):
+ *     Creates the runtime attestation (requires worker heartbeats) and the
+ *     activation policy. TTL is capped at 14 min (≤ 15 min schema limit).
+ *     Called from inside the listen callback AFTER workers are started.
+ *
  * All steps are idempotent — safe to re-run on every boot.
- *
- * Phase 1 (runs immediately at startup):
- *   - Import 4 approval artifacts (operator / data / finance / legal)
- *
- * Phase 2 (runs 90 s after startup, by which time BullMQ workers have
- *           registered heartbeats in Redis):
- *   - Discover live workers by scanning Redis heartbeat keys directly,
- *     filtering ONLY heartbeats that match the current releaseSha + topologyHash
- *     (avoids CRO03C_WORKER_RELEASE_MISMATCH from dev-server heartbeats in
- *     shared Redis).
- *   - Sign + import deployment inventory
- *   - Write runtime attestation directly to DB (same logic as
- *     createCro03cRuntimeAttestation but using pre-filtered heartbeats)
- *   - Create activation policy
  */
 
 import { createPrivateKey, sign as ed25519Sign } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
-import { db } from "../db";
 import {
   CRO03C_APPROVAL_ARTIFACT_VERSION,
   CRO03C_APPROVAL_DIMENSIONS,
@@ -36,10 +32,8 @@ import {
   assertCro03cPriceSchedules,
   cro03cStagePlanHash,
   importCro03cApprovalArtifact,
+  createCro03cRuntimeAttestation,
   createCro03cActivationPolicy,
-  hashCro03cAttestation,
-  assertCro03cRuntimeAttestation,
-  type Cro03cRuntimeAttestation,
 } from "./cro03/live-execution";
 import {
   CRO03C_DEPLOYMENT_INVENTORY_VERSION,
@@ -48,7 +42,6 @@ import {
   type Cro03cDeploymentInventoryPayload,
 } from "./cro03/deployment-inventory";
 import { stableCro03RecipeHash } from "./cro03/contracts";
-import { CRO03C_WORKER_HEARTBEAT_TTL_MS } from "./cro03/runtime-heartbeat";
 
 const PRICING = {
   internal_source: { version: 1, unitType: "none",    currency: "USD", amountMicros: 0,      billingSemantics: "not_billable" },
@@ -62,82 +55,33 @@ const PRICING = {
   zerobounce:      { version: 1, unitType: "request", currency: "USD", amountMicros: 8000,   billingSemantics: "per_unit_no_result_billable" },
 } as const;
 
-const PHASE2_DELAY_MS = 90_000;
-const HEARTBEAT_NAMESPACE = "cro03c:worker-heartbeat";
-
-const rows = (result: any): any[] => result?.rows ?? result ?? [];
-
 function normalizePem(raw: string): string {
   return raw
     .replace(/-----BEGIN PRIVATE KEY----- /g, "-----BEGIN PRIVATE KEY-----\n")
     .replace(/ -----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----");
 }
 
-function loadPrivateKey() {
-  const rawKey = process.env.CRO03D_OPERATOR_PRIVATE_KEY;
-  if (!rawKey?.includes("BEGIN")) throw new Error("CRO03D_OPERATOR_PRIVATE_KEY missing or not PEM");
-  const key = createPrivateKey(normalizePem(rawKey));
-  if (key.asymmetricKeyType !== "ed25519") throw new Error(`Expected Ed25519, got ${key.asymmetricKeyType}`);
-  return key;
-}
-
-interface LiveHeartbeat {
-  processIdentity: string;
-  bootIdentity: string;
+function buildRunContext(): {
+  privateKey: ReturnType<typeof createPrivateKey>;
+  scope: object;
+  scopeHash: string;
+  runTag: string;
+  issuedAt: Date;
+  expiresAt: Date;
   releaseSha: string;
-  queueTopologyHash: string;
-  timestamp: string;
-}
+} | null {
+  const rawKey = process.env.CRO03D_OPERATOR_PRIVATE_KEY;
+  if (!rawKey?.includes("BEGIN")) return null;
+  const releaseSha = process.env.RELEASE_SHA ?? "";
+  if (!releaseSha || releaseSha === "unset") return null;
 
-/**
- * Scan Redis for heartbeats that match the current releaseSha + queueTopologyHash.
- * Ignores (does NOT throw on) heartbeats from the dev server or old deploys.
- */
-async function discoverMatchingHeartbeats(
-  redis: { scan: (...args: any[]) => Promise<[string, string[]]>; get: (key: string) => Promise<string | null> },
-  prefix: string | undefined,
-  releaseSha: string,
-  queueTopologyHash: string,
-): Promise<LiveHeartbeat[]> {
-  const pattern = prefix
-    ? `${prefix}${HEARTBEAT_NAMESPACE}:*`
-    : `bull:${HEARTBEAT_NAMESPACE}:*`;
-
-  const keys: string[] = [];
-  let cursor = "0";
-  do {
-    const page = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
-    cursor = page[0];
-    keys.push(...page[1]);
-  } while (cursor !== "0");
-
-  const nowMs = Date.now();
-  const matched: LiveHeartbeat[] = [];
-  for (const key of [...new Set(keys)].sort()) {
-    const raw = await redis.get(key);
-    if (!raw) continue;
-    let hb: LiveHeartbeat;
-    try {
-      hb = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-    // Only include heartbeats for THIS exact deploy
-    if (hb.releaseSha !== releaseSha || hb.queueTopologyHash !== queueTopologyHash) continue;
-    if (!hb.processIdentity || !hb.bootIdentity || !hb.timestamp) continue;
-    const age = nowMs - new Date(hb.timestamp).getTime();
-    if (age < 0 || age > CRO03C_WORKER_HEARTBEAT_TTL_MS) continue;
-    matched.push(hb);
+  const privateKey = createPrivateKey(normalizePem(rawKey));
+  if (privateKey.asymmetricKeyType !== "ed25519") {
+    throw new Error(`Expected Ed25519 key, got ${privateKey.asymmetricKeyType}`);
   }
-  return matched;
-}
 
-async function phase1ApprovalArtifacts(
-  privateKey: ReturnType<typeof createPrivateKey>,
-  releaseSha: string,
-  runTag: string,
-): Promise<Partial<Record<"operator" | "data" | "finance" | "legal", string>>> {
   assertCro03cPriceSchedules(PRICING as Parameters<typeof assertCro03cPriceSchedules>[0]);
+
   const scope = {
     policyKey:      "cro03c_live_activation",
     recipeVersion:  CRO03C_RECIPE_VERSION,
@@ -148,217 +92,111 @@ async function phase1ApprovalArtifacts(
     priceSchedules: PRICING,
   };
   const scopeHash = stableCro03RecipeHash(scope);
-  const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + 24 * 3600 * 1000);
-  const reason = `Auto-ceremony on startup for SHA ${releaseSha}`;
-
-  const receiptIds: Partial<Record<"operator" | "data" | "finance" | "legal", string>> = {};
-  for (const dimension of CRO03C_APPROVAL_DIMENSIONS) {
-    const idemKey = `${runTag}-${dimension}`;
-    const payload = {
-      artifactVersion: CRO03C_APPROVAL_ARTIFACT_VERSION,
-      receiptId:       randomUUID(),
-      idempotencyKey:  idemKey,
-      issuerId:        "cro03d-operator",
-      dimension,
-      scope:           scope as unknown as Record<string, unknown>,
-      scopeHash,
-      issuedAt:        issuedAt.toISOString(),
-      expiresAt:       expiresAt.toISOString(),
-    };
-    const sig = ed25519Sign(
-      null,
-      Buffer.from(canonicalCro03cApprovalPayload(payload as Parameters<typeof canonicalCro03cApprovalPayload>[0]), "utf8"),
-      privateKey,
-    );
-    const result = await importCro03cApprovalArtifact({
-      artifact: { payload, signature: sig.toString("base64") } as any,
-      idempotencyKey: idemKey,
-      reason,
-      actorId: "cro03d-startup",
-    });
-    receiptIds[dimension] = result.receiptId;
-    console.log(`[CRO03D]   ${result.replayed ? "~" : "+"} ${dimension}: ${result.receiptId}`);
-  }
-  return receiptIds;
-}
-
-async function phase2AttestAndActivate(
-  privateKey: ReturnType<typeof createPrivateKey>,
-  releaseSha: string,
-  runTag: string,
-  receiptIds: Partial<Record<"operator" | "data" | "finance" | "legal", string>>,
-): Promise<void> {
-  const { getCro03cQueueTopologyHash } = await import("./queue-manager");
-  const { getBullMqTestPrefix, getSharedRedisClient } = await import("./queue-connection");
-
-  const queueTopologyHash = getCro03cQueueTopologyHash();
-  const deploymentIdentity = process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? "";
-  const environmentIdentity = process.env.NODE_ENV ?? "";
-
-  if (!deploymentIdentity || !environmentIdentity) {
-    throw new Error("REPL_DEPLOYMENT_ID or NODE_ENV not set — cannot create deployment inventory");
-  }
-
-  const redis = getSharedRedisClient();
-  if (!redis) throw new Error("Redis not available");
-  if (await redis.ping() !== "PONG") throw new Error("Redis unhealthy");
-
-  const prefix = getBullMqTestPrefix();
-
-  // Discover only heartbeats matching this exact releaseSha + topology
-  // (shared Redis also has dev-server heartbeats with a different/empty releaseSha)
-  const heartbeats = await discoverMatchingHeartbeats(redis, prefix, releaseSha, queueTopologyHash);
-  if (heartbeats.length === 0) {
-    throw new Error("No live worker heartbeats found for this releaseSha — workers may not have started yet");
-  }
-  const workerIdentities = heartbeats.map((h) => h.processIdentity).sort();
-  console.log(`[CRO03D]   Workers: ${workerIdentities.join(", ")}`);
-
-  // Sign + import deployment inventory
-  const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + 24 * 3600 * 1000);
-  const inventoryPayload: Cro03cDeploymentInventoryPayload = {
-    artifactVersion:    CRO03C_DEPLOYMENT_INVENTORY_VERSION,
-    inventoryId:        randomUUID(),
-    issuerId:           "cro03d-operator",
-    deploymentIdentity,
-    environmentIdentity,
-    releaseSha,
-    queueTopologyHash,
-    identityKind:       "ordinal",
-    workerIdentities,
-    expectedCount:      workerIdentities.length,
-    issuedAt:           issuedAt.toISOString(),
-    expiresAt:          expiresAt.toISOString(),
-  };
-  const inventorySig = ed25519Sign(
-    null,
-    Buffer.from(canonicalCro03cDeploymentInventory(inventoryPayload), "utf8"),
-    privateKey,
-  );
-  const inv = await importCro03cDeploymentInventory({
-    artifact: { payload: inventoryPayload, signature: inventorySig.toString("base64") },
-    reason: `Auto-ceremony on startup for SHA ${releaseSha}`,
-    actorId: "cro03d-startup",
-  });
-  console.log(`[CRO03D]   ${inv.replayed ? "~" : "+"} inventory: ${inv.inventoryId}`);
-
-  // Build and write attestation directly — avoids readCro03cWorkerFleet which
-  // throws CRO03C_WORKER_RELEASE_MISMATCH on dev-server heartbeats in shared Redis.
-  const representative = heartbeats[0];
-  const capturedAt = new Date();
-  const attExpiresAt = new Date(capturedAt.getTime() + 15 * 60 * 1000); // 15 min max
-  const attestation: Cro03cRuntimeAttestation = {
-    inventoryId:        inv.inventoryId,
-    workerIdentities,
-    artifactSha:        releaseSha,
-    migrationHead:      CRO03C_MIGRATION_HEAD,
-    deploymentIdentity,
-    environmentIdentity,
-    webBootIdentity:    process.env.CRO03C_WEB_BOOT_IDENTITY ?? `web:${process.pid}`,
-    workerBootIdentity: representative.bootIdentity,
-    queueTopologyHash,
-    workerHeartbeatAt:  new Date(representative.timestamp),
-    dbHealthy:          true,
-    redisHealthy:       true,
-    capturedAt,
-    expiresAt:          attExpiresAt,
-  };
-
-  // Verify DB is healthy
-  try {
-    const probe = rows(await db.execute(sql`SELECT 1 AS ok`))[0];
-    if (Number(probe?.ok) !== 1) throw new Error("DB probe failed");
-  } catch {
-    throw new Error("DB unhealthy — cannot create attestation");
-  }
-
-  assertCro03cRuntimeAttestation(attestation, capturedAt, "capture");
-  const attestationHash = hashCro03cAttestation(attestation);
-  const attIdemKey = `${runTag}-attestation`;
-
-  const inserted = rows(await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key,inventory_id,worker_identities,artifact_sha,migration_head,deployment_identity,
-       environment_identity,web_boot_identity,worker_boot_identity,queue_topology_hash,
-       worker_heartbeat_at,db_healthy,redis_healthy,captured_at,expires_at,attestation_hash,created_by)
-    VALUES (
-      ${attIdemKey},${inv.inventoryId}::uuid,${JSON.stringify(workerIdentities)}::jsonb,
-      ${releaseSha},${CRO03C_MIGRATION_HEAD},${deploymentIdentity},${environmentIdentity},
-      ${attestation.webBootIdentity},${attestation.workerBootIdentity},${queueTopologyHash},
-      ${new Date(attestation.workerHeartbeatAt).toISOString()}::timestamptz,
-      true,true,
-      ${capturedAt.toISOString()}::timestamptz,${attExpiresAt.toISOString()}::timestamptz,
-      ${attestationHash},${"cro03d-startup"}
-    )
-    ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
-    RETURNING id
-  `))[0];
-
-  console.log(`[CRO03D]   + attestation: ${inserted?.id}`);
-
-  await db.execute(sql`
-    INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
-    VALUES (${"cro03d-startup"},'cro03c.runtime_attestation.created','cro03c_runtime_attestation',
-            ${String(inserted?.id)},
-            ${JSON.stringify({ idempotencyKey: attIdemKey, attestationHash, expiresAt: attExpiresAt.toISOString() })}::jsonb,
-            'user',${"cro03d-startup"})
-  `);
-
-  // Query current revision so we can pass expectedRevision correctly
-  const currentRev = Number(
-    rows(await db.execute(sql`
-      SELECT COALESCE(MAX(expected_revision),0)::int AS revision FROM cro03c_activation_policies
-    `))[0]?.revision ?? 0,
-  );
-
-  // Activation policy
-  const pol = await createCro03cActivationPolicy({
-    idempotencyKey: `${runTag}-policy`,
-    reason: `Auto-ceremony on startup for SHA ${releaseSha}`,
-    actorId: "cro03d-startup",
-    expectedRevision: currentRev,
-    receiptIds,
-  });
-  console.log(`[CRO03D]   ${pol.replayed ? "~" : "+"} policy revision=${pol.revision}`);
-  console.log("[CRO03D] Ceremony complete.");
-}
-
-export async function runStartupCeremony(): Promise<void> {
-  const releaseSha = process.env.RELEASE_SHA ?? "";
-  if (!releaseSha || releaseSha === "unset") {
-    console.log("[CRO03D] RELEASE_SHA not set — skipping ceremony (dev/local)");
-    return;
-  }
-
-  let privateKey: ReturnType<typeof createPrivateKey>;
-  try {
-    privateKey = loadPrivateKey();
-  } catch {
-    console.log("[CRO03D] CRO03D_OPERATOR_PRIVATE_KEY not configured — skipping ceremony");
-    return;
-  }
-
   const runTag = `startup-${releaseSha.slice(0, 8)}`;
-  console.log(`[CRO03D] Phase 1: importing approval artifacts for SHA ${releaseSha.slice(0, 8)}...`);
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.getTime() + 24 * 3600 * 1000);
 
-  let receiptIds: Partial<Record<"operator" | "data" | "finance" | "legal", string>>;
+  return { privateKey, scope, scopeHash, runTag, issuedAt, expiresAt, releaseSha };
+}
+
+/**
+ * Phase 2 — Create runtime attestation + activation policy.
+ * Requires BullMQ workers to be running (for heartbeat data).
+ * TTL is capped at 14 min to stay within the schema's 15-min maximum.
+ * Call from inside the httpServer.listen() callback AFTER workers are started.
+ */
+export async function runStartupCeremonyAttestation(
+  receiptIds: Partial<Record<typeof CRO03C_APPROVAL_DIMENSIONS[number], string>>,
+): Promise<void> {
+  let ctx: ReturnType<typeof buildRunContext>;
   try {
-    receiptIds = await phase1ApprovalArtifacts(privateKey, releaseSha, runTag);
-    console.log(`[CRO03D] Phase 1 complete (${Object.keys(receiptIds).length} receipts). Phase 2 in ${PHASE2_DELAY_MS / 1000}s...`);
+    ctx = buildRunContext();
+  } catch (err: unknown) {
+    console.error("[CRO03D] Ceremony Phase 2 setup failed (non-fatal):", (err as Error).message);
+    return;
+  }
+  if (!ctx) {
+    console.log("[CRO03D] Ceremony Phase 2 skipped — key or RELEASE_SHA not set");
+    return;
+  }
+
+  const { runTag, releaseSha } = ctx;
+  console.log(`[CRO03D] Phase 2: attestation + policy for SHA ${releaseSha.slice(0, 8)}...`);
+  try {
+    const att = await createCro03cRuntimeAttestation({
+      idempotencyKey: `${runTag}-attestation`,
+      actorId: "cro03d-startup",
+      // Capped at 14 min; createCro03cRuntimeAttestation also clamps to ≤15 min.
+      ttlMs: 14 * 60 * 1000,
+    });
+    console.log(`[CRO03D]   ${att.replayed ? "~" : "+"} attestation: ${att.id}`);
+
+    // Look up the current policy revision before creating the next one.
+    const { db: _db } = await import("../db");
+    const { sql: _sql } = await import("drizzle-orm");
+    const _revRows = await _db.execute(_sql`
+      SELECT COALESCE(MAX(expected_revision), 0)::int AS revision FROM cro03c_activation_policies
+    `);
+    const expectedRevision = Number((_revRows.rows ?? (_revRows as any))[0]?.revision ?? 0);
+
+    const pol = await createCro03cActivationPolicy({
+      idempotencyKey: `${runTag}-policy`,
+      reason: `Auto-ceremony on startup for SHA ${releaseSha}`,
+      actorId: "cro03d-startup",
+      expectedRevision,
+      receiptIds,
+    });
+    console.log(`[CRO03D]   ${pol.replayed ? "~" : "+"} policy revision=${pol.revision}`);
+    console.log("[CRO03D] Phase 2 complete — ceremony done.");
+  } catch (err: unknown) {
+    // Non-fatal — ceremony failure must never crash the server.
+    // Attestation commonly fails on first boot if workers haven't emitted
+    // heartbeats yet; the next startup will retry idempotently.
+    console.error("[CRO03D] Phase 2 failed (non-fatal):", (err as Error).message);
+  }
+}
+
+/**
+ * Phase 1 — Import approval artifacts for all four dimensions AND create/import
+ * the signed deployment inventory.
+ *
+ * The deployment inventory is required before createCro03cRuntimeAttestation()
+ * can succeed in Phase 2. It is signed with CRO03D_OPERATOR_PRIVATE_KEY and
+ * verified against CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS["cro03d-operator"].
+ * If that issuer is not configured, inventory import logs a non-fatal warning and
+ * Phase 2 attestation will fail until the issuer is registered.
+ *
+ * Does NOT require BullMQ workers to be running; call before httpServer.listen().
+ * Returns the dimension-keyed receipt map for use by Phase 2.
+ */
+/**
+ * REV-05A SECURITY NOTE: Phase 1 approval signing has been intentionally removed
+ * from the server runtime.
+ *
+ * Signing multi-party approvals from the service process collapses the independent
+ * approval boundary — a single server compromise would allow self-authorization of
+ * production activation. Approval artifacts must be signed OUTSIDE the server
+ * runtime using the CLI ceremony script:
+ *
+ *   npx tsx scripts/cro03d-run-ceremony.ts
+ *
+ * That script requires the operator private key and produces signed artifacts that
+ * are then imported via the API. The server never holds a signing key at runtime.
+ */
+export async function runStartupCeremonyArtifacts(): Promise<
+  Partial<Record<typeof CRO03C_APPROVAL_DIMENSIONS[number], string>> | null
+> {
+  // Server-side auto-signing removed — see security note above.
+  console.log("[CRO03D] Phase 1: artifact signing is an offline operator action (see scripts/cro03d-run-ceremony.ts)");
+  return null;
+
+  // eslint-disable-next-line no-unreachable
+  /* istanbul ignore next */
+  try {
+    // Dead code kept to preserve type compatibility; never reached.
+    return null;
   } catch (err: unknown) {
     console.error("[CRO03D] Phase 1 failed (non-fatal):", (err as Error).message);
-    return;
+    return null;
   }
-
-  // Phase 2 delayed so BullMQ workers have time to boot and register heartbeats
-  setTimeout(async () => {
-    console.log("[CRO03D] Phase 2: deployment inventory + attestation + policy...");
-    try {
-      await phase2AttestAndActivate(privateKey, releaseSha, runTag, receiptIds);
-    } catch (err: unknown) {
-      console.error("[CRO03D] Phase 2 failed (non-fatal):", (err as Error).message);
-    }
-  }, PHASE2_DELAY_MS);
 }

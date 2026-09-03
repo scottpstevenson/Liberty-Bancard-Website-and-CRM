@@ -84,6 +84,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "REV-05A Processor Boarding Kill Lines (simulation paths, ping() 404-success, ambiguous retry, raw MID audit, deals.mid outside canonical service)",
+    script: "scripts/check-processor-kill-lines.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Root Dependency Policy (portable HTTPS lock, freshness, integrity)",
     script: "scripts/check-dependency-policy.ts",
     timeoutSecs: 60,

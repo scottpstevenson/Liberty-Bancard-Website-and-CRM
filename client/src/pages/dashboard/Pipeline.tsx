@@ -1999,7 +1999,7 @@ export default function Pipeline() {
   };
 
   // #537 — Won/lost reason dialog handler
-  const submitDealUpdateWithReason = (reason?: string) => {
+  const submitDealUpdateWithReason = async (reason?: string) => {
     if (!selectedDeal) return;
     const updates: Record<string, unknown> = {};
     if (editStage && editStage !== selectedDeal.stage) updates.stage = editStage;
@@ -2007,10 +2007,64 @@ export default function Pipeline() {
     else if (reason) updates.notes = reason; // embed reason in notes when no other note change
     if (editFollowUp) updates.nextFollowUp = new Date(editFollowUp).toISOString();
     if (editExpectedGoLiveDate) (updates as any).expectedGoLiveDate = new Date(editExpectedGoLiveDate).toISOString(); // #393
-    if (editMid !== (selectedDeal.mid || "")) updates.mid = editMid.trim() || null;
+    // REV-05A: MID changes must go through the canonical service (PUT /api/admin/merchants/:id/mid),
+    // not the generic deal PUT. Handled separately below.
     if (editVertical !== (selectedDeal.vertical || "")) updates.vertical = editVertical || null;
     if (reason && !updates.notes) updates.closeReason = reason;
-    if (Object.keys(updates).length === 0) { setDetailOpen(false); return; }
+
+    const midChanged = editMid.trim() !== (selectedDeal.mid || "").trim();
+
+    // REV-05A: If MID changed, call canonical endpoint.
+    // Clearing (empty input) shows a message — full revoke requires an admin action.
+    if (midChanged) {
+      if (!editMid.trim()) {
+        // Clearing a MID requires explicit operator revocation, not a silent blank.
+        toast({
+          title: "Cannot clear MID here",
+          description: "MID removal requires an explicit admin action from the MID Registry. Use the Boarding → MID Registry page to revoke.",
+          variant: "destructive",
+        });
+        setEditMid(selectedDeal.mid || ""); // restore original
+        return;
+      }
+      try {
+        const midRes = await apiRequest("PUT", `/api/admin/merchants/${selectedDeal.id}/mid`, {
+          mid: editMid.trim(),
+        });
+        if (!midRes.ok) {
+          const body = await midRes.json().catch(() => ({}));
+          toast({
+            title: "MID assignment failed",
+            description: (body as any).message ?? "Could not assign MID. Check your permissions.",
+            variant: "destructive",
+          });
+          return; // stop; don't close dialog or run generic update
+        }
+        queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      } catch (err: any) {
+        toast({
+          title: "MID assignment failed",
+          description: err?.message ?? "Network error — MID not saved.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // If only the MID changed (no other fields), close dialog and exit.
+    if (Object.keys(updates).length === 0) {
+      if (midChanged) {
+        toast({ title: "MID updated successfully" });
+        setDetailOpen(false);
+        setSelectedDeal(null);
+      } else {
+        setDetailOpen(false);
+      }
+      setCloseReasonOpen(false);
+      setCloseReasonDraft("");
+      return;
+    }
+
     updateDealMutation.mutate({ id: selectedDeal.id, ...updates });
     setCloseReasonOpen(false);
     setCloseReasonDraft("");

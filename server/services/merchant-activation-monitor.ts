@@ -13,6 +13,7 @@
 
 import { db } from "../db";
 import { merchantMids, contacts } from "@shared/schema";
+import { maskMid } from "../utils/mask-mid";
 import { isNull, eq, and } from "drizzle-orm";
 import { storage } from "../storage";
 
@@ -112,7 +113,7 @@ export async function runActivationMonitor(): Promise<{ checked: number; alerts:
 
   if (items.length > 0) {
     const summary = items
-      .map(i => `MID ${i.mid} (${i.contactName ?? `#${i.contactId}`}) — ${i.daysSinceAssigned}d since assigned`)
+      .map(i => `MID ${maskMid(i.mid)} (${i.contactName ?? `#${i.contactId}`}) — ${i.daysSinceAssigned}d since assigned`)
       .join("; ");
 
     try {
@@ -128,7 +129,7 @@ export async function runActivationMonitor(): Promise<{ checked: number; alerts:
           metadata: {
             eventType: "mid_activation_alert",
             midCount: items.length,
-            mids: items.map(i => ({ mid: i.mid, contactId: i.contactId, daysSinceAssigned: i.daysSinceAssigned })),
+            mids: items.map(i => ({ midMasked: maskMid(i.mid), contactId: i.contactId, daysSinceAssigned: i.daysSinceAssigned })),
           },
         },
         "mid_activation_alert",

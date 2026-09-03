@@ -1628,6 +1628,10 @@ export const deals = pgTable("deals", {
   boardingApprovedAt: timestamp("boarding_approved_at"),
   // Idempotency for durable processor submission (item 8).
   boardingIdempotencyKey: text("boarding_idempotency_key"),
+  // REV-05A boarding authority fields (migration 0220)
+  processorProgram: text("processor_program"),          // 'traditional' | 'payfac'
+  boardingAmbiguousAt: timestamp("boarding_ambiguous_at"), // set when result is ambiguous
+  boardingReconciledAt: timestamp("boarding_reconciled_at"), // set when reconciled
   shareToken: varchar("share_token", { length: 64 }).unique(),
   shareData: jsonb("share_data"),
   shareViewCount: integer("share_view_count").default(0),
@@ -7338,6 +7342,41 @@ export const insertMerchantMidSchema = createInsertSchema(merchantMids).omit({
 });
 export type MerchantMid = typeof merchantMids.$inferSelect;
 export type InsertMerchantMid = z.infer<typeof insertMerchantMidSchema>;
+
+// ─── Processor Activation Snapshots (REV-05A) ────────────────────────────────
+// Transport is fail-closed until a row with status='owner_confirmed' or higher
+// exists. Owner must confirm program, entitlements, and authorized endpoints.
+export const processorActivationSnapshots = pgTable("processor_activation_snapshots", {
+  id:                    serial("id").primaryKey(),
+  processorName:         text("processor_name").notNull(),
+  processorProgram:      text("processor_program").notNull(),  // 'traditional' | 'payfac'
+  sandboxEntitlement:    boolean("sandbox_entitlement").notNull().default(false),
+  productionEntitlement: boolean("production_entitlement").notNull().default(false),
+  authorizedBaseUrl:     text("authorized_base_url"),
+  supportedOperations:   jsonb("supported_operations").notNull().default(sql`'[]'::jsonb`),
+  ownerConfirmedAt:      timestamp("owner_confirmed_at", { withTimezone: true }),
+  ownerConfirmedBy:      text("owner_confirmed_by"),
+  status:                text("status").notNull().default("pending"),
+  // pending | owner_confirmed | sandbox_verified | production_authorized | expired_or_drifted | held
+  notes:                 text("notes"),
+  createdAt:             timestamp("created_at").notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at").notNull().defaultNow(),
+});
+export type ProcessorActivationSnapshot = typeof processorActivationSnapshots.$inferSelect;
+
+// ─── Merchant MID Access Receipts (REV-05A) ───────────────────────────────────
+// Every full-MID read from a role-authorized endpoint writes a receipt here.
+// Public/list/search/task/notification/log/audit/metric responses must omit or mask.
+export const merchantMidAccessReceipts = pgTable("merchant_mid_access_receipts", {
+  id:         serial("id").primaryKey(),
+  midId:      integer("mid_id").notNull(),
+  contactId:  integer("contact_id"),
+  userId:     text("user_id"),
+  endpoint:   text("endpoint").notNull(),
+  purpose:    text("purpose").notNull().default("manual_lookup"),
+  accessedAt: timestamp("accessed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type MerchantMidAccessReceipt = typeof merchantMidAccessReceipts.$inferSelect;
 
 // ─── Equipment Shipments (#1404) ─────────────────────────────────────────────
 export const equipmentShipments = pgTable("equipment_shipments", {

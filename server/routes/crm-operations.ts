@@ -25,12 +25,17 @@ export function registerCrmOperationsRoutes(app: Express) {
       const contact = await authorizeContactAccess(req, res, contactId);
       if (!contact) return;
 
-      const [contactDeals, contactTickets, contactTasks, contactNotes] = await Promise.all([
+      const [rawDeals, contactTickets, contactTasks, contactNotes] = await Promise.all([
         storage.getDealsByContact(contactId),
         db.select().from(tickets).where(eq(tickets.contactId, contactId)),
         db.select().from(tasks).where(eq(tasks.contactId, contactId)),
         storage.getNotes("contact", contactId),
       ]);
+
+      // REV-05A: mask raw MID from deal objects before returning to the client.
+      // Full MIDs are available only via dedicated receipted endpoints.
+      const { serializeDeal } = await import("../utils/mask-mid");
+      const contactDeals = rawDeals.map((d: any) => serializeDeal(d));
 
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
     } catch (err: any) {

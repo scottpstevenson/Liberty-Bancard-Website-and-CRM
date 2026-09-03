@@ -207,9 +207,10 @@ async function main() {
 
   // 8. Runtime attestation
   console.log("\n── Creating runtime attestation ──");
+  // REV-05A: TTL capped at 14 min (schema enforces ≤15 min maximum).
   const attestation = await prodFetch(cookie, csrf, "/api/cro03c/runtime-attestations", {
     idempotencyKey: `${runTag}-attestation`,
-    ttlMs:          24 * 3600 * 1000,
+    ttlMs:          14 * 60 * 1000,
   }) as { attestationId?: string; replayed?: boolean };
   console.log(`  ${attestation.replayed ? "replayed" : "created"}: ${attestation.attestationId}`);
 

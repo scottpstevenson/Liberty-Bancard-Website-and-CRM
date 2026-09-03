@@ -19,6 +19,7 @@ interface BoardingRefreshResult {
   outcome: "success" | "failed" | "skipped";
   status?: string;
   mid?: string;
+  midMasked?: string;
   message?: string;
   moreInfoRequest?: string;
   declineReason?: string;
@@ -37,15 +38,17 @@ async function recordBoardingFailureAndAlert(
   const lastStatusCheck = [...existingLog].reverse().find((e: any) => e.event === "status_check");
   const isConsecutiveFailure = lastStatusCheck?.outcome === "failed";
 
+  // REV-05A: Redact provider-derived error text before persisting into boardingLog.
+  const { redactProviderText: _redactErrText, sanitizeBoardingLog: _sanitizeFailLog } = await import("../utils/mask-mid");
   const failureEntry: Record<string, any> = {
     timestamp: new Date().toISOString(),
     event: "status_check",
     outcome: "failed",
-    error: errorMessage,
+    error: _redactErrText(errorMessage),
   };
 
   await storage.updateDeal(dealId, {
-    boardingLog: [...existingLog, failureEntry],
+    boardingLog: _sanitizeFailLog([...existingLog, failureEntry]),
   });
 
   if (!isConsecutiveFailure) {
@@ -71,13 +74,13 @@ async function recordBoardingFailureAndAlert(
     assignedTo: deal.owner || "Scott Stevenson",
     priority: "high",
     dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    description: `Boarding status refresh has failed on consecutive attempts. Latest error: ${errorMessage}`,
+    description: `Boarding status refresh has failed on consecutive attempts. Latest error: ${(await import("../utils/mask-mid")).redactProviderText(errorMessage)}`,
   });
 
   await storage.createNotification({
     channel: "internal",
     title: "Persistent Boarding Failure",
-    message: `Deal #${dealId} has failed consecutive boarding status refreshes. Error: ${errorMessage}`,
+    message: `Deal #${dealId} has failed consecutive boarding status refreshes. Error: ${(await import("../utils/mask-mid")).redactProviderText(errorMessage)}`,
     type: "urgent",
     metadata: { dealId, eventType: "boarding_persistent_failure" },
   });
@@ -98,7 +101,43 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     const submittedEntry = [...dealLog].reverse().find((e: any) => e.event === "submitted");
     const dealProcessorName = submittedEntry?.processor || undefined;
     const processor = dealProcessorName ? getProcessor(dealProcessorName) : getDefaultProcessor();
-    const result = await processor.getMerchantStatus(deal.processorApplicationId);
+
+    // REV-05A: Status polling is provider I/O that can mutate deal state (approved, MID).
+    // It must be gated by the activation snapshot — including latest-only check,
+    // entitlement, supportedOperations, and authorizedBaseUrl — before any poll.
+    //
+    // Exception: Mock adapter in non-production is exempt from the snapshot gate
+    // (same reason as the outbox worker — Mock never has a snapshot, and rejecting
+    // it here would make dev/test status polls always skip).
+    const { requireConfirmedActivationSnapshot } = await import("../services/processors/registry");
+    const processorNameForGate = dealProcessorName ?? "payarc";
+    const isMockNonProd = processorNameForGate === "mock" && process.env.NODE_ENV !== "production";
+    // For Mock in non-production, supply the same synthetic URL used by the outbox worker.
+    // Mock never makes real network calls, so the URL is a sentinel only — but all
+    // adapter transport methods require a non-null snapshotAuthorizedBaseUrl.
+    let statusPollingBaseUrl: string | null = isMockNonProd ? "mock://internal.mock.local" : null;
+    if (!isMockNonProd) {
+      try {
+        // REV-05A: Status polling requires the "get_merchant_status" operation to
+        // be listed in supportedOperations — not "board_merchant". A snapshot that
+        // only authorizes boarding does not implicitly authorize provider polling.
+        const snapshot = await requireConfirmedActivationSnapshot(processorNameForGate, "get_merchant_status");
+        statusPollingBaseUrl = snapshot.authorizedBaseUrl;
+      } catch (snapErr: any) {
+        // Fail closed — if no valid snapshot, skip the poll (do not mutate state).
+        return {
+          dealId,
+          outcome: "skipped",
+          error: `[REV-05A] Status poll blocked — no valid activation snapshot for '${processorNameForGate}': ${snapErr?.message ?? "unknown"}`,
+        };
+      }
+    }
+
+    // Pass snapshotAuthorizedBaseUrl so the adapter uses the owner-authorized URL.
+    const merchantStatusOptions = statusPollingBaseUrl
+      ? { snapshotAuthorizedBaseUrl: statusPollingBaseUrl }
+      : {};
+    const result = await processor.getMerchantStatus(deal.processorApplicationId, merchantStatusOptions as any);
 
     if (!result.success) {
       const alertInfo = await recordBoardingFailureAndAlert(
@@ -123,7 +162,11 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
 
     if (result.moreInfoRequest) logEntry.moreInfoRequest = result.moreInfoRequest;
     if (result.declineReason) logEntry.declineReason = result.declineReason;
-    if (result.mid) logEntry.mid = result.mid;
+    // REV-05A: Never write raw MID into boardingLog; use masked value only.
+    if (result.mid) {
+      const { maskMid: _maskMidLog } = await import("../utils/mask-mid");
+      logEntry.midMasked = _maskMidLog(result.mid);
+    }
 
     const existingLog = (deal.boardingLog as any[]) || [];
 
@@ -133,12 +176,36 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     };
 
     if (result.status === "approved" && result.mid) {
-      updates.mid = result.mid;
       updates.boardingApprovedAt = new Date();
+      // REV-05A: Route MID through canonical service — do NOT write deals.mid directly.
+      // assignMerchantMidToCanonical() handles both merchant_mids row and deals.mid alias.
+    }
 
+    // REV-05A: Sanitize log entry before persisting — strip `mid` field and
+    // redact MID-like digit sequences from all string values (message, etc.).
+    const { sanitizeBoardingLog: _sanitizeForPersist } = await import("../utils/mask-mid");
+    updates.boardingLog = _sanitizeForPersist([...existingLog, logEntry]);
+
+    if (result.status === "approved" && result.mid) {
+      // REV-05A ATOMICITY: Canonical MID assignment MUST succeed before we
+      // persist boardingStatus=approved or boardingApprovedAt. This prevents
+      // the deal from reaching an approved state without a canonical MID entry.
+      // Do NOT move this below storage.updateDeal.
+      const { assignMerchantMidToCanonical } = await import("../services/merchant-mid-service");
+      await assignMerchantMidToCanonical({
+        dealId,
+        contactId: deal.contactId ?? null,
+        mid: result.mid,
+        processorName: deal.processorApplicationId ? "payarc" : undefined,
+        status: "assigned",
+        actorId: null,
+        actorEmail: "system:boarding_status_refresh",
+      });
+      // Canonical MID is confirmed written — now safe to persist approval state.
     }
 
     await storage.updateDeal(dealId, updates);
+
     if (result.status === "approved" && deal.pipeline === "onboarding") {
       await advanceDealStage(dealId, "Approved", "boarding_status_refresh", {
         reason: "Processor boarding status approved",
@@ -168,7 +235,8 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
       action: "boarding_status_refreshed",
       entityType: "deal",
       entityId: dealId,
-      details: { status: result.status, mid: result.mid, message: result.message },
+      // REV-05A: raw MID omitted from audit — midMasked only.
+      details: { status: result.status, midMasked: result.mid ? (await import("../utils/mask-mid")).maskMid(result.mid) : undefined, message: (await import("../utils/mask-mid")).redactProviderText(result.message) },
     });
 
     if (result.status === "more_info_needed" && result.moreInfoRequest) {
@@ -177,6 +245,9 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
         (t: any) => t.dealId === dealId && t.title?.includes("More Info Required") && t.status === "pending"
       );
       if (!hasInfoTask) {
+        // REV-05A: Redact provider-derived text before persisting in task/notification.
+        const { redactProviderText: _redactMoreInfo } = await import("../utils/mask-mid");
+        const safeMoreInfo = _redactMoreInfo(result.moreInfoRequest) ?? "(no details provided)";
         await storage.createAuthorityTask({
           dealId,
           contactId: deal.contactId || undefined,
@@ -184,27 +255,31 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
           assignedTo: deal.owner || "Scott Stevenson",
           priority: "high",
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          description: `Processor request: ${result.moreInfoRequest}`,
+          description: `Processor request: ${safeMoreInfo}`,
         });
 
         await storage.createNotification({
           channel: "internal",
           title: "Processor Needs More Info",
-          message: `Deal #${dealId} — ${result.moreInfoRequest}`,
+          message: `Deal #${dealId} — ${safeMoreInfo}`,
           type: "urgent",
           metadata: { dealId, eventType: "boarding_more_info" },
         });
       }
     }
 
+    // REV-05A: Return masked MID from status refresh result (not raw value).
+    const { maskMid: _maskMidRefreshResult } = await import("../utils/mask-mid");
+    const maskedMid = result.mid ? _maskMidRefreshResult(result.mid) : undefined;
+    const { redactProviderText: _redactMsg } = await import("../utils/mask-mid");
     return {
       dealId,
       outcome: "success",
       status: result.status,
-      mid: result.mid,
-      message: result.message,
-      moreInfoRequest: result.moreInfoRequest,
-      declineReason: result.declineReason,
+      midMasked: maskedMid ?? undefined,
+      message: _redactMsg(result.message) ?? undefined,
+      moreInfoRequest: _redactMsg(result.moreInfoRequest) ?? undefined,
+      declineReason: _redactMsg(result.declineReason) ?? undefined,
     };
   } catch (err: any) {
     if (deal != null) {
@@ -420,13 +495,13 @@ export function registerBoardingRoutes(app: Express) {
         return res.status(500).json({ message: safeMessage(result.error, "Failed to check boarding status") });
       }
 
+      // REV-05A: Raw MID omitted from general status refresh response.
+      // Full MID is only returned from dedicated purpose-bound endpoints with access receipts.
+      const { midMasked: _mid, ...refreshResult } = result;
       res.json({
         success: true,
-        status: result.status,
-        mid: result.mid,
-        message: result.message,
-        moreInfoRequest: result.moreInfoRequest,
-        declineReason: result.declineReason,
+        ...refreshResult,
+        midMasked: (result as any).midMasked,
       });
     } catch (err: any) {
       console.error("[Boarding] Status refresh error:", err.message);
@@ -497,11 +572,16 @@ export function registerBoardingRoutes(app: Express) {
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
 
+      const { maskMid, sanitizeBoardingLog } = await import("../utils/mask-mid");
+      // REV-05A: Full MID omitted; sanitize ALL boardingLog entries (historical
+      // records may contain raw MID values written before REV-05A).
+      const rawMid = deal.mid ?? null;
       res.json({
         boardingStatus: deal.boardingStatus || "not_submitted",
         processorApplicationId: deal.processorApplicationId,
-        mid: deal.mid,
-        boardingLog: deal.boardingLog || [],
+        midMasked: maskMid(rawMid),
+        hasMid: !!rawMid,
+        boardingLog: sanitizeBoardingLog((deal.boardingLog as unknown[]) || []),
         boardingSubmittedAt: deal.boardingSubmittedAt,
         boardingApprovedAt: deal.boardingApprovedAt,
       });
@@ -535,25 +615,29 @@ export function registerBoardingRoutes(app: Express) {
       const deal = await storage.getDeal(dealId);
       if (!deal) return res.status(404).json({ message: "Deal not found" });
 
-      const updatedDeal = await storage.updateDeal(dealId, { mid: mid.trim() } as any);
-
-      await storage.createAuditLog({
-        action: "mid_assigned",
-        entityType: "deal",
-        entityId: dealId,
-        details: {
-          mid: mid.trim(),
-          processorName: processorName ?? null,
-          status: status ?? "assigned",
-          assignedBy: (req.user as any)?.email ?? "admin",
-          previousMid: deal.mid ?? null,
-        },
+      // REV-05A: Route all MID writes through canonical service.
+      // deals.mid is a compatibility alias updated AFTER merchant_mids commit.
+      const { assignMerchantMidToCanonical } = await import("../services/merchant-mid-service");
+      const { midRow } = await assignMerchantMidToCanonical({
+        dealId,
+        contactId: deal.contactId ?? null,
+        mid: mid.trim(),
+        processorName: processorName ?? undefined,
+        status: status ?? "assigned",
+        actorId: (req.user as any)?.id ?? null,
+        actorEmail: (req.user as any)?.email ?? "admin",
       });
 
+      // REV-05A: Raw MID and full deal object omitted from response; masked value only.
+      // Full MID is only returned from dedicated purpose-bound endpoints with access receipts.
+      const rawMidVal = mid.trim();
+      const { maskMid: _maskMidAssignRoute } = await import("../utils/mask-mid");
+      const midMaskedVal = _maskMidAssignRoute(rawMidVal);
       res.json({
         success: true,
-        mid: mid.trim(),
-        deal: updatedDeal,
+        midMasked: midMaskedVal,
+        hasMid: true,
+        midId: midRow.id,
       });
     } catch (err: any) {
       serverError(res, err);
@@ -568,10 +652,19 @@ export function registerBoardingRoutes(app: Express) {
    */
   app.get("/api/boarding/mid-registry", requireRole("admin", "manager"), async (req, res) => {
     try {
+      // REV-05A: mid_registry returns masked MID only — not raw value.
       const result = await db.execute(sql`
         SELECT
           d.id          AS deal_id,
-          d.mid,
+          -- REV-05A: Raw MID never returned from list endpoints; masked only.
+          CASE
+            WHEN d.mid IS NOT NULL AND length(d.mid) > 4
+              THEN repeat('*', length(d.mid) - 4) || right(d.mid, 4)
+            WHEN d.mid IS NOT NULL
+              THEN repeat('*', length(d.mid))
+            ELSE NULL
+          END AS mid_masked,
+          (d.mid IS NOT NULL AND d.mid != '') AS has_mid,
           d.pipeline,
           d.stage,
           d.owner,
@@ -725,7 +818,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/deals/:id/mid-stats", isDashboardUser, async (req, res) => {
+  app.get("/api/deals/:id/mid-stats", requireRole("admin", "manager"), async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const days = req.query.days ? Number(req.query.days) : 30;
@@ -733,17 +826,24 @@ export function registerBoardingRoutes(app: Express) {
       if (!deal) return res.status(404).json({ message: "Deal not found" });
 
       if (!deal.mid) {
-        return res.json({ stats: [], mid: null, fetchedAt: null, message: "No MID assigned to this deal" });
+        return res.json({ stats: [], midMasked: null, hasMid: false, fetchedAt: null, message: "No MID assigned to this deal" });
       }
 
-      const stats = await storage.getMidDailyStatsByDeal(dealId, days);
+      const rawStats = await storage.getMidDailyStatsByDeal(dealId, days);
 
-      const mostRecent = stats.length > 0 ? stats[0] : null;
+      const mostRecent = rawStats.length > 0 ? rawStats[0] : null;
       const fetchedAt = mostRecent?.fetchedAt || null;
 
+      // REV-05A: Raw MID omitted from all stat rows and top-level response; masked value only.
+      const rawMidMs = deal.mid ?? null;
+      const { maskMid: _maskMidStats } = await import("../utils/mask-mid");
+      const midMaskedVal = _maskMidStats(rawMidMs);
+      // Strip raw `mid` from every stat row before returning.
+      const stats = rawStats.map(({ mid: _rawMid, ...rest }: any) => ({ ...rest, midMasked: midMaskedVal }));
       res.json({
         stats,
-        mid: deal.mid,
+        midMasked: midMaskedVal,
+        hasMid: !!rawMidMs,
         fetchedAt,
       });
     } catch (err: any) {
@@ -751,7 +851,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals/:id/refresh-mid-stats", isDashboardUser, async (req, res) => {
+  app.post("/api/deals/:id/refresh-mid-stats", requireRole("admin", "manager"), async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const deal = await storage.getDeal(dealId);
@@ -774,6 +874,11 @@ export function registerBoardingRoutes(app: Express) {
         endDate.toISOString().split("T")[0]
       );
 
+      // REV-05A: getDailyStats returns HeldResult for #1737 domain — not an array.
+      // If held, return early. This prevents the caller from iterating a non-array.
+      if (!Array.isArray(stats)) {
+        return res.json({ success: false, held: true, reason: (stats as any).reason ?? "pending_task_1737", upserted: 0 });
+      }
       let upserted = 0;
       for (const stat of stats) {
         await storage.upsertMidDailyStat({
@@ -793,15 +898,21 @@ export function registerBoardingRoutes(app: Express) {
         upserted++;
       }
 
+      const rawMidRefresh = deal.mid ?? "";
+      const { maskMid: _maskMidRefresh } = await import("../utils/mask-mid");
+      const midMaskedRefresh = _maskMidRefresh(rawMidRefresh);
       await storage.createAuditLog({
         action: "mid_stats_refreshed",
         entityType: "deal",
         entityId: dealId,
-        details: { mid: deal.mid, daysRefreshed: 30, rowsUpserted: upserted },
+        // REV-05A: raw MID omitted from audit — masked value only.
+        details: { midMasked: midMaskedRefresh, daysRefreshed: 30, rowsUpserted: upserted },
       });
 
-      const freshStats = await storage.getMidDailyStatsByDeal(dealId, 30);
-      res.json({ success: true, rowsUpserted: upserted, stats: freshStats, mid: deal.mid, fetchedAt: new Date().toISOString() });
+      const rawFreshStats = await storage.getMidDailyStatsByDeal(dealId, 30);
+      // REV-05A: Strip raw `mid` from every stat row — return masked value only.
+      const freshStats = rawFreshStats.map(({ mid: _rawMid, ...rest }: any) => ({ ...rest, midMasked: midMaskedRefresh }));
+      res.json({ success: true, rowsUpserted: upserted, stats: freshStats, midMasked: midMaskedRefresh, hasMid: !!rawMidRefresh, fetchedAt: new Date().toISOString() });
     } catch (err: any) {
       console.error("[MID Stats] Refresh error:", err.message);
       serverError(res, err);
@@ -838,7 +949,8 @@ export function registerBoardingRoutes(app: Express) {
 
       const summaries: Record<string, {
         dealId: number;
-        mid: string;
+        midMasked: string | null;
+        hasMid: boolean;
         totalVolume: number;
         txCount: number;
         chargebackCount: number;
@@ -865,9 +977,13 @@ export function registerBoardingRoutes(app: Express) {
         const sparkline = asc.slice(-14).map((r) => Number(r.volume) || 0);
         const latest = asc[asc.length - 1] || null;
 
+        // REV-05A: Raw MID omitted from pipeline summary; masked value only.
+        const { maskMid: _maskMidPs } = await import("../utils/mask-mid");
+        const rawMidPs = deal.mid as string;
         summaries[String(deal.id)] = {
           dealId: deal.id,
-          mid: deal.mid as string,
+          midMasked: _maskMidPs(rawMidPs),
+          hasMid: !!rawMidPs,
           totalVolume,
           txCount,
           chargebackCount,
@@ -908,6 +1024,7 @@ export function registerBoardingRoutes(app: Express) {
       }
 
       const now = Date.now();
+      const { maskMid: _maskMidSubmissions, sanitizeLatestLogMessage: _sanitizeMsg } = await import("../utils/mask-mid");
       const submissions = inFlight.map((d) => {
         const contact = d.contactId ? contactMap.get(d.contactId) : null;
         const fullName = [contact?.firstName, contact?.lastName].filter(Boolean).join(" ").trim();
@@ -933,9 +1050,11 @@ export function registerBoardingRoutes(app: Express) {
           boardingSubmittedAt: d.boardingSubmittedAt,
           boardingApprovedAt: d.boardingApprovedAt,
           daysPending,
-          latestLogMessage: latestLog?.message || latestLog?.event || null,
+          latestLogMessage: _sanitizeMsg(latestLog?.message || latestLog?.event || null),
           latestLogTimestamp: latestLog?.timestamp || null,
-          mid: d.mid,
+          // REV-05A: Raw MID omitted from submissions list; masked value only.
+          midMasked: _maskMidSubmissions(d.mid as string | null),
+          hasMid: !!d.mid,
           owner: d.owner,
           pipeline: d.pipeline,
           stage: d.stage,
@@ -974,7 +1093,9 @@ export function registerBoardingRoutes(app: Express) {
       const uniqueMids = [...new Set(midsWithDeals.map((d) => d.mid as string))];
 
       const recentStatsByMid: Array<{
-        mid: string;
+        // REV-05A: raw MID omitted; masked value only
+        midMasked: string | null;
+        hasMid: boolean;
         dealId: number | null;
         latestDate: string | null;
         latestVolume: string | null;
@@ -998,8 +1119,12 @@ export function registerBoardingRoutes(app: Express) {
             overallLatestFetch = fetchDate;
           }
         }
+        // REV-05A: Mask MID — do not return raw value in summary endpoint.
+        const { maskMid: _maskMidSummary } = await import("../utils/mask-mid");
+        const midMasked = _maskMidSummary(mid);
         recentStatsByMid.push({
-          mid,
+          midMasked,
+          hasMid: !!mid,
           dealId: deal?.id ?? null,
           latestDate: latest?.date ?? null,
           latestVolume: latest?.volume != null ? String(latest.volume) : null,
@@ -1136,8 +1261,15 @@ export function registerBoardingRoutes(app: Express) {
           );
           const documentsCount = (docsResult.rows[0] as any)?.cnt ?? 0;
 
+          // REV-05A: Serialize deal — masks mid AND sanitizes boardingLog
+          // (historical entries may contain raw mid fields or MID-like text).
+          const { serializeDeal: _serializeDealBoard, maskMid: _maskMidBoard } = await import("../utils/mask-mid");
+          const serialized = _serializeDealBoard(deal as any);
+          // Also expose midMasked alias for onboarding-board consumers.
+          const maskedDeal = { ...serialized, midMasked: _maskMidBoard((deal as any).mid) };
+
           return {
-            deal,
+            deal: maskedDeal,
             contact: contact ? { id: contact.id, firstName: contact.firstName, lastName: contact.lastName, companyName: contact.companyName, email: contact.email, phone: contact.phone } : null,
             checklistItems,
             documentsCount,
@@ -1184,6 +1316,70 @@ export function registerBoardingRoutes(app: Express) {
       res.json(filtered);
     } catch (err: any) {
       serverError(res, err);
+    }
+  });
+
+  // ─── POST /api/webhooks/payarc ───────────────────────────────────────────────
+  // REV-05A: Inert Payarc webhook endpoint.
+  //
+  // SECURITY CONTRACT:
+  //   - Returns 200 immediately; logs raw payload with timestamp.
+  //   - Does NOT mutate canonical state.
+  //   - No signature verification implemented — awaiting Payarc spec + fixtures.
+  //   - PAYARC_WEBHOOK_VERIFIED=true flag gate required before any future mutation.
+  //   - Webhook payloads are non-authoritative hints only. Lifecycle transitions
+  //     require confirmation via authenticated provider poll before applying.
+  //
+  // Registration process:
+  //   1. Deploy this endpoint so stable *.replit.app URL is live.
+  //   2. Email Payarc implementations team with URL + desired events.
+  //   3. Request signing spec and authentic signed fixtures.
+  //   4. Only then implement signature verification and canonical mutations.
+  app.post("/api/webhooks/payarc", async (req, res) => {
+    try {
+      // Return 200 immediately — Payarc expects quick acknowledgment.
+      res.status(200).json({ received: true });
+
+      // Log raw payload + headers for operator inspection (non-blocking).
+      const receivedAt = new Date().toISOString();
+      const safeHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.headers)) {
+        // Never log Authorization header
+        if (k.toLowerCase() !== "authorization") {
+          safeHeaders[k] = String(v);
+        }
+      }
+
+      // PAYARC_WEBHOOK_VERIFIED guard: if not set, log and skip all processing.
+      if (!process.env.PAYARC_WEBHOOK_VERIFIED) {
+        console.log(
+          `[Payarc Webhook] Received at ${receivedAt} — PAYARC_WEBHOOK_VERIFIED not set. ` +
+          `Payload logged to payarc_webhook_events table only. No canonical mutations.`
+        );
+      }
+
+      // Persist a bounded, safe event record for operator inspection.
+      // REV-05A §8: Headers are NOT persisted — they can contain signatures,
+      // cookies, or bearer tokens that must not be stored until Payarc provides
+      // the signing spec. Payload is bounded to 8 KB and validated as an object
+      // before storage; arbitrary or oversized payloads are truncated/rejected.
+      const rawBody = req.body ?? {};
+      const isObject = typeof rawBody === "object" && rawBody !== null && !Array.isArray(rawBody);
+      const safePayload = isObject ? rawBody : {};
+      const payloadStr = JSON.stringify(safePayload);
+      const boundedPayload = payloadStr.length <= 8192 ? safePayload : { _truncated: true, _reason: "payload_too_large" };
+      try {
+        await db.execute(sql`
+          INSERT INTO payarc_webhook_events (received_at, raw_payload)
+          VALUES (${receivedAt}::timestamptz, ${JSON.stringify(boundedPayload)}::jsonb)
+        `);
+      } catch (dbErr: any) {
+        // Logging failure must not affect the 200 response already sent.
+        console.error("[Payarc Webhook] Failed to persist event:", dbErr?.message ?? "unknown");
+      }
+    } catch (err: any) {
+      // Should not happen since response was already sent, but guard anyway.
+      console.error("[Payarc Webhook] Handler error:", err?.message ?? "unknown");
     }
   });
 }

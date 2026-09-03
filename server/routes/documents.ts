@@ -1146,22 +1146,30 @@ export function registerDocumentsRoutes(app: Express) {
         deal = dealList.find((d: any) => d.pipeline === "onboarding") ?? dealList[0] ?? null;
       }
 
+      const { maskMid, sanitizeBoardingLog } = await import("../utils/mask-mid");
+
       if (!deal) {
         return res.json({
           boardingStatus: "not_submitted",
           processorApplicationId: null,
           boardingLog: [],
-          mid: null,
+          midMasked: null,
+          hasMid: false,
           boardingSubmittedAt: null,
           boardingApprovedAt: null,
         });
       }
 
+      // REV-05A: Full MID never returned here — mask all MID values and
+      // sanitize historical boardingLog entries (may contain raw MIDs from
+      // before REV-05A). Dashboard users who need the full MID must use the
+      // dedicated purpose-bound /api/admin/mids/:id endpoint (writes receipt).
       return res.json({
         boardingStatus: deal.boardingStatus ?? "not_submitted",
         processorApplicationId: deal.processorApplicationId ?? null,
-        boardingLog: deal.boardingLog ?? [],
-        mid: deal.mid ?? null,
+        boardingLog: sanitizeBoardingLog((deal.boardingLog as unknown[]) ?? []),
+        midMasked: maskMid(deal.mid),
+        hasMid: !!deal.mid,
         boardingSubmittedAt: deal.boardingSubmittedAt ?? null,
         boardingApprovedAt: deal.boardingApprovedAt ?? null,
       });

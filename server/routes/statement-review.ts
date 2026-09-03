@@ -183,8 +183,16 @@ export function registerStatementReviewRoutes(app: Express) {
 
       if (review.dealId) {
         try {
-          deal = await storage.getDeal(review.dealId);
-          relatedData.deal = deal ? "ok" : "missing";
+          const rawDeal = await storage.getDeal(review.dealId);
+          if (rawDeal) {
+            // REV-05A: mask raw MID from deal before returning to the client.
+            // Full MIDs are available only via dedicated receipted endpoints.
+            const { serializeDeal } = await import("../utils/mask-mid");
+            deal = serializeDeal(rawDeal as any);
+            relatedData.deal = "ok";
+          } else {
+            relatedData.deal = "missing";
+          }
         } catch { relatedData.deal = "unavailable"; }
       }
 

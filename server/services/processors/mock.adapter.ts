@@ -1,3 +1,13 @@
+/**
+ * Mock Processor Adapter — TEST AND SANDBOX ONLY
+ *
+ * Every return from this adapter is permanently fake / sandboxed data.
+ * This adapter MUST NEVER be enabled in production with real merchant data.
+ * Registry warns when mock is enabled in production (NODE_ENV=production).
+ *
+ * #1737 domain functions (getTransactions, getResiduals, getDailyStats,
+ * submitChargeback) return HeldResult — these are Task #1737 (REV-06A) scope.
+ */
 import type {
   IProcessorAdapter,
   MerchantProfile,
@@ -9,7 +19,11 @@ import type {
   ChargebackSubmission,
   ChargebackResult,
   MerchantUpdateResult,
+  ProcessorHealthState,
+  HeldResult,
 } from "./IProcessorAdapter";
+
+const FAKE_LABEL = "[SANDBOX — NOT REAL DATA]";
 
 function generateMockApplicationId(): string {
   const ts = Date.now().toString(36).toUpperCase();
@@ -26,48 +40,56 @@ function seededRng(seed: number, offset: number): number {
   return x - Math.floor(x);
 }
 
-function generateMockDailyStats(mid: string, date: string): DailyStats {
-  const seed = (mid + date).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const baseVolume = 15000 + seededRng(seed, 1) * 85000;
-  const txCount = Math.floor(50 + seededRng(seed, 2) * 450);
-  const avgTicket = txCount > 0 ? baseVolume / txCount : 0;
-  const effectiveRate = 0.015 + seededRng(seed, 3) * 0.025;
-  const chargebackCount = seededRng(seed, 4) < 0.03 ? Math.floor(seededRng(seed, 5) * 3) : 0;
-  const chargebackAmount = chargebackCount * avgTicket;
-  const refundCount = Math.floor(seededRng(seed, 6) * 5);
-
-  return {
-    mid,
-    date,
-    volume: Math.round(baseVolume * 100) / 100,
-    txCount,
-    avgTicket: Math.round(avgTicket * 100) / 100,
-    effectiveRate: Math.round(effectiveRate * 10000) / 10000,
-    chargebackCount,
-    chargebackAmount: Math.round(chargebackAmount * 100) / 100,
-    refundCount,
-  };
-}
-
 export class MockProcessorAdapter implements IProcessorAdapter {
   readonly name = "mock";
   readonly displayName = "Mock / Sandbox";
 
   async boardMerchant(profile: MerchantProfile): Promise<BoardingResult> {
+    // REV-05A: fail-closed when no snapshot-authorized URL is provided.
+    // Mock adapter is exempt in non-production (synthetic snapshot used by outbox worker),
+    // but direct adapter calls without a snapshot URL are always blocked.
+    const snapshotUrl = (profile as any).snapshotAuthorizedBaseUrl as string | undefined;
+    if (!snapshotUrl && process.env.NODE_ENV === "production") {
+      return {
+        success: false,
+        error: "[REV-05A] MockAdapter.boardMerchant blocked in production: mock adapter disabled. " +
+               "Configure a real processor adapter with a confirmed activation snapshot.",
+      };
+    }
+    if (!snapshotUrl && process.env.NODE_ENV !== "production") {
+      // In non-production, Mock boarding is allowed only through the registry's
+      // snapshot-gated path (which supplies a synthetic snapshot URL).
+      // Direct calls without a URL are blocked to mirror production behavior.
+      return {
+        success: false,
+        error: "[REV-05A] MockAdapter.boardMerchant blocked: snapshotAuthorizedBaseUrl required " +
+               "even in non-production. Use the registry's gated path (outbox worker) instead.",
+      };
+    }
     await new Promise(r => setTimeout(r, 200));
     const applicationId = generateMockApplicationId();
     const estimatedDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    console.log(`[MockAdapter] boardMerchant: deal ${profile.dealId} → ${applicationId}`);
+    console.log(`[MockAdapter] ${FAKE_LABEL} boardMerchant: deal ${profile.dealId} → ${applicationId}`);
     return {
       success: true,
       processorApplicationId: applicationId,
       status: "submitted",
-      message: `[Sandbox] Application ${applicationId} submitted. Estimated decision: ${estimatedDate}.`,
+      message: `${FAKE_LABEL} Application ${applicationId} submitted. Estimated decision: ${estimatedDate}.`,
       estimatedDecisionDate: estimatedDate,
     };
   }
 
-  async getMerchantStatus(processorApplicationId: string): Promise<BoardingStatusResult> {
+  async getMerchantStatus(processorApplicationId: string, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<BoardingStatusResult> {
+    // REV-05A: fail-closed when no snapshot-authorized URL is provided.
+    if (!options?.snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        processorApplicationId,
+        status: "submitted",
+        error: "[REV-05A] MockAdapter.getMerchantStatus blocked: snapshotAuthorizedBaseUrl required. " +
+               "Use the registry's gated path instead.",
+      };
+    }
     await new Promise(r => setTimeout(r, 100));
     const seed = processorApplicationId.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 100;
 
@@ -78,21 +100,21 @@ export class MockProcessorAdapter implements IProcessorAdapter {
 
     if (seed < 20) {
       status = "submitted";
-      message = "[Sandbox] Application received and queued for review.";
+      message = `${FAKE_LABEL} Application received and queued for review.`;
     } else if (seed < 55) {
       status = "under_review";
-      message = "[Sandbox] Underwriting team is reviewing your application.";
+      message = `${FAKE_LABEL} Underwriting team is reviewing your application.`;
     } else if (seed < 70) {
       status = "approved";
       mid = generateMockMid();
-      message = `[Sandbox] Application approved. MID ${mid} has been assigned.`;
+      message = `${FAKE_LABEL} Application approved. MID assigned.`;
     } else if (seed < 80) {
       status = "more_info_needed";
-      message = "[Sandbox] Processor requires additional information.";
+      message = `${FAKE_LABEL} Processor requires additional information.`;
       moreInfoRequest = "Please provide 3 months of business bank statements and a void check.";
     } else {
       status = "under_review";
-      message = "[Sandbox] Application pending final underwriting review.";
+      message = `${FAKE_LABEL} Application pending final underwriting review.`;
     }
 
     return {
@@ -106,97 +128,56 @@ export class MockProcessorAdapter implements IProcessorAdapter {
     };
   }
 
-  async getTransactions(mid: string, startDate: string, endDate: string): Promise<Transaction[]> {
-    const transactions: Transaction[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const current = new Date(start);
+  /**
+   * getTransactions — #1737 DOMAIN — returns HeldResult.
+   * Transactions/stats are Task #1737 (REV-06A) scope. Never fake.
+   */
+  async getTransactions(_mid: string, _startDate: string, _endDate: string): Promise<Transaction[] | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
 
-    while (current <= end) {
-      const dateStr = current.toISOString().split("T")[0];
-      const seed = (mid + dateStr).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-      const dailyCount = Math.floor(5 + seededRng(seed, 1) * 20);
+  /**
+   * getResiduals — #1737 DOMAIN — returns HeldResult.
+   */
+  async getResiduals(_month: string, _agentId?: string): Promise<Residual[] | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
 
-      for (let i = 0; i < dailyCount; i++) {
-        const amount = Math.round((20 + seededRng(seed + i, 2) * 480) * 100) / 100;
-        const brands = ["Visa", "Mastercard", "Amex", "Discover"];
-        transactions.push({
-          id: `MOCK-${mid}-${dateStr}-${i}`,
-          mid,
-          date: dateStr,
-          amount,
-          type: seededRng(seed + i, 3) > 0.95 ? "refund" : "sale",
-          status: seededRng(seed + i, 4) > 0.02 ? "approved" : "declined",
-          cardBrand: brands[Math.floor(seededRng(seed + i, 5) * brands.length)],
-          last4: String(Math.floor(1000 + seededRng(seed + i, 6) * 9000)),
-          authCode: `AUTH${Math.floor(100000 + seededRng(seed + i, 7) * 900000)}`,
-        });
-      }
-      current.setDate(current.getDate() + 1);
+  /**
+   * getDailyStats — #1737 DOMAIN — returns HeldResult.
+   */
+  async getDailyStats(_mid: string, _startDate: string, _endDate: string): Promise<DailyStats[] | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
+
+  /**
+   * submitChargeback — #1737 DOMAIN — returns HeldResult.
+   */
+  async submitChargeback(_submission: ChargebackSubmission): Promise<ChargebackResult | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
+  }
+
+  async updateMerchant(processorApplicationId: string, _updates: Partial<MerchantProfile>, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<MerchantUpdateResult> {
+    // REV-05A: fail-closed when no snapshot-authorized URL is provided.
+    if (!options?.snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        error: "[REV-05A] MockAdapter.updateMerchant blocked: snapshotAuthorizedBaseUrl required. " +
+               "Use the registry's gated path instead.",
+      };
     }
-    return transactions;
-  }
-
-  async getResiduals(month: string, _agentId?: string): Promise<Residual[]> {
-    const seed = month.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-    const count = Math.floor(3 + seededRng(seed, 1) * 10);
-    const residuals: Residual[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const volume = Math.round(20000 + seededRng(seed + i, 2) * 180000);
-      const grossRevenue = Math.round(volume * (0.02 + seededRng(seed + i, 3) * 0.01) * 100) / 100;
-      const processorFees = Math.round(grossRevenue * 0.6 * 100) / 100;
-      const agentResidual = Math.round((grossRevenue - processorFees) * 100) / 100;
-      residuals.push({
-        mid: generateMockMid(),
-        month,
-        grossRevenue,
-        processorFees,
-        agentResidual,
-        merchantName: `Mock Merchant ${i + 1}`,
-        txCount: Math.floor(50 + seededRng(seed + i, 4) * 500),
-        volume,
-      });
-    }
-    return residuals;
-  }
-
-  async getDailyStats(mid: string, startDate: string, endDate: string): Promise<DailyStats[]> {
-    const results: DailyStats[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const current = new Date(start);
-
-    while (current <= end) {
-      const dateStr = current.toISOString().split("T")[0];
-      const dayOfWeek = current.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        results.push(generateMockDailyStats(mid, dateStr));
-      }
-      current.setDate(current.getDate() + 1);
-    }
-    return results;
-  }
-
-  async submitChargeback(submission: ChargebackSubmission): Promise<ChargebackResult> {
-    await new Promise(r => setTimeout(r, 150));
-    const caseId = `CB-MOCK-${Date.now()}`;
-    console.log(`[MockAdapter] submitChargeback: MID ${submission.mid}, txId ${submission.transactionId} → ${caseId}`);
-    return {
-      success: true,
-      caseId,
-      status: "submitted",
-      message: `[Sandbox] Chargeback case ${caseId} submitted for review.`,
-    };
-  }
-
-  async updateMerchant(processorApplicationId: string, _updates: Partial<MerchantProfile>): Promise<MerchantUpdateResult> {
     await new Promise(r => setTimeout(r, 100));
-    console.log(`[MockAdapter] updateMerchant: ${processorApplicationId}`);
-    return { success: true, message: "[Sandbox] Merchant profile updated." };
+    console.log(`[MockAdapter] ${FAKE_LABEL} updateMerchant: ${processorApplicationId}`);
+    return { success: true, message: `${FAKE_LABEL} Merchant profile updated.` };
+  }
+
+  async getHealthState(_snapshotAuthorizedBaseUrl?: string | null): Promise<ProcessorHealthState> {
+    // Mock adapter is always in sandbox state — never production_authorized.
+    return process.env.NODE_ENV === "production" ? "held" : "sandbox_verified";
   }
 
   async ping(): Promise<boolean> {
-    return true;
+    const state = await this.getHealthState();
+    return state === "sandbox_verified" || state === "production_authorized";
   }
 }

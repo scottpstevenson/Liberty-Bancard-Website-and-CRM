@@ -83,6 +83,12 @@ type SuiteManifestDefinition = Omit<
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   // ── deterministic-static ─────────────────────────────────────────────────
   {
+    name: "REV-05A Processor Boarding Kill Lines",
+    script: "scripts/check-processor-kill-lines.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure source scan; no DB, no providers, no server",
+  },
+  {
     name: "CRO-03A South Florida Candidate Qualification",
     script: "scripts/test-cro03a-static.ts",
     capability: "deterministic-static",

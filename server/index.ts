@@ -4,7 +4,7 @@ import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
 import { runProductionSeedConvergence } from "./services/production-seed-convergence";
-import { runStartupCeremony } from "./services/cro03-startup-ceremony";
+import { runStartupCeremonyArtifacts, runStartupCeremonyAttestation } from "./services/cro03-startup-ceremony";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
@@ -265,7 +265,8 @@ app.use((req, res, next) => {
   // target here is insert-only and fails closed (throws, blocking startup)
   // on any conflict with canonical content.
   await runProductionSeedConvergence();
-  await runStartupCeremony();
+  // Phase 1: import approval artifacts (no workers needed yet).
+  const _cro03Receipts = await runStartupCeremonyArtifacts();
   await assertCro02PurposePolicies();
   await registerRoutes(httpServer, app);
   // Resume only durable, expired CSV executions after routes are registered.
@@ -425,6 +426,13 @@ app.use((req, res, next) => {
         // panel reflects sync mode, not just the startup log.
         const { recordWorkerSuccess, JOB_NAMES } = await import("./services/job-registry");
         await recordWorkerSuccess(JOB_NAMES.GHL_SYNC_MODE).catch(() => {});
+        // Phase 2: attestation + policy (requires workers to have emitted heartbeats).
+        // Non-fatal — retried idempotently on next startup.
+        if (_cro03Receipts) {
+          runStartupCeremonyAttestation(_cro03Receipts).catch(err =>
+            console.error("[CRO03D] Phase 2 post-worker attestation failed:", err?.message)
+          );
+        }
       }).catch(async err => {
         console.error("[Queue] Failed to initialize BullMQ — workers remain stopped (fail-closed):", err.message);
         log("GHL sync mode: unavailable");

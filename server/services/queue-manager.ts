@@ -2891,9 +2891,13 @@ async function runMidIngestionTick(): Promise<void> {
   const lockToken = lease.lockToken;
 
   try {
-    const { ingestMidDataForActiveMids } = await import("./processor-api");
+    // REV-05A: import from registry (not processor-api) — registry holds
+    // #1737-domain functions and returns {held:true} until REV-06A certifies them.
+    const { ingestMidDataForActiveMids } = await import("./processors/registry");
     const result = await ingestMidDataForActiveMids();
-    if (result.processed > 0 || result.errors > 0) {
+    if (result.held) {
+      console.log("[Queue:mid-ingestion] held pending task #1737 (REV-06A) — skipped");
+    } else if (result.processed > 0 || result.errors > 0) {
       console.log(`[Queue:mid-ingestion] ${result.processed} processed, ${result.errors} errors`);
     }
     await releaseJobLock(JOB_NAMES.MID_INGESTION, true, undefined, lockToken);

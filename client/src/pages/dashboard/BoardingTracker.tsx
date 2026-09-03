@@ -35,6 +35,7 @@ interface Submission {
   latestLogMessage: string | null;
   latestLogTimestamp: string | null;
   mid: string | null;
+  midMasked?: string | null; // REV-05A: server returns masked value; prefer midMasked when present
   owner: string | null;
   pipeline: string | null;
   stage: string | null;
@@ -134,7 +135,7 @@ export default function BoardingTracker() {
       return (
         s.merchantName.toLowerCase().includes(q) ||
         (s.processorApplicationId?.toLowerCase().includes(q) ?? false) ||
-        (s.mid?.toLowerCase().includes(q) ?? false) ||
+        ((s.midMasked ?? s.mid)?.toLowerCase().includes(q) ?? false) ||
         String(s.dealId).includes(q)
       );
     });
@@ -369,7 +370,7 @@ export default function BoardingTracker() {
                 header: "MID",
                 cell: (s) => (
                   <span className="font-mono text-xs" data-testid={`text-mid-${s.dealId}`}>
-                    {s.mid || "—"}
+                    {(s.midMasked ?? s.mid) || "—"}
                   </span>
                 ),
               },
@@ -415,7 +416,7 @@ export default function BoardingTracker() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">MID: </span>
-                      <span className="font-mono">{s.mid || "—"}</span>
+                      <span className="font-mono">{(s.midMasked ?? s.mid) || "—"}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Submitted: </span>

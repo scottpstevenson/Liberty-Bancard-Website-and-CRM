@@ -558,6 +558,7 @@ export default function ResidualRevenue() {
   const { data: midStats, isLoading: midStatsLoading } = useQuery<{
     stats: Array<{
       mid: string;
+      midMasked?: string | null; // REV-05A: server returns masked value; prefer midMasked when present
       dealId: number | null;
       merchantName: string | null;
       latestDate: string | null;
@@ -1065,8 +1066,8 @@ export default function ResidualRevenue() {
                     </TableHeader>
                     <TableBody>
                       {midStats.stats.map((s) => (
-                        <TableRow key={s.mid} data-testid={`row-mid-stat-${s.mid}`}>
-                          <TableCell className="font-mono text-xs">{s.mid}</TableCell>
+                        <TableRow key={s.midMasked ?? s.mid} data-testid={`row-mid-stat-${s.midMasked ?? s.mid}`}>
+                          <TableCell className="font-mono text-xs">{s.midMasked ?? s.mid}</TableCell>
                           <TableCell className="text-muted-foreground">{s.merchantName ?? "—"}</TableCell>
                           <TableCell className="text-right">
                             {s.latestVolume != null

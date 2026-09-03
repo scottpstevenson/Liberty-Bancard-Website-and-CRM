@@ -131,6 +131,13 @@ export function registerSdrRoutes(app: Express) {
     const ghlConfigured = isGhlConfigured();
     const circuitOpen = circuit.circuitOpen;
 
+    // REV-05A: Include processor readiness state in health output.
+    let processorReadiness: Record<string, string> = {};
+    try {
+      const { getProcessorHealthState } = await import("../services/processors/registry");
+      processorReadiness = { payarc: await getProcessorHealthState("payarc") };
+    } catch { /* non-critical */ }
+
     const degraded: string[] = [];
     if (!redisOk) degraded.push("redis");
     if (!smtpOk) degraded.push("smtp");
@@ -151,6 +158,7 @@ export function registerSdrRoutes(app: Express) {
         threshold: circuit.threshold,
       },
       smtp: smtpOk ? "configured" : "missing",
+      processorReadiness,
       timestamp: new Date().toISOString(),
       sha: BUILD_SHA,
       builtAt: BUILD_AT,

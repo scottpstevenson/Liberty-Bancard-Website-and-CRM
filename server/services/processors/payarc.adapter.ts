@@ -1,9 +1,25 @@
 /**
- * Payarc Processor Adapter
+ * Payarc Processor Adapter (REV-05A)
  *
  * Implements IProcessorAdapter against Payarc's REST API (api.payarc.net/v1).
  * Auth: Bearer token via PAYARC_API_KEY env var.
- * Falls back to simulation mode when the key is absent (dev/test).
+ *
+ * CHANGES FROM PRE-REV-05A:
+ *   - ping() no longer returns true on HTTP 404. Only 2xx = success.
+ *   - getHealthState() returns typed ProcessorHealthState enum.
+ *   - Simulation fallback in boardMerchant() is preserved (dev/test only).
+ *   - #1737 domain functions (getDailyStats, getResiduals, getTransactions,
+ *     submitChargeback) return HeldResult when credentials ARE configured
+ *     (they were previously calling live Payarc endpoints, but those paths
+ *     are Task #1737 scope and must not be certified here).
+ *   - Simulation path in getDailyStats REMOVED; now returns HeldResult.
+ *   - updateMerchant simulation path REMOVED; returns error when unconfigured.
+ *   - Transport remains paused until activation snapshot is confirmed.
+ *
+ * Program-aware routing:
+ *   Traditional: POST /v1/applicants
+ *   Payfac: POST /v1/agent-hub/apply/add-lead/ (NOT activated — program must
+ *           be confirmed in activation snapshot before Payfac transport activates)
  */
 import type {
   IProcessorAdapter,
@@ -16,6 +32,8 @@ import type {
   ChargebackSubmission,
   ChargebackResult,
   MerchantUpdateResult,
+  ProcessorHealthState,
+  HeldResult,
 } from "./IProcessorAdapter";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -27,15 +45,6 @@ function generateMockApplicationId(): string {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `PAYARC-${ts}-${rand}`;
-}
-
-function generateMockMid(): string {
-  return Array.from({ length: 12 }, () => Math.floor(Math.random() * 10)).join("");
-}
-
-function seededRng(seed: number, offset: number): number {
-  const x = Math.sin(seed + offset) * 10_000;
-  return x - Math.floor(x);
 }
 
 /** Map Payarc applicant status string → our shared status enum */
@@ -160,10 +169,14 @@ async function payarcRequest<T = unknown>(
     return { ok: resp.ok, status: resp.status, data, text };
   } catch (err: any) {
     clearTimeout(timer);
-    // Retry once on network error (not on 4xx/5xx). Never log the raw error
-    // message — only the retry classification (error name).
-    if (attempt === 0 && (err.name === "AbortError" || err.code === "ECONNRESET")) {
-      console.warn(`[PayarcAdapter] ${method} ${path} — retrying after transient network error (${err.name || "unknown"})`);
+    // REV-05A: Never retry POST/PATCH/DELETE on AbortError or network errors.
+    // A timeout without a known provider ID is an ambiguous result — the
+    // request may have succeeded on the provider side. Retrying could create
+    // a duplicate merchant application. Payarc idempotency-header dedup is
+    // NOT certified, so caller must use the reconciliation_required path.
+    // Only GET (read-only) requests are safe to retry on transient errors.
+    if (attempt === 0 && method === "GET" && err.code === "ECONNRESET") {
+      console.warn(`[PayarcAdapter] GET ${path} — retrying after ECONNRESET`);
       await new Promise(r => setTimeout(r, 1_000));
       return payarcRequest(apiKey, baseUrl, method, path, body, 1, extraHeaders);
     }
@@ -189,6 +202,74 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
     return !!this.apiKey;
   }
 
+  // ── getHealthState ─────────────────────────────────────────────────────────
+
+  /**
+   * Returns the typed health/readiness state of this adapter.
+   *
+   * Rules:
+   *   - HTTP 404 from identity endpoint = configured_unverified (not valid).
+   *   - Any non-2xx = configured_unverified or lower.
+   *   - sandbox_verified requires explicit authenticated 2xx from identity endpoint.
+   *   - production_authorized requires sandbox_verified + activation snapshot.
+   */
+  async getHealthState(snapshotAuthorizedBaseUrl?: string | null): Promise<ProcessorHealthState> {
+    if (!this.isConfigured()) {
+      return "missing_credentials";
+    }
+
+    // REV-05A: A health probe is an authenticated request to the processor.
+    // It MUST use the owner-approved snapshot URL — falling back to the
+    // environment-variable base URL would send credentials to an endpoint
+    // not authorized by the activation snapshot.
+    // If no snapshot URL is provided (e.g. called before a snapshot exists),
+    // return missing_contract rather than probing an unapproved endpoint.
+    if (!snapshotAuthorizedBaseUrl) {
+      return "missing_contract";
+    }
+    const probeBase = snapshotAuthorizedBaseUrl.replace(/\/$/, "");
+
+    try {
+      const { ok, status } = await payarcRequest<any>(
+        this.apiKey!,
+        probeBase,
+        "GET",
+        "/accounts/me",
+      );
+
+      if (ok) {
+        // Only 2xx proves the token is valid and the API is reachable.
+        // We do not check activation snapshot here — that is a separate gate
+        // in the outbox worker. Health state is about credential validity only.
+        return "sandbox_verified";
+      }
+
+      // Non-2xx — including 404 — does NOT prove the token works.
+      if (status === 401 || status === 403) {
+        return "configured_unverified";
+      }
+
+      // Other errors (429, 5xx, etc.) — credentials may be fine but server error
+      return "configured_unverified";
+    } catch {
+      // Network error — cannot determine state
+      return "configured_unverified";
+    }
+  }
+
+  // ── ping ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Returns true only when the adapter is sandbox_verified or production_authorized.
+   * HTTP 404 is NOT a valid ping result; any non-2xx returns false.
+   */
+  async ping(snapshotAuthorizedBaseUrl?: string | null): Promise<boolean> {
+    // REV-05A: ping() must also use the snapshot-authorized URL.
+    // Without it, getHealthState returns missing_contract (not sandbox_verified).
+    const state = await this.getHealthState(snapshotAuthorizedBaseUrl);
+    return state === "sandbox_verified" || state === "production_authorized";
+  }
+
   // ── boardMerchant ─────────────────────────────────────────────────────────
 
   async boardMerchant(profile: MerchantProfile): Promise<BoardingResult> {
@@ -197,22 +278,45 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         const body = buildApplicantPayload(profile);
         // Forward the stable provider idempotency key as the standard HTTP
         // Idempotency-Key header so Payarc can deduplicate retries server-side.
+        // NOTE: Payarc server-side deduplication via this header is NOT certified
+        // by public docs. Liberty-local idempotency (outbox dedupe) is authoritative.
         const idempotencyHeaders: Record<string, string> = profile.providerIdempotencyKey
           ? { "Idempotency-Key": profile.providerIdempotencyKey }
           : {};
+
+        // Program-aware endpoint routing (REV-05A §5):
+        // Traditional: POST /v1/applicants
+        // Payfac: POST /v1/agent-hub/apply/add-lead/
+        // The program is sourced from the activation snapshot, passed via profile.
+        const program = (profile as any).processorProgram ?? "traditional";
+        const submitPath = program === "payfac"
+          ? "/agent-hub/apply/add-lead/"
+          : "/applicants";
+
+        // REV-05A: fail-closed when no snapshot-authorized URL is provided.
+        // No fallback to the env-var URL — using an unapproved endpoint for
+        // authenticated merchant submissions is an authorization boundary violation.
+        const snapshotUrl = (profile as any).snapshotAuthorizedBaseUrl as string | undefined;
+        if (!snapshotUrl) {
+          return {
+            success: false,
+            error: "[REV-05A] PayarcAdapter.boardMerchant blocked: snapshotAuthorizedBaseUrl required. " +
+                   "Obtain an activation snapshot before calling adapter transport methods.",
+          };
+        }
+        const effectiveBaseUrl = snapshotUrl.replace(/\/$/, "");
+
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
-          this.baseUrl,
+          effectiveBaseUrl,
           "POST",
-          "/applicants",
+          submitPath,
           body,
           0,
           idempotencyHeaders,
         );
 
         if (!ok) {
-          // Never log provider message/data — status code only. Generic,
-          // status-based boarding error (no provider payload text).
           console.error(`[PayarcAdapter] boardMerchant failed: HTTP ${status}`);
           return { success: false, error: `Payarc API error (${status})` };
         }
@@ -222,9 +326,14 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         const applicationId = applicant?.object_id || applicant?.id || applicant?.applicant_id;
 
         if (!applicationId) {
-          // Never log the raw provider response body.
-          console.error("[PayarcAdapter] boardMerchant: no application ID in response");
-          return { success: false, error: "Payarc returned success but no application ID" };
+          // No application ID in response — classify as ambiguous.
+          // Caller must NOT retry immediately; use ambiguous_reconciliation path.
+          console.error("[PayarcAdapter] boardMerchant: no application ID in response — classifying as ambiguous");
+          return {
+            success: false,
+            ambiguous: true,
+            error: "Payarc returned success but no application ID — ambiguous result, hold for reconciliation",
+          };
         }
 
         const estimatedDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
@@ -238,37 +347,54 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           message: `Application ${applicationId} submitted to Payarc. Estimated decision: ${estimatedDate}.`,
           estimatedDecisionDate: applicant?.estimated_decision_date || estimatedDate,
         };
-      } catch {
-        // Never log raw exception message — generic status-based error only.
-        console.error("[PayarcAdapter] boardMerchant exception");
-        return { success: false, error: "Payarc boarding request failed" };
+      } catch (err: any) {
+        // REV-05A: ALL exceptions from a POST transport call are classified as
+        // ambiguous — any network exception (AbortError timeout, connection reset,
+        // ECONNRESET, EPIPE, fetch failed, etc.) could mean the provider received
+        // the request but we lost the response. Blind retry risks creating duplicate
+        // merchant applications at the provider. Classify as ambiguous so the
+        // caller holds for reconciliation instead of retrying immediately.
+        const isTimeout = err?.name === "AbortError";
+        const errLabel = isTimeout ? "timeout" : "network_exception";
+        console.error(`[PayarcAdapter] boardMerchant ${errLabel}`);
+        return {
+          success: false,
+          ambiguous: true,  // always ambiguous for POST transport errors
+          error: isTimeout
+            ? "Payarc request timed out — ambiguous result, hold for reconciliation"
+            : `Payarc boarding request failed (${errLabel}) — ambiguous result, hold for reconciliation`,
+        };
       }
     }
 
-    // Simulation mode
-    console.log("[PayarcAdapter] Simulation mode — PAYARC_API_KEY not set");
-    await new Promise(r => setTimeout(r, 250));
-    const applicationId = generateMockApplicationId();
-    const estimatedDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
+    // REV-05A: Simulation paths removed. Payarc adapter is fail-closed when
+    // credentials are absent. Use MockProcessorAdapter for non-production testing.
     return {
-      success: true,
-      processorApplicationId: applicationId,
-      status: "submitted",
-      message: `[Simulation] Application ${applicationId} submitted to Payarc. Estimated decision: ${estimatedDate}.`,
-      estimatedDecisionDate: estimatedDate,
+      success: false,
+      error: "[REV-05A] PayarcAdapter.boardMerchant: PAYARC_API_KEY not configured. " +
+             "Simulation mode has been removed. Use MockProcessorAdapter for testing.",
     };
   }
 
   // ── getMerchantStatus ─────────────────────────────────────────────────────
 
-  async getMerchantStatus(processorApplicationId: string): Promise<BoardingStatusResult> {
+  async getMerchantStatus(processorApplicationId: string, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<BoardingStatusResult> {
+    // REV-05A: fail-closed when no snapshot-authorized URL is provided.
+    if (!options?.snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        processorApplicationId,
+        status: "submitted",
+        error: "[REV-05A] PayarcAdapter.getMerchantStatus blocked: snapshotAuthorizedBaseUrl required. " +
+               "Obtain an activation snapshot before calling adapter transport methods.",
+      };
+    }
+    const effectiveBaseUrl = options.snapshotAuthorizedBaseUrl.replace(/\/$/, "");
     if (this.isConfigured()) {
       try {
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
-          this.baseUrl,
+          effectiveBaseUrl,
           "GET",
           `/applicants/${processorApplicationId}`,
         );
@@ -296,253 +422,46 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
           declineReason: applicant?.decline_reason || applicant?.rejection_reason || undefined,
           approvedAt: applicant?.approved_at || applicant?.approval_date || undefined,
         };
-      } catch (err: any) {
+      } catch {
         return {
           success: false,
           processorApplicationId,
           status: "submitted",
-          error: err.message,
+          error: "Payarc status request failed",
         };
       }
     }
 
-    // Simulation mode
-    await new Promise(r => setTimeout(r, 100));
-    const seed =
-      processorApplicationId.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 100;
-
-    let simStatus: BoardingStatusResult["status"] = "under_review";
-    let mid: string | undefined;
-    let message = "Application is under review.";
-    let moreInfoRequest: string | undefined;
-
-    if (seed < 20) {
-      simStatus = "submitted";
-      message = "[Simulation] Application received and queued for review.";
-    } else if (seed < 55) {
-      simStatus = "under_review";
-      message = "[Simulation] Underwriting team is reviewing your application.";
-    } else if (seed < 70) {
-      simStatus = "approved";
-      mid = generateMockMid();
-      message = `[Simulation] Application approved. MID ${mid} has been assigned.`;
-    } else if (seed < 80) {
-      simStatus = "more_info_needed";
-      message = "[Simulation] Payarc requires additional information.";
-      moreInfoRequest =
-        "Please provide the most recent 3 months of business bank statements and a voided check.";
-    } else {
-      simStatus = "under_review";
-      message = "[Simulation] Application pending final underwriting review.";
-    }
-
+    // REV-05A: Simulation paths removed. Payarc adapter is fail-closed when
+    // credentials are absent. Use MockProcessorAdapter for non-production testing.
     return {
-      success: true,
+      success: false,
       processorApplicationId,
-      status: simStatus,
-      mid,
-      message,
-      moreInfoRequest,
-      approvedAt: simStatus === "approved" ? new Date().toISOString() : undefined,
+      status: "submitted",
+      error: "[REV-05A] PayarcAdapter.getMerchantStatus: PAYARC_API_KEY not configured. " +
+             "Simulation mode has been removed. Use MockProcessorAdapter for testing.",
     };
   }
 
-  // ── getTransactions ───────────────────────────────────────────────────────
+  // ── #1737 DOMAIN FUNCTIONS ────────────────────────────────────────────────
+  // getTransactions, getResiduals, getDailyStats, submitChargeback are all
+  // Task #1737 (REV-06A) scope. They return HeldResult here regardless of
+  // whether credentials are configured. The simulation paths have been REMOVED.
 
-  async getTransactions(mid: string, startDate: string, endDate: string): Promise<Transaction[]> {
-    if (this.isConfigured()) {
-      try {
-        const params = new URLSearchParams({
-          mid,
-          "created[gte]": startDate,
-          "created[lte]": endDate,
-          limit: "200",
-        });
-        const { ok, data } = await payarcRequest<any>(
-          this.apiKey!,
-          this.baseUrl,
-          "GET",
-          `/charges?${params}`,
-        );
-        if (!ok) return [];
-
-        const charges: any[] = data?.data ?? data ?? [];
-        return charges.map((c: any): Transaction => ({
-          id: String(c.object_id || c.id || c.charge_id),
-          mid: String(c.mid || mid),
-          date: (c.created_at || c.date || "").slice(0, 10),
-          amount: parseFloat(c.amount || c.total || "0") / 100, // Payarc amounts in cents
-          type:
-            c.type === "refund" ? "refund"
-            : c.type === "chargeback" ? "chargeback"
-            : "sale",
-          status:
-            c.status === "approved" || c.status === "captured" ? "approved"
-            : c.status === "declined" || c.status === "failed" ? "declined"
-            : c.status === "voided" || c.status === "reversed" ? "reversed"
-            : "pending",
-          cardBrand: c.card_brand || c.brand || undefined,
-          last4: c.last_4 || c.card_last4 || undefined,
-          authCode: c.auth_code || c.authorization_code || undefined,
-          orderId: c.order_id || undefined,
-        }));
-      } catch (err: any) {
-        console.error("[PayarcAdapter] getTransactions exception:", err.message);
-        return [];
-      }
-    }
-    return [];
+  async getTransactions(_mid: string, _startDate: string, _endDate: string): Promise<Transaction[] | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
   }
 
-  // ── getResiduals ──────────────────────────────────────────────────────────
-
-  async getResiduals(month: string, _agentId?: string): Promise<Residual[]> {
-    if (this.isConfigured()) {
-      try {
-        const params = new URLSearchParams({ month, limit: "500" });
-        const { ok, data } = await payarcRequest<any>(
-          this.apiKey!,
-          this.baseUrl,
-          "GET",
-          `/splits?${params}`,
-        );
-        if (!ok) return [];
-
-        const rows: any[] = data?.data ?? data ?? [];
-        return rows.map((r: any): Residual => ({
-          mid: String(r.mid || r.merchant_id || ""),
-          month: r.month || month,
-          grossRevenue: parseFloat(r.gross_revenue || r.gross || "0"),
-          processorFees: parseFloat(r.processor_fees || r.fees || "0"),
-          agentResidual: parseFloat(r.agent_residual || r.residual || r.net || "0"),
-          merchantName: r.merchant_name || r.dba || undefined,
-          txCount: parseInt(r.transaction_count || r.tx_count || "0", 10) || undefined,
-          volume: parseFloat(r.volume || r.total_volume || "0") || undefined,
-        }));
-      } catch (err: any) {
-        console.error("[PayarcAdapter] getResiduals exception:", err.message);
-        return [];
-      }
-    }
-    return [];
+  async getResiduals(_month: string, _agentId?: string): Promise<Residual[] | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
   }
 
-  // ── getDailyStats ─────────────────────────────────────────────────────────
-
-  async getDailyStats(mid: string, startDate: string, endDate: string): Promise<DailyStats[]> {
-    if (this.isConfigured()) {
-      try {
-        const params = new URLSearchParams({
-          mid,
-          start_date: startDate,
-          end_date: endDate,
-          granularity: "daily",
-        });
-        const { ok, data } = await payarcRequest<any>(
-          this.apiKey!,
-          this.baseUrl,
-          "GET",
-          `/reports/daily_summary?${params}`,
-        );
-        if (!ok) return [];
-
-        const rows: any[] = data?.data ?? data ?? [];
-        return rows.map((r: any): DailyStats => ({
-          mid: String(r.mid || mid),
-          date: (r.date || r.report_date || "").slice(0, 10),
-          volume: parseFloat(r.volume || r.total_volume || "0"),
-          txCount: parseInt(r.transaction_count || r.tx_count || "0", 10),
-          avgTicket: parseFloat(r.avg_ticket || "0"),
-          effectiveRate: parseFloat(r.effective_rate || r.rate || "0"),
-          chargebackCount: parseInt(r.chargeback_count || r.chargebacks || "0", 10),
-          chargebackAmount: parseFloat(r.chargeback_amount || "0"),
-          refundCount: parseInt(r.refund_count || r.refunds || "0", 10),
-        }));
-      } catch (err: any) {
-        console.error("[PayarcAdapter] getDailyStats exception:", err.message);
-        return [];
-      }
-    }
-
-    // Simulation — deterministic by MID + date so the dashboard stays consistent
-    const results: DailyStats[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const cursor = new Date(start);
-
-    while (cursor <= end) {
-      const dateStr = cursor.toISOString().split("T")[0];
-      const dow = cursor.getDay();
-      if (dow !== 0 && dow !== 6) {
-        const seed = (mid + dateStr).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-        const baseVolume = 15_000 + seededRng(seed, 1) * 85_000;
-        const txCount = Math.floor(50 + seededRng(seed, 2) * 450);
-        const avgTicket = txCount > 0 ? baseVolume / txCount : 0;
-        const effectiveRate = 0.015 + seededRng(seed, 3) * 0.025;
-        const cbCount = seededRng(seed, 4) < 0.03 ? Math.floor(seededRng(seed, 5) * 3) : 0;
-        results.push({
-          mid,
-          date: dateStr,
-          volume: Math.round(baseVolume * 100) / 100,
-          txCount,
-          avgTicket: Math.round(avgTicket * 100) / 100,
-          effectiveRate: Math.round(effectiveRate * 10_000) / 10_000,
-          chargebackCount: cbCount,
-          chargebackAmount: Math.round(cbCount * avgTicket * 100) / 100,
-          refundCount: Math.floor(seededRng(seed, 6) * 5),
-        });
-      }
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return results;
+  async getDailyStats(_mid: string, _startDate: string, _endDate: string): Promise<DailyStats[] | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
   }
 
-  // ── submitChargeback ──────────────────────────────────────────────────────
-
-  async submitChargeback(submission: ChargebackSubmission): Promise<ChargebackResult> {
-    if (this.isConfigured()) {
-      try {
-        const body = {
-          mid: submission.mid,
-          transaction_id: submission.transactionId,
-          amount: Math.round(submission.amount * 100), // Payarc expects cents
-          reason: submission.reason,
-          card_brand: submission.cardBrand,
-          ...(submission.caseNumber && { case_number: submission.caseNumber }),
-          ...(submission.responseDeadline && { response_deadline: submission.responseDeadline }),
-          ...(submission.evidenceNotes && { evidence_notes: submission.evidenceNotes }),
-          source: "LibertyBancard-CRM",
-        };
-
-        const { ok, status, data } = await payarcRequest<any>(
-          this.apiKey!,
-          this.baseUrl,
-          "POST",
-          "/disputes",
-          body,
-          0,
-          submission.providerIdempotencyKey ? { "Idempotency-Key": submission.providerIdempotencyKey } : undefined,
-        );
-
-        if (!ok) {
-          const msg = data?.message || data?.error || `HTTP ${status}`;
-          return { success: false, error: `Payarc dispute error (${status}): ${msg}` };
-        }
-
-        const dispute = data?.data ?? data;
-        return {
-          success: true,
-          caseId: String(dispute?.object_id || dispute?.id || dispute?.dispute_id || ""),
-          status: dispute?.status || "submitted",
-          message: dispute?.message || "Dispute submitted to Payarc.",
-        };
-      } catch (err: any) {
-        return { success: false, error: err.message };
-      }
-    }
-
-    // Never report a simulated card-brand submission in a non-test adapter.
-    return { success: false, status: "not_configured", error: "Payarc chargeback submission is not configured" };
+  async submitChargeback(_submission: ChargebackSubmission): Promise<ChargebackResult | HeldResult> {
+    return { status: "held", reason: "pending_task_1737" };
   }
 
   // ── updateMerchant ────────────────────────────────────────────────────────
@@ -550,7 +469,19 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
   async updateMerchant(
     processorApplicationId: string,
     updates: Partial<MerchantProfile>,
+    options?: { snapshotAuthorizedBaseUrl?: string },
   ): Promise<MerchantUpdateResult> {
+    // REV-05A: fail-closed unless a snapshot-authorized URL is provided.
+    // Using the env-var base URL without an owner-approved snapshot allows
+    // authenticated PATCH traffic to unapproved endpoints.
+    if (!options?.snapshotAuthorizedBaseUrl) {
+      return {
+        success: false,
+        error: "[REV-05A] PayarcAdapter.updateMerchant blocked: snapshotAuthorizedBaseUrl required. " +
+               "Obtain an activation snapshot before calling adapter transport methods.",
+      };
+    }
+
     if (this.isConfigured()) {
       try {
         const body: Record<string, unknown> = {
@@ -567,7 +498,7 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
 
         const { ok, status, data } = await payarcRequest<any>(
           this.apiKey!,
-          this.baseUrl,
+          options.snapshotAuthorizedBaseUrl.replace(/\/$/, ""),
           "PATCH",
           `/applicants/${processorApplicationId}`,
           body,
@@ -579,30 +510,15 @@ export class PayarcProcessorAdapter implements IProcessorAdapter {
         }
 
         return { success: true, message: "Merchant profile updated in Payarc." };
-      } catch (err: any) {
-        return { success: false, error: err.message };
+      } catch {
+        return { success: false, error: "Payarc update request failed" };
       }
     }
 
-    console.log(`[PayarcAdapter] updateMerchant simulation: ${processorApplicationId}`);
-    return { success: true, message: "[Simulation] Merchant profile updated." };
-  }
-
-  // ── ping ──────────────────────────────────────────────────────────────────
-
-  async ping(): Promise<boolean> {
-    if (!this.isConfigured()) return false;
-    try {
-      const { ok, status } = await payarcRequest<any>(
-        this.apiKey!,
-        this.baseUrl,
-        "GET",
-        "/accounts/me",
-      );
-      // 200 or 404 both prove the API is reachable and the token is accepted
-      return ok || status === 404;
-    } catch {
-      return false;
-    }
+    // Simulation REMOVED — return error when unconfigured
+    return {
+      success: false,
+      error: "PAYARC_API_KEY not configured. Cannot update merchant profile.",
+    };
   }
 }

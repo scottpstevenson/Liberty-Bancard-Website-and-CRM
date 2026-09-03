@@ -370,40 +370,83 @@ async function login(email: string, password: string): Promise<string> {
   return cookies.join("; ");
 }
 
-async function call(c: GuardCase, cookie?: string, attempts = 3): Promise<number> {
+// Sentinel returned when all retries exhaust due to transient server load.
+// The test suite warns on this rather than failing — a timeout is NOT a role-guard
+// failure; it is a server performance signal that must not be confused with a
+// wrong status code. Actual role guard failures produce non-matching status codes.
+const TRANSIENT_TIMEOUT_SENTINEL = -1;
+
+async function call(c: GuardCase, cookie?: string, attempts = 4): Promise<number> {
   const headers: Record<string, string> = {};
   if (cookie) headers.cookie = cookie;
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(`${BASE_URL}${c.path}`, { method: c.method, headers });
+      const res = await fetch(`${BASE_URL}${c.path}`, {
+        method: c.method,
+        headers,
+        signal: AbortSignal.timeout(30_000),
+      });
       return res.status;
     } catch (err: unknown) {
       lastErr = err;
       const msg = err instanceof Error
-        ? `${err.message} ${(err as any).cause?.message ?? ""}`
+        ? `${err.message} ${(err as any).cause?.message ?? ""} ${(err as any).code ?? ""}`
         : String(err);
-      const isSocket =
+      const errName = err instanceof Error ? err.name : "";
+      const isTransient =
         msg.includes("UND_ERR_SOCKET") ||
         msg.includes("ECONNRESET") ||
         msg.includes("other side closed") ||
-        msg.includes("fetch failed");
-      if (!isSocket) throw err;
-      await new Promise((r) => setTimeout(r, 1500));
+        msg.includes("fetch failed") ||
+        msg.includes("UND_ERR_HEADERS_TIMEOUT") ||
+        msg.includes("Headers Timeout") ||
+        msg.includes("aborted due to timeout") ||
+        errName === "TimeoutError" ||
+        errName === "AbortError";
+      if (!isTransient) throw err;
+      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
     }
   }
-  throw lastErr;
+  // All retries exhausted — return timeout sentinel. The test loop counts this
+  // as a role-guard FAILURE (not a skip), contributing to the failures counter
+  // and ultimately failing the suite exit code. The endpoint continues to the
+  // next case rather than aborting so all other guards are still verified.
+  console.warn(`    ⚠ ${c.method} ${c.path}: all ${attempts} retries timed out — counted as FAILED`);
+  return TRANSIENT_TIMEOUT_SENTINEL;
 }
 
-async function waitForServer(url: string, maxMs = 30_000): Promise<void> {
+async function waitForServer(url: string, maxMs = 90_000): Promise<void> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     try {
-      await fetch(url, { signal: AbortSignal.timeout(2000) });
-      // Server responded — give Express another 3 s to finish registering all
-      // middleware and route handlers before we start making real API calls.
-      await new Promise((r) => setTimeout(r, 3000));
-      return;
+      await fetch(url, { signal: AbortSignal.timeout(5000) });
+      // Server process is alive. Now wait for BullMQ workers to finish initializing
+      // and release their DB pool connections; otherwise early API calls time out.
+      // /api/csrf-token touches the session store (DB-adjacent) and is a better
+      // signal than /api/health which returns immediately with no DB I/O.
+      const dbProbeUrl = url.replace("/api/health", "/api/csrf-token");
+      const dbReadyDeadline = Date.now() + 60_000;
+      while (Date.now() < dbReadyDeadline) {
+        const probeStart = Date.now();
+        try {
+          const probeRes = await fetch(dbProbeUrl, { signal: AbortSignal.timeout(6000) });
+          const probeMs = Date.now() - probeStart;
+          // Only proceed if the endpoint responds quickly (< 4 s) indicating
+          // the pool is no longer fully saturated by BullMQ worker init.
+          if (probeRes.ok && probeMs < 4000) {
+            // Extra fixed delay so the last few workers finish releasing connections.
+            await new Promise((r) => setTimeout(r, 5000));
+            return;
+          }
+          // Responded slowly — pool still under pressure; wait and retry.
+          await new Promise((r) => setTimeout(r, 3000));
+        } catch {
+          // Timed out or errored — still saturated; wait and retry.
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+      return; // gave up waiting for DB; proceed and let calls retry
     } catch {
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -486,13 +529,15 @@ async function run(): Promise<void> {
   for (const c of CASES) {
     const hasAgent = c.agent !== undefined;
     const hasManager = c.manager !== undefined;
-    const results = await Promise.all([
-      call(c),
-      call(c, merchantCookie),
-      ...(hasAgent ? [call(c, agentCookie)] : []),
-      ...(hasManager ? [call(c, managerCookie)] : []),
-      call(c, adminCookie),
-    ]);
+    // Serialize role calls to avoid saturating the DB pool when BullMQ
+    // workers are initializing at startup. Parallel calls under heavy
+    // worker-init load cause headers timeouts on the pool-blocked requests.
+    const results: number[] = [];
+    results.push(await call(c));
+    results.push(await call(c, merchantCookie));
+    if (hasAgent) results.push(await call(c, agentCookie));
+    if (hasManager) results.push(await call(c, managerCookie));
+    results.push(await call(c, adminCookie));
 
     let idx = 0;
     const anon = results[idx++];
@@ -501,11 +546,14 @@ async function run(): Promise<void> {
     const manager = hasManager ? results[idx++] : undefined;
     const admin = results[idx++];
 
-    const anonOk = c.anon.includes(anon);
-    const merchantOk = c.merchant.includes(merchant);
-    const agentOk = !hasAgent || (c.agent!.includes(agent!));
-    const managerOk = !hasManager || (c.manager!.includes(manager!));
-    const adminOk = c.admin.includes(admin);
+    // Sentinel (-1) means a role call timed out — treat the whole endpoint as
+    // failed so a degraded/hung endpoint cannot evade role-guard verification.
+    const hasTimeout = results.includes(TRANSIENT_TIMEOUT_SENTINEL);
+    const anonOk = !hasTimeout && c.anon.includes(anon);
+    const merchantOk = !hasTimeout && c.merchant.includes(merchant);
+    const agentOk = !hasTimeout && (!hasAgent || c.agent!.includes(agent!));
+    const managerOk = !hasTimeout && (!hasManager || c.manager!.includes(manager!));
+    const adminOk = !hasTimeout && c.admin.includes(admin);
     const ok = anonOk && merchantOk && agentOk && managerOk && adminOk;
 
     const agentStr = hasAgent ? String(agent!).padEnd(6) : "—     ";
