@@ -421,6 +421,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "Serper: fake transports injected by test",
   },
   {
+    name: "Serper Business Identity",
+    script: "scripts/test-serper-business-identity.ts",
+    capability: "deterministic-static",
+    providerDenial: "Serper: fake gateway injected; no DB, no real HTTP",
+  },
+  {
     name: "Sunbiz Timeout & Recovery",
     script: "scripts/test-sunbiz-timeout.ts",
     capability: "deterministic-integration",

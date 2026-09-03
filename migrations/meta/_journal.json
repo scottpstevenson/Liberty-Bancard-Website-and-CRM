@@ -1583,6 +1583,13 @@
       "when": 1799900300000,
       "tag": "0221_campaign_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1799900400000,
+      "tag": "0222_serper_lookup_attempts",
+      "breakpoints": false
     }
   ]
 }

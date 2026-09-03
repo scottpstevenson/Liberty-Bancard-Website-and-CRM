@@ -3,6 +3,10 @@ import { sdrMerchants, sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { isSerperConfigured } from "../serper";
 import { serperGateway, SerperGateway, type SerperGatewayResult } from "../serper-gateway";
+import {
+  lookupBusinessIdentity,
+  type LookupOutcome,
+} from "../serper-business-identity";
 
 interface SerperEnrichmentResult {
   website?: string;
@@ -57,98 +61,86 @@ export async function serperAuthorityPermits(
   return { permitted: true };
 }
 
+/**
+ * Calls the structured `lookupBusinessIdentity()` waterfall (Places-first,
+ * with identity scoring and geographic corroboration) and maps its outcome to
+ * the three-class SearchClassified type used by this module's cooldown machine.
+ *
+ * Kill lines enforced:
+ *  - First result never accepted without identity + geography validation (done by lookupBusinessIdentity)
+ *  - Email addresses never collected or returned from this path
+ *  - provider_failure never combined with no_result/identity_rejected
+ */
 async function searchSerperForBusiness(
   businessName: string,
   city: string | null | undefined,
   state: string | null | undefined,
   gateway: SerperGateway,
+  zip?: string | null,
+  legalName?: string | null,
+  officerSurname?: string | null,
 ): Promise<SearchClassified> {
   if (!isSerperConfigured()) return { kind: "provider_failure", reasonCode: "no_api_key" };
 
-  const location = [city, state].filter(Boolean).join(", ");
-  const query = location ? `${businessName} ${location}` : businessName;
-
-  let gatewayResult: SerperGatewayResult;
+  let outcome: LookupOutcome;
   try {
-    gatewayResult = await gateway.executeSearch(
-      "/places",
-      { q: query, location: location || "Florida, US", gl: "us", hl: "en" },
-      "sdr_serper_enrichment_places",
+    outcome = await lookupBusinessIdentity(
+      {
+        businessName,
+        legalName: legalName ?? undefined,
+        zip,
+        city: city ?? undefined,
+        state: state ?? undefined,
+        officerSurname: officerSurname ?? undefined,
+      },
+      {
+        caller: "server/services/sdr/serper-enrichment.ts",
+        gateway: gateway as any,
+      },
     );
   } catch (err) {
     console.error(`[SerperEnrichment] Error enriching ${businessName}:`, err);
     return { kind: "provider_failure", reasonCode: "network_error" };
   }
 
-  if (!gatewayResult.ok) {
-    return { kind: "provider_failure", reasonCode: classifyFailureReason(gatewayResult) };
+  // Map structured lookup outcome to the three-class cooldown machine
+  if (outcome.kind === "blocked") {
+    return { kind: "provider_failure", reasonCode: outcome.reason ?? "blocked" };
+  }
+  if (outcome.kind === "provider_failure") {
+    return { kind: "provider_failure", reasonCode: outcome.reason ?? "provider_error" };
+  }
+  if (outcome.kind === "no_result" || outcome.kind === "identity_rejected" || outcome.kind === "ambiguous") {
+    return { kind: "no_result" };
   }
 
-  const data = gatewayResult.data as any;
-  const places = data?.places || [];
-  if (places.length === 0) return { kind: "no_result" };
-
-  const best = places[0];
+  // accepted_match — extract fields from the accepted candidate
+  const accepted = outcome.accepted!;
   const result: SerperEnrichmentResult = {};
 
-  if (best.website) {
-    try {
-      const url = new URL(
-        best.website.startsWith("http") ? best.website : `https://${best.website}`
-      );
-      result.website = url.hostname.replace(/^www\./, "");
-    } catch {}
-  }
+  if (accepted.website) result.website = accepted.website;
+  if (accepted.phone) result.phone = accepted.phone;
+  if (accepted.address) result.address = accepted.address;
+  if (accepted.rating != null) result.rating = accepted.rating;
+  if (accepted.reviewCount != null) result.reviewCount = accepted.reviewCount;
 
-  if (best.phoneNumber) {
-    const digits = best.phoneNumber.replace(/[^\d]/g, "");
-    if (digits.length >= 10) {
-      result.phone = digits.slice(-10);
-    }
-  }
-
-  if (best.rating) result.rating = parseFloat(best.rating);
-  if (best.reviewsCount) result.reviewCount = parseInt(best.reviewsCount);
-  if (best.address) result.address = best.address;
-
-  // A place with no extractable website/phone/address is not a usable match.
+  // A match with no extractable fields is still a no_result for enrichment purposes
   if (!result.website && !result.phone && !result.address) return { kind: "no_result" };
 
   return { kind: "matched", result };
 }
 
+// Email discovery via Serper snippets is PROHIBITED by the task kill lines.
+// Email remains the responsibility of separately-authorized providers (ZeroBounce/Apollo).
+// This stub is intentionally removed; the searchSerperForEmail call site below
+// is disabled to enforce the kill line.
 async function searchSerperForEmail(
-  businessName: string,
-  domain: string | null | undefined,
-  gateway: SerperGateway,
+  _businessName: string,
+  _domain: string | null | undefined,
+  _gateway: SerperGateway,
 ): Promise<string | null> {
-  if (!isSerperConfigured() || !domain) return null;
-
-  // Authority gate rechecked immediately before this second Serper I/O call.
-  const gate = await serperAuthorityPermits(gateway);
-  if (!gate.permitted) return null;
-
-  try {
-    const gatewayResult = await gateway.executeSearch(
-      "/search",
-      { q: `"${domain}" email contact`, gl: "us", hl: "en", num: 5 },
-      "sdr_serper_enrichment_email",
-    );
-    if (!gatewayResult.ok) return null;
-
-    const data = gatewayResult.data as any;
-    const snippets = (data.organic || [])
-      .map((r: any) => `${r.snippet || ""} ${r.title || ""}`)
-      .join(" ");
-
-    const emailMatch = snippets.match(
-      /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
-    );
-    return emailMatch ? emailMatch[0] : null;
-  } catch (err) {
-    console.error(`[SerperEnrichment] Email search error for ${businessName}:`, err);
-    return null;
-  }
+  // Kill line: "Serper snippet email promoted or persisted" → always return null
+  return null;
 }
 
 export interface EnrichmentStats {
@@ -258,6 +250,9 @@ export async function enrichMerchantWithSerper(
     merchant.city,
     merchant.state,
     gateway,
+    merchant.zip ?? null,
+    merchant.legalName ?? null,
+    merchant.ownerLastName ?? null,
   );
 
   if (classified.kind === "provider_failure") {
@@ -290,17 +285,10 @@ export async function enrichMerchantWithSerper(
     fieldsEnriched.push("address");
   }
 
-  if (!merchant.mainEmail) {
-    const email = await searchSerperForEmail(
-      merchant.businessName,
-      result.website || merchant.domain,
-      gateway,
-    );
-    if (email) {
-      updates.mainEmail = email;
-      fieldsEnriched.push("email");
-    }
-  }
+  // Email is intentionally NOT collected from Serper — it is the responsibility
+  // of separately-authorized providers (ZeroBounce/Apollo). The stub permanently
+  // returns null. This block is removed to prevent any future accidental email
+  // writes, and to remove the dead network call.
 
   if (fieldsEnriched.length > 0) {
     updates.updatedAt = new Date();
@@ -313,7 +301,7 @@ export async function enrichMerchantWithSerper(
 
     for (const ls of leadStates) {
       const leadUpdates: Record<string, any> = { updatedAt: new Date() };
-      if (updates.mainEmail && !ls.email) leadUpdates.email = updates.mainEmail;
+      // Note: email is intentionally excluded — Serper does not collect it.
       if (updates.mainPhone && !ls.phone) leadUpdates.phone = updates.mainPhone;
       if (updates.website && !ls.website) leadUpdates.website = updates.website;
       if (Object.keys(leadUpdates).length > 1) {
@@ -332,10 +320,12 @@ export async function enrichMerchantWithSerper(
   }
 
   // Determine post-update completeness for the partial-match cooldown.
+  // Serper targets only: website, phone, address. Email is NOT a Serper target —
+  // merchants with website+phone but no email must NOT be re-claimed on every
+  // cycle just because email is missing. stillMissing only covers Serper targets.
   const website = updates.website ?? merchant.website;
   const mainPhone = updates.mainPhone ?? merchant.mainPhone;
-  const mainEmail = updates.mainEmail ?? merchant.mainEmail;
-  const stillMissing = !website || !mainPhone || !mainEmail;
+  const stillMissing = !website || !mainPhone;
 
   await recordMatched(merchantId, stillMissing, executor);
 
@@ -346,7 +336,10 @@ export async function enrichMerchantWithSerper(
  * Atomically claims eligible candidates inside the caller's transaction using
  * SELECT … FOR UPDATE SKIP LOCKED so concurrent workers never double-claim.
  * Eligibility (all applied in one statement):
- *   1. at least one target field missing (website / main_phone / main_email)
+ *   1. at least one SERPER-collectible field missing (website / main_phone)
+ *      NOTE: main_email is intentionally excluded — Serper does not collect email.
+ *            Including it would cause merchants with website+phone but no email to
+ *            be reclaimed and charged credits on every cooldown cycle forever.
  *   2. do_not_contact_flag IS NOT TRUE
  *   3. serper_next_eligible_at IS NULL OR <= now()
  *   4. no active lease (row not locked by another worker — SKIP LOCKED)
@@ -358,7 +351,7 @@ export async function claimSerperCandidates(
 ): Promise<Array<{ id: number }>> {
   const res = await tx.execute(sql`
     SELECT id FROM sdr_merchants
-    WHERE (website IS NULL OR main_phone IS NULL OR main_email IS NULL)
+    WHERE (website IS NULL OR main_phone IS NULL)
       AND do_not_contact_flag IS NOT TRUE
       AND (serper_next_eligible_at IS NULL OR serper_next_eligible_at <= now())
     ORDER BY serper_next_eligible_at ASC NULLS FIRST, id ASC

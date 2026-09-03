@@ -160,7 +160,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "serper", capability: ["business_discovery", "directory_lookup"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/serper-gateway.ts"],
-    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts"],
+    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/serper-business-identity.ts"],
     secretNames: ["SERPER_API_KEY"], durableOperation: "request",
     budget: { required: true, accounting: "control_row", unit: "request" }, timeoutMs: 15_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,

@@ -255,6 +255,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 120,
   },
   {
+    name: "Serper Business Identity (normalizer / scorer / lookup waterfall — fake transports)",
+    script: "scripts/test-serper-business-identity.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Sequence Compliance (114 cases: consent/DNC/cap/kill-switch/CAN-SPAM)",
     script: "scripts/test-sequence-compliance.ts",
     timeoutSecs: 120,
