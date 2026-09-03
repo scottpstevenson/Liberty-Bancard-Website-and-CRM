@@ -13,7 +13,7 @@ import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
 import { eq, and, count } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
-import { applyConsentCommand } from "../services/consent-authority";
+import { applyConsentCommand, recordReachabilityObservation } from "../services/consent-authority";
 import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
 interface AbTestResultRow {
@@ -130,11 +130,133 @@ export function registerCampaignsRoutes(app: Express) {
       if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
       if (existing.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
       const updates = campaignUpdateSchema.parse(req.body);
+      // Material edit: bump content_revision and clear approved_revision so any
+      // prior launch approval is automatically invalidated.
+      await pool.query(
+        `UPDATE campaigns
+         SET content_revision  = COALESCE(content_revision, 1) + 1,
+             approved_revision = NULL
+         WHERE id = $1`,
+        [Number(req.params.id)]
+      );
       const updated = await storage.updateCampaign(Number(req.params.id), updates);
       if (!updated) return res.status(404).json({ message: "Campaign not found" });
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
+  // === CAMPAIGN APPROVAL ===
+  // Immutable launch approval. Admins (or explicitly authorized managers) must
+  // call this before a campaign can be queued for sending.  The approval is
+  // scoped to the current content_revision; any subsequent edit invalidates it.
+  app.post("/api/campaigns/:id/approve", isAuthenticated, requireRole("admin"), async (req, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be approved" });
+
+      const approveSchema = z.object({
+        confirm: z.string().min(1),
+        notes: z.string().max(1000).optional(),
+      }).strict();
+      const { confirm, notes } = approveSchema.parse(req.body);
+      const REQUIRED_CONFIRM = "APPROVE CAMPAIGN LAUNCH";
+      if (confirm !== REQUIRED_CONFIRM) {
+        return res.status(400).json({
+          message: `Approval requires confirm="${REQUIRED_CONFIRM}"`,
+        });
+      }
+
+      const approvedBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
+      // Compute a lightweight scope hash from current targeting + caps.
+      const scopeSource = JSON.stringify({
+        targetVerticals: campaign.targetVerticals,
+        filterCriteria: campaign.filterCriteria,
+        dailySendLimit: campaign.dailySendLimit,
+        readinessThreshold: campaign.readinessThreshold,
+        name: campaign.name,
+      });
+      const crypto = await import("crypto");
+      const scopeHash = crypto.createHash("sha256").update(scopeSource).digest("hex").slice(0, 16);
+
+      // Fetch current content_revision (may not exist if migration not yet applied).
+      const revRow = await pool.query(
+        `SELECT COALESCE(content_revision, 1) AS content_revision FROM campaigns WHERE id = $1`,
+        [campaignId]
+      );
+      const contentRevision: number = revRow.rows[0]?.content_revision ?? 1;
+
+      // Upsert the approval record (idempotent per campaign+revision).
+      await pool.query(
+        `INSERT INTO campaign_approvals
+           (campaign_id, revision, approved_by, scope_hash, confirm_token, notes)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (campaign_id, revision) DO UPDATE
+           SET approved_by   = EXCLUDED.approved_by,
+               scope_hash    = EXCLUDED.scope_hash,
+               confirm_token = EXCLUDED.confirm_token,
+               notes         = EXCLUDED.notes,
+               approved_at   = NOW()`,
+        [campaignId, contentRevision, approvedBy, scopeHash, confirm, notes ?? null]
+      );
+      // Persist approved_revision on the campaign so reads are cheap.
+      await pool.query(
+        `UPDATE campaigns SET approved_revision = $1 WHERE id = $2`,
+        [contentRevision, campaignId]
+      );
+
+      res.json({
+        message: "Campaign approved for launch",
+        campaignId,
+        revision: contentRevision,
+        approvedBy,
+        scopeHash,
+      });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      serverError(res, err);
+    }
+  });
+
+  // GET approval status for a campaign.
+  app.get("/api/campaigns/:id/approval", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const campaignId = Number(req.params.id);
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
+
+      const revRow = await pool.query(
+        `SELECT COALESCE(content_revision, 1) AS content_revision,
+                approved_revision
+         FROM campaigns WHERE id = $1`,
+        [campaignId]
+      );
+      const { content_revision: contentRevision, approved_revision: approvedRevision } = revRow.rows[0] ?? {};
+
+      const approved = approvedRevision != null && approvedRevision === contentRevision;
+      let latestApproval = null;
+      if (approved) {
+        const apRow = await pool.query(
+          `SELECT approved_by, approved_at, scope_hash, notes
+           FROM campaign_approvals
+           WHERE campaign_id = $1 AND revision = $2`,
+          [campaignId, approvedRevision]
+        );
+        latestApproval = apRow.rows[0] ?? null;
+      }
+
+      res.json({
+        approved,
+        contentRevision,
+        approvedRevision: approvedRevision ?? null,
+        latestApproval,
+      });
+    } catch (err: any) {
       serverError(res, err);
     }
   });
@@ -311,7 +433,78 @@ export function registerCampaignsRoutes(app: Express) {
       const updates: Record<string, any> = {};
       if (event === "opened") { updates.status = "opened"; updates.openedAt = new Date(); }
       if (event === "replied") { updates.status = "replied"; updates.repliedAt = new Date(); }
-      if (event === "bounced") { updates.status = "bounced"; updates.bouncedAt = new Date(); }
+
+      if (event === "bounced") {
+        updates.status = "bounced";
+        updates.bouncedAt = new Date();
+        // Hard bounce: canonically mark the email channel as unreachable so
+        // all future contactability checks (campaigns, sequences, manual) block.
+        // Uses stable event keys for replay-safety.
+        if (msg.contactId) {
+          await recordReachabilityObservation({
+            subject: { type: "contact", id: msg.contactId },
+            channel: "email",
+            state: "bounced",
+            eventNamespace: "campaign_webhook",
+            eventKey: `outbound_msg:${msg.id}:bounced:contact`,
+            source: "campaign_bounce",
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          });
+        }
+        if (msg.prospectId) {
+          await recordReachabilityObservation({
+            subject: { type: "prospect", id: msg.prospectId },
+            channel: "email",
+            state: "bounced",
+            eventNamespace: "campaign_webhook",
+            eventKey: `outbound_msg:${msg.id}:bounced:prospect`,
+            source: "campaign_bounce",
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          });
+        }
+      }
+
+      if (event === "complained") {
+        // Spam complaint: suppress globally — treat the same as an unsubscribe
+        // and mark the channel as unreachable via both consent opt-out and
+        // reachability observation.
+        updates.status = "complained";
+        if (msg.contactId) {
+          await applyConsentCommand({
+            subject: { type: "contact", id: msg.contactId },
+            kind: "opt_out",
+            channel: "email",
+            purpose: "outreach",
+            eventNamespace: "campaign_webhook",
+            eventKey: `outbound_msg:${msg.id}:complaint:contact:optout`,
+            source: "campaign_complaint",
+            evidence: { messageId: msg.id, campaignId: msg.campaignId },
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          });
+          await recordReachabilityObservation({
+            subject: { type: "contact", id: msg.contactId },
+            channel: "email",
+            state: "invalid",
+            eventNamespace: "campaign_webhook",
+            eventKey: `outbound_msg:${msg.id}:complaint:contact:reach`,
+            source: "campaign_complaint",
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          });
+        }
+        if (msg.prospectId) {
+          await applyConsentCommand({
+            subject: { type: "prospect", id: msg.prospectId },
+            kind: "global_dnc",
+            purpose: "outreach",
+            eventNamespace: "campaign_webhook",
+            eventKey: `outbound_msg:${msg.id}:complaint:prospect:optout`,
+            source: "campaign_complaint",
+            evidence: { messageId: msg.id, campaignId: msg.campaignId },
+            details: { messageId: msg.id, campaignId: msg.campaignId },
+          });
+        }
+      }
+
       if (event === "unsubscribed") {
         updates.status = "unsubscribed";
         if (msg.prospectId) {

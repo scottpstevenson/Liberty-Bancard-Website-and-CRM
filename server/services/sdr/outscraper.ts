@@ -92,6 +92,33 @@ export function isOutscraperConfigured(): boolean {
   return !!process.env.OUTSCRAPER_API_KEY;
 }
 
+/**
+ * Returns true only when Outscraper has BOTH:
+ *  1. An API key configured in environment.
+ *  2. An explicit paid-provider approval recorded in provider_controls
+ *     (enabled=true, circuit_state != 'open').
+ *
+ * This satisfies the kill line: "STOP if a paid provider can run without
+ * explicit approval and atomic durable budget reservation."
+ */
+export async function isOutscraperExplicitlyApproved(): Promise<boolean> {
+  if (!isOutscraperConfigured()) return false;
+  try {
+    const { pool } = await import("../../db");
+    const row = await pool.query(
+      `SELECT enabled, circuit_state FROM provider_controls
+       WHERE provider = 'outscraper' AND capability = 'search'
+       LIMIT 1`
+    );
+    if (row.rows.length === 0) return false;
+    const { enabled, circuit_state } = row.rows[0];
+    return enabled === true && circuit_state !== "open";
+  } catch {
+    // Fail closed: if we cannot verify approval, deny.
+    return false;
+  }
+}
+
 async function trackOutscraperCall(success: boolean, businessesFound: number = 0) {
   try {
     const existing = await storage.getSystemSetting("outscraper_usage") as OutscraperUsageStats | null;

@@ -2561,6 +2561,32 @@ export const campaigns = pgTable("campaigns", {
   readinessThreshold: integer("readiness_threshold"),
 });
 
+// ---------------------------------------------------------------------------
+// Campaign Approvals — immutable launch approval per content revision.
+// Every campaign queueing action requires an approval whose revision matches
+// the campaign's current content_revision.  Material edits bump content_revision
+// and set approved_revision to NULL, making prior approvals stale.
+// ---------------------------------------------------------------------------
+export const campaignApprovals = pgTable("campaign_approvals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  // Matches campaigns.content_revision at approval time.
+  revision: integer("revision").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  // Fingerprint of content+audience+sender+caps at approval time.
+  scopeHash: text("scope_hash").notNull(),
+  // Human confirmation phrase required from the approver.
+  confirmToken: text("confirm_token").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("campaign_approvals_campaign_revision_uidx").on(t.campaignId, t.revision),
+  index("campaign_approvals_campaign_id_idx").on(t.campaignId),
+]);
+
+export type CampaignApproval = typeof campaignApprovals.$inferSelect;
+
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
   createdAt: true,

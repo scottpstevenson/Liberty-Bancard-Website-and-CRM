@@ -320,7 +320,12 @@ async function searchOutscraperForDiscovery(
   state: string,
   limit: number
 ): Promise<NormalizedBusiness[]> {
-  if (!isOutscraperConfigured()) return [];
+  // Require explicit admin approval in provider_controls (fail-closed).
+  const { isOutscraperExplicitlyApproved } = await import("./outscraper");
+  if (!(await isOutscraperExplicitlyApproved())) {
+    console.warn("[LeadFinder] Outscraper skipped — not explicitly approved in provider_controls");
+    return [];
+  }
 
   try {
     const outscrResults = await searchOutscraperByVerticalMetro(vertical, metro, state, limit);
