@@ -136,7 +136,7 @@ async function phase1ApprovalArtifacts(
   privateKey: ReturnType<typeof createPrivateKey>,
   releaseSha: string,
   runTag: string,
-): Promise<string[]> {
+): Promise<Partial<Record<"operator" | "data" | "finance" | "legal", string>>> {
   assertCro03cPriceSchedules(PRICING as Parameters<typeof assertCro03cPriceSchedules>[0]);
   const scope = {
     policyKey:      "cro03c_live_activation",
@@ -152,7 +152,7 @@ async function phase1ApprovalArtifacts(
   const expiresAt = new Date(issuedAt.getTime() + 24 * 3600 * 1000);
   const reason = `Auto-ceremony on startup for SHA ${releaseSha}`;
 
-  const receiptIds: string[] = [];
+  const receiptIds: Partial<Record<"operator" | "data" | "finance" | "legal", string>> = {};
   for (const dimension of CRO03C_APPROVAL_DIMENSIONS) {
     const idemKey = `${runTag}-${dimension}`;
     const payload = {
@@ -177,7 +177,7 @@ async function phase1ApprovalArtifacts(
       reason,
       actorId: "cro03d-startup",
     });
-    receiptIds.push(result.receiptId);
+    receiptIds[dimension] = result.receiptId;
     console.log(`[CRO03D]   ${result.replayed ? "~" : "+"} ${dimension}: ${result.receiptId}`);
   }
   return receiptIds;
@@ -187,7 +187,7 @@ async function phase2AttestAndActivate(
   privateKey: ReturnType<typeof createPrivateKey>,
   releaseSha: string,
   runTag: string,
-  receiptIds: string[],
+  receiptIds: Partial<Record<"operator" | "data" | "finance" | "legal", string>>,
 ): Promise<void> {
   const { getCro03cQueueTopologyHash } = await import("./queue-manager");
   const { getBullMqTestPrefix, getSharedRedisClient } = await import("./queue-connection");
@@ -306,11 +306,19 @@ async function phase2AttestAndActivate(
             'user',${"cro03d-startup"})
   `);
 
+  // Query current revision so we can pass expectedRevision correctly
+  const currentRev = Number(
+    rows(await db.execute(sql`
+      SELECT COALESCE(MAX(expected_revision),0)::int AS revision FROM cro03c_activation_policies
+    `))[0]?.revision ?? 0,
+  );
+
   // Activation policy
   const pol = await createCro03cActivationPolicy({
     idempotencyKey: `${runTag}-policy`,
     reason: `Auto-ceremony on startup for SHA ${releaseSha}`,
     actorId: "cro03d-startup",
+    expectedRevision: currentRev,
     receiptIds,
   });
   console.log(`[CRO03D]   ${pol.replayed ? "~" : "+"} policy revision=${pol.revision}`);
@@ -335,10 +343,10 @@ export async function runStartupCeremony(): Promise<void> {
   const runTag = `startup-${releaseSha.slice(0, 8)}`;
   console.log(`[CRO03D] Phase 1: importing approval artifacts for SHA ${releaseSha.slice(0, 8)}...`);
 
-  let receiptIds: string[];
+  let receiptIds: Partial<Record<"operator" | "data" | "finance" | "legal", string>>;
   try {
     receiptIds = await phase1ApprovalArtifacts(privateKey, releaseSha, runTag);
-    console.log(`[CRO03D] Phase 1 complete (${receiptIds.length} receipts). Phase 2 in ${PHASE2_DELAY_MS / 1000}s...`);
+    console.log(`[CRO03D] Phase 1 complete (${Object.keys(receiptIds).length} receipts). Phase 2 in ${PHASE2_DELAY_MS / 1000}s...`);
   } catch (err: unknown) {
     console.error("[CRO03D] Phase 1 failed (non-fatal):", (err as Error).message);
     return;
