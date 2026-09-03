@@ -80,10 +80,11 @@ export async function runStartupCeremony(): Promise<void> {
 
     const receiptIds: string[] = [];
     for (const dimension of CRO03C_APPROVAL_DIMENSIONS) {
+      const artifactIdemKey = `${runTag}-${dimension}`;
       const payload = {
         artifactVersion: CRO03C_APPROVAL_ARTIFACT_VERSION,
         receiptId:       randomUUID(),
-        idempotencyKey:  `${runTag}-${dimension}`,
+        idempotencyKey:  artifactIdemKey,
         issuerId:        "cro03d-operator",
         dimension,
         scope:           scope as unknown as Record<string, unknown>,
@@ -101,7 +102,8 @@ export async function runStartupCeremony(): Promise<void> {
       );
       const result = await importCro03cApprovalArtifact({
         artifact: { payload, signature: sig.toString("base64") } as any,
-        idempotencyKey: `${runTag}-import-${dimension}`,
+        idempotencyKey: artifactIdemKey,
+        reason: `Auto-ceremony on startup for SHA ${releaseSha}`,
         actorId: "cro03d-startup",
       });
       receiptIds.push(result.receiptId);
