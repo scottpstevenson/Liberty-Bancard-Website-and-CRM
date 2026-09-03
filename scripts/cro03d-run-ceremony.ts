@@ -197,7 +197,7 @@ async function main() {
   const receiptIds: string[] = [];
   for (const { dimension, artifact } of signedArtifacts) {
     const result = await prodFetch(cookie, csrf, "/api/cro03c/approval-artifacts/import", {
-      idempotencyKey: `${runTag}-import-${dimension}`,
+      idempotencyKey: `${runTag}-${dimension}`,
       reason:         `Durable-key ceremony for SHA ${targetSha}`,
       artifact,
     }) as { receiptId?: string; replayed?: boolean };
