@@ -1900,6 +1900,29 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // GET/PUT /api/admin/settings/zerobounce-auto-run
+  app.get("/api/admin/settings/zerobounce-auto-run", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const val = await storage.getSystemSetting("zerobounce_auto_run_enabled");
+      res.json({ enabled: val === true || val === "true" });
+    } catch (err: any) { serverError(res, err); }
+  });
+  app.put("/api/admin/settings/zerobounce-auto-run", requireRole("admin"), async (req, res) => {
+    try {
+      if (typeof req.body?.enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled (boolean) is required" });
+      }
+      await storage.setSystemSetting("zerobounce_auto_run_enabled", req.body.enabled);
+      await storage.createAuditLog({
+        action: "zerobounce_auto_run_updated",
+        entityType: "system",
+        userId: (req.user as any)?.id ?? null,
+        details: { enabled: req.body.enabled },
+      });
+      res.json({ enabled: req.body.enabled });
+    } catch (err: any) { serverError(res, err); }
+  });
+
   // PUT /api/admin/settings/zerobounce-daily-cap
   // Body: { dailyCap: number } — must be a positive integer ≤ 100 000
   app.put("/api/admin/settings/zerobounce-daily-cap", requireRole("admin"), async (req, res) => {
