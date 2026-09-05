@@ -56,5 +56,8 @@ export default defineConfig({
     ...(bookingUrl
       ? { "import.meta.env.VITE_GHL_BOOKING_URL": JSON.stringify(bookingUrl) }
       : {}),
+    // Inject the current git SHA so the service worker can version its caches
+    // per release. Falls back to "dev" when the variable is absent (local dev).
+    __RELEASE_SHA__: JSON.stringify(process.env.RELEASE_SHA || "dev"),
   },
 });

@@ -6,6 +6,7 @@ import { trackPhoneCallClick } from "@/lib/analytics";
 import {
   ChevronDown, ChevronRight, Loader2, FileText, User,
   DollarSign, Search, X, Phone, Mail, ExternalLink, Save, Plus,
+  WifiOff, RefreshCw,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
@@ -361,7 +362,14 @@ export default function MobilePipeline() {
   const [myDealsOnly, setMyDealsOnly] = useState(false);
   const [showCreateDeal, setShowCreateDeal] = useState(false);
 
-  const { data, isLoading } = useQuery<{ data: any[]; total: number }>({
+  const {
+    data,
+    isLoading,
+    isError: dealsError,
+    isFetching: dealsFetching,
+    refetch: refetchDeals,
+    dataUpdatedAt,
+  } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/deals"],
     staleTime: 1000 * 60 * 3,
     retry: false,
@@ -371,8 +379,12 @@ export default function MobilePipeline() {
     if (data) setCached(data);
   }, [data]);
 
-  const deals = data?.data || cached?.data || [];
-  const salesDeals = deals.filter((d: any) => d.pipeline === "sales" || !d.pipeline);
+  // When the API fails: show cached data (labeled stale) rather than silent zero.
+  // When the API is loading for the first time and there's no cache: show spinner.
+  // Never render zero deals from a failed fetch.
+  const isUsingCachedData = dealsError && cached?.data;
+  const deals: any[] | null = data?.data ?? (isUsingCachedData ? cached!.data : null);
+  const salesDeals = (deals ?? []).filter((d: any) => d.pipeline === "sales" || !d.pipeline);
 
   const myOwnerNames = useMemo(() => {
     const names: string[] = [];
@@ -510,10 +522,45 @@ export default function MobilePipeline() {
         </div>
       </div>
 
+      {/* Stale-cache banner */}
+      {isUsingCachedData && (
+        <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
+          <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-xs text-amber-700 dark:text-amber-300 flex-1">
+            Showing cached data
+            {dataUpdatedAt ? ` — last updated ${new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+          </span>
+          <button
+            data-testid="button-retry-deals"
+            onClick={() => refetchDeals()}
+            disabled={dealsFetching}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-300 flex items-center gap-1 active:opacity-70 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${dealsFetching ? "animate-spin" : ""}`} />
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* List */}
       <div className="py-4">
-        {isLoading && !cached ? (
+        {isLoading && deals === null ? (
           <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+        ) : dealsError && deals === null ? (
+          <div className="flex flex-col items-center justify-center py-16 px-8 text-center gap-4">
+            <WifiOff className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Unable to load current data</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">Check your connection and try again.</p>
+            <button
+              data-testid="button-retry-pipeline"
+              onClick={() => refetchDeals()}
+              disabled={dealsFetching}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold active:scale-95 transition-transform disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${dealsFetching ? "animate-spin" : ""}`} />
+              Try again
+            </button>
+          </div>
         ) : (
           SALES_STAGES.map((stage) => (
             <StageSection key={stage} stage={stage} deals={dealsByStage[stage] || []} onDealTap={openDeal} />

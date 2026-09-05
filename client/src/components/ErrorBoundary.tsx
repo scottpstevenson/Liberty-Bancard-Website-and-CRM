@@ -64,6 +64,8 @@ function clearReloadGuard(): void {
 }
 
 export class ErrorBoundary extends Component<Props, State> {
+  private _swMessageHandler: ((evt: MessageEvent) => void) | null = null;
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null, showDetails: false, isChunkError: false };
@@ -77,6 +79,27 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.hasError) {
       clearReloadGuard();
     }
+    // Listen for the service worker's CHUNK_NOT_FOUND message so an already-open
+    // tab can recover once (bounded) when the SW detects a missing hashed asset.
+    if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+      this._swMessageHandler = (evt: MessageEvent) => {
+        if (evt.data?.type === "CHUNK_NOT_FOUND" && !this.state.hasError) {
+          const guard = readReloadGuard();
+          if (!guard.ok || guard.isRecent) return;
+          const wrote = writeReloadGuard();
+          if (!wrote) return;
+          console.info("[ErrorBoundary] SW signalled missing chunk — reloading once");
+          window.location.reload();
+        }
+      };
+      navigator.serviceWorker.addEventListener("message", this._swMessageHandler);
+    }
+  }
+
+  componentWillUnmount() {
+    if (this._swMessageHandler && typeof navigator !== "undefined" && navigator.serviceWorker) {
+      navigator.serviceWorker.removeEventListener("message", this._swMessageHandler);
+    }
   }
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
@@ -88,7 +111,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
     if (!guard.ok) return;
 
-    if (guard.isRecent) return;
+    if (guard.isRecent) {
+      // Already tried reloading — show the persistent error screen so the user
+      // isn't trapped in an infinite reload loop.
+      return;
+    }
 
     const wrote = writeReloadGuard();
     if (!wrote) return;
@@ -99,6 +126,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   handleReload = () => {
+    clearReloadGuard();
     window.location.reload();
   };
 

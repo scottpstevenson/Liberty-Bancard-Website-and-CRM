@@ -448,6 +448,20 @@ function Router() {
         <Route path="/mobile/profile" component={MobileApp} />
         <Route path="/mobile" component={MobileApp} />
 
+        {/* Compatibility redirects — /dashboard/mobile/* was never a valid route */}
+        <Route path="/dashboard/mobile/contacts/:id">
+          {(params) => { window.location.replace(`/mobile/contacts/${params.id}`); return null; }}
+        </Route>
+        <Route path="/dashboard/mobile/pipeline">
+          {() => { window.location.replace("/mobile/pipeline"); return null; }}
+        </Route>
+        <Route path="/dashboard/mobile/tasks">
+          {() => { window.location.replace("/mobile/tasks"); return null; }}
+        </Route>
+        <Route path="/dashboard/mobile">
+          {() => { window.location.replace("/mobile"); return null; }}
+        </Route>
+
         {/* Sales Tools Hub */}
         <Route path="/sales-tools" component={SalesToolsHub} />
 

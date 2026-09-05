@@ -7,6 +7,7 @@ import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import {
   Phone, CheckSquare, Calendar, ChevronRight, Plus, Zap,
   TrendingUp, Clock, AlertTriangle, User, FileText, Loader2,
+  WifiOff, RefreshCw,
 } from "lucide-react";
 import MobileQuickLog from "./MobileQuickLog";
 import type { Task } from "@shared/schema";
@@ -35,7 +36,7 @@ export default function MobileHome() {
   const [, setLocation] = useLocation();
   const [quickLogOpen, setQuickLogOpen] = useState(false);
 
-  const { data: tasksData, isLoading: tasksLoading } = useQuery<Task[]>({
+  const { data: tasksData, isLoading: tasksLoading, isError: tasksError } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
   });
 
@@ -44,12 +45,24 @@ export default function MobileHome() {
     retry: false,
   });
 
-  const { data: contactsData } = useQuery<{ data: any[]; total: number }>({
+  const {
+    data: contactsData,
+    isError: contactsError,
+    isFetching: contactsFetching,
+    refetch: refetchContacts,
+    dataUpdatedAt: contactsUpdatedAt,
+  } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/contacts"],
     retry: false,
   });
 
-  const { data: dealsData } = useQuery<{ data: any[]; total: number }>({
+  const {
+    data: dealsData,
+    isError: dealsError,
+    isFetching: dealsFetching,
+    refetch: refetchDeals,
+    dataUpdatedAt: dealsUpdatedAt,
+  } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/deals"],
     retry: false,
   });
@@ -58,7 +71,8 @@ export default function MobileHome() {
   const todayTasks = tasks.filter(t => t.status !== "completed" && (isToday(t.dueDate as any) || isOverdue(t)));
   const overdueTasks = todayTasks.filter(isOverdue);
   const appointments = (appointmentsData?.appointments || []).slice(0, 3);
-  const activeDeals = (dealsData?.data || []).filter((d: any) => d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+  // Only compute from real data — never silently show 0 when the API failed.
+  const activeDeals = dealsData?.data?.filter((d: any) => d.stage !== "Closed Won" && d.stage !== "Closed Lost") ?? null;
 
   const { executeOrQueue } = useOfflineQueue();
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
@@ -85,16 +99,48 @@ export default function MobileHome() {
         <h1 className="text-white text-2xl font-bold" data-testid="text-greeting">{firstName}</h1>
         <div className="flex gap-3 mt-4">
           <div className="bg-blue-500/50 rounded-xl p-3 flex-1 text-center">
-            <div className="text-white text-xl font-bold" data-testid="text-today-tasks">{todayTasks.length}</div>
+            <div className="text-white text-xl font-bold" data-testid="text-today-tasks">
+              {tasksError ? <WifiOff className="w-5 h-5 mx-auto opacity-70" /> : todayTasks.length}
+            </div>
             <div className="text-blue-200 text-xs">Tasks Today</div>
           </div>
           <div className="bg-blue-500/50 rounded-xl p-3 flex-1 text-center">
-            <div className="text-white text-xl font-bold" data-testid="text-active-deals">{activeDeals.length}</div>
-            <div className="text-blue-200 text-xs">Active Deals</div>
+            {dealsError ? (
+              <button
+                data-testid="button-retry-deals"
+                onClick={() => refetchDeals()}
+                className="w-full flex flex-col items-center gap-0.5 active:opacity-70"
+              >
+                <WifiOff className="w-5 h-5 text-white/70" />
+                <div className="text-blue-200 text-[10px]">Retry</div>
+              </button>
+            ) : (
+              <>
+                <div className="text-white text-xl font-bold" data-testid="text-active-deals">
+                  {dealsFetching && activeDeals === null ? <Loader2 className="w-5 h-5 mx-auto animate-spin opacity-70" /> : (activeDeals?.length ?? "—")}
+                </div>
+                <div className="text-blue-200 text-xs">Active Deals</div>
+              </>
+            )}
           </div>
           <div className="bg-blue-500/50 rounded-xl p-3 flex-1 text-center">
-            <div className="text-white text-xl font-bold" data-testid="text-total-contacts">{(contactsData?.total || 0)}</div>
-            <div className="text-blue-200 text-xs">Contacts</div>
+            {contactsError ? (
+              <button
+                data-testid="button-retry-contacts"
+                onClick={() => refetchContacts()}
+                className="w-full flex flex-col items-center gap-0.5 active:opacity-70"
+              >
+                <WifiOff className="w-5 h-5 text-white/70" />
+                <div className="text-blue-200 text-[10px]">Retry</div>
+              </button>
+            ) : (
+              <>
+                <div className="text-white text-xl font-bold" data-testid="text-total-contacts">
+                  {contactsFetching && contactsData === undefined ? <Loader2 className="w-5 h-5 mx-auto animate-spin opacity-70" /> : (contactsData?.total ?? "—")}
+                </div>
+                <div className="text-blue-200 text-xs">Contacts</div>
+              </>
+            )}
           </div>
         </div>
       </div>
