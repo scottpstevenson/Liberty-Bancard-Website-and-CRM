@@ -171,24 +171,13 @@ const merchantOpsItems: MenuItem[] = [
 ];
 
 // ─── OUTBOUND ─────────────────────────────────────────────────────────────────
-// Core outbound surfaces always visible to admin/manager — no Dev Mode required.
+// Command / Campaigns / Sequences / Prospects / Analytics all live under OutboundCenter tabs.
+// Sunbiz Lead Gen and Outreach Command are accessible within OutboundCenter's Command tab.
 const outboundItems: MenuItem[] = [
-  { icon: Database,     label: "Lead Ops Center",    href: "/dashboard/lead-ops",           roles: ["admin", "manager"] },
-  { icon: Rocket,       label: "Ready for Outreach", href: "/dashboard/outreach-queue",     roles: ["admin", "manager"], badgeKey: "outreachQueueCount" },
-  { icon: Zap,          label: "Outreach",            href: "/dashboard/outbound-center",    roles: ["admin", "manager"] },
-  { icon: Upload,       label: "Lead Imports",        href: "/dashboard/lead-imports",       roles: ["admin", "manager"] },
-  { icon: Megaphone,    label: "Campaigns",           href: "/dashboard/campaigns",          roles: ["admin", "manager"] },
-  { icon: ListOrdered,  label: "Sequences",           href: "/dashboard/sequences",          roles: ["admin", "manager"] },
-  { icon: Mail,         label: "Outbound Health",     href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
-];
-
-// ─── OPERATIONS ───────────────────────────────────────────────────────────────
-// Operational monitoring and controls — always visible to admins, no Dev Mode.
-const operationsItems: MenuItem[] = [
-  { icon: Monitor,      label: "Queue Health",     href: "/dashboard/system-health",  roles: ["admin"] },
-  { icon: Activity,     label: "System Audit",     href: "/dashboard/system-audit",   roles: ["admin"] },
-  { icon: RocketIcon,   label: "Go-Live Controls", href: "/dashboard/activation",     roles: ["admin"] },
-  { icon: BarChart3,    label: "Automation",        href: "/dashboard/automation",     roles: ["admin"] },
+  { icon: Database, label: "Lead Ops Center",    href: "/dashboard/lead-ops",        roles: ["admin", "manager"] },
+  { icon: Rocket,   label: "Ready for Outreach", href: "/dashboard/outreach-queue",  roles: ["admin", "manager"], badgeKey: "outreachQueueCount" },
+  { icon: Zap,      label: "Outreach",            href: "/dashboard/outbound-center", roles: ["admin", "manager"] },
+  { icon: Upload,   label: "Lead Imports",        href: "/dashboard/lead-imports",    roles: ["admin", "manager"] },
 ];
 
 // ─── REPORTS & SETTINGS ───────────────────────────────────────────────────────
@@ -229,16 +218,19 @@ const devModeLeadEngineItems: MenuItem[] = [
 ];
 
 const devModeAutomationItems: MenuItem[] = [
-  // NOTE: Campaigns, Sequences, Outbound Health, Queue Health, System Audit,
-  // Go-Live Controls, and Automation Overview are now in standard outboundItems /
-  // operationsItems and are always visible to admins. Retain the rest here as
-  // legacy/advanced tools behind the Dev Mode toggle.
-  { icon: Zap,            label: "GHL Workflows",    href: "/dashboard/workflows",       roles: ["admin", "manager"] },
-  { icon: FileBarChart,   label: "Sequence Report",  href: "/dashboard/sequence-report", roles: ["admin", "manager"] },
-  { icon: GitBranch,      label: "Stage Rules",      href: "/dashboard/stage-rules",     roles: ["admin", "manager"] },
-  { icon: FlaskConical,   label: "Setup Wizard",     href: "/dashboard/setup-wizard",    roles: ["admin", "manager"] },
-  { icon: ArrowRightLeft, label: "Round-Robin",      href: "/dashboard/round-robin",     roles: ["admin", "manager"] },
-  { icon: Database,       label: "Data Requests",    href: "/dashboard/data-requests",   roles: ["admin", "manager"] },
+  { icon: BarChart3,      label: "Automation Overview", href: "/dashboard/automation",         roles: ["admin", "manager"] },
+  { icon: Zap,            label: "GHL Workflows",       href: "/dashboard/workflows",          roles: ["admin", "manager"] },
+  { icon: ListOrdered,    label: "Sequences",           href: "/dashboard/sequences",          roles: ["admin", "manager"] },
+  { icon: Megaphone,      label: "Campaigns",           href: "/dashboard/campaigns",          roles: ["admin", "manager"] },
+  { icon: FileBarChart,   label: "Sequence Report",     href: "/dashboard/sequence-report",    roles: ["admin", "manager"] },
+  { icon: GitBranch,      label: "Stage Rules",         href: "/dashboard/stage-rules",        roles: ["admin", "manager"] },
+  { icon: Mail,           label: "Outbound Health",     href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
+  { icon: RocketIcon,     label: "Go-Live Controls",    href: "/dashboard/activation",         roles: ["admin", "manager"] },
+  { icon: FlaskConical,   label: "Setup Wizard",        href: "/dashboard/setup-wizard",       roles: ["admin", "manager"] },
+  { icon: ArrowRightLeft, label: "Round-Robin",         href: "/dashboard/round-robin",        roles: ["admin", "manager"] },
+  { icon: Database,       label: "Data Requests",       href: "/dashboard/data-requests",      roles: ["admin", "manager"] },
+  { icon: Activity,       label: "System Audit",        href: "/dashboard/system-audit",       roles: ["admin", "manager"] },
+  { icon: Monitor,        label: "Queue Health",        href: "/dashboard/system-health",      roles: ["admin", "manager"] },
 ];
 
 const devModeGrowthItems: MenuItem[] = [
@@ -544,7 +536,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
   // All sidebar items flat list for header label lookup
   const allItems = useMemo(() => [
     ...dailyWorkItems, ...toolsItems, ...merchantOpsItems, ...outboundItems,
-    ...operationsItems, ...reportsSettingsItems, ...partnersItems, ...resourcesItems,
+    ...reportsSettingsItems, ...partnersItems, ...resourcesItems,
     ...devModeLeadEngineItems, ...devModeAutomationItems,
     ...devModeGrowthItems, ...devModeSystemItems,
   ], []);
@@ -707,7 +699,6 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
               : renderGroup("DAILY WORK", dailyWorkItems)}
             {renderGroup("MERCHANT OPS", merchantOpsItems)}
             {renderGroup("OUTBOUND", outboundItems)}
-            {role === "admin" && renderGroup("OPERATIONS", operationsItems)}
             {renderGroup("REPORTS", reportsSettingsItems)}
             {renderPartnersGroup()}
             {renderResourcesGroup()}
