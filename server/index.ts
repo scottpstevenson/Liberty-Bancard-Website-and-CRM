@@ -18,6 +18,7 @@ import { seedContentEngine } from "./services/seed-content-engine";
 import { runDrizzleMigrations } from "./db-migrate";
 import { shouldRunStartupMigrations } from "./startup-migration-policy";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
+import { getBackgroundProfile } from "./services/background-profile";
 import { validateEnv } from "./lib/validate-env";
 import { storage } from "./storage";
 
@@ -332,6 +333,9 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
       logEnvVarChecklist();
       const certificationDenyMode = process.env.VG_PROVIDER_DENY_MODE === "1";
+      // Read profile once, early — every gated block below references _bgProfile.
+      // Fail-closed: absent/invalid → "off" (no workers, no seeds, no hydration).
+      const _bgProfile = getBackgroundProfile();
 
       // ── PAUSE AUTHORITY INITIALIZATION (must complete before any worker starts) ──
       // Read and validate the global outbound pause state before starting any
@@ -370,30 +374,34 @@ app.use((req, res, next) => {
         pauseInitialized = false;
       }
 
-      // Seed legacy system_settings pause keys (for backward compat, channel-level pauses)
-      (async () => {
-        const CHANNEL_PAUSE_KEYS = [
-          "outboundGlobalPaused",
-          "emailChannelPaused",
-          "smsChannelPaused",
-          "coldEmailChannelPaused",
-        ] as const;
-        for (const key of CHANNEL_PAUSE_KEYS) {
-          const existing = await storage.getSystemSetting(key);
-          if (existing === null) {
-            await storage.setSystemSetting(key, true);
-            log(`[PauseSeed] ${key}=true seeded (fail-closed default)`);
+      if (_bgProfile !== "off") {
+        // Seed legacy system_settings pause keys (for backward compat, channel-level pauses)
+        (async () => {
+          const CHANNEL_PAUSE_KEYS = [
+            "outboundGlobalPaused",
+            "emailChannelPaused",
+            "smsChannelPaused",
+            "coldEmailChannelPaused",
+          ] as const;
+          for (const key of CHANNEL_PAUSE_KEYS) {
+            const existing = await storage.getSystemSetting(key);
+            if (existing === null) {
+              await storage.setSystemSetting(key, true);
+              log(`[PauseSeed] ${key}=true seeded (fail-closed default)`);
+            }
           }
-        }
-      })().catch(err => console.warn("[PauseSeed] Non-critical seeding error:", err.message));
+        })().catch(err => console.warn("[PauseSeed] Non-critical seeding error:", err.message));
 
-      seedDefaultData();
-      seedSequences();
-      seedVerticalCampaigns();
-      seedStageRules();
-      // Demo prospects only run when DEV_SEED_DEMO=true (never in production).
-      if (process.env.DEV_SEED_DEMO === "true") {
-        seedDemoProspects();
+        seedDefaultData();
+        seedSequences();
+        seedVerticalCampaigns();
+        seedStageRules();
+        // Demo prospects only run when DEV_SEED_DEMO=true (never in production).
+        if (process.env.DEV_SEED_DEMO === "true") {
+          seedDemoProspects();
+        }
+      } else {
+        log("[BackgroundProfile] off — startup seeds and pause-key seeding skipped");
       }
 
       // ── Workers start only after pause state is initialized ───────────────
@@ -412,8 +420,6 @@ app.use((req, res, next) => {
       // fails closed: a process-local interval fallback would let replicas
       // disagree on ownership (BullMQ on one, legacy loop on another).
       // NOTE: This block only executes when pause state was successfully initialized.
-      const { getBackgroundProfile: _getProfile } = await import("./services/background-profile");
-      const _bgProfile = _getProfile();
       if (certificationDenyMode) {
         log("[Certification] BullMQ workers disabled in provider deny mode");
       } else if (!pauseInitialized) { /* skip workers — outbound state unknown */ }
@@ -450,7 +456,9 @@ app.use((req, res, next) => {
 
       // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars,
       // then run a non-blocking live validation against GHL to surface stale/deleted IDs.
-      if (certificationDenyMode) {
+      if (_bgProfile === "off") {
+        log("[BackgroundProfile] off — GHL workflow hydration/live validation skipped");
+      } else if (certificationDenyMode) {
         log("[Certification] GHL workflow hydration/live validation disabled in provider deny mode");
       } else {
         hydrateWorkflowEnvFromDb().then(async n => {
@@ -484,38 +492,40 @@ app.use((req, res, next) => {
         }).catch(() => {});
       }
 
-      // Seed Scott's sending identity as the primary SDR inbox if not already present
-      seedScottSendingIdentity().catch(err => {
-        console.error("[Seed] Failed to seed Scott sending identity:", err);
-      });
+      if (_bgProfile !== "off") {
+        // Seed Scott's sending identity as the primary SDR inbox if not already present
+        seedScottSendingIdentity().catch(err => {
+          console.error("[Seed] Failed to seed Scott sending identity:", err);
+        });
 
-      // Seed default sender profiles (sales / support / onboarding) into system_settings
-      // so they are configurable via the admin UI without hardcoded fallbacks.
-      import("./services/email-signatures").then(({ seedDefaultSignatures }) => {
-        return seedDefaultSignatures();
-      }).catch(err => {
-        console.warn("[Seed] Sender profile seeding failed (non-critical):", err.message);
-      });
+        // Seed default sender profiles (sales / support / onboarding) into system_settings
+        // so they are configurable via the admin UI without hardcoded fallbacks.
+        import("./services/email-signatures").then(({ seedDefaultSignatures }) => {
+          return seedDefaultSignatures();
+        }).catch(err => {
+          console.warn("[Seed] Sender profile seeding failed (non-critical):", err.message);
+        });
 
-      const { seedInboundMessageWorkflows } = await import("./services/seed-inbound-workflows");
-      seedInboundMessageWorkflows().catch(err => {
-        console.error("[Seed] Failed to seed inbound message workflows:", err);
-      });
+        const { seedInboundMessageWorkflows } = await import("./services/seed-inbound-workflows");
+        seedInboundMessageWorkflows().catch(err => {
+          console.error("[Seed] Failed to seed inbound message workflows:", err);
+        });
 
-      // Seed statement acquisition cadence config if not already set.
-      // Admins can tune these via the system_settings table without a redeploy.
-      (async () => {
-        const acqCfg = await storage.getSystemSetting("statement_acquisition_config");
-        if (acqCfg === null) {
-          await storage.setSystemSetting("statement_acquisition_config", {
-            upload_nudge_sms_hours: 24,
-            rep_task_hours: 48,
-            educational_email_hours: 72,
-            stall_escalation_days: 5,
-          });
-          log("[StatementAcquisition] Default cadence config seeded into system_settings");
-        }
-      })().catch(err => console.warn("[StatementAcquisition] Non-critical seeding error:", err.message));
+        // Seed statement acquisition cadence config if not already set.
+        // Admins can tune these via the system_settings table without a redeploy.
+        (async () => {
+          const acqCfg = await storage.getSystemSetting("statement_acquisition_config");
+          if (acqCfg === null) {
+            await storage.setSystemSetting("statement_acquisition_config", {
+              upload_nudge_sms_hours: 24,
+              rep_task_hours: 48,
+              educational_email_hours: 72,
+              stall_escalation_days: 5,
+            });
+            log("[StatementAcquisition] Default cadence config seeded into system_settings");
+          }
+        })().catch(err => console.warn("[StatementAcquisition] Non-critical seeding error:", err.message));
+      }
 
       if (_bgProfile === "off") {
         log("[BackgroundProfile] off — DailyMaintenanceScheduler not started");
@@ -539,9 +549,11 @@ app.use((req, res, next) => {
       } else {
         console.warn("[ContentScheduler] NOT started — pause state unknown; LinkedIn auto-publish blocked until restart with control table available");
       }
-      seedContentEngine().catch(err => {
-        console.error("[Seed] Content Engine seeding failed:", err);
-      });
+      if (_bgProfile !== "off") {
+        seedContentEngine().catch(err => {
+          console.error("[Seed] Content Engine seeding failed:", err);
+        });
+      }
     },
   );
 })();
