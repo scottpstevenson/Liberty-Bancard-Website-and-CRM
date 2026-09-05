@@ -15,7 +15,7 @@
  */
 
 import { sql, eq, lt, and } from "drizzle-orm";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { merchantApplications, merchantApplicationProtectedOutbox, contacts, auditLogs } from "@shared/schema";
 import { storage } from "../storage";
 import { applyEsignDocumentState, applyEsignSendState } from "./merchant-application-service";
@@ -499,6 +499,14 @@ async function processRow(row: OutboxRow): Promise<void> {
 
 async function tick(): Promise<void> {
   if (running) return;
+  // Pool-pressure backpressure: if callers are already queued waiting for a
+  // DB connection, skip this tick rather than adding more pressure. The next
+  // scheduled tick (15 s later) will retry. This prevents the outbox worker
+  // from contributing to pool saturation during high-load windows.
+  if (pool.waitingCount > 0) {
+    process.stderr.write(`[MerchantOutbox] Pool pressure — ${pool.waitingCount} waiter(s), skipping tick\n`);
+    return;
+  }
   // NOTE: No top-level pause check here. Pure data-operations (contact_link,
   // consent_record, risk_scan, deal_stage, lifecycle_*) must run regardless of
   // the global outbound pause so that contact creation and PEWC consent recording

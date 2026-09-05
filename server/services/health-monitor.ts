@@ -450,30 +450,40 @@ export async function runHealthChecks(): Promise<HealthReport> {
   const runAt = new Date().toISOString();
   const t0 = Date.now();
 
-  // Run all checks in parallel
+  // ── Two-phase bounded fan-out ─────────────────────────────────────────────
+  // Phase 1: fast checks — in-memory counters, Redis ping, or single
+  //          system_settings reads. These do not hold a DB pool connection
+  //          for long and are safe to run concurrently.
+  // Phase 2: DB-heavy checks — each can run multiple sequential queries or
+  //          table scans. Serialised in groups of 3 (one sequential group)
+  //          so at most 3 pool connections are held simultaneously instead of
+  //          the previous 11-way parallel burst.
+  // This prevents the health-monitor tick from saturating the DB pool and
+  // starving concurrent API requests or other background workers.
+
   const [
-    dbRes,
+    slaHeartbeatRes,
+    redisRes,
+    outboundPauseRes,
     sequenceWorkerRes,
     slaWorkerRes,
-    ghlSyncRes,
-    redisRes,
-    dbBackupRes,
-    kpiQueryRes,
-    outboundPauseRes,
-    arbitrationErrorsRes,
-    slaHeartbeatRes,
-    productionSeedConvergenceRes,
   ] = await Promise.allSettled([
+    checkSlaHeartbeatWriteDegraded(), // in-memory
+    checkRedis(),                     // Redis ping only
+    checkOutboundPause(),             // single system_settings read
+    checkSequenceWorker(),            // single system_settings read
+    checkSlaWorker(),                 // single system_settings read
+  ]);
+
+  // Phase 2: DB-heavy — run in two batches of 3 to bound concurrency.
+  const [dbRes, ghlSyncRes, dbBackupRes] = await Promise.allSettled([
     checkDb(),
-    checkSequenceWorker(),
-    checkSlaWorker(),
     checkGhlSync(),
-    checkRedis(),
     checkDbBackup(),
+  ]);
+  const [kpiQueryRes, arbitrationErrorsRes, productionSeedConvergenceRes] = await Promise.allSettled([
     checkKpiQuery(),
-    checkOutboundPause(),
     checkArbitrationErrors(),
-    checkSlaHeartbeatWriteDegraded(),
     checkProductionSeedConvergence(),
   ]);
 

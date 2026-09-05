@@ -15,7 +15,7 @@
  */
 
 import { sql, eq, lt, and, isNull } from "drizzle-orm";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { deals, dealBoardingOutbox, merchantApplications, tasks } from "@shared/schema";
 import { storage } from "../storage";
 import { auditChange } from "./audit-change";
@@ -485,6 +485,12 @@ async function handleProcessorSubmit(row: BoardingRow): Promise<void> {
 
 async function tick(): Promise<void> {
   if (running) return;
+  // Pool-pressure backpressure: yield if other callers are already waiting
+  // for a DB connection. Retried on next scheduled tick (20 s later).
+  if (pool.waitingCount > 0) {
+    process.stderr.write(`[BoardingOutbox] Pool pressure — ${pool.waitingCount} waiter(s), skipping tick\n`);
+    return;
+  }
   running = true;
   try {
     await reclaimStale();

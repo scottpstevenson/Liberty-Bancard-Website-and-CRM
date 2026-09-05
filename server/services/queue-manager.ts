@@ -1716,6 +1716,14 @@ class QueueManager {
       console.warn("[QueueManager] Could not load interval overrides from system_settings:", (overrideErr as Error).message);
     }
 
+    // Stagger the initial fire of every-N-ms repeatable jobs so queues with
+    // identical intervals (e.g. the three 60s queues: cro03a, deal-stage-effects,
+    // chargeback-commands) don't burst simultaneously and saturate the DB pool.
+    // Each queue's repeatable schedule is offset by STAGGER_MS * its position
+    // in the config list. Cron-pattern queues are calendar-driven and unaffected.
+    const STAGGER_MS = 15_000; // 15 s between each non-cron queue's first fire
+    let staggerIdx = 0;
+
     for (const config of this.activeConfigs()) {
       // Skip event-driven queues that have no repeatable schedule (repeatEveryMs === 0).
       // These queues are populated by ad-hoc queue.add() calls (e.g. post-enrichment
@@ -1740,10 +1748,20 @@ class QueueManager {
         this.effectiveIntervals.set(config.name, effectiveMs);
       }
 
+      const scheduleOffset = config.cronPattern ? 0 : staggerIdx * STAGGER_MS;
+      staggerIdx++;
+
       await queue.add(config.jobName, {}, {
         repeat: config.cronPattern
           ? { pattern: config.cronPattern }
-          : { every: effectiveMs },
+          : {
+              every: effectiveMs,
+              // startDate offsets when BullMQ computes the first "next run".
+              // Because the schedule key includes the startDate, every process
+              // restart with the same stagger order gets the same offset, giving
+              // stable, predictable distribution across the repeat interval.
+              startDate: new Date(Date.now() + scheduleOffset),
+            },
         jobId: baseScheduleId,
       });
 
@@ -1751,7 +1769,9 @@ class QueueManager {
       // "{name}-startup" job that may be sitting in Redis (completed/failed from
       // a previous run) from deduplicating and silently swallowing this request.
       await queue.add(config.jobName, {}, {
-        delay: Math.floor(Math.random() * 10000) + 2000,
+        // Stagger startup immediate-run too: each queue fires its first job
+        // at a different sub-second offset so the pool isn't hit all at once.
+        delay: scheduleOffset + Math.floor(Math.random() * 5000) + 2000,
       });
     }
     if (ghlOverrideMs !== null) console.log(`[QueueManager] GHL sync interval loaded from system_settings: ${ghlOverrideMs}ms`);
