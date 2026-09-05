@@ -967,38 +967,42 @@ export function registerAdminRoutes(app: Express) {
         return res.json({ ..._ghlHealthCache.data, cached: true });
       }
       const { checkGhlHealth } = await import("../services/ghl");
-      const result = await checkGhlHealth();
+      // Race GHL probe against a 5-second deadline. Under pool pressure the
+      // external API call can hang for 20 s × 3 retries = 60 s, blocking the
+      // response. If it doesn't answer within 5 s we return a "slow" status
+      // (the 30-s cache prevents hammering GHL on every poll).
+      const GHL_HEALTH_PROBE_TIMEOUT_MS = 5_000;
+      const timeoutResult = { connected: false, latencyMs: GHL_HEALTH_PROBE_TIMEOUT_MS, error: "health probe timed out" };
+      const result = await Promise.race([
+        checkGhlHealth(),
+        new Promise<typeof timeoutResult>(resolve =>
+          setTimeout(() => resolve(timeoutResult), GHL_HEALTH_PROBE_TIMEOUT_MS)
+        ),
+      ]);
       const ghlStatus = result.connected ? "ok" : (
-        result.error?.toLowerCase().includes("not configured") ? "unconfigured" : "expired"
+        result.error?.toLowerCase().includes("not configured") ? "unconfigured" :
+        result.error?.includes("timed out") ? "slow" : "expired"
       );
 
       const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-      const [failureCountRow] = await db
-        .select({ total: count() })
-        .from(auditLogs)
-        .where(and(
-          eq(auditLogs.entityType, "ghl_sync"),
-          or(like(auditLogs.action, "%fail%"), like(auditLogs.action, "%error%")),
-          gte(auditLogs.createdAt, since24h)
-        ));
+      // Single query: failure count (last 24h) + last success timestamp in one pass.
+      // Uses the (entity_type, entity_id) index; avoids 2 separate pool connections.
+      const auditRow = await pool.query<{ failure_count: string; last_success: Date | null }>(`
+        SELECT
+          COUNT(*) FILTER (WHERE created_at >= $1 AND action = 'ghl_sync_failed')           AS failure_count,
+          MAX(created_at) FILTER (WHERE action = 'ghl_sync_success')                         AS last_success
+        FROM audit_logs
+        WHERE entity_type = 'ghl_sync'
+      `, [since24h.toISOString()]);
 
-      const [lastSuccessRow] = await db
-        .select({ createdAt: auditLogs.createdAt })
-        .from(auditLogs)
-        .where(and(
-          eq(auditLogs.entityType, "ghl_sync"),
-          not(like(auditLogs.action, "%fail%")),
-          not(like(auditLogs.action, "%error%"))
-        ))
-        .orderBy(desc(auditLogs.createdAt))
-        .limit(1);
+      const auditStats = auditRow.rows[0];
 
       const payload = {
         ...result,
         status: ghlStatus,
-        failureCount: failureCountRow?.total ?? 0,
-        lastSync: lastSuccessRow?.createdAt?.toISOString() ?? null,
+        failureCount: parseInt(auditStats?.failure_count ?? "0", 10),
+        lastSync: auditStats?.last_success ? new Date(auditStats.last_success).toISOString() : null,
         checkedAt: new Date().toISOString(),
         cached: false,
       };

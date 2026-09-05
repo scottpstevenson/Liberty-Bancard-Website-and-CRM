@@ -840,78 +840,71 @@ export function registerAnalyticsRoutes(app: Express) {
   // === PIPELINE STATS (contacts by tier, deals by stage, outreach stats) ===
   app.get("/api/kpi/pipeline-stats", isDashboardUser, async (req, res) => {
     try {
-      const tierResult = await pool.query(`
+      // Single contacts scan: tier buckets + scored/unscored + awaiting outreach in one pass.
+      // Single deals scan: stage counts (sales pipeline) + total (all pipelines) + pipeline value.
+      // Two sequential queries, two pool connections total (was 7 separate pool.query() calls).
+      const contactsRow = await pool.query<{
+        hot: string; warm: string; cold: string; unqualified: string;
+        scored: string; unscored: string; awaiting_outreach: string;
+      }>(`
         SELECT
-          CASE
-            WHEN lead_score >= 70 THEN 'hot'
-            WHEN lead_score >= 45 THEN 'warm'
-            WHEN lead_score >= 20 THEN 'cold'
-            ELSE 'unqualified'
-          END as tier,
-          COUNT(*) as count
+          COUNT(*) FILTER (WHERE lead_score >= 70)                                                                                        AS hot,
+          COUNT(*) FILTER (WHERE lead_score >= 45 AND lead_score < 70)                                                                    AS warm,
+          COUNT(*) FILTER (WHERE lead_score >= 20 AND lead_score < 45)                                                                    AS cold,
+          COUNT(*) FILTER (WHERE COALESCE(lead_score, 0) < 20)                                                                           AS unqualified,
+          COUNT(*) FILTER (WHERE last_scored_at IS NOT NULL)                                                                              AS scored,
+          COUNT(*) FILTER (WHERE last_scored_at IS NULL)                                                                                  AS unscored,
+          COUNT(*) FILTER (WHERE lead_score >= 45 AND last_contacted_at IS NULL
+                                 AND (do_not_contact IS NULL OR do_not_contact = false))                                                   AS awaiting_outreach
         FROM contacts
         WHERE archived_at IS NULL AND record_class = 'production'
-        GROUP BY tier
-        ORDER BY count DESC
       `);
 
-      const stageResult = await pool.query(`
-        SELECT stage, COUNT(*) as count
-        FROM deals
-        WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales'
-        GROUP BY stage
-        ORDER BY count DESC
-      `);
-
-      const scoredResult = await pool.query(`
-        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND last_scored_at IS NOT NULL
-      `);
-
-      const unscoredResult = await pool.query(`
-        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND last_scored_at IS NULL
-      `);
-
-      const totalDealsResult = await pool.query(`
-        SELECT COUNT(*) as count FROM deals WHERE archived_at IS NULL AND record_class = 'production'
-      `);
-
-      const awaitingOutreach = await pool.query(`
-        SELECT COUNT(*) as count FROM contacts c
-        WHERE c.archived_at IS NULL AND c.record_class = 'production' AND c.lead_score >= 45
-          AND c.last_contacted_at IS NULL
-          AND (c.do_not_contact IS NULL OR c.do_not_contact = false)
-      `);
-
-      const pipelineValue = await pool.query(`
+      const dealsRows = await pool.query<{
+        stage: string; sales_cnt: string; total_value: string;
+      }>(`
         SELECT
+          stage,
+          COUNT(*) FILTER (WHERE pipeline = 'sales')                                                                                      AS sales_cnt,
           COALESCE(SUM(
-            CASE WHEN estimated_gross_profit_monthly IS NOT NULL
-              AND REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') != ''
+            CASE WHEN pipeline = 'sales'
+                      AND stage NOT IN ('Closed Won', 'Closed Lost')
+                      AND estimated_gross_profit_monthly IS NOT NULL
+                      AND REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') != ''
             THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL)
             ELSE 0 END
-          ), 0) as total_value
+          ), 0)                                                                                                                           AS total_value
         FROM deals
-        WHERE archived_at IS NULL AND record_class = 'production' AND pipeline = 'sales' AND stage NOT IN ('Closed Won', 'Closed Lost')
+        WHERE archived_at IS NULL AND record_class = 'production'
+        GROUP BY stage
       `);
 
-      const contactsByTier: Record<string, number> = {};
-      for (const row of tierResult.rows) {
-        contactsByTier[row.tier] = parseInt(row.count, 10);
-      }
+      const c = contactsRow.rows[0];
+      const contactsByTier: Record<string, number> = {
+        hot:        parseInt(c.hot, 10)        || 0,
+        warm:       parseInt(c.warm, 10)       || 0,
+        cold:       parseInt(c.cold, 10)       || 0,
+        unqualified:parseInt(c.unqualified, 10)|| 0,
+      };
 
       const dealsByStage: Record<string, number> = {};
-      for (const row of stageResult.rows) {
-        dealsByStage[row.stage] = parseInt(row.count, 10);
+      let totalDeals = 0;
+      let pipelineValue = 0;
+      for (const row of dealsRows.rows) {
+        const cnt = parseInt(row.sales_cnt, 10) || 0;
+        if (cnt > 0) dealsByStage[row.stage] = cnt;
+        totalDeals += cnt;
+        pipelineValue += parseFloat(row.total_value) || 0;
       }
 
       res.json({
         contactsByTier,
         dealsByStage,
-        scored: parseInt(scoredResult.rows[0].count, 10),
-        unscored: parseInt(unscoredResult.rows[0].count, 10),
-        totalDeals: parseInt(totalDealsResult.rows[0].count, 10),
-        awaitingOutreach: parseInt(awaitingOutreach.rows[0].count, 10),
-        pipelineValue: parseFloat(pipelineValue.rows[0].total_value) || 0,
+        scored:          parseInt(c.scored, 10)           || 0,
+        unscored:        parseInt(c.unscored, 10)         || 0,
+        totalDeals,
+        awaitingOutreach:parseInt(c.awaiting_outreach, 10)|| 0,
+        pipelineValue,
       });
     } catch (err: any) {
       serverError(res, err);

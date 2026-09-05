@@ -100,20 +100,19 @@ export function registerOutreachQueueRoutes(app: Express) {
       if (!scope) return res.status(403).json({ message: "Dashboard role required" });
       const channel = parseChannel(req.query.channel);
       if (!channel) return res.status(400).json({ message: "Invalid channel" });
-      const result = await queryCr04ReadyProjection({
-        scope,
-        filters: parseFilters(req.query as Record<string, unknown>, channel),
-        cursor: 0,
-        limit: 1,
-      });
+      // CR-04 does not support exact counts (qualification requires per-contact
+      // evaluation which scales with the full contact set). Return the
+      // "incomplete" sentinel immediately — calling queryCr04ReadyProjection
+      // with limit:1 was doing 10 sequential DB round-trips to produce the
+      // same null total, costing up to 60+ seconds under pool pressure.
       res.json({
-        count: result.total,
-          exact: result.exactTotal,
-          incomplete: !result.exactTotal,
+        count: null,
+        exact: false,
+        incomplete: true,
         channel,
-        policyVersion: result.policyVersion,
-        asOf: result.asOf,
-        reasonBuckets: result.reasonBuckets,
+        policyVersion: CR04_POLICY_VERSION,
+        asOf: new Date().toISOString(),
+        reasonBuckets: {},
       });
     } catch (err) {
       serverError(res, err);
