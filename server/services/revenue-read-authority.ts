@@ -95,43 +95,99 @@ function camelize(value: unknown): any {
   ]));
 }
 
+/**
+ * Canonical contact list reader.
+ *
+ * Uses a single pool connection with a short READ ONLY REPEATABLE READ
+ * transaction so that data, total, and facets all share the same DB snapshot
+ * while consuming exactly one pool slot. The two queries run sequentially
+ * inside the transaction; observeRevenueSubjects() fires after the client is
+ * released.
+ *
+ * The data query uses SELECT c.* with ORDER BY + LIMIT/OFFSET applied directly
+ * (no MATERIALIZED CTE, no window function over the full result set). The
+ * count/facet query uses a single GROUPING SETS pass over the narrow predicate.
+ */
 export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [];
   const where = addContactFilters(filters, values);
   where.push(contactScope(user, "c", values));
   const predicate = where.join(" AND ");
-  values.push(filters.limit, filters.offset);
-  const result = await pool.query(`
-    WITH base AS MATERIALIZED (
-      SELECT c.* FROM contacts c WHERE ${predicate}
-    ), ordered AS (
-      SELECT base.*, row_number() OVER (ORDER BY ${orderForPeople(filters.sort)}) AS __row_order
-      FROM base
-    ), page AS (
-      SELECT * FROM ordered ORDER BY __row_order
-      LIMIT $${values.length - 1} OFFSET $${values.length}
-    )
-    SELECT
-      COALESCE((SELECT jsonb_agg(to_jsonb(page) - '__row_order' ORDER BY __row_order) FROM page), '[]'::jsonb) AS data,
-      (SELECT COUNT(*)::int FROM base) AS total,
-      COALESCE((SELECT jsonb_object_agg(record_class, facet_count)
-        FROM (SELECT record_class, COUNT(*)::int AS facet_count FROM base GROUP BY record_class) class_counts), '{}'::jsonb) AS by_record_class,
-      COALESCE((SELECT jsonb_object_agg(email_status, facet_count)
-        FROM (SELECT email_status, COUNT(*)::int AS facet_count FROM base GROUP BY email_status) health_counts), '{}'::jsonb) AS by_email_health,
-      CURRENT_TIMESTAMP AS as_of
-  `, values);
-  const row = result.rows[0] ?? {};
-  const data = camelize(row.data ?? []);
+  const order = orderForPeople(filters.sort);
+
+  // Count/facet query uses parameters $1..$k.
+  const countValues = [...values];
+  // Data query appends LIMIT and OFFSET as $(k+1) and $(k+2).
+  const limitIdx = values.length + 1;
+  const offsetIdx = values.length + 2;
+  const dataValues = [...values, filters.limit, filters.offset];
+
+  const client = await pool.connect();
+  let dataRows: Record<string, unknown>[];
+  let countRow: Record<string, unknown>;
+  try {
+    await client.query("BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ");
+
+    // 1. Paginated data: ORDER BY + LIMIT pushed directly to the table scan.
+    //    contacts_active_created_at_idx covers the default sort without a seq scan.
+    const dataResult = await client.query(
+      `SELECT c.* FROM contacts c WHERE ${predicate}
+       ORDER BY ${order}
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      dataValues,
+    );
+    dataRows = dataResult.rows;
+
+    // 2. Count + facets in one pass via GROUPING SETS (no full-row materialization).
+    //    GROUPING(record_class, email_status):
+    //      1 = GROUP BY record_class  (email_status rolled up)   → by_record_class
+    //      2 = GROUP BY email_status  (record_class rolled up)   → by_email_health
+    //      3 = grand total            (both rolled up)
+    const facetResult = await client.query(
+      `SELECT
+         COALESCE(jsonb_object_agg(record_class, cnt) FILTER (WHERE grouping_id = 1), '{}'::jsonb) AS by_record_class,
+         COALESCE(jsonb_object_agg(email_status, cnt) FILTER (WHERE grouping_id = 2), '{}'::jsonb) AS by_email_health,
+         COALESCE(SUM(cnt) FILTER (WHERE grouping_id = 3), 0)::int AS total,
+         CURRENT_TIMESTAMP AS as_of
+       FROM (
+         SELECT record_class, email_status, COUNT(*) AS cnt,
+                GROUPING(record_class, email_status) AS grouping_id
+         FROM contacts c WHERE ${predicate}
+         GROUP BY GROUPING SETS ((record_class),(email_status),())
+       ) sub`,
+      countValues,
+    );
+    countRow = facetResult.rows[0] ?? {};
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const data = dataRows.map(camelize);
   await observeRevenueSubjects(user, data.map((item: any) => ({ subjectType: "contact", subjectId: Number(item.id) })));
   return {
-    data, total: row.total ?? 0, limit: filters.limit, offset: filters.offset,
+    data,
+    total: countRow.total ?? 0,
+    limit: filters.limit,
+    offset: filters.offset,
     filters: { ...filters, recordClass: filters.recordClass ?? "all" },
-    facets: camelize({ byRecordClass: row.by_record_class ?? {}, byEmailHealth: row.by_email_health ?? {} }),
+    facets: camelize({ byRecordClass: countRow.by_record_class ?? {}, byEmailHealth: countRow.by_email_health ?? {} }),
     scope: privileged(user) ? "all" : "owned_or_unassigned",
-    asOf: new Date(row.as_of).toISOString(),
+    asOf: new Date(countRow.as_of as string | Date).toISOString(),
   };
 }
 
+/**
+ * Revenue Leads reader (contacts with an open sales deal).
+ *
+ * Single connection, READ ONLY REPEATABLE READ. Data query uses a LATERAL join
+ * with ORDER BY + LIMIT applied directly (no MATERIALIZED CTE). Count query
+ * runs the same predicate without fetching full row data.
+ */
 export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [OPEN_SALES_LEAD_STAGES];
   const stages = `$1::text[]`;
@@ -141,46 +197,78 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
     AND qualifying_deal.archived_at IS NULL AND qualifying_deal.record_class = 'production'
     AND qualifying_deal.pipeline = 'sales' AND qualifying_deal.stage = ANY(${stages}))`);
   const predicate = where.join(" AND ");
-  values.push(filters.limit, filters.offset);
-  const result = await pool.query(`
-    WITH base AS MATERIALIZED (
-      SELECT to_jsonb(c) || jsonb_build_object('primaryDeal', to_jsonb(primary_deal)) AS item,
-        primary_deal.updated_at AS primary_updated_at, primary_deal.id AS primary_id, c.id AS contact_id
-      FROM contacts c
-      JOIN LATERAL (
-        SELECT d.* FROM deals d WHERE d.contact_id = c.id AND d.archived_at IS NULL
-          AND d.record_class = 'production' AND d.pipeline = 'sales' AND d.stage = ANY(${stages})
-        ORDER BY d.updated_at DESC NULLS LAST, d.id DESC LIMIT 1
-      ) primary_deal ON TRUE
-      WHERE ${predicate}
-    ), ordered AS (
-      SELECT base.*, row_number() OVER (
-        ORDER BY primary_updated_at DESC NULLS LAST, primary_id DESC, contact_id DESC
-      ) AS __row_order FROM base
-    ), page AS (
-      SELECT * FROM ordered ORDER BY __row_order
-      LIMIT $${values.length - 1} OFFSET $${values.length}
-    )
-    SELECT
-      COALESCE((SELECT jsonb_agg(item ORDER BY __row_order) FROM page), '[]'::jsonb) AS data,
-      (SELECT COUNT(*)::int FROM base) AS total,
-      CURRENT_TIMESTAMP AS as_of
-  `, values);
-  const row = result.rows[0] ?? {};
-  const data = camelize(row.data ?? []);
+
+  // Count query uses parameters $1..$k.
+  const countValues = [...values];
+  // Data query appends LIMIT and OFFSET as $(k+1) and $(k+2).
+  const limitIdx = values.length + 1;
+  const offsetIdx = values.length + 2;
+  const dataValues = [...values, filters.limit, filters.offset];
+
+  const client = await pool.connect();
+  let dataRows: { item: unknown }[];
+  let countRow: { total: number; as_of: string | Date };
+  try {
+    await client.query("BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ");
+
+    // 1. Paginated data: LATERAL fetches the primary deal per contact.
+    //    ORDER BY and LIMIT are applied directly — no MATERIALIZED step.
+    const dataResult = await client.query(
+      `SELECT to_jsonb(c) || jsonb_build_object('primaryDeal', to_jsonb(primary_deal)) AS item
+       FROM contacts c
+       JOIN LATERAL (
+         SELECT d.* FROM deals d
+         WHERE d.contact_id = c.id AND d.archived_at IS NULL
+           AND d.record_class = 'production' AND d.pipeline = 'sales'
+           AND d.stage = ANY(${stages})
+         ORDER BY d.updated_at DESC NULLS LAST, d.id DESC LIMIT 1
+       ) primary_deal ON TRUE
+       WHERE ${predicate}
+       ORDER BY primary_deal.updated_at DESC NULLS LAST, primary_deal.id DESC, c.id DESC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      dataValues,
+    );
+    dataRows = dataResult.rows;
+
+    // 2. Total count using the same predicate (narrow columns only).
+    const countResult = await client.query(
+      `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
+       FROM contacts c WHERE ${predicate}`,
+      countValues,
+    );
+    countRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const data = dataRows.map((row) => camelize(row.item));
   await observeRevenueSubjects(user, data.flatMap((item: any) => [
     { subjectType: "contact" as const, subjectId: Number(item.id) },
     ...(item.primaryDeal?.id ? [{ subjectType: "deal" as const, subjectId: Number(item.primaryDeal.id) }] : []),
   ]));
   return {
-    data, total: row.total ?? 0, limit: filters.limit, offset: filters.offset,
+    data,
+    total: countRow.total ?? 0,
+    limit: filters.limit,
+    offset: filters.offset,
     filters: { ...filters, archived: false, recordClass: "production", pipeline: "sales" },
     scope: privileged(user) ? "all" : "owned_or_unassigned",
-    asOf: new Date(row.as_of).toISOString(),
+    asOf: new Date(countRow.as_of).toISOString(),
   };
 }
 
-/** Canonical production deal list used by Pipeline and other operational readers. */
+/**
+ * Canonical production deal list used by Pipeline and other operational readers.
+ *
+ * Single connection, READ ONLY REPEATABLE READ. Data query uses ORDER BY +
+ * LIMIT directly on the deals table (no MATERIALIZED CTE). Count uses the same
+ * predicate over deals only (no contact join needed for counting).
+ */
 export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [];
   const value = (input: unknown) => { values.push(input); return `$${values.length}`; };
@@ -191,35 +279,60 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
   if (filters.pipeline) where.push(`d.pipeline = ${value(filters.pipeline)}`);
   const ownerEmail = privileged(user) ? null : (user.email ?? "");
   if (ownerEmail) where.push(`(LOWER(d.owner) = LOWER(${value(ownerEmail)}) OR d.owner IS NULL)`);
+  const predicate = where.join(" AND ");
+
+  // Count uses parameters $1..$p; data appends LIMIT=$(p+1), OFFSET=$(p+2).
+  const countValues = [...values];
   const limitParam = value(filters.limit ?? 100);
   const offsetParam = value(filters.offset ?? 0);
-  const result = await pool.query(`
-    WITH base AS MATERIALIZED (
-      SELECT d.*,
-        CONCAT_WS(' ', c.first_name, c.last_name) AS contact_name,
-        c.company_name, c.email AS contact_email, c.phone AS contact_phone,
-        c.employee_count AS contact_employee_count, c.lead_source AS contact_lead_source
-      FROM deals d LEFT JOIN contacts c ON c.id=d.contact_id
-      WHERE ${where.join(" AND ")}
-    ), page AS (
-      SELECT * FROM base ORDER BY updated_at DESC NULLS LAST, id DESC
-      LIMIT ${limitParam} OFFSET ${offsetParam}
-    )
-    SELECT COALESCE(jsonb_agg(to_jsonb(page) ORDER BY updated_at DESC NULLS LAST, id DESC), '[]'::jsonb) AS data,
-      (SELECT COUNT(*)::int FROM base) AS total,
-      CURRENT_TIMESTAMP AS as_of
-    FROM page`, values);
-  const row = result.rows[0] ?? {};
-  const data = camelize(row.data ?? []);
+
+  const client = await pool.connect();
+  let dataRows: Record<string, unknown>[];
+  let countRow: { total: number; as_of: string | Date };
+  try {
+    await client.query("BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ");
+
+    // 1. Paginated data: direct ORDER BY + LIMIT on deals, no MATERIALIZED CTE.
+    //    deals_production_idx covers the record_class = 'production' filter efficiently.
+    const dataResult = await client.query(
+      `SELECT d.*,
+         CONCAT_WS(' ', c.first_name, c.last_name) AS contact_name,
+         c.company_name, c.email AS contact_email, c.phone AS contact_phone,
+         c.employee_count AS contact_employee_count, c.lead_source AS contact_lead_source
+       FROM deals d LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE ${predicate}
+       ORDER BY d.updated_at DESC NULLS LAST, d.id DESC
+       LIMIT ${limitParam} OFFSET ${offsetParam}`,
+      values,
+    );
+    dataRows = dataResult.rows;
+
+    // 2. Total count using same predicate, deals table only.
+    const countResult = await client.query(
+      `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
+       FROM deals d WHERE ${predicate}`,
+      countValues,
+    );
+    countRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const data = dataRows.map(camelize);
   await observeRevenueSubjects(user, data.map((item: any) => ({ subjectType: "deal", subjectId: Number(item.id) })));
   return {
     data,
-    total: Number(row.total ?? 0),
+    total: Number(countRow.total ?? 0),
     limit: filters.limit ?? 100,
     offset: filters.offset ?? 0,
     filters: { pipeline: filters.pipeline ?? null, archived: false, recordClass: "production" },
     scope: privileged(user) ? "all" : "owned_or_unassigned",
-    asOf: new Date(row.as_of).toISOString(),
+    asOf: new Date(countRow.as_of).toISOString(),
   };
 }
 
