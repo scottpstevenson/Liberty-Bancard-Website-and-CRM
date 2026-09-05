@@ -100,7 +100,12 @@ export function registerQueueMetricsRoutes(app: Express) {
   app.post("/api/operator/queue-dlq/:id/retry", isAdmin, async (req, res) => {
     try {
       const id = req.params.id as string;
-      const qm = requireQueueManagerReady();
+      let qm: ReturnType<typeof requireQueueManagerReady>;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "workers_offline", message: "Background workers are offline. Queue operations unavailable." });
+      }
       await qm.retryDeadLetterJob(id);
       res.json({ success: true, message: "Job requeued for retry" });
     } catch (err: any) {
@@ -111,7 +116,12 @@ export function registerQueueMetricsRoutes(app: Express) {
   app.delete("/api/operator/queue-dlq/:id", isAdmin, async (req, res) => {
     try {
       const id = req.params.id as string;
-      const qm = requireQueueManagerReady();
+      let qm: ReturnType<typeof requireQueueManagerReady>;
+      try {
+        qm = requireQueueManagerReady();
+      } catch {
+        return res.status(503).json({ status: "workers_offline", message: "Background workers are offline. Queue operations unavailable." });
+      }
       await qm.discardDeadLetterJob(id);
       res.json({ success: true, message: "Job discarded" });
     } catch (err: any) {

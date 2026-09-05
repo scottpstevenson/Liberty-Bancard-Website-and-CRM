@@ -46,9 +46,10 @@ export async function isAutomationEnabled(key: string): Promise<boolean> {
     _cache.set(key, { enabled, expiresAt: now + CACHE_TTL_MS });
     return enabled;
   } catch (err) {
-    // On DB error, default to enabled (fail-open) so we don't silently block jobs.
+    // On DB error, fail CLOSED — cannot prove the queue is enabled; skip the job.
+    // Callers must treat false as "skip this job".
     console.error(`[AutomationKillSwitch] Failed to check registry for key="${key}":`, err);
-    return true;
+    return false;
   }
 }
 
@@ -58,4 +59,23 @@ export async function isAutomationEnabled(key: string): Promise<boolean> {
  */
 export function invalidateAutomationCache(key: string): void {
   _cache.delete(key);
+}
+
+/**
+ * Batch-populates the kill-switch cache from an already-fetched registry snapshot.
+ * Call this at startup before constructing any workers to avoid per-job DB queries
+ * during cache-miss windows.
+ *
+ * @param rows - Array of registry rows, each with a key and killSwitchEnabled flag.
+ */
+export function primeKillSwitchCache(
+  rows: Array<{ key: string; killSwitchEnabled: boolean | null }>,
+): void {
+  const expiresAt = Date.now() + CACHE_TTL_MS;
+  for (const row of rows) {
+    _cache.set(row.key, {
+      enabled: !(row.killSwitchEnabled ?? false),
+      expiresAt,
+    });
+  }
 }

@@ -1,5 +1,6 @@
-import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
+import { Queue, Worker, DelayedError, type ConnectionOptions, type Job } from "bullmq";
 import { sql } from "drizzle-orm";
+import { getBackgroundProfile, CORE_QUEUE_ALLOWLIST } from "./background-profile";
 import { createHash } from "node:crypto";
 import {
   diagnoseRedisCapacity,
@@ -793,10 +794,21 @@ class QueueManager {
    * and updated by updateQueueRepeatInterval() when an admin changes a setting. */
   private effectiveIntervals: Map<string, number> = new Map();
 
-  /** Configs to actually manage. Excludes GHL_SYNC whenever the legacy
-   * setInterval fallback has already claimed GHL sync duty for this process,
-   * so BullMQ can never stand up a second, competing GHL sync mechanism. */
+  /** Configs to actually manage. Gated by BACKGROUND_JOB_PROFILE:
+   *   "off"  → [] (no workers constructed)
+   *   "core" → only queues in CORE_QUEUE_ALLOWLIST (starts empty, populated operationally)
+   *   "full" → all queues except GHL_SYNC when legacy fallback is claimed
+   */
   private activeConfigs(): QueueConfig[] {
+    const profile = getBackgroundProfile();
+    if (profile === "off") return [];
+    if (profile === "core") {
+      const base = _legacyGhlSyncClaimed
+        ? QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC)
+        : QUEUE_CONFIGS;
+      return base.filter(c => CORE_QUEUE_ALLOWLIST.includes(c.name));
+    }
+    // "full" — existing behavior
     if (!_legacyGhlSyncClaimed) return QUEUE_CONFIGS;
     console.warn("[QueueManager] Legacy GHL sync already active for this process — excluding GHL_SYNC from BullMQ setup.");
     return QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC);
@@ -806,6 +818,26 @@ class QueueManager {
     this.redisKeyPrefix = getBullMqTestPrefix();
     this.connection = await getRedisConnection();
     await this.setupQueues();
+
+    // Prime kill-switch cache: one batched DB read for all active queue names
+    // before any worker starts, so the first job execution never hits a cache miss.
+    const activeNames = this.activeConfigs().map(c => c.name);
+    if (activeNames.length > 0) {
+      try {
+        const { primeKillSwitchCache } = await import("./automation-kill-switch");
+        const { db: dbInst } = await import("../db");
+        const { automationRegistry: regTable } = await import("@shared/schema");
+        const { inArray } = await import("drizzle-orm");
+        const rows = await dbInst
+          .select({ key: regTable.key, killSwitchEnabled: regTable.killSwitchEnabled })
+          .from(regTable)
+          .where(inArray(regTable.key, activeNames));
+        primeKillSwitchCache(rows);
+      } catch (primeErr) {
+        console.warn("[QueueManager] Kill-switch cache prime failed — workers will query individually:", (primeErr as Error).message);
+      }
+    }
+
     await this.setupWorkers();
     await this.setupRepeatableJobs();
     await this.cleanupStaleActiveJobs();
@@ -1117,6 +1149,20 @@ class QueueManager {
 
   private buildProcessor(queueName: QueueName, featureFlags: any) {
     return async (_job: Job): Promise<void> => {
+      // ── Per-job pool instrumentation ─────────────────────────────────────
+      const jobStartMs = Date.now();
+      const { pool: _pool } = await import("../db");
+      console.log(JSON.stringify({
+        event: "job:start",
+        queue: queueName,
+        jobId: _job.id,
+        poolWaiting: _pool.waitingCount,
+        poolTotal: _pool.totalCount,
+        ts: new Date().toISOString(),
+      }));
+
+      try {
+
       // ── Automation kill-switch gate ──────────────────────────────────────
       // Check registry before executing. If kill_switch_enabled = true, skip.
       try {
@@ -1691,6 +1737,50 @@ class QueueManager {
         default:
           throw new Error(`Unknown queue: ${queueName}`);
       }
+
+      } catch (err) {
+        // ── Transient DB-exhaustion deferral ──────────────────────────────
+        // If the job failed because the pool was saturated (connection-acquisition
+        // timeout or unexpected connection termination), move it to the delayed
+        // set rather than consuming a retry attempt. This avoids a thundering
+        // herd of retries making pool pressure worse.
+        if (err instanceof Error && (
+          err.message.includes("timeout exceeded when trying to connect") ||
+          err.message.includes("Connection terminated unexpectedly")
+        )) {
+          const DEFER_MS = 30_000;
+          let _deferred = false;
+          try {
+            await _job.moveToDelayed(Date.now() + DEFER_MS, _job.token ?? "db-defer");
+            _deferred = true;
+            console.warn(JSON.stringify({
+              event: "job:db_deferred",
+              queue: queueName,
+              jobId: _job.id,
+              deferMs: DEFER_MS,
+              ts: new Date().toISOString(),
+            }));
+          } catch {
+            // moveToDelayed itself failed — fall through and let normal retry handle it
+          }
+          // Throw DelayedError OUTSIDE the inner catch so it cannot be swallowed.
+          // BullMQ workers detect DelayedError and preserve the delayed state
+          // without attempting moveToCompleted or consuming a retry attempt.
+          if (_deferred) throw new DelayedError();
+        }
+        throw err;
+      } finally {
+        const { pool: _poolFinal } = await import("../db");
+        console.log(JSON.stringify({
+          event: "job:end",
+          queue: queueName,
+          jobId: _job.id,
+          durationMs: Date.now() - jobStartMs,
+          poolWaiting: _poolFinal.waitingCount,
+          poolTotal: _poolFinal.totalCount,
+          ts: new Date().toISOString(),
+        }));
+      }
     };
   }
 
@@ -1765,14 +1855,12 @@ class QueueManager {
         jobId: baseScheduleId,
       });
 
-      // No jobId here — letting BullMQ assign a unique ID prevents the stale
-      // "{name}-startup" job that may be sitting in Redis (completed/failed from
-      // a previous run) from deduplicating and silently swallowing this request.
-      await queue.add(config.jobName, {}, {
-        // Stagger startup immediate-run too: each queue fires its first job
-        // at a different sub-second offset so the pool isn't hit all at once.
-        delay: scheduleOffset + Math.floor(Math.random() * 5000) + 2000,
-      });
+      // Immediate startup job intentionally removed (F-07).
+      // Previously: queue.add(config.jobName, {}, { delay: scheduleOffset + random })
+      // Rationale: all 29 queues firing simultaneously at startup compresses
+      // kill-switch + heartbeat DB load into a narrow window, contributing to
+      // pool saturation. Repeatable schedule is sufficient — the first run fires
+      // at scheduleOffset (staggered), not immediately.
     }
     if (ghlOverrideMs !== null) console.log(`[QueueManager] GHL sync interval loaded from system_settings: ${ghlOverrideMs}ms`);
     if (slaOverrideMs !== null) console.log(`[QueueManager] SLA checks interval loaded from system_settings: ${slaOverrideMs}ms`);

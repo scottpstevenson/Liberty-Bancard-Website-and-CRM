@@ -550,8 +550,21 @@ export function startMerchantApplicationOutboxWorker(): void {
  * Call after a finalize/status mutation to ensure contact_link and consent_record
  * rows are processed promptly rather than waiting up to POLL_INTERVAL_MS (15 s).
  * Safe to call concurrently — the re-entrancy guard in tick() prevents double-work.
+ *
+ * No-op when BACKGROUND_JOB_PROFILE=off — the recurring worker was not started
+ * and triggering an ad-hoc tick would execute background work in HTTP/API-only mode.
  */
 export function triggerOutboxTick(): void {
+  // Use the canonical profile resolver so invalid/missing values fail closed to "off".
+  // Inline the logic (same as getBackgroundProfile) to avoid a circular import.
+  const VALID_PROFILES = new Set(["off", "core", "full"]);
+  const raw = process.env.BACKGROUND_JOB_PROFILE;
+  const profile = raw && VALID_PROFILES.has(raw) ? raw : "off";
+  if (profile === "off") {
+    // off mode (explicit or fail-closed): recurring worker was not started;
+    // skip ad-hoc tick to preserve the HTTP/API-only guarantee.
+    return;
+  }
   const t = setTimeout(() => { void tick(); }, 100);
   if (typeof t.unref === "function") t.unref();
 }

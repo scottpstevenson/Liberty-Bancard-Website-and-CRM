@@ -412,9 +412,14 @@ app.use((req, res, next) => {
       // fails closed: a process-local interval fallback would let replicas
       // disagree on ownership (BullMQ on one, legacy loop on another).
       // NOTE: This block only executes when pause state was successfully initialized.
+      const { getBackgroundProfile: _getProfile } = await import("./services/background-profile");
+      const _bgProfile = _getProfile();
       if (certificationDenyMode) {
         log("[Certification] BullMQ workers disabled in provider deny mode");
-      } else if (!pauseInitialized) { /* skip workers — outbound state unknown */ } else
+      } else if (!pauseInitialized) { /* skip workers — outbound state unknown */ }
+      else if (_bgProfile === "off") {
+        log("[BackgroundProfile] off — BullMQ workers not started. Set BACKGROUND_JOB_PROFILE=full to enable.");
+      } else
       getQueueManager().then(async qm => {
         log("[Queue] BullMQ job queues initialized");
         // BullMQ's GHL_SYNC repeatable job is now the sole active GHL sync mechanism.
@@ -512,7 +517,9 @@ app.use((req, res, next) => {
         }
       })().catch(err => console.warn("[StatementAcquisition] Non-critical seeding error:", err.message));
 
-      if (!certificationDenyMode) {
+      if (_bgProfile === "off") {
+        log("[BackgroundProfile] off — DailyMaintenanceScheduler not started");
+      } else if (!certificationDenyMode) {
         startDailyMaintenanceScheduler();
       } else {
         log("[Certification] Daily maintenance scheduler disabled in provider deny mode");
@@ -521,7 +528,9 @@ app.use((req, res, next) => {
       // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts
       // Only start when pause state is known — LinkedIn auto-publish is an
       // external outbound action and must not run when workers are blocked.
-      if (pauseInitialized) {
+      if (_bgProfile === "off") {
+        log("[BackgroundProfile] off — ContentScheduler not started");
+      } else if (pauseInitialized) {
         if (!certificationDenyMode) {
           startContentScheduler();
         } else {

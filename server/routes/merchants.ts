@@ -27,6 +27,7 @@ import {
 } from "../services/merchant-application-service";
 import { ProtectedDataValidationError } from "../services/merchant-protected-data";
 import { startMerchantApplicationOutboxWorker, triggerOutboxTick } from "../services/merchant-application-outbox-worker";
+import { getBackgroundProfile } from "../services/background-profile";
 
 /**
  * Map service/domain errors to HTTP responses. Generic 404 for capability
@@ -157,8 +158,13 @@ export function registerMerchantsRoutes(app: Express) {
     }));
     next();
   });
-  // Start the durable outbox worker exactly once (unref'd timer inside).
-  startMerchantApplicationOutboxWorker();
+  // Start the durable outbox worker only when background workers are enabled.
+  // Off mode = HTTP/API only, no background processing.
+  if (getBackgroundProfile() !== "off") {
+    startMerchantApplicationOutboxWorker();
+  } else {
+    console.log("[BackgroundProfile] off — MerchantApplicationOutboxWorker not started");
+  }
 
   // === DRAFT PERSISTENCE (server-side, public endpoints) ===
 

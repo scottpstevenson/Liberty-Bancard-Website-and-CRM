@@ -32,4 +32,20 @@ pool.on("error", (err) => {
   console.error("[DB] Unexpected pool error:", err.message);
 });
 
+// Background pool-pressure sampler — emits only when waitingCount > 0.
+// Uses setInterval + unref() so it never prevents process exit.
+// No DB call — reads in-process pool object properties only.
+const _pressureTimer = setInterval(() => {
+  if (pool.waitingCount > 0) {
+    console.warn(JSON.stringify({
+      event: "db:pool_pressure",
+      waitingCount: pool.waitingCount,
+      totalCount: pool.totalCount,
+      idleCount: pool.idleCount,
+      ts: new Date().toISOString(),
+    }));
+  }
+}, 15_000);
+_pressureTimer.unref();
+
 export const db = drizzle(pool, { schema });

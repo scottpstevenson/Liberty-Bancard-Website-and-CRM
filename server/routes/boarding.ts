@@ -7,6 +7,7 @@ import { merchantApplications, dealBoardingOutbox, deals } from "@shared/schema"
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 import { serverError, safeMessage } from "../utils/server-error";
 import { startDealBoardingOutboxWorker } from "../services/deal-boarding-outbox-worker";
+import { getBackgroundProfile } from "../services/background-profile";
 import { auditChange } from "../services/audit-change";
 import { advanceDealStage } from "../services/deal-stage-service";
 import crypto from "crypto";
@@ -313,8 +314,13 @@ export function registerBoardingRoutes(app: Express) {
     }));
     next();
   });
-  // Start the durable boarding outbox worker exactly once (unref'd timer inside).
-  startDealBoardingOutboxWorker();
+  // Start the durable boarding outbox worker only when background workers are enabled.
+  // Off mode = HTTP/API only, no background processing.
+  if (getBackgroundProfile() !== "off") {
+    startDealBoardingOutboxWorker();
+  } else {
+    console.log("[BackgroundProfile] off — DealBoardingOutboxWorker not started");
+  }
 
   app.post("/api/deals/:id/submit-to-processor", requireRole("admin", "manager"), async (req, res) => {
     try {

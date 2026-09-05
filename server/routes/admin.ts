@@ -4367,6 +4367,24 @@ export function registerAdminRoutes(app: Express) {
   // Critical checks (gate exit-1 if any fail): db, sequenceWorker, redis, kpiQuery
   // Informational checks (stale is a warning, not a failure): slaWorker, ghlSync, dbBackup, outboundPause
 
+  // ── Pool status diagnostic endpoint (F-10) ──────────────────────────────
+  // Returns in-process pool object properties ONLY — no DB call.
+  // Safe to call during pool saturation events; never acquires a connection.
+  app.get("/api/admin/pool-status", requireRole("admin"), async (_req, res) => {
+    const { getBackgroundProfile: _getBgProfile } = await import("../services/background-profile");
+    res.json({
+      configuredMax: (pool as any).options?.max ?? parseInt(process.env.DB_POOL_MAX ?? "20", 10),
+      totalCount: pool.totalCount,
+      idleCount: pool.idleCount,
+      waitingCount: pool.waitingCount,
+      backgroundProfile: _getBgProfile(),
+      processId: process.pid,
+      processIdentity: process.env.PROCESS_IDENTITY ?? null,
+      releaseSha: process.env.RELEASE_SHA ?? null,
+      observedAt: new Date().toISOString(),
+    });
+  });
+
   let _liveHealthCache: { result: any; fetchedAt: number } | null = null;
   const LIVE_HEALTH_CACHE_MS = 10 * 60 * 1000; // 10 minutes
 
