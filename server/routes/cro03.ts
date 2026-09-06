@@ -175,13 +175,43 @@ export function registerCro03Routes(app: Express): void {
   // facts (deploymentIdentity in particular) are only knowable from inside the live
   // process — REPL_ID differs between the dev workspace and a published deployment,
   // and cannot be discovered from outside it. No secrets are exposed.
+  // Also returns live worker identities from Redis (needed by the ceremony script
+  // to construct a signed deployment inventory before calling runtime-attestations).
   app.get("/api/admin/cro03c/runtime-identity", isDashboardUser, requireRole("admin"), async (_req, res) => {
     const { getCro03cQueueTopologyHash } = await import("../services/queue-manager");
+    const { getSharedRedisClient, getBullMqTestPrefix } = await import("../services/queue-connection");
+    const { readCro03cWorkerFleet } = await import("../services/cro03/runtime-heartbeat");
+    const queueTopologyHash = getCro03cQueueTopologyHash();
+    const releaseSha = process.env.RELEASE_SHA ?? null;
+
+    let workerIdentities: string[] = [];
+    let workerFleetComplete = false;
+    try {
+      const redis = getSharedRedisClient();
+      if (redis && releaseSha && /^[0-9a-f]{40}$/i.test(releaseSha)) {
+        const fleet = await readCro03cWorkerFleet({
+          redis, prefix: getBullMqTestPrefix(),
+          expectedReleaseSha: releaseSha,
+          expectedQueueTopologyHash: queueTopologyHash,
+          // Discovery mode: no prior list — scan all live heartbeats.
+          // complete=false means the Redis scan hit a limit; caller should retry.
+          expectedProcessIdentities: [],
+          now: new Date(),
+        });
+        workerIdentities = fleet.heartbeats.map((h: any) => h.processIdentity).sort();
+        workerFleetComplete = fleet.complete;
+      }
+    } catch {
+      // Best-effort — ceremony caller can see workerFleetComplete=false and retry
+    }
+
     res.json({
       deploymentIdentity: process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? null,
       environmentIdentity: process.env.NODE_ENV ?? null,
-      releaseSha: process.env.RELEASE_SHA ?? null,
-      queueTopologyHash: getCro03cQueueTopologyHash(),
+      releaseSha,
+      queueTopologyHash,
+      workerIdentities,
+      workerFleetComplete,
     });
   });
 

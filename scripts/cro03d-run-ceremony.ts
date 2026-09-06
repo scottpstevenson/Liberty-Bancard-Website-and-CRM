@@ -30,6 +30,10 @@ import {
   cro03cStagePlanHash,
 } from "../server/services/cro03/live-execution";
 import { stableCro03RecipeHash } from "../server/services/cro03/contracts";
+import {
+  CRO03C_DEPLOYMENT_INVENTORY_VERSION,
+  canonicalCro03cDeploymentInventory,
+} from "../server/services/cro03/deployment-inventory";
 
 // ── Config ────────────────────────────────────────────────────────────────
 
@@ -205,7 +209,78 @@ async function main() {
     console.log(`  ${result.replayed ? "replayed" : "created"} ${dimension}: ${result.receiptId}`);
   }
 
-  // 8. Runtime attestation
+  // 8. Deployment inventory — must exist before runtime attestation can proceed.
+  // The attestation endpoint calls currentCro03cDeploymentInventory() which looks
+  // up a signed row in cro03c_deployment_inventories matching the live deployment
+  // identity, environment, release SHA, and queue topology hash.  These values are
+  // only knowable inside the running server, so we fetch them first, sign an
+  // inventory with the same operator key, and import it.
+  //
+  // PREREQUISITE: CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS must be set to a
+  // JSON object containing the operator public key:
+  //   {"cro03d-operator": "<PEM public key single-line>"}
+  // The ceremony prints the public key above — use it to populate that secret.
+  console.log("\n── Fetching deployment context ──");
+  const deployCtx = await prodFetch(cookie, csrf, "/api/admin/cro03c/runtime-identity", undefined) as {
+    deploymentIdentity: string | null;
+    environmentIdentity: string | null;
+    releaseSha: string | null;
+    queueTopologyHash: string | null;
+    workerIdentities: string[];
+    workerFleetComplete: boolean;
+  };
+  if (!deployCtx.deploymentIdentity || !deployCtx.environmentIdentity ||
+      !deployCtx.releaseSha || !deployCtx.queueTopologyHash) {
+    throw new Error(`Deployment context incomplete: ${JSON.stringify(deployCtx)}`);
+  }
+  if (!deployCtx.workerFleetComplete || deployCtx.workerIdentities.length === 0) {
+    throw new Error(
+      `Worker fleet scan incomplete or empty (complete=${deployCtx.workerFleetComplete}, ` +
+      `count=${deployCtx.workerIdentities.length}). ` +
+      `Ensure CRO03_PROVIDER_TRANSPORT_ENABLED=true, the app is running, and BullMQ workers ` +
+      `are heartbeating. Wait ~30 s and retry.`
+    );
+  }
+  console.log(`  deploymentIdentity: ${deployCtx.deploymentIdentity}`);
+  console.log(`  environmentIdentity: ${deployCtx.environmentIdentity}`);
+  console.log(`  releaseSha: ${deployCtx.releaseSha}`);
+  console.log(`  queueTopologyHash: ${deployCtx.queueTopologyHash.slice(0, 16)}…`);
+  console.log(`  workerIdentities (${deployCtx.workerIdentities.length}): ${deployCtx.workerIdentities.join(", ")}`);
+
+  console.log("\n── Signing deployment inventory ──");
+  const inventoryIssuedAt = new Date();
+  // Inventory TTL matches operator approval window (24 h).
+  const inventoryExpiresAt = new Date(inventoryIssuedAt.getTime() + 24 * 3600 * 1000);
+  const inventoryPayload = {
+    artifactVersion: CRO03C_DEPLOYMENT_INVENTORY_VERSION,
+    inventoryId:        randomUUID(),
+    issuerId:           ISSUER_ID,
+    deploymentIdentity: deployCtx.deploymentIdentity,
+    environmentIdentity: deployCtx.environmentIdentity,
+    releaseSha:          deployCtx.releaseSha,
+    queueTopologyHash:   deployCtx.queueTopologyHash,
+    identityKind:        "worker" as const,
+    workerIdentities:    [...deployCtx.workerIdentities].sort(),
+    expectedCount:       deployCtx.workerIdentities.length,
+    issuedAt:            inventoryIssuedAt.toISOString(),
+    expiresAt:           inventoryExpiresAt.toISOString(),
+  };
+  const inventorySig = ed25519Sign(
+    null,
+    Buffer.from(canonicalCro03cDeploymentInventory(inventoryPayload), "utf8"),
+    privateKey,
+  );
+  const inventoryArtifact = { payload: inventoryPayload, signature: inventorySig.toString("base64") };
+  console.log(`  inventoryId: ${inventoryPayload.inventoryId}`);
+
+  console.log("\n── Importing deployment inventory ──");
+  const inventory = await prodFetch(cookie, csrf, "/api/cro03c/deployment-inventories/import", {
+    reason: `Durable-key ceremony for SHA ${targetSha}`,
+    artifact: inventoryArtifact,
+  }) as { inventoryId?: string; replayed?: boolean };
+  console.log(`  ${inventory.replayed ? "replayed" : "created"}: ${inventory.inventoryId}`);
+
+  // 9. Runtime attestation
   console.log("\n── Creating runtime attestation ──");
   // REV-05A: TTL capped at 14 min (schema enforces ≤15 min maximum).
   const attestation = await prodFetch(cookie, csrf, "/api/cro03c/runtime-attestations", {
@@ -214,7 +289,7 @@ async function main() {
   }) as { attestationId?: string; replayed?: boolean };
   console.log(`  ${attestation.replayed ? "replayed" : "created"}: ${attestation.attestationId}`);
 
-  // 9. Activation policy
+  // 10. Activation policy
   console.log("\n── Creating activation policy ──");
   const policy = await prodFetch(cookie, csrf, "/api/cro03c/activation-policies", {
     idempotencyKey: `${runTag}-policy`,
@@ -223,7 +298,7 @@ async function main() {
   }) as { policyId?: string; revision?: number; replayed?: boolean };
   console.log(`  ${policy.replayed ? "replayed" : "created"}: revision=${policy.revision} id=${policy.policyId}`);
 
-  // 10. Summary
+  // 11. Summary
   console.log("\n=== CRO-03D Ceremony Complete ===");
   console.log(`  Production SHA:  ${targetSha}`);
   console.log(`  Scope hash:      ${scopeHash}`);
