@@ -271,9 +271,12 @@ export function registerContactsRoutes(app: Express) {
         return res.status(400).json({ code: "INVALID_PEOPLE_SORT", message: "Unsupported People sort" });
       }
       const recordClass = req.query.recordClass ?? req.query.class;
-      const allowedClasses = new Set(["production", "test", "demo", "unknown"]);
+      const allowedClasses = new Set(["production", "test", "demo", "synthetic", "unknown"]);
       if (recordClass && !allowedClasses.has(String(recordClass))) {
-        return res.status(400).json({ code: "INVALID_RECORD_CLASS", message: "Unsupported record class" });
+        return res.status(400).json({
+          code: "INVALID_RECORD_CLASS",
+          message: `Invalid recordClass: '${String(recordClass)}'. Allowed: production, test, demo, synthetic, unknown`,
+        });
       }
 
       const result = await readPeople(req.user as any, {
@@ -604,6 +607,26 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // ── Blocked contacts list ────────────────────────────────────────────────────
+  // #1784 — GET /api/contacts/class-counts — per-class contact counts (admin/manager)
+  app.get("/api/contacts/class-counts", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const result = await pool.query<{ record_class: string; cnt: string }>(
+        `SELECT record_class, COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL GROUP BY record_class`
+      );
+      const counts: Record<string, number> = { production: 0, test: 0, demo: 0, synthetic: 0, unknown: 0 };
+      let total = 0;
+      for (const row of result.rows) {
+        const cls = row.record_class ?? "unknown";
+        const n = parseInt(row.cnt, 10);
+        if (cls in counts) counts[cls] = n;
+        total += n;
+      }
+      res.json({ ...counts, total });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // GET /api/contacts/blocked?emailStatus=&doNotContact=&reason=&page=&limit=
   app.get("/api/contacts/blocked", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {

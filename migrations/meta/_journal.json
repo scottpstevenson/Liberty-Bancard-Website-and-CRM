@@ -1597,6 +1597,13 @@
       "when": 1800000000000,
       "tag": "0223_contacts_active_created_at_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "7",
+      "when": 1800000000001,
+      "tag": "0224_bulk_delete_tables",
+      "breakpoints": true
     }
   ]
 }

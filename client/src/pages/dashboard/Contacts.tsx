@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star, UserCheck, Filter, Calendar, RefreshCw, BellOff, PhoneMissed, Trash2, ShieldAlert } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useLocation, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
@@ -415,7 +415,9 @@ export default function Contacts() {
   const activitySort = peopleParams.get("sort") ?? "";
   const showArchived = peopleParams.get("archived") === "true";
   const statusFilter = peopleParams.get("status") ?? "";
-  const recordClassFilter = peopleParams.get("recordClass") ?? "";
+  // Default to "production" so the list shows only real contacts unless the admin
+  // explicitly selects another class. "all" is a virtual value that removes the filter.
+  const recordClassFilter = peopleParams.get("recordClass") ?? "production";
   const setSearchTerm = (value: string) => updatePeopleParam("search", value);
   const setActivitySort = (value: string) => updatePeopleParam("sort", value);
   const setShowArchived = (value: boolean) => updatePeopleParam("archived", value ? "true" : "");
@@ -467,7 +469,7 @@ export default function Contacts() {
     search: searchTerm || undefined,
     sort: activitySort || undefined,
     archived: showArchived ? "true" : undefined,
-    recordClass: recordClassFilter || undefined,
+    recordClass: recordClassFilter === "all" ? undefined : (recordClassFilter || undefined),
     status: statusFilter || undefined,
     emailHealth: emailHealthFilter || undefined,
     assignedToMe,
@@ -545,6 +547,121 @@ export default function Contacts() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/contacts"] }),
     onError: (err: any) => toast({ title: "Assign failed", description: err.message, variant: "destructive" }),
   });
+
+  // #1784 — Hard-delete workflow state
+  const [snapshotId, setSnapshotId] = useState<string | null>(null);
+  const [snapshotTotal, setSnapshotTotal] = useState<number>(0);
+  const [deletePreviewData, setDeletePreviewData] = useState<any | null>(null);
+  const [hardDeleteDialogOpen, setHardDeleteDialogOpen] = useState(false);
+  const [hardDeleteConfirmPhrase, setHardDeleteConfirmPhrase] = useState("");
+  const [isHardDeleting, setIsHardDeleting] = useState(false);
+  const [isLoadingSnapshot, setIsLoadingSnapshot] = useState(false);
+
+  const { data: classCounts } = useQuery<Record<string, number>>({
+    queryKey: ["/api/contacts/class-counts"],
+    enabled: user?.role === "admin",
+    refetchInterval: 120_000,
+  });
+
+  const handleSelectAllMatching = async () => {
+    const cls = recordClassFilter;
+    if (!["test", "demo", "synthetic"].includes(cls)) return;
+    setIsLoadingSnapshot(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/contacts/bulk-delete-snapshot", {
+        selectAllFilter: { recordClass: cls },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Snapshot failed");
+      setSnapshotId(data.snapshotId);
+      setSnapshotTotal(data.total);
+      // Replace selectedIds with a sentinel to indicate frozen snapshot
+      setSelectedIds(new Set([-1])); // placeholder; actual IDs are server-side
+      toast({
+        title: "All matching contacts selected",
+        description: `${data.total} ${cls} contacts frozen into a selection snapshot.`,
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to select all", description: err.message, variant: "destructive" });
+    } finally {
+      setIsLoadingSnapshot(false);
+    }
+  };
+
+  const handleHardDeletePreview = async () => {
+    let sid = snapshotId;
+    // If no frozen snapshot, create one from selectedIds
+    if (!sid || selectedIds.size !== 1 || !selectedIds.has(-1)) {
+      const ids = Array.from(selectedIds).filter((id) => id > 0);
+      if (ids.length === 0) return;
+      setIsLoadingSnapshot(true);
+      try {
+        const res = await apiRequest("POST", "/api/admin/contacts/bulk-delete-snapshot", {
+          contactIds: ids,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Snapshot failed");
+        sid = data.snapshotId;
+        setSnapshotId(data.snapshotId);
+        setSnapshotTotal(data.total);
+      } catch (err: any) {
+        toast({ title: "Failed to create snapshot", description: err.message, variant: "destructive" });
+        setIsLoadingSnapshot(false);
+        return;
+      } finally {
+        setIsLoadingSnapshot(false);
+      }
+    }
+    // Run preview
+    setIsLoadingSnapshot(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/contacts/bulk-hard-delete/preview", {
+        snapshotId: sid,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Preview failed");
+      setDeletePreviewData(data);
+      setHardDeleteConfirmPhrase("");
+      setHardDeleteDialogOpen(true);
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsLoadingSnapshot(false);
+    }
+  };
+
+  const handleHardDeleteExecute = async () => {
+    if (!deletePreviewData) return;
+    const expectedPhrase = deletePreviewData.confirmationPhrase;
+    if (hardDeleteConfirmPhrase.trim() !== expectedPhrase) {
+      toast({ title: "Phrase mismatch", description: `Type exactly: ${expectedPhrase}`, variant: "destructive" });
+      return;
+    }
+    setIsHardDeleting(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/contacts/bulk-hard-delete", {
+        previewId: deletePreviewData.previewId,
+        idempotencyKey: crypto.randomUUID(),
+        confirmationPhrase: hardDeleteConfirmPhrase.trim(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Deletion failed");
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts/class-counts"] });
+      setHardDeleteDialogOpen(false);
+      setSnapshotId(null);
+      setDeletePreviewData(null);
+      setSelectedIds(new Set());
+      toast({
+        title: "Contacts permanently deleted",
+        description: `Deleted: ${data.deleted} | Blocked: ${data.blocked} | Failed: ${data.failed}`,
+      });
+    } catch (err: any) {
+      toast({ title: "Deletion failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsHardDeleting(false);
+    }
+  };
 
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkChannel, setBulkChannel] = useState<"email" | "sms">("email");
@@ -998,6 +1115,45 @@ export default function Contacts() {
             <Clock className="h-3 w-3" />
             No outreach (24h)
           </button>
+          {/* #1784 — Record class filter chips (admin only) */}
+          {user?.role === "admin" && (
+            <div className="flex items-center gap-1 flex-wrap" data-testid="record-class-filter">
+              {(["production", "test", "demo", "synthetic", "unknown", "all"] as const).map((cls) => {
+                const isActive = recordClassFilter === cls || (cls === "production" && recordClassFilter === "production");
+                const label = cls === "all" ? "All classes" : cls.charAt(0).toUpperCase() + cls.slice(1);
+                const count = cls !== "all" ? (classCounts?.[cls] ?? 0) : undefined;
+                const isDangerous = cls === "test" || cls === "demo" || cls === "synthetic";
+                return (
+                  <button
+                    key={cls}
+                    onClick={() => {
+                      // Clear frozen snapshot when filter changes
+                      if (snapshotId) { setSnapshotId(null); setSelectedIds(new Set()); }
+                      updatePeopleParam("recordClass", cls === "production" ? "" : cls);
+                    }}
+                    data-testid={`chip-record-class-${cls}`}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      isActive
+                        ? isDangerous
+                          ? "bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+                          : cls === "unknown"
+                          ? "bg-slate-100 border-slate-400 text-slate-700 dark:bg-slate-800 dark:border-slate-500 dark:text-slate-200"
+                          : "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-background border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {isDangerous && <ShieldAlert className="h-2.5 w-2.5" />}
+                    {label}
+                    {count !== undefined && count > 0 && (
+                      <span className="px-1 py-0.5 rounded text-[10px] font-semibold bg-muted-foreground/10">
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {/* #835 — No-deal contacts chip */}
           <button
             onClick={() => setNoDealOnly(v => !v)}
@@ -1044,6 +1200,23 @@ export default function Contacts() {
             <Activity className="w-3.5 h-3.5" />
             Filters {(verticalFilter || tagFilter || leadSourceFilter || hasAssigneeOnly) ? "•" : ""}
           </Button>
+          {/* #1784 — Select-all-matching button for eligible classes */}
+          {user?.role === "admin" && ["test", "demo", "synthetic"].includes(recordClassFilter) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20"
+              disabled={isLoadingSnapshot}
+              onClick={handleSelectAllMatching}
+              data-testid="button-select-all-matching"
+            >
+              <CheckSquare className="w-3.5 h-3.5" />
+              {isLoadingSnapshot ? "Freezing…" : `Select all ${recordClassFilter}`}
+              {classCounts?.[recordClassFilter] !== undefined && (
+                <span className="ml-1 opacity-70">({classCounts[recordClassFilter]})</span>
+              )}
+            </Button>
+          )}
           {selectedIds.size > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1060,6 +1233,18 @@ export default function Contacts() {
                 <DropdownMenuItem onClick={handleBulkLinkedInEnrich} disabled={bulkUpdating} data-testid="bulk-linkedin-enrich">
                   Enrich from LinkedIn
                 </DropdownMenuItem>
+                {/* #1784 — Permanent hard delete (admin only, test/demo/synthetic) */}
+                {user?.role === "admin" && (
+                  <DropdownMenuItem
+                    disabled={bulkUpdating || isLoadingSnapshot}
+                    data-testid="bulk-hard-delete"
+                    className="text-red-600 dark:text-red-400 focus:text-red-700 focus:bg-red-50 dark:focus:bg-red-900/30"
+                    onClick={handleHardDeletePreview}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {isLoadingSnapshot ? "Loading preview…" : "Permanently delete…"}
+                  </DropdownMenuItem>
+                )}
                 {/* #507 — Bulk archive selected contacts */}
                 {isManagerOrAdmin && (
                   <DropdownMenuItem
@@ -1942,6 +2127,111 @@ export default function Contacts() {
       </Card>
 
       <DuplicateFinderDialog open={duplicatesOpen} onOpenChange={setDuplicatesOpen} />
+
+      {/* #1784 — Hard-delete confirmation dialog */}
+      <Dialog open={hardDeleteDialogOpen} onOpenChange={(v) => { if (!v) { setHardDeleteDialogOpen(false); setHardDeleteConfirmPhrase(""); } }}>
+        <DialogContent data-testid="hard-delete-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <ShieldAlert className="h-5 w-5" />
+              Permanently Delete Contacts
+            </DialogTitle>
+          </DialogHeader>
+          {deletePreviewData && (
+            <div className="space-y-4">
+              <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 p-3 space-y-1">
+                <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+                  This action is permanent and cannot be undone.
+                </p>
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  All disposable FK data will be permanently removed. Protected contacts will be skipped.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center" data-testid="hard-delete-preview-counts">
+                <div className="rounded-md border p-2">
+                  <div className="text-lg font-bold text-foreground" data-testid="preview-count-selected">
+                    {deletePreviewData.selected}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Selected</div>
+                </div>
+                <div className="rounded-md border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 p-2">
+                  <div className="text-lg font-bold text-green-700 dark:text-green-400" data-testid="preview-count-eligible">
+                    {deletePreviewData.eligibleCount}
+                  </div>
+                  <div className="text-xs text-green-600 dark:text-green-400">Will delete</div>
+                </div>
+                <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-2">
+                  <div className="text-lg font-bold text-amber-700 dark:text-amber-400" data-testid="preview-count-blocked">
+                    {deletePreviewData.blockedCount}
+                  </div>
+                  <div className="text-xs text-amber-600 dark:text-amber-400">Blocked</div>
+                </div>
+              </div>
+
+              {deletePreviewData.blockedCount > 0 && (
+                <div className="text-xs text-muted-foreground rounded-md border p-2 max-h-32 overflow-y-auto">
+                  <p className="font-medium mb-1">Blocked contacts (skipped, not deleted):</p>
+                  {deletePreviewData.blocked.slice(0, 10).map((b: any) => (
+                    <div key={b.contactId} data-testid={`blocked-contact-${b.contactId}`}>
+                      ID {b.contactId}: {b.reason}
+                    </div>
+                  ))}
+                  {deletePreviewData.blocked.length > 10 && (
+                    <div>…and {deletePreviewData.blocked.length - 10} more</div>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  Type <span className="font-mono text-red-600 dark:text-red-400" data-testid="text-confirm-phrase">
+                    {deletePreviewData.confirmationPhrase}
+                  </span> to confirm:
+                </p>
+                <Input
+                  value={hardDeleteConfirmPhrase}
+                  onChange={(e) => setHardDeleteConfirmPhrase(e.target.value)}
+                  placeholder={deletePreviewData.confirmationPhrase}
+                  className="font-mono border-red-300 focus-visible:ring-red-400"
+                  data-testid="input-confirm-phrase"
+                  disabled={isHardDeleting}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => { setHardDeleteDialogOpen(false); setHardDeleteConfirmPhrase(""); }}
+                  disabled={isHardDeleting}
+                  data-testid="button-hard-delete-cancel"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleHardDeleteExecute}
+                  disabled={
+                    isHardDeleting ||
+                    hardDeleteConfirmPhrase.trim() !== deletePreviewData.confirmationPhrase ||
+                    deletePreviewData.eligibleCount === 0
+                  }
+                  data-testid="button-hard-delete-confirm"
+                >
+                  {isHardDeleting ? (
+                    "Deleting…"
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete {deletePreviewData.eligibleCount} contacts
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={bulkDialogOpen} onOpenChange={(open) => { setBulkDialogOpen(open); if (!open) setBulkResults(null); }}>
         <DialogContent>

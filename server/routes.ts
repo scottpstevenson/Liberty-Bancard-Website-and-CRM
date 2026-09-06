@@ -5,6 +5,7 @@ import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { csrfTokenEndpoint } from "./middleware/csrf";
 
 import { registerContactsRoutes } from "./routes/contacts";
+import { registerContactDeletionRoutes } from "./routes/contact-deletion";
 import { registerRevenueRoutes } from "./routes/routes-revenue";
 import { registerDealsRoutes } from "./routes/deals";
 import { registerTicketsTasksRoutes } from "./routes/tickets-tasks";
@@ -121,6 +122,7 @@ export async function registerRoutes(
 
   registerPartnerOrgsRoutes(app);
   registerContactsRoutes(app);
+  registerContactDeletionRoutes(app);
   registerRevenueRoutes(app);
   registerDealsRoutes(app);
   registerTicketsTasksRoutes(app);

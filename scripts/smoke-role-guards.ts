@@ -238,6 +238,10 @@ const CASES: GuardCase[] = [
   { method: "POST", path: "/api/tasks/bulk-assign",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "task bulk-assign (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "POST", path: "/api/documents/bulk-delete",      anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "document bulk-delete (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
   { method: "DELETE", path: "/api/contacts/bulk-delete",    anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "contacts bulk-delete (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  // #1784 — Governed record-class cleanup (admin-only; CSRF required for POST → all 403 without token in test harness)
+  { method: "POST", path: "/api/admin/contacts/bulk-delete-snapshot",  anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "#1784 bulk-delete snapshot (requireRole admin; CSRF required — all auth roles hit 403 without token)" },
+  { method: "POST", path: "/api/admin/contacts/bulk-hard-delete/preview", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "#1784 bulk-hard-delete preview (requireRole admin; CSRF required)" },
+  { method: "POST", path: "/api/admin/contacts/bulk-hard-delete",       anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "#1784 bulk-hard-delete execute (requireRole admin; CSRF required)" },
 
   // ── Blocked-contact CSV export — requireRole admin/manager ──────────────────
   // GET route: requireRole("admin","manager") applied; agent and merchant → 403.

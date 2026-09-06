@@ -104,6 +104,12 @@ const KNOWN_MISMATCHES = new Set<string>([
   // Inbox contact thread — server handler exists at GET /api/inbox/contacts/:contactId/thread
   // coverage script sees the static prefix before the template-literal contactId variable
   "/api/inbox/contacts",
+  // #1784 Governed record-class cleanup — server handlers exist in server/routes/contact-deletion.ts
+  // registered via registerContactDeletionRoutes; coverage script sees the static path segments
+  // but the route matcher normalises the /preview suffix as part of the full path
+  "/api/admin/contacts/bulk-delete-snapshot",
+  "/api/admin/contacts/bulk-hard-delete",
+  "/api/admin/contacts/bulk-hard-delete/preview",
 ]);
 
 function main() {
