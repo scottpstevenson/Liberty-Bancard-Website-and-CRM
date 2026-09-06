@@ -96,44 +96,90 @@ function camelize(value: unknown): any {
 }
 
 // ---------------------------------------------------------------------------
-// Short-lived in-process cache for expensive count/facet queries.
-// Keyed by a stable string derived from the query predicate + values.
-// TTL: 30 seconds — acceptable staleness for a CRM count display.
+// Facet cache — correct key + single-flight deduplication.
+//
+// Cache key: derived from the FULL normalized filter object + user scope, so
+// boolean predicates that appear as hardcoded SQL (stale, neverContacted,
+// blocked, noDeal, etc.) cannot collide with each other.
+//
+// Single-flight: if an identical facet request is already in-flight we attach
+// to its Promise rather than launching a second DB query. Only successful
+// completed results are stored; in-flight entries are removed on settle.
+//
+// Size is bounded at 200 completed entries (evict all expired, then oldest
+// half if still over limit).  TTL: 30 seconds.
 // ---------------------------------------------------------------------------
-interface FacetCacheEntry { value: Record<string, unknown>; expiresAt: number }
-const _facetCache = new Map<string, FacetCacheEntry>();
-const FACET_CACHE_TTL_MS = 30_000;
-function _facetKey(label: string, values: unknown[]): string {
-  return `${label}:${JSON.stringify(values)}`;
+interface FacetCacheEntry { value: FacetResult; expiresAt: number }
+type FacetResult = { total: number; byRecordClass: Record<string, number>; byEmailHealth: Record<string, number>; asOf: string };
+
+const _facetCache  = new Map<string, FacetCacheEntry>();
+const _facetFlight = new Map<string, Promise<FacetResult>>();   // in-flight single-flight
+const FACET_CACHE_TTL_MS  = 30_000;
+const FACET_CACHE_MAX     = 200;
+
+function _facetCacheKey(user: RevenueUser, filters: RevenueFilters): string {
+  // Include every field that influences the WHERE predicate, plus role scope.
+  const scope = privileged(user) ? "all" : (user.email ?? "anon");
+  const key = {
+    scope,
+    search: filters.search ?? null,
+    status: filters.status ?? null,
+    emailHealth: filters.emailHealth ?? null,
+    assignedTo: filters.assignedTo ?? null,
+    recordClass: filters.recordClass ?? null,
+    archived: filters.archived ?? false,
+    churnRisk: filters.churnRisk ?? null,
+    noOutreach: filters.noOutreach ?? null,
+    blocked: filters.blocked ?? false,
+    vertical: filters.vertical ?? null,
+    tag: filters.tag ?? null,
+    contactedToday: filters.contactedToday ?? false,
+    hasAssignee: filters.hasAssignee ?? false,
+    leadSource: filters.leadSource ?? null,
+    lifecycle: filters.lifecycle ?? null,
+    stale: filters.stale ?? false,
+    recentlyUpdated: filters.recentlyUpdated ?? false,
+    neverContacted: filters.neverContacted ?? false,
+    notContactedIn30: filters.notContactedIn30 ?? false,
+    noDeal: filters.noDeal ?? false,
+    createdThisWeek: filters.createdThisWeek ?? false,
+    pipeline: filters.pipeline ?? null,
+  };
+  return `facets:v2:${JSON.stringify(key)}`;
 }
-function _getCachedFacet(key: string): Record<string, unknown> | null {
+
+function _getCachedFacet(key: string): FacetResult | null {
   const entry = _facetCache.get(key);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) { _facetCache.delete(key); return null; }
   return entry.value;
 }
-function _setCachedFacet(key: string, value: Record<string, unknown>): void {
-  // Evict oldest entries if cache grows too large (safety valve).
-  if (_facetCache.size > 500) {
+
+function _setCachedFacet(key: string, value: FacetResult): void {
+  if (_facetCache.size >= FACET_CACHE_MAX) {
     const now = Date.now();
     for (const [k, v] of _facetCache) { if (now > v.expiresAt) _facetCache.delete(k); }
-    if (_facetCache.size > 400) _facetCache.clear();
+    if (_facetCache.size >= FACET_CACHE_MAX) {
+      // Evict oldest half by insertion order.
+      const deleteCount = Math.ceil(_facetCache.size / 2);
+      let n = 0;
+      for (const k of _facetCache.keys()) { _facetCache.delete(k); if (++n >= deleteCount) break; }
+    }
   }
   _facetCache.set(key, { value, expiresAt: Date.now() + FACET_CACHE_TTL_MS });
 }
 
 /**
- * Canonical contact list reader.
+ * Rows-first contact list reader.
  *
- * Uses a single pool connection with a short READ ONLY REPEATABLE READ
- * transaction so that data, total, and facets all share the same DB snapshot
- * while consuming exactly one pool slot. The two queries run sequentially
- * inside the transaction; observeRevenueSubjects() fires after the client is
- * released.
+ * Returns the paginated contact rows immediately WITHOUT waiting for
+ * totals or facets.  Facets are available via readPeopleFacets() which
+ * has its own cache + single-flight deduplication so a cold stampede of
+ * 20 concurrent requests executes exactly one DB query.
  *
- * The data query uses SELECT c.* with ORDER BY + LIMIT/OFFSET applied directly
- * (no MATERIALIZED CTE, no window function over the full result set). The
- * count/facet query uses a single GROUPING SETS pass over the narrow predicate.
+ * The data query uses SELECT c.* with ORDER BY + LIMIT/OFFSET applied
+ * directly (no MATERIALIZED CTE, no window function over the full result
+ * set).  observeRevenueSubjects() fires after the connection is released.
  */
 export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [];
@@ -142,57 +188,93 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
   const predicate = where.join(" AND ");
   const order = orderForPeople(filters.sort);
 
-  // Count/facet query uses parameters $1..$k.
-  const countValues = [...values];
-  // Data query appends LIMIT and OFFSET as $(k+1) and $(k+2).
-  const limitIdx = values.length + 1;
+  const limitIdx  = values.length + 1;
   const offsetIdx = values.length + 2;
   const dataValues = [...values, filters.limit, filters.offset];
 
-  // 1. Paginated data — fast index scan, connection auto-released after query.
+  // Fast index scan — connection auto-released after this single query.
   const dataResult = await pool.query(
     `SELECT c.* FROM contacts c WHERE ${predicate}
      ORDER BY ${order}
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     dataValues,
   );
-  const dataRows: Record<string, unknown>[] = dataResult.rows;
+  const data = dataResult.rows.map(camelize);
 
-  // 2. Count + facets — expensive GROUPING SETS scan; cached 30 s to avoid
-  //    holding a pool connection for each concurrent page load.
-  const cacheKey = _facetKey("readPeople", countValues);
-  let countRow: Record<string, unknown> = _getCachedFacet(cacheKey) ?? {};
-  if (!countRow.total && countRow.total !== 0) {
-    const facetResult = await pool.query(
-      `SELECT
-         COALESCE(jsonb_object_agg(record_class, cnt) FILTER (WHERE grouping_id = 1), '{}'::jsonb) AS by_record_class,
-         COALESCE(jsonb_object_agg(email_status, cnt) FILTER (WHERE grouping_id = 2), '{}'::jsonb) AS by_email_health,
-         COALESCE(SUM(cnt) FILTER (WHERE grouping_id = 3), 0)::int AS total,
-         CURRENT_TIMESTAMP AS as_of
-       FROM (
-         SELECT record_class, email_status, COUNT(*) AS cnt,
-                GROUPING(record_class, email_status) AS grouping_id
-         FROM contacts c WHERE ${predicate}
-         GROUP BY GROUPING SETS ((record_class),(email_status),())
-       ) sub`,
-      countValues,
-    );
-    countRow = facetResult.rows[0] ?? {};
-    _setCachedFacet(cacheKey, countRow);
-  }
+  // Fire-and-forget CRO02 observation after the connection is released.
+  observeRevenueSubjects(
+    user,
+    data.map((item: any) => ({ subjectType: "contact", subjectId: Number(item.id) })),
+  ).catch(() => {});
 
-  const data = dataRows.map(camelize);
-  await observeRevenueSubjects(user, data.map((item: any) => ({ subjectType: "contact", subjectId: Number(item.id) })));
   return {
     data,
-    total: countRow.total ?? 0,
-    limit: filters.limit,
-    offset: filters.offset,
+    limit:   filters.limit,
+    offset:  filters.offset,
     filters: { ...filters, recordClass: filters.recordClass ?? "all" },
-    facets: camelize({ byRecordClass: countRow.by_record_class ?? {}, byEmailHealth: countRow.by_email_health ?? {} }),
-    scope: privileged(user) ? "all" : "owned_or_unassigned",
-    asOf: new Date(countRow.as_of as string | Date).toISOString(),
+    scope:   privileged(user) ? "all" : "owned_or_unassigned",
   };
+}
+
+/**
+ * Facet/count reader — runs separately from the rows query.
+ *
+ * Guarantees:
+ *  • Cache key covers EVERY filter boolean so different predicates cannot
+ *    share a cached result.
+ *  • Single-flight: concurrent cold requests for the same key attach to
+ *    the same in-flight Promise; exactly one DB query runs.
+ *  • Only successfully completed results are cached.
+ *  • Cache is bounded (FACET_CACHE_MAX entries, 30-second TTL).
+ *  • A DB failure rejects the caller's promise cleanly; it is never
+ *    reported as an authoritative zero.
+ */
+export async function readPeopleFacets(user: RevenueUser, filters: RevenueFilters): Promise<FacetResult> {
+  const cacheKey = _facetCacheKey(user, filters);
+
+  // 1. Warm cache hit — no DB call.
+  const cached = _getCachedFacet(cacheKey);
+  if (cached) return cached;
+
+  // 2. In-flight single-flight — attach to an existing Promise.
+  const existing = _facetFlight.get(cacheKey);
+  if (existing) return existing;
+
+  // 3. Cold — build predicate, launch exactly one DB query.
+  const values: unknown[] = [];
+  const where = addContactFilters(filters, values);
+  where.push(contactScope(user, "c", values));
+  const predicate = where.join(" AND ");
+
+  const promise: Promise<FacetResult> = pool.query(
+    `SELECT
+       COALESCE(jsonb_object_agg(record_class, cnt) FILTER (WHERE grouping_id = 1), '{}'::jsonb) AS by_record_class,
+       COALESCE(jsonb_object_agg(email_status,  cnt) FILTER (WHERE grouping_id = 2), '{}'::jsonb) AS by_email_health,
+       COALESCE(SUM(cnt) FILTER (WHERE grouping_id = 3), 0)::int AS total,
+       CURRENT_TIMESTAMP AS as_of
+     FROM (
+       SELECT record_class, email_status, COUNT(*) AS cnt,
+              GROUPING(record_class, email_status) AS grouping_id
+       FROM contacts c WHERE ${predicate}
+       GROUP BY GROUPING SETS ((record_class),(email_status),())
+     ) sub`,
+    values,
+  ).then((result) => {
+    const row = result.rows[0] ?? {};
+    const facetResult: FacetResult = {
+      total:         Number(row.total  ?? 0),
+      byRecordClass: (row.by_record_class  as Record<string, number>) ?? {},
+      byEmailHealth: (row.by_email_health  as Record<string, number>) ?? {},
+      asOf:          row.as_of ? new Date(row.as_of as string | Date).toISOString() : new Date().toISOString(),
+    };
+    _setCachedFacet(cacheKey, facetResult);
+    return facetResult;
+  }).finally(() => {
+    _facetFlight.delete(cacheKey);
+  });
+
+  _facetFlight.set(cacheKey, promise);
+  return promise;
 }
 
 /**

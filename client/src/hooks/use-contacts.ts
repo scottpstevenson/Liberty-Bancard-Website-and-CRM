@@ -69,23 +69,89 @@ export function useContacts(params?: {
   if (params?.noDeal) searchParams.set("noDeal", "true");
   if (params?.createdThisWeek) searchParams.set("createdThisWeek", "true");
   const url = `${api.contacts.list.path}?${searchParams.toString()}`;
+  const filterKey = { limit, offset, churnRisk, noOutreach, blocked, search, sort, archived, contactClass,
+    status: params?.status, emailHealth: params?.emailHealth, assignedToMe: params?.assignedToMe,
+    vertical: params?.vertical, tag: params?.tag, contactedToday: params?.contactedToday,
+    hasAssignee: params?.hasAssignee, leadSource: params?.leadSource, lifecycle: params?.lifecycle,
+    stale: params?.stale, recentlyUpdated: params?.recentlyUpdated, neverContacted: params?.neverContacted,
+    notContactedIn30: params?.notContactedIn30, noDeal: params?.noDeal, createdThisWeek: params?.createdThisWeek };
   return useQuery({
-    queryKey: [api.contacts.list.path, { limit, offset, churnRisk, noOutreach, blocked, search, sort, archived, contactClass,
-      status: params?.status, emailHealth: params?.emailHealth, assignedToMe: params?.assignedToMe,
-      vertical: params?.vertical, tag: params?.tag, contactedToday: params?.contactedToday,
-      hasAssignee: params?.hasAssignee, leadSource: params?.leadSource, lifecycle: params?.lifecycle,
-      stale: params?.stale, recentlyUpdated: params?.recentlyUpdated, neverContacted: params?.neverContacted,
-      notContactedIn30: params?.notContactedIn30, noDeal: params?.noDeal, createdThisWeek: params?.createdThisWeek }],
+    queryKey: [api.contacts.list.path, filterKey],
     queryFn: async () => {
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       const json = await res.json();
+      // Server returns rows-only (no total/facets) — those come from useContactsFacets.
       return json as {
-        data: any[]; total: number; limit: number; offset: number;
-        filters: Record<string, unknown>; facets: { byRecordClass: Record<string, number>; byEmailHealth: Record<string, number> };
-        scope: string; asOf: string;
+        data: any[]; limit: number; offset: number;
+        filters: Record<string, unknown>; scope: string;
       };
     },
+  });
+}
+
+/**
+ * Separate hook for totals and facet breakdowns.
+ * Runs independently of useContacts so a slow/failing facet query never
+ * blocks contact rows from rendering.
+ */
+export function useContactsFacets(params?: Parameters<typeof useContacts>[0]) {
+  const limit = params?.limit ?? 100;
+  const offset = params?.offset ?? 0;
+  const churnRisk = params?.churnRisk;
+  const noOutreach = params?.noOutreach;
+  const blocked = params?.blocked;
+  const search = params?.search;
+  const sort = params?.sort;
+  const archived = params?.archived;
+  const contactClass = params?.recordClass;
+  const searchParams = new URLSearchParams();
+  if (churnRisk) searchParams.set("churnRisk", churnRisk);
+  if (noOutreach) searchParams.set("noOutreach", noOutreach);
+  if (blocked) searchParams.set("blocked", blocked);
+  if (search) searchParams.set("search", search);
+  if (sort) searchParams.set("sort", sort);
+  if (archived) searchParams.set("archived", archived);
+  if (contactClass) searchParams.set("recordClass", contactClass);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.emailHealth) searchParams.set("emailHealth", params.emailHealth);
+  if (params?.assignedToMe) searchParams.set("assignedToMe", "true");
+  if (params?.vertical) searchParams.set("vertical", params.vertical);
+  if (params?.tag) searchParams.set("tag", params.tag);
+  if (params?.contactedToday) searchParams.set("contactedToday", "true");
+  if (params?.hasAssignee) searchParams.set("hasAssignee", "true");
+  if (params?.leadSource) searchParams.set("leadSource", params.leadSource);
+  if (params?.lifecycle) searchParams.set("lifecycle", params.lifecycle);
+  if (params?.stale) searchParams.set("stale", "true");
+  if (params?.recentlyUpdated) searchParams.set("recentlyUpdated", "true");
+  if (params?.neverContacted) searchParams.set("neverContacted", "true");
+  if (params?.notContactedIn30) searchParams.set("notContactedIn30", "true");
+  if (params?.noDeal) searchParams.set("noDeal", "true");
+  if (params?.createdThisWeek) searchParams.set("createdThisWeek", "true");
+  const facetsUrl = `/api/contacts/facets?${searchParams.toString()}`;
+  const filterKey = { churnRisk, noOutreach, blocked, search, sort, archived, contactClass,
+    status: params?.status, emailHealth: params?.emailHealth, assignedToMe: params?.assignedToMe,
+    vertical: params?.vertical, tag: params?.tag, contactedToday: params?.contactedToday,
+    hasAssignee: params?.hasAssignee, leadSource: params?.leadSource, lifecycle: params?.lifecycle,
+    stale: params?.stale, recentlyUpdated: params?.recentlyUpdated, neverContacted: params?.neverContacted,
+    notContactedIn30: params?.notContactedIn30, noDeal: params?.noDeal, createdThisWeek: params?.createdThisWeek };
+  return useQuery({
+    queryKey: ["/api/contacts/facets", filterKey],
+    queryFn: async () => {
+      const res = await fetch(facetsUrl, { credentials: "include" });
+      if (!res.ok) throw new Error("Facets unavailable");
+      return res.json() as Promise<{
+        total: number;
+        byRecordClass: Record<string, number>;
+        byEmailHealth:  Record<string, number>;
+        asOf: string;
+      }>;
+    },
+    // Retry once after 4 s on failure; don't block contact rows.
+    retry: 1,
+    retryDelay: 4_000,
+    // Stale after 30 s — matches server-side cache TTL.
+    staleTime: 30_000,
   });
 }
 

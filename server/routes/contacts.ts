@@ -39,7 +39,7 @@ import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../
 import type { LifecycleState } from "../services/lifecycle-service";
 import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
-import { readPeople } from "../services/revenue-read-authority";
+import { readPeople, readPeopleFacets } from "../services/revenue-read-authority";
 import { createCro03Batch } from "../services/cro03/enrichment-factory";
 import { claimInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
 
@@ -247,40 +247,37 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // === CONTACTS ===
-  app.get("/api/contacts", isDashboardUser, async (req, res) => {
-    try {
-      const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 100, maxLimit: 500 });
-      if ("error" in pagination) return invalidPagination(res);
-      const { limit, offset } = pagination;
-      const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
-      const ownerEmail = agentOwnershipEmail(req.user as any);
-      const assignedTo = req.query.assignedToMe === "true"
-        ? ownerEmail
-        : ownerEmail ? undefined : req.query.assignedTo ? String(req.query.assignedTo) : undefined;
-      const churnRisk = req.query.churnRisk ? String(req.query.churnRisk) : undefined;
-      const noOutreach = req.query.noOutreach ? String(req.query.noOutreach) : undefined;
-      const blockedFilter = req.query.blocked ? String(req.query.blocked) : undefined;
-      const archived = req.query.archived === "true";
-      const role = String((req.user as any)?.role ?? "");
-      if (archived && role !== "admin" && role !== "manager") {
-        return res.status(403).json({ code: "ARCHIVED_CONTACTS_FORBIDDEN", message: "Archived contacts require manager access" });
-      }
-      const sort = req.query.sort ? String(req.query.sort) : undefined;
-      const allowedSorts = new Set(["activity_desc", "activity_asc", "score_desc", "alpha", "name", "createdAtAsc", "updatedAt", "leadScore"]);
-      if (sort && !allowedSorts.has(sort)) {
-        return res.status(400).json({ code: "INVALID_PEOPLE_SORT", message: "Unsupported People sort" });
-      }
-      const recordClass = req.query.recordClass ?? req.query.class;
-      const allowedClasses = new Set(["production", "test", "demo", "synthetic", "unknown"]);
-      if (recordClass && !allowedClasses.has(String(recordClass))) {
-        return res.status(400).json({
-          code: "INVALID_RECORD_CLASS",
-          message: `Invalid recordClass: '${String(recordClass)}'. Allowed: production, test, demo, synthetic, unknown`,
-        });
-      }
 
-      const result = await readPeople(req.user as any, {
-        limit, offset,
+  /** Shared filter-parsing helper used by both /api/contacts and /api/contacts/facets */
+  function parseContactsFilters(req: any): {
+    error?: { code: string; message: string };
+    filters?: Parameters<typeof readPeople>[1];
+  } {
+    const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
+    const ownerEmail = agentOwnershipEmail(req.user);
+    const assignedTo = req.query.assignedToMe === "true"
+      ? ownerEmail
+      : ownerEmail ? undefined : req.query.assignedTo ? String(req.query.assignedTo) : undefined;
+    const archived = req.query.archived === "true";
+    const role = String(req.user?.role ?? "");
+    if (archived && role !== "admin" && role !== "manager") {
+      return { error: { code: "ARCHIVED_CONTACTS_FORBIDDEN", message: "Archived contacts require manager access" } };
+    }
+    const sort = req.query.sort ? String(req.query.sort) : undefined;
+    const allowedSorts = new Set(["activity_desc", "activity_asc", "score_desc", "alpha", "name", "createdAtAsc", "updatedAt", "leadScore"]);
+    if (sort && !allowedSorts.has(sort)) {
+      return { error: { code: "INVALID_PEOPLE_SORT", message: "Unsupported People sort" } };
+    }
+    const recordClass = req.query.recordClass ?? req.query.class;
+    const allowedClasses = new Set(["production", "test", "demo", "synthetic", "unknown"]);
+    if (recordClass && !allowedClasses.has(String(recordClass))) {
+      return { error: { code: "INVALID_RECORD_CLASS", message: `Invalid recordClass: '${String(recordClass)}'. Allowed: production, test, demo, synthetic, unknown` } };
+    }
+    const blockedFilter = req.query.blocked ? String(req.query.blocked) : undefined;
+    return {
+      filters: {
+        // limit/offset are set by callers — defaults here are safe for facets
+        limit: 0, offset: 0,
         search: req.query.search ? String(req.query.search) : undefined,
         status: req.query.status ? String(req.query.status) : undefined,
         emailHealth: req.query.emailHealth ? String(req.query.emailHealth) : emailStatus,
@@ -288,8 +285,8 @@ export function registerContactsRoutes(app: Express) {
         archived,
         recordClass: recordClass ? String(recordClass) : undefined,
         sort,
-        churnRisk,
-        noOutreach,
+        churnRisk: req.query.churnRisk ? String(req.query.churnRisk) : undefined,
+        noOutreach: req.query.noOutreach ? String(req.query.noOutreach) : undefined,
         blocked: blockedFilter === "true",
         vertical: req.query.vertical ? String(req.query.vertical) : undefined,
         tag: req.query.tag ? String(req.query.tag) : undefined,
@@ -303,10 +300,49 @@ export function registerContactsRoutes(app: Express) {
         notContactedIn30: req.query.notContactedIn30 === "true",
         noDeal: req.query.noDeal === "true",
         createdThisWeek: req.query.createdThisWeek === "true",
-      });
+      },
+    };
+  }
+
+  /**
+   * GET /api/contacts — rows-first.
+   *
+   * Returns the paginated contact rows WITHOUT waiting for totals or facets.
+   * Failure of the facets endpoint must never prevent this response.
+   * Use GET /api/contacts/facets for totals and class/health breakdowns.
+   */
+  app.get("/api/contacts", isDashboardUser, async (req, res) => {
+    try {
+      const pagination = parseStrictPagination(req.query as Record<string, unknown>, { defaultLimit: 100, maxLimit: 500 });
+      if ("error" in pagination) return invalidPagination(res);
+      const { limit, offset } = pagination;
+      const parsed = parseContactsFilters(req);
+      if (parsed.error) return res.status(parsed.error.code === "ARCHIVED_CONTACTS_FORBIDDEN" ? 403 : 400).json(parsed.error);
+      const result = await readPeople(req.user as any, { ...parsed.filters!, limit, offset });
       res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);
+      serverError(res, err);
+    }
+  });
+
+  /**
+   * GET /api/contacts/facets — totals and breakdown counts.
+   *
+   * Separate from the rows endpoint so contact rows are never blocked on the
+   * expensive GROUPING SETS scan.  Errors here must not propagate to the
+   * contact list UI.
+   *
+   * Response: { total, byRecordClass, byEmailHealth, asOf }
+   */
+  app.get("/api/contacts/facets", isDashboardUser, async (req, res) => {
+    try {
+      const parsed = parseContactsFilters(req);
+      if (parsed.error) return res.status(parsed.error.code === "ARCHIVED_CONTACTS_FORBIDDEN" ? 403 : 400).json(parsed.error);
+      const result = await readPeopleFacets(req.user as any, { ...parsed.filters!, limit: 0, offset: 0 });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Get contacts facets error:", err.message);
       serverError(res, err);
     }
   });

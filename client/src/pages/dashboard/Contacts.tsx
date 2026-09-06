@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { useContacts, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
+import { useContacts, useContactsFacets, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
 import { useConfirmationFailedBatch } from "@/hooks/use-confirmation-failed-batch";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -487,8 +487,36 @@ export default function Contacts() {
     createdThisWeek: createdThisWeekOnly,
   });
   const contacts = contactsResult?.data;
-  const totalContacts = contactsResult?.total ?? 0;
-  const totalPages = Math.ceil(totalContacts / pageSize);
+
+  // Facets load separately — a slow/failing facet query never blocks contact rows.
+  const facetsParams = {
+    churnRisk: churnRiskOnly ? "high" : undefined,
+    noOutreach: noOutreach24hOnly ? "24h" : undefined,
+    blocked: blockedOnly ? "true" : undefined,
+    search: searchTerm || undefined,
+    sort: activitySort || undefined,
+    archived: showArchived ? "true" : undefined,
+    recordClass: recordClassFilter === "all" ? undefined : (recordClassFilter || undefined),
+    status: statusFilter || undefined,
+    emailHealth: emailHealthFilter || undefined,
+    assignedToMe,
+    vertical: verticalFilter || undefined,
+    tag: tagFilter || undefined,
+    contactedToday: contactedTodayOnly,
+    hasAssignee: hasAssigneeOnly,
+    leadSource: leadSourceFilter || undefined,
+    lifecycle: lifecycleFilter || undefined,
+    stale: staleContactsOnly,
+    recentlyUpdated,
+    neverContacted: neverContactedOnly,
+    notContactedIn30: notContactedIn30Only,
+    noDeal: noDealOnly,
+    createdThisWeek: createdThisWeekOnly,
+  };
+  const { data: facetsResult, isLoading: facetsLoading, isError: facetsError } = useContactsFacets(facetsParams);
+
+  const totalContacts = facetsResult?.total;   // undefined while loading
+  const totalPages = totalContacts != null ? Math.ceil(totalContacts / pageSize) : undefined;
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -928,10 +956,16 @@ export default function Contacts() {
               data-testid="input-search-contacts"
             />
           </div>
-          {/* #592 — Filtered count */}
+          {/* #592 — Filtered count: shows "—" while loading, "Unavailable" on error, never a stale 0 */}
           {sortedContacts && (
             <span className="text-sm text-muted-foreground whitespace-nowrap" data-testid="text-filtered-count">
-              {totalContacts.toLocaleString()} {totalContacts === 1 ? "contact" : "contacts"}
+              {facetsLoading
+                ? "— contacts"
+                : facetsError
+                ? "Count unavailable"
+                : totalContacts != null
+                ? `${totalContacts.toLocaleString()} ${totalContacts === 1 ? "contact" : "contacts"}`
+                : "— contacts"}
             </span>
           )}
         </div>
@@ -2109,16 +2143,18 @@ export default function Contacts() {
             </>
           )}
         </CardContent>
-        {totalPages > 1 && (
+        {(totalPages ?? 0) > 1 && (
           <div className="flex items-center justify-between px-6 py-4 border-t" data-testid="contacts-pagination">
             <span className="text-sm text-muted-foreground" data-testid="text-contacts-total">
-              Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, totalContacts)} of {totalContacts}
+              {totalContacts != null
+                ? `Showing ${page * pageSize + 1}–${Math.min((page + 1) * pageSize, totalContacts)} of ${totalContacts.toLocaleString()}`
+                : "Loading…"}
             </span>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)} data-testid="button-contacts-prev">
                 Previous
               </Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} data-testid="button-contacts-next">
+              <Button variant="outline" size="sm" disabled={totalPages == null || page >= totalPages - 1} onClick={() => setPage(p => p + 1)} data-testid="button-contacts-next">
                 Next
               </Button>
             </div>

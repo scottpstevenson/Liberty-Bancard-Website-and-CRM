@@ -32,20 +32,85 @@ pool.on("error", (err) => {
   console.error("[DB] Unexpected pool error:", err.message);
 });
 
-// Background pool-pressure sampler — emits only when waitingCount > 0.
+// ---------------------------------------------------------------------------
+// Pool-pressure sampler — emits only when waitingCount > 0.
 // Uses setInterval + unref() so it never prevents process exit.
 // No DB call — reads in-process pool object properties only.
+// ---------------------------------------------------------------------------
 const _pressureTimer = setInterval(() => {
   if (pool.waitingCount > 0) {
     console.warn(JSON.stringify({
       event: "db:pool_pressure",
       waitingCount: pool.waitingCount,
-      totalCount: pool.totalCount,
-      idleCount: pool.idleCount,
+      totalCount:   pool.totalCount,
+      idleCount:    pool.idleCount,
       ts: new Date().toISOString(),
     }));
   }
 }, 15_000);
 _pressureTimer.unref();
+
+// ---------------------------------------------------------------------------
+// Connection-level observability.
+// Wraps pool.query() to record: connection acquisition wait, query fingerprint
+// (first 120 chars of SQL, no values), query duration, and pool state at
+// acquisition/release.  Emits only when acquisition wait OR query duration
+// exceeds thresholds to avoid log storms on fast queries.
+//
+// Does NOT log SQL parameter values, PII, credentials, or complete SQL bodies.
+// ---------------------------------------------------------------------------
+const _SLOW_ACQUIRE_MS = 500;   // warn if we waited > 500 ms for a connection
+const _SLOW_QUERY_MS   = 2_000; // warn if the query itself took > 2 s
+
+const _origQuery = pool.query.bind(pool) as typeof pool.query;
+
+// @ts-expect-error — narrow override for observability wrapper
+pool.query = function observedQuery(textOrConfig: any, values?: any): any {
+  const acquireStart = Date.now();
+  const poolAtAcquire = { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
+  const fingerprint = typeof textOrConfig === "string"
+    ? textOrConfig.replace(/\s+/g, " ").slice(0, 120)
+    : (typeof textOrConfig?.text === "string" ? textOrConfig.text.replace(/\s+/g, " ").slice(0, 120) : "<config>");
+
+  // pg Pool.query() is fire-and-forget for connection lifecycle, so we
+  // instrument the returned promise rather than wrapping pool.connect().
+  const resultPromise: Promise<any> = values !== undefined
+    ? _origQuery(textOrConfig, values)
+    : _origQuery(textOrConfig);
+
+  return resultPromise.then(
+    (result) => {
+      const now = Date.now();
+      const totalMs = now - acquireStart;
+      // We can't separate acquire vs query time without pool.connect(), but
+      // we can flag when the total is slow.
+      if (totalMs >= _SLOW_QUERY_MS || poolAtAcquire.waiting >= 5) {
+        console.warn(JSON.stringify({
+          event:            "db:slow_query",
+          fingerprintSql:   fingerprint,
+          totalMs,
+          poolAtAcquire,
+          poolAtRelease:    { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount },
+          ts: new Date().toISOString(),
+        }));
+      }
+      return result;
+    },
+    (err) => {
+      const totalMs = Date.now() - acquireStart;
+      if (totalMs >= _SLOW_ACQUIRE_MS || poolAtAcquire.waiting >= 5) {
+        console.warn(JSON.stringify({
+          event:          "db:query_error",
+          fingerprintSql: fingerprint,
+          totalMs,
+          poolAtAcquire,
+          errorType:      err instanceof Error ? err.constructor.name : "UnknownError",
+          ts: new Date().toISOString(),
+        }));
+      }
+      throw err;
+    },
+  );
+};
 
 export const db = drizzle(pool, { schema });
