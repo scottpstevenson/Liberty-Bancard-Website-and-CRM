@@ -52,7 +52,7 @@ export const featureFlags = {
   get SDR_ENABLED() { return dbFallbackBool("SDR_ENABLED", true); },
   get ORCHESTRATOR_ENABLED() { return dbFallbackBool("ORCHESTRATOR_ENABLED", false); },
   get LEGACY_OUTREACH_ENABLED() { return dbFallbackBool("LEGACY_OUTREACH_ENABLED", false); },
-  get SUNBIZ_ENRICHMENT_ENABLED() { return envBool("SUNBIZ_ENRICHMENT_ENABLED", process.env.NODE_ENV === "production"); },
+  get SUNBIZ_ENRICHMENT_ENABLED() { return dbFallbackBool("SUNBIZ_ENRICHMENT_ENABLED", false); },
   get VOICE_AI_ENABLED() { return dbFallbackBool("VOICE_AI_ENABLED", false); },
   get SMS_ENABLED() { return dbFallbackBool("SMS_ENABLED", false); },
   get RINGLESS_VM_ENABLED() { return dbFallbackBool("RINGLESS_VM_ENABLED", false); },
