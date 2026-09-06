@@ -4,7 +4,7 @@ import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
 import { runProductionSeedConvergence } from "./services/production-seed-convergence";
-import { runStartupCeremonyArtifacts, runStartupCeremonyAttestation } from "./services/cro03-startup-ceremony";
+// W13: Ceremony removed from startup — use scripts/cro03d-run-ceremony.ts offline.
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
@@ -262,25 +262,15 @@ app.use((req, _res, next) => {
   }
 
   if (shouldRunStartupMigrations(process.env.NODE_ENV)) {
-    // Race against a 60 s deadline — post-migration helpers (knowledge seed,
-    // assigned_to guard) can make outbound HTTP calls that hang indefinitely.
-    // Core DDL always finishes in < 15 s; a timeout here is non-fatal.
-    let _migrationTimedOut = false;
-    await Promise.race([
-      runDrizzleMigrations(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => {
-          _migrationTimedOut = true;
-          reject(new Error("runDrizzleMigrations timed out after 60 s"));
-        }, 60_000),
-      ),
-    ]).catch((err: Error) => {
-      if (_migrationTimedOut) {
-        console.warn("[DB Migrate] Post-migration helpers timed out (non-fatal) —", err.message);
-      } else {
-        throw err; // real migration failure — propagate
-      }
-    });
+    // Await core migrations without a whole-run timeout. The migration runner
+    // applies schema DDL and journal migrations using a dedicated pg.Client with
+    // statement_timeout=0 so that CREATE INDEX on large tables cannot be killed
+    // mid-run. The optional knowledge-base seed at the end of runDrizzleMigrations
+    // is already wrapped in its own try/catch and is non-fatal — no outer race
+    // is needed. A timeout that wraps the entire function would misclassify a
+    // legitimate long index build as a success, allowing deployment with a
+    // partially applied schema.
+    await runDrizzleMigrations();
   } else {
     console.log("[DB Migrate] Production startup migrations skipped — schema is managed by Replit Publish.");
   }
@@ -313,8 +303,7 @@ app.use((req, _res, next) => {
   // target here is insert-only and fails closed (throws, blocking startup)
   // on any conflict with canonical content.
   await runProductionSeedConvergence();
-  // Phase 1: import approval artifacts (no workers needed yet).
-  const _cro03Receipts = await runStartupCeremonyArtifacts();
+  // W13: Ceremony artifacts no longer run at startup — use scripts/cro03d-run-ceremony.ts offline.
   await assertCro02PurposePolicies();
   await registerRoutes(httpServer, app);
   // Resume only durable, expired CSV executions after routes are registered.
@@ -421,7 +410,12 @@ app.use((req, _res, next) => {
         pauseInitialized = false;
       }
 
-      if (_bgProfile !== "off") {
+      // W01: selective mode starts only the named BullMQ capability groups.
+      // full/core also run non-BullMQ seeds, schedulers, and GHL hydration.
+      // Selective and off modes skip all of those.
+      const _bgProfileAllowsNonBullmqWork = _bgProfile === "full" || _bgProfile === "core";
+
+      if (_bgProfileAllowsNonBullmqWork) {
         // Seed legacy system_settings pause keys (for backward compat, channel-level pauses)
         (async () => {
           const CHANNEL_PAUSE_KEYS = [
@@ -448,7 +442,7 @@ app.use((req, _res, next) => {
           seedDemoProspects();
         }
       } else {
-        log("[BackgroundProfile] off — startup seeds and pause-key seeding skipped");
+        log(`[BackgroundProfile] ${_bgProfile} — startup seeds and pause-key seeding skipped`);
       }
 
       // ── Workers start only after pause state is initialized ───────────────
@@ -484,13 +478,7 @@ app.use((req, _res, next) => {
         // panel reflects sync mode, not just the startup log.
         const { recordWorkerSuccess, JOB_NAMES } = await import("./services/job-registry");
         await recordWorkerSuccess(JOB_NAMES.GHL_SYNC_MODE).catch(() => {});
-        // Phase 2: attestation + policy (requires workers to have emitted heartbeats).
-        // Non-fatal — retried idempotently on next startup.
-        if (_cro03Receipts) {
-          runStartupCeremonyAttestation(_cro03Receipts).catch(err =>
-            console.error("[CRO03D] Phase 2 post-worker attestation failed:", err?.message)
-          );
-        }
+        // W13: Phase 2 ceremony removed from startup — use scripts/cro03d-run-ceremony.ts offline.
       }).catch(async err => {
         console.error("[Queue] Failed to initialize BullMQ — workers remain stopped (fail-closed):", err.message);
         log("GHL sync mode: unavailable");
@@ -503,8 +491,22 @@ app.use((req, _res, next) => {
 
       // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars,
       // then run a non-blocking live validation against GHL to surface stale/deleted IDs.
-      if (_bgProfile === "off") {
-        log("[BackgroundProfile] off — GHL workflow hydration/live validation skipped");
+      // W01: GHL hydration runs in full/core unconditionally. In selective mode it runs
+      // only when the ghl-integration capability group is explicitly selected (workers
+      // in that group depend on hydrated workflow IDs). All other selective profiles and
+      // the "off" profile skip it.
+      const _ghlGroupActive =
+        _bgProfile === "full" ||
+        _bgProfile === "core" ||
+        (_bgProfile === "selective" &&
+          (() => {
+            try {
+              const { getSelectiveGroups: _sg } = require("./services/background-profile");
+              return (_sg() as string[]).includes("ghl-integration");
+            } catch { return false; }
+          })());
+      if (_bgProfile === "off" || (!_ghlGroupActive)) {
+        log(`[BackgroundProfile] ${_bgProfile} — GHL workflow hydration/live validation skipped`);
       } else if (certificationDenyMode) {
         log("[Certification] GHL workflow hydration/live validation disabled in provider deny mode");
       } else {
@@ -539,7 +541,9 @@ app.use((req, _res, next) => {
         }).catch(() => {});
       }
 
-      if (_bgProfile !== "off") {
+      // W01: seeds and non-BullMQ schedulers only in full/core mode.
+      // Selective mode enables only named BullMQ capability groups — nothing else.
+      if (_bgProfileAllowsNonBullmqWork) {
         // Seed Scott's sending identity as the primary SDR inbox if not already present
         seedScottSendingIdentity().catch(err => {
           console.error("[Seed] Failed to seed Scott sending identity:", err);
@@ -574,8 +578,8 @@ app.use((req, _res, next) => {
         })().catch(err => console.warn("[StatementAcquisition] Non-critical seeding error:", err.message));
       }
 
-      if (_bgProfile === "off") {
-        log("[BackgroundProfile] off — DailyMaintenanceScheduler not started");
+      if (_bgProfile === "off" || !_bgProfileAllowsNonBullmqWork) {
+        log(`[BackgroundProfile] ${_bgProfile} — DailyMaintenanceScheduler not started`);
       } else if (!certificationDenyMode) {
         startDailyMaintenanceScheduler();
       } else {
@@ -585,8 +589,9 @@ app.use((req, _res, next) => {
       // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts
       // Only start when pause state is known — LinkedIn auto-publish is an
       // external outbound action and must not run when workers are blocked.
-      if (_bgProfile === "off") {
-        log("[BackgroundProfile] off — ContentScheduler not started");
+      // W01: also only in full/core mode — selective enrichment must not publish content.
+      if (_bgProfile === "off" || !_bgProfileAllowsNonBullmqWork) {
+        log(`[BackgroundProfile] ${_bgProfile} — ContentScheduler not started`);
       } else if (pauseInitialized) {
         if (!certificationDenyMode) {
           startContentScheduler();
@@ -596,7 +601,7 @@ app.use((req, _res, next) => {
       } else {
         console.warn("[ContentScheduler] NOT started — pause state unknown; LinkedIn auto-publish blocked until restart with control table available");
       }
-      if (_bgProfile !== "off") {
+      if (_bgProfileAllowsNonBullmqWork) {
         seedContentEngine().catch(err => {
           console.error("[Seed] Content Engine seeding failed:", err);
         });

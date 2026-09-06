@@ -600,12 +600,16 @@ export async function createCro03cRuntimeAttestation(input: {
       redisHealthy = false;
     }
     if (redisHealthy) {
+      // W09: bind verification to this process's env/deployment so cross-env
+      // heartbeats sharing Redis are rejected during attestation creation.
       const fleet = await readCro03cWorkerFleet({
         redis,
         prefix: getBullMqTestPrefix(),
         expectedReleaseSha: artifactSha,
         expectedQueueTopologyHash: queueTopologyHash,
         expectedProcessIdentities: inventory.workerIdentities,
+        expectedEnvironmentIdentity: environmentIdentity,
+        expectedDeploymentIdentity: deploymentIdentity,
         now: new Date(),
       });
       if (!fleet.complete) throw new Error("CRO03C_WORKER_FLEET_SCAN_INCOMPLETE");
@@ -1428,12 +1432,17 @@ export async function assertCro03cDeploymentAuthorityBeforeIo(input: {
   }, new Date(), "later");
   const redis = getSharedRedisClient();
   if (!redis) throw new Error("CRO03C_WORKER_ATTESTATION_UNAVAILABLE");
+  // W09: bind verification to the inventory's declared env/deployment so cross-env
+  // heartbeats sharing Redis are rejected during authority verification.
   let fleet;
   try {
     fleet = await readCro03cWorkerFleet({
       redis, prefix: getBullMqTestPrefix(), expectedReleaseSha: inventory.releaseSha,
       expectedQueueTopologyHash: inventory.queueTopologyHash,
-      expectedProcessIdentities: inventory.workerIdentities, now: new Date(),
+      expectedProcessIdentities: inventory.workerIdentities,
+      expectedEnvironmentIdentity: inventory.environmentIdentity,
+      expectedDeploymentIdentity: inventory.deploymentIdentity,
+      now: new Date(),
     });
   } catch {
     throw new Error("CRO03C_WORKER_FLEET_INVALID");

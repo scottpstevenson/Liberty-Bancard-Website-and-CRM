@@ -83,11 +83,12 @@ async function assertObservedWorkerFleet(): Promise<void> {
     ping: async () => "PONG",
     scan: async () => [String(++scans), []],
   };
+  // W06: bounded/error returns now include discoveryMode=false (verification mode)
   assert.deepEqual(await readCro03cWorkerFleet({
     redis: exhausted, expectedReleaseSha: "a".repeat(40),
     expectedQueueTopologyHash: "b".repeat(64), expectedProcessIdentities: ["worker-a"],
     now, maxIterations: 2,
-  }), { complete: false, heartbeats: [] });
+  }), { complete: false, heartbeats: [], discoveryMode: false });
 
   const failing: Cro03cHeartbeatRedis = {
     get: async () => null,
@@ -98,7 +99,48 @@ async function assertObservedWorkerFleet(): Promise<void> {
   assert.deepEqual(await readCro03cWorkerFleet({
     redis: failing, expectedReleaseSha: "a".repeat(40),
     expectedQueueTopologyHash: "b".repeat(64), expectedProcessIdentities: ["worker-a"], now,
-  }), { complete: false, heartbeats: [] });
+  }), { complete: false, heartbeats: [], discoveryMode: false });
+
+  // W06: discovery mode (empty expectedProcessIdentities) returns heartbeats without SIZE_MISMATCH
+  const discoveryResult = await readCro03cWorkerFleet({
+    redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
+    expectedQueueTopologyHash: "b".repeat(64),
+    expectedProcessIdentities: [],  // discovery mode
+    now,
+  });
+  assert.equal(discoveryResult.discoveryMode, true);
+  assert.equal(discoveryResult.complete, true);
+  assert.equal(discoveryResult.heartbeats.length, 2);
+
+  // W09: Environment identity mismatch is rejected in discovery mode
+  await mustReject(readCro03cWorkerFleet({
+    redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
+    expectedQueueTopologyHash: "b".repeat(64),
+    expectedProcessIdentities: [],  // discovery mode
+    expectedEnvironmentIdentity: "production",  // heartbeats carry default (process.env.NODE_ENV)
+    now,
+  }), "CRO03C_WORKER_ENVIRONMENT_MISMATCH");
+
+  // W09: Environment identity mismatch is rejected in verification mode too
+  await mustReject(readCro03cWorkerFleet({
+    redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
+    expectedQueueTopologyHash: "b".repeat(64),
+    expectedProcessIdentities: ["worker-a", "worker-b"],
+    expectedEnvironmentIdentity: "production",  // heartbeats carry default (process.env.NODE_ENV)
+    now,
+  }), "CRO03C_WORKER_ENVIRONMENT_MISMATCH");
+
+  // W09: Matching environment identity succeeds
+  const matchingEnv = process.env.NODE_ENV ?? "unknown";
+  const envMatchResult = await readCro03cWorkerFleet({
+    redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
+    expectedQueueTopologyHash: "b".repeat(64),
+    expectedProcessIdentities: ["worker-a", "worker-b"],
+    expectedEnvironmentIdentity: matchingEnv,
+    now,
+  });
+  assert.equal(envMatchResult.complete, true);
+  assert.equal(envMatchResult.heartbeats.length, 2);
 }
 
 async function assertSafeEgressBounds(): Promise<void> {

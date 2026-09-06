@@ -1,6 +1,11 @@
 import { Queue, Worker, DelayedError, type ConnectionOptions, type Job } from "bullmq";
 import { sql } from "drizzle-orm";
-import { getBackgroundProfile, CORE_QUEUE_ALLOWLIST } from "./background-profile";
+import {
+  getBackgroundProfile,
+  getSelectiveGroups,
+  getQueuesForCapabilityGroups,
+  CORE_QUEUE_ALLOWLIST,
+} from "./background-profile";
 import { createHash } from "node:crypto";
 import {
   diagnoseRedisCapacity,
@@ -130,13 +135,15 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.GHL_SYNC,
-    // concurrency=3: each tick is a GHL API call; 3 lets slow timeouts drain in parallel
-    // without saturating GHL's rate limit (100 req/10s per location).
-    concurrency: 3,
+    // W12: concurrency=1 (was 3). The handler acquires a singleton lease
+    // (acquireJobLock) so concurrent slots always no-op and waste a Redis
+    // blocking connection. Projection work and legacy scan are both serialised
+    // inside runGhlFullSyncTick(); separating them is tracked separately.
+    concurrency: 1,
     attempts: 3,
     backoffDelay: 5000,
     repeatEveryMs: GHL_SYNC_REPEAT_EVERY_MS,
-    jobName: "run",
+    jobName: "ghl-sync-tick",
   },
   {
     name: QUEUE_NAMES.SLA_CHECKS,
@@ -468,6 +475,10 @@ export interface QueueTopologySnapshot {
   legacyGhlClaimed: boolean;
   /** BullMQ is only active when backed by a real Redis connection. */
   queueMode: QueueMode;
+  /** W08: active BACKGROUND_JOB_PROFILE (off / core / selective / full) */
+  activeProfile: string;
+  /** W08: selected capability groups when profile=selective */
+  selectedGroups: string[];
   processId: number;
   processIdentity: string | null;
   releaseSha: string | null;
@@ -795,23 +806,55 @@ class QueueManager {
   private effectiveIntervals: Map<string, number> = new Map();
 
   /** Configs to actually manage. Gated by BACKGROUND_JOB_PROFILE:
-   *   "off"  → [] (no workers constructed)
-   *   "core" → only queues in CORE_QUEUE_ALLOWLIST (starts empty, populated operationally)
-   *   "full" → all queues except GHL_SYNC when legacy fallback is claimed
+   *   "off"      → [] (no workers constructed)
+   *   "core"     → only queues in CORE_QUEUE_ALLOWLIST (starts empty, populated operationally)
+   *   "selective:group1,group2" → only queues in the named capability groups
+   *                               (see WORKER_CAPABILITY_GROUPS in background-profile.ts)
+   *   "full"     → all queues except GHL_SYNC when legacy fallback is claimed
+   *
+   * W01: selective mode provides validated, bounded queue selection without enabling
+   * all 29 queues. BACKGROUND_JOB_PROFILE=selective:enrichment,ghl-integration
+   * starts only those two groups' physical queues.
    */
   private activeConfigs(): QueueConfig[] {
     const profile = getBackgroundProfile();
     if (profile === "off") return [];
+
+    const legacyBase = _legacyGhlSyncClaimed
+      ? QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC)
+      : QUEUE_CONFIGS;
+
     if (profile === "core") {
-      const base = _legacyGhlSyncClaimed
-        ? QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC)
-        : QUEUE_CONFIGS;
-      return base.filter(c => CORE_QUEUE_ALLOWLIST.includes(c.name));
+      const active = legacyBase.filter(c => CORE_QUEUE_ALLOWLIST.includes(c.name));
+      if (active.length === 0 && CORE_QUEUE_ALLOWLIST.length === 0) {
+        console.warn(
+          "[QueueManager] profile=core but CORE_QUEUE_ALLOWLIST is empty — " +
+          "no workers will start. Populate the allowlist operationally or use " +
+          "BACKGROUND_JOB_PROFILE=selective:<groups> for named capability selection."
+        );
+      }
+      return active;
     }
+
+    if (profile === "selective") {
+      const groups = getSelectiveGroups();
+      const allowedQueues = getQueuesForCapabilityGroups(groups);
+      const active = legacyBase.filter(c => allowedQueues.includes(c.name));
+      console.log(JSON.stringify({
+        event: "queue-manager:selective-profile",
+        groups,
+        allowedQueues,
+        activeQueueCount: active.length,
+        ts: new Date().toISOString(),
+      }));
+      return active;
+    }
+
     // "full" — existing behavior
-    if (!_legacyGhlSyncClaimed) return QUEUE_CONFIGS;
-    console.warn("[QueueManager] Legacy GHL sync already active for this process — excluding GHL_SYNC from BullMQ setup.");
-    return QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC);
+    if (_legacyGhlSyncClaimed) {
+      console.warn("[QueueManager] Legacy GHL sync already active for this process — excluding GHL_SYNC from BullMQ setup.");
+    }
+    return legacyBase;
   }
 
   async initialize(): Promise<void> {
@@ -900,10 +943,15 @@ class QueueManager {
       publishCro03cWorkerHeartbeat,
     } = await import("./cro03/runtime-heartbeat");
     const redis = this.connection as any;
+    // W09: include stable environment + deployment fields so heartbeats can
+    // be bound to their deployment namespace independently of PID.
     const heartbeat = createCro03cWorkerHeartbeat({
       releaseSha: process.env.RELEASE_SHA ?? "",
       processIdentity: process.env.PROCESS_IDENTITY,
       queueTopologyHash: getCro03cQueueTopologyHash(),
+      environmentIdentity: process.env.NODE_ENV,
+      deploymentIdentity: process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID,
+      enabledGroups: process.env.BACKGROUND_JOB_PROFILE ?? "off",
     });
     const publish = async () => {
       await publishCro03cWorkerHeartbeat(redis, this.redisKeyPrefix, {
@@ -1165,18 +1213,182 @@ class QueueManager {
 
       // ── Automation kill-switch gate ──────────────────────────────────────
       // Check registry before executing. If kill_switch_enabled = true, skip.
+      // W10: When a kill-switch fires, write a durable audit record so the
+      // operator can see that authoritative work was suppressed and why.
+      // A BullMQ job that simply returns without executing is indistinguishable
+      // from one that ran successfully — the audit record provides the evidence.
       try {
         const { isAutomationEnabled } = await import("./automation-kill-switch");
         if (!(await isAutomationEnabled(queueName))) {
           console.info(`[AutomationRegistry] Queue ${queueName} is kill-switched, skipping job ${_job.id}`);
+          // W10: write durable held record — non-fatal.
+          // Schema: audit_logs(action text NN, entity_type text NN, entity_id int,
+          //   actor_type text, actor_id text, details jsonb, created_at timestamp)
+          try {
+            const { db: _auditDb } = await import("../db");
+            const { sql: _auditSql } = await import("drizzle-orm");
+            await _auditDb.execute(_auditSql`
+              INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, actor_id, details, created_at)
+              VALUES (
+                'job.kill_switch_suppressed',
+                'queue',
+                NULL,
+                'system',
+                'queue-manager',
+                ${JSON.stringify({
+                  queue: queueName,
+                  jobId: _job.id ?? null,
+                  jobName: _job.name,
+                  reason: "kill_switch_enabled",
+                })}::jsonb,
+                NOW()
+              )
+            `);
+          } catch (_auditErr) {
+            console.warn(`[AutomationRegistry] Kill-switch audit write failed for ${queueName}:`, (_auditErr as Error).message);
+          }
           return;
         }
       } catch (ksErr) {
         // C-05 (#1626): kill-switch check failed — FAIL CLOSED. If we cannot
         // read the registry, we cannot prove the queue is enabled; skip the
         // job rather than proceeding blind.
-        console.warn(`[AutomationRegistry] Kill-switch check failed for ${queueName} — failing closed, skipping job ${_job.id}:`, (ksErr as Error).message);
-        return;
+        console.warn(`[AutomationRegistry] Kill-switch check failed for ${queueName} — failing closed, retrying job ${_job.id}:`, (ksErr as Error).message);
+        // W10: write durable held record for check failure too
+        try {
+          const { db: _auditDb } = await import("../db");
+          const { sql: _auditSql } = await import("drizzle-orm");
+          await _auditDb.execute(_auditSql`
+            INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, actor_id, details, created_at)
+            VALUES (
+              'job.kill_switch_suppressed',
+              'queue',
+              NULL,
+              'system',
+              'queue-manager',
+              ${JSON.stringify({
+                queue: queueName,
+                jobId: _job.id ?? null,
+                jobName: _job.name,
+                reason: "kill_switch_check_failed",
+                error: (ksErr as Error).message?.slice(0, 200) ?? "unknown",
+              })}::jsonb,
+              NOW()
+            )
+          `);
+        } catch (_auditErr) {
+          console.warn(`[AutomationRegistry] Kill-switch check-failure audit write failed for ${queueName}:`, (_auditErr as Error).message);
+        }
+        // Throw rather than return so BullMQ retries the job via normal backoff
+        // instead of marking it complete and permanently losing durable work.
+        throw new Error(
+          `[AutomationRegistry] Kill-switch registry unreachable for ${queueName} — job will be retried`,
+        );
+      }
+
+      // ── W01: Per-job logical capability gate (selective mode) ────────────────
+      // The physical queue filter (activeConfigs) already limits WHICH queues
+      // start Workers, but a single physical queue can host logical jobs from
+      // multiple capability groups (e.g. the `enrichment` queue also processes
+      // `campaign-queue-run` and `inbound-confirmation-followup`). This gate
+      // enforces default-deny at the processor boundary so that only jobs whose
+      // logical capability group is in the active groups list are executed.
+      // FAIL-CLOSED: any error in the gate itself suppresses the job. This is
+      // intentional — a malfunctioning gate must not let outreach/GHL work run
+      // under an enrichment-only profile.
+      const _runtimeProfile = getBackgroundProfile();
+      if (_runtimeProfile === "selective") {
+        // ── Selective capability gate ─────────────────────────────────────────
+        // Evaluate inside a try/catch so any gate error is caught. We use
+        // _shouldDelayJob / _gcGateError flags rather than throwing inside the
+        // try-block to ensure DelayedError always propagates OUTSIDE the catch
+        // (BullMQ must receive it; swallowing it causes normal completion which
+        // permanently loses durable application-level state, e.g. a pending
+        // promotional_enrollment_jobs row that only re-queues on 'deferred').
+        let _gcGateError: Error | null = null;
+        let _shouldDelayJob = false; // set when moveToDelayed succeeds
+        let _moveToDelayedFailed = false; // set when moveToDelayed itself throws
+        try {
+          const { getSelectiveGroups: _getGroups, getJobCapabilityGroup: _getJobGroup } =
+            await import("./background-profile");
+          const _activeGroups = _getGroups();
+          const _jobGroup = _getJobGroup(queueName, _job.name);
+          if (_jobGroup !== null && !_activeGroups.includes(_jobGroup as any)) {
+            console.info(JSON.stringify({
+              event: "job:selective_capability_suppressed",
+              queue: queueName,
+              jobName: _job.name,
+              jobGroup: _jobGroup,
+              activeGroups: _activeGroups,
+              jobId: _job.id,
+              ts: new Date().toISOString(),
+            }));
+            try {
+              const { db: _gcDb } = await import("../db");
+              const { sql: _gcSql } = await import("drizzle-orm");
+              await _gcDb.execute(_gcSql`
+                INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, actor_id, details, created_at)
+                VALUES (
+                  'job.selective_capability_suppressed',
+                  'queue', NULL, 'system', 'queue-manager',
+                  ${JSON.stringify({
+                    queue: queueName,
+                    jobId: _job.id ?? null,
+                    jobName: _job.name,
+                    jobGroup: _jobGroup,
+                    activeGroups: _activeGroups,
+                    reason: "selective_capability_gate",
+                  })}::jsonb,
+                  NOW()
+                )
+              `);
+            } catch (_gcAuditErr) {
+              console.warn(`[SelectiveProfile] Audit write failed:`, (_gcAuditErr as Error).message);
+            }
+            // Delay the BullMQ job so it is preserved for later authorized
+            // execution. We set a flag here — the actual throw of DelayedError
+            // must happen OUTSIDE the outer try/catch so it cannot be caught
+            // by _gcGateError and turned into a silent return.
+            const _SELECTIVE_DEFER_MS = 5 * 60_000; // 5 minutes
+            try {
+              await _job.moveToDelayed(Date.now() + _SELECTIVE_DEFER_MS, _job.token ?? undefined);
+              _shouldDelayJob = true;
+            } catch (_deferErr) {
+              _moveToDelayedFailed = true;
+              console.warn(
+                `[SelectiveProfile] moveToDelayed failed for job=${_job.name} id=${_job.id}: ` +
+                `${(_deferErr as Error).message}. Job will be retried via normal BullMQ backoff.`,
+              );
+            }
+          }
+        } catch (_gcErr) {
+          _gcGateError = _gcErr instanceof Error ? _gcErr : new Error(String(_gcErr));
+        }
+
+        // ── Post-gate dispatch (outside try/catch so DelayedError reaches BullMQ) ──
+        if (_shouldDelayJob) {
+          // moveToDelayed succeeded — signal BullMQ to honor the delayed state.
+          throw new DelayedError();
+        }
+        if (_moveToDelayedFailed) {
+          // moveToDelayed failed — let BullMQ retry via normal backoff rather
+          // than marking the job complete.
+          throw new Error(
+            `[SelectiveProfile] Suppressed job ${_job.name} could not be deferred; ` +
+            `retrying via BullMQ backoff.`,
+          );
+        }
+        // FAIL-CLOSED: gate check error → throw so BullMQ retries rather than
+        // completing the job (completing would silently lose durable state).
+        if (_gcGateError !== null) {
+          console.error(
+            `[SelectiveProfile] Per-job capability gate check FAILED (fail-closed) for ` +
+            `queue=${queueName} job=${_job.name}: ${_gcGateError.message}`,
+          );
+          throw new Error(
+            `[SelectiveProfile] Capability gate error for ${_job.name}: ${_gcGateError.message}`,
+          );
+        }
       }
 
       // ── Worker heartbeat ─────────────────────────────────────────────────────
@@ -1216,6 +1428,9 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.GHL_SYNC: {
+          // W12: job name changed from generic "run" to "ghl-sync-tick" for
+          // logical identity. Accept both to tolerate any pre-existing BullMQ
+          // repeatable jobs with the old name until they drain.
           await runGhlSyncTick();
           break;
         }
@@ -1947,6 +2162,10 @@ class QueueManager {
    * No Redis URLs, credentials, job payloads, contact/merchant data.
    */
   getTopologySnapshot(): QueueTopologySnapshot {
+    // W08: include effective profile and selected groups so topology is
+    // self-describing and the hash change when the profile changes is visible.
+    const profile = getBackgroundProfile();
+    const selectedGroups = profile === "selective" ? getSelectiveGroups() : [];
     return {
       manifestConfigCount: QUEUE_CONFIGS.length,
       activeConfigCount: this.activeConfigs().length,
@@ -1955,6 +2174,8 @@ class QueueManager {
       logicalJobCount: QUEUE_CONFIGS.length + NAMED_QUEUE_SCHEDULES.length,
       legacyGhlClaimed: isLegacyGhlSyncClaimed(),
       queueMode: getQueueMode(),
+      activeProfile: profile,
+      selectedGroups,
       processId: process.pid,
       processIdentity: process.env.PROCESS_IDENTITY?.trim() || `process:${process.pid}`,
       releaseSha: process.env.RELEASE_SHA ?? null,
@@ -2201,12 +2422,16 @@ class QueueManager {
         releaseSha,
         queueTopologyHash: getCro03cQueueTopologyHash(),
       });
+      // W09: bind verification to this deployment's env/namespace so cross-env
+      // heartbeats on shared Redis are rejected.
       const fleet = await readCro03cWorkerFleet({
         redis,
         prefix: this.redisKeyPrefix,
         expectedReleaseSha: releaseSha,
         expectedQueueTopologyHash: getCro03cQueueTopologyHash(),
         expectedProcessIdentities: inventory.workerIdentities,
+        expectedEnvironmentIdentity: environmentIdentity,
+        expectedDeploymentIdentity: deploymentIdentity,
       });
       return {
         status: fleet.complete ? "reconciled" : "degraded",
@@ -2512,8 +2737,23 @@ class QueueManager {
   }
 }
 
+/**
+ * W08: Hash covers the effective configuration — static topology PLUS the
+ * active profile and selected capability groups.  A changed profile (off →
+ * selective:enrichment, selective:enrichment → full) changes the hash and
+ * invalidates any heartbeats or inventories signed against the prior value.
+ *
+ * Timestamps, secrets and boot IDs are intentionally excluded so the hash
+ * is deterministic across restarts with the same configuration.
+ */
 export function getCro03cQueueTopologyHash(): string {
+  const profile = getBackgroundProfile();
+  const selectedGroups = profile === "selective" ? getSelectiveGroups().sort() : [];
+
   const topology = {
+    // W08: include effective profile in hash
+    effectiveProfile: profile,
+    selectedGroups,
     queues: QUEUE_CONFIGS.map(({ name, concurrency, attempts, backoffDelay, repeatEveryMs, cronPattern, jobName }) => ({
       name, concurrency, attempts, backoffDelay, repeatEveryMs, cronPattern: cronPattern ?? null, jobName,
     })).sort((a, b) => a.name.localeCompare(b.name)),

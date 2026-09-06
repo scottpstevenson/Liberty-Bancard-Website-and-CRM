@@ -177,41 +177,84 @@ export function registerCro03Routes(app: Express): void {
   // and cannot be discovered from outside it. No secrets are exposed.
   // Also returns live worker identities from Redis (needed by the ceremony script
   // to construct a signed deployment inventory before calling runtime-attestations).
+  /**
+   * W06: Truthful runtime identity with separated discovery and verification.
+   *
+   * This route performs DISCOVERY — it scans all live heartbeats without
+   * asserting they match a pre-determined expected list.  A non-empty
+   * workerIdentities result proves workers exist; it does NOT certify that the
+   * fleet is complete or matches the signed deployment inventory.
+   *
+   * Verification (expected-fleet check) is done by the offline ceremony script
+   * which supplies an independent --expected-workers count and compares against
+   * the observed list rather than using the observed list as the expectation.
+   *
+   * Off-mode CRM: a profile=off process correctly reports zero workers and a
+   * healthy HTTP role.  Discovery returning zero workers must not trigger a
+   * workerFleetComplete=false sentinel that blocks a separately governed ceremony
+   * against a process that intentionally has no workers (e.g. a web-only replica).
+   */
   app.get("/api/admin/cro03c/runtime-identity", isDashboardUser, requireRole("admin"), async (_req, res) => {
     const { getCro03cQueueTopologyHash } = await import("../services/queue-manager");
     const { getSharedRedisClient, getBullMqTestPrefix } = await import("../services/queue-connection");
     const { readCro03cWorkerFleet } = await import("../services/cro03/runtime-heartbeat");
+    const { getBackgroundProfile, getSelectiveGroups } = await import("../services/background-profile");
     const queueTopologyHash = getCro03cQueueTopologyHash();
     const releaseSha = process.env.RELEASE_SHA ?? null;
+    const profile = getBackgroundProfile();
 
     let workerIdentities: string[] = [];
-    let workerFleetComplete = false;
+    // W06: discoveryComplete=true means the Redis scan finished within its
+    // bounds and the result is exhaustive for this release/topology.
+    // It does NOT mean the fleet matches a required expected count.
+    let discoveryComplete = false;
+    let discoveryErrorCode: string | null = null;
+
     try {
       const redis = getSharedRedisClient();
       if (redis && releaseSha && /^[0-9a-f]{40}$/i.test(releaseSha)) {
+        // W06: Discovery mode — empty expectedProcessIdentities.
+        // The fixed readCro03cWorkerFleet now returns complete=true in
+        // discovery mode when the scan finishes, instead of throwing SIZE_MISMATCH.
+        // W09: Bind discovery to this process's environment and deployment so
+        // heartbeats from a different env/workspace sharing Redis are rejected.
         const fleet = await readCro03cWorkerFleet({
           redis, prefix: getBullMqTestPrefix(),
           expectedReleaseSha: releaseSha,
           expectedQueueTopologyHash: queueTopologyHash,
-          // Discovery mode: no prior list — scan all live heartbeats.
-          // complete=false means the Redis scan hit a limit; caller should retry.
-          expectedProcessIdentities: [],
+          expectedProcessIdentities: [],   // discovery mode
+          expectedEnvironmentIdentity: process.env.NODE_ENV,
+          expectedDeploymentIdentity: process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID,
           now: new Date(),
         });
-        workerIdentities = fleet.heartbeats.map((h: any) => h.processIdentity).sort();
-        workerFleetComplete = fleet.complete;
+        workerIdentities = fleet.heartbeats.map((h) => h.processIdentity).sort();
+        discoveryComplete = fleet.complete;
+      } else if (!redis) {
+        discoveryErrorCode = "REDIS_NOT_INITIALIZED";
+      } else if (!releaseSha || !/^[0-9a-f]{40}$/i.test(releaseSha)) {
+        discoveryErrorCode = "RELEASE_SHA_MISSING_OR_INVALID";
       }
-    } catch {
-      // Best-effort — ceremony caller can see workerFleetComplete=false and retry
+    } catch (err: unknown) {
+      // Best-effort — ceremony caller can see discoveryComplete=false and retry
+      discoveryErrorCode = err instanceof Error ? err.message.slice(0, 100) : "DISCOVERY_ERROR";
     }
 
     res.json({
+      // Process-level identity
       deploymentIdentity: process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? null,
       environmentIdentity: process.env.NODE_ENV ?? null,
       releaseSha,
       queueTopologyHash,
+      // W06: renamed from workerFleetComplete to distinguish discovery from verification
       workerIdentities,
-      workerFleetComplete,
+      workerFleetComplete: discoveryComplete,   // kept for ceremony script backward compat
+      discoveryComplete,
+      discoveryErrorCode,
+      // W09: active profile so ceremony can confirm workers match their expected config
+      activeProfile: profile,
+      // W01: selected capability groups (populated when profile === "selective")
+      selectedGroups: profile === "selective" ? getSelectiveGroups() : null,
+      // W08: effective topology hash is already included in queueTopologyHash above
     });
   });
 

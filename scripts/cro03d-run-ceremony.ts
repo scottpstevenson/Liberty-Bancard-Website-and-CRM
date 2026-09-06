@@ -6,12 +6,44 @@
  * CRO03D_OPERATOR_PRIVATE_KEY environment secret — no /tmp dependency.
  *
  * Usage:
- *   npx tsx scripts/cro03d-run-ceremony.ts [--target-sha <sha>]
+ *   npx tsx scripts/cro03d-run-ceremony.ts --expected-workers <N> [--target-sha <sha>]
+ *   npx tsx scripts/cro03d-run-ceremony.ts --preflight-only [--expected-workers <N>]
  *
- * --target-sha defaults to the current production /api/health sha.
- * The script signs 4 approval artifacts, imports them, creates a runtime
- * attestation, and creates an activation policy revision. All steps are
- * idempotent — safe to re-run.
+ * --expected-workers N  REQUIRED for the apply path. The independently configured
+ *                       number of workers that must be observed. This value must
+ *                       come from the operator's deployment configuration (not
+ *                       from the observed fleet itself — W07). Ceremony aborts if
+ *                       the live observed count ≠ N.
+ *
+ * --preflight-only  Perform ONLY read-only checks (key load, pricing, SHA, login,
+ *                   runtime-identity, worker count). Exits before importing any
+ *                   artifacts, inventory, attestation, or policy. Zero writes.
+ *
+ * --target-sha      Defaults to the current production /api/health sha.
+ *
+ * ### Read-only vs. write phase
+ *
+ *   READ-ONLY (runs in both --preflight-only and apply):
+ *     1.  Load and validate private key (local)
+ *     2.  Parse CLI arguments (local)
+ *     3.  Fetch target SHA from /api/health (GET — anonymous)
+ *     4.  Validate pricing against CRO03C_PROVIDER_CONTRACTS (local)
+ *     5.  Build scope and compute scope hash (local)
+ *     6.  Sign 4 approval artifacts (local Ed25519 — no network writes)
+ *     7.  Login + CSRF token (session only, no data writes)
+ *     8.  GET /api/admin/cro03c/runtime-identity (read-only)
+ *     9.  Verify worker count against --expected-workers (local)
+ *     10. [PREFLIGHT EXIT] — if --preflight-only, print diagnostics and return here
+ *
+ *   WRITE PHASE (apply only):
+ *     11. Import 4 approval receipts
+ *     12. Sign deployment inventory (local)
+ *     13. Import deployment inventory
+ *     14. Create runtime attestation
+ *     15. Create activation policy
+ *
+ * W07: expectedCount in signed inventory uses operator-supplied --expected-workers N,
+ *      not the observed fleet size.
  */
 
 import { createPrivateKey, createPublicKey, sign as ed25519Sign } from "node:crypto";
@@ -54,7 +86,7 @@ const PRICING = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-async function prodFetch(
+export async function prodFetch(
   sessionCookie: string,
   csrfToken: string,
   path: string,
@@ -76,7 +108,7 @@ async function prodFetch(
   return json;
 }
 
-async function login(): Promise<{ cookie: string; csrf: string }> {
+export async function login(): Promise<{ cookie: string; csrf: string }> {
   const email = process.env.ADMIN_SEED_EMAIL;
   const password = process.env.ADMIN_SEED_PASSWORD;
   if (!email || !password) throw new Error("ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD not set");
@@ -103,7 +135,12 @@ async function login(): Promise<{ cookie: string; csrf: string }> {
 // ── Main ──────────────────────────────────────────────────────────────────
 
 async function main() {
-  // 1. Load and validate the durable private key
+  // ════════════════════════════════════════════════════════════════════════
+  //   READ-ONLY PHASE — all steps here must be zero-write.
+  //   --preflight-only exits at the end of this phase (step 10).
+  // ════════════════════════════════════════════════════════════════════════
+
+  // STEP 1: Load and validate the durable private key (local only)
   const rawKey = process.env.CRO03D_OPERATOR_PRIVATE_KEY;
   if (!rawKey?.includes("BEGIN")) {
     throw new Error("CRO03D_OPERATOR_PRIVATE_KEY must be a PEM-encoded Ed25519 private key");
@@ -123,8 +160,45 @@ async function main() {
   console.log("✓ Private key loaded (Ed25519)");
   console.log("  Public key:", pubPem.replace(/\n/g, "\\n").slice(0, 80) + "...");
 
-  // 2. Determine target SHA
+  // STEP 2: Parse CLI arguments (local only)
   const args = process.argv.slice(2);
+
+  // --preflight-only: perform read-only checks and exit before any writes.
+  // This flag is checked at step 10 (after all reads) to print diagnostics
+  // and return before the write phase begins.
+  const preflightOnly = args.includes("--preflight-only");
+  if (preflightOnly) {
+    console.log("ℹ  --preflight-only: will exit before importing any artifacts (zero writes)");
+  }
+
+  // W07: --expected-workers N.
+  // Must be a strict positive integer (e.g. "1", "4") — not a float or exponent.
+  // Rejects "1.5", "1e2", "", " 1", etc.
+  const expectedWorkersIdx = args.indexOf("--expected-workers");
+  let requiredWorkerCount: number | null = null;
+  if (expectedWorkersIdx !== -1 && args[expectedWorkersIdx + 1] !== undefined) {
+    const rawN = args[expectedWorkersIdx + 1];
+    // Strict: must be a decimal integer string with no decimal point or exponent
+    if (!/^\d+$/.test(rawN)) {
+      throw new Error(
+        `--expected-workers must be a strict positive integer like "1" or "4", got: "${rawN}"`
+      );
+    }
+    requiredWorkerCount = Number(rawN);
+    if (!Number.isFinite(requiredWorkerCount) || requiredWorkerCount < 1) {
+      throw new Error("--expected-workers must be a positive integer (the number of workers in the deployment)");
+    }
+  }
+  if (!preflightOnly && requiredWorkerCount === null) {
+    throw new Error(
+      "--expected-workers <N> is required for the apply path.\n" +
+      "Supply the configured number of workers in the target deployment.\n" +
+      "Example: npx tsx scripts/cro03d-run-ceremony.ts --expected-workers 1\n" +
+      "Use --preflight-only to inspect worker state without writing artifacts."
+    );
+  }
+
+  // STEP 3: Fetch target SHA from /api/health (GET — anonymous, read-only)
   let targetSha: string;
   const shaIdx = args.indexOf("--target-sha");
   if (shaIdx !== -1 && args[shaIdx + 1]) {
@@ -136,7 +210,7 @@ async function main() {
   }
   console.log(`✓ Target SHA: ${targetSha}`);
 
-  // 3. Validate pricing
+  // STEP 4: Validate pricing against approved contracts (local only)
   assertCro03cPriceSchedules(PRICING as Parameters<typeof assertCro03cPriceSchedules>[0]);
   for (const [provider, contract] of Object.entries(CRO03C_PROVIDER_CONTRACTS)) {
     const p = (PRICING as Record<string, { unitType: string; billingSemantics: string }>)[provider];
@@ -147,7 +221,7 @@ async function main() {
   }
   console.log("✓ Price schedule validated");
 
-  // 4. Build scope
+  // STEP 5: Build scope and compute scope hash (local only)
   const scope = {
     policyKey:      "cro03c_live_activation",
     recipeVersion:  CRO03C_RECIPE_VERSION,
@@ -160,8 +234,10 @@ async function main() {
   const scopeHash = stableCro03RecipeHash(scope);
   console.log(`✓ Scope hash: ${scopeHash}`);
 
-  // 5. Sign 4 approval artifacts
-  console.log("\n── Signing approval artifacts ──");
+  // STEP 6: Sign 4 approval artifacts (local Ed25519 — no network writes)
+  // These payloads are fully constructed locally. No data is sent to the server
+  // in this step; imports happen in the write phase (step 11).
+  console.log("\n── Signing approval artifacts (local) ──");
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + 24 * 3600 * 1000);
   const runTag = `cro03d-durable-${targetSha.slice(0, 8)}`;
@@ -191,12 +267,99 @@ async function main() {
     console.log(`  Signed ${dimension}: ${payload.receiptId}`);
   }
 
-  // 6. Login to production
+  // STEP 7: Login + CSRF token (session only, no data writes)
   console.log("\n── Logging in to production ──");
   const { cookie, csrf } = await login();
   console.log("  ✓ Session established");
 
-  // 7. Import approval receipts
+  // STEP 8: GET /api/admin/cro03c/runtime-identity (read-only GET)
+  // This endpoint requires authentication but performs no writes.
+  console.log("\n── Fetching deployment context ──");
+  const deployCtx = await prodFetch(cookie, csrf, "/api/admin/cro03c/runtime-identity", undefined) as {
+    deploymentIdentity: string | null;
+    environmentIdentity: string | null;
+    releaseSha: string | null;
+    queueTopologyHash: string | null;
+    workerIdentities: string[];
+    workerFleetComplete: boolean;
+    discoveryComplete: boolean;
+    discoveryErrorCode: string | null;
+    activeProfile: string;
+  };
+  if (!deployCtx.deploymentIdentity || !deployCtx.environmentIdentity ||
+      !deployCtx.releaseSha || !deployCtx.queueTopologyHash) {
+    throw new Error(`Deployment context incomplete: ${JSON.stringify(deployCtx)}`);
+  }
+  if (!deployCtx.workerFleetComplete || deployCtx.workerIdentities.length === 0) {
+    throw new Error(
+      `Worker fleet scan incomplete or empty (complete=${deployCtx.workerFleetComplete}, ` +
+      `count=${deployCtx.workerIdentities.length}, errorCode=${deployCtx.discoveryErrorCode ?? "none"}). ` +
+      `Ensure BACKGROUND_JOB_PROFILE is not "off", the app is running, and BullMQ workers ` +
+      `are heartbeating. Wait ~30 s and retry. Use --preflight-only to inspect without writing.`
+    );
+  }
+  console.log(`  deploymentIdentity: ${deployCtx.deploymentIdentity}`);
+  console.log(`  environmentIdentity: ${deployCtx.environmentIdentity}`);
+  console.log(`  releaseSha: ${deployCtx.releaseSha}`);
+  console.log(`  queueTopologyHash: ${deployCtx.queueTopologyHash.slice(0, 16)}…`);
+  console.log(`  activeProfile: ${deployCtx.activeProfile}`);
+  console.log(`  workerIdentities (${deployCtx.workerIdentities.length}): ${deployCtx.workerIdentities.join(", ")}`);
+
+  // STEP 9a: Verify --target-sha matches the server's reported releaseSha.
+  // This guard is in the READ-ONLY phase so a mismatch is caught before any
+  // import. An explicit --target-sha that differs from the live server means
+  // the approval receipts would be scoped to a SHA the server no longer runs,
+  // and the activation authority check would reject them immediately.
+  if (targetSha !== deployCtx.releaseSha) {
+    throw new Error(
+      `SHA mismatch: --target-sha=${targetSha} but server reports releaseSha=${deployCtx.releaseSha}.\n` +
+      `The approval receipts would be signed for the wrong SHA and activation would reject them.\n` +
+      `Run without --target-sha to auto-detect the live SHA, or update --target-sha to match.`
+    );
+  }
+  console.log(`✓ Target SHA matches server releaseSha: ${targetSha}`);
+
+  // STEP 9b: Verify worker count against independently supplied --expected-workers (local)
+  // W07: Using the observed count as the expected count would allow the ceremony to certify
+  // an incomplete or degraded fleet simply by lowering expectations to match reality.
+  if (requiredWorkerCount !== null) {
+    if (deployCtx.workerIdentities.length !== requiredWorkerCount) {
+      throw new Error(
+        `Worker fleet count mismatch: observed ${deployCtx.workerIdentities.length} but --expected-workers=${requiredWorkerCount}.\n` +
+        `Observed identities: ${deployCtx.workerIdentities.join(", ") || "(none)"}\n` +
+        `Resolve the fleet discrepancy before signing the deployment inventory.`
+      );
+    }
+    console.log(`✓ Fleet count verified: ${deployCtx.workerIdentities.length} === --expected-workers ${requiredWorkerCount}`);
+  }
+
+  // STEP 10: PREFLIGHT EXIT — no writes have occurred up to this point.
+  // If --preflight-only is set, print diagnostics and return here.
+  // The write phase (steps 11–15) is never reached.
+  if (preflightOnly) {
+    console.log("\n=== Preflight Complete — Zero Writes ===");
+    console.log(`  Target SHA:        ${targetSha}`);
+    console.log(`  Scope hash:        ${scopeHash}`);
+    console.log(`  Deployment:        ${deployCtx.deploymentIdentity}`);
+    console.log(`  Environment:       ${deployCtx.environmentIdentity}`);
+    console.log(`  Observed workers:  ${deployCtx.workerIdentities.length}`);
+    console.log(`  Active profile:    ${deployCtx.activeProfile}`);
+    if (requiredWorkerCount !== null) {
+      const match = deployCtx.workerIdentities.length === requiredWorkerCount;
+      console.log(`  Expected workers:  ${requiredWorkerCount} (--expected-workers)`);
+      console.log(`  Fleet match:       ${match ? "✓ YES" : "✗ NO — mismatch will abort apply"}`);
+    } else {
+      console.log(`  Expected workers:  (not specified — add --expected-workers N to verify before apply)`);
+    }
+    console.log("\nRun without --preflight-only to import artifacts and complete the ceremony.");
+    return;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //   WRITE PHASE — starts here. Never reached by --preflight-only.
+  // ════════════════════════════════════════════════════════════════════════
+
+  // STEP 11: Import 4 approval receipts
   console.log("\n── Importing approval receipts ──");
   const receiptIds: string[] = [];
   for (const { dimension, artifact } of signedArtifacts) {
@@ -209,44 +372,7 @@ async function main() {
     console.log(`  ${result.replayed ? "replayed" : "created"} ${dimension}: ${result.receiptId}`);
   }
 
-  // 8. Deployment inventory — must exist before runtime attestation can proceed.
-  // The attestation endpoint calls currentCro03cDeploymentInventory() which looks
-  // up a signed row in cro03c_deployment_inventories matching the live deployment
-  // identity, environment, release SHA, and queue topology hash.  These values are
-  // only knowable inside the running server, so we fetch them first, sign an
-  // inventory with the same operator key, and import it.
-  //
-  // PREREQUISITE: CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS must be set to a
-  // JSON object containing the operator public key:
-  //   {"cro03d-operator": "<PEM public key single-line>"}
-  // The ceremony prints the public key above — use it to populate that secret.
-  console.log("\n── Fetching deployment context ──");
-  const deployCtx = await prodFetch(cookie, csrf, "/api/admin/cro03c/runtime-identity", undefined) as {
-    deploymentIdentity: string | null;
-    environmentIdentity: string | null;
-    releaseSha: string | null;
-    queueTopologyHash: string | null;
-    workerIdentities: string[];
-    workerFleetComplete: boolean;
-  };
-  if (!deployCtx.deploymentIdentity || !deployCtx.environmentIdentity ||
-      !deployCtx.releaseSha || !deployCtx.queueTopologyHash) {
-    throw new Error(`Deployment context incomplete: ${JSON.stringify(deployCtx)}`);
-  }
-  if (!deployCtx.workerFleetComplete || deployCtx.workerIdentities.length === 0) {
-    throw new Error(
-      `Worker fleet scan incomplete or empty (complete=${deployCtx.workerFleetComplete}, ` +
-      `count=${deployCtx.workerIdentities.length}). ` +
-      `Ensure CRO03_PROVIDER_TRANSPORT_ENABLED=true, the app is running, and BullMQ workers ` +
-      `are heartbeating. Wait ~30 s and retry.`
-    );
-  }
-  console.log(`  deploymentIdentity: ${deployCtx.deploymentIdentity}`);
-  console.log(`  environmentIdentity: ${deployCtx.environmentIdentity}`);
-  console.log(`  releaseSha: ${deployCtx.releaseSha}`);
-  console.log(`  queueTopologyHash: ${deployCtx.queueTopologyHash.slice(0, 16)}…`);
-  console.log(`  workerIdentities (${deployCtx.workerIdentities.length}): ${deployCtx.workerIdentities.join(", ")}`);
-
+  // STEP 12: Sign deployment inventory (local Ed25519 — no network write)
   console.log("\n── Signing deployment inventory ──");
   const inventoryIssuedAt = new Date();
   // Inventory TTL matches operator approval window (24 h).
@@ -261,7 +387,9 @@ async function main() {
     queueTopologyHash:   deployCtx.queueTopologyHash,
     identityKind:        "worker" as const,
     workerIdentities:    [...deployCtx.workerIdentities].sort(),
-    expectedCount:       deployCtx.workerIdentities.length,
+    // W07: expectedCount comes from the independently supplied --expected-workers,
+    // not from the observed count (which would self-certify any fleet size).
+    expectedCount:       requiredWorkerCount!,
     issuedAt:            inventoryIssuedAt.toISOString(),
     expiresAt:           inventoryExpiresAt.toISOString(),
   };
@@ -273,6 +401,7 @@ async function main() {
   const inventoryArtifact = { payload: inventoryPayload, signature: inventorySig.toString("base64") };
   console.log(`  inventoryId: ${inventoryPayload.inventoryId}`);
 
+  // STEP 13: Import deployment inventory
   console.log("\n── Importing deployment inventory ──");
   const inventory = await prodFetch(cookie, csrf, "/api/cro03c/deployment-inventories/import", {
     reason: `Durable-key ceremony for SHA ${targetSha}`,
@@ -280,7 +409,7 @@ async function main() {
   }) as { inventoryId?: string; replayed?: boolean };
   console.log(`  ${inventory.replayed ? "replayed" : "created"}: ${inventory.inventoryId}`);
 
-  // 9. Runtime attestation
+  // STEP 14: Runtime attestation
   console.log("\n── Creating runtime attestation ──");
   // REV-05A: TTL capped at 14 min (schema enforces ≤15 min maximum).
   const attestation = await prodFetch(cookie, csrf, "/api/cro03c/runtime-attestations", {
@@ -289,7 +418,7 @@ async function main() {
   }) as { attestationId?: string; replayed?: boolean };
   console.log(`  ${attestation.replayed ? "replayed" : "created"}: ${attestation.attestationId}`);
 
-  // 10. Activation policy
+  // STEP 15: Activation policy
   console.log("\n── Creating activation policy ──");
   const policy = await prodFetch(cookie, csrf, "/api/cro03c/activation-policies", {
     idempotencyKey: `${runTag}-policy`,
@@ -298,7 +427,7 @@ async function main() {
   }) as { policyId?: string; revision?: number; replayed?: boolean };
   console.log(`  ${policy.replayed ? "replayed" : "created"}: revision=${policy.revision} id=${policy.policyId}`);
 
-  // 11. Summary
+  // Summary
   console.log("\n=== CRO-03D Ceremony Complete ===");
   console.log(`  Production SHA:  ${targetSha}`);
   console.log(`  Scope hash:      ${scopeHash}`);

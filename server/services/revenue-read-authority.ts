@@ -320,16 +320,26 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
   const dataRows: { item: unknown }[] = dataResult.rows;
 
   // 2. Total count — cached 30 s.
-  const cacheKey = _facetKey("readRevenueLeads", countValues);
-  let countRow: { total: number; as_of: string | Date } = (_getCachedFacet(cacheKey) as any) ?? null;
-  if (!countRow) {
+  // Key includes scope + all filter fields that affect the predicate.
+  const cacheKey = _facetCacheKey(user, { ...filters, archived: false, recordClass: "production" });
+  const _cachedLeads = _getCachedFacet(cacheKey);
+  let countRow: { total: number; as_of: string | Date } = _cachedLeads
+    ? { total: _cachedLeads.total, as_of: _cachedLeads.asOf }
+    : { total: 0, as_of: new Date() };
+  if (!_cachedLeads) {
     const countResult = await pool.query(
       `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
        FROM contacts c WHERE ${predicate}`,
       countValues,
     );
-    countRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
-    _setCachedFacet(cacheKey, countRow as unknown as Record<string, unknown>);
+    const countResultRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
+    countRow = countResultRow;
+    _setCachedFacet(cacheKey, {
+      total: Number(countResultRow.total ?? 0),
+      byRecordClass: {},
+      byEmailHealth: {},
+      asOf: new Date(countResultRow.as_of as string | Date).toISOString(),
+    });
   }
 
   const data = dataRows.map((row) => camelize(row.item));
@@ -387,16 +397,27 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
   const dataRows: Record<string, unknown>[] = dataResult.rows;
 
   // 2. Total count — cached 30 s.
-  const cacheKey = _facetKey("readRevenueDeals", countValues);
-  let countRow: { total: number; as_of: string | Date } = (_getCachedFacet(cacheKey) as any) ?? null;
-  if (!countRow) {
+  // Key covers scope + pipeline filter (the only predicate-changing fields for deals).
+  const dealsCacheScope = privileged(user) ? "all" : (user.email ?? "anon");
+  const dealsCacheKey = `deals-count:v2:${JSON.stringify({ scope: dealsCacheScope, pipeline: filters.pipeline ?? null })}`;
+  const _cachedDeals = _getCachedFacet(dealsCacheKey);
+  let countRow: { total: number; as_of: string | Date } = _cachedDeals
+    ? { total: _cachedDeals.total, as_of: _cachedDeals.asOf }
+    : { total: 0, as_of: new Date() };
+  if (!_cachedDeals) {
     const countResult = await pool.query(
       `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
        FROM deals d WHERE ${predicate}`,
       countValues,
     );
-    countRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
-    _setCachedFacet(cacheKey, countRow as unknown as Record<string, unknown>);
+    const countResultRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
+    countRow = countResultRow;
+    _setCachedFacet(dealsCacheKey, {
+      total: Number(countResultRow.total ?? 0),
+      byRecordClass: {},
+      byEmailHealth: {},
+      asOf: new Date(countResultRow.as_of as string | Date).toISOString(),
+    });
   }
 
   const data = dataRows.map(camelize);
