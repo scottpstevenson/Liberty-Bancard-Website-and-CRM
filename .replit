@@ -148,3 +148,4 @@ CRO03C_TRUSTED_DEPLOYMENT_INVENTORY_ISSUERS = '{"cro03d-operator":"-----BEGIN PU
 
 [userenv.production]
 PROCESS_IDENTITY = "ordinal:0"
+DB_POOL_MAX = "40"
