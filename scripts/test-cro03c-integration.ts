@@ -14,6 +14,10 @@ import { stableCro03RecipeHash } from "../server/services/cro03/contracts";
 process.env.NODE_ENV = "test";
 process.env.VG_PROVIDER_DENY_MODE = "1";
 process.env.RELEASE_SHA ??= "c".repeat(40);
+// Transport gate must be enabled so assertCro03cAuthorityBeforeIo reaches its
+// real authority checks. The certification provider deny boundary (below)
+// independently prevents any external provider network calls.
+process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
 const CRO03C_TEST_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEIAc+oK2y8tsyfO+9Hd4lqNEah6wqmKbpCOwx7v2fiMID
 -----END PRIVATE KEY-----`;

@@ -332,15 +332,13 @@ export function EnrichmentActivationPanel() {
             <div>
               <p className="text-sm font-medium">Phase 3 — CRO-03 Provider Transport</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Enabling live transport for Serper, Apollo, and Outscraper requires a completed canary
-                (Phase 2) and a signed CRO-03C approval ceremony. The{" "}
-                <code className="bg-muted px-1 rounded">CRO03_PROVIDER_TRANSPORT_ENABLED</code> constant
-                in{" "}
-                <code className="bg-muted px-1 rounded">
-                  server/services/cro03/enrichment-factory.ts
-                </code>{" "}
-                is currently <strong>hardcoded to false</strong>. Changing it will immediately trigger
-                real provider API spend. This must be a separate task with a full CRO-03C ceremony.
+                Live transport for Serper, Apollo, and Outscraper is controlled by the{" "}
+                <code className="bg-muted px-1 rounded">CRO03_PROVIDER_TRANSPORT_ENABLED</code>{" "}
+                environment secret. Set it to{" "}
+                <code className="bg-muted px-1 rounded">true</code> after completing a signed CRO-03C
+                approval ceremony (run{" "}
+                <code className="bg-muted px-1 rounded">scripts/cro03d-run-ceremony.ts</code>). Enabling
+                it will immediately trigger real provider API spend.
               </p>
             </div>
           </div>

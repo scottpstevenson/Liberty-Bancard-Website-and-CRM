@@ -5852,7 +5852,6 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/enrichment/activation-status", requireRole("admin"), async (_req, res) => {
     try {
       const { featureFlags } = await import("../services/feature-flags");
-      const { CRO03_PROVIDER_TRANSPORT_ENABLED } = await import("../services/cro03/enrichment-factory");
       const { db } = await import("../db");
       const { sql } = await import("drizzle-orm");
 
@@ -5862,8 +5861,8 @@ export function registerAdminRoutes(app: Express) {
       const orchestratorEnabled = featureFlags.ORCHESTRATOR_ENABLED;
       // 3. Legacy outreach (sequences / outbound)
       const legacyOutreachEnabled = featureFlags.LEGACY_OUTREACH_ENABLED;
-      // 4. CRO-03 provider transport
-      const cro03TransportEnabled = CRO03_PROVIDER_TRANSPORT_ENABLED;
+      // 4. CRO-03 provider transport — reads runtime env, consistent with assertCro03cAuthorityBeforeIo gate
+      const cro03TransportEnabled = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED === "true";
 
       // 5. Serper gateway status
       let serperGatewayEnabled = false;

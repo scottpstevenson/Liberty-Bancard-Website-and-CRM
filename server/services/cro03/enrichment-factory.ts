@@ -1333,7 +1333,7 @@ export async function processNextCro03Item(
       (provider === "outscraper" && Boolean(deps.outscraper)));
   if (
     provider !== "zerobounce" &&
-    !CRO03_PROVIDER_TRANSPORT_ENABLED &&
+    process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" &&
     !certificationTransportAllowed
   ) {
     const operationId = await createZeroSpendOperation({

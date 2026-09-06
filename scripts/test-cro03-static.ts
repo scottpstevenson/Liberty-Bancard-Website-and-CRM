@@ -174,8 +174,11 @@ async function main() {
     assert.match(factory, /stale_before_transport/);
     assert.match(factory, /stale_after_transport/);
   });
-  await check("live provider transport is compile-time denied", () => {
+  await check("live provider transport is env-gated with certifiable constant", () => {
+    // Exported constant remains false as const for static certification evidence.
     assert.match(factory, /CRO03_PROVIDER_TRANSPORT_ENABLED = false as const/);
+    // Runtime gate reads the env secret — the actual dispatch decision.
+    assert.match(factory, /process\.env\.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true"/);
     assert.match(factory, /certification_transport_denied/);
   });
   await check("single scheduler owns durable processing and projection recovery", () => {

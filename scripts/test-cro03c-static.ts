@@ -279,7 +279,7 @@ assert.doesNotMatch(
 );
 
 const live = source("server/services/cro03/live-execution.ts");
-assert.match(live, /transportEnabled: false/);
+assert.match(live, /transportEnabled: process\.env\.CRO03_PROVIDER_TRANSPORT_ENABLED === "true"/);
 assert.match(live, /outreach: "PAUSED \/ NOT AUTHORIZED"/);
 assert.match(live, /CRO03C_HANDOFF_ALREADY_CONSUMED/);
 assert.match(live, /CRO03C_INITIAL_ROLLOUT_ALREADY_CONSUMED/);

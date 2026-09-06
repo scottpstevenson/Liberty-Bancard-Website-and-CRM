@@ -373,7 +373,7 @@ export function registerCro03Routes(app: Express): void {
   app.get("/api/cro03/policy", requireRole("admin"), (_req, res) => {
     res.json({
       schemaVersion: 1, routingPolicyVersion: 1, providers: ["zerobounce", "serper", "outscraper", "apollo"],
-      liveTransport: false, canaries: CRO03_CANARY_DEFINITIONS,
+      liveTransport: process.env.CRO03_PROVIDER_TRANSPORT_ENABLED === "true", canaries: CRO03_CANARY_DEFINITIONS,
     });
   });
 

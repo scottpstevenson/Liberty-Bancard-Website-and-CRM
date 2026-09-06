@@ -1164,6 +1164,9 @@ export async function createCro03cCommand(input: {
 }
 
 export async function assertCro03cAuthorityBeforeIo(context: Cro03cLiveProviderContext): Promise<void> {
+  if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
+    throw new Error("CRO03C_TRANSPORT_DISABLED");
+  }
   assertCro03cLiveContext(context);
   const authority = rows(await db.execute(sql`
     SELECT c.state AS command_state,c.activation_revision,c.recipe_hash,c.stage_plan_hash,c.expires_at,
@@ -2056,7 +2059,7 @@ export async function getCro03cStatus(): Promise<any> {
   ]);
   return {
     mode: CRO03C_MODE,
-    transportEnabled: false,
+    transportEnabled: process.env.CRO03_PROVIDER_TRANSPORT_ENABLED === "true",
     outreach: "PAUSED / NOT AUTHORIZED",
     policy: rows(policy)[0] ?? null,
     runtime: rows(attestation)[0] ?? null,

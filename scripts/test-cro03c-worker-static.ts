@@ -257,7 +257,7 @@ async function main(): Promise<void> {
 
   // CRO-03C has exactly one event-owned queue and a bounded recovery schedule.
   // Command creation can only obtain a producer; it cannot start a worker.
-  assert.match(live, /transportEnabled: false/);
+  assert.match(live, /transportEnabled: process\.env\.CRO03_PROVIDER_TRANSPORT_ENABLED === "true"/);
   assert.match(live, /getQueueManagerProducers\(\)\?\.getQueue\(QUEUE_NAMES\.CRO03C_LIVE\)/);
   assert.match(queueNames, /CRO03C_LIVE: "cro03c-live"/);
   assert.match(queues, /name: QUEUE_NAMES\.CRO03C_LIVE,\s*concurrency: 1, attempts: 3,[\s\S]*?repeatEveryMs: 0, jobName: "dispatch"/);
