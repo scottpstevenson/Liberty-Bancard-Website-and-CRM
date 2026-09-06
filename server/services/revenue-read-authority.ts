@@ -95,6 +95,33 @@ function camelize(value: unknown): any {
   ]));
 }
 
+// ---------------------------------------------------------------------------
+// Short-lived in-process cache for expensive count/facet queries.
+// Keyed by a stable string derived from the query predicate + values.
+// TTL: 30 seconds — acceptable staleness for a CRM count display.
+// ---------------------------------------------------------------------------
+interface FacetCacheEntry { value: Record<string, unknown>; expiresAt: number }
+const _facetCache = new Map<string, FacetCacheEntry>();
+const FACET_CACHE_TTL_MS = 30_000;
+function _facetKey(label: string, values: unknown[]): string {
+  return `${label}:${JSON.stringify(values)}`;
+}
+function _getCachedFacet(key: string): Record<string, unknown> | null {
+  const entry = _facetCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { _facetCache.delete(key); return null; }
+  return entry.value;
+}
+function _setCachedFacet(key: string, value: Record<string, unknown>): void {
+  // Evict oldest entries if cache grows too large (safety valve).
+  if (_facetCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of _facetCache) { if (now > v.expiresAt) _facetCache.delete(k); }
+    if (_facetCache.size > 400) _facetCache.clear();
+  }
+  _facetCache.set(key, { value, expiresAt: Date.now() + FACET_CACHE_TTL_MS });
+}
+
 /**
  * Canonical contact list reader.
  *
@@ -122,28 +149,21 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
   const offsetIdx = values.length + 2;
   const dataValues = [...values, filters.limit, filters.offset];
 
-  const client = await pool.connect();
-  let dataRows: Record<string, unknown>[];
-  let countRow: Record<string, unknown>;
-  try {
-    await client.query("BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ");
+  // 1. Paginated data — fast index scan, connection auto-released after query.
+  const dataResult = await pool.query(
+    `SELECT c.* FROM contacts c WHERE ${predicate}
+     ORDER BY ${order}
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    dataValues,
+  );
+  const dataRows: Record<string, unknown>[] = dataResult.rows;
 
-    // 1. Paginated data: ORDER BY + LIMIT pushed directly to the table scan.
-    //    contacts_active_created_at_idx covers the default sort without a seq scan.
-    const dataResult = await client.query(
-      `SELECT c.* FROM contacts c WHERE ${predicate}
-       ORDER BY ${order}
-       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-      dataValues,
-    );
-    dataRows = dataResult.rows;
-
-    // 2. Count + facets in one pass via GROUPING SETS (no full-row materialization).
-    //    GROUPING(record_class, email_status):
-    //      1 = GROUP BY record_class  (email_status rolled up)   → by_record_class
-    //      2 = GROUP BY email_status  (record_class rolled up)   → by_email_health
-    //      3 = grand total            (both rolled up)
-    const facetResult = await client.query(
+  // 2. Count + facets — expensive GROUPING SETS scan; cached 30 s to avoid
+  //    holding a pool connection for each concurrent page load.
+  const cacheKey = _facetKey("readPeople", countValues);
+  let countRow: Record<string, unknown> = _getCachedFacet(cacheKey) ?? {};
+  if (!countRow.total && countRow.total !== 0) {
+    const facetResult = await pool.query(
       `SELECT
          COALESCE(jsonb_object_agg(record_class, cnt) FILTER (WHERE grouping_id = 1), '{}'::jsonb) AS by_record_class,
          COALESCE(jsonb_object_agg(email_status, cnt) FILTER (WHERE grouping_id = 2), '{}'::jsonb) AS by_email_health,
@@ -158,13 +178,7 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
       countValues,
     );
     countRow = facetResult.rows[0] ?? {};
-
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
+    _setCachedFacet(cacheKey, countRow);
   }
 
   const data = dataRows.map(camelize);
@@ -205,45 +219,35 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
   const offsetIdx = values.length + 2;
   const dataValues = [...values, filters.limit, filters.offset];
 
-  const client = await pool.connect();
-  let dataRows: { item: unknown }[];
-  let countRow: { total: number; as_of: string | Date };
-  try {
-    await client.query("BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ");
+  // 1. Paginated data — connection auto-released after query.
+  const dataResult = await pool.query(
+    `SELECT to_jsonb(c) || jsonb_build_object('primaryDeal', to_jsonb(primary_deal)) AS item
+     FROM contacts c
+     JOIN LATERAL (
+       SELECT d.* FROM deals d
+       WHERE d.contact_id = c.id AND d.archived_at IS NULL
+         AND d.record_class = 'production' AND d.pipeline = 'sales'
+         AND d.stage = ANY(${stages})
+       ORDER BY d.updated_at DESC NULLS LAST, d.id DESC LIMIT 1
+     ) primary_deal ON TRUE
+     WHERE ${predicate}
+     ORDER BY primary_deal.updated_at DESC NULLS LAST, primary_deal.id DESC, c.id DESC
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    dataValues,
+  );
+  const dataRows: { item: unknown }[] = dataResult.rows;
 
-    // 1. Paginated data: LATERAL fetches the primary deal per contact.
-    //    ORDER BY and LIMIT are applied directly — no MATERIALIZED step.
-    const dataResult = await client.query(
-      `SELECT to_jsonb(c) || jsonb_build_object('primaryDeal', to_jsonb(primary_deal)) AS item
-       FROM contacts c
-       JOIN LATERAL (
-         SELECT d.* FROM deals d
-         WHERE d.contact_id = c.id AND d.archived_at IS NULL
-           AND d.record_class = 'production' AND d.pipeline = 'sales'
-           AND d.stage = ANY(${stages})
-         ORDER BY d.updated_at DESC NULLS LAST, d.id DESC LIMIT 1
-       ) primary_deal ON TRUE
-       WHERE ${predicate}
-       ORDER BY primary_deal.updated_at DESC NULLS LAST, primary_deal.id DESC, c.id DESC
-       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-      dataValues,
-    );
-    dataRows = dataResult.rows;
-
-    // 2. Total count using the same predicate (narrow columns only).
-    const countResult = await client.query(
+  // 2. Total count — cached 30 s.
+  const cacheKey = _facetKey("readRevenueLeads", countValues);
+  let countRow: { total: number; as_of: string | Date } = (_getCachedFacet(cacheKey) as any) ?? null;
+  if (!countRow) {
+    const countResult = await pool.query(
       `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
        FROM contacts c WHERE ${predicate}`,
       countValues,
     );
     countRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
-
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
+    _setCachedFacet(cacheKey, countRow as unknown as Record<string, unknown>);
   }
 
   const data = dataRows.map((row) => camelize(row.item));
@@ -286,41 +290,31 @@ export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilter
   const limitParam = value(filters.limit ?? 100);
   const offsetParam = value(filters.offset ?? 0);
 
-  const client = await pool.connect();
-  let dataRows: Record<string, unknown>[];
-  let countRow: { total: number; as_of: string | Date };
-  try {
-    await client.query("BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ");
+  // 1. Paginated data — connection auto-released after query.
+  const dataResult = await pool.query(
+    `SELECT d.*,
+       CONCAT_WS(' ', c.first_name, c.last_name) AS contact_name,
+       c.company_name, c.email AS contact_email, c.phone AS contact_phone,
+       c.employee_count AS contact_employee_count, c.lead_source AS contact_lead_source
+     FROM deals d LEFT JOIN contacts c ON c.id = d.contact_id
+     WHERE ${predicate}
+     ORDER BY d.updated_at DESC NULLS LAST, d.id DESC
+     LIMIT ${limitParam} OFFSET ${offsetParam}`,
+    values,
+  );
+  const dataRows: Record<string, unknown>[] = dataResult.rows;
 
-    // 1. Paginated data: direct ORDER BY + LIMIT on deals, no MATERIALIZED CTE.
-    //    deals_production_idx covers the record_class = 'production' filter efficiently.
-    const dataResult = await client.query(
-      `SELECT d.*,
-         CONCAT_WS(' ', c.first_name, c.last_name) AS contact_name,
-         c.company_name, c.email AS contact_email, c.phone AS contact_phone,
-         c.employee_count AS contact_employee_count, c.lead_source AS contact_lead_source
-       FROM deals d LEFT JOIN contacts c ON c.id = d.contact_id
-       WHERE ${predicate}
-       ORDER BY d.updated_at DESC NULLS LAST, d.id DESC
-       LIMIT ${limitParam} OFFSET ${offsetParam}`,
-      values,
-    );
-    dataRows = dataResult.rows;
-
-    // 2. Total count using same predicate, deals table only.
-    const countResult = await client.query(
+  // 2. Total count — cached 30 s.
+  const cacheKey = _facetKey("readRevenueDeals", countValues);
+  let countRow: { total: number; as_of: string | Date } = (_getCachedFacet(cacheKey) as any) ?? null;
+  if (!countRow) {
+    const countResult = await pool.query(
       `SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of
        FROM deals d WHERE ${predicate}`,
       countValues,
     );
     countRow = countResult.rows[0] ?? { total: 0, as_of: new Date() };
-
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
+    _setCachedFacet(cacheKey, countRow as unknown as Record<string, unknown>);
   }
 
   const data = dataRows.map(camelize);
