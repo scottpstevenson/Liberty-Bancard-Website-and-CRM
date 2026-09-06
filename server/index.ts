@@ -21,6 +21,7 @@ import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
 import { getBackgroundProfile } from "./services/background-profile";
 import { validateEnv } from "./lib/validate-env";
 import { storage } from "./storage";
+import { setDbContext } from "./lib/db-context";
 
 // Validate required environment variables before anything else starts.
 validateEnv();
@@ -216,6 +217,34 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
+  });
+
+  next();
+});
+
+// ---------------------------------------------------------------------------
+// DB observability correlation middleware.
+// Runs on every request and populates the AsyncLocalStorage context that
+// server/db.ts reads when emitting db:slow_query / db:long_transaction logs.
+// Kept deliberately lightweight — no I/O, no allocation beyond the tiny ctx.
+// ---------------------------------------------------------------------------
+app.use((req, _res, next) => {
+  // Re-use an upstream request-id header when present (e.g. from a load
+  // balancer), otherwise generate a compact random token.
+  const correlationId: string =
+    (typeof req.headers["x-request-id"] === "string" ? req.headers["x-request-id"] : null)
+    ?? Math.random().toString(36).slice(2, 10);
+
+  // Normalize the route: strip query string (already absent on req.path),
+  // collapse numeric/UUID path segments so high-cardinality IDs don't create
+  // unbounded label sets in any downstream log aggregator.
+  const normalizedPath = req.path
+    .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "/:uuid")
+    .replace(/\/\d+/g, "/:id");
+
+  setDbContext({
+    correlationId,
+    normalizedRoute: `${req.method} ${normalizedPath}`,
   });
 
   next();
