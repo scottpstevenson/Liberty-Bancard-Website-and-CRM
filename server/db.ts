@@ -69,8 +69,7 @@ _pressureTimer.unref();
 // Does NOT log SQL parameter values, PII, credentials, or full SQL bodies.
 // ---------------------------------------------------------------------------
 const _SLOW_QUERY_MS   = parseInt(process.env.DB_SLOW_QUERY_MS   ?? "2000",  10);
-const _SLOW_ACQUIRE_MS = parseInt(process.env.DB_SLOW_ACQUIRE_MS ?? "500",   10);
-const _LONG_TXN_MS     = parseInt(process.env.DB_LONG_TXN_MS     ?? "5000",  10);
+const _SLOW_ACQUIRE_MS = parseInt(process.env.DB_SLOW_ACQUIRE_MS ?? "500", 10);
 
 function _fingerprint(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().slice(0, 120);
@@ -80,114 +79,14 @@ function _poolSnapshot() {
   return { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
 }
 
-// Wrap pool.connect() so every checked-out client is instrumented.
-const _origConnect = pool.connect.bind(pool);
+// NOTE: pool.connect() is intentionally NOT wrapped.  Wrapping it requires
+// intercepting client.release(), which is tricky to do safely because pg-pool
+// recycles physical PoolClient objects.  Client-level observability is
+// provided by db-context.ts (AsyncLocalStorage) and the pool.query() wrapper
+// below, which covers the vast majority of callers (Drizzle ORM uses
+// pool.query() for non-transactional reads/writes).
 
-pool.connect = async function observedConnect(): Promise<pg.PoolClient> {
-  const acquireStart  = Date.now();
-  const poolAtAcquire = _poolSnapshot();
-  const ctx           = getDbContext();
-
-  const client = await _origConnect();
-
-  const acquireWaitMs   = Date.now() - acquireStart;
-  const checkoutStart   = Date.now();
-
-  // ---------- long-transaction sentinel ----------
-  let _longTxnTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-    console.warn(JSON.stringify({
-      event:           "db:long_transaction",
-      correlationId:   ctx?.correlationId  ?? null,
-      normalizedRoute: ctx?.normalizedRoute ?? null,
-      heldMs:          _LONG_TXN_MS,
-      poolAtAcquire,
-      ts: new Date().toISOString(),
-    }));
-  }, _LONG_TXN_MS);
-  if (_longTxnTimer.unref) _longTxnTimer.unref();
-
-  // ---------- per-query instrumentation ----------
-  const _origClientQuery = client.query.bind(client) as typeof client.query;
-
-  client.query = function observedClientQuery(textOrConfig: any, values?: any): any {
-    const queryStart  = Date.now();
-    const fingerprint = typeof textOrConfig === "string"
-      ? _fingerprint(textOrConfig)
-      : (typeof textOrConfig?.text === "string" ? _fingerprint(textOrConfig.text) : "<config>");
-
-    const resultPromise: Promise<any> = values !== undefined
-      ? _origClientQuery(textOrConfig, values)
-      : _origClientQuery(textOrConfig);
-
-    return resultPromise.then(
-      (result) => {
-        const queryDurationMs = Date.now() - queryStart;
-        if (queryDurationMs >= _SLOW_QUERY_MS || acquireWaitMs >= _SLOW_ACQUIRE_MS || poolAtAcquire.waiting >= 5) {
-          console.warn(JSON.stringify({
-            event:            "db:slow_query",
-            correlationId:    ctx?.correlationId  ?? null,
-            normalizedRoute:  ctx?.normalizedRoute ?? null,
-            acquireWaitMs,
-            queryDurationMs,
-            fingerprintSql:   fingerprint,
-            poolAtAcquire,
-            poolAtRelease:    _poolSnapshot(),
-            ts: new Date().toISOString(),
-          }));
-        }
-        return result;
-      },
-      (err) => {
-        const queryDurationMs = Date.now() - queryStart;
-        if (queryDurationMs >= _SLOW_QUERY_MS || acquireWaitMs >= _SLOW_ACQUIRE_MS || poolAtAcquire.waiting >= 5) {
-          console.warn(JSON.stringify({
-            event:           "db:query_error",
-            correlationId:   ctx?.correlationId  ?? null,
-            normalizedRoute: ctx?.normalizedRoute ?? null,
-            acquireWaitMs,
-            queryDurationMs,
-            fingerprintSql:  fingerprint,
-            poolAtAcquire,
-            errorType:       err instanceof Error ? err.constructor.name : "UnknownError",
-            ts: new Date().toISOString(),
-          }));
-        }
-        throw err;
-      },
-    );
-  };
-
-  // ---------- release instrumentation ----------
-  const _origRelease = client.release.bind(client);
-
-  client.release = function observedRelease(err?: Error | boolean): void {
-    if (_longTxnTimer) {
-      clearTimeout(_longTxnTimer);
-      _longTxnTimer = null;
-    }
-
-    const checkoutDurationMs = Date.now() - checkoutStart;
-
-    if (checkoutDurationMs >= _LONG_TXN_MS || acquireWaitMs >= _SLOW_ACQUIRE_MS || poolAtAcquire.waiting >= 5) {
-      console.warn(JSON.stringify({
-        event:            "db:checkout_released",
-        correlationId:    ctx?.correlationId  ?? null,
-        normalizedRoute:  ctx?.normalizedRoute ?? null,
-        acquireWaitMs,
-        checkoutDurationMs,
-        poolAtAcquire,
-        poolAtRelease:    _poolSnapshot(),
-        ts: new Date().toISOString(),
-      }));
-    }
-
-    return (err !== undefined ? _origRelease(err as any) : _origRelease()) as void;
-  };
-
-  return client;
-};
-
-// Also wrap pool.query() for callers that use the shorthand (no explicit
+// Wrap pool.query() for callers that use the shorthand (no explicit
 // connect/release).  These cannot separate acquire from query time, but they
 // do get correlationId / normalizedRoute.
 const _origQuery = pool.query.bind(pool) as typeof pool.query;

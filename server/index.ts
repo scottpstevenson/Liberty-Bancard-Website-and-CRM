@@ -262,7 +262,25 @@ app.use((req, _res, next) => {
   }
 
   if (shouldRunStartupMigrations(process.env.NODE_ENV)) {
-    await runDrizzleMigrations();
+    // Race against a 60 s deadline — post-migration helpers (knowledge seed,
+    // assigned_to guard) can make outbound HTTP calls that hang indefinitely.
+    // Core DDL always finishes in < 15 s; a timeout here is non-fatal.
+    let _migrationTimedOut = false;
+    await Promise.race([
+      runDrizzleMigrations(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => {
+          _migrationTimedOut = true;
+          reject(new Error("runDrizzleMigrations timed out after 60 s"));
+        }, 60_000),
+      ),
+    ]).catch((err: Error) => {
+      if (_migrationTimedOut) {
+        console.warn("[DB Migrate] Post-migration helpers timed out (non-fatal) —", err.message);
+      } else {
+        throw err; // real migration failure — propagate
+      }
+    });
   } else {
     console.log("[DB Migrate] Production startup migrations skipped — schema is managed by Replit Publish.");
   }
