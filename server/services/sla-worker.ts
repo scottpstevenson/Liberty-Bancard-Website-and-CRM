@@ -1345,7 +1345,6 @@ export function startSlaWorker() {
         _slaHeartbeatFailureCount++;
       });
       await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
-      await runSunbizAutoConvert().catch(err => console.error("Sunbiz auto-convert error:", err));
     } else {
       await storage.setSystemSetting("sequence_runner_last_tick", {
         at: new Date().toISOString(),

@@ -330,7 +330,7 @@ function extractGoogleResultUrls(html: string, includeSocial = false): string[] 
         && !domain.includes("google") && !domain.includes("gstatic")) {
         urls.push(decoded);
       }
-    } catch { continue; }
+    } catch (err) { console.debug("[Sunbiz Enrichment] URL parse skip:", (err as Error)?.message); continue; }
   }
   return [...new Set(urls)];
 }
@@ -360,7 +360,7 @@ async function searchGoogleForWebsite(businessName: string, city?: string): Prom
       });
       clearTimeout(t);
       if (r.ok || r.status === 301 || r.status === 302) return domain;
-    } catch { continue; }
+    } catch (err) { console.debug("[Sunbiz Enrichment] Website probe skip:", (err as Error)?.message); continue; }
   }
   return null;
 }
@@ -404,7 +404,7 @@ async function searchGoogleForContacts(businessName: string, city?: string, addr
             }
           }
         }
-      } catch { continue; }
+      } catch (err) { console.debug("[Sunbiz Enrichment] Contact extraction skip:", (err as Error)?.message); continue; }
       await new Promise(r => setTimeout(r, 800));
     }
     await new Promise(r => setTimeout(r, 1500));

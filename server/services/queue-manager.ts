@@ -2605,7 +2605,8 @@ async function runSequencesTick(): Promise<void> {
   }
 
   await processSendQueue().catch(err => console.error("[Queue:sequences] Campaign send queue error:", err));
-  await runSunbizAutoConvert().catch(err => console.error("[Queue:sequences] Sunbiz auto-convert error:", err));
+  // NOTE: Sunbiz auto-convert has been moved to runEnrichmentTick(), gated by SUNBIZ_ENRICHMENT_ENABLED.
+  // It must not run under the LEGACY_OUTREACH_ENABLED gate — the two pipelines are independent.
 }
 
 async function runEnrichmentTick(): Promise<void> {
@@ -2629,6 +2630,23 @@ async function runEnrichmentTick(): Promise<void> {
     const { recordWorkerFailure, JOB_NAMES } = await import("./job-registry");
     await recordWorkerFailure(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR, e.message);
   }
+
+  // Sunbiz enrichment queue + auto-convert run independently of LEGACY_OUTREACH_ENABLED.
+  // Both are gated directly on SUNBIZ_ENRICHMENT_ENABLED so operators can activate
+  // the full Sunbiz lead pipeline without enabling the outreach engine.
+  const { featureFlags: _enrichFlags } = await import("./feature-flags");
+  if (_enrichFlags.SUNBIZ_ENRICHMENT_ENABLED) {
+    // Step 1: Enrich pending Sunbiz entities (scrape/classify raw → enriched)
+    const { processSunbizEnrichmentQueue, runSunbizAutoConvert } = await import("./sunbiz-cron");
+    await processSunbizEnrichmentQueue().catch(err =>
+      console.error("[Queue:enrichment] Sunbiz enrichment queue error:", err)
+    );
+    // Step 2: Convert enriched entities → prospects → contacts (auto-promote)
+    await runSunbizAutoConvert().catch(err =>
+      console.error("[Queue:enrichment] Sunbiz auto-convert error:", err)
+    );
+  }
+
   const { runLeadScoringDeferredRecovery } = await import("./contact-lead-scoring-trigger");
   await runLeadScoringDeferredRecovery().catch(err => console.error("[Queue:enrichment] Lead scoring deferred recovery error (best-effort):", err));
 }

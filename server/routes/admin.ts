@@ -5846,4 +5846,284 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ─── Enrichment Activation Status ───────────────────────────────────────────
+  // Returns the live state of all 9 enrichment subsystems so the Enrichment
+  // Activation Panel can show operators exactly what is and isn't running.
+  app.get("/api/admin/enrichment/activation-status", requireRole("admin"), async (_req, res) => {
+    try {
+      const { featureFlags } = await import("../services/feature-flags");
+      const { CRO03_PROVIDER_TRANSPORT_ENABLED } = await import("../services/cro03/enrichment-factory");
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+
+      // 1. Sunbiz enrichment flag (env-only)
+      const sunbizEnrichmentEnabled = featureFlags.SUNBIZ_ENRICHMENT_ENABLED;
+      // 2. Orchestrator flag
+      const orchestratorEnabled = featureFlags.ORCHESTRATOR_ENABLED;
+      // 3. Legacy outreach (sequences / outbound)
+      const legacyOutreachEnabled = featureFlags.LEGACY_OUTREACH_ENABLED;
+      // 4. CRO-03 provider transport
+      const cro03TransportEnabled = CRO03_PROVIDER_TRANSPORT_ENABLED;
+
+      // 5. Serper gateway status
+      let serperGatewayEnabled = false;
+      let serperGatewayStatus = "unknown";
+      try {
+        const sgRow = (await db.execute(sql`
+          SELECT enabled, status FROM serper_control ORDER BY id DESC LIMIT 1
+        `)).rows[0] as any;
+        if (sgRow) {
+          serperGatewayEnabled = Boolean(sgRow.enabled);
+          serperGatewayStatus = sgRow.status ?? "unknown";
+        }
+      } catch { /* no serper_control table yet */ }
+
+      // 6. ZeroBounce status
+      const zbConfigured = Boolean(process.env.ZEROBOUNCE_API_KEY || process.env.ZEROBOUNCE_APi_KEY);
+
+      // 7. Vertical resolver wiring — check by counting sunbiz-auto contacts with a non-null vertical
+      let verticalWired = false;
+      try {
+        const vr = (await db.execute(sql`
+          SELECT COUNT(*) AS c FROM contacts WHERE 'sunbiz-auto' = ANY(tags) AND vertical IS NOT NULL LIMIT 1
+        `)).rows[0] as any;
+        verticalWired = Number(vr?.c ?? 0) > 0;
+      } catch { /* ignore */ }
+
+      // 8. Auto-convert — counts sunbiz prospects promoted in last 7 days
+      let autoConvertActive = false;
+      let recentlyPromoted = 0;
+      try {
+        const ac = (await db.execute(sql`
+          SELECT COUNT(*) AS c FROM audit_logs
+          WHERE action = 'prospect_auto_promoted'
+            AND created_at >= NOW() - INTERVAL '7 days'
+        `)).rows[0] as any;
+        recentlyPromoted = Number(ac?.c ?? 0);
+        autoConvertActive = recentlyPromoted > 0;
+      } catch { /* ignore */ }
+
+      // 9. Classification — counts sunbiz-auto contacts that reached 'production'
+      let classificationActive = false;
+      let productionClassifiedCount = 0;
+      try {
+        const cc = (await db.execute(sql`
+          SELECT COUNT(*) AS c FROM contacts
+          WHERE 'sunbiz-auto' = ANY(tags) AND record_class = 'production'
+        `)).rows[0] as any;
+        productionClassifiedCount = Number(cc?.c ?? 0);
+        classificationActive = productionClassifiedCount > 0;
+      } catch { /* ignore */ }
+
+      // 10. Canary — check if a canary run has completed recently
+      let canaryCompleted = false;
+      let lastCanaryAt: string | null = null;
+      try {
+        const cr = (await db.execute(sql`
+          SELECT created_at FROM audit_logs
+          WHERE action = 'sunbiz_enrichment_canary_completed'
+          ORDER BY created_at DESC LIMIT 1
+        `)).rows[0] as any;
+        if (cr?.created_at) {
+          canaryCompleted = true;
+          lastCanaryAt = cr.created_at instanceof Date
+            ? cr.created_at.toISOString()
+            : String(cr.created_at);
+        }
+      } catch { /* ignore */ }
+
+      res.json({
+        subsystems: [
+          {
+            key: "sunbiz_enrichment_enabled",
+            label: "SUNBIZ_ENRICHMENT_ENABLED",
+            status: sunbizEnrichmentEnabled ? "active" : "inactive",
+            detail: sunbizEnrichmentEnabled
+              ? "Flag is ON — Sunbiz auto-convert will run each enrichment tick"
+              : "Flag is OFF — set SUNBIZ_ENRICHMENT_ENABLED=true to activate",
+          },
+          {
+            key: "orchestrator_enabled",
+            label: "ORCHESTRATOR_ENABLED",
+            status: orchestratorEnabled ? "active" : "inactive",
+            detail: orchestratorEnabled
+              ? "Orchestrator is running"
+              : "Orchestrator is off — set ORCHESTRATOR_ENABLED=true via wizard",
+          },
+          {
+            key: "legacy_outreach_enabled",
+            label: "LEGACY_OUTREACH_ENABLED",
+            status: legacyOutreachEnabled ? "active" : "inactive",
+            detail: legacyOutreachEnabled
+              ? "Outreach engine is on"
+              : "Outreach engine is off (Sunbiz auto-convert is now independent of this flag)",
+          },
+          {
+            key: "cro03_transport",
+            label: "CRO-03 Provider Transport",
+            status: cro03TransportEnabled ? "active" : "inactive",
+            detail: cro03TransportEnabled
+              ? "Live transport enabled — Serper/Apollo/Outscraper calls are live"
+              : "Transport disabled — all non-ZeroBounce providers return disabled outcome",
+          },
+          {
+            key: "serper_gateway",
+            label: "Serper Gateway",
+            status: serperGatewayEnabled ? "active" : "inactive",
+            detail: `Gateway status: ${serperGatewayStatus}`,
+          },
+          {
+            key: "zerobounce",
+            label: "ZeroBounce",
+            status: zbConfigured ? "active" : "inactive",
+            detail: zbConfigured
+              ? "API key configured — ZeroBounce validation runs independently of transport gate"
+              : "No ZeroBounce API key — email validation will be skipped",
+          },
+          {
+            key: "vertical_resolver",
+            label: "Canonical Vertical Resolver",
+            status: verticalWired ? "active" : "pending",
+            detail: verticalWired
+              ? "Sunbiz contacts have vertical data — resolver is wired"
+              : "No sunbiz-auto contacts with vertical yet — resolver wiring unverified",
+          },
+          {
+            key: "auto_convert",
+            label: "Sunbiz Auto-Convert",
+            status: autoConvertActive ? "active" : "pending",
+            detail: `${recentlyPromoted} prospects promoted in the last 7 days`,
+          },
+          {
+            key: "classification",
+            label: "Production Classification",
+            status: classificationActive ? "active" : "pending",
+            detail: `${productionClassifiedCount} sunbiz-auto contacts classified as production`,
+          },
+        ],
+        canary: {
+          completed: canaryCompleted,
+          lastCompletedAt: lastCanaryAt,
+        },
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ─── Enrichment Canary ───────────────────────────────────────────────────────
+  // Selects exactly 20 enriched Sunbiz entities by ID, then runs each one
+  // through the explicit bounded pipeline (convert → promote → AWAIT classify).
+  // The canary does NOT invoke the generic cron which has its own caps;
+  // instead it processes only the selected candidates and awaits classification
+  // before reporting — giving a reliable pass/fail signal.
+  app.post("/api/admin/enrichment/canary", requireRole("admin"), async (_req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const { storage } = await import("../storage");
+      const { featureFlags } = await import("../services/feature-flags");
+
+      if (!featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {
+        return res.status(409).json({
+          code: "SUNBIZ_ENRICHMENT_DISABLED",
+          message: "SUNBIZ_ENRICHMENT_ENABLED must be true to run the canary. Set the env var and restart.",
+        });
+      }
+
+      const CANARY_SIZE = 20;
+
+      // Select a wider pool than CANARY_SIZE to account for quality-gate filtering
+      // that only happens after entity→prospect conversion (qualificationScore is on the
+      // prospect, not the entity). The selection matches the requirements that CAN be
+      // verified from the entity table: hot OR warm, both email AND phone, company name.
+      // Warm entities still need qualificationScore A/B on the prospect to promote —
+      // that check happens inside runSunbizCanaryForEntityIds after conversion.
+      const POOL_SIZE = CANARY_SIZE * 5; // 100 — wide enough to yield ≥20 qualifying
+      const candidateRows = (await db.execute(sql`
+        SELECT id, entity_name
+        FROM sunbiz_entities
+        WHERE enrichment_status = 'enriched'
+          AND entity_name IS NOT NULL
+          AND (email IS NOT NULL OR owner_email IS NOT NULL)
+          AND (phone IS NOT NULL OR owner_phone IS NOT NULL)
+          AND (score = 'hot' OR score = 'warm')
+        ORDER BY score DESC, updated_at DESC
+        LIMIT ${POOL_SIZE}
+      `)).rows as Array<{ id: number | string; entity_name: string | null }>;
+
+      if (candidateRows.length === 0) {
+        return res.status(409).json({
+          code: "NO_CANARY_CANDIDATES",
+          message: "No enriched hot/warm Sunbiz entities with both email and phone available. Run enrichment first.",
+        });
+      }
+
+      const entityIds = candidateRows.map(r => Number(r.id));
+
+      // Run the bounded pipeline. The helper stops after exactly CANARY_SIZE
+      // verified-successful promotions (production-classified + canonical vertical set),
+      // so side effects are bounded regardless of pool size.
+      const { runSunbizCanaryForEntityIds } = await import("../services/sunbiz-cron");
+      const { results, verifiedSuccessCount } = await runSunbizCanaryForEntityIds(entityIds, CANARY_SIZE);
+
+      const promoted = results.filter(r => r.outcome === "promoted").length;
+      const classificationFailed = results.filter(r => r.outcome === "classification_failed").length;
+      // Strict: count only newly-promoted contacts with recordClass=production AND canonical vertical
+      const productionClassified = results.filter(
+        r => r.outcome === "promoted" && r.recordClass === "production" && r.vertical
+      ).length;
+      const withVertical = results.filter(r => r.vertical).length;
+
+      // Enforce the 20-record gate based on verified-successful records (strict definition)
+      if (verifiedSuccessCount < CANARY_SIZE) {
+        return res.status(409).json({
+          code: "INSUFFICIENT_VERIFIED_RECORDS",
+          message: `Canary requires ${CANARY_SIZE} newly-promoted contacts with record_class=production and canonical vertical; only ${verifiedSuccessCount} passed from the ${entityIds.length}-entity pool. Build up the hot/warm A/B pool and retry.`,
+          evaluated: entityIds.length,
+          verifiedSuccessCount,
+          required: CANARY_SIZE,
+          results,
+        });
+      }
+
+      await storage.createAuditLog({
+        action: "sunbiz_enrichment_canary_completed",
+        entityType: "system",
+        actorType: "system",
+        details: {
+          candidateCount: entityIds.length,
+          promoted,
+          productionClassified,
+          classificationFailed,
+          verifiedSuccessCount,
+          withVertical,
+          canaryResults: results.map(r => ({
+            entityId: r.entityId,
+            outcome: r.outcome,
+            recordClass: r.recordClass,
+            vertical: r.vertical,
+          })),
+        },
+      });
+
+      const recommendation = classificationFailed > 0
+        ? `${classificationFailed}/${promoted} contacts failed classification. Check classification authority logs before enabling CRO-03 transport.`
+        : `Canary passed — ${verifiedSuccessCount}/${CANARY_SIZE} contacts are production-classified with canonical vertical. Safe to proceed to Phase 3 after review.`;
+
+      res.json({
+        candidateCount: entityIds.length,
+        promoted,
+        productionClassified,
+        classificationFailed,
+        verifiedSuccessCount,
+        withVertical,
+        results,
+        recommendation,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }

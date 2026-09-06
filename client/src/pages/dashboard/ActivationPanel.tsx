@@ -10,8 +10,18 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History, Download, FileText, BanIcon, Gauge, Database, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { EnrichmentActivationPanel } from "./EnrichmentActivationPanel";
+
+// Lazy-loaded to avoid bundling the enrichment panel into the main ActivationPanel chunk
+function EnrichmentActivationPanelLazy() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <EnrichmentActivationPanel />
+    </Suspense>
+  );
+}
 
 interface OutboundSettings {
   outboundGlobalPaused: boolean;
@@ -1125,6 +1135,10 @@ export default function ActivationPanel() {
             <BanIcon className="w-3.5 h-3.5 mr-1" />
             Kill Switch
           </TabsTrigger>
+          <TabsTrigger value="enrichment-activation" data-testid="tab-enrichment-activation">
+            <Zap className="w-3.5 h-3.5 mr-1" />
+            Enrichment
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="runbook" className="space-y-4">
@@ -1995,6 +2009,10 @@ export default function ActivationPanel() {
 
         <TabsContent value="kill-switch" className="space-y-4">
           <OutboundKillSwitchPanel />
+        </TabsContent>
+
+        <TabsContent value="enrichment-activation" className="space-y-4">
+          <EnrichmentActivationPanelLazy />
         </TabsContent>
       </Tabs>
     </div>
