@@ -569,6 +569,23 @@ const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
+    name: "Contact Reconciliation Classifier (pure-function 85 assertions, no server/DB)",
+    script: "scripts/test-reconciliation-classifier.ts",
+    timeoutSecs: 60,
+  },
+  {
+    name: "Contact Reconciliation Certification (lifecycle, CAS, allowlist, schema — disposable DB)",
+    script: "scripts/test-reconciliation-certification.ts",
+    timeoutSecs: 180,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "Contact Reconciliation Performance (155K synthetic contacts ≥100K/sec, heap <50MB)",
+    script: "scripts/test-reconciliation-performance.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "API Coverage",
     script: "scripts/check-api-coverage.ts",
     timeoutSecs: 60,

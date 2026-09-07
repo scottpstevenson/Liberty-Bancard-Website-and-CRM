@@ -1618,6 +1618,27 @@
       "when": 1800000000200,
       "tag": "0226_census_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1800000000300,
+      "tag": "0227_contact_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "0228",
+      "when": 1800000000400,
+      "tag": "0228_fix_recon_active_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "0229",
+      "when": 1800000000500,
+      "tag": "0229_fix_proposal_status_reverted",
+      "breakpoints": true
     }
   ]
 }

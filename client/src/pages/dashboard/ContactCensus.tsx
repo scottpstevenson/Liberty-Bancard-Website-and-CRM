@@ -14,7 +14,7 @@ import {
   // Note: Select components retained for run filter controls below
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle, GitMerge, ThumbsUp, ThumbsDown, RotateCcw } from "lucide-react";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -504,6 +504,403 @@ function PoolSnapshot({ label, metrics }: { label: string; metrics: { totalCount
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Reconciliation types
+// ──────────────────────────────────────────────────────────────────────────────
+interface ReconciliationRun {
+  id: string;
+  source_census_run_id: string;
+  status: string;
+  failure_reason: string | null;
+  total_processed: number | null;
+  total_proposed: number | null;
+  total_org_candidates: number | null;
+  total_clusters: number | null;
+  created_at: string;
+  completed_at: string | null;
+  lane_counts: Record<string, number> | null;
+}
+
+interface ReconciliationProposal {
+  id: number;
+  contact_id: number;
+  proposal_type: string;
+  field_name: string;
+  current_value: string | null;
+  proposed_value: string;
+  confidence: number;
+  status: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Reconciliation sub-panels
+// ──────────────────────────────────────────────────────────────────────────────
+function ReconciliationRunsList({
+  selectedRunId,
+  onSelect,
+}: {
+  selectedRunId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const { data, isLoading } = useQuery<{ runs: ReconciliationRun[]; total: number }>({
+    queryKey: ["/api/admin/reconciliation/runs"],
+    refetchInterval: 5_000,
+  });
+  if (isLoading) return <p className="text-sm text-muted-foreground py-4">Loading runs…</p>;
+  if (!data?.runs.length)
+    return <p className="text-sm text-muted-foreground py-4">No reconciliation runs yet.</p>;
+  return (
+    <div className="space-y-2">
+      {data.runs.map((run) => (
+        <div
+          key={run.id}
+          className={`rounded-lg border p-3 cursor-pointer transition-colors ${
+            selectedRunId === run.id ? "border-primary bg-primary/5" : "border-gray-200 hover:bg-gray-50"
+          }`}
+          onClick={() => onSelect(run.id)}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <StatusBadge status={run.status} />
+              <p className="text-xs text-muted-foreground mt-1">
+                {new Date(run.created_at).toLocaleString()}
+              </p>
+              {run.total_processed != null && (
+                <p className="text-xs mt-0.5">
+                  {run.total_processed.toLocaleString()} scanned ·{" "}
+                  {run.total_proposed?.toLocaleString() ?? 0} proposals
+                </p>
+              )}
+            </div>
+            <code className="text-xs text-muted-foreground shrink-0">{run.id.slice(0, 8)}…</code>
+          </div>
+          {run.failure_reason && <p className="text-xs text-red-600 mt-1">{run.failure_reason}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReconciliationRunDetail({ runId }: { runId: string }) {
+  const { data, isLoading } = useQuery<ReconciliationRun>({
+    queryKey: [`/api/admin/reconciliation/runs/${runId}`],
+    refetchInterval: (q) =>
+      q.state.data?.status === "running" || q.state.data?.status === "pending" ? 3_000 : false,
+  });
+  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <CardTitle className="text-base">Run {data.id.slice(0, 8)}…</CardTitle>
+          <StatusBadge status={data.status} />
+        </div>
+        <CardDescription className="text-xs">Census run: {data.source_census_run_id.slice(0, 8)}…</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Tile label="Members Scanned" value={(data.total_processed ?? 0).toLocaleString()} />
+          <Tile label="Proposals" value={(data.total_proposed ?? 0).toLocaleString()} />
+          <Tile label="Org Candidates" value={(data.total_org_candidates ?? 0).toLocaleString()} />
+          <Tile label="Duplicate Clusters" value={(data.total_clusters ?? 0).toLocaleString()} />
+        </div>
+        {data.lane_counts && (
+          <div>
+            <p className="text-xs font-semibold mb-2">Lane Breakdown</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {Object.entries(data.lane_counts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([lane, count]) => (
+                  <Tile key={lane} label={lane.replace(/_/g, " ")} value={count.toLocaleString()} />
+                ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Keys must match the proposal_type values written by reconciliation-classifier.ts
+const PROPOSAL_TYPE_LABELS: Record<string, string> = {
+  name_normalization: "Name",
+  phone_normalization: "Phone",
+  company_normalization: "Company Name",
+};
+
+function ProposalStatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800",
+    approved: "bg-green-100 text-green-800",
+    rejected: "bg-red-100 text-red-800",
+    reverted: "bg-gray-100 text-gray-600",
+    superseded: "bg-gray-100 text-gray-500",
+  };
+  return <Badge className={map[status] ?? "bg-gray-100 text-gray-600"}>{status}</Badge>;
+}
+
+function ReconciliationProposalsPanel({ runId }: { runId: string }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+
+  const { data, isLoading } = useQuery<{ proposals: ReconciliationProposal[]; total: number; nextCursor: number | null }>({
+    queryKey: [`/api/admin/reconciliation/runs/${runId}/proposals`, statusFilter, typeFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (typeFilter !== "all") params.set("proposalType", typeFilter);
+      return fetch(`/api/admin/reconciliation/runs/${runId}/proposals?${params}`).then((r) => r.json());
+    },
+    staleTime: 10_000,
+  });
+
+  const approve = useMutation({
+    mutationFn: (id: number) =>
+      apiRequest("POST", `/api/admin/reconciliation/proposals/${id}/approve`, {}).then((res) => res.json()),
+    onSuccess: (data: any) => {
+      if (data?.outcome === "applied") {
+        toast({ title: "Proposal approved", description: `Field '${data.fieldName}' updated.` });
+      } else if (data?.outcome === "stale") {
+        toast({ title: "Proposal stale", description: data.reason ?? "Contact was modified after proposal was captured.", variant: "destructive" });
+      } else if (data?.outcome === "already_reviewed") {
+        toast({ title: "Already reviewed", description: "This proposal was already processed." });
+      } else {
+        toast({ title: "Approval not applied", description: data?.reason ?? "Unknown outcome.", variant: "destructive" });
+      }
+      qc.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}/proposals`] });
+    },
+    onError: (err: any) => toast({ title: "Approval failed", description: err.message, variant: "destructive" }),
+  });
+
+  const reject = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/reconciliation/proposals/${id}/reject`, {}),
+    onSuccess: () => {
+      toast({ title: "Proposal rejected" });
+      qc.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}/proposals`] });
+    },
+    onError: (err: any) => toast({ title: "Rejection failed", description: err.message, variant: "destructive" }),
+  });
+
+  const revert = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/reconciliation/proposals/${id}/revert`, {}),
+    onSuccess: () => {
+      toast({ title: "Proposal reverted" });
+      qc.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}/proposals`] });
+    },
+    onError: (err: any) => toast({ title: "Revert failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <CardTitle className="text-base">Normalization Proposals</CardTitle>
+          <span className="text-xs text-muted-foreground">{data?.total ?? 0} total</span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["pending", "approved", "rejected", "reverted", "all"].map((s) => (
+                <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-44 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All types</SelectItem>
+              {Object.keys(PROPOSAL_TYPE_LABELS).map((t) => (
+                <SelectItem key={t} value={t} className="text-xs">{PROPOSAL_TYPE_LABELS[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1"
+            onClick={() => {
+              const params = new URLSearchParams({ format: "csv" });
+              if (statusFilter !== "all") params.set("status", statusFilter);
+              if (typeFilter !== "all") params.set("proposalType", typeFilter);
+              window.open(`/api/admin/reconciliation/runs/${runId}/proposals/export?${params}`);
+            }}
+          >
+            <Download className="h-3 w-3" /> Export CSV
+          </Button>
+        </div>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading proposals…</p>
+        ) : !data?.proposals.length ? (
+          <p className="text-sm text-muted-foreground">No proposals match this filter.</p>
+        ) : (
+          <div className="space-y-2">
+            {data.proposals.map((p) => (
+              <div key={p.id} className="rounded-lg border border-gray-200 p-3 text-sm">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="text-xs">{PROPOSAL_TYPE_LABELS[p.proposal_type] ?? p.proposal_type}</Badge>
+                      <ProposalStatusBadge status={p.status} />
+                      <span className="text-xs text-muted-foreground">contact #{p.contact_id}</span>
+                      <span className="text-xs text-muted-foreground">confidence {p.confidence}%</span>
+                    </div>
+                    <p className="text-xs mt-1">
+                      <span className="text-red-600 line-through mr-2">{p.current_value ?? "(empty)"}</span>
+                      <span className="text-green-700 font-medium">{p.proposed_value}</span>
+                    </p>
+                  </div>
+                  {p.status === "pending" && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs gap-1 text-green-700 border-green-300 hover:bg-green-50"
+                        onClick={() => approve.mutate(p.id)}
+                        disabled={approve.isPending}
+                      >
+                        <ThumbsUp className="h-3 w-3" /> Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs gap-1 text-red-700 border-red-300 hover:bg-red-50"
+                        onClick={() => reject.mutate(p.id)}
+                        disabled={reject.isPending}
+                      >
+                        <ThumbsDown className="h-3 w-3" /> Reject
+                      </Button>
+                    </div>
+                  )}
+                  {p.status === "approved" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs gap-1"
+                      onClick={() => revert.mutate(p.id)}
+                      disabled={revert.isPending}
+                    >
+                      <RotateCcw className="h-3 w-3" /> Revert
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReconciliationTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+
+  const { data: runsData } = useQuery<{ runs: ReconciliationRun[]; total: number }>({
+    queryKey: ["/api/admin/reconciliation/runs"],
+    refetchInterval: 5_000,
+  });
+
+  const { data: censusRuns } = useQuery<{ runs: { id: string; status: string; environment_label: string }[]; total: number }>({
+    queryKey: ["/api/admin/census/runs"],
+    staleTime: 30_000,
+  });
+
+  const startMutation = useMutation({
+    mutationFn: (sourceCensusRunId: string) =>
+      apiRequest("POST", `/api/admin/reconciliation/runs`, { sourceCensusRunId }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      toast({ title: "Reconciliation run started", description: `Run ID: ${data.runId?.slice(0, 8)}…` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/reconciliation/runs"] });
+      if (data.runId) setSelectedRunId(data.runId);
+    },
+    onError: (err: any) => toast({ title: "Failed to start run", description: err.message, variant: "destructive" }),
+  });
+
+  const frozenCensus = censusRuns?.runs.find((r) => r.status === "completed");
+  const hasRuns = (runsData?.runs?.length ?? 0) > 0;
+
+  return (
+    <div className="space-y-6">
+      {!hasRuns && (
+        <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <p>
+            No reconciliation runs exist yet. Start a run below to classify contacts for remediation.
+            A completed census run is required.
+          </p>
+        </div>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <GitMerge className="h-4 w-4" /> Start Reconciliation Run
+          </CardTitle>
+          <CardDescription>
+            Reads a frozen census snapshot. Generates normalization proposals, org candidates, and duplicate
+            clusters. No canonical records are written until proposals are individually approved.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-3 items-center">
+          {frozenCensus ? (
+            <>
+              <div className="text-sm text-muted-foreground">
+                Using census run: <code className="text-xs">{frozenCensus.id.slice(0, 8)}…</code>{" "}
+                <EnvBadge label={frozenCensus.environment_label} />
+              </div>
+              <Button
+                className="ml-auto gap-2"
+                onClick={() => startMutation.mutate(frozenCensus.id)}
+                disabled={startMutation.isPending}
+              >
+                <Play className="h-4 w-4" />
+                {startMutation.isPending ? "Starting…" : "Start Reconciliation"}
+              </Button>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No completed census run found. Run a census first from the Census tab.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-2">
+          <h2 className="text-sm font-semibold mb-3">Reconciliation Runs</h2>
+          <ReconciliationRunsList selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
+        </div>
+        <div className="lg:col-span-3">
+          {selectedRunId ? (
+            <div className="space-y-4">
+              <ReconciliationRunDetail runId={selectedRunId} />
+              <ReconciliationProposalsPanel runId={selectedRunId} />
+            </div>
+          ) : (
+            <div className="h-48 flex items-center justify-center rounded-lg border border-dashed border-gray-200">
+              <p className="text-sm text-muted-foreground">Select a run to review proposals</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Page
 // ──────────────────────────────────────────────────────────────────────────────
 export default function ContactCensus() {
@@ -515,48 +912,58 @@ export default function ContactCensus() {
       <div className="flex items-start gap-3">
         <BarChart3 className="h-7 w-7 text-primary mt-0.5" />
         <div>
-          <h1 className="text-xl font-bold">Contact Census</h1>
+          <h1 className="text-xl font-bold">Contact Census &amp; Reconciliation</h1>
           <p className="text-sm text-muted-foreground">
-            Admin-triggered, read-only census of all active contacts. No canonical records are mutated.
-            No external provider calls are made.
+            Census classifies every active contact into remediation lanes. Reconciliation generates
+            proposals for name, phone, and company name corrections — each approved individually.
           </p>
         </div>
       </div>
 
-      {/* Safety notice */}
-      <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-        <Eye className="h-4 w-4 shrink-0 mt-0.5" />
-        <p>
-          Census runs are <strong>read-only</strong>. Lane assignments and dimension counts are stored in{" "}
-          <code>contact_census_members</code>. No changes are made to <code>contacts</code>, <code>businesses</code>,
-          or any other canonical table. No enrichment or outreach is triggered.
-        </p>
-      </div>
+      <Tabs defaultValue="census">
+        <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="census">Census</TabsTrigger>
+          <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
+        </TabsList>
 
-      <PreviewCard />
-      <StartRunPanel onStarted={(id) => setSelectedRunId(id)} />
+        <TabsContent value="census" className="space-y-6 mt-4">
+          {/* Safety notice */}
+          <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+            <Eye className="h-4 w-4 shrink-0 mt-0.5" />
+            <p>
+              Census runs are <strong>read-only</strong>. Lane assignments and dimension counts are stored in{" "}
+              <code>contact_census_members</code>. No changes are made to <code>contacts</code>,{" "}
+              <code>businesses</code>, or any other canonical table. No enrichment or outreach is triggered.
+            </p>
+          </div>
 
-      <div className="grid lg:grid-cols-5 gap-6">
-        {/* Runs list */}
-        <div className="lg:col-span-2">
-          <h2 className="text-sm font-semibold mb-3">Census Runs</h2>
-          <RunsList selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
-        </div>
+          <PreviewCard />
+          <StartRunPanel onStarted={(id) => setSelectedRunId(id)} />
 
-        {/* Run detail */}
-        <div className="lg:col-span-3">
-          {selectedRunId ? (
-            <>
-              <h2 className="text-sm font-semibold mb-3">Run Detail</h2>
-              <RunDetail runId={selectedRunId} />
-            </>
-          ) : (
-            <div className="h-48 flex items-center justify-center rounded-lg border border-dashed border-gray-200">
-              <p className="text-sm text-muted-foreground">Select a run to see details</p>
+          <div className="grid lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-2">
+              <h2 className="text-sm font-semibold mb-3">Census Runs</h2>
+              <RunsList selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
             </div>
-          )}
-        </div>
-      </div>
+            <div className="lg:col-span-3">
+              {selectedRunId ? (
+                <>
+                  <h2 className="text-sm font-semibold mb-3">Run Detail</h2>
+                  <RunDetail runId={selectedRunId} />
+                </>
+              ) : (
+                <div className="h-48 flex items-center justify-center rounded-lg border border-dashed border-gray-200">
+                  <p className="text-sm text-muted-foreground">Select a run to see details</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="reconciliation" className="mt-4">
+          <ReconciliationTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

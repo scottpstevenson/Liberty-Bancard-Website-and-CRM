@@ -789,6 +789,25 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     capability: "server-optional",
     providerNote: "422 gate and admin override tests; requires ADMIN credentials",
   },
+  // ── Contact Reconciliation ─────────────────────────────────────────────────
+  {
+    name: "Reconciliation Classifier",
+    script: "scripts/test-reconciliation-classifier.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure-function classifier; no database, network, or provider",
+  },
+  {
+    name: "Reconciliation Certification",
+    script: "scripts/test-reconciliation-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL only; no network or provider transports",
+  },
+  {
+    name: "Reconciliation Performance",
+    script: "scripts/test-reconciliation-performance.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL only; no network or provider transports",
+  },
 ];
 
 function defineSuite(definition: SuiteManifestDefinition): SuiteManifestEntry {

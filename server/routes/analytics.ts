@@ -120,14 +120,10 @@ export function registerAnalyticsRoutes(app: Express) {
                 AND closed_at >= $1)::text                                                   AS closed_lost_30d,
               COUNT(*) FILTER (WHERE pipeline='sales' AND created_at >= $1)::text            AS new_leads_30d,
               COUNT(*) FILTER (WHERE pipeline='sales' AND created_at >= $2)::text            AS new_leads_7d,
-              COALESCE(SUM(CASE WHEN estimated_processing_volume IS NOT NULL
-                AND estimated_processing_volume != ''
-                THEN CAST(REGEXP_REPLACE(estimated_processing_volume,'[^0-9.]','','g') AS DECIMAL)
+              COALESCE(SUM(CASE WHEN total_volume IS NOT NULL AND total_volume != ''
+                THEN CAST(REGEXP_REPLACE(total_volume,'[^0-9.]','','g') AS DECIMAL)
                 ELSE 0 END),0)::text                                                         AS total_volume,
-              COALESCE(SUM(CASE WHEN estimated_residual IS NOT NULL
-                AND estimated_residual != ''
-                THEN CAST(REGEXP_REPLACE(estimated_residual,'[^0-9.]','','g') AS DECIMAL)
-                ELSE 0 END),0)::text                                                         AS total_residual,
+              COALESCE(SUM(0),0)::text                                                        AS total_residual,
               COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL
                 AND estimated_gross_profit_monthly != ''
                 THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly,'[^0-9.]','','g') AS DECIMAL)
@@ -161,10 +157,10 @@ export function registerAnalyticsRoutes(app: Express) {
             open: string; breached: string; avg_hours: string | null;
           }>(`
             SELECT
-              COUNT(*) FILTER (WHERE status NOT IN ('Resolved','Closed'))::text              AS open,
-              COUNT(*) FILTER (WHERE sla_deadline < $1 AND resolved_at IS NULL
-                AND status NOT IN ('Resolved','Closed'))::text                               AS breached,
-              CASE WHEN COUNT(*) FILTER (WHERE status IN ('Resolved','Closed')
+              COUNT(*) FILTER (WHERE t.status NOT IN ('Resolved','Closed'))::text            AS open,
+              COUNT(*) FILTER (WHERE t.sla_deadline < $1 AND t.resolved_at IS NULL
+                AND t.status NOT IN ('Resolved','Closed'))::text                             AS breached,
+              CASE WHEN COUNT(*) FILTER (WHERE t.status IN ('Resolved','Closed')
                                               AND resolved_at IS NOT NULL
                                               AND resolved_at >= $2) > 0
                 THEN ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at)) / 3600)
