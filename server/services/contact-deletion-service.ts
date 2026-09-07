@@ -507,7 +507,7 @@ export async function executeDeleteBatch(
         await client.query(`DELETE FROM documents WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);
         await client.query(`DELETE FROM eligibility_snapshots WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);
         await client.query(`DELETE FROM email_logs WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);
-        await client.query(`DELETE FROM enrichment_runs WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);
+        // enrichment_runs links to contacts via contact_id, not deal_id — deleted in contact-level step below
         await client.query(`DELETE FROM equipment_orders WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);
         await client.query(`DELETE FROM equipment_shipments WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);
         await client.query(`DELETE FROM ghl_activity_log WHERE deal_id = ANY($1::int[])`, [disposableDealIds]);

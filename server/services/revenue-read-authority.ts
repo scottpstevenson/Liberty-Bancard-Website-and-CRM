@@ -201,11 +201,9 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
   );
   const data = dataResult.rows.map(camelize);
 
-  // Fire-and-forget CRO02 observation after the connection is released.
-  observeRevenueSubjects(
-    user,
-    data.map((item: any) => ({ subjectType: "contact", subjectId: Number(item.id) })),
-  ).catch(() => {});
+  // CRO02 observation is handled by the scheduled BullMQ CRO02_OBSERVATION job (every 2h).
+  // Do NOT call observeRevenueSubjects here — it issues one getCurrentClass query per contact,
+  // saturating the pool on every contacts page load.
 
   return {
     data,
