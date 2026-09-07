@@ -78,6 +78,7 @@ import { registerMerchantMidRoutes } from "./routes/merchant-mids";
 import { registerSaveCaseRoutes } from "./routes/save-cases";
 import { registerAiMemoryRoutes } from "./routes/ai-memory";
 import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
+import { registerCensusRoutes } from "./routes/census";
 import { registerOutreachQueueRoutes } from "./routes/outreach-queue";
 import { crmObjectAccessGuard } from "./services/crm-object-access";
 import { registerCommercialShadowRoutes } from "./routes/commercial-shadow";
@@ -242,6 +243,7 @@ export async function registerRoutes(
   registerSaveCaseRoutes(app);                // #1407
   registerAiMemoryRoutes(app);               // #1408/#1409
   registerDailyBriefingRoutes(app);          // #1476 — daily briefing
+  registerCensusRoutes(app);                 // #1817 — contact census
   registerOutreachQueueRoutes(app);          // #1493 — ready-for-outreach rep queue
 
   // Must be registered before the API 404 catch-all — extracts route

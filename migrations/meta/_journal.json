@@ -1604,6 +1604,13 @@
       "when": 1800000000001,
       "tag": "0224_bulk_delete_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 229,
+      "version": "7",
+      "when": 1800000000100,
+      "tag": "0225_contact_census",
+      "breakpoints": true
     }
   ]
 }
