@@ -1637,6 +1637,46 @@ export default function Contacts() {
           <Button size="sm" onClick={() => openBulkDialog("sms")} data-testid="button-bulk-sms">
             <MessageSquare className="w-4 h-4 mr-1" /> Bulk SMS
           </Button>
+          {isManagerOrAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-300 dark:hover:bg-orange-900/20"
+              disabled={bulkUpdating}
+              onClick={async () => {
+                if (!confirm(`Archive ${selectedContacts.length} contact(s)? They will be hidden but recoverable.`)) return;
+                setBulkUpdating(true);
+                try {
+                  await Promise.all(Array.from(selectedIds).filter(id => id > 0).map(id =>
+                    apiRequest("POST", `/api/contacts/${id}/archive`).then(r => r.json())
+                  ));
+                  queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+                  toast({ title: "Contacts archived", description: `${selectedContacts.length} contacts archived` });
+                  setSelectedIds(new Set());
+                } catch (err: any) {
+                  toast({ title: "Archive failed", description: err.message, variant: "destructive" });
+                } finally {
+                  setBulkUpdating(false);
+                }
+              }}
+              data-testid="button-bulk-archive"
+            >
+              <Archive className="w-4 h-4 mr-1" /> Archive
+            </Button>
+          )}
+          {user?.role === "admin" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+              disabled={isLoadingSnapshot || isHardDeleting}
+              onClick={handleHardDeletePreview}
+              data-testid="button-bulk-delete"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              {isLoadingSnapshot ? "Loading…" : "Delete"}
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())} data-testid="button-clear-selection">
             Clear
           </Button>
