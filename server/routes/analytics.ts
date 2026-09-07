@@ -13,14 +13,32 @@ import { serverError } from "../utils/server-error";
 import { readPipelineAnalytics } from "../services/revenue-read-authority";
 import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
 
+// Per-user observation cooldown: fire at most once every 10 minutes per user.
+// observeCommercialReportingPopulation processes up to 2 000 subjects at concurrency=8
+// which holds many pool connections for an extended period. Running it synchronously
+// on every analytics request saturates the pool on dashboard load when 5+ routes fire
+// simultaneously. Making it fire-and-forget with a per-user cooldown eliminates the
+// pool pressure while preserving the observation semantics.
+const _observationLastFired = new Map<string, number>();
+const _OBSERVATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
 export function registerAnalyticsRoutes(app: Express) {
-  app.use("/api/analytics", async (req, _res, next) => {
-    if (req.user) await Promise.all([
-      observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
-      observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
-    ]).catch((error) => console.error("[CRO02_ANALYTICS_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    }));
+  app.use("/api/analytics", (req, _res, next) => {
+    const userId = (req.user as any)?.id;
+    if (userId) {
+      const key = String(userId);
+      const now = Date.now();
+      const last = _observationLastFired.get(key) ?? 0;
+      if (now - last > _OBSERVATION_COOLDOWN_MS) {
+        _observationLastFired.set(key, now);
+        Promise.all([
+          observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
+          observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
+        ]).catch((error) => console.error("[CRO02_ANALYTICS_OBSERVATION_FAILED]", {
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        }));
+      }
+    }
     next();
   });
 
@@ -97,171 +115,142 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   // === KPI DASHBOARD ===
+  // Consolidated from 19 parallel pool.query() calls → 5 batched queries.
+  // Each old query held a pool connection for 50-300 ms; 19 simultaneous connections
+  // on a 40-connection pool left nothing for other concurrent dashboard requests.
   app.get("/api/kpi/summary", isDashboardUser, async (req, res) => {
     try {
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000);
 
-      const [
-        dealStageRows,
-        closedWonRow,
-        closedLostRow,
-        newLeads30dRow,
-        newLeads7dRow,
-        onboardingRows,
-        openTicketsRow,
-        breachedTicketsRow,
-        pendingTasksRow,
-        overdueTasksRow,
-        totalContactsRow,
-        newContacts30dRow,
-        newContacts7dRow,
-        blockedContactsRow,
-        churnRiskRow,           // #1263
-        revenueRow,
-        avgResolutionRow,
-        noOutreach24hRow,       // #1063
-        topRepsPipelineRows,    // #1144
-      ] = await Promise.all([
-        pool.query<{ stage: string; cnt: string }>(`
-          SELECT stage, COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND record_class = 'production'
-          GROUP BY stage
-        `),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND stage = 'Closed Won'
-            AND record_class = 'production'
-            AND closed_at >= $1
-        `, [thirtyDaysAgo]),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND stage = 'Closed Lost'
-            AND record_class = 'production'
-            AND closed_at >= $1
-        `, [thirtyDaysAgo]),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND record_class = 'production' AND created_at >= $1
-        `, [thirtyDaysAgo]),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'sales' AND record_class = 'production' AND created_at >= $1
-        `, [sevenDaysAgo]),
-        pool.query<{ stage: string; cnt: string }>(`
-          SELECT stage, COUNT(*)::text AS cnt FROM deals
-          WHERE archived_at IS NULL AND pipeline = 'onboarding' AND record_class = 'production'
-          GROUP BY stage
-        `),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM tickets
-          WHERE status NOT IN ('Resolved', 'Closed')
-        `),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM tickets
-          WHERE sla_deadline < $1 AND resolved_at IS NULL
-            AND status NOT IN ('Resolved', 'Closed')
-        `, [now]),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM tasks WHERE status = 'pending'
-        `),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM tasks WHERE status = 'pending' AND due_date < $1
-        `, [now]),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production'
-        `),
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
-        `, [thirtyDaysAgo]),
-        // #673 — new contacts in last 7 days
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND record_class = 'production' AND created_at >= $1
-        `, [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()]),
-        // #848 — blocked contacts count (do_not_contact or email invalid/bounced/unsafe)
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts
-          WHERE archived_at IS NULL AND record_class = 'production'
-            AND (do_not_contact = true OR email_status IN ('bounced','invalid','opted_out','unsafe'))
-        `),
-        // #1263 — churn-risk contacts (churn_risk_tier = 'High' or 'Critical') — server-side aggregate across all contacts
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts
-          WHERE archived_at IS NULL AND record_class = 'production'
-            AND churn_risk_tier IN ('High', 'Critical')
-        `),
-        pool.query<{ total_volume: string; total_residual: string; total_profit: string; deal_count: string }>(`
-          SELECT
-            COALESCE(SUM(CASE WHEN estimated_processing_volume IS NOT NULL AND estimated_processing_volume != ''
-              THEN CAST(REGEXP_REPLACE(estimated_processing_volume, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_volume,
-            COALESCE(SUM(CASE WHEN estimated_residual IS NOT NULL AND estimated_residual != ''
-              THEN CAST(REGEXP_REPLACE(estimated_residual, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_residual,
-            (SELECT COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL AND estimated_gross_profit_monthly != ''
-              THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)
-             FROM deals WHERE archived_at IS NULL AND record_class = 'production')::text AS total_profit,
-             (SELECT COUNT(*) FROM deals WHERE archived_at IS NULL AND record_class = 'production')::text AS deal_count
-           FROM contacts WHERE archived_at IS NULL AND record_class = 'production'
-        `),
-        pool.query<{ avg_hours: string | null }>(`
-          SELECT
-            CASE WHEN COUNT(*) > 0
-              THEN ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at)) / 3600)::numeric, 1)::text
-              ELSE NULL
-            END AS avg_hours
-          FROM tickets t
-          LEFT JOIN contacts c ON c.id = t.contact_id
-          WHERE (t.status = 'Resolved' OR t.status = 'Closed')
-            AND t.resolved_at IS NOT NULL
-            AND t.resolved_at >= $1
-            AND (
-              c.id IS NULL
-              OR (
-                c.email NOT LIKE '%@example.com'
-                AND c.email NOT LIKE '%@test.com'
-                AND c.email NOT LIKE '%@mailinator.com'
-              )
-            )
-        `, [thirtyDaysAgo]),
-        // #1063 — new contacts in last 24 h with no outreach (full-table aggregate, no pagination)
-        pool.query<{ cnt: string }>(`
-          SELECT COUNT(*)::text AS cnt FROM contacts
-          WHERE archived_at IS NULL
-            AND record_class = 'production'
-            AND created_at >= NOW() - INTERVAL '24 hours'
-            AND last_contacted_at IS NULL
-        `),
-        // #1144 — top 5 reps by open deal count (full-table aggregate)
-        pool.query<{ owner: string; cnt: string }>(`
-          SELECT owner, COUNT(*)::text AS cnt
-          FROM deals
-          WHERE archived_at IS NULL
-            AND record_class = 'production'
-            AND owner IS NOT NULL
-            AND stage NOT IN ('Closed Won', 'Closed Lost')
-          GROUP BY owner
-          ORDER BY COUNT(*) DESC
-          LIMIT 5
-        `),
-      ]);
+      // Query 1 — all deal aggregates in one scan (was 7 separate queries)
+      const [dealsAggRow, contactsAggRow, ticketsAggRow, tasksAggRow, topRepsRow] =
+        await Promise.all([
+          pool.query<{
+            stage: string; pipeline: string; cnt: string;
+            closed_won_30d: string; closed_lost_30d: string;
+            new_leads_30d: string; new_leads_7d: string;
+            total_volume: string; total_residual: string;
+            total_profit: string; deal_count: string;
+          }>(`
+            SELECT
+              stage,
+              pipeline,
+              COUNT(*)::text                                                                  AS cnt,
+              COUNT(*) FILTER (WHERE pipeline='sales' AND stage='Closed Won'
+                AND closed_at >= $1)::text                                                   AS closed_won_30d,
+              COUNT(*) FILTER (WHERE pipeline='sales' AND stage='Closed Lost'
+                AND closed_at >= $1)::text                                                   AS closed_lost_30d,
+              COUNT(*) FILTER (WHERE pipeline='sales' AND created_at >= $1)::text            AS new_leads_30d,
+              COUNT(*) FILTER (WHERE pipeline='sales' AND created_at >= $2)::text            AS new_leads_7d,
+              COALESCE(SUM(CASE WHEN estimated_processing_volume IS NOT NULL
+                AND estimated_processing_volume != ''
+                THEN CAST(REGEXP_REPLACE(estimated_processing_volume,'[^0-9.]','','g') AS DECIMAL)
+                ELSE 0 END),0)::text                                                         AS total_volume,
+              COALESCE(SUM(CASE WHEN estimated_residual IS NOT NULL
+                AND estimated_residual != ''
+                THEN CAST(REGEXP_REPLACE(estimated_residual,'[^0-9.]','','g') AS DECIMAL)
+                ELSE 0 END),0)::text                                                         AS total_residual,
+              COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL
+                AND estimated_gross_profit_monthly != ''
+                THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly,'[^0-9.]','','g') AS DECIMAL)
+                ELSE 0 END),0)::text                                                         AS total_profit,
+              COUNT(*)::text                                                                  AS deal_count
+            FROM deals
+            WHERE archived_at IS NULL AND record_class = 'production'
+            GROUP BY stage, pipeline
+          `, [thirtyDaysAgo, sevenDaysAgo]),
 
+          // Query 2 — all contact aggregates (was 6 separate queries)
+          pool.query<{
+            total: string; new_30d: string; new_7d: string;
+            blocked: string; churn_risk: string; no_outreach_24h: string;
+          }>(`
+            SELECT
+              COUNT(*)::text                                                                          AS total,
+              COUNT(*) FILTER (WHERE created_at >= $1)::text                                         AS new_30d,
+              COUNT(*) FILTER (WHERE created_at >= $2)::text                                         AS new_7d,
+              COUNT(*) FILTER (WHERE do_not_contact = true
+                OR email_status IN ('bounced','invalid','opted_out','unsafe'))::text                 AS blocked,
+              COUNT(*) FILTER (WHERE churn_risk_tier IN ('High','Critical'))::text                   AS churn_risk,
+              COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'
+                AND last_contacted_at IS NULL)::text                                                 AS no_outreach_24h
+            FROM contacts
+            WHERE archived_at IS NULL AND record_class = 'production'
+          `, [thirtyDaysAgo, sevenDaysAgo]),
+
+          // Query 3 — ticket aggregates (was 3 separate queries)
+          pool.query<{
+            open: string; breached: string; avg_hours: string | null;
+          }>(`
+            SELECT
+              COUNT(*) FILTER (WHERE status NOT IN ('Resolved','Closed'))::text              AS open,
+              COUNT(*) FILTER (WHERE sla_deadline < $1 AND resolved_at IS NULL
+                AND status NOT IN ('Resolved','Closed'))::text                               AS breached,
+              CASE WHEN COUNT(*) FILTER (WHERE status IN ('Resolved','Closed')
+                                              AND resolved_at IS NOT NULL
+                                              AND resolved_at >= $2) > 0
+                THEN ROUND(AVG(EXTRACT(EPOCH FROM (t.resolved_at - t.created_at)) / 3600)
+                  FILTER (WHERE t.status IN ('Resolved','Closed')
+                    AND t.resolved_at IS NOT NULL AND t.resolved_at >= $2
+                    AND (c.id IS NULL
+                      OR (c.email NOT LIKE '%@example.com'
+                        AND c.email NOT LIKE '%@test.com'
+                        AND c.email NOT LIKE '%@mailinator.com')))::numeric, 1)::text
+                ELSE NULL
+              END                                                                            AS avg_hours
+            FROM tickets t
+            LEFT JOIN contacts c ON c.id = t.contact_id
+          `, [now, thirtyDaysAgo]),
+
+          // Query 4 — task aggregates (was 2 separate queries)
+          pool.query<{ pending: string; overdue: string }>(`
+            SELECT
+              COUNT(*) FILTER (WHERE status = 'pending')::text                              AS pending,
+              COUNT(*) FILTER (WHERE status = 'pending' AND due_date < $1)::text            AS overdue
+            FROM tasks
+          `, [now]),
+
+          // Query 5 — top 5 reps by open deal count
+          pool.query<{ owner: string; cnt: string }>(`
+            SELECT owner, COUNT(*)::text AS cnt
+            FROM deals
+            WHERE archived_at IS NULL AND record_class = 'production'
+              AND owner IS NOT NULL
+              AND stage NOT IN ('Closed Won','Closed Lost')
+            GROUP BY owner
+            ORDER BY COUNT(*) DESC
+            LIMIT 5
+          `),
+        ]);
+
+      // ── Deals ──────────────────────────────────────────────────────────────
       const stagesCount: Record<string, number> = {};
       let totalActiveSales = 0;
-      for (const row of dealStageRows.rows) {
-        stagesCount[row.stage] = parseInt(row.cnt, 10);
-        if (row.stage !== "Closed Won" && row.stage !== "Closed Lost") {
-          totalActiveSales += parseInt(row.cnt, 10);
-        }
-      }
-
-      const closedWon30d = parseInt(closedWonRow.rows[0]?.cnt ?? "0", 10);
-      const closedLost30d = parseInt(closedLostRow.rows[0]?.cnt ?? "0", 10);
-      const recentDealsCount = parseInt(newLeads30dRow.rows[0]?.cnt ?? "0", 10);
-
+      let closedWon30d = 0, closedLost30d = 0, recentDealsCount = 0, newLeads7d = 0;
+      let totalVolume = 0, totalResidual = 0, totalProfit = 0, dealCount = 0;
       const onboardingStages: Record<string, number> = {};
-      for (const row of onboardingRows.rows) {
-        onboardingStages[row.stage] = parseInt(row.cnt, 10);
+
+      for (const row of dealsAggRow.rows) {
+        const cnt = parseInt(row.cnt, 10) || 0;
+        stagesCount[row.stage] = (stagesCount[row.stage] ?? 0) + cnt;
+        if (row.pipeline === "sales" && row.stage !== "Closed Won" && row.stage !== "Closed Lost") {
+          totalActiveSales += cnt;
+        }
+        if (row.pipeline === "onboarding") {
+          onboardingStages[row.stage] = (onboardingStages[row.stage] ?? 0) + cnt;
+        }
+        closedWon30d   = Math.max(closedWon30d,   parseInt(row.closed_won_30d  ?? "0", 10));
+        closedLost30d  = Math.max(closedLost30d,  parseInt(row.closed_lost_30d ?? "0", 10));
+        recentDealsCount = Math.max(recentDealsCount, parseInt(row.new_leads_30d ?? "0", 10));
+        newLeads7d     = Math.max(newLeads7d,     parseInt(row.new_leads_7d    ?? "0", 10));
+        totalVolume   += parseFloat(row.total_volume  ?? "0");
+        totalResidual += parseFloat(row.total_residual ?? "0");
+        totalProfit   += parseFloat(row.total_profit  ?? "0");
+        dealCount     += cnt;
       }
+
       const liveStages = new Set(["Live (First Batch)", "Active (7 Days)", "Active (30 Days)"]);
       const onboardingActive = Object.entries(onboardingStages)
         .filter(([stage]) => stage !== "Active (30 Days)")
@@ -270,9 +259,12 @@ export function registerAnalyticsRoutes(app: Express) {
         .filter(([stage]) => liveStages.has(stage))
         .reduce((s, [, cnt]) => s + cnt, 0);
 
-      const rev = revenueRow.rows[0];
-      const totalEstProfit = parseFloat(rev?.total_profit ?? "0");
-      const dealCount = parseInt(rev?.deal_count ?? "0", 10);
+      // ── Contacts ───────────────────────────────────────────────────────────
+      const ca = contactsAggRow.rows[0];
+      const totalEstProfit = totalProfit;
+
+      const ta = tasksAggRow.rows[0];
+      const tick = ticketsAggRow.rows[0];
 
       res.json({
         pipeline: {
@@ -281,35 +273,33 @@ export function registerAnalyticsRoutes(app: Express) {
           closedLost30d,
           conversionRate: recentDealsCount > 0 ? Math.round((closedWon30d / recentDealsCount) * 100) : 0,
           stagesBreakdown: stagesCount,
-          newLeads7d: parseInt(newLeads7dRow.rows[0]?.cnt ?? "0", 10),
+          newLeads7d,
         },
         onboarding: {
           active: onboardingActive,
           live: onboardingLive,
         },
         support: {
-          openTickets: parseInt(openTicketsRow.rows[0]?.cnt ?? "0", 10),
-          breachedSla: parseInt(breachedTicketsRow.rows[0]?.cnt ?? "0", 10),
-          avgResolutionHours: avgResolutionRow.rows[0]?.avg_hours != null
-            ? parseFloat(avgResolutionRow.rows[0].avg_hours)
-            : null,
+          openTickets:        parseInt(tick?.open     ?? "0", 10),
+          breachedSla:        parseInt(tick?.breached ?? "0", 10),
+          avgResolutionHours: tick?.avg_hours != null ? parseFloat(tick.avg_hours) : null,
         },
         tasks: {
-          pending: parseInt(pendingTasksRow.rows[0]?.cnt ?? "0", 10),
-          overdue: parseInt(overdueTasksRow.rows[0]?.cnt ?? "0", 10),
+          pending: parseInt(ta?.pending ?? "0", 10),
+          overdue: parseInt(ta?.overdue ?? "0", 10),
         },
         contacts: {
-          total: parseInt(totalContactsRow.rows[0]?.cnt ?? "0", 10),
-          new30d: parseInt(newContacts30dRow.rows[0]?.cnt ?? "0", 10),
-          new7d: parseInt(newContacts7dRow.rows[0]?.cnt ?? "0", 10),
-          blocked: parseInt(blockedContactsRow.rows[0]?.cnt ?? "0", 10),
-          churnRisk: parseInt(churnRiskRow.rows[0]?.cnt ?? "0", 10), // #1263
-          noOutreach24h: parseInt(noOutreach24hRow.rows[0]?.cnt ?? "0", 10), // #1063
+          total:        parseInt(ca?.total          ?? "0", 10),
+          new30d:       parseInt(ca?.new_30d        ?? "0", 10),
+          new7d:        parseInt(ca?.new_7d         ?? "0", 10),
+          blocked:      parseInt(ca?.blocked        ?? "0", 10),
+          churnRisk:    parseInt(ca?.churn_risk     ?? "0", 10),
+          noOutreach24h:parseInt(ca?.no_outreach_24h?? "0", 10),
         },
-        topRepsByPipeline: (topRepsPipelineRows.rows as Array<{ owner: string; cnt: string }>).map(r => ({ owner: r.owner, openDeals: parseInt(r.cnt, 10) })), // #1144
+        topRepsByPipeline: topRepsRow.rows.map(r => ({ owner: r.owner, openDeals: parseInt(r.cnt, 10) })),
         revenue: {
-          totalEstVolume: parseFloat(rev?.total_volume ?? "0"),
-          totalEstResidual: parseFloat(rev?.total_residual ?? "0"),
+          totalEstVolume:   totalVolume,
+          totalEstResidual: totalResidual,
           totalEstProfit,
           avgDealProfit: dealCount > 0 ? Math.round(totalEstProfit / dealCount) : 0,
         },
@@ -488,28 +478,44 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   app.get("/api/analytics/lead-sources", isDashboardUser, async (req, res) => {
+    // Replaced storage.getContacts({limit:500}) + in-memory filter with direct SQL
+    // aggregates to avoid loading full contact rows and to stay within one connection.
     try {
-      const { data: allContacts } = await storage.getContacts({ limit: 500, recordClass: "production" });
-      const { data: allDeals } = await storage.getDeals({ limit: 500, recordClass: "production" });
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const recentContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const [contactRows, dealRows] = await Promise.all([
+        pool.query<{ source: string; leads: string }>(`
+          SELECT
+            COALESCE(NULLIF(utm_source,''), NULLIF(lead_source,''), 'direct') AS source,
+            COUNT(*)::text AS leads
+          FROM contacts
+          WHERE archived_at IS NULL AND record_class = 'production'
+            AND created_at >= $1
+          GROUP BY source
+        `, [thirtyDaysAgo]),
+        pool.query<{ source: string; deals: string; won: string }>(`
+          SELECT
+            COALESCE(
+              NULLIF(REGEXP_REPLACE(COALESCE(lead_source,''), '^utm:', ''), ''),
+              'direct'
+            ) AS source,
+            COUNT(*)::text AS deals,
+            COUNT(*) FILTER (WHERE stage = 'Closed Won')::text AS won
+          FROM deals
+          WHERE archived_at IS NULL AND record_class = 'production'
+            AND pipeline = 'sales' AND created_at >= $1
+          GROUP BY source
+        `, [thirtyDaysAgo]),
+      ]);
 
       const sourceMap: Record<string, { leads: number; deals: number; won: number }> = {};
-      recentContacts.forEach(c => {
-        const src = c.utmSource || c.leadSource || "direct";
-        if (!sourceMap[src]) sourceMap[src] = { leads: 0, deals: 0, won: 0 };
-        sourceMap[src].leads++;
-      });
-
-      const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.createdAt && new Date(d.createdAt) >= thirtyDaysAgo);
-      salesDeals.forEach(d => {
-        const src = d.leadSource || "direct";
-        const normalizedSrc = src.startsWith("utm:") ? src.slice(4) : src;
-        if (!sourceMap[normalizedSrc]) sourceMap[normalizedSrc] = { leads: 0, deals: 0, won: 0 };
-        sourceMap[normalizedSrc].deals++;
-        if (d.stage === "Closed Won") sourceMap[normalizedSrc].won++;
-      });
+      for (const row of contactRows.rows) {
+        sourceMap[row.source] = { leads: parseInt(row.leads, 10), deals: 0, won: 0 };
+      }
+      for (const row of dealRows.rows) {
+        if (!sourceMap[row.source]) sourceMap[row.source] = { leads: 0, deals: 0, won: 0 };
+        sourceMap[row.source].deals += parseInt(row.deals, 10);
+        sourceMap[row.source].won   += parseInt(row.won,   10);
+      }
 
       const sources = Object.entries(sourceMap)
         .map(([source, data]) => ({
@@ -727,35 +733,45 @@ export function registerAnalyticsRoutes(app: Express) {
   });
 
   app.get("/api/analytics/daily-leads", isDashboardUser, async (req, res) => {
+    // Replaced storage.getContacts/getDeals({limit:500}) + in-memory filter with
+    // two direct SQL date-bucket aggregates using one connection each.
     try {
-      const { data: allContacts } = await storage.getContacts({ limit: 500, recordClass: "production" });
-      const { data: allDeals } = await storage.getDeals({ limit: 500, recordClass: "production" });
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const [contactRows, dealRows] = await Promise.all([
+        pool.query<{ day: string; cnt: string }>(`
+          SELECT DATE(created_at AT TIME ZONE 'UTC') AS day, COUNT(*)::text AS cnt
+          FROM contacts
+          WHERE archived_at IS NULL AND record_class = 'production'
+            AND created_at >= $1
+          GROUP BY day ORDER BY day
+        `, [sevenDaysAgo]),
+        pool.query<{ day: string; cnt: string }>(`
+          SELECT DATE(created_at AT TIME ZONE 'UTC') AS day, COUNT(*)::text AS cnt
+          FROM deals
+          WHERE archived_at IS NULL AND record_class = 'production'
+            AND pipeline = 'sales' AND created_at >= $1
+          GROUP BY day ORDER BY day
+        `, [sevenDaysAgo]),
+      ]);
 
       const dailyData: Record<string, { leads: number; deals: number }> = {};
+      const now = new Date();
       for (let i = 0; i < 7; i++) {
         const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-        const key = d.toISOString().split("T")[0];
-        dailyData[key] = { leads: 0, deals: 0 };
+        dailyData[d.toISOString().split("T")[0]] = { leads: 0, deals: 0 };
       }
-
-      allContacts.forEach(c => {
-        if (!c.createdAt) return;
-        const key = new Date(c.createdAt).toISOString().split("T")[0];
-        if (dailyData[key]) dailyData[key].leads++;
-      });
-
-      allDeals.filter(d => d.pipeline === "sales").forEach(d => {
-        if (!d.createdAt) return;
-        const key = new Date(d.createdAt).toISOString().split("T")[0];
-        if (dailyData[key]) dailyData[key].deals++;
-      });
+      for (const row of contactRows.rows) {
+        const key = String(row.day).split("T")[0];
+        if (dailyData[key]) dailyData[key].leads = parseInt(row.cnt, 10);
+      }
+      for (const row of dealRows.rows) {
+        const key = String(row.day).split("T")[0];
+        if (dailyData[key]) dailyData[key].deals = parseInt(row.cnt, 10);
+      }
 
       const today = now.toISOString().split("T")[0];
       const todayLeads = dailyData[today]?.leads || 0;
       const todayDeals = dailyData[today]?.deals || 0;
-
       const trend = Object.entries(dailyData)
         .map(([date, data]) => ({ date, ...data }))
         .sort((a, b) => a.date.localeCompare(b.date));
