@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { systemSettings } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { storage } from "../storage";
 
 const WIZARD_FLAGS = [
@@ -211,7 +211,29 @@ export function getCachedWizardFlagOverrideSync(flag: string): boolean | null {
 let _refreshInterval: ReturnType<typeof setInterval> | null = null;
 
 async function hydrateAllFlags(): Promise<void> {
-  await Promise.allSettled(WIZARD_FLAGS.map((f) => getWizardFlagOverride(f)));
+  // ONE query for all 8 flags instead of 8 parallel queries.
+  // Previously each parallel query held a connection for 7-11 s in production,
+  // saturating the pool every 5 minutes. inArray fetches all rows in one round trip.
+  try {
+    const keys = WIZARD_FLAGS.map(settingsKey);
+    const rows = await db
+      .select()
+      .from(systemSettings)
+      .where(inArray(systemSettings.key, keys));
+
+    // Populate cache for every flag — missing rows mean no override (null).
+    const rowMap = new Map(rows.map((r) => [r.key, r]));
+    for (const flag of WIZARD_FLAGS) {
+      const row = rowMap.get(settingsKey(flag));
+      const value = row?.value != null ? Boolean((row.value as any).enabled) : null;
+      setCached(flag, value);
+    }
+  } catch (err: any) {
+    _flagTimeoutCount++;
+    if (_flagTimeoutCount === 1 || _flagTimeoutCount % 20 === 0) {
+      console.warn(`[WizardFlags] Bulk hydration failed (×${_flagTimeoutCount} total) — using defaults:`, err?.message ?? err);
+    }
+  }
 }
 
 export function startFlagCacheRefresh(): void {
