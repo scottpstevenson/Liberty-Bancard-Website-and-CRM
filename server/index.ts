@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
-import { runProductionSeedConvergence } from "./services/production-seed-convergence";
+import { runProductionSeedConvergence, convergeContactRecordClassBackfill } from "./services/production-seed-convergence";
 // W13: Ceremony removed from startup — use scripts/cro03d-run-ceremony.ts offline.
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -368,6 +368,17 @@ app.use((req, _res, next) => {
     async () => {
       log(`serving on port ${port}`);
       logEnvVarChecklist();
+      // Fire-and-forget: reclassify contacts whose record_class is still 'unknown'.
+      // Runs AFTER listen() so it never blocks port opening. Idempotent — no-op
+      // once production contacts are classified. Not in SEED_TARGETS because the
+      // full-table UPDATE can take >30s on a large DB and would time out startup.
+      setImmediate(() => {
+        convergeContactRecordClassBackfill().then((result) => {
+          console.log(`[ContactClassBackfill] ${result.outcome}: ${result.detail}`);
+        }).catch((err: any) => {
+          console.error("[ContactClassBackfill] Failed (non-fatal, will retry on next restart):", err?.message ?? err);
+        });
+      });
       const certificationDenyMode = process.env.VG_PROVIDER_DENY_MODE === "1";
       // Read profile once, early — every gated block below references _bgProfile.
       // Fail-closed: absent/invalid → "off" (no workers, no seeds, no hydration).

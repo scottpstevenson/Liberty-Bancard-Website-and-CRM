@@ -463,6 +463,91 @@ async function convergeCr06CampaignGateRevisions(): Promise<SeedTargetResult> {
   });
 }
 
+// ── Target: contacts record_class backfill ───────────────────────────────────
+// All contacts created before the record_class column was added landed as
+// 'unknown'. This target promotes them: known test/qa patterns → 'test',
+// everything else → 'production'.  The check is: no 'unknown' rows remain.
+// This differs from other targets in that it runs UPDATEs, not INSERTs —
+// justified because (a) it is strictly a one-time historical backfill that
+// cannot loop, (b) it only touches rows whose current class is 'unknown',
+// and (c) subsequent startups are no-ops (zero unknown rows → rowCount=0).
+export async function convergeContactRecordClassBackfill(): Promise<SeedTargetResult> {
+  const id = "contact_record_class_backfill";
+  const tables = ["contacts"];
+  return withLock(`seed:${id}`, async (tx) => {
+    // record_class is a Postgres enum — information_schema reports it as
+    // 'USER-DEFINED' but the exact udt_name varies by DB; skip assertColumns
+    // and instead confirm the column exists via a direct catalog query.
+    const colCheck = rows(await tx.execute(sql`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'contacts' AND column_name = 'record_class'
+    `));
+    if (colCheck.length === 0) throw new Error("SEED_CONVERGENCE_TABLE_SHAPE_INVALID:contacts.record_class");
+
+    // This UPDATE scans the full contacts table — disable the pool's 30-second
+    // statement_timeout for this transaction only.
+    await tx.execute(sql`SET LOCAL statement_timeout = '0'`);
+
+    // Step 1 — promote known test/qa contacts.
+    const TEST_COND = sql`
+      email ILIKE '%@test.invalid'
+      OR email ILIKE '%@test.internal'
+      OR email ILIKE '%@libertybancard.test'
+      OR email ILIKE '%@example.test'
+      OR email ILIKE 'wh-test-%'
+      OR email ILIKE 'ghl-deal-test-%'
+      OR email ILIKE 'qa-release-%'
+      OR email ILIKE 'qa-appt-%'
+      OR email ILIKE 'no-op-%'
+      OR email ILIKE 'test-ca-%'
+      OR email ILIKE 'liberty-data-%@test.internal'
+      OR email ILIKE 'cro03%@example.test'
+      OR email ILIKE 'stmt-acq-test-%'
+      OR first_name ILIKE 'WebhookTest%'
+      OR first_name ILIKE 'testnle%'
+      OR first_name ILIKE 'StmtTest%'
+      OR first_name ILIKE 'StatementTest%'
+      OR first_name ILIKE 'GoLive-Test%'
+      OR first_name ILIKE 'GoLive Test%'
+      OR first_name ILIKE 'Getstarted%'
+      OR first_name ILIKE 'Stmttest%'
+      OR first_name ILIKE 'DealStage%'
+      OR first_name ILIKE 'C1Test%'
+      OR first_name ILIKE 'Liberty%DataTest%'
+      OR (first_name = 'StmtTest' AND last_name = 'QAUser')
+      OR (first_name = 'Test' AND last_name = 'Lead')
+      OR (first_name = 'Test' AND last_name = 'Update')
+      OR company_name ILIKE 'Test Co%'
+      OR company_name ILIKE 'Test Corp%'
+      OR company_name ILIKE 'QA_RELEASE_TEST%'
+      OR company_name ILIKE 'CRO03B Certification%'
+    `;
+    const testResult = await tx.execute(sql`
+      UPDATE contacts SET record_class = 'test'
+      WHERE record_class = 'unknown' AND (${TEST_COND})
+    `);
+    const testUpdated = (testResult as any)?.rowCount ?? 0;
+
+    // Step 2 — all remaining 'unknown' rows are real production contacts.
+    const prodResult = await tx.execute(sql`
+      UPDATE contacts SET record_class = 'production'
+      WHERE record_class = 'unknown'
+    `);
+    const prodUpdated = (prodResult as any)?.rowCount ?? 0;
+
+    const total = testUpdated + prodUpdated;
+    return {
+      id,
+      classification: "historical_backfill",
+      tables,
+      outcome: total > 0 ? "backfilled" : "already_present",
+      detail: total > 0
+        ? `reclassified ${testUpdated} test + ${prodUpdated} production contacts (was 'unknown')`
+        : "no unknown contacts — all previously classified",
+    };
+  });
+}
+
 // ── Target: inbound_request_effects backfill for historical equipment orders ─
 // migrations/0205_cro05a_equipment_fulfillment_truth.sql
 async function convergeInboundRequestEffects(): Promise<SeedTargetResult> {
@@ -675,6 +760,11 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
       `))[0];
       const n = Number(row?.n ?? 0);
       return { id: "inbound_request_effects_backfill", classification: "historical_backfill", tables: ["inbound_request_effects"], outcome: n === 0 ? "already_present" : "unexpected", detail: n === 0 ? "no missing effect rows" : `${n} equipment-order request(s) missing their held effect row` };
+    },
+    async () => {
+      const row = rows(await db.execute(sql`SELECT count(*)::int AS n FROM contacts WHERE record_class = 'unknown'`))[0];
+      const n = Number(row?.n ?? 0);
+      return { id: "contact_record_class_backfill", classification: "historical_backfill", tables: ["contacts"], outcome: n === 0 ? "already_present" : "unexpected", detail: n === 0 ? "no unknown-class contacts remain" : `${n} contact(s) still have record_class='unknown'` };
     },
   ];
   for (const check of checks) {
