@@ -362,8 +362,15 @@ function assignLane(
   }
 
   // P7 — NEEDS_CONTACT_NAME
-  if (!hasFirstName && !hasCompanyName) {
-    return { lane: "NEEDS_CONTACT_NAME", gapCodes: ["missing:first_name", "missing:company_name"] };
+  // Fires when firstName is absent regardless of companyName presence.
+  // Rationale: companyName alone is insufficient for individual-contact identification in outreach;
+  // a person name (firstName) is always required for a complete contact record.
+  // By P6 we already know missingFields.length < 2, so this catches "only firstName missing"
+  // as well as the historical "firstName AND companyName both missing" case.
+  if (!hasFirstName) {
+    const gaps = ["missing:first_name"];
+    if (!hasCompanyName) gaps.push("missing:company_name");
+    return { lane: "NEEDS_CONTACT_NAME", gapCodes: gaps };
   }
 
   // P8 — NEEDS_EMAIL

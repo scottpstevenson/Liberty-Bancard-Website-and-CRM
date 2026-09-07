@@ -11,6 +11,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  // Note: Select components retained for run filter controls below
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
@@ -149,13 +150,19 @@ function Tile({ label, value, warn }: { label: string; value: string; warn?: boo
 // Start-run form
 // ──────────────────────────────────────────────────────────────────────────────
 function StartRunPanel({ onStarted }: { onStarted: (runId: string) => void }) {
-  const [envLabel, setEnvLabel] = useState("development_preview");
   const { toast } = useToast();
   const qc = useQueryClient();
 
+  // Environment label is derived server-side — the server reads NODE_ENV + RELEASE_SHA.
+  // We fetch it here only to display it; the client never sends it.
+  const { data: envData } = useQuery<{ environmentLabel: string }>({
+    queryKey: ["/api/admin/census/environment"],
+    staleTime: 60_000,
+  });
+
   const startMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/admin/census/runs", { environmentLabel: envLabel }),
+    // No body needed — server derives environment label from runtime config
+    mutationFn: () => apiRequest("POST", "/api/admin/census/runs", {}),
     onSuccess: async (res) => {
       const data = await res.json();
       toast({ title: "Census run started", description: `Run ID: ${data.runId.slice(0, 8)}…` });
@@ -175,29 +182,21 @@ function StartRunPanel({ onStarted }: { onStarted: (runId: string) => void }) {
         </CardTitle>
         <CardDescription>
           Admin-triggered only. BACKGROUND_JOB_PROFILE must be <code>off</code>.
-          No canonical records are mutated.
+          No canonical records are mutated. Environment label is determined by
+          server configuration (NODE_ENV + RELEASE_SHA).
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-3 items-end">
-        <div className="flex-1 min-w-[200px]">
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">
-            Environment Label
-          </label>
-          <Select value={envLabel} onValueChange={setEnvLabel}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="development_preview">Development Preview</SelectItem>
-              <SelectItem value="production_readonly_preview">Production Read-Only Preview</SelectItem>
-              <SelectItem value="frozen_production_snapshot">Frozen Production Snapshot</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <CardContent className="flex flex-wrap gap-3 items-center">
+        {envData && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="font-medium">Environment:</span>
+            <EnvBadge label={envData.environmentLabel} />
+          </div>
+        )}
         <Button
           onClick={() => startMutation.mutate()}
           disabled={startMutation.isPending}
-          className="gap-2"
+          className="gap-2 ml-auto"
         >
           <Play className="h-4 w-4" />
           {startMutation.isPending ? "Starting…" : "Start Census"}

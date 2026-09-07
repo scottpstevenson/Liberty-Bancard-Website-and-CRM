@@ -1611,6 +1611,13 @@
       "when": 1800000000100,
       "tag": "0225_contact_census",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1800000000200,
+      "tag": "0226_census_ownership",
+      "breakpoints": true
     }
   ]
 }
