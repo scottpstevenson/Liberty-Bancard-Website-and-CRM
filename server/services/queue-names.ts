@@ -29,6 +29,7 @@ export const QUEUE_NAMES = {
   CHARGEBACK_COMMANDS: "chargeback-commands",
   CRO03A_QUALIFICATION: "cro03a-qualification",
   CRO03C_LIVE: "cro03c-live",
+  CRO02_OBSERVATION: "cro02-observation",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -3,18 +3,7 @@ import { pool } from "../db";
 import { sendGhlInternalNotification, isGhlConfigured } from "./ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import type { InsertNotification } from "@shared/schema";
-import { observeCommercialReportingPopulation } from "./commercial-resolution";
-
-async function observeDigestPopulation(): Promise<void> {
-  await Promise.all([
-    observeCommercialReportingPopulation({ subjectType: "contact" }),
-    observeCommercialReportingPopulation({ subjectType: "deal" }),
-  ]).catch((error) => {
-    console.error("[CRO02_DIGEST_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    });
-  });
-}
+// CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not called inline here.
 
 async function deliverDigestEmail(to: string, subject: string, html: string): Promise<void> {
   if (isGhlConfigured()) {
@@ -60,7 +49,6 @@ export async function buildDailyDigest(): Promise<{
   html: string;
   summary: Record<string, any>;
 }> {
-  await observeDigestPopulation();
   const now = new Date();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -208,7 +196,6 @@ export async function buildWeeklyDigest(): Promise<{
   html: string;
   summary: Record<string, any>;
 }> {
-  await observeDigestPopulation();
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 

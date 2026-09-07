@@ -8,7 +8,7 @@ import { sendGhlInternalNotification } from "../services/ghl";
 import { sql, eq, isNotNull } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 import { applyPercentToMinor, minorToCurrency, parseCurrencyToMinor } from "../services/money";
-import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
+
 
 function parseNum(v: any): number {
   if (v === null || v === undefined || v === "") return 0;
@@ -59,14 +59,7 @@ function parseFileBuffer(buffer: Buffer): Record<string, string>[] {
 }
 
 export function registerResidualsRoutes(app: Express) {
-  app.use("/api/residuals", async (req, _res, next) => {
-    if (req.user) await observeCommercialReportingPopulation({
-      subjectType: "deal", actor: req.user as any, effect: "financial_payout",
-    }).catch((error) => console.error("[CRO02_PAYOUT_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    }));
-    next();
-  });
+  // CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not on HTTP requests.
   app.post("/api/residuals/import", requireRole("admin", "manager"), uploadCsv.single("file"), async (req, res) => {
     try {
       const user = req.user as any;

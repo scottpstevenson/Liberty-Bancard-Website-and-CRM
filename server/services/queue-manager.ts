@@ -117,6 +117,17 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 60_000, jobName: "recover",
   },
   {
+    // CRO-02 shadow population observation — runs every 2 hours in prod (hourly in dev).
+    // Removed from all HTTP request paths; pool pressure from per-subject graph resolution
+    // must not block or background-consume connections during dashboard load.
+    name: QUEUE_NAMES.CRO02_OBSERVATION,
+    concurrency: 1,
+    attempts: 2,
+    backoffDelay: 60_000,
+    repeatEveryMs: process.env.NODE_ENV === "production" ? 2 * 60 * 60 * 1000 : 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
     name: QUEUE_NAMES.DEAL_STAGE_EFFECTS,
     concurrency: 1, attempts: 3, backoffDelay: 10_000,
     repeatEveryMs: 60_000, jobName: "dispatch",
@@ -1771,6 +1782,14 @@ class QueueManager {
           if (featureFlags.LEGACY_OUTREACH_ENABLED) {
             await runDiscoveryTick();
           }
+          break;
+        }
+        case QUEUE_NAMES.CRO02_OBSERVATION: {
+          const { observeCommercialReportingPopulation } = await import("./commercial-resolution");
+          await Promise.all([
+            observeCommercialReportingPopulation({ subjectType: "contact" }),
+            observeCommercialReportingPopulation({ subjectType: "deal" }),
+          ]);
           break;
         }
         case QUEUE_NAMES.DIGESTS: {

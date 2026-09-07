@@ -15,7 +15,7 @@ import {
 } from "../storage/inbox";
 import { z } from "zod";
 import { serverError } from "../utils/server-error";
-import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
+
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 
 const DRAFT_STATUSES = ["received", "in_review", "ai_analyzed", "reviewed", "complete"] as const;
@@ -87,15 +87,7 @@ Liberty Bancard Team`;
 }
 
 export function registerStatementReviewRoutes(app: Express) {
-  app.use("/api/statement-reviews", async (req, _res, next) => {
-    if (req.user) await Promise.all([
-      observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
-      observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
-    ]).catch((error) => console.error("[CRO02_STATEMENT_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    }));
-    next();
-  });
+  // CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not on HTTP requests.
   // GET /api/statement-reviews — list all reviews
   app.get("/api/statement-reviews", isDashboardUser, async (req, res) => {
     try {

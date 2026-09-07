@@ -2,18 +2,7 @@ import { db } from "../../db";
 import { dailyFunnelMetrics, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, deals, businesses, sendingIdentities, identityPerformanceDaily, leadSources, contacts } from "@shared/schema";
 import type { DailyFunnelMetrics } from "@shared/schema";
 import { eq, sql, and, gte, lte } from "drizzle-orm";
-import { observeCommercialReportingPopulation } from "../commercial-resolution";
-
-async function observeFunnelPopulation(): Promise<void> {
-  await Promise.all([
-    observeCommercialReportingPopulation({ subjectType: "contact" }),
-    observeCommercialReportingPopulation({ subjectType: "deal" }),
-  ]).catch((error) => {
-    console.error("[CRO02_FUNNEL_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    });
-  });
-}
+// CRO-02 observation runs via the CRO02_OBSERVATION BullMQ job — not called inline here.
 
 let aggregationInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -22,7 +11,6 @@ function getEstDateString(date?: Date): string {
 }
 
 export async function aggregateDailyMetrics(dateStr?: string): Promise<void> {
-  await observeFunnelPopulation();
   const targetDate = dateStr || getEstDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
   console.log(`[FunnelMetrics] Aggregating metrics for ${targetDate}...`);
 
@@ -232,7 +220,6 @@ export async function getFunnelMetrics(options: {
   state?: string;
   sourceType?: string;
 }): Promise<DailyFunnelMetrics[]> {
-  await observeFunnelPopulation();
   const { startDate, endDate, vertical, state, sourceType } = options;
 
   const conditions = [];

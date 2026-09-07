@@ -16,7 +16,7 @@ import path from "path";
 import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
 import { serverError, safeMessage } from "../utils/server-error";
 import { LifecycleService } from "../services/lifecycle-service";
-import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
+
 import * as merchantAppService from "../services/merchant-application-service";
 import {
   NotFoundError,
@@ -149,15 +149,7 @@ function canAccessApplication(req: any, application: { userId?: string | null })
 }
 
 export function registerMerchantsRoutes(app: Express) {
-  app.use("/api/merchants", async (req, _res, next) => {
-    if (req.user) await Promise.all([
-      observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
-      observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
-    ]).catch((error) => console.error("[CRO02_MERCHANT_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    }));
-    next();
-  });
+  // CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not on HTTP requests.
   // Start the durable outbox worker only when background workers are enabled.
   // Off mode = HTTP/API only, no background processing.
   if (getBackgroundProfile() !== "off") {

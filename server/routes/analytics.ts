@@ -11,36 +11,12 @@ import { eq, and, gte, lte, desc, sql, count, inArray, isNull } from "drizzle-or
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
 import { readPipelineAnalytics } from "../services/revenue-read-authority";
-import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
-
-// Per-user observation cooldown: fire at most once every 10 minutes per user.
-// observeCommercialReportingPopulation processes up to 2 000 subjects at concurrency=8
-// which holds many pool connections for an extended period. Running it synchronously
-// on every analytics request saturates the pool on dashboard load when 5+ routes fire
-// simultaneously. Making it fire-and-forget with a per-user cooldown eliminates the
-// pool pressure while preserving the observation semantics.
-const _observationLastFired = new Map<string, number>();
-const _OBSERVATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+// CRO-02 population observation runs as a scheduled BullMQ job (CRO02_OBSERVATION queue,
+// every 2h in prod) and is NOT triggered from HTTP requests. Doing it per-request was
+// the primary cause of db:pool_pressure: up to 2 000 per-subject graph-resolution queries
+// at concurrency=8 ran on every analytics page load.
 
 export function registerAnalyticsRoutes(app: Express) {
-  app.use("/api/analytics", (req, _res, next) => {
-    const userId = (req.user as any)?.id;
-    if (userId) {
-      const key = String(userId);
-      const now = Date.now();
-      const last = _observationLastFired.get(key) ?? 0;
-      if (now - last > _OBSERVATION_COOLDOWN_MS) {
-        _observationLastFired.set(key, now);
-        Promise.all([
-          observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
-          observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
-        ]).catch((error) => console.error("[CRO02_ANALYTICS_OBSERVATION_FAILED]", {
-          errorType: error instanceof Error ? error.name : "UnknownError",
-        }));
-      }
-    }
-    next();
-  });
 
   // === SALES TOOL CLICK TRACKING ===
   app.post("/api/analytics/tool-click", publicLeadRateLimit, async (req, res) => {

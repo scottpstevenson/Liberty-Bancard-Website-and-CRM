@@ -2,25 +2,17 @@ import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { pool } from "../db";
 import { serverError } from "../utils/server-error";
-import { observeCommercialReportingPopulation } from "../services/commercial-resolution";
-
 /**
  * Portfolio API — returns activated merchants with health signals.
  *
  * Membership requires a distinct production, non-archived contact with at
  * least one active MID whose activation timestamp is present. Assignment/deals
  * scope visibility, but neither one creates merchant membership.
+ *
+ * CRO-02 population observation runs via the CRO02_OBSERVATION BullMQ job,
+ * not on HTTP requests.
  */
 export function registerPortfolioRoutes(app: Express) {
-  app.use("/api/portfolio", async (req, _res, next) => {
-    if (req.user) await Promise.all([
-      observeCommercialReportingPopulation({ subjectType: "contact", actor: req.user as any }),
-      observeCommercialReportingPopulation({ subjectType: "deal", actor: req.user as any }),
-    ]).catch((error) => console.error("[CRO02_PORTFOLIO_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    }));
-    next();
-  });
   app.get("/api/portfolio", isDashboardUser, async (req, res) => {
     try {
       const user = req.user as any;

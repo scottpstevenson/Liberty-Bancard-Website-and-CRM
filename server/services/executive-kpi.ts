@@ -10,7 +10,7 @@ import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { deals, agents, dailyFunnelMetrics, executiveGoals } from "@shared/schema";
 import { recordAggregateLineage } from "./commercial-classification-authority";
-import { observeCommercialReportingPopulation } from "./commercial-resolution";
+
 
 export interface RepBreakdown {
   agentId: number;
@@ -113,11 +113,7 @@ function goalStatus(actual: number, goal: number): "green" | "yellow" | "red" | 
 export async function buildExecutiveSnapshot(
   forDate: Date = new Date()
 ): Promise<ExecutiveSnapshot> {
-  await observeCommercialReportingPopulation({ subjectType: "deal" }).catch((error) => {
-    console.error("[CRO02_EXECUTIVE_KPI_OBSERVATION_FAILED]", {
-      errorType: error instanceof Error ? error.name : "UnknownError",
-    });
-  });
+  // CRO-02 observation runs via the CRO02_OBSERVATION BullMQ job, not inline here.
   const weekStart = getMonday(forDate);
   const prevWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
   const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000 + 23 * 60 * 60 * 1000 + 59 * 60 * 1000);
