@@ -20,6 +20,7 @@ import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-dec
 import { sanitizeDeadLetterEvent } from "./audit-sanitizer";
 import { QUEUE_NAMES, type QueueName } from "./queue-names";
 export { QUEUE_NAMES, type QueueName } from "./queue-names";
+import { setDbContext } from "../lib/db-context";
 let seqNoOpAlertCooldown = 0;
 
 interface QueueConfig {
@@ -1208,6 +1209,15 @@ class QueueManager {
         poolTotal: _pool.totalCount,
         ts: new Date().toISOString(),
       }));
+
+      // ── DB context tagging ───────────────────────────────────────────────
+      // Sets correlationId + normalizedRoute on the AsyncLocalStorage context
+      // so that any db:slow_query log emitted during this job carries the
+      // queue name and job ID, making pool-bottleneck root-cause trivial.
+      setDbContext({
+        correlationId: _job.id ?? `${queueName}-${Date.now()}`,
+        normalizedRoute: `BullMQ ${queueName}`,
+      });
 
       try {
 
