@@ -1653,6 +1653,13 @@
       "when": 1800000000700,
       "tag": "0231_identity_crosswalk_candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "0232",
+      "when": 1800000000800,
+      "tag": "0232_crosswalk_run_notes",
+      "breakpoints": true
     }
   ]
 }

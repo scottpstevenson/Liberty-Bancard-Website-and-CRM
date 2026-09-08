@@ -405,6 +405,382 @@ async function phaseI_runnerSchema(): Promise<void> {
     runner.includes("Gen-2") && runner.includes("filing_number via businesses") && runner.includes("deferred"),
   );
 
+  // ── #1836 defect fixes ────────────────────────────────────────────────────
+
+  // Fix: email validation uses decideMarketingEmailValidation (not email_status IN check)
+  assert(
+    "#1836: runner imports decideMarketingEmailValidation",
+    runner.includes("decideMarketingEmailValidation"),
+    "decideMarketingEmailValidation not imported — email validation still uses raw email_status IN check",
+  );
+  assert(
+    "#1836: email probe fetches provider-readiness fields",
+    runner.includes("email_token_hash") &&
+    runner.includes("email_mutation_generation") &&
+    runner.includes("email_validation_updated_at"),
+    "email probe does not fetch fields needed for decideMarketingEmailValidation",
+  );
+  assert(
+    "#1836: email match tier splits validated vs unvalidated (tier 3 vs tier 7)",
+    runner.includes("exact_email_validated") && runner.includes("exact_email_unvalidated"),
+    "runner does not distinguish validated vs unvalidated email tiers",
+  );
+  assert(
+    "#1836: raw email_status IN probe removed from email match query",
+    !runner.match(/AND email_status IN \('valid', 'active'\)/),
+    "raw email_status IN ('valid','active') still used — misses provider-readiness check",
+  );
+
+  // Fix: ambiguous email → AMBIGUOUS_MATCH per candidate, not INSUFFICIENT_EVIDENCE
+  assert(
+    "#1836: ambiguous email writes AMBIGUOUS_MATCH candidates",
+    runner.includes("ambiguousEmailCandidates") &&
+    runner.includes("ambiguous_email"),
+    "ambiguous email still collapses — each candidate must be written as AMBIGUOUS_MATCH",
+  );
+
+  // Fix: email and owner_email probed independently (not coalesced)
+  assert(
+    "#1836: email and owner_email probed independently via emailsToProbe set",
+    runner.includes("emailsToProbe") &&
+    runner.includes("normalizedEmail") &&
+    runner.includes("normalizedOwnerEmail"),
+    "email/owner_email still coalesced — must probe each independently",
+  );
+  assert(
+    "#1836: old coalesced email shortcircuit removed",
+    !runner.match(/const sourceEmail = normalizeEmail\(row\.email \?\? row\.owner_email\)/),
+    "old coalesced (email ?? owner_email) shortcircuit still present",
+  );
+
+  // Fix: phone and owner_phone probed independently
+  assert(
+    "#1836: phone and owner_phone probed independently via phonesToProbe set",
+    runner.includes("phonesToProbe") &&
+    runner.includes("rawPhone") &&
+    runner.includes("rawOwnerPhone"),
+    "phone/owner_phone still coalesced — must probe each independently",
+  );
+
+  // Fix: company+domain tier 4 implemented
+  assert(
+    "#1836: company+domain tier 4 implemented",
+    runner.includes("company_domain") &&
+    runner.includes("split_part") &&
+    runner.includes("sourceDomain"),
+    "company+domain tier 4 not implemented",
+  );
+
+  // Fix: company+address tier 6 implemented
+  assert(
+    "#1836: company+address tier 6 implemented",
+    runner.includes("company_address") &&
+    runner.includes("principal_city") &&
+    runner.includes("principal_state"),
+    "company+address tier 6 not implemented",
+  );
+
+  // Fix: business matching implemented
+  assert(
+    "#1836: business matching on website_domain implemented",
+    runner.includes("business_website_domain") &&
+    runner.includes("businessCandidateMap"),
+    "business matching on website_domain not implemented",
+  );
+  assert(
+    "#1836: business matching on company+phone implemented",
+    runner.includes("business_company_phone"),
+    "business matching on company+phone not implemented",
+  );
+
+  // Fix: multiple businesses → all written as SOURCE_CONFLICT (not just businessIds[0])
+  assert(
+    "#1836: multiple business matches write all candidates (not just first)",
+    runner.includes("multiBusinessCands") &&
+    runner.includes("Multiple business-only candidates"),
+    "multiple business matches still take only businessIds[0] — remaining silently dropped",
+  );
+
+  // Fix: mixed contact+business → all written together (business not silently discarded)
+  assert(
+    "#1836: mixed contact+business writes both types (business not silently discarded)",
+    runner.includes("mixedCands") &&
+    runner.includes("businessIds.length === 0"),
+    "business candidates still silently discarded when a contact match exists",
+  );
+
+  // Fix: insertSubjectWithCandidates accepts candidateType (contact or business)
+  assert(
+    "#1836: insertSubjectWithCandidates accepts candidateType per candidate",
+    runner.includes("candidateType: \"contact\" | \"business\""),
+    "insertSubjectWithCandidates still hardcodes 'contact' — cannot write business candidates via this path",
+  );
+
+  // Fix: insertSubjectWithCandidates writes ALL provider evidence rows (not just providers[0])
+  assert(
+    "#1836: insertSubjectWithCandidates iterates over cand.providers (all evidence signals)",
+    runner.includes("for (const { provider } of cand.providers)"),
+    "insertSubjectWithCandidates still writes only providers[0] — additional matching signals are lost from evidence",
+  );
+
+  // Fix: multi-candidate call sites pass full providers array (not single provider)
+  assert(
+    "#1836: SOURCE_CONFLICT multi-candidate call passes providers: s.providers (not providers[0])",
+    runner.includes("providers: s.providers") && !runner.includes("provider: s.providers[0].provider"),
+    "SOURCE_CONFLICT multi-candidate still passes only providers[0] — remaining signals lost",
+  );
+
+  // Fix: ambiguous-email + business branch — business candidates NOT silently dropped
+  assert(
+    "#1836: ambiguous-email + business → promotes ambiguous contacts when businessCandidateMap has entries",
+    runner.includes(
+      "purelyAmbiguousEmailCandidates.length > 0 && candidateMap.size === 0 && businessCandidateMap.size > 0",
+    ),
+    "ambiguous-email branch still discards business candidates when businessCandidateMap is non-empty",
+  );
+
+  // Fix: sourceDomain prefers explicit website/domain field over email-derived domain
+  assert(
+    "#1836: sourceDomain uses explicit website/domain field with normalizeDomain()",
+    runner.includes("explicitWebsiteDomain") &&
+    runner.includes("normalizeDomain(row.website)") &&
+    runner.includes("normalizeDomain(row.domain)"),
+    "sourceDomain still derived only from email — free-mail domains create false company+domain matches",
+  );
+
+  // Fix: free-mail domain fallback tries owner-email domain when primary is free-mail
+  assert(
+    "#1836: emailDerivedDomain tries primaryEmailDomain then ownerEmailDomain independently",
+    runner.includes("primaryEmailDomain") &&
+    runner.includes("ownerEmailDomain") &&
+    runner.includes("isFreeMail(primaryEmailDomain)") &&
+    runner.includes("isFreeMail(ownerEmailDomain)"),
+    "domain fallback uses normalizedEmail ?? normalizedOwnerEmail — skips owner domain when primary is free-mail",
+  );
+
+  // Fix: business candidates in mixed match classified by their own tier (not contact's finalClass)
+  assert(
+    "#1836: mixed-branch business candidates use classifyEvidence(bs.minTier) independently",
+    runner.includes("classifyEvidence(bs.minTier, 1, false)") &&
+    runner.includes("bizClass"),
+    "mixed-branch business candidates inherit contact's finalClass — weak business match falsely marked DETERMINISTIC_MATCH",
+  );
+  assert(
+    "#1836: free-mail domains are blocked from company+domain matching",
+    runner.includes("FREE_MAIL_DOMAINS") && runner.includes("isFreeMail"),
+    "free-mail guard missing — gmail.com/yahoo.com domains can match unrelated contacts",
+  );
+  assert(
+    "#1836: website added to prospects batch SELECT",
+    runner.includes("website") && runner.includes("FROM prospects"),
+    "prospects batch SELECT does not include website — explicit website domain not used",
+  );
+  assert(
+    "#1836: domain added to master_leads batch SELECT",
+    runner.includes("domain") && runner.includes("FROM master_leads"),
+    "master_leads batch SELECT does not include domain — explicit website domain not used",
+  );
+
+  // Fix: business name normalization uses canonical normalizer (strips legal suffixes + punctuation)
+  assert(
+    "#1836: normalizeBusinessNameCanonical imported from sdr/dedupe",
+    runner.includes("normalizeBusinessNameCanonical") && runner.includes("from \"./sdr/dedupe\""),
+    "business name normalization still uses raw lowercase/trim — cannot match businesses.normalized_name after suffix removal",
+  );
+  assert(
+    "#1836: sourceBusinessName derived from normalizeBusinessNameCanonical(row.entity_name)",
+    runner.includes("sourceBusinessName") && runner.includes("normalizeBusinessNameCanonical(row.entity_name)"),
+    "sourceBusinessName not computed — business probes still compare against un-normalized entity_name",
+  );
+  assert(
+    "#1836: business company+phone probe uses sourceBusinessName (not sourceCompany)",
+    runner.includes("sourceBusinessName, phoneNorm, frozenBusinessesMaxId"),
+    "business company+phone probe still uses sourceCompany — misses 'Acme, LLC' vs normalized 'acme' in DB",
+  );
+  assert(
+    "#1836: business company+city+state probe uses sourceBusinessName (not sourceCompany)",
+    runner.includes("sourceBusinessName, srcCity, srcState"),
+    "business company+city+state probe still uses sourceCompany — mismatch after legal-suffix stripping",
+  );
+  assert(
+    "#1836: business name-only probe uses sourceBusinessName (not sourceCompany)",
+    runner.includes("sourceBusinessName, frozenBusinessesMaxId"),
+    "business name-only probe still uses sourceCompany — misses suffix-stripped business names",
+  );
+
+  // Fix: RULES_VERSION exported from runner and used in POST route
+  assert(
+    "#1836: RULES_VERSION exported from runner",
+    runner.includes("export const RULES_VERSION"),
+    "RULES_VERSION not exported — POST route cannot import it",
+  );
+  {
+    const _routeForVersion = fs.readFileSync("server/routes/identity-crosswalk.ts", "utf-8");
+    assert(
+      "#1836: POST route uses RULES_VERSION constant (not hardcoded string)",
+      _routeForVersion.includes("RULES_VERSION") && !_routeForVersion.includes("\"gen1-1.0.0\""),
+      "POST route still hardcodes 'gen1-1.0.0' — v2 scans mislabeled as v1",
+    );
+  }
+
+  // Fix: email ambiguous query LIMIT increased to 100 (safety cap, documented)
+  assert(
+    "#1836: email query uses LIMIT 100 safety cap (not 5 or 20)",
+    !runner.includes("LIMIT 5") && runner.includes("LIMIT 100"),
+    "email query still uses a low LIMIT — silently omits contacts sharing the email beyond the cap",
+  );
+
+  // Fix: provider_observations queried for real evidenceGeneration (not tautological)
+  assert(
+    "#1836: email match queries provider_observations for evidence generation",
+    runner.includes("FROM provider_observations") &&
+    runner.includes("po.subject_generation") &&
+    runner.includes("evidenceGeneration: po ? (po.subject_generation"),
+    "email match still uses contacts.email_mutation_generation as evidenceGeneration — tautological generation check",
+  );
+  assert(
+    "#1836: email match uses po.outcome as providerOutcome (not email_status alone)",
+    runner.includes("providerOutcome: po ? po.outcome : null"),
+    "email match does not use providerOutcome from provider_observations",
+  );
+  assert(
+    "#1836: email match uses po.observed_at as verifiedAt (not email_validation_updated_at alone)",
+    runner.includes("verifiedAt: po ? po.observed_at :"),
+    "email match uses email_validation_updated_at for verifiedAt without checking provider_observations first",
+  );
+
+  // Fix: business probes accumulate ALL matches (not skip when >1)
+  assert(
+    "#1836: business domain probe loops over all rows (not if rows.length === 1)",
+    runner.includes("for (const bRow of bDomR.rows)"),
+    "business domain probe still only adds candidate when exactly 1 result — multiple matches dropped",
+  );
+  assert(
+    "#1836: business phone probe loops over all rows",
+    runner.includes("for (const bRow of bPhoneR.rows)"),
+    "business phone probe still only adds candidate when exactly 1 result",
+  );
+  assert(
+    "#1836: business address probe loops over all rows",
+    runner.includes("for (const bRow of bAddrR.rows)"),
+    "business address probe still only adds candidate when exactly 1 result",
+  );
+  assert(
+    "#1836: business name-only probe loops over all rows",
+    runner.includes("for (const bRow of bNameR.rows)"),
+    "business name-only probe still only adds candidate when exactly 1 result",
+  );
+
+  // Fix: email probe independence — unique match from owner_email survives ambiguous primary_email
+  assert(
+    "#1836: purelyAmbiguousEmailCandidates filters out contacts already in candidateMap",
+    runner.includes("purelyAmbiguousEmailCandidates") &&
+    runner.includes("!candidateMap.has(ac.id)"),
+    "unique owner_email match still discarded when primary_email is ambiguous",
+  );
+  assert(
+    "#1836: tier 4-7 contact probes gated on purelyAmbiguousEmailCandidates (not ambiguousEmailCandidates)",
+    runner.includes("purelyAmbiguousEmailCandidates.length === 0") &&
+    !runner.includes("ambiguousEmailCandidates.length === 0"),
+    "tier 4-7 probes still blocked by raw ambiguousEmailCandidates — unique other-email matches never reach them",
+  );
+  assert(
+    "#1836: ambiguous branch only fires when candidateMap is empty",
+    runner.includes("purelyAmbiguousEmailCandidates.length > 0 && candidateMap.size === 0"),
+    "ambiguous branch still fires when candidateMap has unique matches — discards them",
+  );
+  assert(
+    "#1836: mixed ambiguous+unique case promotes ambiguous contacts into candidateMap for SOURCE_CONFLICT",
+    runner.includes("purelyAmbiguousEmailCandidates.length > 0 && candidateMap.size > 0") &&
+    runner.includes("addContactSignal(ac.id, \"ambiguous_email\", 3)"),
+    "when unique+ambiguous contacts coexist, ambiguous set is dropped instead of writing SOURCE_CONFLICT",
+  );
+
+  // Fix: frozenBusinessesMaxId passed into processBatch
+  assert(
+    "#1836: frozenBusinessesMaxId parameter in processBatch signature",
+    runner.includes("frozenBusinessesMaxId: bigint"),
+    "frozenBusinessesMaxId not in processBatch signature — was hardcoded null",
+  );
+  assert(
+    "#1836: executeIdentityRun extracts frozenBusinessesMaxId from run row",
+    runner.includes("frozenBusinessesMaxId = BigInt(run.frozen_businesses_max_id"),
+    "executeIdentityRun does not extract frozenBusinessesMaxId",
+  );
+
+  // Fix: insertVerticalCandidate calls resolveCanonicalVertical
+  assert(
+    "#1836: insertVerticalCandidate calls resolveCanonicalVertical",
+    runner.includes("resolveCanonicalVertical") &&
+    runner.includes("resolver_input") &&
+    runner.includes("resolver_output"),
+    "insertVerticalCandidate does not call resolveCanonicalVertical",
+  );
+
+  // Fix: cursor update is inside batch transaction (atomic)
+  assert(
+    "#1836: CursorUpdateFn type used for atomic cursor advancement",
+    runner.includes("CursorUpdateFn") &&
+    runner.includes("cursorUpdateFn"),
+    "cursor update still happens after COMMIT — not atomic",
+  );
+  assert(
+    "#1836: cursorUpdateFn called inside processBatch before COMMIT",
+    runner.includes("const cursorUpdated = await cursorUpdateFn(tx, processed, exceptions)"),
+    "cursorUpdateFn not called inside processBatch before COMMIT",
+  );
+
+  // Fix: filing-number tier recorded as run-level skip in run_notes
+  assert(
+    "#1836: filing-number tier recorded as run-level skip in run_notes",
+    runner.includes("tier_skips") && runner.includes("run_notes"),
+    "filing-number tier skip not recorded in run_notes",
+  );
+
+  // Fix: sunbiz batch includes address fields
+  assert(
+    "#1836: sunbiz batch fetch includes principal_address, principal_city, principal_state",
+    runner.includes("principal_address") && runner.includes("principal_city, principal_state"),
+    "sunbiz batch does not fetch address fields",
+  );
+
+  // Diagnostic endpoint
+  const crosswalkRouteForDiag = fs.readFileSync("server/routes/identity-crosswalk.ts", "utf-8");
+  assert(
+    "#1836: diagnostic census endpoint registered",
+    crosswalkRouteForDiag.includes("diagnostic") &&
+    crosswalkRouteForDiag.includes("dispositionBreakdown") &&
+    crosswalkRouteForDiag.includes("evidenceClassBreakdown"),
+    "diagnostic census endpoint not registered",
+  );
+
+  // UI rename: Scan #N not Gen-N
+  const uiTs = fs.readFileSync("client/src/pages/dashboard/IdentityCrosswalk.tsx", "utf-8");
+  assert(
+    "#1836: UI displays 'Scan #N' not 'Gen-N' in run list",
+    uiTs.includes("Scan #") && !uiTs.includes("Gen-{r.generation}"),
+    "UI still shows Gen-N in run list",
+  );
+  assert(
+    "#1836: startMutation toast uses 'Scan #N'",
+    !uiTs.includes("Gen-${data.generation}"),
+    "startMutation toast still shows Gen-N",
+  );
+  assert(
+    "#1836: architectural Gen-1/Gen-2 text preserved",
+    uiTs.includes("Gen-1") && uiTs.includes("Gen-2"),
+    "architectural Gen-1/Gen-2 text removed",
+  );
+
+  // Migration 0232 for run_notes
+  const journalNew = JSON.parse(fs.readFileSync("migrations/meta/_journal.json", "utf-8"));
+  const tagsNew = journalNew.entries.map((e: any) => e.tag);
+  assert(
+    "#1836: migration 0232_crosswalk_run_notes journaled",
+    tagsNew.includes("0232_crosswalk_run_notes"),
+    "0232_crosswalk_run_notes not in journal",
+  );
+
   // ── Org-candidate decision isolation ──────────────────────────────────────
   const crosswalkRoute = fs.readFileSync("server/routes/identity-crosswalk.ts", "utf-8");
 
@@ -469,11 +845,12 @@ async function phaseI_runnerSchema(): Promise<void> {
     "Runner increments 'exceptions' counter on catch path",
     runner.includes("exceptions++"),
   );
-  // processBatch is the function that returns { processed, exceptions, classCounts };
+  // processBatch returns { processed, exceptions, classCounts, cursorUpdated };
+  // cursorUpdated=false means the batch was rolled back (lease superseded).
   // executeIdentityRun returns Promise<void> and drives the outer loop.
   assert(
-    "processBatch returns { processed, exceptions, classCounts }",
-    runner.includes("return { processed, exceptions, classCounts }"),
+    "processBatch returns { processed, exceptions, classCounts, cursorUpdated }",
+    runner.includes("classCounts, cursorUpdated: true") || runner.includes("classCounts, cursorUpdated"),
   );
   assert(
     "executeIdentityRun signature returns Promise<void> (no data return)",
@@ -673,6 +1050,22 @@ async function phaseJ_dbAtomicity(): Promise<void> {
       const anyUser = await client.query(`SELECT id FROM users LIMIT 1`);
       const testUserId = anyUser.rows[0]?.id ?? null;
 
+      // Check for an existing active run. If one exists, we skip J2/J3/J4 rather than
+      // cancel it — cancelling a legitimate production run would be destructive.
+      const existingActiveRun = await client.query(
+        `SELECT id, status FROM contact_identity_reconciliation_runs
+         WHERE status IN ('pending','running','paused') LIMIT 1`,
+      );
+      if (existingActiveRun.rows.length > 0) {
+        const activeId = existingActiveRun.rows[0].id;
+        const activeStatus = existingActiveRun.rows[0].status;
+        warn(`J-fixture: an active run (id=${activeId}, status=${activeStatus}) exists — skipping J2/J3/J4 to avoid disrupting it.\n` +
+          `  Cancel the active run via the UI first, then re-run the cert suite.`);
+        // Run an abridged watermark-only J1 (already done above) and fall through gracefully.
+        client.release();
+        return;
+      }
+
       const testRunR = await client.query(`
         INSERT INTO contact_identity_reconciliation_runs
           (generation, rules_version, requested_by_user_id, environment, release_sha,
@@ -778,12 +1171,29 @@ async function phaseJ_dbAtomicity(): Promise<void> {
           contact_id: null,
         };
 
+        // Build a no-op cursor update function that always succeeds.
+        // This simulates the atomic cursor advancement that runs inside the batch transaction.
+        // Pass the run's lease_owner so the CAS WHERE clause matches.
+        const noop_cursorFn = async (tx: any, _p: number, _e: number) => {
+          // Just advance the cursor within the test run — the run is in 'running' state.
+          const r = await tx.query(
+            `UPDATE contact_identity_reconciliation_runs
+             SET sunbiz_cursor = 0, updated_at = now()
+             WHERE id = $1 AND lease_owner = 'cert-test-agent'`,
+            [testRunId],
+          );
+          return (r.rowCount ?? 0) > 0;
+        };
+
         // First call: should write the NO_MATCH subject and increment no_match_count
         const result1 = await _testProcessBatch(
           testRunId,
+          "cert-test-agent",
           BigInt(0), // frozenContactsMaxId=0; no contact FK path fires
+          BigInt(0), // frozenBusinessesMaxId=0
           [fakeRow],
           "sunbiz_entities",
+          noop_cursorFn,
         );
         assert(
           "J3: processBatch returns { processed=1, exceptions=0 } for a NO_MATCH row with valid run",
@@ -813,9 +1223,12 @@ async function phaseJ_dbAtomicity(): Promise<void> {
         // Replay: same source row again — subject already exists (ON CONFLICT DO NOTHING)
         const result2 = await _testProcessBatch(
           testRunId,
+          "cert-test-agent",
+          BigInt(0),
           BigInt(0),
           [fakeRow],
           "sunbiz_entities",
+          noop_cursorFn,
         );
         assert(
           "J3: processBatch returns { processed=1 } on replay (idempotent, no throw)",

@@ -26,6 +26,7 @@ import { serverError } from "../utils/server-error";
 import {
   executeIdentityRun,
   leaseOwnerTag,
+  RULES_VERSION,
 } from "../services/identity-crosswalk-runner";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ export function registerIdentityCrosswalkRoutes(app: Express): void {
                  $7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING id`,
         [
-          generation, "gen1-1.0.0", userId, deriveEnvironment(),
+          generation, RULES_VERSION, userId, deriveEnvironment(),
           process.env.RELEASE_SHA ?? null, owner,
           frozenSunbizMaxId, frozenProspectsMaxId,
           frozenMlTs, frozenMlUuid,
@@ -263,6 +264,107 @@ export function registerIdentityCrosswalkRoutes(app: Express): void {
       res.json({ runId, status: "cancelled" });
     } catch (err) {
       serverError(res, err, "identity crosswalk cancel run");
+    }
+  });
+
+  // ── GET /api/admin/identity-crosswalk/runs/:runId/diagnostic ────────────
+  // Returns an overlap census for a completed/running run using the same frozen
+  // watermarks that the runner used. Useful for verifying tier distribution and
+  // confirming the scan was bounded correctly before authorizing a full scan.
+  app.get("/api/admin/identity-crosswalk/runs/:runId/diagnostic", requireRole("admin"), async (req, res) => {
+    const runId = validateUUID(req.params.runId, res, "runId");
+    if (!runId) return;
+    try {
+      const runR = await pool.query(
+        `SELECT frozen_contacts_max_id, frozen_businesses_max_id,
+                frozen_sunbiz_max_id, frozen_prospects_max_id,
+                sunbiz_denominator, prospects_denominator, master_leads_denominator,
+                status, generation,
+                explicit_link_count, deterministic_match_count, strong_candidate_count,
+                ambiguous_count, source_conflict_count, insufficient_evidence_count,
+                no_match_count, non_production_count
+         FROM contact_identity_reconciliation_runs WHERE id = $1`,
+        [runId],
+      );
+      if (runR.rows.length === 0) return res.status(404).json({ error: "Run not found" });
+      const run = runR.rows[0];
+
+      // Subject disposition breakdown from the evidence tables
+      const dispositionR = await pool.query(
+        `SELECT disposition, COUNT(*) AS n
+         FROM contact_identity_subjects WHERE run_id = $1
+         GROUP BY disposition ORDER BY disposition`,
+        [runId],
+      );
+
+      // Evidence class breakdown across all candidates
+      const classR = await pool.query(
+        `SELECT c.evidence_class, COUNT(*) AS n
+         FROM contact_identity_candidates c
+         JOIN contact_identity_subjects s ON s.id = c.subject_id
+         WHERE s.run_id = $1
+         GROUP BY c.evidence_class ORDER BY c.evidence_class`,
+        [runId],
+      );
+
+      // Match tier distribution
+      const tierR = await pool.query(
+        `SELECT c.match_tier, COUNT(*) AS n
+         FROM contact_identity_candidates c
+         JOIN contact_identity_subjects s ON s.id = c.subject_id
+         WHERE s.run_id = $1
+         GROUP BY c.match_tier ORDER BY c.match_tier`,
+        [runId],
+      );
+
+      // Evidence provider distribution (top 20)
+      const providerR = await pool.query(
+        `SELECT e.evidence_provider, COUNT(*) AS n
+         FROM contact_identity_evidence e
+         WHERE e.run_id = $1
+         GROUP BY e.evidence_provider ORDER BY n DESC LIMIT 20`,
+        [runId],
+      );
+
+      // Overlap: contacts matched by any tier (deterministic + ambiguous + conflict)
+      const overlapR = await pool.query(
+        `SELECT COUNT(DISTINCT c.candidate_id) AS matched_contact_count
+         FROM contact_identity_candidates c
+         JOIN contact_identity_subjects s ON s.id = c.subject_id
+         WHERE s.run_id = $1 AND c.candidate_type = 'contact'
+           AND c.evidence_class IN ('EXPLICIT_LINK','DETERMINISTIC_MATCH','STRONG_REVIEW_CANDIDATE','AMBIGUOUS_MATCH','SOURCE_CONFLICT')`,
+        [runId],
+      );
+
+      res.json({
+        runId,
+        generation: run.generation,
+        status: run.status,
+        frozenContactsMaxId: run.frozen_contacts_max_id,
+        frozenBusinessesMaxId: run.frozen_businesses_max_id,
+        populationCounts: {
+          sunbiz: run.sunbiz_denominator,
+          prospects: run.prospects_denominator,
+          masterLeads: run.master_leads_denominator,
+        },
+        runCounters: {
+          explicitLink: run.explicit_link_count,
+          deterministicMatch: run.deterministic_match_count,
+          strongCandidate: run.strong_candidate_count,
+          ambiguous: run.ambiguous_count,
+          sourceConflict: run.source_conflict_count,
+          insufficientEvidence: run.insufficient_evidence_count,
+          noMatch: run.no_match_count,
+          nonProduction: run.non_production_count,
+        },
+        dispositionBreakdown: dispositionR.rows.map(r => ({ disposition: r.disposition, count: Number(r.n) })),
+        evidenceClassBreakdown: classR.rows.map(r => ({ evidenceClass: r.evidence_class, count: Number(r.n) })),
+        matchTierBreakdown: tierR.rows.map(r => ({ tier: Number(r.match_tier), count: Number(r.n) })),
+        topEvidenceProviders: providerR.rows.map(r => ({ provider: r.evidence_provider, count: Number(r.n) })),
+        uniqueMatchedContacts: Number(overlapR.rows[0]?.matched_contact_count ?? 0),
+      });
+    } catch (err) {
+      serverError(res, err, "identity crosswalk diagnostic");
     }
   });
 

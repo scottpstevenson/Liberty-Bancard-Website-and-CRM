@@ -155,7 +155,7 @@ function RunDetailCard({ run, onAction }: { run: IdentityRun; onAction: (action:
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle className="text-base">Run Gen-{run.generation}</CardTitle>
+            <CardTitle className="text-base">Run Scan #{run.generation}</CardTitle>
             <CardDescription className="text-xs mt-0.5">
               {run.id.slice(0, 8)}… · {run.environment} · {run.rules_version}
             </CardDescription>
@@ -680,7 +680,7 @@ export default function IdentityCrosswalk() {
       return r.json();
     },
     onSuccess: (data) => {
-      toast({ title: "Run started", description: `Gen-${data.generation} run created (${data.runId.slice(0, 8)}…).` });
+      toast({ title: "Run started", description: `Scan #${data.generation} created (${data.runId.slice(0, 8)}…).` });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/identity-crosswalk/runs"] });
     },
     onError: (e: Error) => toast({ title: "Failed to start run", description: e.message, variant: "destructive" }),
@@ -768,7 +768,7 @@ export default function IdentityCrosswalk() {
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold">Gen-{r.generation}</span>
+                  <span className="text-xs font-semibold">Scan #{r.generation}</span>
                   <Badge variant="outline" className={`text-[10px] ${statusBadge(r.status)}`}>{r.status}</Badge>
                 </div>
                 <p className="text-[10px] text-muted-foreground font-mono">{r.id.slice(0, 8)}…</p>

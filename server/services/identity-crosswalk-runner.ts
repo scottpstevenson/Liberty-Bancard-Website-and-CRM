@@ -25,31 +25,43 @@
  *
  * Evidence rules:
  *  - FK chain (sunbiz→prospect→contact): EXPLICIT_LINK, tier 1
- *  - Filing number exact match: DETERMINISTIC_MATCH, tier 2
- *  - Exact normalized email (requires email_status IN ('valid','active')): DETERMINISTIC_MATCH, tier 3
- *  - Company + domain: STRONG_REVIEW_CANDIDATE, tier 4
- *  - Company + phone: STRONG_REVIEW_CANDIDATE, tier 5
- *  - Company + address: STRONG_REVIEW_CANDIDATE, tier 6
+ *  - Filing number exact match: DETERMINISTIC_MATCH, tier 2 — deferred to Gen-2
+ *    (filing_number via businesses deferred: businesses table has no filing_number column)
+ *  - Exact normalized email (requires positive provider-readiness via
+ *    decideMarketingEmailValidation — active/unvalidated/stale/mismatched produce
+ *    only weak evidence at tier 7, never deterministic): DETERMINISTIC_MATCH, tier 3
+ *  - Company + domain: AMBIGUOUS_MATCH, tier 4
+ *  - Company + phone: AMBIGUOUS_MATCH, tier 5
+ *  - Company + address (street+city+state): AMBIGUOUS_MATCH, tier 6
  *  - Company name alone: INSUFFICIENT_EVIDENCE, tier 7 (never deterministic)
  *  - Phone alone / unvalidated email alone: INSUFFICIENT_EVIDENCE, tier 7
  *  - Two signals from same root_source count as ONE for confidence
  *  - Two sources needed for STRONG_REVIEW_CANDIDATE: different providers AND root_sources
+ *  - Ambiguous email (>1 contact matches): write AMBIGUOUS_MATCH per candidate, not
+ *    INSUFFICIENT_EVIDENCE — preserves all candidates for review
+ *
+ * Atomicity:
+ *  - Cursor advancement and evidence inserts commit in a SINGLE transaction.
+ *    If the CAS cursor update returns 0 rows (lease superseded) the entire
+ *    batch is rolled back, preventing orphaned evidence with a stale cursor.
  */
 
 import crypto from "crypto";
 import os from "os";
 import type { PoolClient } from 'pg';
 import { pool } from "../db";
+import { decideMarketingEmailValidation, hashEmailToken } from "./provider-readiness-decision";
+import { resolveCanonicalVertical } from "./sdr/canonical-vertical-resolver";
 import type { VerticalResolutionInput } from "./sdr/canonical-vertical-resolver";
+import { normalizeBusinessName as normalizeBusinessNameCanonical, normalizeDomain } from "./sdr/dedupe";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
-const RULES_VERSION = "gen1-1.0.0";
+export const RULES_VERSION = "gen1-2.0.0";
 const BATCH_SIZE = 500;
 const BATCH_TIMEOUT_MS = 30_000;
 const POOL_PRESSURE_SLEEP_MS = 5_000;
-const MEMORY_CEILING_BYTES = 50 * 1024 * 1024;
 const LEASE_DURATION_SECS = 120;
 const LEASE_REFRESH_EVERY_N = 10;
 
@@ -88,6 +100,31 @@ function normalizeEmail(email: string | null | undefined): string | null {
 function normalizeCompany(name: string | null | undefined): string | null {
   if (!name) return null;
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Extract registrable domain from an email address (part after @). */
+function extractEmailDomain(normalizedEmail: string | null): string | null {
+  if (!normalizedEmail) return null;
+  const idx = normalizedEmail.indexOf("@");
+  if (idx < 0) return null;
+  const domain = normalizedEmail.slice(idx + 1).toLowerCase().trim();
+  return domain.length > 0 ? domain : null;
+}
+
+/**
+ * Free-mail domains that must NEVER be used for company+domain matching.
+ * Matching contacts by a gmail.com or yahoo.com domain shared with a business entity
+ * would create massive false positives across unrelated people.
+ */
+const FREE_MAIL_DOMAINS = new Set([
+  "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com",
+  "aol.com", "icloud.com", "me.com", "msn.com", "comcast.net",
+  "sbcglobal.net", "verizon.net", "att.net", "bellsouth.net",
+  "protonmail.com", "proton.me", "mail.com", "zoho.com", "yandex.com",
+]);
+
+function isFreeMail(domain: string | null): boolean {
+  return domain !== null && FREE_MAIL_DOMAINS.has(domain.toLowerCase());
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -170,8 +207,15 @@ function classifyEvidence(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// CursorUpdateFn — called inside the batch transaction before COMMIT
+// Returns true if the CAS update matched (lease still held); false if superseded.
+// ──────────────────────────────────────────────────────────────────────────────
+type CursorUpdateFn = (tx: PoolClient, processed: number, exceptions: number) => Promise<boolean>;
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Process a single population batch
-// Returns: { processed, exceptions }
+// Returns: { processed, exceptions, classCounts, cursorUpdated }
+// cursorUpdated=false means the batch was rolled back (lease superseded).
 // ──────────────────────────────────────────────────────────────────────────────
 interface BatchSourceRow {
   id: number | string;
@@ -185,14 +229,20 @@ interface BatchSourceRow {
   prospect_id?: number | null;
   contact_id?: number | null;
   business_id?: number | null;
+  // sunbiz_entities address fields
+  principal_address?: string | null;
+  principal_city?: string | null;
+  principal_state?: string | null;
   // prospects
   sunbiz_entity_id?: number | null;
+  website?: string | null;        // prospects: explicit website URL
   // master_leads
   created_at?: string | Date | null;
+  domain?: string | null;         // master_leads: pre-normalized domain field
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Vertical candidate writer
+// Vertical candidate writer — calls resolveCanonicalVertical for real output
 // ──────────────────────────────────────────────────────────────────────────────
 async function insertVerticalCandidate(
   tx: PoolClient,
@@ -202,16 +252,37 @@ async function insertVerticalCandidate(
   sourceId: string,
   sourceVertical: string,
 ): Promise<void> {
+  // Fetch the contact's current vertical classification fields
   const contactR = await tx.query(
-    `SELECT vertical FROM contacts WHERE id = $1`,
+    `SELECT vertical, vertical_source, vertical_confidence, manual_vertical_override
+     FROM contacts WHERE id = $1`,
     [contactId],
   );
-  const currentVertical = contactR.rows[0]?.vertical ?? null;
+  const c = contactR.rows[0];
+  if (!c) return; // contact not found (outside frozen window) — skip silently
+
+  const resolverInput: VerticalResolutionInput = {
+    // Contact side (existing classification)
+    contactVertical: c.vertical ?? null,
+    contactVerticalSource: c.vertical_source ?? null,
+    contactVerticalConfidence: c.vertical_confidence ?? null,
+    contactManualOverride: c.manual_vertical_override ?? null,
+    // Source side (proposed new value from sunbiz/prospect/master_lead)
+    merchantVertical: sourceVertical,
+    merchantVerticalSource: "import_classification",
+    merchantVerticalConfidence: 50,
+    merchantManualOverride: false,
+  };
+  const resolverOutput = resolveCanonicalVertical(resolverInput);
+
+  const currentVertical = c.vertical ?? null;
   const conflictState = !currentVertical ? "proposed_upgrade"
-    : currentVertical === sourceVertical ? "agree"
+    : currentVertical === resolverOutput.vertical ? "agree"
     : "proposed_change";
-  const resolverInput = { sourceVertical, currentVertical, sourceTable, sourceId };
-  const resolverOutput = { conflictState, resolved: conflictState === "agree" ? currentVertical : sourceVertical };
+
+  // Only write when there is something to say (skip if resolver produces null with no existing)
+  if (!resolverOutput.vertical && !currentVertical && !sourceVertical) return;
+
   await tx.query(
     `INSERT INTO contact_vertical_candidates
        (run_id, contact_id, source_table, source_id, source_vertical,
@@ -225,23 +296,13 @@ async function insertVerticalCandidate(
 
 async function processBatch(
   runId: string,
+  owner: string,
   frozenContactsMaxId: bigint,
+  frozenBusinessesMaxId: bigint,
   sourceRows: BatchSourceRow[],
   sourceTable: string,
-): Promise<{ processed: number; exceptions: number; classCounts: Record<string, number> }> {
-  if (sourceRows.length === 0) return { processed: 0, exceptions: 0, classCounts: {} };
-
-  let processed = 0;
-  let exceptions = 0;
-  const classCounts: Record<string, number> = {};
-
-  // Acquire a single client and open an explicit transaction for the batch.
-  // PostgreSQL rejects SAVEPOINT outside a transaction (autocommit mode has no transaction).
-  // Each row uses a SAVEPOINT for atomic writes: if candidate/evidence/counter writes fail
-  // after a subject INSERT, the per-row ROLLBACK TO SAVEPOINT undoes the partial write so
-  // the unique constraint on (run_id, source_table, source_id) does NOT block replay.
-  // Cursor advancement is recorded after COMMIT so a crash between COMMIT and the cursor
-  // update is the only replay risk, and it is idempotent (ON CONFLICT DO NOTHING on subjects).
+  cursorUpdateFn: CursorUpdateFn,
+): Promise<{ processed: number; exceptions: number; classCounts: Record<string, number>; cursorUpdated: boolean }> {
   // ── Systemic configuration preflight ────────────────────────────────────
   // hmacFingerprint requires CREDENTIAL_ENCRYPTION_KEY. If the key is missing,
   // every row in the loop would throw, be counted as an exception, and the cursor
@@ -250,9 +311,14 @@ async function processBatch(
   // propagates to the lifecycle handler, which marks the run 'failed'.
   hmacFingerprint("_preflight_check_");
 
+  let processed = 0;
+  let exceptions = 0;
+  const classCounts: Record<string, number> = {};
+
   const tx = await pool.connect();
   try {
     await tx.query("BEGIN");
+
     for (const row of sourceRows) {
       const sourceId = String(row.id);
       const savepointName = `row_${sourceTable}_${String(sourceId).replace(/[^a-zA-Z0-9]/g, "_")}`;
@@ -262,10 +328,10 @@ async function processBatch(
         let rootSourceTable = sourceTable;
         let rootSourceId = sourceId;
         let existingFkContactId: number | null = null;
-        const existingFkBusinessId: number | null = null; // prospects has no business_id column
+        let existingFkBusinessId: number | null = null;
         const importExecutionId: string | null = null;
 
-        if (sourceTable === "prospects" && row.sunbiz_entity_id) {
+        if (sourceTable === "sunbiz_entities" && row.sunbiz_entity_id) {
           rootSourceTable = "sunbiz_entities";
           rootSourceId = String(row.sunbiz_entity_id);
         }
@@ -278,96 +344,98 @@ async function processBatch(
         // commands would fail with "current transaction is aborted, commands ignored".
         await tx.query(`SAVEPOINT ${savepointName}`);
         try {
-        // ── FK chain traversal (read-only; within savepoint) ─────────────────
-        // sunbiz → prospect (via prospect_id on sunbiz_entities) → contact
-        // prospects has contact_id but no business_id column
-        if (sourceTable === "sunbiz_entities" && row.prospect_id) {
-          const pR = await tx.query(
-            `SELECT contact_id FROM prospects WHERE id = $1`,
-            [row.prospect_id],
-          );
-          if (pR.rows.length > 0) {
-            existingFkContactId = pR.rows[0].contact_id ?? null;
-          }
-        } else {
-          if (row.contact_id) existingFkContactId = Number(row.contact_id);
-        }
-
-        const sourceEmail = normalizeEmail(row.email ?? row.owner_email);
-        const sourceCompany = normalizeCompany(row.entity_name);
-        const sourcePhone = (row.phone ?? row.owner_phone ?? null);
-        const sourceVertical = row.vertical ?? null;
-
-        // ── Read-only signal probes (inside savepoint) ────────────────────────
-        let skipToExplicit = false;
-        let explicitContactUpdatedAt: Date | null = null;
-
-        if (existingFkContactId && existingFkContactId <= Number(frozenContactsMaxId)) {
-          const contactCheck = await tx.query(
-            `SELECT id, updated_at FROM contacts
-             WHERE id = $1 AND archived_at IS NULL AND record_class = 'production'`,
-            [existingFkContactId],
-          );
-          if (contactCheck.rows.length > 0) {
-            skipToExplicit = true;
-            explicitContactUpdatedAt = contactCheck.rows[0].updated_at;
-          }
-        }
-
-        let emailMatchId: number | null = null;
-        let emailAmbiguous = false;
-        let companyPhoneMatchId: number | null = null;
-        let companyOnlyMatchId: number | null = null;
-
-        if (!skipToExplicit) {
-          if (sourceEmail) {
-            const eR = await tx.query(
-              `SELECT id FROM contacts
-               WHERE lower(trim(email)) = $1
-                 AND archived_at IS NULL AND record_class = 'production' AND id <= $2
-                 AND email_status IN ('valid', 'active')
-               LIMIT 3`,
-              [sourceEmail, frozenContactsMaxId],
+          // ── FK chain traversal (read-only; within savepoint) ─────────────────
+          // sunbiz → prospect (via prospect_id on sunbiz_entities) → contact
+          // prospects has contact_id but no business_id column
+          if (sourceTable === "sunbiz_entities" && row.prospect_id) {
+            const pR = await tx.query(
+              `SELECT contact_id FROM prospects WHERE id = $1`,
+              [row.prospect_id],
             );
-            if (eR.rows.length === 1) emailMatchId = eR.rows[0].id;
-            else if (eR.rows.length > 1) emailAmbiguous = true;
+            if (pR.rows.length > 0) {
+              existingFkContactId = pR.rows[0].contact_id ?? null;
+            }
+          } else {
+            if (row.contact_id) existingFkContactId = Number(row.contact_id);
+            if (row.business_id) existingFkBusinessId = Number(row.business_id);
           }
-          if (sourceCompany && sourcePhone) {
-            const phoneNorm = sourcePhone.replace(/\D/g, "");
-            if (phoneNorm.length >= 10) {
-              const cpR = await tx.query(
-                `SELECT id FROM contacts
-                 WHERE lower(trim(company_name)) = $1
-                   AND regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g') = $2
-                   AND archived_at IS NULL AND record_class = 'production' AND id <= $3
-                 LIMIT 3`,
-                [sourceCompany, phoneNorm, frozenContactsMaxId],
-              );
-              if (cpR.rows.length === 1) companyPhoneMatchId = cpR.rows[0].id;
+
+          // ── Normalize identifiers ─────────────────────────────────────────────
+          const normalizedEmail = normalizeEmail(row.email);
+          const normalizedOwnerEmail = normalizeEmail(row.owner_email);
+          const sourceCompany = normalizeCompany(row.entity_name);
+          // Canonical business-name normalization (matches businesses.normalized_name column,
+          // which was written by the same normalizeBusinessName function from sdr/dedupe).
+          // Strips legal suffixes (LLC, Inc, Corp…) and punctuation before DB comparison.
+          const sourceBusinessName = row.entity_name
+            ? normalizeBusinessNameCanonical(row.entity_name)
+            : null;
+          const rawPhone = row.phone ? row.phone.replace(/\D/g, "") : null;
+          const rawOwnerPhone = row.owner_phone ? row.owner_phone.replace(/\D/g, "") : null;
+          const sourceVertical = row.vertical ?? null;
+
+          // Unique email addresses to probe (probe each independently)
+          const emailsToProbe = new Set<string>();
+          if (normalizedEmail) emailsToProbe.add(normalizedEmail);
+          if (normalizedOwnerEmail && normalizedOwnerEmail !== normalizedEmail) {
+            emailsToProbe.add(normalizedOwnerEmail);
+          }
+
+          // Unique phone digits to probe (probe each independently)
+          const phonesToProbe = new Set<string>();
+          if (rawPhone && rawPhone.length >= 10) phonesToProbe.add(rawPhone);
+          if (rawOwnerPhone && rawOwnerPhone.length >= 10 && rawOwnerPhone !== rawPhone) {
+            phonesToProbe.add(rawOwnerPhone);
+          }
+
+          // Domain for company+domain matching (tier 4 contact) and business website probe.
+          // Priority: explicit website/domain field on the row > email-derived domain.
+          // NEVER use free-mail provider domains (gmail.com, yahoo.com…) — these are personal
+          // addresses unrelated to the business and would create false positives across
+          // thousands of unrelated contacts.
+          const explicitWebsiteDomain: string | null =
+            row.website ? normalizeDomain(row.website)     // prospects
+            : row.domain ? normalizeDomain(row.domain)    // master_leads
+            : null;
+          // Try primary email domain; if free-mail, try owner email domain independently.
+          // This ensures a corporate owner-email domain is used even when the primary email
+          // is gmail.com — the independent-probe model requires independent domain checks too.
+          const primaryEmailDomain = extractEmailDomain(normalizedEmail);
+          const ownerEmailDomain = extractEmailDomain(normalizedOwnerEmail);
+          const emailDerivedDomain: string | null =
+            (!isFreeMail(primaryEmailDomain) ? primaryEmailDomain : null) ??
+            (!isFreeMail(ownerEmailDomain) ? ownerEmailDomain : null);
+          // Use explicit if available; fall back to email-derived only when non-free-mail
+          const sourceDomain: string | null =
+            (explicitWebsiteDomain && !isFreeMail(explicitWebsiteDomain))
+              ? explicitWebsiteDomain
+              : emailDerivedDomain;
+
+          // ── Skip-to-explicit check ────────────────────────────────────────────
+          let skipToExplicit = false;
+          let explicitContactUpdatedAt: Date | null = null;
+
+          if (existingFkContactId && existingFkContactId <= Number(frozenContactsMaxId)) {
+            const contactCheck = await tx.query(
+              `SELECT id, updated_at FROM contacts
+               WHERE id = $1 AND archived_at IS NULL AND record_class = 'production'`,
+              [existingFkContactId],
+            );
+            if (contactCheck.rows.length > 0) {
+              skipToExplicit = true;
+              explicitContactUpdatedAt = contactCheck.rows[0].updated_at;
             }
           }
-          if (sourceCompany && !companyPhoneMatchId) {
-            const coR = await tx.query(
-              `SELECT id FROM contacts
-               WHERE lower(trim(company_name)) = $1
-                 AND archived_at IS NULL AND record_class = 'production' AND id <= $2
-               LIMIT 3`,
-              [sourceCompany, frozenContactsMaxId],
-            );
-            if (coR.rows.length === 1) companyOnlyMatchId = coR.rows[0].id;
-          }
-        }
 
-        // ── Build fingerprint ─────────────────────────────────────────────────
-        const sourceFingerprint = hmacFingerprint([
-          sourceTable, sourceId,
-          sourceEmail ?? "",
-          sourceCompany ?? "",
-          row.filing_number ?? "",
-          sourcePhone ?? "",
-        ].join("|"));
+          // ── Build fingerprint ─────────────────────────────────────────────────
+          const sourceFingerprint = hmacFingerprint([
+            sourceTable, sourceId,
+            normalizedEmail ?? normalizedOwnerEmail ?? "",
+            sourceCompany ?? "",
+            row.filing_number ?? "",
+            rawPhone ?? rawOwnerPhone ?? "",
+          ].join("|"));
 
-        // ── Writes follow (still within the same single SAVEPOINT try block) ─
           if (skipToExplicit) {
             // ── Tier 1: Explicit FK link ────────────────────────────────────────
             const subjectR = await tx.query(
@@ -416,20 +484,361 @@ async function processBatch(
           }
 
           // ── Signal map ──────────────────────────────────────────────────────
+          // candidateMap: contact id → { providers, minTier }
+          // businessCandidateMap: business id → { providers, minTier }
           const candidateMap = new Map<number, { providers: Array<{ provider: string; tier: number }>; minTier: number }>();
-          const addSignal = (cid: number, provider: string, tier: number) => {
+          const businessCandidateMap = new Map<number, { providers: Array<{ provider: string; tier: number }>; minTier: number }>();
+
+          // Contacts matched by email with ambiguous result (>1 contacts share the email)
+          // Each gets an AMBIGUOUS_MATCH candidate row — NOT collapsed to INSUFFICIENT_EVIDENCE.
+          const ambiguousEmailCandidates: Array<{ id: number; updatedAt: Date | null }> = [];
+
+          const addContactSignal = (cid: number, provider: string, tier: number) => {
             const ex = candidateMap.get(cid);
             if (ex) { ex.providers.push({ provider, tier }); ex.minTier = Math.min(ex.minTier, tier); }
             else candidateMap.set(cid, { providers: [{ provider, tier }], minTier: tier });
           };
-          // Tier 2 (filing_number via businesses) deferred to Gen-2 — businesses has no filing_number column
-          if (emailMatchId) addSignal(emailMatchId, "exact_email", 3);
-          if (companyPhoneMatchId) addSignal(companyPhoneMatchId, "company_phone", 5);
-          if (companyOnlyMatchId) addSignal(companyOnlyMatchId, "company_only", 7);
+          const addBusinessSignal = (bid: number, provider: string, tier: number) => {
+            const ex = businessCandidateMap.get(bid);
+            if (ex) { ex.providers.push({ provider, tier }); ex.minTier = Math.min(ex.minTier, tier); }
+            else businessCandidateMap.set(bid, { providers: [{ provider, tier }], minTier: tier });
+          };
 
-          const candidateIds = Array.from(candidateMap.keys());
+          // ── Tier 3: Email signals ─────────────────────────────────────────────
+          // Each email (primary, owner) is probed independently. Results are not
+          // short-circuited: a unique match from owner_email survives even when
+          // primary_email is ambiguous.
+          //
+          // Safety cap: LIMIT 100. In production, >100 contacts sharing an email
+          // is a data-quality problem; if the cap is hit the ambiguous set is still
+          // written as AMBIGUOUS_MATCH so an admin can investigate.
+          //
+          // Evidence generation: `contacts.email_mutation_generation` is the expected
+          // (subject) generation stored on the contact. The *evidence* generation is
+          // the `subject_generation` persisted in provider_observations for that
+          // email+contact pair. Passing both the same value makes the generation
+          // check tautological — so we query provider_observations for the latest
+          // observation that matches the contact's current email_token_hash.
+          for (const emailNorm of emailsToProbe) {
+            const eR = await tx.query(
+              `SELECT id, email, email_status, email_token_hash,
+                      email_mutation_generation, email_validation_updated_at, updated_at
+               FROM contacts
+               WHERE lower(trim(email)) = $1
+                 AND archived_at IS NULL AND record_class = 'production' AND id <= $2
+               LIMIT 100`,
+              [emailNorm, frozenContactsMaxId],
+            );
 
-          if (candidateIds.length === 0 && !emailAmbiguous) {
+            if (eR.rows.length === 0) {
+              // no match for this email — continue to next probe
+            } else if (eR.rows.length === 1) {
+              const c = eR.rows[0];
+              // Query the latest provider_observations row for this contact+email.
+              // `po.subject_generation` is the evidence generation recorded at validation
+              // time — distinct from `contacts.email_mutation_generation` (the subject's
+              // current generation). Passing contacts.email_mutation_generation as
+              // evidenceGeneration would make the generation gate tautological.
+              const poR = await tx.query(
+                `SELECT email_token_hash, subject_generation, outcome, observed_at
+                 FROM provider_observations
+                 WHERE subject_id = $1 AND subject_type = 'contact'
+                   AND email_token_hash = $2
+                 ORDER BY observed_at DESC LIMIT 1`,
+                [c.id, c.email_token_hash],
+              );
+              const po = poR.rows[0] ?? null;
+              const decision = decideMarketingEmailValidation(
+                c.email,
+                {
+                  emailStatus: c.email_status,
+                  emailTokenHash: c.email_token_hash,        // subject's expected hash
+                  subjectGeneration: c.email_mutation_generation, // contact's current generation
+                  evidenceGeneration: po ? (po.subject_generation ?? null) : null, // from provider obs
+                  verifiedAt: po ? po.observed_at : (c.email_validation_updated_at ?? null),
+                  providerOutcome: po ? po.outcome : null,
+                },
+              );
+              if (decision.allowed) {
+                addContactSignal(c.id, "exact_email_validated", 3);
+              } else {
+                // Unvalidated / stale / generation-mismatch: treat as weak tier 7 evidence.
+                // This includes contacts whose email_status is 'valid' but whose provider
+                // observation is absent or has a different generation (token rotation).
+                addContactSignal(c.id, "exact_email_unvalidated", 7);
+              }
+            } else {
+              // Ambiguous: multiple contacts share the same email address (within frozen window).
+              // Record each as a distinct AMBIGUOUS_MATCH candidate. This does NOT prevent
+              // other email probes from contributing unique matches to candidateMap — each
+              // probe's results are accumulated independently.
+              for (const c of eR.rows) {
+                if (Number(c.id) <= Number(frozenContactsMaxId)) {
+                  if (!ambiguousEmailCandidates.some(x => x.id === c.id)) {
+                    ambiguousEmailCandidates.push({ id: c.id, updatedAt: c.updated_at });
+                  }
+                }
+              }
+            }
+          }
+
+          // Reconcile ambiguous email candidates against unique matches collected
+          // by other email probes. A contact that arrived via an ambiguous probe but
+          // was also uniquely matched by another probe is already in candidateMap and
+          // does not need an AMBIGUOUS_MATCH row — remove it from the purely-ambiguous
+          // set so it is handled as a normal candidate. Contacts that remain in
+          // purelyAmbiguousEmailCandidates have NO unique probe path and must be written
+          // as AMBIGUOUS_MATCH for admin review.
+          const purelyAmbiguousEmailCandidates = ambiguousEmailCandidates.filter(
+            ac => !candidateMap.has(ac.id),
+          );
+
+          // ── Tier 4: Company + domain ──────────────────────────────────────────
+          // Skip only when we already have an ambiguous email set that would make
+          // any extra candidate evidence redundant. Unique email matches in candidateMap
+          // do NOT block these probes.
+          if (sourceCompany && sourceDomain && purelyAmbiguousEmailCandidates.length === 0) {
+            const cdR = await tx.query(
+              `SELECT id FROM contacts
+               WHERE lower(trim(company_name)) = $1
+                 AND lower(trim(split_part(email, '@', 2))) = $2
+                 AND archived_at IS NULL AND record_class = 'production' AND id <= $3
+               LIMIT 20`,
+              [sourceCompany, sourceDomain, frozenContactsMaxId],
+            );
+            // Only add when uniquely matched — >1 is an ambiguous tier 4, skip.
+            if (cdR.rows.length === 1) {
+              addContactSignal(Number(cdR.rows[0].id), "company_domain", 4);
+            }
+          }
+
+          // ── Tier 5: Company + phone ───────────────────────────────────────────
+          if (sourceCompany && purelyAmbiguousEmailCandidates.length === 0) {
+            for (const phoneNorm of phonesToProbe) {
+              const cpR = await tx.query(
+                `SELECT id FROM contacts
+                 WHERE lower(trim(company_name)) = $1
+                   AND regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g') = $2
+                   AND archived_at IS NULL AND record_class = 'production' AND id <= $3
+                 LIMIT 20`,
+                [sourceCompany, phoneNorm, frozenContactsMaxId],
+              );
+              if (cpR.rows.length === 1) {
+                addContactSignal(Number(cpR.rows[0].id), "company_phone", 5);
+              }
+            }
+          }
+
+          // ── Tier 6: Company + address ─────────────────────────────────────────
+          // Available when source row has principal_address/city/state (sunbiz_entities).
+          // street + city + state = tier 6 (strong); city + state alone = tier 7 (weak).
+          if (sourceCompany && purelyAmbiguousEmailCandidates.length === 0) {
+            const srcCity = row.principal_city?.trim().toLowerCase() ?? null;
+            const srcState = row.principal_state?.trim().toLowerCase() ?? null;
+            const srcStreet = row.principal_address?.trim().toLowerCase() ?? null;
+
+            if (srcStreet && srcCity && srcState) {
+              const addrR = await tx.query(
+                `SELECT id FROM contacts
+                 WHERE lower(trim(company_name)) = $1
+                   AND lower(trim(COALESCE(address,''))) = $2
+                   AND lower(trim(COALESCE(city,''))) = $3
+                   AND lower(trim(COALESCE(state,''))) = $4
+                   AND archived_at IS NULL AND record_class = 'production' AND id <= $5
+                 LIMIT 20`,
+                [sourceCompany, srcStreet, srcCity, srcState, frozenContactsMaxId],
+              );
+              if (addrR.rows.length === 1) {
+                addContactSignal(Number(addrR.rows[0].id), "company_address", 6);
+              }
+            } else if (srcCity && srcState && !srcStreet) {
+              // city+state only = tier 7 weak
+              const addrWeakR = await tx.query(
+                `SELECT id FROM contacts
+                 WHERE lower(trim(company_name)) = $1
+                   AND lower(trim(COALESCE(city,''))) = $2
+                   AND lower(trim(COALESCE(state,''))) = $3
+                   AND archived_at IS NULL AND record_class = 'production' AND id <= $4
+                 LIMIT 20`,
+                [sourceCompany, srcCity, srcState, frozenContactsMaxId],
+              );
+              if (addrWeakR.rows.length === 1) {
+                addContactSignal(Number(addrWeakR.rows[0].id), "company_city_state", 7);
+              }
+            }
+          }
+
+          // ── Business matching (tiers 4–7) ─────────────────────────────────────
+          // Matches businesses table entries for candidate_type='business' rows.
+          // frozenBusinessesMaxId=0 means businesses table is empty / not populated.
+          //
+          // All matching rows from each probe are accumulated in businessCandidateMap.
+          // A probe returning >1 row means multiple businesses share that signal; all
+          // are recorded and the later "multiple business candidates" branch writes them
+          // as SOURCE_CONFLICT so an admin can resolve the ambiguity.
+          // Safety cap: LIMIT 20. >20 businesses sharing an identifier is a data-quality
+          // issue; cap prevents runaway scans while still recording all practical cases.
+          if (frozenBusinessesMaxId > BigInt(0)) {
+            // Business by website domain (tier 4)
+            if (sourceDomain) {
+              const bDomR = await tx.query(
+                `SELECT id FROM businesses
+                 WHERE website_domain = $1 AND id <= $2
+                 LIMIT 20`,
+                [sourceDomain, frozenBusinessesMaxId],
+              );
+              for (const bRow of bDomR.rows) {
+                addBusinessSignal(Number(bRow.id), "business_website_domain", 4);
+              }
+            }
+
+            // Business by company + phone (tier 5)
+            // Uses sourceBusinessName (canonical normalizer matching businesses.normalized_name).
+            if (sourceBusinessName) {
+              for (const phoneNorm of phonesToProbe) {
+                const bPhoneR = await tx.query(
+                  `SELECT id FROM businesses
+                   WHERE normalized_name = $1
+                     AND regexp_replace(COALESCE(main_phone,''), '[^0-9]', '', 'g') = $2
+                     AND id <= $3
+                   LIMIT 20`,
+                  [sourceBusinessName, phoneNorm, frozenBusinessesMaxId],
+                );
+                for (const bRow of bPhoneR.rows) {
+                  addBusinessSignal(Number(bRow.id), "business_company_phone", 5);
+                }
+              }
+            }
+
+            // Business by normalized_name + city + state (tier 6)
+            // Uses sourceBusinessName (canonical normalizer matching businesses.normalized_name).
+            if (sourceBusinessName) {
+              const srcCity = row.principal_city?.trim().toLowerCase() ?? null;
+              const srcState = row.principal_state?.trim().toLowerCase() ?? null;
+              if (srcCity && srcState) {
+                const bAddrR = await tx.query(
+                  `SELECT id FROM businesses
+                   WHERE normalized_name = $1
+                     AND lower(trim(COALESCE(city,''))) = $2
+                     AND lower(trim(COALESCE(state,''))) = $3
+                     AND id <= $4
+                   LIMIT 20`,
+                  [sourceBusinessName, srcCity, srcState, frozenBusinessesMaxId],
+                );
+                for (const bRow of bAddrR.rows) {
+                  addBusinessSignal(Number(bRow.id), "business_company_city_state", 6);
+                }
+              }
+            }
+
+            // Business by company name alone (tier 7, weak) — only when no stronger
+            // business signal found yet, to avoid redundant tier-7 entries.
+            // Uses sourceBusinessName (canonical normalizer matching businesses.normalized_name).
+            if (sourceBusinessName && businessCandidateMap.size === 0) {
+              const bNameR = await tx.query(
+                `SELECT id FROM businesses
+                 WHERE normalized_name = $1 AND id <= $2
+                 LIMIT 20`,
+                [sourceBusinessName, frozenBusinessesMaxId],
+              );
+              for (const bRow of bNameR.rows) {
+                addBusinessSignal(Number(bRow.id), "business_name_only", 7);
+              }
+            }
+          }
+
+          // ── Tier 7: Company name alone (contact) ──────────────────────────────
+          // Only run when no stronger signals found and no purely-ambiguous email candidates.
+          if (sourceCompany && candidateMap.size === 0 && purelyAmbiguousEmailCandidates.length === 0) {
+            const coR = await tx.query(
+              `SELECT id FROM contacts
+               WHERE lower(trim(company_name)) = $1
+                 AND archived_at IS NULL AND record_class = 'production' AND id <= $2
+               LIMIT 20`,
+              [sourceCompany, frozenContactsMaxId],
+            );
+            if (coR.rows.length === 1) {
+              addContactSignal(Number(coR.rows[0].id), "company_only", 7);
+            }
+          }
+
+          // ── Case: Purely-ambiguous email ───────────────────────────────────────
+          // Write one AMBIGUOUS_MATCH candidate per contact that was ONLY found via an
+          // ambiguous probe (>1 contacts sharing an email), with no unique match from any
+          // other probe. Contacts that have a unique match via another email/phone/company
+          // signal are already in candidateMap and are handled in the normal resolution path.
+          //
+          // When businessCandidateMap is also non-empty, we cannot write only the ambiguous
+          // contact candidates and continue — that would discard valid business evidence.
+          // Instead, promote the ambiguous contacts into candidateMap and fall through to
+          // the combined resolution path so both contact and business candidates are written.
+          if (purelyAmbiguousEmailCandidates.length > 0 && candidateMap.size === 0 && businessCandidateMap.size > 0) {
+            for (const ac of purelyAmbiguousEmailCandidates) {
+              addContactSignal(ac.id, "ambiguous_email", 3);
+            }
+            // Fall through to the combined resolution below (no continue here).
+          } else if (purelyAmbiguousEmailCandidates.length > 0 && candidateMap.size === 0) {
+            // Pure ambiguous email, no business candidates — write AMBIGUOUS_MATCH rows.
+            const subjectR = await tx.query(
+              `INSERT INTO contact_identity_subjects
+                 (run_id, source_table, source_id, root_source_table, root_source_id,
+                  import_execution_id, existing_fk_contact_id, existing_fk_business_id,
+                  disposition, candidate_count, source_fingerprint)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AMBIGUOUS',$9,$10)
+               ON CONFLICT (run_id, source_table, source_id) DO NOTHING
+               RETURNING id`,
+              [runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
+               importExecutionId, existingFkContactId, existingFkBusinessId,
+               purelyAmbiguousEmailCandidates.length, sourceFingerprint],
+            );
+            if (subjectR.rows.length > 0) {
+              const subjectId = subjectR.rows[0].id;
+              for (const ac of purelyAmbiguousEmailCandidates) {
+                const candR = await tx.query(
+                  `INSERT INTO contact_identity_candidates
+                     (subject_id, run_id, candidate_type, candidate_id, candidate_updated_at,
+                      evidence_class, confidence_score, match_tier)
+                   VALUES ($1,$2,'contact',$3,$4,'AMBIGUOUS_MATCH',35,3)
+                   RETURNING id`,
+                  [subjectId, runId, ac.id, ac.updatedAt],
+                );
+                const candId = candR.rows[0].id;
+                const fp = hmacFingerprint(`ambiguous_email|${sourceTable}|${sourceId}|${ac.id}`);
+                await tx.query(
+                  `INSERT INTO contact_identity_evidence
+                     (candidate_id, run_id, root_source_table, root_source_id, evidence_provider, evidence_fingerprint)
+                   VALUES ($1,$2,$3,$4,'ambiguous_email',$5)
+                   ON CONFLICT (candidate_id, root_source_table, root_source_id, evidence_fingerprint) DO NOTHING`,
+                  [candId, runId, rootSourceTable, rootSourceId, fp],
+                );
+              }
+              await tx.query(
+                `UPDATE contact_identity_reconciliation_runs
+                 SET ambiguous_count = ambiguous_count + 1, updated_at = now() WHERE id = $1`,
+                [runId],
+              );
+              classCounts["AMBIGUOUS_MATCH"] = (classCounts["AMBIGUOUS_MATCH"] ?? 0) + 1;
+            }
+            await tx.query(`RELEASE SAVEPOINT ${savepointName}`);
+            processed++;
+            continue;
+          }
+
+          // When both purelyAmbiguousEmailCandidates AND candidateMap are non-empty,
+          // the ambiguous contacts are additional competing candidates. Add them to
+          // candidateMap so they participate in SOURCE_CONFLICT resolution.
+          if (purelyAmbiguousEmailCandidates.length > 0 && candidateMap.size > 0) {
+            for (const ac of purelyAmbiguousEmailCandidates) {
+              addContactSignal(ac.id, "ambiguous_email", 3);
+            }
+          }
+
+          // ── Build combined candidate list ────────────────────────────────────
+          const contactIds = Array.from(candidateMap.keys());
+          const businessIds = Array.from(businessCandidateMap.keys());
+
+          if (contactIds.length === 0 && businessIds.length === 0) {
+            // NO_MATCH
             const nmR = await tx.query(
               `INSERT INTO contact_identity_subjects
                  (run_id, source_table, source_id, root_source_table, root_source_id,
@@ -439,8 +848,6 @@ async function processBatch(
                RETURNING id`,
               [runId, sourceTable, sourceId, rootSourceTable, rootSourceId, importExecutionId, sourceFingerprint],
             );
-            // Only increment counter if the subject is newly inserted — prevents
-            // double-counting on replay (cursor advanced after COMMIT, subject already exists).
             if (nmR.rows.length > 0) {
               await tx.query(
                 `UPDATE contact_identity_reconciliation_runs
@@ -454,35 +861,54 @@ async function processBatch(
             continue;
           }
 
-          // ── Evidence class ──────────────────────────────────────────────────
-          const conflicting = candidateIds.length > 1;
+          // ── Evidence class ───────────────────────────────────────────────────
+          // SOURCE_CONFLICT: multiple distinct contacts matched by different signals.
+          // Mixed (contact + business): write all candidates; contact class governs disposition.
+          // Multiple businesses only: write all; use SOURCE_CONFLICT if > 1.
+          const conflictingContacts = contactIds.length > 1;
           let finalClass: EvidenceClass;
           let finalContactId: number | null = null;
           let overallMinTier = 7;
 
-          if (conflicting) {
+          if (conflictingContacts) {
             finalClass = "SOURCE_CONFLICT";
-          } else if (candidateIds.length === 1) {
-            finalContactId = candidateIds[0];
+          } else if (contactIds.length === 1) {
+            finalContactId = contactIds[0];
             const sig = candidateMap.get(finalContactId)!;
             overallMinTier = sig.minTier;
             // Gen-1: always 1 distinct root source per batch row — STRONG requires >= 2
             finalClass = classifyEvidence(overallMinTier, 1, false);
+          } else if (businessIds.length > 1) {
+            // Multiple business-only matches — conflict among businesses
+            finalClass = "SOURCE_CONFLICT";
+          } else if (businessIds.length === 1) {
+            const sig = businessCandidateMap.get(businessIds[0])!;
+            overallMinTier = sig.minTier;
+            finalClass = classifyEvidence(overallMinTier, 1, false);
           } else {
+            // Should not reach — NO_MATCH handled above
             finalClass = "INSUFFICIENT_EVIDENCE";
           }
 
           // ── Write subjects / candidates / evidence ──────────────────────────
-          // newSubject = true means the subject row was newly inserted (not a replay conflict).
-          // Counter increments, vertical candidates, and classCounts updates are ONLY applied
-          // when newSubject=true, preventing double-counting on replay after a post-COMMIT crash.
           let newSubject = false;
-          if (conflicting) {
-            const multiCands = candidateIds.map(cid => {
-              const s = candidateMap.get(cid)!;
-              return { contactId: cid, class: "SOURCE_CONFLICT" as EvidenceClass,
-                       tier: s.minTier, confidence: 30, provider: s.providers[0].provider };
-            });
+          if (conflictingContacts) {
+            // Multiple contact candidates → SOURCE_CONFLICT; include any business candidates too.
+            // Each candidate carries its FULL providers array so all evidence signals are written.
+            const multiCands: Parameters<typeof insertSubjectWithCandidates>[11] = [
+              ...contactIds.map(cid => {
+                const s = candidateMap.get(cid)!;
+                return { candidateType: "contact" as const, candidateId: cid,
+                         class: "SOURCE_CONFLICT" as EvidenceClass,
+                         tier: s.minTier, confidence: 30, providers: s.providers };
+              }),
+              ...businessIds.map(bid => {
+                const s = businessCandidateMap.get(bid)!;
+                return { candidateType: "business" as const, candidateId: bid,
+                         class: "SOURCE_CONFLICT" as EvidenceClass,
+                         tier: s.minTier, confidence: 30, providers: s.providers };
+              }),
+            ];
             newSubject = await insertSubjectWithCandidates(
               tx, runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
               sourceFingerprint, importExecutionId, null, null, "CONFLICTING", multiCands,
@@ -494,18 +920,72 @@ async function processBatch(
               : finalClass === "AMBIGUOUS_MATCH" ? 40
               : 20; // INSUFFICIENT_EVIDENCE; STRONG unreachable in Gen-1
             const disposition = finalClass === "INSUFFICIENT_EVIDENCE" ? "INSUFFICIENT_EVIDENCE" : "MATCHED";
-            newSubject = await insertSubjectWithSingleCandidate(
-              tx, runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
-              sourceFingerprint, importExecutionId, existingFkContactId, existingFkBusinessId,
-              disposition, finalContactId, finalClass, overallMinTier, confidence,
-              sig.providers,
-            );
+            if (businessIds.length === 0) {
+              // Contact-only match (common case)
+              newSubject = await insertSubjectWithSingleCandidate(
+                tx, runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
+                sourceFingerprint, importExecutionId, existingFkContactId, existingFkBusinessId,
+                disposition, finalContactId, finalClass, overallMinTier, confidence,
+                sig.providers,
+              );
+            } else {
+              // Mixed: 1 contact + 1 or more businesses — write all candidates together.
+              // Each candidate is classified independently from its own evidence signals:
+              //   - Contact: uses finalClass (derived from the contact's minimum tier)
+              //   - Business: uses classifyEvidence() on its own minTier — a business found
+              //     only by website domain (tier 4) is AMBIGUOUS_MATCH, not DETERMINISTIC_MATCH
+              //     just because the contact matched by email.
+              // Each candidate carries its FULL providers array so all evidence signals are written.
+              const mixedCands: Parameters<typeof insertSubjectWithCandidates>[11] = [
+                { candidateType: "contact" as const, candidateId: finalContactId,
+                  class: finalClass, tier: overallMinTier, confidence,
+                  providers: sig.providers },
+                ...businessIds.map(bid => {
+                  const bs = businessCandidateMap.get(bid)!;
+                  const bizClass = classifyEvidence(bs.minTier, 1, false);
+                  const bizConfidence = bizClass === "DETERMINISTIC_MATCH" ? 70
+                    : bizClass === "AMBIGUOUS_MATCH" ? 35
+                    : 15;
+                  return { candidateType: "business" as const, candidateId: bid,
+                           class: bizClass, tier: bs.minTier, confidence: bizConfidence,
+                           providers: bs.providers };
+                }),
+              ];
+              newSubject = await insertSubjectWithCandidates(
+                tx, runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
+                sourceFingerprint, importExecutionId, existingFkContactId, existingFkBusinessId,
+                disposition, mixedCands,
+              );
+            }
             // Vertical candidate only on new subject — prevents duplicates on replay
             if (newSubject && sourceVertical) {
               await insertVerticalCandidate(tx, runId, finalContactId, sourceTable, sourceId, sourceVertical);
             }
+          } else if (businessIds.length > 1) {
+            // Multiple business-only candidates → SOURCE_CONFLICT among businesses.
+            // Each candidate carries its FULL providers array so all evidence signals are written.
+            const multiBusinessCands: Parameters<typeof insertSubjectWithCandidates>[11] = businessIds.map(bid => {
+              const s = businessCandidateMap.get(bid)!;
+              return { candidateType: "business" as const, candidateId: bid,
+                       class: "SOURCE_CONFLICT" as EvidenceClass,
+                       tier: s.minTier, confidence: 30, providers: s.providers };
+            });
+            newSubject = await insertSubjectWithCandidates(
+              tx, runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
+              sourceFingerprint, importExecutionId, null, null, "CONFLICTING", multiBusinessCands,
+            );
+          } else if (businessIds.length === 1) {
+            // Single business candidate
+            const bid = businessIds[0];
+            const sig = businessCandidateMap.get(bid)!;
+            const confidence = finalClass === "AMBIGUOUS_MATCH" ? 40 : 20;
+            newSubject = await insertSubjectWithBusinessCandidate(
+              tx, runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
+              sourceFingerprint, importExecutionId, bid, finalClass, overallMinTier, confidence,
+              sig.providers,
+            );
           } else {
-            // emailAmbiguous with no unique candidate
+            // Should not reach here — handled by NO_MATCH above
             const insR = await tx.query(
               `INSERT INTO contact_identity_subjects
                  (run_id, source_table, source_id, root_source_table, root_source_id,
@@ -550,20 +1030,28 @@ async function processBatch(
         console.error(`[CrosswalkRunner] Row pre-savepoint error (${sourceTable} id=${row.id}):`, rowErr);
         exceptions++;
       }
+    } // end row loop
+
+    // ── Atomic cursor advancement ────────────────────────────────────────────
+    // Execute the cursor update INSIDE this transaction so that evidence writes and
+    // cursor advancement are a single atomic operation. If the CAS returns 0 rows
+    // (lease superseded by a resumed invocation), roll back all writes and return
+    // cursorUpdated=false so the caller can abort the sweep cleanly.
+    const cursorUpdated = await cursorUpdateFn(tx, processed, exceptions);
+    if (!cursorUpdated) {
+      await tx.query("ROLLBACK");
+      return { processed, exceptions, classCounts, cursorUpdated: false };
     }
-    // Commit all writes for this batch atomically; individual row failures were already
-    // rolled back to their SAVEPOINTs and counted in exceptions.
+
     await tx.query("COMMIT");
+    return { processed, exceptions, classCounts, cursorUpdated: true };
+
   } catch (batchErr) {
-    // Outer transaction failure (BEGIN failed, COMMIT failed, or unrecoverable error).
-    // Roll back any writes that landed before the failure.
     await tx.query("ROLLBACK").catch(() => {});
     throw batchErr;
   } finally {
     tx.release();
   }
-
-  return { processed, exceptions, classCounts };
 }
 
 /**
@@ -636,6 +1124,67 @@ async function insertSubjectWithSingleCandidate(
 }
 
 /**
+ * Insert subject + business candidate + evidence rows atomically.
+ * Returns true when a new subject was inserted.
+ */
+async function insertSubjectWithBusinessCandidate(
+  tx: PoolClient,
+  runId: string,
+  sourceTable: string,
+  sourceId: string,
+  rootSourceTable: string,
+  rootSourceId: string,
+  sourceFingerprint: string,
+  importExecutionId: string | null,
+  businessId: number,
+  evidenceClass: string,
+  matchTier: number,
+  confidence: number,
+  providers: Array<{ provider: string; tier: number }>,
+): Promise<boolean> {
+  const subjectR = await tx.query(
+    `INSERT INTO contact_identity_subjects
+       (run_id, source_table, source_id, root_source_table, root_source_id,
+        import_execution_id, existing_fk_business_id,
+        disposition, candidate_count, source_fingerprint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1,$9)
+     ON CONFLICT (run_id, source_table, source_id) DO NOTHING
+     RETURNING id`,
+    [runId, sourceTable, sourceId, rootSourceTable, rootSourceId,
+     importExecutionId, businessId,
+     evidenceClass === "INSUFFICIENT_EVIDENCE" ? "INSUFFICIENT_EVIDENCE" : "MATCHED",
+     sourceFingerprint],
+  );
+  if (subjectR.rows.length === 0) return false;
+  const subjectId = subjectR.rows[0].id;
+
+  const bUpdR = await tx.query(`SELECT updated_at FROM businesses WHERE id = $1`, [businessId]);
+  const bUpdAt = bUpdR.rows[0]?.updated_at ?? new Date();
+
+  const candR = await tx.query(
+    `INSERT INTO contact_identity_candidates
+       (subject_id, run_id, candidate_type, candidate_id, candidate_updated_at,
+        evidence_class, confidence_score, match_tier)
+     VALUES ($1,$2,'business',$3,$4,$5,$6,$7)
+     RETURNING id`,
+    [subjectId, runId, businessId, bUpdAt, evidenceClass, confidence, matchTier],
+  );
+  const candidateId = candR.rows[0].id;
+
+  for (const { provider } of providers) {
+    const fp = hmacFingerprint(`${provider}|${sourceTable}|${sourceId}|business:${businessId}`);
+    await tx.query(
+      `INSERT INTO contact_identity_evidence
+         (candidate_id, run_id, root_source_table, root_source_id, evidence_provider, evidence_fingerprint)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (candidate_id, root_source_table, root_source_id, evidence_fingerprint) DO NOTHING`,
+      [candidateId, runId, rootSourceTable, rootSourceId, provider, fp],
+    );
+  }
+  return true;
+}
+
+/**
  * Insert subject + multiple candidate + evidence rows.
  * Returns true when a new subject was inserted; false when subject already existed.
  * Callers MUST skip counter increments on false (replay idempotency).
@@ -652,7 +1201,16 @@ async function insertSubjectWithCandidates(
   existingFkContactId: number | null,
   existingFkBusinessId: number | null,
   disposition: string,
-  candidates: Array<{ contactId: number; class: string; tier: number; confidence: number; provider: string }>,
+  candidates: Array<{
+    /** 'contact' or 'business' — governs which entity table is joined for updated_at */
+    candidateType: "contact" | "business";
+    candidateId: number;
+    class: string;
+    tier: number;
+    confidence: number;
+    /** All accumulated provider signals for this candidate — each becomes an evidence row */
+    providers: Array<{ provider: string; tier: number }>;
+  }>,
 ): Promise<boolean> {
   const subjectR = await tx.query(
     `INSERT INTO contact_identity_subjects
@@ -670,25 +1228,38 @@ async function insertSubjectWithCandidates(
   const subjectId = subjectR.rows[0].id;
 
   for (const cand of candidates) {
-    const updR = await tx.query(`SELECT updated_at FROM contacts WHERE id = $1`, [cand.contactId]);
-    const updAt = updR.rows[0]?.updated_at ?? new Date();
+    // Look up candidate_updated_at from the appropriate entity table
+    let updAt: Date = new Date();
+    if (cand.candidateType === "contact") {
+      const updR = await tx.query(`SELECT updated_at FROM contacts WHERE id = $1`, [cand.candidateId]);
+      updAt = updR.rows[0]?.updated_at ?? new Date();
+    } else {
+      const updR = await tx.query(`SELECT updated_at FROM businesses WHERE id = $1`, [cand.candidateId]);
+      updAt = updR.rows[0]?.updated_at ?? new Date();
+    }
     const candR = await tx.query(
       `INSERT INTO contact_identity_candidates
          (subject_id, run_id, candidate_type, candidate_id, candidate_updated_at,
           evidence_class, confidence_score, match_tier)
-       VALUES ($1,$2,'contact',$3,$4,$5,$6,$7)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING id`,
-      [subjectId, runId, cand.contactId, updAt, cand.class, cand.confidence, cand.tier],
+      [subjectId, runId, cand.candidateType, cand.candidateId, updAt,
+       cand.class, cand.confidence, cand.tier],
     );
     const candidateId = candR.rows[0].id;
-    const fp = hmacFingerprint(`${cand.provider}|${sourceTable}|${sourceId}|${cand.contactId}`);
-    await tx.query(
-      `INSERT INTO contact_identity_evidence
-         (candidate_id, run_id, root_source_table, root_source_id, evidence_provider, evidence_fingerprint)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (candidate_id, root_source_table, root_source_id, evidence_fingerprint) DO NOTHING`,
-      [candidateId, runId, rootSourceTable, rootSourceId, cand.provider, fp],
-    );
+    // Write evidence for EVERY accumulated provider signal — all probes that matched
+    // this candidate get their own evidence row. ON CONFLICT DO NOTHING makes this
+    // idempotent on batch replay.
+    for (const { provider } of cand.providers) {
+      const fp = hmacFingerprint(`${provider}|${sourceTable}|${sourceId}|${cand.candidateType}|${cand.candidateId}`);
+      await tx.query(
+        `INSERT INTO contact_identity_evidence
+           (candidate_id, run_id, root_source_table, root_source_id, evidence_provider, evidence_fingerprint)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (candidate_id, root_source_table, root_source_id, evidence_fingerprint) DO NOTHING`,
+        [candidateId, runId, rootSourceTable, rootSourceId, provider, fp],
+      );
+    }
   }
   return true; // new subject inserted
 }
@@ -729,7 +1300,8 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
             frozen_contacts_max_id, frozen_businesses_max_id,
             sunbiz_denominator, prospects_denominator, master_leads_denominator,
             sunbiz_cursor, prospects_cursor,
-            master_leads_cursor_created_at, master_leads_cursor_uuid
+            master_leads_cursor_created_at, master_leads_cursor_uuid,
+            run_notes
      FROM contact_identity_reconciliation_runs WHERE id = $1`,
     [runId],
   );
@@ -737,6 +1309,7 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
 
   const run = runR.rows[0];
   const frozenContactsMaxId = BigInt(run.frozen_contacts_max_id ?? 0);
+  const frozenBusinessesMaxId = BigInt(run.frozen_businesses_max_id ?? 0);
 
   // Transition pending → running
   const startR = await pool.query(
@@ -760,13 +1333,30 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
   // the top-level lifecycle catch block marks the run 'failed' with that reason.
   hmacFingerprint("_preflight_check_");
 
+  // ── Tier 2 filing-number: record as one-time run-level skip note ──────────
+  // Gen-1 defers filing-number matching because the businesses table has no
+  // filing_number column. Record this as a run-level skip in run_notes so the
+  // sweep report clearly reflects the scope. Only write the first time (run just
+  // entered running state from pending).
+  const existingNotes: Record<string, unknown> = run.run_notes ?? {};
+  if (!existingNotes["tier_skips"]) {
+    await pool.query(
+      `UPDATE contact_identity_reconciliation_runs
+       SET run_notes = COALESCE(run_notes,'{}') ||
+           '{"tier_skips":[{"tier":2,"status":"skipped","reason":"filing_number_no_governed_business_filing_identifier","deferred_to":"Gen-2"}]}'::jsonb,
+           updated_at = now()
+       WHERE id = $1 AND lease_owner = $2`,
+      [runId, owner],
+    );
+  }
+
   let batchNum = 0;
   let consecutivePressure = 0;
   let sunbizCursor = Number(run.sunbiz_cursor ?? 0);
   let prospectsCursor = Number(run.prospects_cursor ?? 0);
   let mlCursorCreatedAt: Date | null = run.master_leads_cursor_created_at ?? null;
   let mlCursorUuid: string | null = run.master_leads_cursor_uuid ?? null;
-  { // inner scope for sweep logic (no separate IIFE needed — already inside try)
+  { // inner scope for sweep logic
 
   const populations: Array<"sunbiz" | "prospects" | "master_leads"> = ["sunbiz", "prospects", "master_leads"];
 
@@ -807,6 +1397,10 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
       // Fetch batch
       const batchStart = Date.now();
       let rows: BatchSourceRow[] = [];
+      let newCursorSunbiz = sunbizCursor;
+      let newCursorProspects = prospectsCursor;
+      let newMlCursorCreatedAt = mlCursorCreatedAt;
+      let newMlCursorUuid = mlCursorUuid;
 
       try {
         if (population === "sunbiz") {
@@ -814,26 +1408,30 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
           if (!frozenMax) break;
           const r = await pool.query(
             `SELECT id, entity_name, filing_number, email, owner_email,
-                  phone, owner_phone, vertical, prospect_id
+                    phone, owner_phone, vertical, prospect_id,
+                    principal_address, principal_city, principal_state
              FROM sunbiz_entities
              WHERE id > $1 AND id <= $2
              ORDER BY id ASC LIMIT $3`,
             [sunbizCursor, frozenMax, BATCH_SIZE],
           );
           rows = r.rows;
+          if (rows.length > 0) newCursorSunbiz = Number(rows[rows.length - 1].id);
         } else if (population === "prospects") {
           const frozenMax = run.frozen_prospects_max_id;
           if (!frozenMax) break;
           // prospects has no sunbiz_entity_id or business_id — only contact_id is the FK
           const r = await pool.query(
             `SELECT id, email, owner_email, phone, owner_phone,
-                    company_name AS entity_name, vertical, contact_id
+                    company_name AS entity_name, vertical, contact_id,
+                    website
                FROM prospects
                WHERE id > $1 AND id <= $2
                ORDER BY id ASC LIMIT $3`,
             [prospectsCursor, frozenMax, BATCH_SIZE],
           );
           rows = r.rows;
+          if (rows.length > 0) newCursorProspects = Number(rows[rows.length - 1].id);
         } else {
           // master_leads — UUID; composite keyset (created_at, id)
           const frozenTs = run.frozen_master_leads_created_at;
@@ -841,7 +1439,8 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
           if (!frozenTs || !frozenUuid) break;
           const r = await pool.query(
             `SELECT id::text AS id, created_at, email, phone,
-                    company AS entity_name, vertical
+                    company AS entity_name, vertical,
+                    domain
                FROM master_leads
              WHERE (created_at, id::text) > ($1, $2)
                AND (created_at, id::text) <= ($3, $4)
@@ -851,6 +1450,11 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
              frozenTs, frozenUuid, BATCH_SIZE],
           );
           rows = r.rows;
+          if (rows.length > 0) {
+            const lastRow = rows[rows.length - 1];
+            newMlCursorCreatedAt = lastRow.created_at instanceof Date ? lastRow.created_at : new Date(lastRow.created_at as string);
+            newMlCursorUuid = String(lastRow.id);
+          }
         }
       } catch (err) {
         console.error(`[CrosswalkRunner] Batch fetch error (${population}):`, err);
@@ -871,59 +1475,70 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
         : population === "prospects" ? "prospects"
         : "master_leads";
 
-      const result = await processBatch(runId, frozenContactsMaxId, rows, sourceTable);
-
-      // Advance cursors — each update is a CAS: WHERE lease_owner = $owner.
-      // If it returns 0 rows the lease was superseded by a resumed invocation;
-      // abort immediately so the stale worker cannot continue inflating counters.
-      let cursorRowCount = 0;
+      // Build cursor update closure — executes INSIDE the batch transaction for atomicity
+      let cursorUpdateFn: CursorUpdateFn;
       if (population === "sunbiz") {
-        sunbizCursor = Number(rows[rows.length - 1].id);
-        const ur = await pool.query(
-          `UPDATE contact_identity_reconciliation_runs
-           SET sunbiz_cursor = $2,
-               sunbiz_processed = sunbiz_processed + $3,
-               sunbiz_exceptions = sunbiz_exceptions + $4,
-               updated_at = now()
-           WHERE id = $1 AND lease_owner = $5`,
-          [runId, sunbizCursor, result.processed, result.exceptions, owner],
-        );
-        cursorRowCount = ur.rowCount ?? 0;
+        const cursorVal = newCursorSunbiz;
+        cursorUpdateFn = async (tx, p, e) => {
+          const ur = await tx.query(
+            `UPDATE contact_identity_reconciliation_runs
+             SET sunbiz_cursor = $2,
+                 sunbiz_processed = sunbiz_processed + $3,
+                 sunbiz_exceptions = sunbiz_exceptions + $4,
+                 updated_at = now()
+             WHERE id = $1 AND lease_owner = $5`,
+            [runId, cursorVal, p, e, owner],
+          );
+          return (ur.rowCount ?? 0) > 0;
+        };
       } else if (population === "prospects") {
-        prospectsCursor = Number(rows[rows.length - 1].id);
-        const ur = await pool.query(
-          `UPDATE contact_identity_reconciliation_runs
-           SET prospects_cursor = $2,
-               prospects_processed = prospects_processed + $3,
-               prospects_exceptions = prospects_exceptions + $4,
-               updated_at = now()
-           WHERE id = $1 AND lease_owner = $5`,
-          [runId, prospectsCursor, result.processed, result.exceptions, owner],
-        );
-        cursorRowCount = ur.rowCount ?? 0;
+        const cursorVal = newCursorProspects;
+        cursorUpdateFn = async (tx, p, e) => {
+          const ur = await tx.query(
+            `UPDATE contact_identity_reconciliation_runs
+             SET prospects_cursor = $2,
+                 prospects_processed = prospects_processed + $3,
+                 prospects_exceptions = prospects_exceptions + $4,
+                 updated_at = now()
+             WHERE id = $1 AND lease_owner = $5`,
+            [runId, cursorVal, p, e, owner],
+          );
+          return (ur.rowCount ?? 0) > 0;
+        };
       } else {
-        const lastRow = rows[rows.length - 1];
-        mlCursorCreatedAt = lastRow.created_at instanceof Date ? lastRow.created_at : new Date(lastRow.created_at as string);
-        mlCursorUuid = String(lastRow.id);
-        const ur = await pool.query(
-          `UPDATE contact_identity_reconciliation_runs
-           SET master_leads_cursor_created_at = $2,
-               master_leads_cursor_uuid = $3,
-               master_leads_processed = master_leads_processed + $4,
-               master_leads_exceptions = master_leads_exceptions + $5,
-               updated_at = now()
-           WHERE id = $1 AND lease_owner = $6`,
-          [runId, mlCursorCreatedAt, mlCursorUuid,
-           result.processed, result.exceptions, owner],
-        );
-        cursorRowCount = ur.rowCount ?? 0;
+        const cursorTs = newMlCursorCreatedAt;
+        const cursorUuid = newMlCursorUuid;
+        cursorUpdateFn = async (tx, p, e) => {
+          const ur = await tx.query(
+            `UPDATE contact_identity_reconciliation_runs
+             SET master_leads_cursor_created_at = $2,
+                 master_leads_cursor_uuid = $3,
+                 master_leads_processed = master_leads_processed + $4,
+                 master_leads_exceptions = master_leads_exceptions + $5,
+                 updated_at = now()
+             WHERE id = $1 AND lease_owner = $6`,
+            [runId, cursorTs, cursorUuid, p, e, owner],
+          );
+          return (ur.rowCount ?? 0) > 0;
+        };
       }
-      if (cursorRowCount === 0) {
+
+      const result = await processBatch(
+        runId, owner, frozenContactsMaxId, frozenBusinessesMaxId,
+        rows, sourceTable, cursorUpdateFn,
+      );
+
+      if (!result.cursorUpdated) {
         // Lease superseded: another invocation owns this run. Abort without marking failed
         // so the new owner can complete and mark it status='completed'.
         console.warn(`[CrosswalkRunner] Lease superseded for run ${runId} after batch ${batchNum}; aborting stale worker.`);
         return;
       }
+
+      // Advance local cursor state after successful atomic commit
+      if (population === "sunbiz") sunbizCursor = newCursorSunbiz;
+      else if (population === "prospects") prospectsCursor = newCursorProspects;
+      else { mlCursorCreatedAt = newMlCursorCreatedAt; mlCursorUuid = newMlCursorUuid; }
 
       batchNum++;
       if (rows.length < BATCH_SIZE) break; // Last batch for this population
