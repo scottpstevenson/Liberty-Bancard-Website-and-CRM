@@ -54,7 +54,13 @@ export function registerChatAssistantRoutes(app: Express) {
   app.post("/api/assistant/session", chatRateLimit, async (req: Request, res: Response) => {
     try {
       const audience = resolveAudience(req);
-      const userId = (req.user as any)?.id;
+      // Coerce to integer — Clerk/OAuth providers may surface a UUID string as `id`.
+      // The assistant_sessions.user_id column is integer; a UUID string would cause
+      // "invalid input syntax for type integer" and crash session creation.
+      const rawUserId = (req.user as any)?.id;
+      const userId = typeof rawUserId === "number"
+        ? rawUserId
+        : (typeof rawUserId === "string" && /^\d+$/.test(rawUserId) ? parseInt(rawUserId, 10) : undefined);
       const existingSessionId = req.body?.sessionId;
       const ip = req.ip;
 

@@ -904,7 +904,7 @@ export default function MarketingPlaybook() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="prose prose-sm max-w-none dark:prose-invert">
+              <div className="max-w-none">
                 {CALL_SCRIPT.split(/^(#{1,3} .+)$/m).map((chunk, i) => {
                   if (/^#{1,3} /.test(chunk)) {
                     const level = chunk.match(/^(#{1,3})/)?.[1].length ?? 1;
@@ -914,7 +914,7 @@ export default function MarketingPlaybook() {
                     return <h4 key={i} className="text-sm font-semibold mt-2 mb-1">{text}</h4>;
                   }
                   return (
-                    <pre key={i} className="text-sm whitespace-pre-wrap font-sans leading-relaxed text-foreground">
+                    <pre key={i} className="text-sm whitespace-pre-wrap font-sans leading-relaxed text-foreground bg-transparent m-0 p-0">
                       {chunk}
                     </pre>
                   );
