@@ -161,6 +161,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "GHL_TRANSPORT_FAILFAST=true; no provider calls",
   },
   {
+    name: "Identity Crosswalk Certification (#1830)",
+    script: "scripts/test-identity-crosswalk.ts",
+    capability: "server-required",
+    providerDenial: "read-only evidence sweep; no GHL/SMTP/OpenAI calls; BACKGROUND_JOB_PROFILE=off enforced",
+  },
+  {
     name: "Migration Integrity Check",
     script: "scripts/check-migration-integrity.ts",
     capability: "deterministic-static",

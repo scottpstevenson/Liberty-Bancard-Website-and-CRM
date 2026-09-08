@@ -240,6 +240,7 @@ const NbaPriorityPage = lazy(() => import("@/pages/dashboard/NbaPriorityPage"));
 const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
 const SequenceReport = lazy(() => import("@/pages/dashboard/SequenceReport"));
 const AcquisitionHub = lazy(() => import("@/pages/dashboard/AcquisitionHub"));
+const IdentityCrosswalk = lazy(() => import("@/pages/dashboard/IdentityCrosswalk"));
 
 const Executive = lazy(() => import("@/pages/dashboard/Executive"));
 function AgentRoute({ component: Component }: { component: React.ComponentType }) {
@@ -902,6 +903,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/lead-ops">
           <ProtectedRoute component={LeadOpsCenter} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/identity-crosswalk">
+          <ProtectedRoute component={IdentityCrosswalk} allowedRoles={["admin"]} />
         </Route>
         <Route path="/dashboard/outreach-queue">
           <ProtectedRoute component={OutreachQueue} allowedRoles={["admin", "manager", "agent"]} />

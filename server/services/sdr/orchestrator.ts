@@ -1112,89 +1112,20 @@ function isImmediateAction(actionType: string): boolean {
 // either log a candidate (review mode / setting=false) or create a deal (setting=true).
 // Uses the SAME eligibility classifier as the backfill to ensure consistency.
 async function checkAndHandleOrphanDeal(lead: SdrLeadState, reviewMode: boolean): Promise<void> {
-  try {
-    if (!lead.contactId) return;
-
-    // Only fire for warm (priorityBucket B) or hot (priorityBucket A)
-    const bucket = lead.priorityBucket;
-    if (bucket !== "A" && bucket !== "B") return;
-
-    // Check if contact already has a deal (fast path before full eligibility check)
-    const existingDeals = await storage.getDealsByContact(lead.contactId);
-    if (existingDeals.filter(d => !d.archivedAt).length > 0) return;
-
-    // Fetch full contact record for eligibility classification
-    const contact = await storage.getContact(lead.contactId);
-    if (!contact) return;
-
-    // Build the duplicate-business gate — check if any other contact with the same businessId has a deal
-    const businessIdsWithDeals = new Set<number>();
-    if (contact.businessId) {
-      const existing = await db
-        .select({ id: deals.id })
-        .from(deals)
-        .innerJoin(contacts, eq(deals.contactId, contacts.id))
-        .where(and(isNull(deals.archivedAt), eq(contacts.businessId, contact.businessId)))
-        .limit(1);
-      if (existing.length > 0) businessIdsWithDeals.add(contact.businessId);
-    }
-
-    // Apply full shared eligibility classification (same gates as the deal backfill)
-    const candidate = {
-      firstName: contact.firstName,
-      lastName: contact.lastName,
-      email: contact.email,
-      phone: contact.phone,
-      companyName: contact.companyName ?? null,
-      leadScore: lead.priorityScore ?? contact.leadScore ?? 0,
-      doNotContact: contact.doNotContact ?? false,
-      businessId: contact.businessId ?? null,
-    };
-    const verdict = classifyEligibility(candidate, businessIdsWithDeals, 45);
-
-    // Read setting
-    const autoCreate = await storage.getSystemSetting("auto_create_deals_for_warm_contacts");
-
-    if (reviewMode || autoCreate !== true || verdict !== "eligible") {
-      // Record candidate audit log only — do NOT mutate deal records
-      await storage.createAuditLog({
-        action: "contact_deal_candidate_detected",
-        entityType: "contact",
-        entityId: lead.contactId,
-        details: {
-          leadStateId: lead.id,
-          priorityBucket: bucket,
-          priorityScore: lead.priorityScore,
-          reviewMode,
-          autoCreateDealsForWarmContacts: autoCreate === true,
-          eligibilityVerdict: verdict,
-          reason: reviewMode ? "review_mode_active" : autoCreate !== true ? "auto_create_disabled" : `ineligible:${verdict}`,
-        },
-      });
-      return;
-    }
-
-    // autoCreateDealsForWarmContacts === true AND eligible — idempotent double-check then create
-    const recheckDeals = await storage.getDealsByContact(lead.contactId);
-    if (recheckDeals.filter(d => !d.archivedAt).length > 0) return;
-
-    await storage.createDeal({
-      contactId: lead.contactId,
-      pipeline: "sales",
-      stage: "New Lead",
-      leadSource: contact.leadSource || "orchestrator_auto",
-      notes: `Auto-created by orchestrator future-orphan guard. Score: ${lead.priorityScore}, Bucket: ${bucket}.`,
-    }, { actorType: "system" });
-
-    await storage.createAuditLog({
-      action: "contact_deal_created_by_orphan_guard",
-      entityType: "contact",
-      entityId: lead.contactId,
-      details: { leadStateId: lead.id, priorityBucket: bucket, priorityScore: lead.priorityScore },
-    });
-  } catch (err) {
-    console.error(`[SDR Orchestrator] Future orphan guard error for lead ${lead.id}:`, err);
-  }
+  // TASK-1830: source-staged deal creation fail-closed until Gen-2 crosswalk authorization.
+  // The audit-log write is awaited before return so a write failure never allows deal creation.
+  await storage.createAuditLog({
+    action: "sdr_orphan_deal_fail_closed",
+    entityType: "contact",
+    entityId: lead.contactId ?? 0,
+    details: {
+      leadId: lead.id,
+      reason: "Gen-1 identity crosswalk active — automated deal creation disabled until Gen-2 authorization",
+    },
+  });
+  return;
+  // ── existing body below is unreachable until the guard above is removed ──
+  // Gen-2 lift: remove the guard and return above; see Task #1831.
 }
 
 async function processLead(lead: SdrLeadState): Promise<void> {

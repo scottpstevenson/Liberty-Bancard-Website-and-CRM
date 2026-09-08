@@ -14,10 +14,15 @@
 import pg from "pg";
 import { pool as defaultPool } from "../db";
 
-// Fields we are allowed to write via reconciliation approval.
-// email is explicitly excluded — it is high-risk PII and requires ZeroBounce
-// re-validation before any change can be trusted.
-const ALLOWED_FIELDS = new Set(["first_name", "last_name", "phone", "company_name", "vertical"]);
+// Fields we are allowed to write via reconciliation approval (new proposals).
+// email is explicitly excluded — it is high-risk PII and requires ZeroBounce re-validation.
+// vertical is excluded from new approvals — Gen-2 crosswalk authorization required.
+// TASK-1830: vertical removed from APPROVED_FIELDS; retained in REVERTABLE_FIELDS so
+// existing already-approved vertical proposals can still be reverted to their prior value.
+const APPROVED_FIELDS = new Set(["first_name", "last_name", "phone", "company_name"]);
+
+// Fields allowed for revert operations only (may include fields blocked for new approvals).
+const REVERTABLE_FIELDS = new Set(["first_name", "last_name", "phone", "company_name", "vertical"]);
 
 export type ApprovalResult =
   | { outcome: "applied"; contactId: number; fieldName: string; appliedValue: string }
@@ -71,8 +76,10 @@ export async function approveProposal(
 
     const fieldName: string = proposal.field_name;
 
-    // Allowlist check
-    if (!ALLOWED_FIELDS.has(fieldName)) {
+    // Approved-fields allowlist check.
+    // vertical is blocked for new approvals (Gen-2 crosswalk required).
+    if (!APPROVED_FIELDS.has(fieldName)) {
+      const isVertical = fieldName === "vertical";
       await client.query(
         `UPDATE contact_normalization_proposals SET status='rejected', reviewed_by=$2, reviewed_at=now() WHERE id=$1`,
         [proposalId, approvedBy],
@@ -81,7 +88,9 @@ export async function approveProposal(
       return {
         outcome: "rejected",
         contactId: proposal.contact_id,
-        reason: `Field '${fieldName}' is not in the allowed reconciliation write set`,
+        reason: isVertical
+          ? `Field 'vertical' cannot be approved via reconciliation until Gen-2 crosswalk authorization is complete. Use the Identity Crosswalk panel for vertical candidates.`
+          : `Field '${fieldName}' is not in the allowed reconciliation write set`,
       };
     }
 
@@ -253,9 +262,11 @@ export async function revertProposal(
     }
 
     const fieldName: string = p.field_name;
-    if (!ALLOWED_FIELDS.has(fieldName)) {
+    // Revert uses REVERTABLE_FIELDS (which includes vertical) so already-approved vertical
+    // proposals can still be walked back to their prior value.
+    if (!REVERTABLE_FIELDS.has(fieldName)) {
       await client.query("ROLLBACK");
-      return { outcome: "rejected", contactId: p.contact_id, reason: `Field '${fieldName}' not in allowlist` };
+      return { outcome: "rejected", contactId: p.contact_id, reason: `Field '${fieldName}' not in revert allowlist` };
     }
 
     // CAS: lock contact and verify field still equals the approved value.

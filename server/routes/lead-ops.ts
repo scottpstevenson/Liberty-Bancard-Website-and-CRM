@@ -74,18 +74,26 @@ export function registerLeadOpsRoutes(app: Express) {
       const statsResult = await db.execute(sql`
         SELECT
           COUNT(*)::int                                                              AS total,
-          COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int              AS enriched,
-          COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int               AS pending,
+          COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int              AS processing_completed,
+          COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int               AS pending_processing,
           COUNT(*) FILTER (WHERE enrichment_status = 'processing')::int            AS processing,
           COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int                AS failed,
           COUNT(*) FILTER (WHERE score = 'hot')::int                               AS hot,
           COUNT(*) FILTER (WHERE score = 'warm')::int                              AS warm,
           COUNT(*) FILTER (WHERE score = 'cold')::int                              AS cold,
-          COUNT(*) FILTER (WHERE email IS NOT NULL OR owner_email IS NOT NULL)::int AS has_email,
-          COUNT(*) FILTER (WHERE phone IS NOT NULL OR owner_phone IS NOT NULL)::int AS has_phone,
-          COUNT(*) FILTER (WHERE (email IS NOT NULL OR owner_email IS NOT NULL)
-                              AND (phone IS NOT NULL OR owner_phone IS NOT NULL))::int AS contactable,
-          COUNT(*) FILTER (WHERE owner_name IS NOT NULL)::int                      AS has_owner_name
+          COUNT(*) FILTER (
+            WHERE NULLIF(BTRIM(email), '') IS NOT NULL
+               OR NULLIF(BTRIM(owner_email), '') IS NOT NULL
+          )::int AS current_email_inventory,
+          COUNT(*) FILTER (
+            WHERE NULLIF(BTRIM(phone), '') IS NOT NULL
+               OR NULLIF(BTRIM(owner_phone), '') IS NOT NULL
+          )::int AS current_phone_inventory,
+          COUNT(*) FILTER (
+            WHERE (NULLIF(BTRIM(email), '') IS NOT NULL OR NULLIF(BTRIM(owner_email), '') IS NOT NULL)
+              AND (NULLIF(BTRIM(phone), '') IS NOT NULL  OR NULLIF(BTRIM(owner_phone), '') IS NOT NULL)
+          )::int AS contactable,
+          COUNT(*) FILTER (WHERE NULLIF(BTRIM(owner_name), '') IS NOT NULL)::int   AS has_owner_name
         FROM sunbiz_entities
       `);
 

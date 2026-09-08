@@ -582,6 +582,122 @@ function ReconciliationRunsList({
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// DuplicateClustersSection — summary tiles + server-populated cluster list.
+// Clusters are loaded from the identity crosswalk clusters endpoint rather than
+// requiring the admin to know or paste a UUID.
+// ──────────────────────────────────────────────────────────────────────────────
+interface CrosswalkCluster {
+  contact_id: number;
+  source_count: number;
+  sample_sources: string[];
+  last_seen_at: string;
+}
+
+function DuplicateClustersSection({ runId: _runId, runData }: { runId: string; runData: ReconciliationRun }) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Load the most recent crosswalk run to get clusters from the identity endpoint.
+  const crosswalkRunsQuery = useQuery<{ runs: Array<{ id: string; status: string }> }>({
+    queryKey: ["/api/admin/identity-crosswalk/runs"],
+    enabled: drawerOpen,
+  });
+  const crosswalkRunId = crosswalkRunsQuery.data?.runs?.[0]?.id ?? null;
+
+  const clustersQuery = useQuery<{ clusters: CrosswalkCluster[]; nextCursor: string | null }>({
+    queryKey: [`/api/admin/identity-crosswalk/runs/${crosswalkRunId}/clusters?limit=30`],
+    enabled: drawerOpen && !!crosswalkRunId,
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Tile label="Members Scanned" value={(runData.total_processed ?? 0).toLocaleString()} />
+        <Tile label="Proposals" value={(runData.total_proposed ?? 0).toLocaleString()} />
+        <Tile label="Org Candidates" value={(runData.total_org_candidates ?? 0).toLocaleString()} />
+        {/* Clickable Duplicate Clusters tile — loads list from server, no UUID entry */}
+        <button
+          onClick={() => setDrawerOpen((o) => !o)}
+          className={`rounded-xl border p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${drawerOpen ? "bg-muted/40 border-primary/40" : "bg-card border-border"}`}
+          title="Click to view duplicate cluster list"
+        >
+          <div className="text-[11px] text-muted-foreground mb-1 font-medium">Duplicate Clusters</div>
+          <div className="text-lg font-bold flex items-center gap-2">
+            {(runData.total_clusters ?? 0).toLocaleString()}
+            <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+          </div>
+        </button>
+      </div>
+
+      {/* Cluster list drawer — populated from /runs/:runId/clusters, no UUID required */}
+      {drawerOpen && (
+        <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold">Duplicate Clusters</p>
+            <button onClick={() => setDrawerOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">✕ Close</button>
+          </div>
+          {(crosswalkRunsQuery.isLoading || clustersQuery.isLoading) && (
+            <p className="text-xs text-muted-foreground">Loading clusters…</p>
+          )}
+          {!crosswalkRunId && !crosswalkRunsQuery.isLoading && (
+            <p className="text-xs text-muted-foreground">No identity crosswalk run found. Start a run from the Identity Crosswalk page.</p>
+          )}
+          {clustersQuery.data && clustersQuery.data.clusters.length === 0 && (
+            <p className="text-xs text-muted-foreground">No duplicate clusters found in the latest crosswalk run.</p>
+          )}
+          {clustersQuery.data && clustersQuery.data.clusters.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-1 pr-4 font-medium text-muted-foreground">Contact</th>
+                    <th className="text-right py-1 pr-4 font-medium text-muted-foreground">Sources</th>
+                    <th className="text-left py-1 font-medium text-muted-foreground">Sample Sources</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clustersQuery.data.clusters.map((cl) => (
+                    <tr key={cl.contact_id} className="border-b border-border/40 hover:bg-muted/20">
+                      <td className="py-1 pr-4">
+                        <a href={`/dashboard/contacts/${cl.contact_id}`} className="text-blue-600 hover:underline">
+                          #{cl.contact_id}
+                        </a>
+                      </td>
+                      <td className="py-1 pr-4 text-right font-bold text-red-700">{cl.source_count}</td>
+                      <td className="py-1">
+                        <div className="flex flex-wrap gap-1">
+                          {cl.sample_sources.map((s) => (
+                            <span key={s} className="px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-[10px] font-mono">
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {runData.lane_counts && (
+        <div>
+          <p className="text-xs font-semibold mb-2">Lane Breakdown</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {Object.entries(runData.lane_counts)
+              .sort((a, b) => b[1] - a[1])
+              .map(([lane, count]) => (
+                <Tile key={lane} label={lane.replace(/_/g, " ")} value={count.toLocaleString()} />
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReconciliationRunDetail({ runId }: { runId: string }) {
   const { data, isLoading } = useQuery<ReconciliationRun>({
     queryKey: [`/api/admin/reconciliation/runs/${runId}`],
@@ -599,24 +715,7 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
         <CardDescription className="text-xs">Census run: {data.source_census_run_id.slice(0, 8)}…</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Tile label="Members Scanned" value={(data.total_processed ?? 0).toLocaleString()} />
-          <Tile label="Proposals" value={(data.total_proposed ?? 0).toLocaleString()} />
-          <Tile label="Org Candidates" value={(data.total_org_candidates ?? 0).toLocaleString()} />
-          <Tile label="Duplicate Clusters" value={(data.total_clusters ?? 0).toLocaleString()} />
-        </div>
-        {data.lane_counts && (
-          <div>
-            <p className="text-xs font-semibold mb-2">Lane Breakdown</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {Object.entries(data.lane_counts)
-                .sort((a, b) => b[1] - a[1])
-                .map(([lane, count]) => (
-                  <Tile key={lane} label={lane.replace(/_/g, " ")} value={count.toLocaleString()} />
-                ))}
-            </div>
-          </div>
-        )}
+        <DuplicateClustersSection runId={runId} runData={data} />
       </CardContent>
     </Card>
   );

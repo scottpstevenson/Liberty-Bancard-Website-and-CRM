@@ -563,96 +563,20 @@ export async function promoteQualifiedToContacts(): Promise<{
   skipped: number;
   dealsCreated: number;
 }> {
-  const { data: allEntities } = await storage.getSunbizEntities(undefined, { limit: 500 });
-  const qualified = allEntities.filter(e =>
-    e.enrichmentStatus === "enriched" &&
-    (e.score === "hot" || e.score === "warm") &&
-    (e.email || e.phone) &&
-    !e.prospectId
-  );
-
-  console.log(`[Promote] Found ${qualified.length} qualified entities to promote`);
-
-  let promoted = 0;
-  let skipped = 0;
-  let dealsCreated = 0;
-
-  for (const entity of qualified) {
-    try {
-      const prospectId = await convertToProspect(entity.id);
-      if (!prospectId) {
-        skipped++;
-        continue;
-      }
-
-      const prospect = await storage.getProspect(prospectId);
-      if (!prospect) {
-        skipped++;
-        continue;
-      }
-
-      if (!prospect.qualificationScore || !["A", "B", "C"].includes(prospect.qualificationScore)) {
-        skipped++;
-        continue;
-      }
-
-      const officers = (entity.officers as any[]) || [];
-      const owner = officers.find((o: any) =>
-        /president|ceo|owner|managing|principal/i.test(o.title)
-      ) || officers[0];
-
-      const nameParts = (entity.ownerName || owner?.name || entity.entityName).split(" ");
-      const rawFirstName = nameParts[0] || entity.entityName.split(" ")[0];
-      const firstName = sanitizeFirstName(rawFirstName) || entity.entityName.split(" ")[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
-
-      const contact = await createContactLocalFirst({
-        firstName: firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase() : "",
-        lastName: lastName ? lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() : "(Business)",
-        email: entity.email || entity.ownerEmail || "",
-        phone: entity.phone || entity.ownerPhone || "",
-        companyName: entity.dba || entity.entityName,
-        vertical: entity.vertical || undefined,
-        status: "New",
-        tags: ["auto-generated", "sunbiz", entity.score || "cold", entity.vertical || "unclassified"],
-        notes: entity.aiSummary || `Auto-imported from Sunbiz. Filing: ${entity.filingNumber}`,
-        referralSource: "sunbiz_enrichment",
-      });
-
-      const deal = await storage.createDeal({
-        contactId: contact.id,
-        pipeline: "sales",
-        stage: "New Lead",
-        priorityScore: entity.score === "hot" ? 80 : entity.score === "warm" ? 50 : 20,
-        notes: entity.aiSummary || `Auto-imported from Sunbiz. Filing: ${entity.filingNumber}`,
-        leadSource: "sunbiz_enrichment",
-        offerPath: entity.vertical || undefined,
-      });
-      dealsCreated++;
-
-      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
-      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      enqueuePromotionalEnrollment({ contactId: contact.id, triggerType: "contact_created", sourceEventId: `discovery-enroll-${contact.id}-${Date.now()}` }).catch(err => console.error("Auto-enroll error:", err));
-      triggerWorkflowsByEvent("contact_created", {
-        entityType: "contact",
-        entityId: contact.id,
-        contactId: contact.id,
-      }).catch(err => console.error("Workflow trigger error:", err));
-
-      // Canonical contact creation persists the durable GHL projection; never
-      // issue a detached provider mutation from this promotion loop.
-
-      await storage.updateProspect(prospectId, { contactId: contact.id, status: "converted" });
-
-      promoted++;
-    } catch (err) {
-      console.error(`[Promote] Failed for entity ${entity.id}:`, err);
-      skipped++;
-    }
-  }
-
-  console.log(`[Promote] Complete: ${promoted} promoted, ${skipped} skipped, ${dealsCreated} deals created`);
-  return { promoted, skipped, dealsCreated };
+  // TASK-1830: entire promotion path is fail-closed until Gen-2 crosswalk authorization.
+  // The coordinator/pause-authority check lives in the caller (runDailyOutreachCycle);
+  // this guard is the first executable statement so no direct caller can bypass it.
+  await storage.createAuditLog({
+    action: "discovery_promotion_fail_closed",
+    entityType: "system",
+    entityId: 0,
+    details: {
+      reason: "Gen-1 identity crosswalk active — governed promotion disabled until Gen-2 authorization",
+    },
+  });
+  return { promoted: 0, skipped: 0, dealsCreated: 0 };
+  // Gen-2 lift: remove the guard and return above; see Task #1831.
+  // The original promotion body is preserved in git history (pre-Task-1830 commit).
 }
 
 export async function processQuizLeadsForSunbizMatch(): Promise<number> {

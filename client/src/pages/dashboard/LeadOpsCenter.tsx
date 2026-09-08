@@ -30,9 +30,16 @@ import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFlori
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LeadOpsStats {
-  total: number; enriched: number; pending: number; processing: number; failed: number;
+  total: number;
+  processing_completed: number;
+  pending_processing: number;
+  processing: number;
+  failed: number;
   hot: number; warm: number; cold: number;
-  has_email: number; has_phone: number; contactable: number; has_owner_name: number;
+  current_email_inventory: number;
+  current_phone_inventory: number;
+  contactable: number;
+  has_owner_name: number;
   verticals: Array<{ vertical: string; count: number; hot_count: number }>;
 }
 
@@ -155,6 +162,11 @@ function jobStatusBadge(status: string | null) {
   return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300"; // pending
 }
 
+// TASK-1830: enrichment job controls are governed (503) until Gen-2 authorization.
+// The panel renders job status read-only; retry/cancel buttons are hidden and replaced
+// with a static notice until the governed state machine is promoted.
+const ENRICHMENT_CONTROLS_GOVERNED = true;
+
 function EnrichmentQueuePanel() {
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
@@ -169,6 +181,7 @@ function EnrichmentQueuePanel() {
     refetchInterval: 30000,
   });
 
+  // patchJobMutation retained for future use when ENRICHMENT_CONTROLS_GOVERNED is lifted.
   const patchJobMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: "pending" | "cancelled" }) => {
       const res = await apiRequest("PATCH", `/api/enrichment-jobs/${id}`, { status });
@@ -203,7 +216,9 @@ function EnrichmentQueuePanel() {
             <div>
               <CardTitle className="text-base">Enrichment Queue</CardTitle>
               <CardDescription className="text-xs mt-0.5">
-                View, retry, or cancel individual enrichment jobs. Auto-refreshes every 30s.
+                {ENRICHMENT_CONTROLS_GOVERNED
+                  ? "Read-only view — job controls require activation authorization."
+                  : "View, retry, or cancel individual enrichment jobs. Auto-refreshes every 30s."}
               </CardDescription>
             </div>
           </div>
@@ -291,32 +306,38 @@ function EnrichmentQueuePanel() {
                       {job.completedAt ? new Date(job.completedAt).toLocaleString() : "—"}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1">
-                        {(job.status === "failed" || job.status === "cancelled") && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            title="Retry (reset to pending)"
-                            disabled={patchJobMutation.isPending}
-                            onClick={() => patchJobMutation.mutate({ id: job.id, status: "pending" })}
-                          >
-                            <RotateCw className="h-3.5 w-3.5 text-blue-600" />
-                          </Button>
-                        )}
-                        {(job.status === "pending" || job.status === "processing") && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            title="Cancel job"
-                            disabled={patchJobMutation.isPending}
-                            onClick={() => patchJobMutation.mutate({ id: job.id, status: "cancelled" })}
-                          >
-                            <XCircle className="h-3.5 w-3.5 text-red-500" />
-                          </Button>
-                        )}
-                      </div>
+                      {ENRICHMENT_CONTROLS_GOVERNED ? (
+                        <span className="text-[10px] text-muted-foreground" title="Job controls require activation authorization — available in a future release">
+                          Governed
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          {(job.status === "failed" || job.status === "cancelled") && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              title="Retry (reset to pending)"
+                              disabled={patchJobMutation.isPending}
+                              onClick={() => patchJobMutation.mutate({ id: job.id, status: "pending" })}
+                            >
+                              <RotateCw className="h-3.5 w-3.5 text-blue-600" />
+                            </Button>
+                          )}
+                          {(job.status === "pending" || job.status === "processing") && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              title="Cancel job"
+                              disabled={patchJobMutation.isPending}
+                              onClick={() => patchJobMutation.mutate({ id: job.id, status: "cancelled" })}
+                            >
+                              <XCircle className="h-3.5 w-3.5 text-red-500" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -511,12 +532,12 @@ export default function LeadOpsCenter() {
 
   // ── Stat cards ─────────────────────────────────────────────────────────────
   const statCards = [
-    { label: "Total Leads",   value: stats?.total?.toLocaleString()       || "—", icon: Users,       color: "text-gray-700 dark:text-gray-300" },
-    { label: "Enriched",      value: stats?.enriched?.toLocaleString()    || "—", icon: CheckCircle,  color: "text-green-600 dark:text-green-400" },
-    { label: "Pending",       value: stats?.pending?.toLocaleString()     || "—", icon: Clock,        color: "text-yellow-600 dark:text-yellow-400" },
-    { label: "Have Email",    value: stats?.has_email?.toLocaleString()   || "—", icon: Mail,         color: "text-blue-600 dark:text-blue-400" },
-    { label: "Have Phone",    value: stats?.has_phone?.toLocaleString()   || "—", icon: Phone,        color: "text-indigo-600 dark:text-indigo-400" },
-    { label: "Hot Leads",     value: stats?.hot?.toLocaleString()         || "—", icon: TrendingUp,   color: "text-red-600 dark:text-red-400" },
+    { label: "Total Leads",        value: stats?.total?.toLocaleString()                     || "—", icon: Users,       color: "text-gray-700 dark:text-gray-300" },
+    { label: "Processing Done",    value: stats?.processing_completed?.toLocaleString()      || "—", icon: CheckCircle,  color: "text-green-600 dark:text-green-400" },
+    { label: "Awaiting Processing",value: stats?.pending_processing?.toLocaleString()        || "—", icon: Clock,        color: "text-yellow-600 dark:text-yellow-400" },
+    { label: "Email Inventory",    value: stats?.current_email_inventory?.toLocaleString()   || "—", icon: Mail,         color: "text-blue-600 dark:text-blue-400" },
+    { label: "Phone Inventory",    value: stats?.current_phone_inventory?.toLocaleString()   || "—", icon: Phone,        color: "text-indigo-600 dark:text-indigo-400" },
+    { label: "Hot Leads",          value: stats?.hot?.toLocaleString()                       || "—", icon: TrendingUp,   color: "text-red-600 dark:text-red-400" },
   ];
 
   const health = healthQuery.data;
@@ -1146,7 +1167,7 @@ export default function LeadOpsCenter() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Enrich all pending leads?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will queue {stats?.pending?.toLocaleString() || "all pending"} leads for enrichment. The pipeline runs every 10 minutes. This may take several hours for large pools.
+                  This will queue {stats?.pending_processing?.toLocaleString() || "all pending"} leads for enrichment. The pipeline runs every 10 minutes. This may take several hours for large pools.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

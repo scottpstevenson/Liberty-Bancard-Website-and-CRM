@@ -844,21 +844,19 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  // PATCH /api/enrichment-jobs/:id — cancel or retry an individual job
-  app.patch("/api/enrichment-jobs/:id", requireRole("admin", "manager"), async (req, res) => {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ message: "Invalid job id" });
-    const parsed = z.object({
-      status: z.enum(["pending", "cancelled"]),
-    }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "status must be 'pending' or 'cancelled'" });
-    try {
-      const updated = await storage.updateEnrichmentJob(id, { status: parsed.data.status });
-      if (!updated) return res.status(404).json({ message: "Job not found" });
-      res.json(updated);
-    } catch (err: any) {
-      serverError(res, err);
-    }
+  // PATCH /api/enrichment-jobs/:id — TASK-1830: governed state machine required (Gen-1 gate).
+  // Returns 503 until CAS + audit + worker-ownership + transition-matrix is implemented.
+  // TODO TASK-1830-PHASE2: replace this 503 with a governed state machine:
+  //   - CAS check: verify current status matches expected before transition
+  //   - Audit log: write enrichment_job_status_changed to audit_logs
+  //   - Worker ownership: only the owning worker (or admin override) may cancel processing jobs
+  //   - Transition matrix: pending→cancelled, failed→pending, cancelled→pending only
+  //     (no completed→pending, no processing→cancelled without owner override)
+  app.patch("/api/enrichment-jobs/:id", requireRole("admin", "manager"), async (_req, res) => {
+    res.status(503).json({
+      code: "ENRICHMENT_JOB_CONTROL_GOVERNED",
+      message: "Enrichment job controls require activation authorization. The governed state machine will be available in a future release.",
+    });
   });
 
   app.post("/api/enrichment/process-queue", requireRole("admin", "manager"), async (_req, res) => {

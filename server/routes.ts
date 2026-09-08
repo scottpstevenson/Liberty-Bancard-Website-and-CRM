@@ -80,6 +80,7 @@ import { registerAiMemoryRoutes } from "./routes/ai-memory";
 import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 import { registerCensusRoutes } from "./routes/census";
 import { registerReconciliationRoutes } from "./routes/reconciliation";
+import { registerIdentityCrosswalkRoutes } from "./routes/identity-crosswalk";
 import { registerOutreachQueueRoutes } from "./routes/outreach-queue";
 import { crmObjectAccessGuard } from "./services/crm-object-access";
 import { registerCommercialShadowRoutes } from "./routes/commercial-shadow";
@@ -246,6 +247,7 @@ export async function registerRoutes(
   registerDailyBriefingRoutes(app);          // #1476 — daily briefing
   registerCensusRoutes(app);                 // #1817 — contact census
   registerReconciliationRoutes(app);         // #1824 — existing-data reconciliation
+  registerIdentityCrosswalkRoutes(app);     // #1830 — cross-system identity crosswalk
   registerOutreachQueueRoutes(app);          // #1493 — ready-for-outreach rep queue
 
   // Must be registered before the API 404 catch-all — extracts route

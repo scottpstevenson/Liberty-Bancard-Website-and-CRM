@@ -356,6 +356,29 @@ export function registerReconciliationRoutes(app: Express): void {
     }
   });
 
+  // ── GET /api/admin/reconciliation/org-candidates/:candidateId/members ──────
+  // Returns members from contact_organization_candidate_members.
+  // Distinct from /clusters/:clusterId/members which queries contact_duplicate_cluster_members.
+  app.get("/api/admin/reconciliation/org-candidates/:candidateId/members", requireRole("admin"), async (req, res) => {
+    const candidateIdRaw = Array.isArray(req.params.candidateId) ? req.params.candidateId[0] : req.params.candidateId;
+    const candidateId = parseInt(candidateIdRaw ?? "", 10);
+    if (!candidateId || isNaN(candidateId) || candidateId <= 0) {
+      return res.status(400).json({ error: "candidateId must be a positive integer" });
+    }
+    try {
+      const r = await pool.query(
+        `SELECT m.id, m.candidate_id, m.contact_id, m.created_at
+         FROM contact_organization_candidate_members m
+         WHERE m.candidate_id = $1
+         ORDER BY m.id ASC`,
+        [candidateId],
+      );
+      res.json({ members: r.rows });
+    } catch (err) {
+      serverError(res, err, "org candidate members");
+    }
+  });
+
   // ── GET /api/admin/reconciliation/clusters/:clusterId/members ─────────────
   app.get("/api/admin/reconciliation/clusters/:clusterId/members", requireRole("admin"), async (req, res) => {
     const clusterId = validateClusterId(req.params.clusterId, res);
