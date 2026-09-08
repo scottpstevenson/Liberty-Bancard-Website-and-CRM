@@ -2957,7 +2957,7 @@ export function registerContactsRoutes(app: Express) {
       }
       const ids = contactIds.map((id) => Number(id)).filter((id) => isFinite(id) && id > 0);
       if (ids.length === 0) return res.status(400).json({ message: "No valid contact IDs provided" });
-      if (ids.length > 500) return res.status(400).json({ message: "Cannot delete more than 500 contacts at once" });
+      if (ids.length > 5000) return res.status(400).json({ message: "Cannot delete more than 5,000 contacts at once" });
 
       let deleted = 0;
       const errors: number[] = [];

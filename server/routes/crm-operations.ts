@@ -318,7 +318,7 @@ export function registerCrmOperationsRoutes(app: Express) {
       if (taskIds.length === 0) {
         return res.json({ deleted: 0 });
       }
-      if (taskIds.length > 2000) return res.status(400).json({ message: "Cannot delete more than 2,000 tasks at once" });
+      if (taskIds.length > 10000) return res.status(400).json({ message: "Cannot delete more than 10,000 tasks at once" });
       const invalid = taskIds.filter(id => !Number.isInteger(id) || id <= 0);
       if (invalid.length > 0) return res.status(400).json({ message: "All taskIds must be positive integers" });
 
