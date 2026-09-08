@@ -22,7 +22,7 @@ import {
   Sparkles, RefreshCw, Trash2, Search, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, Clock, Zap, Users, Mail, Phone,
   TrendingUp, Brain, Target, ArrowRight, Download, Activity,
-  X, ShieldAlert, Cpu, RotateCcw,
+  X, ShieldAlert, Cpu, RotateCcw, ListTodo, XCircle, RotateCw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -130,6 +130,203 @@ function formatInboundDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+// ─── Enrichment Queue Panel ───────────────────────────────────────────────────
+interface EnrichmentJob {
+  id: number;
+  prospectId: number | null;
+  listId: number | null;
+  jobType: string;
+  status: string | null;
+  totalCount: number | null;
+  processedCount: number | null;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string | null;
+}
+
+function jobStatusBadge(status: string | null) {
+  if (status === "completed") return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300";
+  if (status === "processing") return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300";
+  if (status === "failed")     return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300";
+  if (status === "cancelled")  return "bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400";
+  return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300"; // pending
+}
+
+function EnrichmentQueuePanel() {
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const { data: jobs = [], isLoading, refetch } = useQuery<EnrichmentJob[]>({
+    queryKey: ["/api/enrichment-jobs"],
+    queryFn: async () => {
+      const r = await fetch("/api/enrichment-jobs", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  const patchJobMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: "pending" | "cancelled" }) => {
+      const res = await apiRequest("PATCH", `/api/enrichment-jobs/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      toast({
+        title: vars.status === "cancelled" ? "Job cancelled" : "Job reset to pending",
+        description: vars.status === "cancelled" ? "The job has been cancelled." : "The job will be retried on the next worker tick.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/enrichment-jobs"] });
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
+  const filtered = statusFilter === "all" ? jobs : jobs.filter(j => j.status === statusFilter);
+  const counts = {
+    total: jobs.length,
+    pending: jobs.filter(j => j.status === "pending").length,
+    processing: jobs.filter(j => j.status === "processing").length,
+    completed: jobs.filter(j => j.status === "completed").length,
+    failed: jobs.filter(j => j.status === "failed").length,
+    cancelled: jobs.filter(j => j.status === "cancelled").length,
+  };
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-2">
+            <ListTodo className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <CardTitle className="text-base">Enrichment Queue</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                View, retry, or cancel individual enrichment jobs. Auto-refreshes every 30s.
+              </CardDescription>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => refetch()} disabled={isLoading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+
+        {/* Summary chips */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {[
+            { label: "All", value: "all", count: counts.total },
+            { label: "Pending", value: "pending", count: counts.pending },
+            { label: "Processing", value: "processing", count: counts.processing },
+            { label: "Completed", value: "completed", count: counts.completed },
+            { label: "Failed", value: "failed", count: counts.failed },
+            { label: "Cancelled", value: "cancelled", count: counts.cancelled },
+          ].map(({ label, value, count }) => (
+            <button
+              key={value}
+              onClick={() => setStatusFilter(value)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                statusFilter === value
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background border-border hover:bg-muted"
+              }`}
+            >
+              {label}
+              <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${
+                statusFilter === value ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+              }`}>{count}</span>
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="px-6 py-8 text-sm text-muted-foreground">Loading enrichment jobs…</div>
+        ) : filtered.length === 0 ? (
+          <div className="px-6 py-8 text-sm text-muted-foreground text-center">
+            {statusFilter === "all" ? "No enrichment jobs found." : `No ${statusFilter} jobs.`}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16">ID</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Prospect / List</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Progress</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Completed</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.slice(0, 200).map((job) => (
+                  <TableRow key={job.id}>
+                    <TableCell className="font-mono text-xs text-muted-foreground">#{job.id}</TableCell>
+                    <TableCell className="text-xs">{job.jobType}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {job.prospectId ? `Prospect #${job.prospectId}` : job.listId ? `List #${job.listId}` : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={`text-xs ${jobStatusBadge(job.status)}`}>
+                        {job.status ?? "unknown"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {(job.totalCount ?? 0) > 0
+                        ? `${job.processedCount ?? 0} / ${job.totalCount}`
+                        : "—"}
+                      {job.error && (
+                        <span className="ml-1 text-red-500" title={job.error}>⚠</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {job.createdAt ? new Date(job.createdAt).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {job.completedAt ? new Date(job.completedAt).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {(job.status === "failed" || job.status === "cancelled") && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="Retry (reset to pending)"
+                            disabled={patchJobMutation.isPending}
+                            onClick={() => patchJobMutation.mutate({ id: job.id, status: "pending" })}
+                          >
+                            <RotateCw className="h-3.5 w-3.5 text-blue-600" />
+                          </Button>
+                        )}
+                        {(job.status === "pending" || job.status === "processing") && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="Cancel job"
+                            disabled={patchJobMutation.isPending}
+                            onClick={() => patchJobMutation.mutate({ id: job.id, status: "cancelled" })}
+                          >
+                            <XCircle className="h-3.5 w-3.5 text-red-500" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -726,6 +923,9 @@ export default function LeadOpsCenter() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Enrichment Queue Management ──────────────────────────────────── */}
+      <EnrichmentQueuePanel />
 
       {/* ── AI Intelligence Panel ─────────────────────────────────────────── */}
       <Card className="border-2 border-dashed border-purple-200 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20">

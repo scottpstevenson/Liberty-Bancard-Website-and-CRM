@@ -1,7 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Clock, Database, Globe } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Clock, Database, Globe, Play, Square, RefreshCw } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface SourceStatusEntry {
   configured: boolean;
@@ -36,6 +39,8 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 export function DiscoveryControlsPanel() {
+  const { toast } = useToast();
+
   const { data, isLoading } = useQuery<{
     nightlySchedulerRunning: boolean;
     discoveryInProgress: boolean;
@@ -43,6 +48,24 @@ export function DiscoveryControlsPanel() {
   }>({
     queryKey: ["/api/sdr/discovery-controls"],
     refetchInterval: 10000,
+  });
+
+  const startSchedulerMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sdr/discovery/nightly/start"),
+    onSuccess: () => {
+      toast({ title: "Scheduler started", description: "Nightly discovery scheduler is now running." });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery-controls"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to start", description: err.message, variant: "destructive" }),
+  });
+
+  const stopSchedulerMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sdr/discovery/nightly/stop"),
+    onSuccess: () => {
+      toast({ title: "Scheduler stopped", description: "Nightly discovery scheduler has been stopped." });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery-controls"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to stop", description: err.message, variant: "destructive" }),
   });
 
   const { data: sourceStatus } = useQuery<SourceStatus>({
@@ -100,12 +123,37 @@ export function DiscoveryControlsPanel() {
         <Card data-testid="card-scheduler-running">
           <CardContent className="p-4">
             <div className="text-xs text-muted-foreground mb-1">Scheduler Status</div>
-            <Badge className={data?.nightlySchedulerRunning
-              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-              : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-            }>
-              {data?.nightlySchedulerRunning ? "Running" : "Stopped"}
-            </Badge>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className={data?.nightlySchedulerRunning
+                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+              }>
+                {data?.nightlySchedulerRunning ? "Running" : "Stopped"}
+              </Badge>
+              {data?.nightlySchedulerRunning ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-xs gap-1"
+                  disabled={stopSchedulerMutation.isPending}
+                  onClick={() => stopSchedulerMutation.mutate()}
+                >
+                  {stopSchedulerMutation.isPending ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-xs gap-1"
+                  disabled={startSchedulerMutation.isPending}
+                  onClick={() => startSchedulerMutation.mutate()}
+                >
+                  {startSchedulerMutation.isPending ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                  Start
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
         <Card data-testid="card-discovery-progress">

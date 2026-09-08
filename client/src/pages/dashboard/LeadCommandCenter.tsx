@@ -332,13 +332,25 @@ export default function LeadCommandCenter() {
   const [pipelinePage, setPipelinePage] = useState(1);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
+  // Server-side pagination for sunbiz entities (2M+ records — must paginate server-side)
+  const ENTITY_PAGE_SIZE = 100;
+  const [entityPage, setEntityPage] = useState(1);
+
   const {
-    data: entitiesRaw,
+    data: entitiesPage,
     isLoading: entitiesLoading,
     isError: entitiesError,
     error: entitiesErrorObj,
     refetch: refetchEntities,
-  } = useQuery<SunbizEntity[]>({ queryKey: ["/api/sunbiz/entities"] });
+  } = useQuery<{ data: SunbizEntity[]; total: number; limit: number; offset: number }>({
+    queryKey: ["/api/sunbiz/entities", entityPage],
+    queryFn: async () => {
+      const offset = (entityPage - 1) * ENTITY_PAGE_SIZE;
+      const res = await fetch(`/api/sunbiz/entities?limit=${ENTITY_PAGE_SIZE}&offset=${offset}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
   const { data: stats } = useQuery<{ total: number; enriched: number; pending: number; withEmail: number; withPhone: number; withWebsite: number; withContactInfo: number }>({ queryKey: ["/api/sunbiz/stats"] });
   const {
     data: prospectsRaw,
@@ -351,7 +363,9 @@ export default function LeadCommandCenter() {
   const { data: workflowsRaw = [] } = useQuery<any[]>({ queryKey: ["/api/workflows"] });
   const { data: outreachStatus, isLoading: outreachStatusLoading } = useQuery<OutreachStatus>({ queryKey: ["/api/outreach/status"], staleTime: 60_000 });
 
-  const entities = Array.isArray(entitiesRaw) ? entitiesRaw : [];
+  const entities = entitiesPage?.data ?? [];
+  const entityTotal = entitiesPage?.total ?? 0;
+  const entityTotalPages = Math.max(1, Math.ceil(entityTotal / ENTITY_PAGE_SIZE));
   const prospects = Array.isArray(prospectsRaw) ? prospectsRaw : [];
   const sequences = Array.isArray(sequencesRaw) ? sequencesRaw : [];
   const workflows = Array.isArray(workflowsRaw) ? workflowsRaw : [];
@@ -403,7 +417,7 @@ export default function LeadCommandCenter() {
   }, [selectedIds, allRows]);
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/sunbiz/entities"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/sunbiz/entities", entityPage] });
     queryClient.invalidateQueries({ queryKey: ["/api/sunbiz/stats"] });
     queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
   };

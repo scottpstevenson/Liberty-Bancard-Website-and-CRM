@@ -844,6 +844,23 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
+  // PATCH /api/enrichment-jobs/:id — cancel or retry an individual job
+  app.patch("/api/enrichment-jobs/:id", requireRole("admin", "manager"), async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid job id" });
+    const parsed = z.object({
+      status: z.enum(["pending", "cancelled"]),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "status must be 'pending' or 'cancelled'" });
+    try {
+      const updated = await storage.updateEnrichmentJob(id, { status: parsed.data.status });
+      if (!updated) return res.status(404).json({ message: "Job not found" });
+      res.json(updated);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.post("/api/enrichment/process-queue", requireRole("admin", "manager"), async (_req, res) => {
     res.status(503).json({
       code: "CRO03_LEGACY_QUEUE_RETIRED",
