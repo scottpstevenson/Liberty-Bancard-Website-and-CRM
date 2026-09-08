@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -14,18 +14,13 @@ import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   BookOpen,
-  ExternalLink,
-  FolderOpen,
   Loader2,
-  Plus,
-  RefreshCw,
   Target,
   FileText,
   Users,
   TrendingUp,
   CheckCircle,
   Rocket,
-  Lock,
   Brain,
   Send,
   History,
@@ -39,21 +34,1046 @@ import {
   Bot,
   ClipboardList,
   ArrowLeft,
+  Copy,
+  Check,
+  Quote,
+  AlertCircle,
+  Lightbulb,
+  BookMarked,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
-interface TrainingFolder {
-  id: string;
+// ── Training content ─────────────────────────────────────────────────────────
+
+interface TrainingModule {
+  key: string;
   name: string;
-  docId: string;
-  docTitle: string;
-  docUrl: string;
+  icon: React.ElementType;
+  colorClass: string;
+  accentBg: string;
+  description: string;
+  readMins: number;
+  content: string;
 }
 
-interface TrainingHubStatus {
-  exists: boolean;
-  folderId?: string;
-  folders?: TrainingFolder[];
+const TRAINING_MODULES: TrainingModule[] = [
+  {
+    key: "prospecting",
+    name: "Prospecting",
+    icon: Target,
+    colorClass: "text-blue-600 dark:text-blue-400",
+    accentBg: "bg-blue-500/10",
+    description: "Find and qualify merchants by vertical, lead sources, cold call openers, LinkedIn, and door-to-door tactics.",
+    readMins: 6,
+    content: `PROSPECTING GUIDE
+==================
+
+HOW TO FIND AND QUALIFY MERCHANTS
+
+1. TARGET VERTICALS
+-------------------
+Focus on high-volume, card-heavy businesses:
+- Medical / Dental / Medspa (high average ticket, low chargeback)
+- Automotive (service centers, dealers)
+- Restaurants (high volume, open to 0% surcharge)
+- Home Services (HVAC, plumbing, electric)
+- Retail (boutiques, hardware, specialty)
+
+2. LEAD SOURCES
+---------------
+- Cold calling from Google Maps / Yelp searches by category + city
+- Sunbiz entity searches (Florida) — sort by new registrations
+- LinkedIn Sales Navigator — filter by employee count 5-50, industry
+- Door-to-door in commercial strips and plazas
+- Chamber of Commerce member directories
+- Referrals from existing merchants
+
+3. COLD CALL OPENERS
+--------------------
+"Hi, this is [Name] from Liberty Bancard. We help [vertical] businesses eliminate credit card processing fees entirely — I wanted to take 30 seconds to see if that's something worth a quick conversation."
+
+Pattern interrupt opener:
+"I know you probably get a hundred of these calls — but I promise this one is different. We have merchants just like you saving $800–$2,000 a month. Can I ask what you're currently paying?"
+
+4. LINKEDIN OUTREACH
+--------------------
+"Hi [Name], I work with [vertical] businesses in [city] on eliminating credit card processing costs. Would it be worth 10 minutes to show you how it works? No pressure, just a quick numbers conversation."
+
+Connect first, then message after 3 days if they accept.
+
+5. DOOR-TO-DOOR APPROACH
+------------------------
+- Target strip malls, plazas, commercial corridors
+- Best times: Tue–Thu, 10am–12pm and 2pm–4pm (avoid lunch rush)
+- Lead with: "We work with several businesses on this block — mind if I grab 2 minutes to show you what they're saving?"
+- Drop a one-pager if owner isn't available; follow up by phone next day
+
+6. QUALIFYING QUESTIONS
+-----------------------
+- "What credit card processor do you use right now?"
+- "Roughly how much per month do you pay in processing fees?"
+- "What's your average ticket size?"
+- "Do you process mostly debit, credit, or a mix?"
+- "Have you heard of the dual pricing / cash discount program?"
+
+Qualified lead criteria:
+✓ Processing $10K+/month
+✓ Open to a quick statement review
+✓ Decision maker is accessible
+✓ Not locked in a long-term contract with heavy ETF`,
+  },
+  {
+    key: "how-to-sell",
+    name: "How to Sell",
+    icon: TrendingUp,
+    colorClass: "text-green-600 dark:text-green-400",
+    accentBg: "bg-green-500/10",
+    description: "Value proposition scripts, objection handling, dual pricing pitch, pain point identification, and high-risk merchant approach.",
+    readMins: 8,
+    content: `HOW TO SELL — SCRIPTS & OBJECTION HANDLING
+==========================================
+
+1. CORE VALUE PROPOSITION
+--------------------------
+Liberty Bancard gives merchants two powerful options:
+A) 0% / Dual Pricing Program — pass processing fees to card users, merchants pay $0 in fees
+B) Wholesale / Interchange-Plus — lowest possible cost structure, full transparency, no bundled pricing tricks
+
+Open with: "We help businesses stop giving away 2–4% of every sale to their processor. Most of our merchants either pay nothing at all, or cut their rate in half."
+
+2. PAIN POINT IDENTIFICATION
+-----------------------------
+Ask open-ended questions:
+- "What do you find most frustrating about your current processor?"
+- "Do you feel like you know exactly what you're paying and why?"
+- "Has your rate gone up in the last year without explanation?"
+- "Do you get hit with extra fees at the end of each month?"
+
+Listen for: hidden fees, rate increases, poor service, locked contracts, not understanding their bill.
+
+3. DUAL PRICING / 0% PITCH
+---------------------------
+"The 0% program works like this: instead of you absorbing the processing fee, it's split between cash and card prices — exactly like a gas station. Card customers pay a small service fee (typically 3.5%), cash customers get a discount. You collect the same amount either way — the fee just disappears from your P&L."
+
+Key proof point: "Over 80% of consumers say they would still pay by card even with a small fee — and many prefer it over carrying cash."
+
+4. HIGH-RISK PITCH
+------------------
+For merchants declined elsewhere:
+"We work with high-risk categories that traditional banks won't touch. Whether that's nutraceuticals, CBD, firearms, or high-ticket online sales — we have underwriting relationships that can get you approved."
+
+5. OBJECTION HANDLING
+----------------------
+
+Objection: "We've been with our processor for years."
+Response: "That loyalty is great — I'm just asking for 5 minutes to show you what you're actually paying vs. what's possible. You can always say no."
+
+Objection: "I don't want to pass fees to my customers."
+Response: "Completely fair. In that case, we can look at our wholesale program — you'd still likely cut your current rate by 30–50% without changing anything for your customers."
+
+Objection: "I'm locked in a contract."
+Response: "Let's look at your statement first. If the savings are big enough, breaking a contract almost always makes sense financially — and sometimes ETFs are negotiable."
+
+Objection: "I need to talk to my partner."
+Response: "Of course. Would it help if I put together a short savings analysis you two could review together? Takes me about 10 minutes."
+
+6. CLOSING SETUP
+-----------------
+After identifying pain points:
+"Based on what you've told me, I think there's a real opportunity here. Can I get a recent processing statement — just the last 1–2 months? I'll do a free analysis and come back with exact numbers. No obligation."`,
+  },
+  {
+    key: "statement-review",
+    name: "Statement Review",
+    icon: FileText,
+    colorClass: "text-purple-600 dark:text-purple-400",
+    accentBg: "bg-purple-500/10",
+    description: "Step-by-step guide to reading a merchant processing statement, calculating effective rate, and building the savings case.",
+    readMins: 7,
+    content: `STATEMENT REVIEW GUIDE
+======================
+
+STEP-BY-STEP GUIDE TO READING A MERCHANT PROCESSING STATEMENT
+
+1. WHAT YOU'RE LOOKING FOR
+---------------------------
+Goal: Calculate the merchant's effective rate and identify savings opportunities.
+
+Effective Rate = Total Fees Paid ÷ Total Volume Processed × 100
+
+Example: $1,200 in fees on $45,000 in volume = 2.67% effective rate
+
+2. KEY LINE ITEMS TO FIND
+--------------------------
+Look for these sections on any statement:
+
+a) PROCESSING VOLUME
+   - "Total Sales Volume" or "Gross Sales"
+   - Should match their POS or bank deposits
+
+b) INTERCHANGE FEES
+   - The actual cost the card networks charge (Visa/MC/Amex)
+   - Typically listed as a % + per-transaction rate
+
+c) PROCESSOR MARKUP
+   - This is what goes to your competitor — the profit layer on top
+   - Look for: "Service Fee," "Margin," "Markup," "Assessment"
+
+d) MONTHLY FEES
+   - Statement fee ($10–$25/mo) — often unnecessary
+   - PCI compliance fee ($30–$120/yr) — check if merchant is actually compliant
+   - Gateway fee — if they use a separate payment gateway
+   - Minimum monthly fee — charged if volume is low
+
+e) OTHER RED FLAGS
+   - Non-qualified surcharges (NQS) — sign of tiered pricing abuse
+   - Batch fees — per-batch settlement charges
+   - Annual fee — often hidden
+   - Paper statement fee — easy win to eliminate
+
+3. TIERED vs. INTERCHANGE-PLUS
+--------------------------------
+TIERED PRICING (bad for merchant):
+- Qualified / Mid-Qualified / Non-Qualified tiers
+- Processor picks which tier to assign transactions
+- Creates hidden markup; non-qual rate often 3.5–4%+
+- Sign: no interchange line items, just tier percentages
+
+INTERCHANGE-PLUS (good for merchant):
+- Shows exact interchange cost for each card type
+- Processor markup is clearly stated separately
+- Fully transparent; easy to compare
+
+Most competitors use tiered — this is your main talking point.
+
+4. BUILDING THE SAVINGS CASE
+------------------------------
+Step 1: Calculate current effective rate
+Step 2: Estimate what they'd pay on Liberty's wholesale program — typical wholesale markup: 0.10% + $0.05–0.08/transaction — add average interchange cost for their vertical
+Step 3: Show monthly and annual savings
+
+Example Savings Case:
+Current:    $45,000/mo × 2.67% = $1,201/mo
+Liberty:    $45,000/mo × 1.45% = $652/mo
+Savings:    $549/mo = $6,588/year
+
+Step 4: If eligible for 0% — show zero-fee scenario with card price adjustment
+
+5. COMMON STATEMENT FORMATS
+-----------------------------
+- Fiserv/First Data: Look for "Interchange Summary" section
+- TSYS/Global Payments: Tiered pricing breakdown on page 2–3
+- Square/Stripe: Simple flat-rate, usually 2.6–2.9% + 30¢ (Square/Stripe users are easiest to convert — show the math clearly)
+- Heartland: Often interchange-plus but with high markup
+
+6. WHAT TO BRING BACK TO THE MERCHANT
+---------------------------------------
+Prepare a one-page savings proposal showing:
+- Their current effective rate
+- Projected rate on Liberty program
+- Monthly savings
+- Annual savings
+- Break-even on any transition costs (if applicable)`,
+  },
+  {
+    key: "closing",
+    name: "Closing",
+    icon: CheckCircle,
+    colorClass: "text-orange-600 dark:text-orange-400",
+    accentBg: "bg-orange-500/10",
+    description: "Closing scripts, trial closes, urgency triggers, handling stalls, the assumptive close, and follow-up cadence.",
+    readMins: 7,
+    content: `CLOSING GUIDE
+=============
+
+CLOSING SCRIPTS, URGENCY TRIGGERS & FOLLOW-UP CADENCE
+
+1. TRIAL CLOSES (USE THROUGHOUT THE CONVERSATION)
+---------------------------------------------------
+Trial closes test commitment before the final ask.
+
+"If the numbers make sense, is there any reason you wouldn't want to move forward?"
+
+"Based on everything we've talked about, does this sound like something that could work for your business?"
+
+"If I can show you saving $600/month with no disruption to your operations, what would you need to make a decision?"
+
+2. THE SAVINGS CLOSE
+---------------------
+After presenting the analysis:
+"You're currently paying $1,200/month in fees. On our program, you'd pay roughly $650 — that's $550 back in your pocket every month, or $6,600 a year. I can get your new terminal programmed and set up within a week. Want to get the paperwork started today?"
+
+3. THE URGENCY CLOSE
+---------------------
+"Our current pricing promotion ends [date]. If we can get your application in this week, you'd lock in the lowest available rate."
+
+"Interchange rates just went up across the board — the sooner we lock in your wholesale rate, the more you save before the next adjustment."
+
+4. WHEN THEY STALL
+-------------------
+
+Objection: "I want to think about it."
+Response: "Absolutely. What's the one thing that's holding you back? Let me address that right now so you can think about it with all the information."
+
+Objection: "I need to compare other options."
+Response: "That makes sense. Here's what I'd suggest: let me send you our comparison sheet. Most merchants who compare find we're lowest — but if you find better, I'll match it or tell you honestly that you should go with them."
+
+Objection: "I'm happy with what I have."
+Response: "I respect that. Can I ask — when did you last have someone actually audit your rate? Most merchants we find are paying 2–3% more than they need to. Five minutes — just let me show you the math."
+
+5. THE ASSUMPTIVE CLOSE
+------------------------
+Stop asking "do you want to move forward?" — assume they do.
+
+"Let me grab your application. What's the legal business name on your license?"
+
+"I'll get your terminal shipped overnight. What's the delivery address?"
+
+"Since we're going with the 0% program — do you have a voided check handy or do you want to send your banking info electronically?"
+
+6. FOLLOW-UP CADENCE AFTER DEMO
+---------------------------------
+Day 0: Send savings summary + one-pager via email
+Day 1: Text: "Did you get a chance to look at the proposal I sent over?"
+Day 3: Call: "Just following up on the analysis. Any questions come up?"
+Day 7: Email: "Checking back in — the proposal is still on the table."
+Day 14: Call with new angle: "One of our restaurants in [city] just saved $900/month — made me think of you."
+Day 30: Final check-in: "I want to make sure I haven't dropped the ball. Is this still something you'd like to revisit?"
+
+7. WHAT NOT TO DO
+------------------
+✗ Don't chase more than 5–6 times without a response — move on
+✗ Don't negotiate rate before the application is submitted
+✗ Don't promise approval — underwriting makes that call
+✗ Don't skip the trial close — always gauge commitment before the final ask`,
+  },
+  {
+    key: "onboarding",
+    name: "Onboarding & Compliance",
+    icon: Users,
+    colorClass: "text-teal-600 dark:text-teal-400",
+    accentBg: "bg-teal-500/10",
+    description: "What happens after signing, setting merchant expectations, PCI compliance basics, and chargeback prevention.",
+    readMins: 7,
+    content: `ONBOARDING & COMPLIANCE GUIDE
+==============================
+
+WHAT HAPPENS AFTER SIGNING
+
+1. THE ONBOARDING PROCESS
+--------------------------
+After the merchant signs the application, the following steps occur:
+
+Step 1 — Document Collection (Day 1–2)
+- Signed merchant application
+- Voided check (for ACH/deposit setup)
+- Copy of government-issued photo ID (owner/signer)
+- 3 months of processing statements (if applicable)
+- Business license (if required by vertical or volume)
+
+Step 2 — Underwriting Submission (Day 2–3)
+- Application submitted to underwriting
+- Risk team reviews: credit, volume history, vertical, chargeback rate
+- High-risk verticals may require additional documentation
+
+Step 3 — Approval & Setup (Day 3–7)
+- Merchant ID (MID) assigned
+- Terminal or gateway programmed and shipped
+- Test transaction run to confirm setup
+
+Step 4 — Go-Live (Day 7–14)
+- Terminal delivered and activated
+- First batch processed
+- Confirm deposit lands in merchant's bank account
+
+2. MERCHANT EXPECTATIONS (SET THESE UPFRONT)
+---------------------------------------------
+Be transparent about:
+- Timing: "Expect 5–10 business days from application to live"
+- Deposits: "Funds typically settle within 1–2 business days"
+- Statements: "You'll receive a monthly statement via email/portal"
+- Support: "For any issues, call/text me directly or use our support line"
+
+3. PCI COMPLIANCE BASICS
+-------------------------
+PCI DSS (Payment Card Industry Data Security Standard) applies to ALL merchants.
+
+Merchant levels:
+- Level 4 (most small merchants): Self-Assessment Questionnaire (SAQ)
+- Level 1–3: Full audit required (high volume)
+
+Key PCI requirements for merchants:
+- Never store full card numbers in any system
+- Use a PCI-compliant terminal (EMV/chip)
+- Complete annual SAQ (questionnaire)
+- Scan network quarterly (if applicable)
+
+PCI non-compliance fee: typically $20–$40/month charged by processor — help merchants get compliant to avoid this fee.
+
+Common SAQ types:
+- SAQ A: Card-not-present, fully outsourced (e-commerce)
+- SAQ B: Imprinters or standalone dial-up terminals
+- SAQ C-VT: Web-based virtual terminal, no electronic storage
+- SAQ D: All other merchants
+
+4. CHARGEBACK PREVENTION
+-------------------------
+Chargebacks occur when a customer disputes a transaction with their bank. High chargeback rates (>1%) trigger account reviews and possible termination.
+
+Best practices to share with merchants:
+- Always get a signed receipt for high-ticket sales
+- Use AVS (Address Verification) for card-not-present
+- Have a clear refund/return policy visible at point of sale
+- Respond to all disputes within the deadline (typically 7–10 days)
+- Document delivery confirmation for shipped goods
+- Use clear billing descriptors (what shows on customer's statement)
+
+5. WHAT AGENTS SHOULD DO AFTER GO-LIVE
+----------------------------------------
+- Check in at day 7: "Is everything working? First deposit come through?"
+- Check in at day 30: "How's the new setup treating you?"
+- Ask for a referral at 30-day mark when satisfaction is highest
+- Flag any volume drops to the support team`,
+  },
+  {
+    key: "quick-start",
+    name: "Agent Quick-Start",
+    icon: Rocket,
+    colorClass: "text-rose-600 dark:text-rose-400",
+    accentBg: "bg-rose-500/10",
+    description: "Day-one orientation for new reps: systems access, first calls, compensation structure, residuals, and first-week checklist.",
+    readMins: 8,
+    content: `AGENT QUICK-START GUIDE
+========================
+
+DAY-ONE ORIENTATION FOR NEW REPS
+
+1. SYSTEMS ACCESS
+------------------
+You'll need access to the following tools:
+
+CRM (This System)
+- Log in at your CRM URL
+- Set up your profile and notification preferences
+- Your manager will assign you a territory or lead queue
+
+GoHighLevel (GHL)
+- Used for email sequences, SMS campaigns, call tracking
+- Ask your manager for login credentials
+- Connect your GHL calendar for appointment booking
+
+Google Workspace
+- Company email: firstname@libertybancardteam.com
+- Access to shared Drive folder for templates and collateral
+
+Proposal Tool
+- Built into the CRM under Statement Review
+- Upload a merchant statement to generate a savings proposal in minutes
+
+2. YOUR FIRST 5 CALLS
+----------------------
+Before making any calls, review:
+✓ Prospecting Guide (what to say when calling cold)
+✓ How to Sell Guide (value prop and objection handling)
+✓ Statement Review Guide (so you can intelligently discuss their bill)
+
+Your first calls should focus on:
+- Introducing yourself and the company
+- Asking qualifying questions
+- NOT trying to close — your goal is to get a statement or book a follow-up
+
+"Hi, this is [Name] with Liberty Bancard. We specialize in helping [vertical] businesses reduce their credit card processing costs. I'm not here to pitch you today — I just wanted to introduce myself and see if it's worth a 10-minute conversation about what you're currently paying. Would that be okay?"
+
+3. COMPENSATION STRUCTURE
+--------------------------
+You earn residual income based on the merchants you bring on.
+
+How it works:
+- You earn a % of the gross profit generated by each merchant's processing
+- Residuals are paid monthly, typically on the 15th
+- The more volume your merchants process, the higher your monthly residual
+
+Residual tiers (example structure):
+- Months 1–3: 40% of gross profit
+- Months 4–12: 50% of gross profit
+- Month 13+: 60% of gross profit (loyalty bonus)
+
+You also earn upfront bonuses for hitting merchant activation targets. Ask your manager for the current bonus schedule.
+
+4. HOW RESIDUALS WORK
+----------------------
+Residuals are recurring monthly income from merchants you've signed.
+
+Example:
+- You sign a restaurant processing $50,000/month
+- Liberty earns $300/month gross profit from that merchant
+- You earn 50% = $150/month from that one merchant — forever, as long as they stay
+
+After 12 months with 20 merchants averaging $150/residual each:
+= $3,000/month in passive income, growing each month
+
+Keys to growing residuals:
+✓ Sign merchants with high volume (restaurants, auto, medical)
+✓ Keep merchants happy so they stay (check in monthly)
+✓ Ask for referrals from happy merchants
+✓ Never stop prospecting — your book of business compounds
+
+5. FIRST WEEK CHECKLIST
+------------------------
+Day 1:
+☐ Complete system access setup
+☐ Read all 6 training guides
+☐ Shadow a senior rep on 2+ calls
+
+Day 2:
+☐ Make your first 10 cold calls
+☐ Log all activity in the CRM
+
+Day 3–5:
+☐ Aim for 1 statement request or appointment booked
+☐ Review a sample processing statement with your manager
+☐ Complete your first savings proposal walkthrough
+
+6. RESOURCES & SUPPORT
+-----------------------
+- Direct manager: Contact your assigned team lead
+- Technical support: support@libertybancardteam.com
+- Underwriting questions: Run all questions through your manager first
+- Marketing materials: Available in the CRM Asset Library
+- Competitive intel: Ask your manager for the latest compare sheets
+
+Remember: The reps who succeed are the ones who dial consistently, follow up relentlessly, and genuinely help merchants understand their savings.`,
+  },
+];
+
+// ── Content renderer ──────────────────────────────────────────────────────────
+
+type LineType =
+  | { kind: "h1"; text: string }
+  | { kind: "h2"; text: string }
+  | { kind: "section"; num: string; text: string }
+  | { kind: "subsection"; letter: string; text: string }
+  | { kind: "script"; text: string }
+  | { kind: "objection"; text: string }
+  | { kind: "response"; text: string }
+  | { kind: "bullet"; text: string }
+  | { kind: "check"; text: string; variant: "yes" | "no" | "todo" }
+  | { kind: "day"; label: string; text: string }
+  | { kind: "step"; text: string }
+  | { kind: "example"; text: string }
+  | { kind: "paragraph"; text: string }
+  | { kind: "blank" };
+
+function parseLine(line: string): LineType {
+  const t = line.trim();
+  if (!t) return { kind: "blank" };
+  if (/^[=\-]{3,}$/.test(t)) return { kind: "blank" };
+
+  // Numbered section header
+  const numMatch = t.match(/^(\d+)\.\s+(.+)$/);
+  if (numMatch) return { kind: "section", num: numMatch[1], text: numMatch[2] };
+
+  // Lettered subsection: a) TITLE
+  const letterMatch = t.match(/^([a-e])\)\s+(.+)$/);
+  if (letterMatch) return { kind: "subsection", letter: letterMatch[1], text: letterMatch[2] };
+
+  // All-caps title line (major heading)
+  if (/^[A-Z][A-Z\s\-—&:\/\.]+$/.test(t) && t.length > 4 && !/^[A-Z]{1,3}$/.test(t)) {
+    return { kind: "h2", text: t };
+  }
+
+  // Objection / Response pairs
+  if (t.startsWith("Objection:")) return { kind: "objection", text: t.replace(/^Objection:\s*/, "") };
+  if (t.startsWith("Response:") || t.startsWith("→")) return { kind: "response", text: t.replace(/^(Response:|→)\s*/, "") };
+
+  // Bullet lists
+  if (t.startsWith("- ")) return { kind: "bullet", text: t.slice(2) };
+  if (t.startsWith("✓ ")) return { kind: "check", variant: "yes", text: t.slice(2) };
+  if (t.startsWith("✗ ")) return { kind: "check", variant: "no", text: t.slice(2) };
+  if (t.startsWith("☐ ")) return { kind: "check", variant: "todo", text: t.slice(2) };
+
+  // Day N: ...
+  const dayMatch = t.match(/^(Day \d[\d–\-]*):?\s+(.*)$/);
+  if (dayMatch) return { kind: "day", label: dayMatch[1], text: dayMatch[2] };
+
+  // Step N — ...
+  const stepMatch = t.match(/^(Step \d[^—]*—)\s+(.*)$/);
+  if (stepMatch) return { kind: "step", text: t };
+
+  // Lines starting with a quote character — script
+  if (t.startsWith('"')) return { kind: "script", text: t };
+
+  // Example / formula lines
+  if (/^(Example|Effective Rate|Current:|Liberty:|Savings:|Step \d|After \d+|= \$|A\)|B\)|How it works)/.test(t)) {
+    return { kind: "example", text: t };
+  }
+
+  return { kind: "paragraph", text: t };
 }
+
+function groupLines(content: string): LineType[][] {
+  const rawLines = content.split("\n");
+  const parsed = rawLines.map(parseLine);
+
+  // Group consecutive lines of compatible types into blocks
+  const blocks: LineType[][] = [];
+  let current: LineType[] = [];
+
+  for (const line of parsed) {
+    if (line.kind === "blank") {
+      if (current.length > 0) { blocks.push(current); current = []; }
+    } else {
+      // Start a new block for headings
+      if (["h1", "h2", "section", "subsection"].includes(line.kind) && current.length > 0) {
+        blocks.push(current); current = [];
+      }
+      // Start a new block if transitioning between incompatible types
+      if (current.length > 0) {
+        const prevKind = current[current.length - 1].kind;
+        const newKind = line.kind;
+        const sameGroup = (a: string, b: string) => {
+          if (a === b) return true;
+          const bulletGroup = ["bullet", "check"];
+          if (bulletGroup.includes(a) && bulletGroup.includes(b)) return true;
+          return false;
+        };
+        if (!sameGroup(prevKind, newKind) && !["paragraph", "script", "example", "objection", "response", "day", "step"].includes(newKind)) {
+          blocks.push(current); current = [];
+        }
+      }
+      current.push(line);
+    }
+  }
+  if (current.length > 0) blocks.push(current);
+  return blocks;
+}
+
+function ContentRenderer({ content }: { content: string }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyText = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const blocks = useMemo(() => groupLines(content), [content]);
+
+  // Group consecutive objection+response pairs
+  const elements: React.ReactNode[] = [];
+  let bi = 0;
+
+  while (bi < blocks.length) {
+    const block = blocks[bi];
+    const first = block[0];
+
+    // h1 — skip the document title line (rendered in header)
+    if (first.kind === "h1") { bi++; continue; }
+
+    // h2 — sub-title
+    if (first.kind === "h2") {
+      elements.push(
+        <p key={bi} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-6 mb-1 first:mt-0">
+          {first.text}
+        </p>
+      );
+      bi++; continue;
+    }
+
+    // numbered section header
+    if (first.kind === "section") {
+      elements.push(
+        <div key={bi} className="flex items-baseline gap-2.5 mt-8 mb-3 first:mt-0">
+          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
+            {first.num}
+          </span>
+          <h3 className="text-base font-semibold text-foreground leading-tight">{first.text}</h3>
+        </div>
+      );
+      bi++; continue;
+    }
+
+    // lettered subsection
+    if (first.kind === "subsection") {
+      elements.push(
+        <div key={bi} className="flex items-baseline gap-2 mt-3 mb-1.5 ml-1">
+          <span className="text-xs font-bold text-primary uppercase">{first.letter})</span>
+          <h4 className="text-sm font-semibold text-foreground">{first.text}</h4>
+        </div>
+      );
+      bi++; continue;
+    }
+
+    // objection + response — look ahead to pair them
+    if (first.kind === "objection") {
+      // Collect all lines in this block as objection/response pairs
+      const pairs: { objection: string; response: string }[] = [];
+      let li = 0;
+      while (li < block.length) {
+        const obj = block[li];
+        if (obj.kind === "objection") {
+          const resp = block[li + 1];
+          pairs.push({
+            objection: obj.text,
+            response: resp?.kind === "response" ? resp.text : "",
+          });
+          li += resp?.kind === "response" ? 2 : 1;
+        } else if (obj.kind === "response") {
+          // Standalone response
+          pairs.push({ objection: "", response: obj.text });
+          li++;
+        } else {
+          li++;
+        }
+      }
+      elements.push(
+        <div key={bi} className="space-y-2.5 my-3">
+          {pairs.map((pair, pi) => (
+            <div key={pi} className="rounded-lg overflow-hidden border border-border">
+              {pair.objection && (
+                <div className="flex items-start gap-2.5 px-3.5 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                  <p className="text-sm text-amber-900 dark:text-amber-200 font-medium leading-snug">{pair.objection}</p>
+                </div>
+              )}
+              {pair.response && (
+                <div className="flex items-start gap-2.5 px-3.5 py-2.5 bg-muted/30">
+                  <Lightbulb className="w-3.5 h-3.5 text-green-600 mt-0.5 shrink-0" />
+                  <p className="text-sm text-foreground leading-relaxed">{pair.response}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+      bi++; continue;
+    }
+
+    // script / quote blocks
+    if (first.kind === "script") {
+      const allScripts = block.filter(l => l.kind === "script") as { kind: "script"; text: string }[];
+      const combinedText = allScripts.map(l => l.text).join("\n");
+      const copyId = `script-${bi}`;
+      elements.push(
+        <div key={bi} className="relative group my-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 px-4 py-3.5">
+          <Quote className="absolute top-3 left-3 w-3 h-3 text-blue-400 dark:text-blue-600" />
+          <button
+            onClick={() => copyText(combinedText.replace(/^"|"$/g, "").replace(/\n/g, " "), copyId)}
+            className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/40"
+            title="Copy script"
+          >
+            {copiedId === copyId ? (
+              <Check className="w-3.5 h-3.5 text-green-600" />
+            ) : (
+              <Copy className="w-3.5 h-3.5 text-blue-500" />
+            )}
+          </button>
+          <div className="pl-4 space-y-1">
+            {allScripts.map((l, si) => (
+              <p key={si} className="text-sm italic text-blue-900 dark:text-blue-200 leading-relaxed">{l.text}</p>
+            ))}
+          </div>
+        </div>
+      );
+      // Also render non-script lines in the same block
+      const nonScripts = block.filter(l => l.kind !== "script");
+      if (nonScripts.length > 0) {
+        elements.push(
+          <div key={`${bi}-rest`} className="space-y-1">
+            {nonScripts.map((l, li) => (
+              l.kind === "paragraph" ? (
+                <p key={li} className="text-sm text-muted-foreground leading-relaxed">{(l as any).text}</p>
+              ) : null
+            ))}
+          </div>
+        );
+      }
+      bi++; continue;
+    }
+
+    // bullet / check lists
+    if (block.every(l => l.kind === "bullet" || l.kind === "check")) {
+      elements.push(
+        <ul key={bi} className="space-y-1.5 my-2 ml-1">
+          {block.map((l, li) => {
+            if (l.kind === "bullet") {
+              return (
+                <li key={li} className="flex items-start gap-2.5 text-sm text-foreground">
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+                  <span className="leading-relaxed">{l.text}</span>
+                </li>
+              );
+            }
+            if (l.kind === "check") {
+              const icon =
+                l.variant === "yes" ? <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" /> :
+                l.variant === "no" ? <span className="text-red-500 text-xs font-bold shrink-0 mt-0.5">✗</span> :
+                <span className="w-3.5 h-3.5 rounded border border-border bg-background shrink-0 mt-0.5 inline-block" />;
+              return (
+                <li key={li} className="flex items-start gap-2 text-sm text-foreground">
+                  {icon}
+                  <span className="leading-relaxed">{l.text}</span>
+                </li>
+              );
+            }
+            return null;
+          })}
+        </ul>
+      );
+      bi++; continue;
+    }
+
+    // day items (Day 0: ..., Day 1: ...)
+    if (block.some(l => l.kind === "day")) {
+      elements.push(
+        <div key={bi} className="space-y-2 my-3">
+          {block.map((l, li) => {
+            if (l.kind === "day") {
+              return (
+                <div key={li} className="flex items-start gap-3">
+                  <span className="shrink-0 text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded mt-0.5">{(l as any).label}</span>
+                  <span className="text-sm text-foreground leading-relaxed">{(l as any).text}</span>
+                </div>
+              );
+            }
+            if (l.kind === "paragraph") {
+              return <p key={li} className="text-sm text-muted-foreground leading-relaxed">{(l as any).text}</p>;
+            }
+            return null;
+          })}
+        </div>
+      );
+      bi++; continue;
+    }
+
+    // example / formula blocks
+    if (block.some(l => l.kind === "example")) {
+      elements.push(
+        <div key={bi} className="my-3 rounded-md bg-muted/50 border border-border px-3.5 py-2.5 space-y-1">
+          {block.map((l, li) => (
+            <p key={li} className="text-sm font-mono text-foreground leading-relaxed">{(l as any).text}</p>
+          ))}
+        </div>
+      );
+      bi++; continue;
+    }
+
+    // step items
+    if (block.some(l => l.kind === "step")) {
+      elements.push(
+        <div key={bi} className="space-y-1.5 my-2">
+          {block.map((l, li) => {
+            if (l.kind === "step" || l.kind === "paragraph") {
+              return (
+                <p key={li} className="text-sm text-foreground leading-relaxed">{(l as any).text}</p>
+              );
+            }
+            return null;
+          })}
+        </div>
+      );
+      bi++; continue;
+    }
+
+    // Default: paragraph block
+    elements.push(
+      <div key={bi} className="space-y-1 my-2">
+        {block.map((l, li) => (
+          <p key={li} className="text-sm text-foreground leading-relaxed">
+            {(l as any).text || ""}
+          </p>
+        ))}
+      </div>
+    );
+    bi++;
+  }
+
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
+// ── In-app training doc viewer ────────────────────────────────────────────────
+
+function TrainingDocViewer() {
+  const [activeKey, setActiveKey] = useState(TRAINING_MODULES[0].key);
+  const [readModules, setReadModules] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("training_read_modules");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const activeModule = TRAINING_MODULES.find(m => m.key === activeKey) || TRAINING_MODULES[0];
+
+  const markRead = (key: string) => {
+    setReadModules(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      try { localStorage.setItem("training_read_modules", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
+
+  // Mark as read when scrolled to bottom
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+        markRead(activeKey);
+      }
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [activeKey]);
+
+  // Scroll to top when module changes
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [activeKey]);
+
+  const completedCount = TRAINING_MODULES.filter(m => readModules.has(m.key)).length;
+
+  return (
+    <div className="flex gap-0 rounded-xl border border-border overflow-hidden" style={{ minHeight: "640px" }}>
+      {/* Sidebar */}
+      <div className="w-64 shrink-0 border-r border-border bg-muted/30 flex flex-col">
+        {/* Progress header */}
+        <div className="px-4 py-3.5 border-b border-border">
+          <p className="text-xs font-semibold text-foreground">Training Progress</p>
+          <div className="mt-2 h-1.5 rounded-full bg-border overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500"
+              style={{ width: `${(completedCount / TRAINING_MODULES.length) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-1.5">{completedCount} of {TRAINING_MODULES.length} completed</p>
+        </div>
+
+        {/* Module list */}
+        <nav className="flex-1 overflow-y-auto py-2">
+          {TRAINING_MODULES.map((mod) => {
+            const isActive = mod.key === activeKey;
+            const isRead = readModules.has(mod.key);
+            const Icon = mod.icon;
+            return (
+              <button
+                key={mod.key}
+                onClick={() => setActiveKey(mod.key)}
+                className={`w-full text-left px-3 py-2.5 flex items-start gap-3 transition-colors hover:bg-background/60 ${
+                  isActive ? "bg-background shadow-sm border-r-2 border-primary" : ""
+                }`}
+                data-testid={`nav-module-${mod.key}`}
+              >
+                <div className={`mt-0.5 p-1.5 rounded-md ${mod.accentBg} shrink-0`}>
+                  <Icon className={`w-3.5 h-3.5 ${mod.colorClass}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium leading-snug ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                    {mod.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{mod.readMins} min read</p>
+                </div>
+                {isRead && (
+                  <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-1" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Content panel */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Module header */}
+        <div className={`px-6 py-4 border-b border-border ${activeModule.accentBg} bg-opacity-30`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${activeModule.accentBg}`}>
+                <activeModule.icon className={`w-5 h-5 ${activeModule.colorClass}`} />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{activeModule.name}</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{activeModule.description}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {readModules.has(activeModule.key) ? (
+                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0">
+                  <Check className="w-3 h-3 mr-1" />
+                  Completed
+                </Badge>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => markRead(activeModule.key)}
+                >
+                  <BookMarked className="w-3 h-3 mr-1" />
+                  Mark complete
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div ref={contentRef} className="flex-1 overflow-y-auto px-6 py-5">
+          <ContentRenderer content={activeModule.content} />
+
+          {/* Next module prompt */}
+          {(() => {
+            const idx = TRAINING_MODULES.findIndex(m => m.key === activeKey);
+            const next = TRAINING_MODULES[idx + 1];
+            if (!next) return null;
+            return (
+              <div className="mt-10 pt-5 border-t border-border">
+                <p className="text-xs text-muted-foreground mb-2">Next module</p>
+                <button
+                  onClick={() => setActiveKey(next.key)}
+                  className="flex items-center gap-3 w-full text-left p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/30 transition-colors"
+                >
+                  <div className={`p-1.5 rounded-md ${next.accentBg}`}>
+                    <next.icon className={`w-4 h-4 ${next.colorClass}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{next.name}</p>
+                    <p className="text-xs text-muted-foreground">{next.readMins} min read</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ScoreBar ──────────────────────────────────────────────────────────────────
+
+function ScoreBar({ label, score, max = 10 }: { label: string; score: number; max?: number }) {
+  const pct = Math.round((score / max) * 100);
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{score}/{max}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${pct >= 80 ? "bg-green-600" : pct >= 60 ? "bg-amber-500" : "bg-destructive"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── RoleplayPractice ──────────────────────────────────────────────────────────
 
 interface RoleplaySession {
   id: number;
@@ -99,39 +1119,6 @@ interface CoachingSummary {
   objectionRate: number;
 }
 
-const CATEGORY_META: Record<string, { icon: React.ElementType; description: string; color: string }> = {
-  Prospecting: {
-    icon: Target,
-    description: "Find and qualify merchants by vertical, lead sources, cold call openers, LinkedIn, and door-to-door tactics.",
-    color: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  },
-  "How to Sell": {
-    icon: TrendingUp,
-    description: "Value proposition scripts, objection handling, pain point identification, dual pricing pitch, and high-risk pitch.",
-    color: "bg-green-500/10 text-green-600 dark:text-green-400",
-  },
-  "Statement Review": {
-    icon: FileText,
-    description: "Step-by-step guide to reading a merchant processing statement, identifying effective rate, and finding savings.",
-    color: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-  },
-  Closing: {
-    icon: CheckCircle,
-    description: "Closing scripts, urgency triggers, trial closes, what to do when they stall, and follow-up cadence after demo.",
-    color: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-  },
-  "Onboarding & Compliance": {
-    icon: Users,
-    description: "What happens after signing, merchant expectations, PCI basics, and chargeback prevention.",
-    color: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-  },
-  "Agent Quick-Start Guide": {
-    icon: Rocket,
-    description: "Day-one orientation for new reps: systems access, first calls, compensation structure, and how residuals work.",
-    color: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  },
-};
-
 const SCENARIOS = [
   "Cold Call",
   "Objection Handling",
@@ -148,6 +1135,15 @@ const DIFFICULTIES: { value: Difficulty; label: string; description: string }[] 
   { value: "expert", label: "Expert", description: "Sophisticated, near-impossible to convert" },
 ];
 
+const PERSONAS = [
+  "Auto Shop Owner",
+  "Dentist",
+  "Restaurant Owner",
+  "Retail Store Owner",
+  "Home Services Contractor",
+  "Medspa Owner",
+];
+
 const normalizeDifficulty = (d: string | null | undefined): Difficulty =>
   d === "hard" || d === "expert" ? d : "standard";
 
@@ -161,33 +1157,6 @@ const difficultyBadgeClass = (d: string | null | undefined) => {
     default: return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
   }
 };
-
-const PERSONAS = [
-  "Auto Shop Owner",
-  "Dentist",
-  "Restaurant Owner",
-  "Retail Store Owner",
-  "Home Services Contractor",
-  "Medspa Owner",
-];
-
-function ScoreBar({ label, score, max = 10 }: { label: string; score: number; max?: number }) {
-  const pct = Math.round((score / max) * 100);
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{score}/{max}</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${pct >= 80 ? "bg-green-600" : pct >= 60 ? "bg-amber-500" : "bg-destructive"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function RoleplayPractice() {
   const { toast } = useToast();
@@ -401,7 +1370,7 @@ function RoleplayPractice() {
                     <CardTitle className="text-sm">{historyExchanges.length} Exchanges</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {historyExchanges.map((ex, i) => (
+                    {historyExchanges.map((ex) => (
                       <div key={ex.id} className="border rounded-md p-3 space-y-2 text-sm">
                         <div className="flex items-start gap-2">
                           <User className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
@@ -756,6 +1725,8 @@ function RoleplayPractice() {
   );
 }
 
+// ── CoachingDashboard ─────────────────────────────────────────────────────────
+
 interface AdminSession extends RoleplaySession {
   userId: string | null;
   userEmail: string | null;
@@ -817,7 +1788,6 @@ function CoachingDashboard() {
       }
       map.set(s.userId, existing);
     }
-    // Compute averages from completed sessions
     for (const rep of Array.from(map.values())) {
       const tones = rep.sessions.map(s => s.avgTone).filter((v): v is number => v !== null);
       const clarities = rep.sessions.map(s => s.avgClarity).filter((v): v is number => v !== null);
@@ -867,7 +1837,6 @@ function CoachingDashboard() {
     );
   }
 
-  // Drill into a specific session
   if (selectedRep && selectedSession) {
     return (
       <div className="space-y-4" data-testid="coaching-session-detail">
@@ -966,7 +1935,6 @@ function CoachingDashboard() {
     );
   }
 
-  // Rep detail view
   if (selectedRep) {
     return (
       <div className="space-y-4" data-testid="coaching-rep-detail">
@@ -1039,7 +2007,6 @@ function CoachingDashboard() {
     );
   }
 
-  // Rep list view
   return (
     <div className="space-y-3" data-testid="coaching-rep-list">
       <div className="flex items-center justify-between">
@@ -1095,11 +2062,11 @@ function CoachingDashboard() {
   );
 }
 
+// ── Main Training page ────────────────────────────────────────────────────────
+
 export default function Training() {
-  const { toast } = useToast();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const [isSettingUp, setIsSettingUp] = useState(false);
 
   const role = (user?.role as string) || "merchant";
   const isInternalUser = role === "admin" || role === "manager" || role === "agent";
@@ -1111,76 +2078,25 @@ export default function Training() {
     }
   }, [user, isInternalUser, setLocation]);
 
-  const { data: status, isLoading } = useQuery<TrainingHubStatus>({
-    queryKey: ["/api/training/status"],
-    enabled: isInternalUser,
-  });
-
-  const setupMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/training/setup"),
-    onMutate: () => setIsSettingUp(true),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/training/status"] });
-      toast({
-        title: "Training Hub Created",
-        description: "All 6 training documents have been created in Google Drive.",
-      });
-      setIsSettingUp(false);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Setup Failed",
-        description: error.message || "Failed to create training hub. Please try again.",
-        variant: "destructive",
-      });
-      setIsSettingUp(false);
-    },
-  });
-
-  const handleSetup = () => setupMutation.mutate();
-  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: ["/api/training/status"] });
+  if (!isInternalUser) return null;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-training-title">
-            <BookOpen className="w-7 h-7 text-primary" />
-            Sales Training Hub
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Structured training docs and AI-powered roleplay practice for every stage of the sales process.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            data-testid="button-refresh-training"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-          {status?.exists && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(`https://drive.google.com/drive/folders/${status.folderId}`, "_blank")}
-              data-testid="button-open-drive-folder"
-            >
-              <FolderOpen className="w-4 h-4 mr-2" />
-              Open in Drive
-            </Button>
-          )}
-        </div>
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-training-title">
+          <BookOpen className="w-7 h-7 text-primary" />
+          Sales Training Hub
+        </h1>
+        <p className="text-muted-foreground mt-1">
+          Structured training guides and AI-powered roleplay practice for every stage of the sales process.
+        </p>
       </div>
 
       <Tabs defaultValue="docs" className="w-full">
-        <TabsList className="mb-6" data-testid="tabs-training">
+        <TabsList className="mb-6 flex-wrap h-auto gap-1" data-testid="tabs-training">
           <TabsTrigger value="docs" data-testid="tab-docs">
             <BookOpen className="w-4 h-4 mr-2" />
-            Training Docs
+            Training Guides
           </TabsTrigger>
           <TabsTrigger value="practice" data-testid="tab-practice">
             <Brain className="w-4 h-4 mr-2" />
@@ -1195,156 +2111,7 @@ export default function Training() {
         </TabsList>
 
         <TabsContent value="docs">
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Card key={i} className="animate-pulse">
-                  <CardHeader>
-                    <Skeleton className="h-5 w-2/3" />
-                    <Skeleton className="h-4 w-full mt-2" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-9 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : !status?.exists ? (
-            <Card className="border-dashed" data-testid="card-training-setup">
-              <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                  {canManageHub ? (
-                    <BookOpen className="w-8 h-8 text-primary" />
-                  ) : (
-                    <Lock className="w-8 h-8 text-muted-foreground" />
-                  )}
-                </div>
-                <h2 className="text-xl font-semibold mb-2">Training Hub Not Set Up</h2>
-                {canManageHub ? (
-                  <>
-                    <p className="text-muted-foreground max-w-md mb-6">
-                      Click the button below to automatically create the "Sales Training Hub" folder structure in Google Drive,
-                      with all 6 training documents pre-populated with content.
-                    </p>
-                    <div className="flex flex-col items-center gap-3">
-                      <Button
-                        size="lg"
-                        onClick={handleSetup}
-                        disabled={isSettingUp || setupMutation.isPending}
-                        data-testid="button-setup-training-hub"
-                      >
-                        {(isSettingUp || setupMutation.isPending) ? (
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        ) : (
-                          <Plus className="w-5 h-5 mr-2" />
-                        )}
-                        {(isSettingUp || setupMutation.isPending) ? "Creating Training Hub..." : "Create Training Hub"}
-                      </Button>
-                      <p className="text-xs text-muted-foreground">
-                        This will create folders and documents in your connected Google Drive account.
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-muted-foreground max-w-md">
-                    The training hub hasn't been set up yet. Please contact your manager or admin to initialize it.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 mb-4">
-                <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400" data-testid="badge-hub-status">
-                  <CheckCircle className="w-3.5 h-3.5 mr-1" />
-                  Training Hub Active
-                </Badge>
-                <span className="text-sm text-muted-foreground">
-                  {status.folders?.length || 0} training modules available
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {status.folders?.map((folder) => {
-                  const meta = CATEGORY_META[folder.name] || {
-                    icon: BookOpen,
-                    description: "Training content for this category.",
-                    color: "bg-gray-500/10 text-gray-600 dark:text-gray-400",
-                  };
-                  const Icon = meta.icon;
-
-                  return (
-                    <Card
-                      key={folder.id}
-                      className="hover:shadow-md transition-shadow"
-                      data-testid={`card-training-${folder.name.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
-                    >
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start gap-3">
-                          <div className={`p-2 rounded-lg ${meta.color}`}>
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <CardTitle className="text-base leading-snug" data-testid={`text-training-category-${folder.name}`}>
-                              {folder.name}
-                            </CardTitle>
-                          </div>
-                        </div>
-                        <CardDescription className="text-sm mt-2 leading-relaxed">
-                          {meta.description}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        {folder.docUrl ? (
-                          <Button
-                            className="w-full"
-                            variant="outline"
-                            onClick={() => window.open(folder.docUrl, "_blank")}
-                            data-testid={`button-open-doc-${folder.name.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
-                          >
-                            <ExternalLink className="w-4 h-4 mr-2" />
-                            Open Training Doc
-                          </Button>
-                        ) : (
-                          <Button className="w-full" variant="outline" disabled>
-                            <FileText className="w-4 h-4 mr-2" />
-                            No document found
-                          </Button>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-
-              {canManageHub && (
-                <Card className="mt-6 border-dashed" data-testid="card-rebuild-hub">
-                  <CardContent className="flex items-center justify-between py-4">
-                    <div>
-                      <p className="font-medium text-sm">Rebuild Training Hub</p>
-                      <p className="text-xs text-muted-foreground">
-                        Re-run setup to add any missing folders or documents. Existing content will not be overwritten.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSetup}
-                      disabled={isSettingUp || setupMutation.isPending}
-                      data-testid="button-rebuild-training-hub"
-                    >
-                      {(isSettingUp || setupMutation.isPending) ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                      )}
-                      {(isSettingUp || setupMutation.isPending) ? "Rebuilding..." : "Rebuild"}
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </>
-          )}
+          <TrainingDocViewer />
         </TabsContent>
 
         <TabsContent value="practice">
