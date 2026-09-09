@@ -83,6 +83,7 @@ interface CensusRun {
   failed_at: string | null;
   failure_reason: string | null;
   created_at: string;
+  updated_at: string;
   lane_counts: Record<string, number> | null;
   dimension_counts: Record<string, Record<string, number>> | null;
   is_active: boolean;
@@ -349,6 +350,17 @@ function RunDetail({ runId }: { runId: string }) {
     },
   });
 
+  const forceCancelMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/admin/census/runs/${runId}/force-cancel`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/census/runs"] });
+      qc.invalidateQueries({ queryKey: [`/api/admin/census/runs/${runId}`] });
+      toast({ title: "Run force-cancelled" });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Force cancel failed", description: e.message, variant: "destructive" }),
+  });
+
   if (isLoading || !run) return <p className="text-sm text-muted-foreground py-4">Loading run details…</p>;
 
   const recon = reconciliation as any;
@@ -392,6 +404,38 @@ function RunDetail({ runId }: { runId: string }) {
               <XCircle className="h-3 w-3 mr-1" /> Cancel
             </Button>
           )}
+          {run.status === "running" && (() => {
+            const updatedAt = new Date(run.updated_at ?? run.created_at);
+            const isStuck = (Date.now() - updatedAt.getTime()) > 5 * 60 * 1000;
+            return isStuck ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="destructive" disabled={forceCancelMutation.isPending}>
+                    <XCircle className="h-3 w-3 mr-1" /> Force Cancel
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Force-cancel this run?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will immediately cancel the run without waiting for the worker lease to expire.
+                      Use this only when the worker has gone silent (no progress for &gt;5 minutes).
+                      The action is logged to audit_logs.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep waiting</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => forceCancelMutation.mutate()}
+                    >
+                      Force cancel
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null;
+          })()}
           {run.status === "completed" && (
             <Button size="sm" variant="outline" asChild>
               <a href={`/api/admin/census/runs/${runId}/export`} download>
@@ -565,6 +609,7 @@ interface ReconciliationRun {
   total_org_candidates: number | null;
   total_clusters: number | null;
   created_at: string;
+  updated_at: string;
   completed_at: string | null;
   lane_counts: Record<string, number> | null;
   quality_flagged_contacts: number | null;
@@ -1229,10 +1274,25 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
       toast({ title: "Cancel failed", description: e.message, variant: "destructive" }),
   });
 
+  const forceReconCancelMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/force-cancel`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/reconciliation/runs"] });
+      qc.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}`] });
+      toast({ title: "Reconciliation run force-cancelled" });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Force cancel failed", description: e.message, variant: "destructive" }),
+  });
+
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   const isQuality = data.rules_version === "quality-v1";
   const canCancel = ["running", "paused", "pending", "interrupted"].includes(data.status);
+  const isReconStuck =
+    data.status === "running" &&
+    (Date.now() - new Date(data.updated_at ?? data.created_at).getTime()) > 5 * 60 * 1000;
 
   return (
     <Card>
@@ -1245,6 +1305,7 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
               <Badge className="bg-purple-100 text-purple-800 text-xs">quality-v1</Badge>
             )}
           </div>
+          <div className="flex gap-2 flex-wrap">
           {canCancel && (
             <Button
               size="sm"
@@ -1255,6 +1316,35 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
               <XCircle className="h-3 w-3 mr-1" /> Cancel run
             </Button>
           )}
+          {isReconStuck && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="destructive" disabled={forceReconCancelMutation.isPending}>
+                  <XCircle className="h-3 w-3 mr-1" /> Force Cancel
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Force-cancel this run?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will immediately cancel the run without waiting for the worker lease to expire.
+                    Use this only when the worker has gone silent (no progress for &gt;5 minutes).
+                    The action is logged to audit_logs.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep waiting</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => forceReconCancelMutation.mutate()}
+                  >
+                    Force cancel
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          </div>
         </div>
         {data.status === "interrupted" && (
           <p className="text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded mt-1">

@@ -232,6 +232,52 @@ export function registerCensusRoutes(app: Express): void {
     }
   });
 
+  // ── POST /api/admin/census/runs/:runId/force-cancel ───────────────────────
+  // Bypasses the lease check entirely — for runs stuck in 'running' with no
+  // active worker (e.g. after a server restart where startup cleanup missed
+  // the run because the lease hadn't expired yet).
+  // Requires status='running' AND updated_at older than 5 minutes.
+  app.post("/api/admin/census/runs/:runId/force-cancel", requireRole("admin"), async (req, res) => {
+    const runId = validateRunId(req.params.runId, res);
+    if (!runId) return;
+    try {
+      const r = await pool.query(
+        `UPDATE contact_census_runs
+         SET status = 'cancelled', updated_at = now()
+         WHERE id = $1
+           AND status = 'running'
+           AND updated_at < now() - interval '5 minutes'
+         RETURNING id`,
+        [runId],
+      );
+      if (r.rows.length === 0) {
+        const check = await pool.query(
+          `SELECT status, updated_at FROM contact_census_runs WHERE id = $1`,
+          [runId],
+        );
+        if (check.rows.length === 0) return res.status(404).json({ error: "Run not found" });
+        const row = check.rows[0];
+        if (row.status !== "running") {
+          return res.status(409).json({ error: `Run is not in 'running' status (current: '${row.status}')` });
+        }
+        return res.status(409).json({
+          error: "Run was updated within the last 5 minutes — the worker may still be active. Wait for it to go silent before force-cancelling.",
+        });
+      }
+
+      const adminEmail = (req.user as any)?.email ?? "admin";
+      await pool.query(
+        `INSERT INTO audit_logs (action, entity_type, entity_id, performed_by, metadata, created_at)
+         VALUES ('force_cancel_census_run', 'census_run', $1, $2, $3, now())`,
+        [runId, adminEmail, JSON.stringify({ runId })],
+      );
+
+      res.json({ runId, status: "cancelled" });
+    } catch (err) {
+      serverError(res, err, "census force-cancel run");
+    }
+  });
+
   // ── GET /api/admin/census/runs/:runId/lanes ────────────────────────────────
   app.get("/api/admin/census/runs/:runId/lanes", requireRole("admin"), async (req, res) => {
     const runId = validateRunId(req.params.runId, res);
