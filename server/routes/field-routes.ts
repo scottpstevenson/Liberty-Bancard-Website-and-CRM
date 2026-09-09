@@ -20,7 +20,7 @@ import { eq, and, isNull, desc, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { auditChange } from "../services/audit-change";
 import { serverError } from "../utils/server-error";
-import { requireFieldSales, requireFieldSalesEligible, getPilotRepIds } from "./field-territories";
+import { requireFieldSales, requireFieldSalesEligible, getPilotRepIds, getPilotRepIdsAsync } from "./field-territories";
 import { checkFieldEligibility, computeStopFingerprint } from "../services/field-eligibility";
 import { onStatementRequested } from "../services/statement-acquisition";
 import { storage } from "../storage";
@@ -65,13 +65,13 @@ export function registerFieldRoutesRoutes(app: Express) {
   app.get("/api/field-sales/status", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const enabled = featureFlags.FIELD_SALES_ENABLED;
-      const pilotReps = getPilotRepIds();
+      const pilotReps = await getPilotRepIdsAsync();
       const userId = String((req as any).user?.id ?? "");
       const role = String((req as any).user?.role ?? "");
       const inPilot =
         pilotReps.length === 0 || role === "admin" || role === "manager" || pilotReps.includes(userId);
       const eligible = enabled && inPilot;
-      res.json({ enabled, eligible });
+      res.json({ enabled, eligible, inPilot, pilotRepsCount: pilotReps.length });
     } catch (err: any) {
       serverError(res, err);
     }

@@ -19,7 +19,66 @@ import { serverError, safeMessage } from "../utils/server-error";
 import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
 
+import { getPilotRepIdsAsync, invalidatePilotCache } from "./field-territories";
+
 export function registerAdminRoutes(app: Express) {
+
+  // ── Field Sales Pilot management ──────────────────────────────────────────
+  // GET  /api/admin/field-sales-pilot  — list all reps with pilot status
+  app.get("/api/admin/field-sales-pilot", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const [pilotIds, repUsers] = await Promise.all([
+        getPilotRepIdsAsync(),
+        storage.getUsersByRole(["admin", "manager", "agent"]),
+      ]);
+      const pilotSet = new Set(pilotIds);
+      const reps = repUsers.map((u) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        inPilot: pilotSet.has(u.id),
+      }));
+      res.json({ reps, pilotIds });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // PUT /api/admin/field-sales-pilot/:userId  — toggle a rep's pilot membership
+  app.put("/api/admin/field-sales-pilot/:userId", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const targetUserId = String(req.params.userId);
+      const { enabled } = req.body as { enabled: boolean };
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled must be a boolean" });
+      }
+
+      const current = await getPilotRepIdsAsync();
+      const currentSet = new Set(current);
+      if (enabled) {
+        currentSet.add(targetUserId);
+      } else {
+        currentSet.delete(targetUserId);
+      }
+      const next = Array.from(currentSet);
+      await storage.setSystemSetting("field_pilot_reps", next);
+      invalidatePilotCache();
+
+      await storage.createAuditLog({
+        action: enabled ? "field_pilot_rep_added" : "field_pilot_rep_removed",
+        entityType: "user",
+        entityId: 0,
+        actorType: "admin",
+        details: { targetUserId, enabled, actorId: (req.user as any)?.id ?? null },
+      }).catch(() => {});
+
+      res.json({ ok: true, pilotIds: next });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
   // === ADMIN: SESSION MANAGEMENT ===
   app.get("/api/admin/users/:id/sessions", requireRole('admin'), async (req, res) => {
     try {

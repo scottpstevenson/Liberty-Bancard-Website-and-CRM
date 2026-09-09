@@ -14,6 +14,7 @@ import { z } from "zod";
 import { auditChange } from "../services/audit-change";
 import { serverError } from "../utils/server-error";
 import { featureFlags } from "../services/feature-flags";
+import { storage } from "../storage";
 
 /** Middleware: returns 404 when FIELD_SALES_ENABLED is false */
 export function requireFieldSales(req: Request, res: Response, next: NextFunction): void {
@@ -24,13 +25,48 @@ export function requireFieldSales(req: Request, res: Response, next: NextFunctio
   next();
 }
 
-/** Parse pilot rep IDs from FIELD_PILOT_REPS env var (comma-separated) */
+// ── Pilot rep list — DB-backed with in-process cache ─────────────────────────
+
+const PILOT_CACHE_TTL_MS = 60_000; // 1 minute
+let _pilotCache: { ids: string[]; expiresAt: number } | null = null;
+
+/** Reads pilot rep IDs from DB (system_settings key "field_pilot_reps").
+ *  Env var FIELD_PILOT_REPS always wins when non-empty (escape hatch). */
+export async function getPilotRepIdsAsync(): Promise<string[]> {
+  const envRaw = process.env.FIELD_PILOT_REPS ?? "";
+  if (envRaw.trim().length > 0) {
+    return envRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  const now = Date.now();
+  if (_pilotCache && now < _pilotCache.expiresAt) return _pilotCache.ids;
+
+  try {
+    const raw = await storage.getSystemSetting("field_pilot_reps");
+    const ids: string[] = Array.isArray(raw)
+      ? (raw as unknown[]).map(String).filter(Boolean)
+      : [];
+    _pilotCache = { ids, expiresAt: now + PILOT_CACHE_TTL_MS };
+    return ids;
+  } catch {
+    return _pilotCache?.ids ?? [];
+  }
+}
+
+/** Synchronous read from the in-process cache (populated by getPilotRepIdsAsync).
+ *  Falls back to env var. Safe to call from sync middleware. */
 export function getPilotRepIds(): string[] {
-  const raw = process.env.FIELD_PILOT_REPS ?? "";
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const envRaw = process.env.FIELD_PILOT_REPS ?? "";
+  if (envRaw.trim().length > 0) {
+    return envRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (_pilotCache && Date.now() < _pilotCache.expiresAt) return _pilotCache.ids;
+  return [];
+}
+
+/** Invalidate the pilot cache (call after any write). */
+export function invalidatePilotCache(): void {
+  _pilotCache = null;
 }
 
 /**

@@ -44,7 +44,9 @@ import {
   Play,
   X as XIcon,
   Upload,
+  MapPin,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type StatusDot = "idle" | "loading" | "ok" | "warn" | "error";
 
@@ -1103,7 +1105,101 @@ function Phase6GoLive({ flagStates, setFlagStates }: {
           <p className="text-xs text-muted-foreground">Loading feature flags…</p>
         )}
       </div>
+
+      <Separator className="my-4" />
+
+      {/* 6C: Field Sales Pilot */}
+      <FieldSalesPilotPanel isAdmin={isAdmin} />
     </PhaseCard>
+  );
+}
+
+// ─── Field Sales Pilot Panel ──────────────────────────────────────────────────
+function FieldSalesPilotPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery<{
+    reps: { id: string; email: string | null; firstName: string | null; lastName: string | null; role: string | null; inPilot: boolean }[];
+    pilotIds: string[];
+  }>({
+    queryKey: ["/api/admin/field-sales-pilot"],
+    staleTime: 30_000,
+  });
+
+  const toggle = async (userId: string, currentlyIn: boolean) => {
+    setTogglingId(userId);
+    try {
+      const csrfToken = getCsrfToken();
+      const res = await fetch(`/api/admin/field-sales-pilot/${userId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
+        body: JSON.stringify({ enabled: !currentlyIn }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message ?? "Toggle failed");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/field-sales-pilot"] });
+      toast({ title: `Rep ${currentlyIn ? "removed from" : "added to"} Field Sales pilot` });
+    } catch (err: any) {
+      toast({ title: "Toggle failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const reps = data?.reps ?? [];
+  const pilotCount = reps.filter((r) => r.inPilot).length;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-muted-foreground" />
+          <span className="font-semibold text-sm">6C — Field Sales Pilot Reps</span>
+          {pilotCount > 0 && (
+            <Badge className="bg-blue-100 text-blue-800 border-blue-300 text-xs">{pilotCount} in pilot</Badge>
+          )}
+        </div>
+        {!isAdmin && (
+          <span className="text-xs text-muted-foreground">admin required to toggle</span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Toggle per-rep access to Field Day without a redeploy. Reps in the pilot list can use the
+        Field Sales module when <code className="font-mono">FIELD_SALES_ENABLED</code> is on.
+        Admins and managers always have access regardless of this list.
+      </p>
+      {isLoading && <p className="text-xs text-muted-foreground">Loading reps…</p>}
+      {!isLoading && reps.length === 0 && (
+        <p className="text-xs text-muted-foreground">No rep accounts found.</p>
+      )}
+      {reps.map((rep) => {
+        const name = [rep.firstName, rep.lastName].filter(Boolean).join(" ") || rep.email || rep.id;
+        const isBusy = togglingId === rep.id;
+        return (
+          <div key={rep.id} className="flex items-center gap-3 py-2 border-b last:border-0">
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-medium truncate block">{name}</span>
+              <span className="text-xs text-muted-foreground">{rep.email ?? rep.id} · {rep.role}</span>
+            </div>
+            {rep.inPilot && (
+              <Badge className="bg-green-100 text-green-800 border-green-300 text-xs shrink-0">Pilot</Badge>
+            )}
+            <Switch
+              checked={rep.inPilot}
+              disabled={!isAdmin || isBusy}
+              onCheckedChange={() => toggle(rep.id, rep.inPilot)}
+              aria-label={`Toggle Field Sales pilot for ${name}`}
+            />
+            {isBusy && <Loader2 className="w-3 h-3 animate-spin shrink-0" />}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
