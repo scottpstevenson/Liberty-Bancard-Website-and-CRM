@@ -77,6 +77,8 @@ const CASES: GuardCase[] = [
   { method: "GET", path: "/api/admin/users",                 anon: [401], merchant: [403], admin: [200],      description: "admin users" },
   { method: "GET", path: "/api/admin/mfa-settings",          anon: [401], merchant: [403], admin: [200],      description: "admin mfa settings" },
   { method: "GET", path: "/api/agents",                      anon: [401], merchant: [403], admin: [200],      description: "admin/manager agents" },
+  { method: "GET", path: "/api/agents/readiness",            anon: [401], merchant: [403], admin: [200],      description: "rep readiness panel (requireRole admin/manager)" },
+  { method: "GET", path: "/api/agents/rep-metrics",          anon: [401], merchant: [403], admin: [200],      description: "rep call/appointment metrics (requireRole admin/manager)" },
   { method: "GET", path: "/api/audit-logs",                  anon: [401], merchant: [403], admin: [200, 500], description: "audit logs" },
   { method: "GET", path: "/api/admin/round-robin",           anon: [401], merchant: [403], admin: [200],      description: "round-robin pool" },
   { method: "GET", path: "/api/admin/round-robin/log",       anon: [401], merchant: [403], admin: [200],      description: "round-robin log" },

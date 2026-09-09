@@ -17,7 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   UserPlus, Users, Award, DollarSign, Search, MoreHorizontal, Target, Download,
-  Calculator, BookOpen, Trash2, Plus, Eye, Info, AlertTriangle, Link2, BarChart3
+  Calculator, BookOpen, Trash2, Plus, Eye, Info, AlertTriangle, Link2, BarChart3,
+  Phone, Calendar, CheckSquare
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useForm } from "react-hook-form";
@@ -134,6 +135,23 @@ interface AgentReadinessRow {
   lastActivityAt: string | null;
 }
 
+interface AgentRepMetricRow {
+  agentId: number;
+  name: string;
+  email: string;
+  status: string | null;
+  callsByOutcome: Record<string, number> | null;
+  appointmentsByStatus: Record<string, number> | null;
+  taskStats: { completed: number; pending: number; overdue: number } | null;
+}
+
+interface RepMetricsResponse {
+  range: string;
+  from: string;
+  to: string;
+  agents: AgentRepMetricRow[];
+}
+
 export default function AgentManagement() {
   const { data: agents, isLoading, isError, refetch } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
   const { data: quotas } = useQuery<AgentQuota[]>({ queryKey: ["/api/agent-quotas"] });
@@ -151,11 +169,29 @@ export default function AgentManagement() {
   const { user } = useAuth();
   const isOwner = user?.role === 'admin';
 
+  const [metricsRange, setMetricsRange] = useState<"week" | "month" | "custom">("week");
+  const [metricsFrom, setMetricsFrom] = useState("");
+  const [metricsTo, setMetricsTo] = useState("");
+
   const { data: readiness, isLoading: readinessLoading } = useQuery<AgentReadinessRow[]>({
     queryKey: ["/api/agents/readiness"],
     queryFn: async () => {
       const res = await fetch("/api/agents/readiness", { credentials: "include" });
       if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const metricsParams = metricsRange === "custom" && metricsFrom && metricsTo
+    ? `?range=custom&from=${metricsFrom}&to=${metricsTo}`
+    : `?range=${metricsRange}`;
+
+  const { data: repMetrics, isLoading: repMetricsLoading } = useQuery<RepMetricsResponse>({
+    queryKey: ["/api/agents/rep-metrics", metricsRange, metricsFrom, metricsTo],
+    queryFn: async () => {
+      const res = await fetch(`/api/agents/rep-metrics${metricsParams}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load rep metrics");
       return res.json();
     },
     staleTime: 60_000,
@@ -912,9 +948,130 @@ export default function AgentManagement() {
 
         {/* ─── REP METRICS TAB ─── */}
         <TabsContent value="metrics" className="space-y-6" data-testid="tab-content-metrics">
+          {/* ── Section 1: Call & Appointment Stats ── */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><BarChart3 className="w-5 h-5" />Rep Readiness &amp; Performance Metrics</CardTitle>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><Phone className="w-5 h-5" />Call &amp; Appointment Activity</CardTitle>
+                  <CardDescription>Calls attempted, conversations, appointments, and task completions by rep.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={metricsRange} onValueChange={(v) => setMetricsRange(v as "week" | "month" | "custom")}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="week">This Week</SelectItem>
+                      <SelectItem value="month">This Month</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {metricsRange === "custom" && (
+                    <>
+                      <Input type="date" className="w-36" value={metricsFrom} onChange={e => setMetricsFrom(e.target.value)} placeholder="From" />
+                      <Input type="date" className="w-36" value={metricsTo} onChange={e => setMetricsTo(e.target.value)} placeholder="To" />
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {repMetricsLoading ? (
+                <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+              ) : !repMetrics || repMetrics.agents.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No rep metrics data available.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Rep</TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">Total Calls</TooltipTrigger><TooltipContent>Outbound call log entries in the selected period</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">Conversations</TooltipTrigger><TooltipContent>Calls with outcome "connected" or "answered"</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">VM / No Answer</TooltipTrigger><TooltipContent>Calls resulting in voicemail or no answer</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">Appts Scheduled</TooltipTrigger><TooltipContent>Calendar events in "scheduled" status</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">Held</TooltipTrigger><TooltipContent>Appointments with status "completed" or "held"</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">No-Show</TooltipTrigger><TooltipContent>Appointments with status "no_show" or "cancelled"</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">Tasks Done</TooltipTrigger><TooltipContent>Tasks completed in the selected period</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          <TooltipProvider><Tooltip><TooltipTrigger className="cursor-default underline decoration-dotted">Tasks Overdue</TooltipTrigger><TooltipContent>Open tasks past their due date (all-time)</TooltipContent></Tooltip></TooltipProvider>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {repMetrics.agents.map(row => {
+                        const calls = row.callsByOutcome;
+                        const appts = row.appointmentsByStatus;
+                        const tasks = row.taskStats;
+
+                        function metricCell(value: number | null | undefined, warn?: boolean) {
+                          if (value === null || value === undefined) {
+                            return (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="text-xs text-muted-foreground cursor-default">—</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Data unavailable</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            );
+                          }
+                          return <span className={warn && value > 0 ? "text-orange-600 font-medium" : ""}>{value}</span>;
+                        }
+
+                        const totalCalls = calls?._total ?? null;
+                        const conversations = calls?.human_conversation ?? (calls === null ? null : 0);
+                        const vmNoAnswer = calls?.voicemail_or_no_answer ?? (calls === null ? null : 0);
+                        const apptScheduled = appts?.scheduled ?? (appts === null ? null : 0);
+                        const apptHeld = appts === null ? null : ((appts["completed"] ?? 0) + (appts["held"] ?? 0));
+                        const apptNoShow = appts === null ? null : ((appts["no_show"] ?? 0) + (appts["cancelled"] ?? 0));
+                        const tasksDone = tasks?.completed ?? null;
+                        const tasksOverdue = tasks?.overdue ?? null;
+
+                        return (
+                          <TableRow key={row.agentId} data-testid={`metrics-row-${row.agentId}`}>
+                            <TableCell>
+                              <div className="font-medium">{row.name}</div>
+                              <div className="text-xs text-muted-foreground">{row.email}</div>
+                            </TableCell>
+                            <TableCell className="text-right">{metricCell(totalCalls)}</TableCell>
+                            <TableCell className="text-right">{metricCell(conversations)}</TableCell>
+                            <TableCell className="text-right">{metricCell(vmNoAnswer)}</TableCell>
+                            <TableCell className="text-right">{metricCell(apptScheduled)}</TableCell>
+                            <TableCell className="text-right">{metricCell(apptHeld)}</TableCell>
+                            <TableCell className="text-right">{metricCell(apptNoShow)}</TableCell>
+                            <TableCell className="text-right">{metricCell(tasksDone)}</TableCell>
+                            <TableCell className="text-right">{metricCell(tasksOverdue, true)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Section 2: Readiness & Assignment (existing) ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><BarChart3 className="w-5 h-5" />Rep Readiness &amp; Assignment</CardTitle>
               <CardDescription>Per-agent binding status, assignment counts, and CR-04 eligible contacts.</CardDescription>
             </CardHeader>
             <CardContent>

@@ -203,6 +203,287 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  /** GET /api/agents/readiness — per-agent readiness report (manager/admin only) */
+  app.get("/api/agents/readiness", requireRole('admin', 'manager'), async (req, res) => {
+    try {
+      const allAgents = await storage.getAgents();
+      const today = new Date();
+      const { agentQuotas, tasks: tasksTable, callLogs: callLogsTable, contacts: contactsTable } = await import("@shared/schema");
+      const { lte: lteOp, isNotNull: isNotNullOp } = await import("drizzle-orm");
+
+      const report = await Promise.all(allAgents.map(async (agent) => {
+        const reasons: string[] = [];
+        // 1. Binding check
+        let userRole: string | null = null;
+        if (!agent.userId) {
+          reasons.push("unbound");
+        } else {
+          const [userRow] = await db.select({ role: users.role })
+            .from(users).where(eq(users.id, agent.userId)).limit(1);
+          if (!userRow) {
+            reasons.push("user_missing");
+          } else {
+            userRole = userRow.role ?? null;
+            if (userRow.role !== "agent") reasons.push("wrong_role");
+          }
+        }
+        // 2. Quota check
+        const quotaRows = await db.select().from(agentQuotas).where(eq(agentQuotas.agentId, agent.id));
+        const activeQuota = quotaRows.find(q => {
+          const s = new Date(q.periodStart), e = new Date(q.periodEnd);
+          return today >= s && today <= e;
+        });
+        if (!activeQuota) reasons.push("no_quota");
+        // 3. Territory
+        if (!agent.territory) reasons.push("no_territory");
+        // 4. Assignment count
+        const [assignCount] = await db.select({ count: sql<number>`cast(count(*) as integer)` })
+          .from(contactsTable)
+          .where(and(eq(contactsTable.assignedTo, agent.email), isNull(contactsTable.archivedAt)));
+        const assignmentCount = assignCount?.count ?? 0;
+        // 5. CR-04 eligible count (manual_call channel)
+        let cr04EligibleCount: number | null = null;
+        try {
+          const { evaluateCr04ChannelQualification } = await import("../services/cr04-cohort-ready-authority");
+          const assignedContacts = await db.select({ id: contactsTable.id })
+            .from(contactsTable)
+            .where(and(eq(contactsTable.assignedTo, agent.email), isNull(contactsTable.archivedAt)))
+            .limit(200);
+          let eligible = 0;
+          await Promise.all(assignedContacts.map(async (c) => {
+            try {
+              const dec = await evaluateCr04ChannelQualification(c.id, { channel: "manual_call" });
+              if (dec.decision === "qualified") eligible++;
+            } catch { /* skip */ }
+          }));
+          cr04EligibleCount = eligible;
+        } catch { cr04EligibleCount = null; }
+        // 6. Overdue tasks
+        const [overdueResult] = await db.select({ count: sql<number>`cast(count(*) as integer)` })
+          .from(tasksTable)
+          .where(and(
+            or(eq(tasksTable.assignedTo, agent.email), eq(tasksTable.assignedTo, `${agent.firstName} ${agent.lastName}`)),
+            lteOp(tasksTable.dueDate, today),
+            or(eq(tasksTable.status, "pending"), eq(tasksTable.status, "in_progress")),
+          ));
+        const overdueTasksCount = overdueResult?.count ?? 0;
+        // 7. Last activity
+        const [lastCallRow] = await db.select({ createdAt: callLogsTable.createdAt })
+          .from(callLogsTable)
+          .leftJoin(contactsTable, eq(callLogsTable.contactId, contactsTable.id))
+          .where(eq(contactsTable.assignedTo, agent.email))
+          .orderBy(desc(callLogsTable.createdAt))
+          .limit(1);
+        const lastActivityAt = lastCallRow?.createdAt ?? null;
+        const ready = reasons.length === 0;
+        return {
+          agentId: agent.id,
+          name: `${agent.firstName} ${agent.lastName}`,
+          email: agent.email,
+          status: agent.status,
+          territory: agent.territory ?? null,
+          ready,
+          reasons,
+          assignmentCount,
+          cr04EligibleCount,
+          overdueTasksCount,
+          lastActivityAt,
+        };
+      }));
+      res.json(report);
+    } catch (err: any) { serverError(res, err); }
+  });
+
+  /** GET /api/agents/rep-metrics — per-agent call/appointment/task stats with optional date-range filter */
+  app.get("/api/agents/rep-metrics", requireRole('admin', 'manager'), async (req, res) => {
+    try {
+      const { gte: gteOp, lt: ltOp } = await import("drizzle-orm");
+      const { callLogs: callLogsTable, calendarEvents: calendarEventsTable, tasks: tasksTable, contacts: contactsTable, agents: agentsTable } = await import("@shared/schema");
+
+      // Date range: default "this week"
+      const rangeParam = (req.query.range as string) ?? "week";
+      const customFrom = req.query.from as string | undefined;
+      const customTo = req.query.to as string | undefined;
+
+      function getRangeBounds(range: string): { from: Date; to: Date } {
+        const now = new Date();
+        if (range === "custom" && customFrom && customTo) {
+          const fromDate = new Date(customFrom + "T00:00:00");
+          const toDate = new Date(customTo + "T00:00:00");
+          toDate.setDate(toDate.getDate() + 1); // exclusive upper bound — makes end-date inclusive
+          return { from: fromDate, to: toDate };
+        }
+        if (range === "month") {
+          const from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+          const to = new Date(now);
+          to.setDate(to.getDate() + 1);
+          to.setHours(0, 0, 0, 0);
+          return { from, to };
+        }
+        // default: this week (Mon–end of today)
+        const day = now.getDay(); // 0=Sun
+        const diff = (day === 0 ? -6 : 1 - day);
+        const from = new Date(now);
+        from.setDate(now.getDate() + diff);
+        from.setHours(0, 0, 0, 0);
+        const to = new Date(now);
+        to.setDate(to.getDate() + 1);
+        to.setHours(0, 0, 0, 0);
+        return { from, to };
+      }
+
+      const { from, to } = getRangeBounds(rangeParam);
+
+      // Canonical call outcome values persisted by LogCallSheet.tsx:
+      //   Connected, Connected - Interested, Connected - Not a Fit,
+      //   Connected - Send Review Summary, Connected - Needs Proposal → human conversation
+      //   Left VM → voicemail
+      //   No Answer → no answer
+      function classifyOutcome(outcome: string | null): "human_conversation" | "voicemail" | "no_answer" | "other" {
+        if (!outcome) return "other";
+        if (outcome.startsWith("Connected")) return "human_conversation";
+        if (outcome === "Left VM") return "voicemail";
+        if (outcome === "No Answer") return "no_answer";
+        return "other";
+      }
+
+      const allAgents = await db.select().from(agentsTable).orderBy(agentsTable.lastName);
+
+      const report = await Promise.all(allAgents.map(async (agent) => {
+        const agentEmail = agent.email;
+        // calendar_events.owner_id stores users.id (see activity.ts:728)
+        const agentUserId = agent.userId ?? null;
+
+        // ── Call log counts by outcome (outbound only, assigned contacts) ──
+        let callsByOutcome: Record<string, number> | null = null;
+        try {
+          const rows = await db
+            .select({ outcome: callLogsTable.outcome, count: sql<number>`cast(count(*) as integer)` })
+            .from(callLogsTable)
+            .leftJoin(contactsTable, eq(callLogsTable.contactId, contactsTable.id))
+            .where(
+              and(
+                eq(contactsTable.assignedTo, agentEmail),
+                eq(callLogsTable.direction, "outbound"),
+                gteOp(callLogsTable.createdAt, from),
+                ltOp(callLogsTable.createdAt, to),
+              )
+            )
+            .groupBy(callLogsTable.outcome);
+
+          callsByOutcome = {};
+          let totalCalls = 0;
+          let humanConversation = 0;
+          let voicemail = 0;
+          let noAnswer = 0;
+          for (const r of rows) {
+            const key = r.outcome ?? "unknown";
+            callsByOutcome[key] = r.count;
+            totalCalls += r.count;
+            const bucket = classifyOutcome(r.outcome);
+            if (bucket === "human_conversation") humanConversation += r.count;
+            else if (bucket === "voicemail") voicemail += r.count;
+            else if (bucket === "no_answer") noAnswer += r.count;
+          }
+          callsByOutcome._total = totalCalls;
+          callsByOutcome.human_conversation = humanConversation;
+          callsByOutcome.voicemail_or_no_answer = voicemail + noAnswer;
+        } catch {
+          callsByOutcome = null;
+        }
+
+        // ── Calendar event counts by status (attributed via users.id) ──
+        let appointmentsByStatus: Record<string, number> | null = null;
+        try {
+          if (!agentUserId) {
+            // Unbound agents have no calendar events to count
+            appointmentsByStatus = { _total: 0, scheduled: 0, completed: 0, no_show: 0, cancelled: 0 };
+          } else {
+            const rows = await db
+              .select({ status: calendarEventsTable.status, count: sql<number>`cast(count(*) as integer)` })
+              .from(calendarEventsTable)
+              .where(
+                and(
+                  eq(calendarEventsTable.ownerId, agentUserId),
+                  gteOp(calendarEventsTable.startTime, from),
+                  ltOp(calendarEventsTable.startTime, to),
+                )
+              )
+              .groupBy(calendarEventsTable.status);
+            appointmentsByStatus = {};
+            let total = 0;
+            for (const r of rows) {
+              const key = r.status ?? "unknown";
+              appointmentsByStatus[key] = r.count;
+              total += r.count;
+            }
+            appointmentsByStatus._total = total;
+          }
+        } catch {
+          appointmentsByStatus = null;
+        }
+
+        // ── Task completion counts ──
+        let taskStats: { completed: number; pending: number; overdue: number } | null = null;
+        try {
+          const agentFullName = `${agent.firstName} ${agent.lastName}`;
+          const [completed] = await db
+            .select({ count: sql<number>`cast(count(*) as integer)` })
+            .from(tasksTable)
+            .where(
+              and(
+                or(eq(tasksTable.assignedTo, agentEmail), eq(tasksTable.assignedTo, agentFullName)),
+                eq(tasksTable.status, "completed"),
+                gteOp(tasksTable.completedAt, from),
+                ltOp(tasksTable.completedAt, to),
+              )
+            );
+          const [pending] = await db
+            .select({ count: sql<number>`cast(count(*) as integer)` })
+            .from(tasksTable)
+            .where(
+              and(
+                or(eq(tasksTable.assignedTo, agentEmail), eq(tasksTable.assignedTo, agentFullName)),
+                or(eq(tasksTable.status, "pending"), eq(tasksTable.status, "in_progress")),
+              )
+            );
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+          const [overdue] = await db
+            .select({ count: sql<number>`cast(count(*) as integer)` })
+            .from(tasksTable)
+            .where(
+              and(
+                or(eq(tasksTable.assignedTo, agentEmail), eq(tasksTable.assignedTo, agentFullName)),
+                or(eq(tasksTable.status, "pending"), eq(tasksTable.status, "in_progress")),
+                ltOp(tasksTable.dueDate, todayStart),
+              )
+            );
+          taskStats = {
+            completed: completed?.count ?? 0,
+            pending: pending?.count ?? 0,
+            overdue: overdue?.count ?? 0,
+          };
+        } catch {
+          taskStats = null;
+        }
+
+        return {
+          agentId: agent.id,
+          name: `${agent.firstName} ${agent.lastName}`,
+          email: agentEmail,
+          status: agent.status,
+          boundUserId: agentUserId,
+          callsByOutcome,
+          appointmentsByStatus,
+          taskStats,
+        };
+      }));
+
+      res.json({ range: rangeParam, from: from.toISOString(), to: to.toISOString(), agents: report });
+    } catch (err: any) { serverError(res, err); }
+  });
+
   app.get("/api/agents/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const agent = await storage.getAgent(Number(req.params.id));
@@ -330,96 +611,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  /** GET /api/agents/readiness — per-agent readiness report (manager/admin only) */
-  app.get("/api/agents/readiness", requireRole('admin', 'manager'), async (req, res) => {
-    try {
-      const allAgents = await storage.getAgents();
-      const today = new Date();
-      const { agentQuotas, tasks: tasksTable, callLogs: callLogsTable, contacts: contactsTable } = await import("@shared/schema");
-      const { lte: lteOp, isNotNull: isNotNullOp } = await import("drizzle-orm");
 
-      const report = await Promise.all(allAgents.map(async (agent) => {
-        const reasons: string[] = [];
-        // 1. Binding check
-        let userRole: string | null = null;
-        if (!agent.userId) {
-          reasons.push("unbound");
-        } else {
-          const [userRow] = await db.select({ role: users.role })
-            .from(users).where(eq(users.id, agent.userId)).limit(1);
-          if (!userRow) {
-            reasons.push("user_missing");
-          } else {
-            userRole = userRow.role ?? null;
-            if (userRow.role !== "agent") reasons.push("wrong_role");
-          }
-        }
-        // 2. Quota check
-        const quotaRows = await db.select().from(agentQuotas).where(eq(agentQuotas.agentId, agent.id));
-        const activeQuota = quotaRows.find(q => {
-          const s = new Date(q.periodStart), e = new Date(q.periodEnd);
-          return today >= s && today <= e;
-        });
-        if (!activeQuota) reasons.push("no_quota");
-        // 3. Territory
-        if (!agent.territory) reasons.push("no_territory");
-        // 4. Assignment count
-        const [assignCount] = await db.select({ count: sql<number>`cast(count(*) as integer)` })
-          .from(contactsTable)
-          .where(and(eq(contactsTable.assignedTo, agent.email), isNull(contactsTable.archivedAt)));
-        const assignmentCount = assignCount?.count ?? 0;
-        // 5. CR-04 eligible count (manual_call channel)
-        let cr04EligibleCount: number | null = null;
-        try {
-          const { evaluateCr04ChannelQualification } = await import("../services/cr04-cohort-ready-authority");
-          const assignedContacts = await db.select({ id: contactsTable.id })
-            .from(contactsTable)
-            .where(and(eq(contactsTable.assignedTo, agent.email), isNull(contactsTable.archivedAt)))
-            .limit(200);
-          let eligible = 0;
-          await Promise.all(assignedContacts.map(async (c) => {
-            try {
-              const dec = await evaluateCr04ChannelQualification(c.id, { channel: "manual_call" });
-              if (dec.decision === "qualified") eligible++;
-            } catch { /* skip */ }
-          }));
-          cr04EligibleCount = eligible;
-        } catch { cr04EligibleCount = null; }
-        // 6. Overdue tasks
-        const [overdueResult] = await db.select({ count: sql<number>`cast(count(*) as integer)` })
-          .from(tasksTable)
-          .where(and(
-            or(eq(tasksTable.assignedTo, agent.email), eq(tasksTable.assignedTo, `${agent.firstName} ${agent.lastName}`)),
-            lteOp(tasksTable.dueDate, today),
-            or(eq(tasksTable.status, "pending"), eq(tasksTable.status, "in_progress")),
-          ));
-        const overdueTasksCount = overdueResult?.count ?? 0;
-        // 7. Last activity
-        const [lastCallRow] = await db.select({ createdAt: callLogsTable.createdAt })
-          .from(callLogsTable)
-          .leftJoin(contactsTable, eq(callLogsTable.contactId, contactsTable.id))
-          .where(eq(contactsTable.assignedTo, agent.email))
-          .orderBy(desc(callLogsTable.createdAt))
-          .limit(1);
-        const lastActivityAt = lastCallRow?.createdAt ?? null;
-        const ready = reasons.length === 0;
-        return {
-          agentId: agent.id,
-          name: `${agent.firstName} ${agent.lastName}`,
-          email: agent.email,
-          status: agent.status,
-          territory: agent.territory ?? null,
-          ready,
-          reasons,
-          assignmentCount,
-          cr04EligibleCount,
-          overdueTasksCount,
-          lastActivityAt,
-        };
-      }));
-      res.json(report);
-    } catch (err: any) { serverError(res, err); }
-  });
 
   // === AGENT QUOTAS ===
   app.get("/api/agent-quotas", requireRole('admin', 'manager'), async (req, res) => {
