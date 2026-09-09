@@ -72,6 +72,7 @@ export const AUTH_ACTION_PURPOSES = [
   "partner_invite",
   "partner_org_activation",
   "partner_org_password_reset",
+  "agent_rep_invite",
 ] as const;
 export type AuthActionPurpose = typeof AUTH_ACTION_PURPOSES[number];
 

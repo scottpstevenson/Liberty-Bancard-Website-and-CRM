@@ -24,6 +24,7 @@ const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
 const ActivatePortal = lazy(() => import("@/pages/ActivatePortal"));
+const ActivateRepAccount = lazy(() => import("@/pages/ActivateRepAccount"));
 
 // ─── Public Marketing Pages ───────────────────────────────────────────────────
 const Home = lazy(() => import("@/pages/Home"));
@@ -363,6 +364,7 @@ function Router() {
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/verify-email" component={VerifyEmail} />
         <Route path="/activate-portal" component={ActivatePortal} />
+        <Route path="/activate-rep" component={ActivateRepAccount} />
         <Route path="/" component={Home} />
         <Route path="/get-started" component={GetStarted} />
         <Route path="/upload-statement" component={UploadStatement} />
@@ -973,6 +975,7 @@ const NON_MARKETING_PREFIXES = [
   "/savings/",       // tokenised savings page — not /savings-calculator
   "/statement-upload/",
   "/activate-portal",
+  "/activate-rep",
   "/partner-portal",
   "/partner-login",
   "/merchant-application",

@@ -3957,6 +3957,22 @@ function SalesRepOpsCard() {
   const [locationIdsInput, setLocationIdsInput] = useState("");
   const [showCohortForm, setShowCohortForm] = useState(false);
 
+  // Provision Rep form
+  const [showProvisionForm, setShowProvisionForm] = useState(false);
+  const [provisionEmail, setProvisionEmail] = useState("");
+  const [provisionFirst, setProvisionFirst] = useState("");
+  const [provisionLast, setProvisionLast] = useState("");
+
+  // Resend Invite form
+  const [showResendForm, setShowResendForm] = useState(false);
+  const [resendUserId, setResendUserId] = useState("");
+
+  // Assign Cohort form
+  const [showAssignForm, setShowAssignForm] = useState(false);
+  const [assignRepUserId, setAssignRepUserId] = useState("");
+  const [assignContactIds, setAssignContactIds] = useState("");
+  const [assignLocationIds, setAssignLocationIds] = useState("");
+
   const repOpsQuery = useQuery<SalesRepOpsData>({
     queryKey: ["/api/activation/sales-rep-ops-readiness"],
     refetchInterval: 60000,
@@ -3980,6 +3996,77 @@ function SalesRepOpsCard() {
     },
   });
 
+  const { toast } = useToast();
+
+  const provisionMutation = useMutation<any, Error>({
+    mutationFn: async () => {
+      // apiRequest throws on non-2xx via throwIfResNotOk; no manual ok-check needed.
+      const res = await apiRequest("POST", "/api/activation/provision-rep", {
+        email: provisionEmail.trim(),
+        firstName: provisionFirst.trim(),
+        lastName: provisionLast.trim(),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const inviteNote = data.inviteDisposition === "sent"
+        ? "Invitation email sent."
+        : (data.inviteDetail ?? "Invite not sent — use Resend Invite when SMTP is available.");
+      toast({
+        title: "Rep provisioned",
+        description: `User ${data.email} created (agent ID ${data.agentId}). ${inviteNote}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/activation/sales-rep-ops-readiness"] });
+      setShowProvisionForm(false);
+      setProvisionEmail("");
+      setProvisionFirst("");
+      setProvisionLast("");
+    },
+    onError: (err) => {
+      toast({ title: "Provision failed", description: err?.message ?? "See server logs.", variant: "destructive" });
+    },
+  });
+
+  const assignCohortMutation = useMutation<any, Error>({
+    mutationFn: async () => {
+      // apiRequest throws on non-2xx via throwIfResNotOk; no manual ok-check needed.
+      const res = await apiRequest("POST", "/api/activation/assign-cohort", {
+        repUserId: assignRepUserId.trim(),
+        contactIds: assignContactIds.split(",").map(s => Number(s.trim())).filter(n => n > 0),
+        locationIds: assignLocationIds.split(",").map(s => Number(s.trim())).filter(n => n > 0),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const blockedNote = data.blockedCount > 0 ? ` ${data.blockedCount} blocked by eligibility gates — see details below.` : "";
+      toast({
+        title: "Cohort assigned",
+        description: `${data.assignedCount} contact(s) assigned to ${data.agentEmail}.${blockedNote} Verdict: ${data.readiness?.aggregateVerdict ?? "re-running"}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/activation/sales-rep-ops-readiness"] });
+      // Keep form open if some contacts/locations were blocked so the admin can review details
+      if (!data.blockedCount) setShowAssignForm(false);
+    },
+    onError: (err) => {
+      toast({ title: "Cohort assignment failed", description: err?.message ?? "See server logs.", variant: "destructive" });
+    },
+  });
+
+  const resendInviteMutation = useMutation<any, Error>({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/activation/resend-rep-invite", { userId: resendUserId.trim() });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Invite resent", description: `Invitation email sent to ${data.email}.` });
+      setShowResendForm(false);
+      setResendUserId("");
+    },
+    onError: (err) => {
+      toast({ title: "Resend failed", description: err?.message ?? "See server logs.", variant: "destructive" });
+    },
+  });
+
   const data = repOpsQuery.data;
   const cert = data?.certification;
   const blocked = (data?.blockers ?? []).length > 0;
@@ -3991,7 +4078,7 @@ function SalesRepOpsCard() {
           <CardTitle className="text-sm flex items-center gap-2">
             <ShieldCheck className="w-4 h-4" /> Sales Rep Operations Readiness
           </CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {data && (
               <Badge variant={blocked ? "destructive" : "default"} className="text-xs">
                 {blocked ? "Not Certified" : cert?.aggregateVerdict === "PASS" ? "Certified" : "Pending"}
@@ -4000,7 +4087,34 @@ function SalesRepOpsCard() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setShowCohortForm(v => !v)}
+              onClick={() => { setShowProvisionForm(v => !v); setShowAssignForm(false); setShowCohortForm(false); }}
+              title="Provision a new rep account (creates user + agent record + sends invite)"
+            >
+              <Plus className="w-3 h-3 mr-1" />
+              {showProvisionForm ? "Cancel" : "Provision Rep"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setShowResendForm(v => !v); setShowProvisionForm(false); setShowAssignForm(false); setShowCohortForm(false); }}
+              title="Re-issue invite email for a passwordless provisioned rep"
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              {showResendForm ? "Cancel" : "Resend Invite"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setShowAssignForm(v => !v); setShowProvisionForm(false); setShowResendForm(false); setShowCohortForm(false); }}
+              title="Assign contacts to a rep's pilot cohort"
+            >
+              <Users className="w-3 h-3 mr-1" />
+              {showAssignForm ? "Cancel" : "Assign Cohort"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setShowCohortForm(v => !v); setShowProvisionForm(false); setShowAssignForm(false); }}
               title="Enter pilot cohort IDs and run all 20 readiness gates"
             >
               <RefreshCw className="w-3 h-3 mr-1" />
@@ -4018,6 +4132,150 @@ function SalesRepOpsCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Provision Rep form */}
+        {showProvisionForm && (
+          <div className="rounded border p-3 space-y-3 bg-muted/40">
+            <div className="text-xs font-medium">Provision Rep Account</div>
+            <p className="text-xs text-muted-foreground">Creates a user with role=agent, an active agent record, and sends an invitation email. No automated outbound is triggered.</p>
+            <div className="space-y-2">
+              <div>
+                <Label className="text-xs">Email</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  type="email"
+                  placeholder="rep@example.com"
+                  value={provisionEmail}
+                  onChange={e => setProvisionEmail(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">First Name</Label>
+                  <Input
+                    className="text-xs h-7 mt-0.5"
+                    placeholder="Jane"
+                    value={provisionFirst}
+                    onChange={e => setProvisionFirst(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Last Name</Label>
+                  <Input
+                    className="text-xs h-7 mt-0.5"
+                    placeholder="Smith"
+                    value={provisionLast}
+                    onChange={e => setProvisionLast(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => provisionMutation.mutate()}
+              disabled={provisionMutation.isPending || !provisionEmail.trim() || !provisionFirst.trim() || !provisionLast.trim()}
+              className="w-full"
+            >
+              {provisionMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Plus className="w-3 h-3 mr-1" />}
+              {provisionMutation.isPending ? "Provisioning…" : "Provision Rep"}
+            </Button>
+            {provisionMutation.isError && (
+              <div className="text-xs text-destructive">{(provisionMutation.error as any)?.message ?? "Provision failed — see server logs."}</div>
+            )}
+          </div>
+        )}
+
+        {/* Resend Invite form */}
+        {showResendForm && (
+          <div className="rounded border p-3 space-y-3 bg-muted/40">
+            <div className="text-xs font-medium">Resend Rep Invite</div>
+            <p className="text-xs text-muted-foreground">Issues a new 72-hour activation link for an already-provisioned rep who has not yet set a password (e.g. SMTP was down at provisioning time or the link expired).</p>
+            <div>
+              <Label className="text-xs">Rep User ID</Label>
+              <Input
+                className="text-xs h-7 mt-0.5"
+                placeholder="uuid of the provisioned user"
+                value={resendUserId}
+                onChange={e => setResendUserId(e.target.value)}
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={() => resendInviteMutation.mutate()}
+              disabled={resendInviteMutation.isPending || !resendUserId.trim()}
+              className="w-full"
+            >
+              {resendInviteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+              {resendInviteMutation.isPending ? "Sending…" : "Send New Invite"}
+            </Button>
+            {resendInviteMutation.isError && (
+              <div className="text-xs text-destructive">{(resendInviteMutation.error as any)?.message ?? "Resend failed — see server logs."}</div>
+            )}
+          </div>
+        )}
+
+        {/* Assign Cohort form */}
+        {showAssignForm && (
+          <div className="rounded border p-3 space-y-3 bg-muted/40">
+            <div className="text-xs font-medium">Assign Pilot Cohort</div>
+            <p className="text-xs text-muted-foreground">Validates contacts against pilot eligibility gates, updates <code className="font-mono">contacts.assignedTo</code>, and re-runs readiness. No automated outbound is triggered.</p>
+            <div className="space-y-2">
+              <div>
+                <Label className="text-xs">Rep User ID</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  placeholder="user-abc123"
+                  value={assignRepUserId}
+                  onChange={e => setAssignRepUserId(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Contact IDs (comma-separated integers)</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  placeholder="1001, 1002, 1003"
+                  value={assignContactIds}
+                  onChange={e => setAssignContactIds(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Location IDs (optional, comma-separated integers)</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  placeholder="2001, 2002"
+                  value={assignLocationIds}
+                  onChange={e => setAssignLocationIds(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => assignCohortMutation.mutate()}
+              disabled={assignCohortMutation.isPending || !assignRepUserId.trim() || !assignContactIds.trim()}
+              className="w-full"
+            >
+              {assignCohortMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Users className="w-3 h-3 mr-1" />}
+              {assignCohortMutation.isPending ? "Assigning…" : "Assign Cohort"}
+            </Button>
+            {assignCohortMutation.isError && (
+              <div className="text-xs text-destructive">{(assignCohortMutation.error as any)?.message ?? "Assignment failed — see server logs."}</div>
+            )}
+            {assignCohortMutation.isSuccess && (assignCohortMutation.data as any)?.blocked?.length > 0 && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-amber-600">
+                  {(assignCohortMutation.data as any).blockedCount} candidate(s) blocked by eligibility gates
+                </summary>
+                <div className="mt-1 space-y-0.5">
+                  {(assignCohortMutation.data as any).blocked.map((b: any, i: number) => (
+                    <div key={`${b.kind}-${b.id}-${i}`} className="text-muted-foreground capitalize">
+                      {b.kind} {b.id}: {b.reason}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+
         {/* Cohort input form — shown when admin clicks Run Check */}
         {showCohortForm && (
           <div className="rounded border p-3 space-y-3 bg-muted/40">
