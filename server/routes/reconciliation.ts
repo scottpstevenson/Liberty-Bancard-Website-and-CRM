@@ -29,7 +29,10 @@ import {
   QUALITY_SIGNAL_CODE_SET,
   SIGNAL_SEVERITY,
   SIGNAL_DESCRIPTIONS,
+  normalizeNanpPhone,
 } from "../services/contact-quality-signals";
+import { runEmailPreFilter } from "../services/email-pre-filter";
+import { applyConsentCommand } from "../services/consent-authority";
 import {
   approveProposal,
   rejectProposal,
@@ -587,7 +590,152 @@ export function registerReconciliationRoutes(app: Express): void {
       );
       if (runR.rows.length === 0) return res.status(404).json({ error: "Run not found" });
 
-      const { lane, type } = req.query as Record<string, string>;
+      const { lane, type, signal_code: signalCode } = req.query as Record<string, string>;
+
+      // ── Quality-signals CSV export ──────────────────────────────────────────
+      if (type === "quality-signals") {
+        if (signalCode && !QUALITY_SIGNAL_CODE_SET.has(signalCode)) {
+          return res.status(400).json({ error: `Unknown signal_code: ${signalCode}` });
+        }
+        const params: unknown[] = [runId];
+        let signalClause = "";
+        let pi = 2;
+        if (signalCode) {
+          signalClause = `AND $${pi++} = ANY(m.quality_signal_codes)`;
+          params.push(signalCode);
+        }
+        // Stream via server-side cursor (keyset on contact_id)
+        const BATCH = 500;
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        const suffix = signalCode ? `-${signalCode}` : "";
+        res.setHeader("Content-Disposition", `attachment; filename="quality-signals-${runId.slice(0, 8)}${suffix}.csv"`);
+        res.write("contact_id,name,company,email,phone,quality_signal_codes,email_status,email_validation_updated_at,do_not_contact,do_not_auto_contact,suppression_reason\n");
+        let lastId = 0;
+        while (true) {
+          const batchParams = [...params, lastId, BATCH];
+          const piLast = pi;
+          const piLimit = pi + 1;
+          const r = await pool.query(
+            `SELECT m.contact_id,
+                    TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS name,
+                    c.company_name,
+                    c.email,
+                    c.phone,
+                    m.quality_signal_codes,
+                    c.email_status,
+                    c.email_validation_updated_at,
+                    c.do_not_contact,
+                    c.do_not_auto_contact,
+                    c.suppression_reason
+             FROM contact_reconciliation_members m
+             JOIN contacts c ON c.id = m.contact_id
+             WHERE m.run_id = $1 ${signalClause}
+               AND m.contact_id > $${piLast}
+             ORDER BY m.contact_id ASC
+             LIMIT $${piLimit}`,
+            batchParams,
+          );
+          if (r.rows.length === 0) break;
+          for (const row of r.rows) {
+            res.write([
+              csvCell(row.contact_id),
+              csvCell(row.name || ""),
+              csvCell(row.company_name || ""),
+              csvCell(row.email || ""),
+              csvCell(row.phone || ""),
+              csvCell((row.quality_signal_codes ?? []).join(";")),
+              csvCell(row.email_status || ""),
+              csvCell(row.email_validation_updated_at ? new Date(row.email_validation_updated_at).toISOString() : ""),
+              csvCell(row.do_not_contact ? "true" : "false"),
+              csvCell(row.do_not_auto_contact ? "true" : "false"),
+              csvCell(row.suppression_reason || ""),
+            ].join(",") + "\n");
+          }
+          lastId = r.rows[r.rows.length - 1].contact_id;
+          if (r.rows.length < BATCH) break;
+        }
+        return res.end();
+      }
+
+      // ── Shared-phone merge-candidate CSV export ─────────────────────────────
+      if (type === "shared-phone") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="shared-phone-${runId.slice(0, 8)}.csv"`);
+        res.write("normalized_phone,contact_id,name,company,quality_signal_codes\n");
+        const BATCH = 500;
+        let lastId = 0;
+        while (true) {
+          const r = await pool.query(
+            `SELECT m.contact_id,
+                    TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS name,
+                    c.company_name,
+                    c.phone,
+                    m.quality_signal_codes
+             FROM contact_reconciliation_members m
+             JOIN contacts c ON c.id = m.contact_id
+             WHERE m.run_id = $1
+               AND 'SHARED_PHONE_REVIEW' = ANY(m.quality_signal_codes)
+               AND m.contact_id > $2
+             ORDER BY m.contact_id ASC
+             LIMIT $3`,
+            [runId, lastId, BATCH],
+          );
+          if (r.rows.length === 0) break;
+          for (const row of r.rows) {
+            const normalized = normalizeNanpPhone(row.phone) ?? "";
+            res.write([
+              csvCell(normalized),
+              csvCell(row.contact_id),
+              csvCell(row.name || ""),
+              csvCell(row.company_name || ""),
+              csvCell((row.quality_signal_codes ?? []).join(";")),
+            ].join(",") + "\n");
+          }
+          lastId = r.rows[r.rows.length - 1].contact_id;
+          if (r.rows.length < BATCH) break;
+        }
+        return res.end();
+      }
+
+      // ── Shared-email merge-candidate CSV export ─────────────────────────────
+      if (type === "shared-email") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="shared-email-${runId.slice(0, 8)}.csv"`);
+        res.write("normalized_email,contact_id,name,company,quality_signal_codes\n");
+        const BATCH = 500;
+        let lastId = 0;
+        while (true) {
+          const r = await pool.query(
+            `SELECT m.contact_id,
+                    TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS name,
+                    c.company_name,
+                    c.email,
+                    m.quality_signal_codes
+             FROM contact_reconciliation_members m
+             JOIN contacts c ON c.id = m.contact_id
+             WHERE m.run_id = $1
+               AND 'SHARED_EMAIL_REVIEW' = ANY(m.quality_signal_codes)
+               AND m.contact_id > $2
+             ORDER BY m.contact_id ASC
+             LIMIT $3`,
+            [runId, lastId, BATCH],
+          );
+          if (r.rows.length === 0) break;
+          for (const row of r.rows) {
+            const normalized = row.email ? row.email.trim().toLowerCase() : "";
+            res.write([
+              csvCell(normalized),
+              csvCell(row.contact_id),
+              csvCell(row.name || ""),
+              csvCell(row.company_name || ""),
+              csvCell((row.quality_signal_codes ?? []).join(";")),
+            ].join(",") + "\n");
+          }
+          lastId = r.rows[r.rows.length - 1].contact_id;
+          if (r.rows.length < BATCH) break;
+        }
+        return res.end();
+      }
 
       if (type === "proposals") {
         // Export normalization proposals as CSV
@@ -664,6 +812,415 @@ export function registerReconciliationRoutes(app: Express): void {
       serverError(res, err, "reconciliation export");
     }
   });
+
+  // ── POST /api/admin/reconciliation/runs/:runId/remediation/validate-emails ─
+  // Idempotent. Creates or returns the in-progress validate-emails operation.
+  // Runs the local email pre-filter then hands passing contacts to the canonical
+  // ZeroBounce authority. Does NOT create a second campaign or BullMQ path.
+  app.post(
+    "/api/admin/reconciliation/runs/:runId/remediation/validate-emails",
+    requireRole("admin"),
+    async (req, res) => {
+      const runId = validateRunId(req.params.runId, res);
+      if (!runId) return;
+      // Declared outside try so the catch block can mark it failed.
+      let _validateOpId: string | null = null;
+      try {
+        const actorId = String((req.user as any)?.id ?? "system");
+        const runR = await pool.query(
+          `SELECT id, status, rules_version FROM contact_reconciliation_runs WHERE id = $1`,
+          [runId],
+        );
+        if (runR.rows.length === 0) return res.status(404).json({ error: "Run not found" });
+        const recon = runR.rows[0];
+        if (recon.rules_version !== "quality-v1") {
+          return res.status(400).json({ error: "Remediation requires a quality-v1 run" });
+        }
+
+        // Idempotency: return existing in-flight or most recent completed operation.
+        const existingOp = (await pool.query(
+          `SELECT id, status, result_summary FROM contact_remediation_operations
+           WHERE run_id = $1 AND signal_code = 'EMAIL_UNVALIDATED' AND operation_type = 'validate_emails'
+             AND status IN ('pending','running')
+           LIMIT 1`,
+          [runId],
+        )).rows[0];
+        if (existingOp) {
+          return res.json({ operationId: existingOp.id, status: existingOp.status, alreadyRunning: true, resultSummary: existingOp.result_summary });
+        }
+
+        // Create operation record (partial unique index prevents race).
+        let opId: string;
+        try {
+          const ins = await pool.query(
+            `INSERT INTO contact_remediation_operations
+               (run_id, signal_code, operation_type, status, initiated_by)
+             VALUES ($1, 'EMAIL_UNVALIDATED', 'validate_emails', 'running', $2)
+             RETURNING id`,
+            [runId, actorId],
+          );
+          opId = ins.rows[0].id;
+          _validateOpId = opId; // expose to outer catch so failures can be recorded
+        } catch (insErr: any) {
+          if (insErr?.code === "23505") {
+            const winner = (await pool.query(
+              `SELECT id, status, result_summary FROM contact_remediation_operations
+               WHERE run_id = $1 AND signal_code = 'EMAIL_UNVALIDATED' AND operation_type = 'validate_emails'
+                 AND status IN ('pending','running')
+               LIMIT 1`,
+              [runId],
+            )).rows[0];
+            if (winner) return res.json({ operationId: winner.id, status: winner.status, alreadyRunning: true, resultSummary: winner.result_summary });
+          }
+          throw insErr;
+        }
+
+        // Load the EMAIL_UNVALIDATED cohort, excluding DNC_GLOBAL / AUTO_CONTACT_BLOCKED.
+        const membersR = await pool.query(
+          `SELECT m.contact_id, c.email
+           FROM contact_reconciliation_members m
+           JOIN contacts c ON c.id = m.contact_id
+           WHERE m.run_id = $1
+             AND 'EMAIL_UNVALIDATED' = ANY(m.quality_signal_codes)
+             AND NOT ('DNC_GLOBAL' = ANY(m.quality_signal_codes))
+             AND NOT ('AUTO_CONTACT_BLOCKED' = ANY(m.quality_signal_codes))`,
+          [runId],
+        );
+
+        const allMembers = membersR.rows as Array<{ contact_id: number; email: string | null }>;
+
+        // Count DNC/blocked skipped
+        const dncSkippedR = await pool.query(
+          `SELECT COUNT(*)::int AS n FROM contact_reconciliation_members
+           WHERE run_id = $1
+             AND 'EMAIL_UNVALIDATED' = ANY(quality_signal_codes)
+             AND (
+               'DNC_GLOBAL' = ANY(quality_signal_codes)
+               OR 'AUTO_CONTACT_BLOCKED' = ANY(quality_signal_codes)
+             )`,
+          [runId],
+        );
+        const dncSkipped = dncSkippedR.rows[0]?.n ?? 0;
+
+        // Run local pre-filter
+        const contacts = allMembers.map(r => ({ contactId: r.contact_id, email: r.email }));
+        const preFilter = await runEmailPreFilter(contacts);
+
+        // Collect passing contact IDs for ZeroBounce
+        const passingIds = preFilter.outcomes
+          .filter(o => o.gate === "pass")
+          .map(o => o.contactId);
+
+        // Helper: mark the remediation operation failed and re-throw.
+        async function failOperation(reason: string, err: unknown): Promise<never> {
+          await pool.query(
+            `UPDATE contact_remediation_operations
+             SET status = 'failed', completed_at = now(),
+                 result_summary = jsonb_set(COALESCE(result_summary, '{}'), '{failure_reason}', $1)
+             WHERE id = $2`,
+            [JSON.stringify(reason), opId],
+          );
+          throw err;
+        }
+
+        let zbQueued = 0;
+        let zbResult: any = null;
+
+        if (passingIds.length > 0) {
+          // Delegate to canonical ZB authority (via internal call to the validate-emails-batch logic).
+          // INVARIANT: the campaign we create must have filter_definition.contactIds = passingIds so
+          // the worker validates exactly those contacts, not an unrelated cohort.
+          const { checkZeroBounceBudget } = await import("../services/zerobounce-daily-limiter");
+          const { markStaleRunsInterrupted } = await import("../services/zerobounce-campaign-worker");
+          const { enqueueZeroBounceRun } = await import("../services/queue-manager");
+          const { buildZbEligibilityWhere } = await import("../services/zerobounce-eligibility");
+
+          const isZbConfigured = !!process.env.ZEROBOUNCE_API_KEY;
+          if (!isZbConfigured) {
+            zbResult = { skipped: true, reason: "ZeroBounce not configured" };
+          } else {
+            const budget = await checkZeroBounceBudget();
+            if (!budget.allowed) {
+              zbResult = { skipped: true, reason: `Daily cap reached (${budget.used}/${budget.limit})` };
+            } else {
+              await markStaleRunsInterrupted();
+
+              // Check for an existing active campaign. We must NOT reuse one whose
+              // filter_definition does not contain our exact passingIds — its worker will
+              // validate a different cohort and our counts would be wrong.
+              const existingCampaign = (await pool.query(
+                `SELECT id, filter_definition FROM zerobounce_campaigns WHERE status = 'active' LIMIT 1`,
+              )).rows[0];
+
+              if (existingCampaign) {
+                // An active campaign already exists. Report it as busy — do not reuse
+                // it, because its filter_definition may select a different cohort.
+                const existingRunning = (await pool.query(
+                  `SELECT id FROM zerobounce_runs WHERE campaign_id = $1 AND state = 'running' LIMIT 1`,
+                  [existingCampaign.id],
+                )).rows[0];
+                zbResult = {
+                  skipped: true,
+                  reason: "An existing ZeroBounce campaign is active. Retry after it completes.",
+                  activeCampaignId: existingCampaign.id,
+                  existingRunId: existingRunning?.id ?? null,
+                };
+              } else {
+                // No active campaign — create one with the exact passing contact IDs.
+                const filter = { issue: "unvalidated_email", minLeadScore: 0, contactIds: passingIds };
+                const countR = await pool.query(
+                  `SELECT COUNT(*)::int AS n FROM contacts WHERE ${buildZbEligibilityWhere(filter)}`,
+                );
+                const initialTotal = countR.rows[0]?.n ?? 0;
+                const ins = await pool.query(
+                  `INSERT INTO zerobounce_campaigns (filter_definition, initial_eligible_total, created_by)
+                   VALUES ($1::jsonb, $2, $3)
+                   ON CONFLICT DO NOTHING RETURNING *`,
+                  [JSON.stringify(filter), initialTotal, actorId],
+                );
+
+                // If the insert raced and lost, another process created an incompatible campaign.
+                // Fail the operation so the caller can retry after that campaign completes.
+                const campaign = ins.rows[0];
+                if (!campaign) {
+                  zbResult = { skipped: true, reason: "Concurrent campaign creation race; retry after existing campaign completes." };
+                } else {
+                  // Insert the run. Partial unique index closes the remaining race.
+                  let zbRun: any;
+                  try {
+                    zbRun = (await pool.query(
+                      `INSERT INTO zerobounce_runs (campaign_id, contact_limit, state, last_heartbeat_at)
+                       VALUES ($1, $2, 'running', NOW()) RETURNING *`,
+                      [campaign.id, passingIds.length],
+                    )).rows[0];
+                  } catch (runInsErr: any) {
+                    if (runInsErr?.code === "23505") {
+                      const winner = (await pool.query(
+                        `SELECT id FROM zerobounce_runs WHERE campaign_id = $1 AND state = 'running' LIMIT 1`,
+                        [campaign.id],
+                      )).rows[0];
+                      zbResult = { alreadyRunning: true, zbRunId: winner?.id ?? null, campaignId: campaign.id };
+                    } else {
+                      throw runInsErr;
+                    }
+                  }
+
+                  if (zbRun) {
+                    // Enqueue the BullMQ job. Failure here must mark the ZB run interrupted
+                    // AND the remediation operation failed — never silently swallow.
+                    let bullJobId: string | null = null;
+                    try {
+                      bullJobId = await enqueueZeroBounceRun(zbRun.id);
+                    } catch (enqErr) {
+                      await pool.query(
+                        `UPDATE zerobounce_runs SET state = 'interrupted', stop_reason = 'enqueue_failed', finished_at = NOW() WHERE id = $1`,
+                        [zbRun.id],
+                      );
+                      await failOperation("Background queue unavailable; ZeroBounce run not started. Retry.", enqErr);
+                    }
+                    if (!bullJobId) {
+                      await pool.query(
+                        `UPDATE zerobounce_runs SET state = 'interrupted', stop_reason = 'enqueue_failed', finished_at = NOW() WHERE id = $1`,
+                        [zbRun.id],
+                      );
+                      await failOperation("Background queue returned no job ID. Retry.", new Error("enqueueZeroBounceRun returned null"));
+                    }
+                    await pool.query(`UPDATE zerobounce_runs SET bull_job_id = $1 WHERE id = $2`, [bullJobId, zbRun.id]);
+                    zbQueued = passingIds.length;
+                    zbResult = { zbRunId: zbRun.id, campaignId: campaign.id, queued: passingIds.length };
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        const resultSummary = {
+          eligible: allMembers.length,
+          locally_syntax_rejected: preFilter.counts.syntax_rejected,
+          locally_placeholder_rejected: preFilter.counts.placeholder_rejected,
+          no_mx_authoritative: preFilter.counts.no_mx_authoritative,
+          disposable_rejected: preFilter.counts.disposable_rejected,
+          dns_indeterminate: preFilter.counts.dns_indeterminate,
+          dnc_skipped: dncSkipped,
+          already_blocked_skipped: 0,
+          zb_queued: zbQueued,
+          zb_result: zbResult,
+          failed: 0,
+        };
+
+        await pool.query(
+          `UPDATE contact_remediation_operations
+           SET status = 'completed', completed_at = now(), result_summary = $1
+           WHERE id = $2`,
+          [JSON.stringify(resultSummary), opId],
+        );
+
+        res.json({ operationId: opId, status: "completed", resultSummary });
+      } catch (err) {
+        // Ensure operation is transitioned to 'failed' on any unhandled exception,
+        // so the partial unique index doesn't permanently block retries.
+        if (_validateOpId) {
+          try {
+            await pool.query(
+              `UPDATE contact_remediation_operations
+               SET status = 'failed', completed_at = now()
+               WHERE id = $1 AND status = 'running'`,
+              [_validateOpId],
+            );
+          } catch { /* best-effort */ }
+        }
+        serverError(res, err, "remediation validate-emails");
+      }
+    },
+  );
+
+  // ── POST /api/admin/reconciliation/runs/:runId/remediation/suppress-fake-phones
+  // Idempotent. Sets do_not_auto_contact = true for PHONE_PLACEHOLDER / PHONE_MALFORMED
+  // contacts via the canonical consent authority. Does NOT set do_not_contact.
+  app.post(
+    "/api/admin/reconciliation/runs/:runId/remediation/suppress-fake-phones",
+    requireRole("admin"),
+    async (req, res) => {
+      const runId = validateRunId(req.params.runId, res);
+      if (!runId) return;
+      try {
+        const actorId = String((req.user as any)?.id ?? "system");
+        const runR = await pool.query(
+          `SELECT id, status, rules_version FROM contact_reconciliation_runs WHERE id = $1`,
+          [runId],
+        );
+        if (runR.rows.length === 0) return res.status(404).json({ error: "Run not found" });
+        const recon = runR.rows[0];
+        if (recon.rules_version !== "quality-v1") {
+          return res.status(400).json({ error: "Remediation requires a quality-v1 run" });
+        }
+
+        // Idempotency
+        const existingOp = (await pool.query(
+          `SELECT id, status, result_summary FROM contact_remediation_operations
+           WHERE run_id = $1 AND signal_code = 'PHONE_PLACEHOLDER' AND operation_type = 'suppress_fake_phones'
+             AND status IN ('pending','running')
+           LIMIT 1`,
+          [runId],
+        )).rows[0];
+        if (existingOp) {
+          return res.json({ operationId: existingOp.id, status: existingOp.status, alreadyRunning: true, resultSummary: existingOp.result_summary });
+        }
+
+        let opId: string;
+        try {
+          const ins = await pool.query(
+            `INSERT INTO contact_remediation_operations
+               (run_id, signal_code, operation_type, status, initiated_by)
+             VALUES ($1, 'PHONE_PLACEHOLDER', 'suppress_fake_phones', 'running', $2)
+             RETURNING id`,
+            [runId, actorId],
+          );
+          opId = ins.rows[0].id;
+        } catch (insErr: any) {
+          if (insErr?.code === "23505") {
+            const winner = (await pool.query(
+              `SELECT id, status, result_summary FROM contact_remediation_operations
+               WHERE run_id = $1 AND signal_code = 'PHONE_PLACEHOLDER' AND operation_type = 'suppress_fake_phones'
+                 AND status IN ('pending','running')
+               LIMIT 1`,
+              [runId],
+            )).rows[0];
+            if (winner) return res.json({ operationId: winner.id, status: winner.status, alreadyRunning: true, resultSummary: winner.result_summary });
+          }
+          throw insErr;
+        }
+
+        // Load the fake-phone cohort (PHONE_PLACEHOLDER OR PHONE_MALFORMED)
+        const membersR = await pool.query(
+          `SELECT m.contact_id, c.do_not_auto_contact
+           FROM contact_reconciliation_members m
+           JOIN contacts c ON c.id = m.contact_id
+           WHERE m.run_id = $1
+             AND (
+               'PHONE_PLACEHOLDER' = ANY(m.quality_signal_codes)
+               OR 'PHONE_MALFORMED' = ANY(m.quality_signal_codes)
+             )`,
+          [runId],
+        );
+
+        const allContacts = membersR.rows as Array<{ contact_id: number; do_not_auto_contact: boolean }>;
+        const toSuppress = allContacts.filter(r => !r.do_not_auto_contact);
+        const alreadyBlocked = allContacts.length - toSuppress.length;
+
+        let suppressed = 0;
+        let failed = 0;
+
+        // Apply via canonical consent authority — one command per contact in a batch.
+        // Audit rows are written by applyConsentCommand internally.
+        for (const contact of toSuppress) {
+          try {
+            await applyConsentCommand({
+              subject: { type: "contact", id: contact.contact_id },
+              kind: "block_auto_contact",
+              eventNamespace: "bulk_remediation",
+              eventKey: `remediation:${opId}:contact:${contact.contact_id}`,
+              source: "quality_signal_remediation",
+              actorId,
+              evidence: {
+                operationId: opId,
+                runId,
+                suppressionReason: "fake_phone_detected",
+                signalCodes: ["PHONE_PLACEHOLDER", "PHONE_MALFORMED"],
+              },
+            });
+            suppressed++;
+          } catch {
+            failed++;
+          }
+        }
+
+        const resultSummary = {
+          eligible: allContacts.length,
+          already_blocked_skipped: alreadyBlocked,
+          suppressed,
+          failed,
+          dnc_skipped: 0,
+        };
+
+        await pool.query(
+          `UPDATE contact_remediation_operations
+           SET status = 'completed', completed_at = now(), result_summary = $1
+           WHERE id = $2`,
+          [JSON.stringify(resultSummary), opId],
+        );
+
+        res.json({ operationId: opId, status: "completed", resultSummary });
+      } catch (err) {
+        serverError(res, err, "remediation suppress-fake-phones");
+      }
+    },
+  );
+
+  // ── GET /api/admin/reconciliation/runs/:runId/remediation/:operationId ───
+  app.get(
+    "/api/admin/reconciliation/runs/:runId/remediation/:operationId",
+    requireRole("admin"),
+    async (req, res) => {
+      const runId = validateRunId(req.params.runId, res);
+      if (!runId) return;
+      const opId = req.params.operationId;
+      try {
+        const r = await pool.query(
+          `SELECT id, run_id, signal_code, operation_type, status, initiated_by,
+                  created_at, completed_at, result_summary
+           FROM contact_remediation_operations
+           WHERE id = $1 AND run_id = $2`,
+          [opId, runId],
+        );
+        if (r.rows.length === 0) return res.status(404).json({ error: "Operation not found" });
+        res.json(r.rows[0]);
+      } catch (err) {
+        serverError(res, err, "remediation operation status");
+      }
+    },
+  );
 
   // ── GET /api/admin/reconciliation/runs/:runId/summary ────────────────────
   app.get("/api/admin/reconciliation/runs/:runId/summary", requireRole("admin"), async (req, res) => {

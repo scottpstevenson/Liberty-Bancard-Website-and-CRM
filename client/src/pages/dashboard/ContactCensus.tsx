@@ -14,7 +14,18 @@ import {
   // Note: Select components retained for run filter controls below
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle, GitMerge, ThumbsUp, ThumbsDown, RotateCcw, ShieldCheck, Filter } from "lucide-react";
+import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle, GitMerge, ThumbsUp, ThumbsDown, RotateCcw, ShieldCheck, Filter, Zap, PhoneOff } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Quality signal types
@@ -908,6 +919,184 @@ function QualityBreakdownPanel({ runId }: { runId: string }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Remediation panel for quality-v1 runs
+// ──────────────────────────────────────────────────────────────────────────────
+interface RemediationOp {
+  operationId?: string;
+  status: string;
+  alreadyRunning?: boolean;
+  resultSummary?: Record<string, unknown>;
+}
+
+const REMEDIABLE_SIGNALS = [
+  { code: "EMAIL_UNVALIDATED", label: "Unvalidated Emails", action: "validate_emails", description: "Pre-filter + send passing contacts to ZeroBounce for validation." },
+  { code: "PHONE_PLACEHOLDER", label: "Fake / Placeholder Phones", action: "suppress_fake_phones", description: "Set do_not_auto_contact on contacts with placeholder or malformed phone numbers." },
+];
+
+const EXPORT_TYPES = [
+  { type: "quality-signals", label: "All Quality Signals CSV" },
+  { type: "shared-phone", label: "Shared Phone Clusters CSV" },
+  { type: "shared-email", label: "Shared Email Clusters CSV" },
+];
+
+function RemediationPanel({ runId, signals }: { runId: string; signals: QualitySignalRow[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [opResults, setOpResults] = useState<Record<string, RemediationOp>>({});
+
+  const getSignalCount = (code: string) => signals.find(s => s.code === code)?.contactCount ?? 0;
+
+  const validateMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails`, {})
+        .then(r => r.json() as Promise<RemediationOp>),
+    onSuccess: (data) => {
+      setOpResults(prev => ({ ...prev, validate_emails: data }));
+      toast({ title: "Email validation triggered", description: data.alreadyRunning ? "Existing operation returned." : "Pre-filter completed; passing contacts sent to ZeroBounce." });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to trigger email validation.", variant: "destructive" }),
+  });
+
+  const suppressMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/remediation/suppress-fake-phones`, {})
+        .then(r => r.json() as Promise<RemediationOp>),
+    onSuccess: (data) => {
+      setOpResults(prev => ({ ...prev, suppress_fake_phones: data }));
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}/quality-summary`] });
+      toast({ title: "Fake phone suppression completed", description: `${(data.resultSummary?.suppressed as number) ?? 0} contacts suppressed.` });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to suppress fake phones.", variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-5">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bulk Remediation Actions</p>
+
+      {/* Actionable signal cohorts */}
+      <div className="space-y-3">
+        {REMEDIABLE_SIGNALS.map((sig) => {
+          const count = getSignalCount(sig.code);
+          const opKey = sig.action;
+          const opResult = opResults[opKey];
+
+          return (
+            <div key={sig.code} className="border rounded-lg p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="text-xs font-semibold font-mono">{sig.code}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{sig.description}</p>
+                  <p className="text-xs text-muted-foreground">{count.toLocaleString()} contact{count !== 1 ? "s" : ""} affected</p>
+                </div>
+                <div className="flex gap-2">
+                  {/* Export button */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      const params = new URLSearchParams({ type: "quality-signals", signal_code: sig.code });
+                      window.open(`/api/admin/reconciliation/runs/${runId}/export?${params}`);
+                    }}
+                  >
+                    <Download className="h-3 w-3" /> Export CSV
+                  </Button>
+
+                  {/* Action button — destructive ones require confirmation */}
+                  {sig.action === "suppress_fake_phones" ? (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 text-xs gap-1"
+                          disabled={suppressMutation.isPending || count === 0}
+                        >
+                          <PhoneOff className="h-3 w-3" />
+                          Suppress {count.toLocaleString()} contacts
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Suppress fake-phone contacts?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will set <code>do_not_auto_contact = true</code> on{" "}
+                            <strong>{count.toLocaleString()}</strong> contacts with{" "}
+                            <code>PHONE_PLACEHOLDER</code> or <code>PHONE_MALFORMED</code> signals.
+                            Already-blocked contacts will be skipped. This does NOT set{" "}
+                            <code>do_not_contact</code> and does NOT affect email channels.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground"
+                            onClick={() => suppressMutation.mutate()}
+                          >
+                            Confirm — Suppress {count.toLocaleString()} contacts
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-7 text-xs gap-1"
+                      disabled={validateMutation.isPending || count === 0}
+                      onClick={() => validateMutation.mutate()}
+                    >
+                      <Zap className="h-3 w-3" />
+                      {validateMutation.isPending ? "Running…" : `Validate ${count.toLocaleString()} emails`}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Result summary */}
+              {opResult && (
+                <div className="mt-2 p-2 rounded bg-muted/30 text-xs space-y-1">
+                  <p className="font-medium">Operation result — status: <span className="font-mono">{opResult.status}</span></p>
+                  {opResult.resultSummary && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-1 mt-1">
+                      {Object.entries(opResult.resultSummary).filter(([k]) => typeof opResult.resultSummary![k] === "number").map(([k, v]) => (
+                        <div key={k} className="flex flex-col">
+                          <span className="text-muted-foreground text-[10px] font-mono">{k}</span>
+                          <span className="font-semibold">{(v as number).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Shared-identity exports */}
+      <div>
+        <p className="text-xs font-semibold mb-2">Export Cohorts</p>
+        <div className="flex flex-wrap gap-2">
+          {EXPORT_TYPES.map(({ type, label }) => (
+            <Button
+              key={type}
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1"
+              onClick={() => window.open(`/api/admin/reconciliation/runs/${runId}/export?type=${type}`)}
+            >
+              <Download className="h-3 w-3" /> {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReconciliationRunDetail({ runId }: { runId: string }) {
   const { data, isLoading } = useQuery<ReconciliationRun>({
     queryKey: [`/api/admin/reconciliation/runs/${runId}`],
@@ -932,13 +1121,32 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {isQuality ? (
-          <QualityBreakdownPanel runId={runId} />
+          <Tabs defaultValue="quality">
+            <TabsList className="flex-wrap h-auto gap-1">
+              <TabsTrigger value="quality">Quality Signals</TabsTrigger>
+              <TabsTrigger value="remediation">Remediation</TabsTrigger>
+            </TabsList>
+            <TabsContent value="quality" className="mt-3">
+              <QualityBreakdownPanel runId={runId} />
+            </TabsContent>
+            <TabsContent value="remediation" className="mt-3">
+              <RemediationPanelWrapper runId={runId} />
+            </TabsContent>
+          </Tabs>
         ) : (
           <DuplicateClustersSection runId={runId} runData={data} />
         )}
       </CardContent>
     </Card>
   );
+}
+
+function RemediationPanelWrapper({ runId }: { runId: string }) {
+  const { data } = useQuery<QualitySummary>({
+    queryKey: [`/api/admin/reconciliation/runs/${runId}/quality-summary`],
+  });
+  if (!data) return <p className="text-sm text-muted-foreground">Loading quality summary…</p>;
+  return <RemediationPanel runId={runId} signals={data.signals ?? []} />;
 }
 
 // Keys must match the proposal_type values written by reconciliation-classifier.ts

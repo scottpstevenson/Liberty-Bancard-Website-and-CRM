@@ -26,7 +26,8 @@ export type ConsentCommandKind =
   | "opt_in"
   | "opt_out"
   | "global_dnc"
-  | "pewc_opt_in";
+  | "pewc_opt_in"
+  | "block_auto_contact";
 
 export interface ConsentSubjectRef {
   type: ConsentSubjectType;
@@ -110,21 +111,24 @@ function rows(result: unknown): any[] {
 }
 
 function eventIsRestrictive(kind: ConsentCommandKind): boolean {
-  return kind === "opt_out" || kind === "global_dnc";
+  return kind === "opt_out" || kind === "global_dnc" || kind === "block_auto_contact";
 }
 
 function commandChannel(command: ConsentCommand): ConsentChannel {
   if (command.kind === "global_dnc") return "email";
+  if (command.kind === "block_auto_contact") return "automated_phone";
   if (!command.channel) throw new Error(`${command.kind} requires a channel`);
   return command.channel;
 }
 
 function commandConsented(command: ConsentCommand): boolean {
   return command.kind === "opt_in" || command.kind === "pewc_opt_in";
+  // block_auto_contact is restrictive (consented = false)
 }
 
 function eventAction(command: ConsentCommand): string {
   if (command.kind === "pewc_opt_in") return "pewc_opt_in";
+  if (command.kind === "block_auto_contact") return "block_auto_contact";
   return command.kind;
 }
 
@@ -342,6 +346,18 @@ async function writeCompatibilityProjection(
     } else if (command.kind === "opt_in" && channel === "sms") {
       await tx.execute(sql`
         UPDATE contacts SET consent_sms = true, sms_status = 'active', updated_at = now()
+        WHERE id = ${subject.subject_record_id}
+      `);
+    } else if (command.kind === "block_auto_contact") {
+      // Sets do_not_auto_contact only — does NOT set do_not_contact.
+      // Used for fake-phone / invalid-phone bulk suppression (Task #1835).
+      const suppressionReason = typeof command.evidence?.suppressionReason === "string"
+        ? command.evidence.suppressionReason
+        : "fake_phone_detected";
+      await tx.execute(sql`
+        UPDATE contacts SET do_not_auto_contact = true,
+          suppression_reason = ${suppressionReason},
+          updated_at = now()
         WHERE id = ${subject.subject_record_id}
       `);
     } else if (command.kind === "pewc_opt_in") {

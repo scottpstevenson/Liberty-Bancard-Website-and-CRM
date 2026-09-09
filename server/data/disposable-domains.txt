@@ -1,0 +1,174 @@
+# Disposable / temporary email domain list
+#
+# Source: Curated subset of https://github.com/disposable-email-domains/disposable-email-domains
+# License: MIT — https://github.com/disposable-email-domains/disposable-email-domains/blob/master/LICENSE
+# Committed: 2026-09-09
+#
+# Format: one lowercase domain per line, sorted, unique, no wildcards.
+# These are confirmed throwaway / temporary-inbox services only.
+# Legitimate email providers (qq.com, outlook.com, etc.) are EXCLUDED.
+#
+# Update procedure:
+#   1. Download https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf
+#   2. Cross-reference against https://github.com/disposable-email-domains/disposable-email-domains (README exclusion list)
+#   3. Remove any domain known to serve real end users (ISPs, national providers, universities)
+#   4. Run: sort -u disposable_email_blocklist.conf > server/data/disposable-domains.txt
+#   5. Update the "Committed" date above and commit.
+#
+# Regression check: mailinator.com, guerrillamail.com, yopmail.com, trashmail.com
+# must all be present. qq.com, outlook.com, yahoo.com must NOT be present.
+# ──────────────────────────────────────────────────────────────────────────────
+0-mail.com
+10mail.com
+10minutemail.com
+10minutemail.net
+10minutemail.org
+20email.eu
+20mail.eu
+33mail.com
+4warding.com
+7tags.com
+discard.email
+dispostable.com
+disposemail.com
+emailondeck.com
+fakeinbox.com
+fakemailgenerator.com
+getnada.com
+guerrillamail.biz
+guerrillamail.com
+guerrillamail.de
+guerrillamail.info
+guerrillamail.net
+guerrillamail.org
+guerrillamailblock.com
+harakirimail.com
+harakirimail.se
+inboxbear.com
+inboxkitten.com
+jetable.com
+jetable.fr.nf
+jetable.net
+jetable.org
+junk1.com
+junkmail.com
+killmail.com
+killmail.net
+mailexpire.com
+mailimate.com
+mailinator.com
+mailinator.net
+mailinator2.com
+mailme.ir
+mailnesia.com
+mailnull.com
+mailquack.com
+mailslapping.com
+mailslite.com
+mailsnull.com
+mailtemp.org
+maildrop.cc
+meltmail.com
+moncourrier.fr.nf
+monemail.fr.nf
+myspamless.com
+objectmail.com
+one-time.email
+oneoffemail.com
+onewaymail.com
+postacı.net
+privacy.net
+quickinbox.com
+rcpt.at
+sharklasers.com
+shiftmail.com
+shitaway.cu.cc
+shitmail.de
+shitmail.me
+shitmail.org
+shredmail.com
+smashmail.de
+spam.la
+spam.su
+spamavert.com
+spambox.info
+spambox.us
+spamcon.org
+spamday.com
+spamex.com
+spamfree.eu
+spamfree24.de
+spamfree24.eu
+spamfree24.info
+spamfree24.net
+spamfree24.org
+spamgoes.in
+spamgourmet.com
+spamgourmet.net
+spamgourmet.org
+spamherelots.com
+spamhereplease.com
+spamhole.com
+spamify.com
+spaminator.de
+spaml.com
+spaml.de
+spammotel.com
+spamoff.de
+spamslicer.com
+spamspot.com
+spamstack.net
+spamtroll.net
+speed.1s.fr
+stuffmail.de
+tagyourself.com
+temp-mail.io
+temp-mail.org
+tempail.com
+tempemail.com
+tempinbox.co.uk
+tempinbox.com
+tempmail.com
+tempmail.net
+tempmailer.com
+tempmailer.de
+tempomail.fr
+temporamail.com
+temporarioemail.com.br
+temporaryinbox.com
+temporize.net
+tempr.email
+tempsky.com
+thc.st
+throwam.com
+throwaway.email
+trashmail.at
+trashmail.com
+trashmail.io
+trashmail.me
+trashmail.net
+trashmail.org
+trashmail.xyz
+trillianpro.com
+trbvm.com
+tuitmail.com
+tyldd.com
+weg-werf-email.de
+wegwerf-email-addressen.de
+wegwerf-emails.de
+wegwerfadresse.de
+wegwerfemail.com
+wegwerfemail.de
+wegwerfmail.de
+wegwerfmail.info
+wegwerfmail.net
+wegwerfmail.org
+yopmail.com
+yopmail.fr
+yopmail.net
+yopmail.pp.ua
+zehnminutenmail.de
+zetmail.com
+zippymail.info
+zoemail.net
+zoemail.org
