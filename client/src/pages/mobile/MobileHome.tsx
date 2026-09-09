@@ -7,7 +7,7 @@ import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import {
   Phone, CheckSquare, Calendar, ChevronRight, Plus, Zap,
   TrendingUp, Clock, AlertTriangle, User, FileText, Loader2,
-  WifiOff, RefreshCw,
+  WifiOff, RefreshCw, MapPin,
 } from "lucide-react";
 import MobileQuickLog from "./MobileQuickLog";
 import type { Task } from "@shared/schema";
@@ -64,6 +64,20 @@ export default function MobileHome() {
     dataUpdatedAt: dealsUpdatedAt,
   } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/deals"],
+    retry: false,
+  });
+
+  const { data: fieldStatus } = useQuery<{ enabled: boolean; eligible: boolean }>({
+    queryKey: ["/api/field-sales/status"],
+    retry: false,
+  });
+
+  const { data: fieldRoute, isLoading: fieldRouteLoading } = useQuery<{
+    route: any | null;
+    stops: any[];
+  }>({
+    queryKey: ["/api/field-routes/my-today"],
+    enabled: fieldStatus?.eligible === true,
     retry: false,
   });
 
@@ -161,6 +175,45 @@ export default function MobileHome() {
           <ChevronRight className="w-5 h-5 text-gray-400" />
         </button>
       </div>
+
+      {fieldStatus?.eligible && (
+        <div className="px-4 mt-4">
+          <button
+            data-testid="card-field-day"
+            onClick={() => setLocation("/mobile/field-day")}
+            className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4 flex items-center gap-3 shadow-sm active:scale-95 transition-transform text-left"
+          >
+            <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center flex-shrink-0">
+              <MapPin className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-gray-900 dark:text-white text-sm">Field Day</div>
+              {fieldRouteLoading ? (
+                <div className="text-gray-400 text-xs mt-0.5">Loading…</div>
+              ) : fieldRoute?.route ? (() => {
+                const stops = fieldRoute.stops ?? [];
+                const assigned = stops.length;
+                const completed = stops.filter((s: any) => s.status === "completed").length;
+                const remaining = assigned - completed;
+                return (
+                  <div className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">
+                    <span data-testid="field-day-completed" className="text-green-600 dark:text-green-400 font-medium">{completed}</span>
+                    <span className="mx-1">of</span>
+                    <span data-testid="field-day-assigned" className="font-medium">{assigned}</span>
+                    <span className="mx-1">stops done</span>
+                    {remaining > 0 && (
+                      <span className="text-gray-400">· {remaining} remaining</span>
+                    )}
+                  </div>
+                );
+              })() : (
+                <div className="text-gray-400 text-xs mt-0.5">No route today — contact your manager.</div>
+              )}
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+          </button>
+        </div>
+      )}
 
       {overdueTasks.length > 0 && (
         <div className="px-4 mt-4">
