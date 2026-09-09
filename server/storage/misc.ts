@@ -321,7 +321,38 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async createCsvImport(importData: InsertCsvImport): Promise<CsvImport> {
-    const [record] = await db.insert(csvImports).values(importData).returning();
+    const [record] = await db
+      .insert(csvImports)
+      .values(importData)
+      .onConflictDoUpdate({
+        target: csvImports.executionId,
+        set: {
+          // Reset counters and status so a re-uploaded file (same hash →
+          // same executionId) processes cleanly instead of crashing with a
+          // unique-constraint violation.
+          status: importData.status ?? "processing",
+          fileName: importData.fileName,
+          sourceFormat: importData.sourceFormat,
+          totalRows: importData.totalRows,
+          newRecords: 0,
+          duplicatesSkipped: 0,
+          updatedRecords: 0,
+          invalidRows: 0,
+          skippedRows: 0,
+          errorsCount: 0,
+          dealsCreated: 0,
+          hotLeads: 0,
+          warmLeads: 0,
+          coldLeads: 0,
+          completedAt: null,
+          processedRows: null,
+          lastProgressAt: null,
+          staleReason: null,
+          optOutPreserved: 0,
+          optOutApplied: 0,
+        },
+      })
+      .returning();
     return record;
   }
 

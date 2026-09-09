@@ -1496,7 +1496,11 @@ export default function LeadImports() {
                   <p className="font-medium text-amber-600 dark:text-amber-400" data-testid={`text-detail-invalid-${imp.id}`}>{fmtOrUnknown(imp.invalidRows, imp)}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Already Exists (DB Match)</p>
+                  <p className="text-sm text-muted-foreground">
+                    {imp.sourceFormat === "google_maps_outscraper" || imp.sourceFormat === "apollo_lead_list"
+                      ? "Staged for Review"
+                      : "Already Exists (DB Match)"}
+                  </p>
                   <p className="font-medium text-blue-600 dark:text-blue-400" data-testid={`text-detail-skipped-${imp.id}`}>{fmtOrUnknown(imp.skippedRows, imp)}</p>
                 </div>
                 <div className="space-y-1">
