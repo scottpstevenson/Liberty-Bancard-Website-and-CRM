@@ -1,0 +1,372 @@
+/**
+ * Field Territory Routes
+ * All routes require FIELD_SALES_ENABLED = true (enforced via requireFieldSales middleware).
+ * Manager/admin only for mutations.
+ */
+
+import type { Express, Request, Response, NextFunction } from "express";
+import { requireRole, isAuthenticated } from "../replit_integrations/auth";
+import { db } from "../db";
+import { salesTerritories, salesTerritoryAssignments, TerritoryCriteriaSchema } from "@shared/schema";
+import { eq, and, isNull } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { z } from "zod";
+import { auditChange } from "../services/audit-change";
+import { serverError } from "../utils/server-error";
+import { featureFlags } from "../services/feature-flags";
+
+/** Middleware: returns 404 when FIELD_SALES_ENABLED is false */
+export function requireFieldSales(req: Request, res: Response, next: NextFunction): void {
+  if (!featureFlags.FIELD_SALES_ENABLED) {
+    res.status(404).json({ message: "Not found" });
+    return;
+  }
+  next();
+}
+
+/** Parse pilot rep IDs from FIELD_PILOT_REPS env var (comma-separated) */
+export function getPilotRepIds(): string[] {
+  const raw = process.env.FIELD_PILOT_REPS ?? "";
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Middleware: when FIELD_SALES_ENABLED, also enforce that the caller is in
+ * the pilot list (or there is no pilot list = everyone eligible).
+ */
+export function requireFieldSalesEligible(req: Request, res: Response, next: NextFunction): void {
+  if (!featureFlags.FIELD_SALES_ENABLED) {
+    res.status(404).json({ message: "Not found" });
+    return;
+  }
+  const pilotReps = getPilotRepIds();
+  if (pilotReps.length > 0) {
+    const userId = (req as any).user?.id ?? "";
+    // Managers and admins bypass pilot list restriction
+    const role = (req as any).user?.role ?? "";
+    if (role !== "admin" && role !== "manager" && !pilotReps.includes(userId)) {
+      res.status(403).json({ message: "Field sales not enabled for your account" });
+      return;
+    }
+  }
+  next();
+}
+
+const CreateTerritorySchema = z.object({
+  name: z.string().min(1).max(200),
+  criteria: TerritoryCriteriaSchema,
+  timezone: z.string().default("America/New_York"),
+  effectiveDate: z.string().optional(),
+});
+
+const AssignTerritorySchema = z.object({
+  agentUserId: z.string().min(1),
+  isPrimary: z.boolean().default(true),
+  overrideReason: z.string().optional(),
+  startsAt: z.string().optional(),
+  endsAt: z.string().optional(),
+});
+
+/** Check for overlap: any active territory covering shared postal codes or city+state */
+async function checkOverlap(
+  criteria: z.infer<typeof TerritoryCriteriaSchema>,
+  excludeTerritoryId?: string
+): Promise<string[]> {
+  const warnings: string[] = [];
+
+  const activeRows = await db
+    .select({ id: salesTerritories.id, name: salesTerritories.name, criteria: salesTerritories.criteria })
+    .from(salesTerritories)
+    .where(isNull(salesTerritories.expiredAt));
+
+  for (const row of activeRows) {
+    if (excludeTerritoryId && row.id === excludeTerritoryId) continue;
+    const other = row.criteria as z.infer<typeof TerritoryCriteriaSchema>;
+
+    if (criteria.postalCodes?.length && other.postalCodes?.length) {
+      const shared = criteria.postalCodes.filter((p) => other.postalCodes!.includes(p));
+      if (shared.length > 0) {
+        warnings.push(`Overlaps territory "${row.name}" on postal codes: ${shared.join(", ")}`);
+      }
+    }
+
+    if (criteria.cities?.length && other.cities?.length) {
+      const shared = criteria.cities.filter((c) => other.cities!.includes(c));
+      if (shared.length > 0 && criteria.states?.some((s) => other.states?.includes(s))) {
+        warnings.push(`Overlaps territory "${row.name}" on cities: ${shared.join(", ")}`);
+      }
+    }
+
+    if (criteria.states?.length && other.states?.length) {
+      const shared = criteria.states.filter((s) => other.states!.includes(s));
+      if (shared.length > 0) {
+        warnings.push(`Overlaps territory "${row.name}" on states: ${shared.join(", ")}`);
+      }
+    }
+  }
+
+  return warnings;
+}
+
+export function registerFieldTerritoriesRoutes(app: Express) {
+  // GET /api/field-territories — list all territories (paginated)
+  app.get(
+    "/api/field-territories",
+    requireFieldSales,
+    requireRole("admin", "manager"),
+    async (req: Request, res: Response) => {
+      try {
+        const limit = Math.min(parseInt(String(req.query.limit ?? "50")), 200);
+        const offset = parseInt(String(req.query.offset ?? "0"));
+        const rows = await db
+          .select()
+          .from(salesTerritories)
+          .orderBy(sql`created_at DESC`)
+          .limit(limit)
+          .offset(offset);
+        res.json({ territories: rows, limit, offset });
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    }
+  );
+
+  // GET /api/field-territories/:id
+  app.get(
+    "/api/field-territories/:id",
+    requireFieldSales,
+    requireRole("admin", "manager"),
+    async (req: Request, res: Response) => {
+      try {
+        const id = String(req.params.id);
+        const [territory] = await db
+          .select()
+          .from(salesTerritories)
+          .where(eq(salesTerritories.id, id))
+          .limit(1);
+        if (!territory) return res.status(404).json({ message: "Territory not found" });
+        const assignments = await db
+          .select()
+          .from(salesTerritoryAssignments)
+          .where(eq(salesTerritoryAssignments.territoryId, id));
+        res.json({ territory, assignments });
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    }
+  );
+
+  // POST /api/field-territories — create
+  app.post(
+    "/api/field-territories",
+    requireFieldSales,
+    requireRole("admin", "manager"),
+    async (req: Request, res: Response) => {
+      try {
+        const parsed = CreateTerritorySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+        }
+        const { name, criteria, timezone, effectiveDate } = parsed.data;
+        const overlapWarnings = await checkOverlap(criteria);
+
+        const [territory] = await db
+          .insert(salesTerritories)
+          .values({
+            name,
+            criteria: criteria as any,
+            timezone,
+            effectiveDate: effectiveDate ?? null,
+            version: 1,
+            createdByUserId: (req as any).user?.id ?? null,
+          })
+          .returning();
+
+        await auditChange({
+          action: "territory_created",
+          entityType: "sales_territory",
+          entityKey: territory.id,
+          userId: (req as any).user?.id ?? null,
+          details: { name, version: 1, overlapWarnings },
+        });
+
+        res.status(201).json({ territory, overlapWarnings });
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    }
+  );
+
+  // PUT /api/field-territories/:id — version (inserts new row; prior is immutable)
+  app.put(
+    "/api/field-territories/:id",
+    requireFieldSales,
+    requireRole("admin", "manager"),
+    async (req: Request, res: Response) => {
+      try {
+        const id = String(req.params.id);
+        const [prior] = await db
+          .select()
+          .from(salesTerritories)
+          .where(eq(salesTerritories.id, id))
+          .limit(1);
+        if (!prior) return res.status(404).json({ message: "Territory not found" });
+
+        const parsed = CreateTerritorySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+        }
+        const { name, criteria, timezone, effectiveDate } = parsed.data;
+        const overlapWarnings = await checkOverlap(criteria, id);
+
+        const [newVersion] = await db
+          .insert(salesTerritories)
+          .values({
+            name,
+            criteria: criteria as any,
+            timezone,
+            effectiveDate: effectiveDate ?? null,
+            version: (prior.version ?? 1) + 1,
+            createdByUserId: (req as any).user?.id ?? null,
+          })
+          .returning();
+
+        await auditChange({
+          action: "territory_versioned",
+          entityType: "sales_territory",
+          entityKey: newVersion.id,
+          userId: (req as any).user?.id ?? null,
+          details: { priorId: prior.id, newVersion: newVersion.version, overlapWarnings },
+        });
+
+        res.json({ territory: newVersion, overlapWarnings });
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    }
+  );
+
+  // POST /api/field-territories/:id/assignments — assign rep
+  app.post(
+    "/api/field-territories/:id/assignments",
+    requireFieldSales,
+    requireRole("admin", "manager"),
+    async (req: Request, res: Response) => {
+      try {
+        const territoryId = String(req.params.id);
+        const [territory] = await db
+          .select()
+          .from(salesTerritories)
+          .where(eq(salesTerritories.id, territoryId))
+          .limit(1);
+        if (!territory) return res.status(404).json({ message: "Territory not found" });
+
+        const parsed = AssignTerritorySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Validation error", errors: parsed.error.issues });
+        }
+
+        const { agentUserId, isPrimary, overrideReason, startsAt, endsAt } = parsed.data;
+
+        if (!isPrimary && !overrideReason) {
+          return res.status(400).json({ message: "override_reason is required for non-primary (shared) assignments" });
+        }
+
+        const assignment = await db.transaction(async (tx) => {
+          if (isPrimary) {
+            const existing = await tx
+              .select({ id: salesTerritoryAssignments.id })
+              .from(salesTerritoryAssignments)
+              .where(
+                and(
+                  eq(salesTerritoryAssignments.territoryId, territoryId),
+                  eq(salesTerritoryAssignments.isPrimary, true),
+                  isNull(salesTerritoryAssignments.endsAt)
+                )
+              )
+              .limit(1);
+            if (existing.length > 0) {
+              throw Object.assign(new Error("A primary assignment already exists for this territory"), { code: "CONFLICT" });
+            }
+          }
+
+          const [row] = await tx
+            .insert(salesTerritoryAssignments)
+            .values({
+              territoryId,
+              agentUserId,
+              isPrimary,
+              overrideApproverUserId: isPrimary ? null : ((req as any).user?.id ?? null),
+              overrideReason: isPrimary ? null : (overrideReason ?? null),
+              overrideAt: isPrimary ? null : new Date(),
+              startsAt: startsAt ? new Date(startsAt) : new Date(),
+              endsAt: endsAt ? new Date(endsAt) : null,
+              createdByUserId: (req as any).user?.id ?? null,
+            })
+            .returning();
+          return row;
+        });
+
+        await auditChange({
+          action: "territory_assigned",
+          entityType: "sales_territory_assignment",
+          entityKey: assignment.id,
+          userId: (req as any).user?.id ?? null,
+          details: { territoryId, agentUserId, isPrimary },
+        });
+
+        res.status(201).json({ assignment });
+      } catch (err: any) {
+        if ((err as any).code === "CONFLICT" || (err as any).code === "23505") {
+          return res.status(409).json({ message: (err as any).message || "A primary assignment already exists for this territory" });
+        }
+        serverError(res, err);
+      }
+    }
+  );
+
+  // DELETE /api/field-territories/:id/assignments/:assignmentId — expire assignment
+  app.delete(
+    "/api/field-territories/:id/assignments/:assignmentId",
+    requireFieldSales,
+    requireRole("admin", "manager"),
+    async (req: Request, res: Response) => {
+      try {
+        const territoryId = String(req.params.id);
+        const assignmentId = String(req.params.assignmentId);
+
+        const [assignment] = await db
+          .select()
+          .from(salesTerritoryAssignments)
+          .where(
+            and(
+              eq(salesTerritoryAssignments.id, assignmentId),
+              eq(salesTerritoryAssignments.territoryId, territoryId)
+            )
+          )
+          .limit(1);
+        if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+
+        await db
+          .update(salesTerritoryAssignments)
+          .set({ endsAt: new Date() })
+          .where(eq(salesTerritoryAssignments.id, assignmentId));
+
+        await auditChange({
+          action: "territory_unassigned",
+          entityType: "sales_territory_assignment",
+          entityKey: assignmentId,
+          userId: (req as any).user?.id ?? null,
+          details: { territoryId },
+        });
+
+        res.json({ success: true });
+      } catch (err: any) {
+        serverError(res, err);
+      }
+    }
+  );
+}

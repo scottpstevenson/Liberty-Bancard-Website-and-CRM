@@ -78,6 +78,8 @@ import { registerUnderwritingConditionRoutes } from "./routes/underwriting-condi
 import { registerMerchantMidRoutes } from "./routes/merchant-mids";
 import { registerSaveCaseRoutes } from "./routes/save-cases";
 import { registerAiMemoryRoutes } from "./routes/ai-memory";
+import { registerFieldTerritoriesRoutes } from "./routes/field-territories";
+import { registerFieldRoutesRoutes } from "./routes/field-routes";
 import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 import { registerCensusRoutes } from "./routes/census";
 import { registerReconciliationRoutes } from "./routes/reconciliation";
@@ -250,6 +252,8 @@ export async function registerRoutes(
   registerReconciliationRoutes(app);         // #1824 — existing-data reconciliation
   registerIdentityCrosswalkRoutes(app);     // #1830 — cross-system identity crosswalk
   registerOutreachQueueRoutes(app);          // #1493 — ready-for-outreach rep queue
+  registerFieldTerritoriesRoutes(app);       // #1861 — field sales territories
+  registerFieldRoutesRoutes(app);            // #1861 — field sales routes & visits
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

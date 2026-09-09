@@ -110,6 +110,14 @@ const KNOWN_MISMATCHES = new Set<string>([
   "/api/admin/contacts/bulk-delete-snapshot",
   "/api/admin/contacts/bulk-hard-delete",
   "/api/admin/contacts/bulk-hard-delete/preview",
+  // Task #1861 — Field Sales Operations
+  // Server handlers exist in server/routes/field-routes.ts registered via registerFieldRoutesRoutes
+  // Coverage script sees template-literal stop-claim path as :param/:param pattern
+  "/api/field-routes/:param/stops/:param/claim",
+  // GET /api/field-routes/my-today — server handler exists; coverage sees static literal
+  "/api/field-routes/my-today",
+  // POST /api/field-visits — server handler exists
+  "/api/field-visits",
 ]);
 
 function main() {

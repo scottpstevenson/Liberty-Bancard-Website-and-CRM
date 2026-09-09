@@ -4686,6 +4686,7 @@ export const businesses = pgTable("businesses", {
   recordClass: text("record_class").notNull().default("unknown"),
   lastSourceType: text("last_source_type"),
   lastEnrichedAt: timestamp("last_enriched_at"),
+  doNotVisit: boolean("do_not_visit").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -8659,3 +8660,143 @@ export const cro07ExperimentSamples = pgTable("cro07_experiment_samples", {
 }, (table) => [
   uniqueIndex("cro07_experiment_sample_arm_uidx").on(table.experimentId, table.arm),
 ]);
+
+// ── Field Sales: Door-to-Door Territory & Visit Operations ───────────────────
+
+/** Canonical outcome codes for field visit dispositions */
+export const FIELD_VISIT_OUTCOME_CODES = [
+  "visited_owner_spoke",
+  "visited_owner_absent",
+  "left_materials",
+  "follow_up_requested",
+  "statement_requested",
+  "do_not_visit",
+  "no_answer",
+] as const;
+export type FieldVisitOutcomeCode = (typeof FIELD_VISIT_OUTCOME_CODES)[number];
+
+/** Territory criteria Zod schema — validated at write time */
+export const TerritoryCriteriaSchema = z
+  .object({
+    postalCodes: z
+      .array(z.string().regex(/^\d{5}$/, "postal codes must be 5 digits"))
+      .max(50)
+      .optional(),
+    cities: z
+      .array(z.string().min(1))
+      .max(20)
+      .optional(),
+    states: z
+      .array(z.string().regex(/^[A-Z]{2}$/, "states must be 2-letter USPS codes"))
+      .max(5)
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      (v.postalCodes && v.postalCodes.length > 0) ||
+      (v.cities && v.cities.length > 0) ||
+      (v.states && v.states.length > 0),
+    { message: "At least one of postalCodes, cities, or states must be non-empty" }
+  );
+export type TerritoryCriteria = z.infer<typeof TerritoryCriteriaSchema>;
+
+export const salesTerritories = pgTable("sales_territories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  criteria: jsonb("criteria").notNull(),
+  timezone: text("timezone").notNull().default("America/New_York"),
+  effectiveDate: date("effective_date"),
+  expiredAt: timestamp("expired_at", { withTimezone: true }),
+  version: integer("version").notNull().default(1),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  frozenAt: timestamp("frozen_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export type SalesTerritory = typeof salesTerritories.$inferSelect;
+
+export const salesTerritoryAssignments = pgTable("sales_territory_assignments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  territoryId: uuid("territory_id").notNull().references(() => salesTerritories.id),
+  agentUserId: varchar("agent_user_id").notNull().references(() => users.id),
+  isPrimary: boolean("is_primary").notNull().default(true),
+  overrideApproverUserId: varchar("override_approver_user_id").references(() => users.id),
+  overrideReason: text("override_reason"),
+  overrideAt: timestamp("override_at", { withTimezone: true }),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("sta_agent_user_id_idx").on(table.agentUserId),
+]);
+export type SalesTerritoryAssignment = typeof salesTerritoryAssignments.$inferSelect;
+
+export const fieldRoutePreviews = pgTable("field_route_previews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  territoryId: uuid("territory_id").references(() => salesTerritories.id),
+  repUserId: varchar("rep_user_id").notNull().references(() => users.id),
+  routeDate: date("route_date").notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  candidateSnapshot: jsonb("candidate_snapshot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+export type FieldRoutePreview = typeof fieldRoutePreviews.$inferSelect;
+
+export const fieldRoutes = pgTable("field_routes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  previewId: uuid("preview_id").references(() => fieldRoutePreviews.id),
+  territoryId: uuid("territory_id").references(() => salesTerritories.id),
+  repUserId: varchar("rep_user_id").notNull().references(() => users.id),
+  routeDate: date("route_date").notNull(),
+  status: text("status").notNull().default("open"),
+  frozenAt: timestamp("frozen_at", { withTimezone: true }),
+  frozenByUserId: varchar("frozen_by_user_id").references(() => users.id),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelledByUserId: varchar("cancelled_by_user_id").references(() => users.id),
+  policyVersion: text("policy_version").notNull(),
+  stopCount: integer("stop_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+export type FieldRoute = typeof fieldRoutes.$inferSelect;
+
+export const fieldRouteStops = pgTable("field_route_stops", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  routeId: uuid("route_id").notNull().references(() => fieldRoutes.id),
+  businessId: integer("business_id").notNull().references(() => businesses.id),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  plannedOrder: integer("planned_order").notNull(),
+  recordFingerprint: text("record_fingerprint").notNull(),
+  status: text("status").notNull().default("available"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  claimedByUserId: varchar("claimed_by_user_id").references(() => users.id),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("frs_route_id_idx").on(table.routeId),
+]);
+export type FieldRouteStop = typeof fieldRouteStops.$inferSelect;
+
+export const fieldVisits = pgTable("field_visits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  stopId: uuid("stop_id").notNull().references(() => fieldRouteStops.id),
+  repUserId: varchar("rep_user_id").notNull().references(() => users.id),
+  businessId: integer("business_id").notNull().references(() => businesses.id),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
+  outcomeCode: text("outcome_code").notNull(),
+  note: text("note"),
+  confirmed: boolean("confirmed").notNull().default(false),
+  latitude: numeric("latitude", { precision: 9, scale: 6 }),
+  longitude: numeric("longitude", { precision: 9, scale: 6 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("fv_stop_id_idx").on(table.stopId),
+  index("fv_rep_visited_idx").on(table.repUserId, table.visitedAt),
+]);
+export type FieldVisit = typeof fieldVisits.$inferSelect;

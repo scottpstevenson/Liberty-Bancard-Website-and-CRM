@@ -14,6 +14,7 @@ import MobileInbox from "./MobileInbox";
 import MobileSequences from "./MobileSequences";
 import MobileMore from "./MobileMore";
 import MobileOutreach from "./MobileOutreach";
+import MobileFieldDay from "./MobileFieldDay";
 
 const PREFER_DESKTOP_KEY = "prefer_desktop";
 
@@ -181,6 +182,7 @@ function MobileShell() {
         <Route path="/mobile/sequences" component={MobileSequences} />
         <Route path="/mobile/more" component={MobileMore} />
         <Route path="/mobile/outreach" component={MobileOutreach} />
+        <Route path="/mobile/field-day" component={MobileFieldDay} />
         <Route><Redirect to="/mobile" /></Route>
       </Switch>
 

@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   CheckSquare, MessageSquare, BarChart3, ShieldAlert, Activity,
   Monitor, ChevronRight, TrendingUp, Mail, Users, Zap,
-  AlertCircle, CheckCircle2, Clock, ExternalLink,
+  AlertCircle, CheckCircle2, Clock, ExternalLink, MapPin,
 } from "lucide-react";
 
 type HealthResult = {
@@ -77,6 +77,12 @@ export default function MobileMore() {
   const isManager = (user as any)?.role === "manager";
   const canSeeOps = isAdmin || isManager;
 
+  const { data: fieldSalesStatus } = useQuery<{ enabled: boolean; eligible: boolean }>({
+    queryKey: ["/api/field-sales/status"],
+    staleTime: 1000 * 60 * 5,
+    retry: false,
+  });
+
   const { data: tasks = [] } = useQuery<any[]>({
     queryKey: ["/api/tasks"],
     staleTime: 1000 * 60 * 2,
@@ -128,6 +134,15 @@ export default function MobileMore() {
         {/* Work */}
         <SectionHeader title="Work" />
         <div className="bg-white dark:bg-gray-800 mx-4 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700">
+          {fieldSalesStatus?.eligible && (
+            <Row
+              icon={MapPin}
+              label="Field Day"
+              sublabel="Today's door-to-door stops"
+              onPress={() => setLocation("/mobile/field-day")}
+              iconColor="text-emerald-600"
+            />
+          )}
           <Row
             icon={CheckSquare}
             label="Tasks"

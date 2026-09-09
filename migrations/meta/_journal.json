@@ -1,12 +1,6 @@
 {
   "version": "7",
   "dialect": "postgresql",
-
-  "version": "7",
-  "dialect": "postgresql",
-
-  "version": "7",
-  "dialect": "postgresql",
   "entries": [
     {
       "idx": 6,
@@ -1707,16 +1701,34 @@
       "when": 1800000003200,
       "tag": "0238_rev06a_merchant_sandbox_snapshot",
       "breakpoints": false
-    }
-  ,
+    },
     {
       "idx": 243,
       "version": "7",
       "when": 1800000004200,
       "tag": "0239_rev06a_mid_daily_stats_nullable",
       "breakpoints": false
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1800000004300,
+      "tag": "0240_field_sales_territories",
+      "breakpoints": false
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1800000004400,
+      "tag": "0241_field_sales_routes",
+      "breakpoints": false
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1800000004500,
+      "tag": "0242_field_sales_visits",
+      "breakpoints": false
     }
   ]
-
 }
-

@@ -49,6 +49,7 @@ export function getGhlCrmSyncMode(): GhlCrmSyncMode {
 }
 
 export const featureFlags = {
+  get FIELD_SALES_ENABLED() { return dbFallbackBool("FIELD_SALES_ENABLED", false); },
   get SDR_ENABLED() { return dbFallbackBool("SDR_ENABLED", true); },
   get ORCHESTRATOR_ENABLED() { return dbFallbackBool("ORCHESTRATOR_ENABLED", false); },
   get LEGACY_OUTREACH_ENABLED() { return dbFallbackBool("LEGACY_OUTREACH_ENABLED", false); },
@@ -64,6 +65,7 @@ export const featureFlags = {
 
 export function getAllFlags(): Record<string, boolean | number | string> {
   return {
+    FIELD_SALES_ENABLED: featureFlags.FIELD_SALES_ENABLED,
     SDR_ENABLED: featureFlags.SDR_ENABLED,
     GHL_CRM_SYNC_MODE: getGhlCrmSyncMode(),
     ORCHESTRATOR_ENABLED: featureFlags.ORCHESTRATOR_ENABLED,
