@@ -30,6 +30,43 @@ import {
 } from "../services/identity-crosswalk-runner";
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Startup cleanup — mark orphaned runs as interrupted
+// ──────────────────────────────────────────────────────────────────────────────
+/**
+ * On every server restart, any run whose lease_expires_at is in the past and
+ * status is still 'running' or 'pending' is marked 'interrupted'.  The runner
+ * that held the lease is guaranteed to be dead (this process owns a fresh PID),
+ * so the CAS guard that normally protects status transitions is safe to bypass
+ * here: we explicitly require the lease to be expired before touching the row.
+ *
+ * A 'paused' run is intentionally excluded — paused runs have no active worker
+ * and can be resumed or cancelled by the admin at any time; they are not orphans.
+ */
+async function cleanupStaleRuns(): Promise<void> {
+  try {
+    const r = await pool.query(
+      `UPDATE contact_identity_reconciliation_runs
+         SET status = 'interrupted',
+             fail_reason = 'Server restarted while run was active. Resume or cancel from the admin panel.',
+             updated_at  = now()
+       WHERE status IN ('running', 'pending')
+         AND lease_expires_at < now()
+       RETURNING id, generation`,
+    );
+    if ((r.rowCount ?? 0) > 0) {
+      for (const row of r.rows) {
+        console.log(
+          `[IdentityCrosswalk] Marked orphaned run #${row.generation} (${row.id.slice(0, 8)}…) as interrupted`,
+        );
+      }
+    }
+  } catch (err: any) {
+    // Non-fatal — log and continue startup.  The admin can still manually cancel.
+    console.warn(`[IdentityCrosswalk] Stale-run cleanup failed: ${err.message}`);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 function isUUID(v: string): boolean {
@@ -57,6 +94,9 @@ function deriveEnvironment(): string {
 // Route registration
 // ──────────────────────────────────────────────────────────────────────────────
 export function registerIdentityCrosswalkRoutes(app: Express): void {
+
+  // Run cleanup once at startup — non-blocking
+  cleanupStaleRuns();
 
   // ── POST /api/admin/identity-crosswalk/runs ───────────────────────────────
   // Atomically freeze all watermarks, create run, then trigger runner.
@@ -254,7 +294,7 @@ export function registerIdentityCrosswalkRoutes(app: Express): void {
       const r = await pool.query(
         `UPDATE contact_identity_reconciliation_runs
          SET status = 'cancelled', updated_at = now()
-         WHERE id = $1 AND status IN ('pending', 'running', 'paused')
+         WHERE id = $1 AND status IN ('pending', 'running', 'paused', 'interrupted')
          RETURNING id`,
         [runId],
       );

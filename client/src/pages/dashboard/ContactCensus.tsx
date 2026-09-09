@@ -135,8 +135,9 @@ function StatusBadge({ status }: { status: string }) {
     running: "bg-blue-100 text-blue-800 animate-pulse",
     paused: "bg-yellow-100 text-yellow-800",
     failed: "bg-red-100 text-red-800",
-    cancelled: "bg-gray-100 text-gray-600",
-    pending: "bg-gray-100 text-gray-600",
+    cancelled:    "bg-gray-100 text-gray-600",
+    pending:      "bg-gray-100 text-gray-600",
+    interrupted:  "bg-orange-100 text-orange-800",
   };
   return <Badge className={map[status] ?? "bg-gray-100 text-gray-600"}>{status}</Badge>;
 }
@@ -1206,25 +1207,60 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
 }
 
 function ReconciliationRunDetail({ runId }: { runId: string }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery<ReconciliationRun>({
     queryKey: [`/api/admin/reconciliation/runs/${runId}`],
-    refetchInterval: (q) =>
-      q.state.data?.status === "running" || q.state.data?.status === "pending" ? 3_000 : false,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return (s === "running" || s === "pending") ? 3_000 : false;
+    },
   });
+
+  const cancelReconMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/cancel`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/reconciliation/runs"] });
+      qc.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}`] });
+      toast({ title: "Reconciliation run cancelled" });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Cancel failed", description: e.message, variant: "destructive" }),
+  });
+
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   const isQuality = data.rules_version === "quality-v1";
+  const canCancel = ["running", "paused", "pending", "interrupted"].includes(data.status);
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <CardTitle className="text-base">Run {data.id.slice(0, 8)}…</CardTitle>
-          <StatusBadge status={data.status} />
-          {isQuality && (
-            <Badge className="bg-purple-100 text-purple-800 text-xs">quality-v1</Badge>
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <CardTitle className="text-base">Run {data.id.slice(0, 8)}…</CardTitle>
+            <StatusBadge status={data.status} />
+            {isQuality && (
+              <Badge className="bg-purple-100 text-purple-800 text-xs">quality-v1</Badge>
+            )}
+          </div>
+          {canCancel && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => cancelReconMutation.mutate()}
+              disabled={cancelReconMutation.isPending}
+            >
+              <XCircle className="h-3 w-3 mr-1" /> Cancel run
+            </Button>
           )}
         </div>
+        {data.status === "interrupted" && (
+          <p className="text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded mt-1">
+            This run was interrupted by a server restart. Cancel it to start a new one.
+          </p>
+        )}
         <CardDescription className="text-xs">Census run: {data.source_census_run_id.slice(0, 8)}…</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

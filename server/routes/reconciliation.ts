@@ -78,7 +78,39 @@ function csvCell(v: string | boolean | number | null | undefined): string {
 // ──────────────────────────────────────────────────────────────────────────────
 // Route registration
 // ──────────────────────────────────────────────────────────────────────────────
+/**
+ * On server restart, mark any reconciliation run whose lease has expired but
+ * status is still 'running' or 'pending' as 'interrupted'.  The worker that
+ * held the lease is guaranteed dead (fresh PID), so no CAS guard is needed —
+ * we require only that the lease already expired before touching the row.
+ * 'paused' runs are intentionally excluded: they have no active worker and
+ * can be resumed or cancelled by the admin at any time.
+ */
+async function cleanupStaleReconRuns(): Promise<void> {
+  try {
+    const r = await pool.query(
+      `UPDATE contact_reconciliation_runs
+         SET status      = 'interrupted',
+             updated_at  = now()
+       WHERE status IN ('running', 'pending')
+         AND lease_expires_at < now()
+       RETURNING id, rules_version`,
+    );
+    for (const row of r.rows as Array<{ id: string; rules_version: string | null }>) {
+      console.log(
+        `[Reconciliation] Marked orphaned run ${row.id.slice(0, 8)}… (${row.rules_version ?? "?"}) as interrupted`,
+      );
+    }
+  } catch (err: any) {
+    // Non-fatal — log and continue startup.
+    console.warn(`[Reconciliation] Stale-run cleanup failed: ${err.message}`);
+  }
+}
+
 export function registerReconciliationRoutes(app: Express): void {
+
+  // Mark any orphaned runs left by the previous server process
+  cleanupStaleReconRuns();
 
   // ── GET /api/admin/contacts/suppressed-fake-phones ────────────────────────
   // Returns the count and a paged list of contacts suppressed by fake-phone
@@ -363,7 +395,7 @@ export function registerReconciliationRoutes(app: Express): void {
       const r = await pool.query(
         `UPDATE contact_reconciliation_runs
          SET status='cancelled', updated_at=now()
-         WHERE id=$1 AND status IN ('running','paused','pending')
+         WHERE id=$1 AND status IN ('running','paused','pending','interrupted')
          RETURNING id`,
         [runId],
       );

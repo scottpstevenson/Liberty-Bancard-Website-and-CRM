@@ -98,8 +98,9 @@ function statusBadge(status: string) {
     running:   "bg-blue-100 text-blue-800 border-blue-200",
     paused:    "bg-amber-100 text-amber-800 border-amber-200",
     completed: "bg-green-100 text-green-800 border-green-200",
-    cancelled: "bg-gray-100 text-gray-600 border-gray-200",
-    failed:    "bg-red-100 text-red-800 border-red-200",
+    cancelled:    "bg-gray-100 text-gray-600 border-gray-200",
+    failed:       "bg-red-100 text-red-800 border-red-200",
+    interrupted:  "bg-orange-100 text-orange-800 border-orange-200",
   };
   return map[status] ?? "bg-muted text-muted-foreground border-border";
 }
@@ -174,7 +175,7 @@ function RunDetailCard({ run, onAction }: { run: IdentityRun; onAction: (action:
                 <Play className="h-3.5 w-3.5 mr-1" /> Resume
               </Button>
             )}
-            {(run.status === "pending" || run.status === "running" || run.status === "paused") && (
+            {(run.status === "pending" || run.status === "running" || run.status === "paused" || run.status === "interrupted") && (
               <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
                       onClick={() => onAction("cancel")}>
                 <X className="h-3.5 w-3.5 mr-1" /> Cancel
