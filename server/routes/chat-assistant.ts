@@ -25,6 +25,9 @@ import {
   type Audience,
 } from "../services/chat-assistant";
 import { rateLimit } from "express-rate-limit";
+import crypto from "crypto";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 // Stricter rate limit for the chat endpoint (layered on top of per-session limiting)
 // Uses default IP-based key generator to satisfy express-rate-limit IPv6 validation.
@@ -54,24 +57,30 @@ export function registerChatAssistantRoutes(app: Express) {
   app.post("/api/assistant/session", chatRateLimit, async (req: Request, res: Response) => {
     try {
       const audience = resolveAudience(req);
-      // Coerce to integer — Clerk/OAuth providers may surface a UUID string as `id`.
-      // The assistant_sessions.user_id column is integer; a UUID string would cause
-      // "invalid input syntax for type integer" and crash session creation.
       const rawUserId = (req.user as any)?.id;
-      const userId = typeof rawUserId === "number"
-        ? rawUserId
-        : (typeof rawUserId === "string" && /^\d+$/.test(rawUserId) ? parseInt(rawUserId, 10) : undefined);
+      const userId = rawUserId == null ? undefined : String(rawUserId);
       const existingSessionId = req.body?.sessionId;
       const ip = req.ip;
 
-      const sessionId = await getOrCreateSession({
+      const session = await getOrCreateSession({
         sessionId: existingSessionId,
         audience,
         userId,
+        authenticated: req.isAuthenticated(),
+        capabilityToken: req.cookies?.kas_cap,
         ip,
       });
+      if (!session) return res.status(404).json({ error: "Not found" });
+      if (session.capabilityToken) {
+        res.cookie("kas_cap", session.capabilityToken, {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 24 * 60 * 60 * 1000,
+        });
+      }
 
-      res.json({ sessionId, audience });
+      res.json({ sessionId: session.sessionId, audience });
     } catch (e: any) {
       console.error("[Assistant] Session creation error:", e.message);
       res.status(500).json({ error: "Unable to create session." });
@@ -135,6 +144,9 @@ export function registerChatAssistantRoutes(app: Express) {
       const sessionId = req.query.sessionId as string;
       if (!sessionId) return res.status(400).json({ error: "sessionId is required." });
 
+      if (!(await ownsSession(req, sessionId))) {
+        return res.status(404).json({ error: "Not found" });
+      }
       const history = await getSessionHistory(sessionId);
       // Return only role + content — no tokens, no PII metadata to client
       res.json({ messages: history.map(h => ({ role: h.role, content: h.content })) });
@@ -155,6 +167,17 @@ export function registerChatAssistantRoutes(app: Express) {
         return res.status(400).json({ error: "rating must be thumbs_up or thumbs_down." });
       }
 
+      if (!(await ownsSession(req, String(sessionId)))) {
+        return res.status(404).json({ error: "Not found" });
+      }
+      const messageResult = await db.execute(sql`
+        SELECT 1 FROM assistant_messages
+        WHERE id = ${Number(messageId)} AND session_id = ${String(sessionId)}
+        LIMIT 1
+      `);
+      if (!messageResult.rows.length) {
+        return res.status(404).json({ error: "Not found" });
+      }
       await recordFeedback({
         messageId: Number(messageId),
         sessionId: String(sessionId),
@@ -180,6 +203,25 @@ export function registerChatAssistantRoutes(app: Express) {
       chatAvailable: isBusinessHours(),
     });
   });
+}
+
+async function ownsSession(req: Request, sessionId: string): Promise<boolean> {
+  const result = await db.execute(sql`
+    SELECT user_id, capability_token_hash
+    FROM assistant_sessions
+    WHERE id = ${sessionId}
+    LIMIT 1
+  `);
+  if (!result.rows.length) return false;
+  const session = result.rows[0] as any;
+  if (req.isAuthenticated()) {
+    return session.user_id != null &&
+      String(session.user_id) === String((req.user as any)?.id);
+  }
+  const token = req.cookies?.kas_cap;
+  if (!token || !session.capability_token_hash) return false;
+  const hash = crypto.createHash("sha256").update(token).digest("hex");
+  return hash === session.capability_token_hash;
 }
 
 function isBusinessHours(): boolean {

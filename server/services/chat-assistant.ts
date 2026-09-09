@@ -22,6 +22,7 @@ import {
   SAFE_ERRORS,
 } from "./chat-safety";
 import { logAiCall } from "./ai-audit-logger";
+import crypto from "crypto";
 
 export type Audience = "public" | "merchant" | "staff";
 
@@ -87,32 +88,65 @@ When escalating, provide contact info and offer to draft an email for the human 
 export async function getOrCreateSession(opts: {
   sessionId?: string;
   audience: Audience;
-  userId?: number;
+  userId?: string;
   contactId?: number;
   ip?: string;
-}): Promise<string> {
+  authenticated?: boolean;
+  capabilityToken?: string;
+}): Promise<{ sessionId: string; capabilityToken?: string } | null> {
   if (opts.sessionId) {
     const { rows } = await db.execute(sql`
-      SELECT id FROM assistant_sessions WHERE id = ${opts.sessionId}
+      SELECT id, user_id, capability_token_hash FROM assistant_sessions WHERE id = ${opts.sessionId}
     `);
     if (rows.length) {
-      await db.execute(sql`
-        UPDATE assistant_sessions SET last_active_at = NOW() WHERE id = ${opts.sessionId}
-      `);
-      return opts.sessionId;
+      const session = rows[0] as any;
+      if (opts.authenticated) {
+        if (session.user_id != null && String(session.user_id) !== String(opts.userId)) return null;
+        if (session.user_id == null && opts.userId != null) {
+          await db.execute(sql`
+            UPDATE assistant_sessions
+            SET user_id = ${String(opts.userId)}, user_id_locked = TRUE
+            WHERE id = ${opts.sessionId}
+          `);
+        }
+      } else {
+        const suppliedHash = opts.capabilityToken
+          ? crypto.createHash("sha256").update(opts.capabilityToken).digest("hex")
+          : null;
+        if (!suppliedHash || suppliedHash !== session.capability_token_hash) {
+          // An unauthenticated caller with an invalid capability gets a fresh session.
+        } else {
+          await db.execute(sql`
+            UPDATE assistant_sessions SET last_active_at = NOW() WHERE id = ${opts.sessionId}
+          `);
+          return { sessionId: opts.sessionId };
+        }
+      }
+      if (opts.authenticated) {
+        await db.execute(sql`
+          UPDATE assistant_sessions SET last_active_at = NOW() WHERE id = ${opts.sessionId}
+        `);
+        return { sessionId: opts.sessionId };
+      }
     }
   }
 
   const ipHash = opts.ip ? hashIp(opts.ip) : null;
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+  const capabilityToken = opts.authenticated ? undefined : crypto.randomBytes(32).toString("hex");
+  const capabilityTokenHash = capabilityToken
+    ? crypto.createHash("sha256").update(capabilityToken).digest("hex")
+    : null;
 
   const { rows } = await db.execute(sql`
-    INSERT INTO assistant_sessions (audience, user_id, contact_id, ip_hash, expires_at)
-    VALUES (${opts.audience}, ${opts.userId ?? null}, ${opts.contactId ?? null},
-            ${ipHash}, ${expiresAt.toISOString()})
+    INSERT INTO assistant_sessions
+      (audience, user_id, user_id_locked, capability_token_hash, contact_id, ip_hash, expires_at)
+    VALUES (${opts.audience}, ${opts.authenticated ? opts.userId ?? null : null},
+            ${opts.authenticated ?? false}, ${capabilityTokenHash},
+            ${opts.contactId ?? null}, ${ipHash}, ${expiresAt.toISOString()})
     RETURNING id
   `);
-  return (rows[0] as any).id;
+  return { sessionId: (rows[0] as any).id, capabilityToken };
 }
 
 export async function getSessionHistory(sessionId: string): Promise<ChatMessage[]> {
@@ -131,7 +165,7 @@ export async function assistantChat(opts: {
   sessionId: string;
   userMessage: string;
   audience: Audience;
-  userId?: number;
+  userId?: string;
   userRole?: string;
   ip?: string;
 }): Promise<AssistantResponse> {

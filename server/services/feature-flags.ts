@@ -57,6 +57,7 @@ export const featureFlags = {
   get SMS_ENABLED() { return dbFallbackBool("SMS_ENABLED", false); },
   get RINGLESS_VM_ENABLED() { return dbFallbackBool("RINGLESS_VM_ENABLED", false); },
   get NIGHTLY_DISCOVERY_ENABLED() { return dbFallbackBool("NIGHTLY_DISCOVERY_ENABLED", false); },
+  get CALL_ASSIST_ENABLED() { return dbFallbackBool("CALL_ASSIST_ENABLED", false); },
   get ORCHESTRATOR_BATCH_SIZE() { return Math.min(500, Math.max(1, envInt("ORCHESTRATOR_BATCH_SIZE", 25))); },
   get ORCHESTRATOR_REVIEW_MODE() { return envBool("ORCHESTRATOR_REVIEW_MODE", false); },
 };
@@ -72,6 +73,7 @@ export function getAllFlags(): Record<string, boolean | number | string> {
     SMS_ENABLED: featureFlags.SMS_ENABLED,
     RINGLESS_VM_ENABLED: featureFlags.RINGLESS_VM_ENABLED,
     NIGHTLY_DISCOVERY_ENABLED: featureFlags.NIGHTLY_DISCOVERY_ENABLED,
+    CALL_ASSIST_ENABLED: featureFlags.CALL_ASSIST_ENABLED,
     ORCHESTRATOR_BATCH_SIZE: featureFlags.ORCHESTRATOR_BATCH_SIZE,
     ORCHESTRATOR_REVIEW_MODE: featureFlags.ORCHESTRATOR_REVIEW_MODE,
   };

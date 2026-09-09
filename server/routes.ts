@@ -47,6 +47,7 @@ import { registerBoardingRoutes } from "./routes/boarding";
 import { registerPushRoutes } from "./routes/push";
 import { registerPartnerOrgsRoutes } from "./routes/partner-orgs";
 import { registerPermissionsAuditRoutes } from "./routes/permissions-audit";
+import { registerCallAssistRoutes } from "./routes/call-assist";
 import { registerContentRoutes } from "./routes/content";
 import { registerSocialRoutes } from "./routes/social";
 import { registerReviewQueueRoutes } from "./routes/review-queue";
@@ -254,6 +255,7 @@ export async function registerRoutes(
   // permissions by walking the already-populated express router stack
   // (Task #169 API surface audit).
   registerPermissionsAuditRoutes(app);
+  registerCallAssistRoutes(app);
 
   // API 404 catch-all — must come AFTER all /api routes are registered but
   // BEFORE the Vite/static SPA fallback so unknown API paths return JSON

@@ -1674,6 +1674,12 @@
       "when": 1800000001000,
       "tag": "0234_contact_remediation_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "7",
+      "when": 1800000001100,
+      "tag": "0235_sales_knowledge_authority"
     }
   ]
 }

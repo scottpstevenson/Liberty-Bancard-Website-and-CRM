@@ -94,6 +94,7 @@ import { CallLogsTab } from "./contact-detail-tabs/CallLogsTab"; // #460
 import { SalesIntelPanel } from "./contact-detail-tabs/SalesIntelPanel"; // #1475
 import { LogCallSheet } from "./contact-detail-tabs/LogCallSheet"; // #1475
 import { NextStepsWidget } from "./contact-detail-tabs/NextStepsWidget"; // #1475
+import CallAssistPanel from "@/components/CallAssistPanel";
 
 // ── Confirmation Status Section ───────────────────────────────────────────────
 /**
@@ -2425,6 +2426,9 @@ export default function ContactDetail() {
             <Phone className="h-3.5 w-3.5 mr-1" />
             Calls &amp; VMs
           </TabsTrigger>
+          {(user?.role === "agent" || user?.role === "manager" || user?.role === "admin") && (
+            <TabsTrigger value="call-assist" data-testid="tab-call-assist">Call Assist</TabsTrigger>
+          )}
           <TabsTrigger value="relationships" data-testid="tab-relationships">
             <GitFork className="h-3.5 w-3.5 mr-1" />
             Relationships
@@ -2573,6 +2577,11 @@ export default function ContactDetail() {
             <CallLogsTab contactId={contactId} />
           </div>
         </TabsContent>
+        {(user?.role === "agent" || user?.role === "manager" || user?.role === "admin") && (
+          <TabsContent value="call-assist" data-testid="tab-content-call-assist">
+            <CallAssistPanel contactId={contact.id} />
+          </TabsContent>
+        )}
 
         <TabsContent value="relationships" data-testid="tab-content-relationships">
           <RelationshipsTab contactId={contactId} />

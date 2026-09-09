@@ -8,6 +8,8 @@ import { roleplaySessions, roleplayExchanges, users } from "@shared/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import { createMasterVault, getVaultStatus } from "../services/business-vault";
 import { serverError } from "../utils/server-error";
+import crypto from "crypto";
+import { pool } from "../db";
 
 // Admin or manager role required for write operations
 const isAdminOrManager: RequestHandler = (req, res, next) => {
@@ -179,14 +181,23 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
 
       // Parse SCORE_JSON from the response
       let merchantReply = raw;
-      let scoreData = { toneScore: 7, clarityScore: 7, objectionAddressed: false, feedback: "" };
+       let scoreData: { toneScore: number; clarityScore: number; objectionAddressed: boolean; feedback: string } | null = null;
+       let scoringErrorCode: string | null = null;
 
       const scoreMatch = raw.match(/SCORE_JSON:\s*(\{[\s\S]*?\})/);
-      if (scoreMatch) {
+       if (!scoreMatch) {
+         scoringErrorCode = "MISSING_SCORE_JSON";
+       } else {
         try {
-          scoreData = JSON.parse(scoreMatch[1]);
+           const candidate = JSON.parse(scoreMatch[1]);
+           if (
+             typeof candidate.toneScore !== "number" || candidate.toneScore < 1 || candidate.toneScore > 10 ||
+             typeof candidate.clarityScore !== "number" || candidate.clarityScore < 1 || candidate.clarityScore > 10 ||
+             typeof candidate.objectionAddressed !== "boolean" || typeof candidate.feedback !== "string"
+           ) throw new Error("invalid score schema");
+           scoreData = candidate;
           merchantReply = raw.replace(/SCORE_JSON:[\s\S]*$/, "").trim();
-        } catch { /* use defaults */ }
+         } catch { scoringErrorCode = "MALFORMED_SCORE_JSON"; }
       }
 
       // Save exchange to DB
@@ -194,11 +205,21 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         sessionId: Number(sessionId),
         repMessage,
         merchantReply,
-        toneScore: scoreData.toneScore,
-        clarityScore: scoreData.clarityScore,
-        objectionAddressed: scoreData.objectionAddressed,
-        feedback: scoreData.feedback,
+         toneScore: scoreData?.toneScore ?? null,
+         clarityScore: scoreData?.clarityScore ?? null,
+         objectionAddressed: scoreData?.objectionAddressed ?? false,
+         feedback: scoreData?.feedback ?? null,
       }).returning();
+       const raw_response_hash = crypto.createHash("sha256").update(raw.slice(0, 200)).digest("hex");
+       await pool.query("UPDATE roleplay_exchanges SET raw_response_hash=$1 WHERE id=$2", [raw_response_hash, exchange.id]);
+       if (scoreData) {
+         await pool.query("UPDATE roleplay_exchanges SET scoring_status=$1 WHERE id=$2", ["scored", exchange.id]);
+       } else {
+         await pool.query(
+           "UPDATE roleplay_exchanges SET scoring_status=$1, scoring_error_code=$2 WHERE id=$3",
+           ["failed", scoringErrorCode || "SCORING_FAILED", exchange.id],
+         );
+       }
 
       // Update session exchange count
       await db.update(roleplaySessions)
@@ -208,7 +229,8 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
       res.json({
         merchantReply,
         exchange,
-        score: scoreData,
+         score: scoreData,
+         scoring_status: scoreData ? "scored" : "failed",
       });
     } catch (err: any) {
       serverError(res, err);

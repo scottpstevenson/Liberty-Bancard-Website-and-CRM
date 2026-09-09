@@ -10,6 +10,7 @@
 
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface KnowledgeSource {
   id: number;
@@ -37,6 +38,7 @@ export interface KnowledgeChunk {
 
 export interface RetrievedChunk {
   sourceId: number;
+  revisionId: number | null;
   chunkId: number;
   title: string;
   audience: string;
@@ -44,11 +46,37 @@ export interface RetrievedChunk {
   relevance: number;
 }
 
+export interface KnowledgeRevision {
+  id: number;
+  sourceId: number;
+  revisionNumber: number;
+  title: string;
+  sourceType: string;
+  audience: string;
+  content: string;
+  contentHash: string;
+  metadata: Record<string, unknown> | null;
+  provenance: Record<string, unknown>;
+  reviewState: string;
+  claimRiskFlags: string[] | null;
+  indexState: string;
+  indexErrorCode: string | null;
+  chunksWritten: number | null;
+  publisherUserId: string | null;
+  publishedAt: Date | null;
+  createdAt: Date;
+}
+
 // Max ~400 words per chunk (≈500 tokens), 50-word overlap
 const CHUNK_SIZE = 400;
 const CHUNK_OVERLAP = 50;
 const EMBED_MODEL = "text-embedding-3-small";
 const EMBED_DIMS = 1536;
+const MAX_CHUNKS = 5000;
+
+function sha256(text: string): string {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
 
 function wordChunk(text: string): string[] {
   const words = text.split(/\s+/).filter(Boolean);
@@ -112,7 +140,7 @@ export async function listKnowledgeSources(opts?: {
   if (opts?.status) { q += ` AND status = $${params.length + 1}`; params.push(opts.status); }
   if (opts?.audience) { q += ` AND audience = $${params.length + 1}`; params.push(opts.audience); }
   q += ` ORDER BY updated_at DESC`;
-  const { rows } = await db.execute(sql.raw(q.replace(/\$(\d+)/g, (_: string, n: string) => `$${n}`)));
+  const { rows } = await (db as any).execute({ sql: q, params });
   return (rows as any[]).map(rowToSource);
 }
 
@@ -160,23 +188,149 @@ export async function updateKnowledgeSource(id: number, data: Partial<{
   return rows.length ? rowToSource(rows[0]) : null;
 }
 
-export async function publishSource(id: number): Promise<KnowledgeSource | null> {
+async function createCandidateRevision(
+  sourceId: number,
+  source: KnowledgeSource,
+  publisherUserId?: string | null,
+  provenance?: Record<string, unknown>,
+): Promise<KnowledgeRevision> {
+  const { rows: numberRows } = await db.execute(sql`
+    SELECT COALESCE(MAX(revision_number), 0) + 1 AS next_revision
+    FROM knowledge_source_revisions WHERE source_id = ${sourceId}
+  `);
+  const revisionNumber = Number((numberRows[0] as any).next_revision);
   const { rows } = await db.execute(sql`
-    UPDATE knowledge_sources
-    SET status = 'published', published_at = NOW(), version = version + 1, updated_at = NOW()
-    WHERE id = ${id}
+    INSERT INTO knowledge_source_revisions
+      (source_id, revision_number, title, source_type, audience, content,
+       content_hash, metadata, provenance, index_state, publisher_user_id)
+    VALUES (${sourceId}, ${revisionNumber}, ${source.title}, ${source.sourceType},
+      ${source.audience}, ${source.content}, ${sha256(source.content)},
+      ${source.metadata ? JSON.stringify(source.metadata) : null}::jsonb,
+      ${JSON.stringify(provenance ?? {})}::jsonb, 'pending', ${publisherUserId ?? null})
     RETURNING *
   `);
-  return rows.length ? rowToSource(rows[0]) : null;
+  return rowToRevision(rows[0]);
+}
+
+async function indexRevision(
+  revisionId: number,
+  sourceId: number,
+  content: string,
+  source: KnowledgeSource,
+): Promise<{ success: boolean; chunksWritten: number; errorCode?: string }> {
+  try {
+    await db.execute(sql`DELETE FROM knowledge_chunks WHERE source_revision_id = ${revisionId}`);
+    await db.execute(sql`DELETE FROM knowledge_chunks
+      WHERE source_id = ${sourceId} AND source_revision_id IS NULL`);
+    const rawChunks = wordChunk(content).slice(0, MAX_CHUNKS);
+    let written = 0;
+    for (let b = 0; b < rawChunks.length; b += 50) {
+      const batch = rawChunks.slice(b, b + 50);
+      const embeddings = await embedTexts(batch);
+      for (let i = 0; i < batch.length; i++) {
+        const emb = embeddings[i]?.length ? embeddings[i] : null;
+        await db.execute(sql`
+          INSERT INTO knowledge_chunks
+            (source_id, source_revision_id, chunk_index, content, embedding, token_count)
+          VALUES (${sourceId}, ${revisionId}, ${b + i}, ${batch[i]},
+            ${emb ? JSON.stringify(emb) : null}::jsonb, ${Math.ceil(batch[i].length / 4)})
+        `);
+        written++;
+      }
+    }
+    await db.execute(sql`
+      UPDATE knowledge_source_revisions
+      SET index_state = 'indexed', chunks_written = ${written}, index_error_code = NULL
+      WHERE id = ${revisionId}
+    `);
+    await db.execute(sql`
+      UPDATE knowledge_sources SET last_indexed_at = NOW(), updated_at = NOW()
+      WHERE id = ${sourceId}
+    `);
+    return { success: true, chunksWritten: written };
+  } catch (e: any) {
+    const errorCode = String(e?.message ?? e).slice(0, 500);
+    await db.execute(sql`
+      UPDATE knowledge_source_revisions
+      SET index_state = 'index_failed', index_error_code = ${errorCode}
+      WHERE id = ${revisionId}
+    `);
+    return { success: false, chunksWritten: 0, errorCode };
+  }
+}
+
+export async function publishSource(
+  id: number,
+  publisherUserId: string | null = null,
+): Promise<{ source: KnowledgeSource; revision: KnowledgeRevision; indexed: boolean } | null> {
+  const { rows } = await db.execute(sql`SELECT * FROM knowledge_sources WHERE id = ${id} FOR UPDATE`);
+  if (!rows.length) return null;
+  const source = rowToSource(rows[0]);
+  const revision = await createCandidateRevision(id, source, publisherUserId);
+  const indexed = await indexRevision(revision.id, id, source.content, source);
+  if (indexed.success) {
+    await db.execute(sql`
+      UPDATE knowledge_source_revisions SET published_at = NOW()
+      WHERE id = ${revision.id}
+    `);
+    const { rows: updatedRows } = await db.execute(sql`
+      UPDATE knowledge_sources
+      SET current_published_revision_id = ${revision.id}, status = 'published',
+          published_at = NOW(), version = version + 1, updated_at = NOW()
+      WHERE id = ${id} RETURNING *
+    `);
+    return { source: rowToSource(updatedRows[0]), revision, indexed: true };
+  }
+  return { source, revision, indexed: false };
+}
+
+export async function rollbackToRevision(
+  sourceId: number,
+  targetRevisionId: number,
+  publisherUserId: string | null = null,
+): Promise<{ source: KnowledgeSource; revision: KnowledgeRevision; indexed: boolean } | null> {
+  const { rows } = await db.execute(sql`
+    SELECT * FROM knowledge_source_revisions
+    WHERE id = ${targetRevisionId} AND source_id = ${sourceId}
+  `);
+  if (!rows.length) return null;
+  const target = rowToRevision(rows[0]);
+  const { rows: sourceRows } = await db.execute(sql`SELECT * FROM knowledge_sources WHERE id = ${sourceId}`);
+  if (!sourceRows.length) return null;
+  const source = rowToSource(sourceRows[0]);
+  const rollbackSource = { ...source, title: target.title, sourceType: target.sourceType,
+    audience: target.audience, content: target.content, metadata: target.metadata };
+  const revision = await createCandidateRevision(sourceId, rollbackSource, publisherUserId,
+    { rollbackFromRevisionId: targetRevisionId });
+  const indexed = await indexRevision(revision.id, sourceId, target.content, rollbackSource);
+  if (indexed.success) {
+    await db.execute(sql`
+      UPDATE knowledge_source_revisions SET published_at = NOW()
+      WHERE id = ${revision.id}
+    `);
+    const { rows: updatedRows } = await db.execute(sql`
+      UPDATE knowledge_sources
+      SET current_published_revision_id = ${revision.id}, status = 'published',
+          published_at = NOW(), version = version + 1, updated_at = NOW()
+      WHERE id = ${sourceId} RETURNING *
+    `);
+    return { source: rowToSource(updatedRows[0]), revision, indexed: true };
+  }
+  return { source, revision, indexed: false };
 }
 
 export async function archiveSource(id: number): Promise<void> {
   await db.execute(sql`
-    UPDATE knowledge_sources SET status = 'archived', updated_at = NOW() WHERE id = ${id}
+    UPDATE knowledge_sources SET status = 'archived', current_published_revision_id = NULL,
+      updated_at = NOW() WHERE id = ${id}
   `);
 }
 
 export async function deleteKnowledgeSource(id: number): Promise<void> {
+  const { rows } = await db.execute(sql`
+    SELECT 1 FROM knowledge_source_revisions WHERE source_id = ${id} LIMIT 1
+  `);
+  if (rows.length) throw new Error("Cannot delete source with revision history — archive instead");
   await db.execute(sql`DELETE FROM knowledge_sources WHERE id = ${id}`);
 }
 
@@ -185,6 +339,20 @@ export async function deleteKnowledgeSource(id: number): Promise<void> {
 export async function indexSource(sourceId: number): Promise<{ chunksWritten: number }> {
   const source = await getKnowledgeSource(sourceId);
   if (!source) throw new Error(`Source ${sourceId} not found`);
+
+  const { rows: pointerRows } = await db.execute(sql`
+    SELECT current_published_revision_id FROM knowledge_sources WHERE id = ${sourceId}
+  `);
+  const currentRevisionId = (pointerRows[0] as any)?.current_published_revision_id;
+  if (currentRevisionId) {
+    const { rows: revisionRows } = await db.execute(sql`
+      SELECT content FROM knowledge_source_revisions WHERE id = ${currentRevisionId}
+    `);
+    const indexedContent = (revisionRows[0] as any)?.content ?? source.content;
+    const result = await indexRevision(Number(currentRevisionId), sourceId, indexedContent, source);
+    if (!result.success) throw new Error(result.errorCode ?? "REVISION_INDEX_FAILED");
+    return { chunksWritten: result.chunksWritten };
+  }
 
   // Delete old chunks
   await db.execute(sql`DELETE FROM knowledge_chunks WHERE source_id = ${sourceId}`);
@@ -258,18 +426,21 @@ export async function retrieveChunks(opts: {
     return keywordFallback(opts.query, allowedAudiences, topK);
   }
 
-  // Fetch all published chunks for accessible audiences (capped at 1000 for performance)
+  // Fetch chunks only from each source's currently published revision.
   const placeholders = allowedAudiences.map((_, i) => `$${i + 1}`).join(", ");
   const { rows } = await (db as any).execute({
-    sql: `SELECT kc.id, kc.source_id, kc.chunk_index, kc.content, kc.embedding,
+    sql: `SELECT kc.id, kc.source_id, kc.source_revision_id, kc.chunk_index, kc.content, kc.embedding,
                  ks.title, ks.audience
           FROM knowledge_chunks kc
           JOIN knowledge_sources ks ON ks.id = kc.source_id
+          JOIN knowledge_source_revisions ksr ON ksr.id = ks.current_published_revision_id
           WHERE ks.status = 'published'
+            AND ks.current_published_revision_id IS NOT NULL
+            AND kc.source_revision_id = ks.current_published_revision_id
             AND ks.audience = ANY(ARRAY[${placeholders}]::text[])
             AND kc.embedding IS NOT NULL
           ORDER BY kc.id
-          LIMIT 1000`,
+          LIMIT ${MAX_CHUNKS}`,
     params: allowedAudiences,
   });
 
@@ -285,6 +456,7 @@ export async function retrieveChunks(opts: {
     if (sim >= minRelevance) {
       scored.push({
         sourceId: row.source_id,
+        revisionId: row.source_revision_id,
         chunkId: row.id,
         title: row.title,
         audience: row.audience,
@@ -307,13 +479,17 @@ async function keywordFallback(
   const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
   if (words.length === 0) return [];
 
-  const pattern = words.slice(0, 5).join("|");
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = words.slice(0, 5).map(escapeRegex).join("|");
   const placeholders = audiences.map((_, i) => `$${i + 2}`).join(", ");
   const { rows } = await (db as any).execute({
-    sql: `SELECT kc.id, kc.source_id, kc.content, ks.title, ks.audience
+    sql: `SELECT kc.id, kc.source_id, kc.source_revision_id, kc.content, ks.title, ks.audience
           FROM knowledge_chunks kc
           JOIN knowledge_sources ks ON ks.id = kc.source_id
+          JOIN knowledge_source_revisions ksr ON ksr.id = ks.current_published_revision_id
           WHERE ks.status = 'published'
+            AND ks.current_published_revision_id IS NOT NULL
+            AND kc.source_revision_id = ks.current_published_revision_id
             AND ks.audience = ANY(ARRAY[${placeholders}]::text[])
             AND kc.content ~* $1
           LIMIT ${topK}`,
@@ -322,6 +498,7 @@ async function keywordFallback(
 
   return (rows as any[]).map(row => ({
     sourceId: row.source_id,
+    revisionId: row.source_revision_id,
     chunkId: row.id,
     title: row.title,
     audience: row.audience,
@@ -368,6 +545,45 @@ export async function getKnowledgeStats(): Promise<{
 }
 
 // ── Row mapper ────────────────────────────────────────────────────────────────
+
+function rowToRevision(row: any): KnowledgeRevision {
+  return {
+    id: row.id,
+    sourceId: row.source_id,
+    revisionNumber: row.revision_number,
+    title: row.title,
+    sourceType: row.source_type,
+    audience: row.audience,
+    content: row.content,
+    contentHash: row.content_hash,
+    metadata: row.metadata ?? null,
+    provenance: row.provenance ?? {},
+    reviewState: row.review_state,
+    claimRiskFlags: row.claim_risk_flags ?? null,
+    indexState: row.index_state,
+    indexErrorCode: row.index_error_code ?? null,
+    chunksWritten: row.chunks_written ?? null,
+    publisherUserId: row.publisher_user_id ?? null,
+    publishedAt: row.published_at ? new Date(row.published_at) : null,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+export async function getRevision(id: number): Promise<KnowledgeRevision | null> {
+  const { rows } = await db.execute(sql`
+    SELECT * FROM knowledge_source_revisions WHERE id = ${id}
+  `);
+  return rows.length ? rowToRevision(rows[0]) : null;
+}
+
+export async function listRevisions(sourceId: number): Promise<KnowledgeRevision[]> {
+  const { rows } = await db.execute(sql`
+    SELECT * FROM knowledge_source_revisions
+    WHERE source_id = ${sourceId}
+    ORDER BY revision_number DESC
+  `);
+  return (rows as any[]).map(rowToRevision);
+}
 
 function rowToSource(row: any): KnowledgeSource {
   return {

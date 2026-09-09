@@ -12,6 +12,7 @@ const WIZARD_FLAGS = [
   "RINGLESS_VM_ENABLED",
   "NIGHTLY_DISCOVERY_ENABLED",
   "SUNBIZ_ENRICHMENT_ENABLED",
+  "CALL_ASSIST_ENABLED",
 ] as const;
 
 export type WizardFlagName = typeof WIZARD_FLAGS[number];
@@ -25,6 +26,7 @@ const FLAG_DEFAULTS: Record<WizardFlagName, boolean> = {
   RINGLESS_VM_ENABLED: false,
   NIGHTLY_DISCOVERY_ENABLED: false,
   SUNBIZ_ENRICHMENT_ENABLED: false,
+  CALL_ASSIST_ENABLED: false,
 };
 
 const FLAG_ENV_VARS: Record<WizardFlagName, string> = {
@@ -36,6 +38,7 @@ const FLAG_ENV_VARS: Record<WizardFlagName, string> = {
   RINGLESS_VM_ENABLED: "RINGLESS_VM_ENABLED",
   NIGHTLY_DISCOVERY_ENABLED: "NIGHTLY_DISCOVERY_ENABLED",
   SUNBIZ_ENRICHMENT_ENABLED: "SUNBIZ_ENRICHMENT_ENABLED",
+  CALL_ASSIST_ENABLED: "CALL_ASSIST_ENABLED",
 };
 
 function settingsKey(flag: string): string {

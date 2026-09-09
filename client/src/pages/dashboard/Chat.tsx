@@ -124,6 +124,7 @@ export default function Chat() {
   const [vertical, setVertical] = useState<string>("");
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [loadedFromContact, setLoadedFromContact] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -173,6 +174,7 @@ export default function Chat() {
         department,
         messages: updatedMessages,
         vertical: vertical || undefined,
+        contactId: selectedContact?.id ?? undefined,
       });
       const data = await res.json();
       if (data?.error) {
@@ -195,6 +197,7 @@ export default function Chat() {
   };
 
   const handleSelectContact = useCallback((contact: Contact) => {
+    setSelectedContact(contact);
     const mapped = matchContactVertical(contact.vertical);
     if (mapped) {
       setVertical(mapped);
@@ -208,6 +211,7 @@ export default function Chat() {
 
   const handleClearVertical = () => {
     setVertical("");
+    setSelectedContact(null);
     setLoadedFromContact(null);
   };
 
