@@ -620,7 +620,23 @@ function ReconciliationRunsList({
               {run.total_processed != null && (
                 <p className="text-xs mt-0.5">
                   {run.total_processed.toLocaleString()} scanned ·{" "}
-                  {run.total_proposed?.toLocaleString() ?? 0} proposals
+                  {run.rules_version === "quality-v1" ? (
+                    (() => {
+                      const flagged = run.quality_flagged_contacts ?? 0;
+                      const pct = run.total_processed > 0 ? flagged / run.total_processed : 0;
+                      const color =
+                        pct > 0.25
+                          ? "text-red-600 font-medium"
+                          : pct > 0.1
+                          ? "text-amber-600 font-medium"
+                          : "text-muted-foreground";
+                      return (
+                        <span className={color}>Quality flags: {flagged.toLocaleString()}</span>
+                      );
+                    })()
+                  ) : (
+                    <span>{run.total_proposed?.toLocaleString() ?? 0} proposals</span>
+                  )}
                 </p>
               )}
             </div>

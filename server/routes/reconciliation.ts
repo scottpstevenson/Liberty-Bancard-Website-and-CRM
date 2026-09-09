@@ -178,6 +178,7 @@ export function registerReconciliationRoutes(app: Express): void {
                 max_contact_id_at_start, denominator_at_start,
                 total_processed, total_proposed, total_org_candidates, total_clusters,
                 cursor_contact_census_member_id, lane_counts, dimension_counts,
+                quality_flagged_contacts, quality_signal_instances, suppressed_cosmetic_candidates,
                 completed_at, failed_at, created_at, updated_at
          FROM contact_reconciliation_runs
          ORDER BY created_at DESC
