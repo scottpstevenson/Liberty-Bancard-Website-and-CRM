@@ -2981,6 +2981,8 @@ export const callLogs = pgTable("call_logs", {
   nextSteps: text("next_steps"),
   sentiment: text("sentiment"),
   metadata: jsonb("metadata"),
+  // Idempotency key for log-activity deduplication (UUIDv4, optional; unique when non-null)
+  idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

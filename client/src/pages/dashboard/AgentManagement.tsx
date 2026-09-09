@@ -14,9 +14,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   UserPlus, Users, Award, DollarSign, Search, MoreHorizontal, Target, Download,
-  Calculator, BookOpen, Trash2, Plus, Eye, Info
+  Calculator, BookOpen, Trash2, Plus, Eye, Info, AlertTriangle, Link2, BarChart3
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useForm } from "react-hook-form";
@@ -119,6 +120,20 @@ interface CalcResult {
   }>;
 }
 
+interface AgentReadinessRow {
+  agentId: number;
+  name: string;
+  email: string;
+  status: string | null;
+  territory: string | null;
+  ready: boolean;
+  reasons: string[];
+  assignmentCount: number;
+  cr04EligibleCount: number | null;
+  overdueTasksCount: number;
+  lastActivityAt: string | null;
+}
+
 export default function AgentManagement() {
   const { data: agents, isLoading, isError, refetch } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
   const { data: quotas } = useQuery<AgentQuota[]>({ queryKey: ["/api/agent-quotas"] });
@@ -129,9 +144,22 @@ export default function AgentManagement() {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [profileAgent, setProfileAgent] = useState<Agent | null>(null);
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
+  const [bindAgent, setBindAgent] = useState<Agent | null>(null);
+  const [bindUserId, setBindUserId] = useState("");
+  const [bindPreview, setBindPreview] = useState<Record<string, unknown> | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const isOwner = user?.role === 'admin';
+
+  const { data: readiness, isLoading: readinessLoading } = useQuery<AgentReadinessRow[]>({
+    queryKey: ["/api/agents/readiness"],
+    queryFn: async () => {
+      const res = await fetch("/api/agents/readiness", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
 
   const { data: profileMerchants, isLoading: profileMerchantsLoading } = useQuery<AgentMerchant[]>({
     queryKey: ["/api/agent-merchants", profileAgent?.id],
@@ -315,8 +343,9 @@ export default function AgentManagement() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="team" className="w-full">
-        <TabsList className="mb-4" data-testid="tabs-agent-management">
+        <TabsList className="mb-4 flex-wrap h-auto gap-1" data-testid="tabs-agent-management">
           <TabsTrigger value="team" data-testid="tab-team"><Users className="w-4 h-4 mr-1" />Team Members</TabsTrigger>
+          <TabsTrigger value="metrics" data-testid="tab-metrics"><BarChart3 className="w-4 h-4 mr-1" />Rep Metrics</TabsTrigger>
           <TabsTrigger value="calculator" data-testid="tab-calculator"><Calculator className="w-4 h-4 mr-1" />Residual Calculator</TabsTrigger>
           {isOwner && <TabsTrigger value="comp-model" data-testid="tab-comp-model"><BookOpen className="w-4 h-4 mr-1" />Comp Model</TabsTrigger>}
         </TabsList>
@@ -574,11 +603,36 @@ export default function AgentManagement() {
                     (filteredAgents || []).map((agent) => {
                       const quota = getAgentQuota(agent.id);
                       const attainment = getQuotaAttainment(agent.id);
+                      const agentReadiness = readiness?.find(r => r.agentId === agent.id);
+                      const isUnbound = agentReadiness?.reasons?.includes("unbound");
+                      const isWrongRole = agentReadiness?.reasons?.includes("wrong_role");
                       return (
                         <TableRow key={agent.id} data-testid={`row-agent-${agent.id}`}>
                           <TableCell>
                             <div>
-                              <div className="font-medium" data-testid={`text-agent-name-${agent.id}`}>{agent.firstName} {agent.lastName}</div>
+                              <div className="font-medium flex items-center gap-1.5" data-testid={`text-agent-name-${agent.id}`}>
+                                {agent.firstName} {agent.lastName}
+                                {isUnbound && (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge variant="destructive" className="text-xs h-4 px-1" data-testid={`badge-unbound-${agent.id}`}>Unbound</Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent>No dashboard user linked to this agent</TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+                                {!isUnbound && isWrongRole && (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge className="text-xs h-4 px-1 bg-amber-500 hover:bg-amber-500" data-testid={`badge-wrong-role-${agent.id}`}>Wrong Role</Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Linked user does not have the 'agent' role</TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+                              </div>
                               <div className="text-xs text-muted-foreground">{agent.email}</div>
                             </div>
                           </TableCell>
@@ -613,6 +667,9 @@ export default function AgentManagement() {
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => openEditDialog(agent)} data-testid={`menu-edit-${agent.id}`}>Edit Agent</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setProfileAgent(agent); }} data-testid={`menu-profile-${agent.id}`}>View Profile</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setBindAgent(agent); setBindUserId(""); setBindPreview(null); }} data-testid={`menu-bind-user-${agent.id}`}>
+                                    <Link2 className="w-4 h-4 mr-2" />Bind User
+                                  </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </div>
@@ -852,7 +909,156 @@ export default function AgentManagement() {
             </CardContent>
           </Card>
         </TabsContent>}
+
+        {/* ─── REP METRICS TAB ─── */}
+        <TabsContent value="metrics" className="space-y-6" data-testid="tab-content-metrics">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><BarChart3 className="w-5 h-5" />Rep Readiness &amp; Performance Metrics</CardTitle>
+              <CardDescription>Per-agent binding status, assignment counts, and CR-04 eligible contacts.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {readinessLoading ? (
+                <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+              ) : !readiness || readiness.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No agent readiness data available.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Rep</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Binding</TableHead>
+                        <TableHead className="text-right">Assigned Contacts</TableHead>
+                        <TableHead className="text-right">CR-04 Eligible</TableHead>
+                        <TableHead className="text-right">Overdue Tasks</TableHead>
+                        <TableHead>Last Activity</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {readiness.map(row => (
+                        <TableRow key={row.agentId} data-testid={`readiness-row-${row.agentId}`}>
+                          <TableCell>
+                            <div className="font-medium">{row.name}</div>
+                            <div className="text-xs text-muted-foreground">{row.email}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={row.status === "active" ? "default" : "outline"}>{row.status ?? "—"}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {row.ready ? (
+                              <Badge variant="default" className="bg-green-600 hover:bg-green-600" data-testid={`badge-ready-${row.agentId}`}>Ready</Badge>
+                            ) : row.reasons.includes("unbound") ? (
+                              <Badge variant="destructive" data-testid={`badge-unbound-metrics-${row.agentId}`}>Unbound</Badge>
+                            ) : row.reasons.includes("wrong_role") ? (
+                              <Badge className="bg-amber-500 hover:bg-amber-500" data-testid={`badge-wrong-role-metrics-${row.agentId}`}>Wrong Role</Badge>
+                            ) : (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className="text-orange-600 border-orange-600" data-testid={`badge-issues-${row.agentId}`}><AlertTriangle className="w-3 h-3 mr-1" />Issues</Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>{row.reasons.join(", ")}</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">{row.assignmentCount}</TableCell>
+                          <TableCell className="text-right">
+                            {row.cr04EligibleCount === null ? (
+                              <span className="text-xs text-muted-foreground" title="Data unavailable">—</span>
+                            ) : row.cr04EligibleCount}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.overdueTasksCount > 0 ? (
+                              <span className="text-orange-600 font-medium">{row.overdueTasksCount}</span>
+                            ) : row.overdueTasksCount}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleDateString() : "Never"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* ─── BIND USER MODAL ─── */}
+      <Dialog open={!!bindAgent} onOpenChange={(open) => { if (!open) { setBindAgent(null); setBindPreview(null); setBindUserId(""); } }}>
+        <DialogContent data-testid="dialog-bind-user">
+          <DialogHeader><DialogTitle>Bind User to Agent: {bindAgent?.firstName} {bindAgent?.lastName}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">User ID (dashboard user ID)</label>
+              <Input
+                value={bindUserId}
+                onChange={e => { setBindUserId(e.target.value); setBindPreview(null); }}
+                placeholder="Enter user ID..."
+                className="mt-1"
+                data-testid="input-bind-user-id"
+              />
+            </div>
+            {bindPreview && (
+              <div className="rounded-lg border p-3 text-sm space-y-1 bg-muted/30" data-testid="bind-preview-result">
+                {(bindPreview as any).valid ? (
+                  <>
+                    <div className="font-medium text-green-700 dark:text-green-400">Preview looks good</div>
+                    <div>Binding <strong>{(bindPreview as any).userEmail}</strong> to <strong>{(bindPreview as any).agentName}</strong></div>
+                    {(bindPreview as any).currentUserId && (
+                      <div className="text-muted-foreground text-xs">This will replace existing binding (user ID: {(bindPreview as any).currentUserId})</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-destructive">{(bindPreview as any).message ?? "Preview failed"}</div>
+                )}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                disabled={!bindUserId.trim()}
+                data-testid="button-preview-bind"
+                onClick={async () => {
+                  if (!bindAgent) return;
+                  try {
+                    const res = await apiRequest("POST", `/api/agents/${bindAgent.id}/bind-user`, { userId: bindUserId.trim(), previewOnly: true });
+                    const data = await res.json();
+                    setBindPreview(data);
+                  } catch (err: any) {
+                    setBindPreview({ valid: false, message: err.message ?? "Preview failed" });
+                  }
+                }}
+              >Preview</Button>
+              <Button
+                className="flex-1"
+                disabled={!bindPreview || !(bindPreview as any).valid}
+                data-testid="button-confirm-bind"
+                onClick={async () => {
+                  if (!bindAgent) return;
+                  try {
+                    await apiRequest("POST", `/api/agents/${bindAgent.id}/bind-user`, { userId: bindUserId.trim(), previewOnly: false });
+                    toast({ title: "User bound successfully" });
+                    queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/agents/readiness"] });
+                    setBindAgent(null);
+                    setBindPreview(null);
+                    setBindUserId("");
+                  } catch (err: any) {
+                    toast({ title: "Failed to bind user", description: err.message, variant: "destructive" });
+                  }
+                }}
+              >Confirm Bind</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── AGENT PROFILE SHEET ─── */}
       <Sheet open={!!profileAgent} onOpenChange={(open) => { if (!open) setProfileAgent(null); }}>

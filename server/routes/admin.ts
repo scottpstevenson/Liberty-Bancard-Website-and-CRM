@@ -249,6 +249,177 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === AGENT BINDING (Rep Identity) ===
+
+  /** GET /api/agents/:id/binding-status — returns binding state for a single agent */
+  app.get("/api/agents/:id/binding-status", requireRole('admin', 'manager'), async (req, res) => {
+    try {
+      const agentId = Number(req.params.id);
+      if (!Number.isInteger(agentId) || agentId <= 0) return res.status(400).json({ message: "Invalid agent id" });
+      const agent = await storage.getAgent(agentId);
+      if (!agent) return res.status(404).json({ message: "Not found" });
+      if (!agent.userId) return res.json({ status: "unbound" });
+      const [userRow] = await db.select({ id: users.id, email: users.email, role: users.role })
+        .from(users).where(eq(users.id, agent.userId)).limit(1);
+      if (!userRow) return res.json({ status: "conflict", reason: "user_missing" });
+      const status = userRow.role === "agent" ? "bound" : "conflict";
+      res.json({
+        status,
+        userEmail: userRow.email,
+        userRole: userRow.role,
+        boundAt: agent.updatedAt,
+      });
+    } catch (err: any) { serverError(res, err); }
+  });
+
+  /** POST /api/agents/:id/bind-user — preview or commit user→agent binding */
+  app.post("/api/agents/:id/bind-user", requireRole('admin', 'manager'), async (req, res) => {
+    try {
+      const agentId = Number(req.params.id);
+      if (!Number.isInteger(agentId) || agentId <= 0) return res.status(400).json({ message: "Invalid agent id" });
+      const schema = z.object({ userId: z.string().min(1), previewOnly: z.boolean() });
+      const { userId, previewOnly } = schema.parse(req.body);
+      const [agent, userRow] = await Promise.all([
+        storage.getAgent(agentId),
+        db.select({ id: users.id, email: users.email, role: users.role })
+          .from(users).where(eq(users.id, userId)).limit(1).then(r => r[0] ?? null),
+      ]);
+      if (!agent) return res.status(404).json({ message: "Agent not found" });
+      if (!userRow) return res.status(400).json({ message: "User not found" });
+      if (userRow.role !== "agent") return res.status(400).json({ message: `User role is '${userRow.role}'; must be 'agent' to bind` });
+      // Check for conflicting active binding on another agent
+      const conflictRows = await db.execute(sql`
+        SELECT id, first_name, last_name FROM agents
+        WHERE user_id = ${userId} AND status = 'active' AND id != ${agentId}
+        LIMIT 1
+      `);
+      const conflict = (conflictRows as any).rows?.[0];
+      if (conflict) {
+        return res.status(409).json({
+          message: `User ${userRow.email} is already bound to active agent #${conflict.id} (${conflict.first_name} ${conflict.last_name}). Deactivate that agent first or rebind to a different user.`,
+          conflictAgentId: conflict.id,
+        });
+      }
+      if (previewOnly) {
+        return res.json({
+          preview: true,
+          agentId,
+          userId,
+          userEmail: userRow.email,
+          agentName: `${agent.firstName} ${agent.lastName}`,
+          currentUserId: agent.userId ?? null,
+          valid: true,
+        });
+      }
+      // Commit
+      await storage.updateAgent(agentId, { userId } as any);
+      await auditChange({
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
+        action: "agent_user_bound",
+        entityType: "agent",
+        entityId: agentId,
+        before: { userId: agent.userId ?? null },
+        after: { userId },
+      });
+      res.json({ success: true, agentId, userId, userEmail: userRow.email });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if ((err as any)?.code === "23505") return res.status(409).json({ message: "This user is already bound to an active agent." });
+      serverError(res, err);
+    }
+  });
+
+  /** GET /api/agents/readiness — per-agent readiness report (manager/admin only) */
+  app.get("/api/agents/readiness", requireRole('admin', 'manager'), async (req, res) => {
+    try {
+      const allAgents = await storage.getAgents();
+      const today = new Date();
+      const { agentQuotas, tasks: tasksTable, callLogs: callLogsTable, contacts: contactsTable } = await import("@shared/schema");
+      const { lte: lteOp, isNotNull: isNotNullOp } = await import("drizzle-orm");
+
+      const report = await Promise.all(allAgents.map(async (agent) => {
+        const reasons: string[] = [];
+        // 1. Binding check
+        let userRole: string | null = null;
+        if (!agent.userId) {
+          reasons.push("unbound");
+        } else {
+          const [userRow] = await db.select({ role: users.role })
+            .from(users).where(eq(users.id, agent.userId)).limit(1);
+          if (!userRow) {
+            reasons.push("user_missing");
+          } else {
+            userRole = userRow.role ?? null;
+            if (userRow.role !== "agent") reasons.push("wrong_role");
+          }
+        }
+        // 2. Quota check
+        const quotaRows = await db.select().from(agentQuotas).where(eq(agentQuotas.agentId, agent.id));
+        const activeQuota = quotaRows.find(q => {
+          const s = new Date(q.periodStart), e = new Date(q.periodEnd);
+          return today >= s && today <= e;
+        });
+        if (!activeQuota) reasons.push("no_quota");
+        // 3. Territory
+        if (!agent.territory) reasons.push("no_territory");
+        // 4. Assignment count
+        const [assignCount] = await db.select({ count: sql<number>`cast(count(*) as integer)` })
+          .from(contactsTable)
+          .where(and(eq(contactsTable.assignedTo, agent.email), isNull(contactsTable.archivedAt)));
+        const assignmentCount = assignCount?.count ?? 0;
+        // 5. CR-04 eligible count (manual_call channel)
+        let cr04EligibleCount: number | null = null;
+        try {
+          const { evaluateCr04ChannelQualification } = await import("../services/cr04-cohort-ready-authority");
+          const assignedContacts = await db.select({ id: contactsTable.id })
+            .from(contactsTable)
+            .where(and(eq(contactsTable.assignedTo, agent.email), isNull(contactsTable.archivedAt)))
+            .limit(200);
+          let eligible = 0;
+          await Promise.all(assignedContacts.map(async (c) => {
+            try {
+              const dec = await evaluateCr04ChannelQualification(c.id, { channel: "manual_call" });
+              if (dec.decision === "qualified") eligible++;
+            } catch { /* skip */ }
+          }));
+          cr04EligibleCount = eligible;
+        } catch { cr04EligibleCount = null; }
+        // 6. Overdue tasks
+        const [overdueResult] = await db.select({ count: sql<number>`cast(count(*) as integer)` })
+          .from(tasksTable)
+          .where(and(
+            or(eq(tasksTable.assignedTo, agent.email), eq(tasksTable.assignedTo, `${agent.firstName} ${agent.lastName}`)),
+            lteOp(tasksTable.dueDate, today),
+            or(eq(tasksTable.status, "pending"), eq(tasksTable.status, "in_progress")),
+          ));
+        const overdueTasksCount = overdueResult?.count ?? 0;
+        // 7. Last activity
+        const [lastCallRow] = await db.select({ createdAt: callLogsTable.createdAt })
+          .from(callLogsTable)
+          .leftJoin(contactsTable, eq(callLogsTable.contactId, contactsTable.id))
+          .where(eq(contactsTable.assignedTo, agent.email))
+          .orderBy(desc(callLogsTable.createdAt))
+          .limit(1);
+        const lastActivityAt = lastCallRow?.createdAt ?? null;
+        const ready = reasons.length === 0;
+        return {
+          agentId: agent.id,
+          name: `${agent.firstName} ${agent.lastName}`,
+          email: agent.email,
+          status: agent.status,
+          territory: agent.territory ?? null,
+          ready,
+          reasons,
+          assignmentCount,
+          cr04EligibleCount,
+          overdueTasksCount,
+          lastActivityAt,
+        };
+      }));
+      res.json(report);
+    } catch (err: any) { serverError(res, err); }
+  });
 
   // === AGENT QUOTAS ===
   app.get("/api/agent-quotas", requireRole('admin', 'manager'), async (req, res) => {

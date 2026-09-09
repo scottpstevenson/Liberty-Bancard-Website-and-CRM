@@ -1680,6 +1680,13 @@
       "version": "7",
       "when": 1800000001100,
       "tag": "0235_sales_knowledge_authority"
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1800000001200,
+      "tag": "0236_rep_identity_canonical_queue",
+      "breakpoints": true
     }
   ]
 }

@@ -1053,7 +1053,7 @@ export default function SalesRepHome() {
             <CardContent className="p-0">
               {contacts.length === 0 ? (
                 <div className="px-6 py-8 text-center text-sm text-muted-foreground" data-testid="text-no-contacts">
-                  No contacts assigned. Add deals to see contacts here.
+                  No contacts assigned yet. Contact your manager to get contacts assigned.
                 </div>
               ) : (
                 <div className="divide-y" data-testid="contacts-list">

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { pool, db } from "../db";
 import { sdrLeadState, insertCompanySchema, insertContactSchema, contacts as contactsTable } from "@shared/schema";
-import { eq, inArray, isNull, and, gte, count as drizzleCount, asc } from "drizzle-orm";
+import { eq, inArray, isNull, and, gte, count as drizzleCount, asc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import {
   approveContactMerge,
@@ -2977,6 +2977,137 @@ export function registerContactsRoutes(app: Express) {
       });
       res.json({ deleted, errors, total: ids.length });
     } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // === POST /api/contacts/bulk-assign ==========================================
+  // Manager/admin only. Assigns a batch of canonical CRM contacts to a rep.
+  // Raw prospect/Sunbiz/master-lead rows are NOT reachable through this endpoint.
+  // Two-phase: preview (per-contact eligibility) then execute (with fingerprint locking).
+  app.post("/api/contacts/bulk-assign", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const schema = z.object({
+        contactIds: z.array(z.number().int().positive()).min(1).max(200),
+        assignTo: z.string().email(),
+        fingerprintMap: z.record(z.string(), z.string()).optional().default({}),
+        previewOnly: z.boolean(),
+      });
+      const { contactIds, assignTo, fingerprintMap, previewOnly } = schema.parse(req.body);
+
+      // Validate target rep is a real user with agent role
+      const { users: usersTable } = await import("@shared/schema");
+      const [repUser] = await db.select({ id: usersTable.id, role: usersTable.role })
+        .from(usersTable).where(eq(usersTable.email, assignTo)).limit(1);
+      if (!repUser) return res.status(400).json({ message: `No user account found for ${assignTo}` });
+      if (repUser.role !== "agent") return res.status(400).json({ message: `User ${assignTo} has role '${repUser.role}'; must be 'agent'` });
+
+      // Fetch contacts from canonical contacts table ONLY — no JOIN to prospects/sunbiz/master_leads
+      const { contacts: contactsTable } = await import("@shared/schema");
+      const rows = await db.select({
+        id: contactsTable.id,
+        firstName: contactsTable.firstName,
+        lastName: contactsTable.lastName,
+        email: contactsTable.email,
+        assignedTo: contactsTable.assignedTo,
+        recordClass: contactsTable.recordClass,
+        archivedAt: contactsTable.archivedAt,
+        leadScore: contactsTable.leadScore,
+        reachabilityScore: contactsTable.reachabilityScore,
+      }).from(contactsTable).where(inArray(contactsTable.id, contactIds));
+
+      const rowMap = new Map(rows.map(r => [r.id, r]));
+
+      // CR-04 evaluator (lazy import to avoid circular deps)
+      let evaluateCr04: ((id: number, ctx: any) => Promise<{ decision: string; reasonCodes: string[] }>) | null = null;
+      try {
+        const mod = await import("../services/cr04-cohort-ready-authority");
+        evaluateCr04 = mod.evaluateCr04ChannelQualification as any;
+      } catch { /* CR-04 unavailable — treat as unavailable */ }
+
+      const accepted: Array<{ contactId: number; name: string }> = [];
+      const rejected: Array<{ contactId: number; name: string; reason: string }> = [];
+      const previews: Array<{
+        contactId: number; name: string; recordClass: string | null;
+        currentOwner: string | null; cr04Eligible: boolean | null; blockReason: string | null;
+      }> = [];
+
+      for (const contactId of contactIds) {
+        const row = rowMap.get(contactId);
+        if (!row) {
+          rejected.push({ contactId, name: "(not found)", reason: "Contact not found in CRM contacts table" });
+          continue;
+        }
+        if (row.archivedAt) {
+          rejected.push({ contactId, name: `${row.firstName} ${row.lastName}`, reason: "Contact is archived" });
+          continue;
+        }
+        // Check CR-04 eligibility for preview annotation
+        let cr04Eligible: boolean | null = null;
+        let cr04BlockReason: string | null = null;
+        if (evaluateCr04) {
+          try {
+            const dec = await evaluateCr04(contactId, { channel: "manual_call" });
+            cr04Eligible = dec.decision === "qualified";
+            if (!cr04Eligible) cr04BlockReason = dec.reasonCodes?.join(", ") ?? "blocked";
+          } catch { cr04Eligible = null; }
+        }
+
+        previews.push({
+          contactId,
+          name: `${row.firstName} ${row.lastName}`,
+          recordClass: row.recordClass ?? null,
+          currentOwner: row.assignedTo ?? null,
+          cr04Eligible,
+          blockReason: cr04Eligible === false ? cr04BlockReason : null,
+        });
+      }
+
+      if (previewOnly) {
+        return res.json({ preview: true, contacts: previews });
+      }
+
+      // Execute: FOR UPDATE row-level locking + fingerprint verification
+      const actorId = (req.user as any)?.id ?? null;
+      for (const p of previews) {
+        const expectedFingerprint = fingerprintMap[String(p.contactId)];
+        // Re-fetch under lock
+        const [locked] = await db.execute(
+          sql`SELECT id, assigned_to, email FROM contacts WHERE id = ${p.contactId} FOR UPDATE`
+        ).then((r: any) => r.rows ?? []);
+        if (!locked) {
+          rejected.push({ contactId: p.contactId, name: p.name, reason: "Row disappeared during execution" });
+          continue;
+        }
+        // Fingerprint check if provided
+        if (expectedFingerprint) {
+          const actualFingerprint = `${locked.assigned_to ?? ""}:${locked.email ?? ""}`;
+          if (actualFingerprint !== expectedFingerprint) {
+            rejected.push({ contactId: p.contactId, name: p.name, reason: "Fingerprint mismatch — contact modified concurrently" });
+            continue;
+          }
+        }
+        // Write assignment
+        await db.execute(sql`UPDATE contacts SET assigned_to = ${assignTo}, updated_at = NOW() WHERE id = ${p.contactId}`);
+        await storage.createAuditLog({
+          action: "contact_bulk_assigned",
+          entityType: "contact",
+          entityId: p.contactId,
+          userId: actorId,
+          details: { assignTo, previousAssignedTo: locked.assigned_to ?? null },
+        });
+        accepted.push({ contactId: p.contactId, name: p.name });
+      }
+
+      res.json({
+        accepted: accepted.length,
+        rejected: rejected.length,
+        acceptedContacts: accepted,
+        blockReasons: rejected,
+        total: contactIds.length,
+      });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
   });

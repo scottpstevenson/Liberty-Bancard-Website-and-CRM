@@ -3,7 +3,8 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import { agents, agentMerchants, agentQuotas, deals, contacts, tasks, callLogs, SALES_STAGES } from "@shared/schema";
-import { eq, and, lte, gte, isNull, isNotNull, or, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, lte, gte, isNull, isNotNull, or, desc, inArray, sql, asc } from "drizzle-orm";
+import { authorizeContactAccess } from "../services/crm-object-access";
 import { z } from "zod";
 
 const ALLOWED_ACTIVITY_TYPES = ["call", "email", "sms", "meeting", "voicemail"] as const;
@@ -105,19 +106,46 @@ export function registerMyDayRoutes(app: Express) {
         allQuotas[0] ??
         null;
 
-      const dealContactIds = myDeals
-        .map((d) => d.contactId)
-        .filter((id): id is number => typeof id === "number" && !isNaN(id));
+      // ── Canonical assignment-driven contact list (Task #1860) ─────────────────
+      // Source: contacts.assigned_to = agent email, regardless of deal presence.
+      // Order: CR-04-eligible first (reachability_score desc proxy), then lead_score desc,
+      //        then last_contacted_at asc nulls first. Limit 50.
+      // Deal metadata is left-joined when a matching deal exists for context.
+      const agentEmail = agent.email ?? "";
+      const agentFullName = `${agent.firstName} ${agent.lastName}`;
 
-      let myContacts: (typeof contacts.$inferSelect)[] = [];
-      if (dealContactIds.length > 0) {
-        myContacts = await db
-          .select()
-          .from(contacts)
-          .where(and(inArray(contacts.id, dealContactIds), isNull(contacts.archivedAt)))
-          .orderBy(desc(contacts.leadScore))
-          .limit(20);
+      const rawAssignedContacts = await db
+        .select()
+        .from(contacts)
+        .where(and(
+          or(eq(contacts.assignedTo, agentEmail), eq(contacts.assignedTo, agentFullName)),
+          isNull(contacts.archivedAt),
+        ))
+        .orderBy(
+          desc(contacts.reachabilityScore), // CR-04 proxy: higher = more contactable
+          desc(contacts.leadScore),
+          asc(contacts.lastContactedAt),
+        )
+        .limit(50);
+
+      // Build deal-metadata map for context (left-join semantics)
+      const assignedContactIds = rawAssignedContacts.map(c => c.id).filter((id): id is number => typeof id === "number");
+      const dealsByContactId: Record<number, { id: number; stage: string }> = {};
+      if (assignedContactIds.length > 0) {
+        const relatedDeals = await db
+          .select({ id: deals.id, contactId: deals.contactId, stage: deals.stage })
+          .from(deals)
+          .where(and(inArray(deals.contactId, assignedContactIds), isNull(deals.archivedAt)))
+          .orderBy(desc(deals.updatedAt));
+        for (const d of relatedDeals) {
+          if (d.contactId !== null && !(d.contactId in dealsByContactId)) {
+            dealsByContactId[d.contactId] = { id: d.id, stage: d.stage };
+          }
+        }
       }
+
+      const myContacts = rawAssignedContacts;
+      const dealContactIds = assignedContactIds; // used for recentActivity below
 
       const agentName = `${agent.firstName} ${agent.lastName}`;
 
@@ -155,12 +183,13 @@ export function registerMyDayRoutes(app: Express) {
         dealsByStage[d.stage].push(d);
       }
 
+      // Use the dealsByContactId map built from the canonical assigned-contacts query
       const contactsForDeals = myContacts.map((c) => {
-        const relatedDeal = myDeals.find((d) => d.contactId === c.id);
+        const dealMeta = dealsByContactId[c.id] ?? null;
         return {
           ...c,
-          dealStage: relatedDeal?.stage ?? null,
-          dealId: relatedDeal?.id ?? null,
+          dealStage: dealMeta?.stage ?? null,
+          dealId: dealMeta?.id ?? null,
         };
       });
 
@@ -208,8 +237,7 @@ export function registerMyDayRoutes(app: Express) {
 
       // #1107 — First-contact rate: use contacts.assignedTo ownership (not deal-linked IDs)
       // Both numerator and denominator use the same predicate so they cover the same population.
-      const agentEmail = agent.email ?? "";
-      const agentFullName = `${agent.firstName} ${agent.lastName}`;
+      // agentEmail / agentFullName already defined above in the canonical contact list section
       const ownershipFilter = or(
         eq(contacts.assignedTo, agentEmail),
         eq(contacts.assignedTo, agentFullName),
@@ -272,30 +300,25 @@ export function registerMyDayRoutes(app: Express) {
         return res.status(403).json({ message: "No agent record found for your account" });
       }
 
-      const agentDealLinks = await db
-        .select({ dealId: agentMerchants.dealId })
-        .from(agentMerchants)
-        .where(eq(agentMerchants.agentId, agent.id));
+      // ── Canonical authorization: exactAssignment (not deal-membership) ────────
+      const contactRecord = await authorizeContactAccess(req, res, contactId, { exactAssignment: true });
+      if (!contactRecord) return; // authorizeContactAccess already sent a 404
 
-      const agentDealIds = agentDealLinks
-        .map((am) => am.dealId)
-        .filter((id): id is number => typeof id === "number");
-
-      if (agentDealIds.length === 0) {
-        return res.status(403).json({ message: "No deals assigned to your account" });
-      }
-
-      const linkedDeals = await db
-        .select({ contactId: deals.contactId })
-        .from(deals)
-        .where(inArray(deals.id, agentDealIds));
-
-      const allowedContactIds = linkedDeals
-        .map((d) => d.contactId)
-        .filter((id): id is number => typeof id === "number");
-
-      if (!allowedContactIds.includes(contactId)) {
-        return res.status(403).json({ message: "Contact not assigned to you" });
+      // ── Idempotency key deduplication ─────────────────────────────────────────
+      const idempotencyKey = (req.headers["idempotency-key"] as string | undefined)?.trim() || null;
+      const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (idempotencyKey !== null) {
+        if (!UUID_PATTERN.test(idempotencyKey)) {
+          return res.status(400).json({ message: "Idempotency-Key must be a UUIDv4" });
+        }
+        // Check for existing call log with this key
+        const [existing] = await db.select({ id: callLogs.id })
+          .from(callLogs)
+          .where(eq(callLogs.idempotencyKey, idempotencyKey))
+          .limit(1);
+        if (existing) {
+          return res.json({ success: true, callLogId: existing.id, deduplicated: true });
+        }
       }
 
       const [contactBefore] = await db.select().from(contacts).where(eq(contacts.id, contactId));
@@ -314,21 +337,23 @@ export function registerMyDayRoutes(app: Express) {
         before: (contactBefore ?? null) as unknown as Record<string, unknown>,
         after: (contactAfter ?? null) as unknown as Record<string, unknown> });
 
-      const relatedDeal = await db
+      // Find a related deal for context (optional)
+      const [relatedDeal] = await db
         .select({ id: deals.id })
         .from(deals)
-        .where(and(eq(deals.contactId, contactId), inArray(deals.id, agentDealIds)))
+        .where(and(eq(deals.contactId, contactId), isNull(deals.archivedAt)))
         .limit(1);
 
-      await db.insert(callLogs).values({
+      const [newCallLog] = await db.insert(callLogs).values({
         contactId,
-        dealId: relatedDeal[0]?.id ?? null,
+        dealId: relatedDeal?.id ?? null,
         direction: "outbound",
         outcome: type,
         summary: parsed.data.notes || null,
-      });
+        idempotencyKey: idempotencyKey ?? undefined,
+      }).returning({ id: callLogs.id });
 
-      res.json({ success: true });
+      res.json({ success: true, callLogId: newCallLog?.id ?? null });
     } catch (err) {
       console.error("my-day log-activity error:", err);
       res.status(500).json({ message: "Failed to log activity" });

@@ -194,6 +194,11 @@ import { coerceDateFields } from "../utils/date-coerce";
     return db.select().from(calendarEvents).orderBy(desc(calendarEvents.startTime));
   }
 
+  async getCalendarEventById(id: number): Promise<CalendarEvent | undefined> {
+    const [row] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, id)).limit(1);
+    return row;
+  }
+
 
   async getCalendarEventsByDateRange(start: Date, end: Date): Promise<CalendarEvent[]> {
     return db.select().from(calendarEvents)

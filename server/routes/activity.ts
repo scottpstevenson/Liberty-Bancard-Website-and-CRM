@@ -725,14 +725,22 @@ Respond in this exact JSON format:
 
 
   // === CALENDAR EVENTS ===
+  // Authority: calendar_events.owner_id stores users.id (server-derived, never from request body).
+  // Agents see/edit only their own events. Managers/admins see all events.
+
   app.get("/api/calendar-events", isDashboardUser, async (req, res) => {
     try {
+      const user = req.user as { id?: string; role?: string } | undefined;
       const { start, end } = req.query;
+      const isAgent = user?.role === "agent";
+
       if (start && end) {
-        const events = await storage.getCalendarEventsByDateRange(new Date(start as string), new Date(end as string));
+        let events = await storage.getCalendarEventsByDateRange(new Date(start as string), new Date(end as string));
+        if (isAgent && user?.id) events = events.filter(e => e.ownerId === user.id);
         res.json(events);
       } else {
-        const events = await storage.getCalendarEvents();
+        let events = await storage.getCalendarEvents();
+        if (isAgent && user?.id) events = events.filter(e => e.ownerId === user.id);
         res.json(events);
       }
     } catch (err: any) {
@@ -742,8 +750,14 @@ Respond in this exact JSON format:
 
   app.post("/api/calendar-events", isDashboardUser, async (req, res) => {
     try {
-      const input = insertCalendarEventSchema.parse(req.body);
-      const event = await storage.createCalendarEvent(input);
+      const user = req.user as { id?: string } | undefined;
+      // Strip owner_id from body — always set server-side from session
+      const bodyWithoutOwner = { ...req.body };
+      delete bodyWithoutOwner.ownerId;
+      delete bodyWithoutOwner.owner_id;
+      const input = insertCalendarEventSchema.parse(bodyWithoutOwner);
+      // Set owner_id from authenticated session
+      const event = await storage.createCalendarEvent({ ...input, ownerId: user?.id ?? null });
       res.status(201).json(event);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -753,9 +767,50 @@ Respond in this exact JSON format:
 
   app.put("/api/calendar-events/:id", isDashboardUser, async (req, res) => {
     try {
-      const updated = await storage.updateCalendarEvent(Number(req.params.id), req.body);
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
+      const user = req.user as { id?: string; role?: string } | undefined;
+      const eventId = Number(req.params.id);
+      const isAgent = user?.role === "agent";
+      const isPrivileged = user?.role === "admin" || user?.role === "manager";
+
+      // Strip owner_id from body — only privileged users may reassign, handled below
+      const bodyWithoutOwner = { ...req.body };
+      delete bodyWithoutOwner.ownerId;
+      delete bodyWithoutOwner.owner_id;
+
+      if (isAgent) {
+        // Agent: verify they own this event
+        const existing = await storage.getCalendarEventById(eventId);
+        if (!existing) return res.status(404).json({ message: "Not found" });
+        if (existing.ownerId !== user?.id) return res.status(403).json({ message: "You do not own this calendar event" });
+        const updated = await storage.updateCalendarEvent(eventId, bodyWithoutOwner);
+        if (!updated) return res.status(404).json({ message: "Not found" });
+        res.json(updated);
+      } else if (isPrivileged) {
+        // Manager/admin: may update any event; write audit if reassigning owner
+        const existing = await storage.getCalendarEventById(eventId);
+        if (!existing) return res.status(404).json({ message: "Not found" });
+        // If req.body contains explicit ownerId reassignment, allow it with audit
+        const newOwnerId = (req.body.ownerId ?? req.body.owner_id) ?? undefined;
+        const updatePayload: Record<string, unknown> = { ...bodyWithoutOwner };
+        if (newOwnerId !== undefined && newOwnerId !== existing.ownerId) {
+          updatePayload.ownerId = newOwnerId;
+          const { auditChange } = await import("../services/audit-change");
+          await auditChange({
+            actorType: "user",
+            userId: user?.id ?? null,
+            action: "calendar_event_reassigned",
+            entityType: "calendar_event",
+            entityId: eventId,
+            before: { ownerId: existing.ownerId },
+            after: { ownerId: newOwnerId },
+          });
+        }
+        const updated = await storage.updateCalendarEvent(eventId, updatePayload as any);
+        if (!updated) return res.status(404).json({ message: "Not found" });
+        res.json(updated);
+      } else {
+        return res.status(403).json({ message: "Forbidden" });
+      }
     } catch (err: any) {
       serverError(res, err);
     }
@@ -763,7 +818,15 @@ Respond in this exact JSON format:
 
   app.delete("/api/calendar-events/:id", isDashboardUser, async (req, res) => {
     try {
-      await storage.deleteCalendarEvent(Number(req.params.id));
+      const user = req.user as { id?: string; role?: string } | undefined;
+      const eventId = Number(req.params.id);
+      const isAgent = user?.role === "agent";
+      if (isAgent) {
+        const existing = await storage.getCalendarEventById(eventId);
+        if (!existing) return res.status(404).json({ message: "Not found" });
+        if (existing.ownerId !== user?.id) return res.status(403).json({ message: "You do not own this calendar event" });
+      }
+      await storage.deleteCalendarEvent(eventId);
       res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
