@@ -19,6 +19,7 @@ import { probeAiAdvisor } from "./probes/ai-advisor";
 import { probeGhlWorkflowRegistry } from "./probes/ghl-workflow-registry";
 import { probeAnomalyDetection } from "./probes/anomaly-detection";
 import { probePublicFormEndpoints } from "./probes/public-form-endpoints";
+import { probeSalesRepOps } from "./probes/sales-rep-ops";
 import { synthesizeNarrative } from "./synthesize";
 import { sendAuditReport } from "./slack-notifier";
 
@@ -99,6 +100,7 @@ export async function runSystemAudit(
       probeGhlWorkflowRegistry(),
       probeAnomalyDetection(),
       probePublicFormEndpoints(),
+      probeSalesRepOps(),
     ]);
 
     const probeResults: ProbeResult[] = settled.map((result, idx) => {
@@ -107,7 +109,7 @@ export async function runSystemAudit(
         "enrichment", "inbox-health", "ai-ops", "ghl-fields", "compliance-engine",
         "sdr-pipeline", "contactability", "onboarding-pipeline", "mid-ingestion",
         "role-guards", "ai-advisor", "ghl-workflow-registry", "anomaly-detection",
-        "public-form-endpoints",
+        "public-form-endpoints", "sales-rep-ops",
       ];
       if (result.status === "fulfilled") return result.value;
       return {

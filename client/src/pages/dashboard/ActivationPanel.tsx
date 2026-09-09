@@ -1734,6 +1734,7 @@ export default function ActivationPanel() {
             </CardContent>
           </Card>
           <LaunchReadinessChecklist />
+          <SalesRepOpsCard />
         </TabsContent>
 
         <TabsContent value="bridge" className="space-y-4">
@@ -3916,6 +3917,296 @@ function LaunchReadinessChecklist() {
               </div>
             )}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Sales Rep Operations Readiness Card ───────────────────────────────────────
+
+interface SalesRepOpsData {
+  ok: boolean;
+  card: string;
+  featureFlags: { CALL_ASSIST_ENABLED: boolean; FIELD_SALES_ENABLED: boolean; expectedState: string };
+  knowledgeReadiness: { approvedIndexedRevisions: number; ready: boolean };
+  repBinding: { activeAgents: number; bindingConflicts: number; healthy: boolean };
+  certification: {
+    runId: string;
+    aggregateVerdict: string;
+    completedAt: string;
+    migrationHead: string;
+    releaseSha: string | null;
+    currentReleaseSha: string | null;
+    shaMatches: boolean | null;
+    stale: boolean;
+    configFingerprint: string;
+    configFingerprintMatch: boolean;
+    populationFingerprint: string | null;
+    populationFingerprintNote: string;
+    gateResults: Array<{ gate: string; status: string; reason_code: string; detail: string }>;
+  } | null;
+  blockers: string[];
+  rollbackChecklist: Array<{ step: string; description: string }>;
+}
+
+function SalesRepOpsCard() {
+  // Cohort inputs: comma-separated rep user IDs, contact IDs, location IDs
+  const [repIdsInput, setRepIdsInput] = useState("");
+  const [contactIdsInput, setContactIdsInput] = useState("");
+  const [locationIdsInput, setLocationIdsInput] = useState("");
+  const [showCohortForm, setShowCohortForm] = useState(false);
+
+  const repOpsQuery = useQuery<SalesRepOpsData>({
+    queryKey: ["/api/activation/sales-rep-ops-readiness"],
+    refetchInterval: 60000,
+  });
+
+  const runMutation = useMutation({
+    mutationFn: () => {
+      // Parse comma-separated cohort IDs; these are required for a non-BLOCKED_EXTERNAL verdict
+      const pilotRepIds = repIdsInput.split(",").map(s => s.trim()).filter(Boolean);
+      const pilotContactIds = contactIdsInput.split(",").map(s => Number(s.trim())).filter(n => n > 0);
+      const pilotLocationIds = locationIdsInput.split(",").map(s => Number(s.trim())).filter(n => n > 0);
+      return apiRequest("POST", "/api/activation/sales-rep-ops-readiness/run", {
+        pilotRepIds,
+        pilotContactIds,
+        pilotLocationIds,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/activation/sales-rep-ops-readiness"] });
+      setShowCohortForm(false);
+    },
+  });
+
+  const data = repOpsQuery.data;
+  const cert = data?.certification;
+  const blocked = (data?.blockers ?? []).length > 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" /> Sales Rep Operations Readiness
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {data && (
+              <Badge variant={blocked ? "destructive" : "default"} className="text-xs">
+                {blocked ? "Not Certified" : cert?.aggregateVerdict === "PASS" ? "Certified" : "Pending"}
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowCohortForm(v => !v)}
+              title="Enter pilot cohort IDs and run all 20 readiness gates"
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              {showCohortForm ? "Cancel" : "Run Check"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/activation/sales-rep-ops-readiness"] })}
+              disabled={repOpsQuery.isFetching}
+            >
+              {repOpsQuery.isFetching ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Cohort input form — shown when admin clicks Run Check */}
+        {showCohortForm && (
+          <div className="rounded border p-3 space-y-3 bg-muted/40">
+            <div className="text-xs font-medium">Enter pilot cohort (required for a PASS verdict)</div>
+            <div className="space-y-2">
+              <div>
+                <Label className="text-xs">Rep User IDs (comma-separated)</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  placeholder="user-abc123, user-def456"
+                  value={repIdsInput}
+                  onChange={e => setRepIdsInput(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Contact IDs (comma-separated integers)</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  placeholder="1001, 1002, 1003"
+                  value={contactIdsInput}
+                  onChange={e => setContactIdsInput(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Business/Location IDs (comma-separated integers)</Label>
+                <Input
+                  className="text-xs h-7 mt-0.5"
+                  placeholder="2001, 2002"
+                  value={locationIdsInput}
+                  onChange={e => setLocationIdsInput(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => runMutation.mutate()}
+              disabled={runMutation.isPending || !repIdsInput.trim() || !contactIdsInput.trim() || !locationIdsInput.trim()}
+              className="w-full"
+            >
+              {runMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+              {runMutation.isPending ? "Running gates…" : "Run All 20 Readiness Gates"}
+            </Button>
+            {runMutation.isError && (
+              <div className="text-xs text-destructive">Check failed — see server logs for details.</div>
+            )}
+          </div>
+        )}
+
+        {repOpsQuery.isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+          </div>
+        ) : !data ? (
+          <div className="text-sm text-muted-foreground">Failed to load Sales Rep Ops readiness.</div>
+        ) : (
+          <>
+            {/* Feature flags (both must be OFF) */}
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center justify-between rounded border p-2">
+                <span className="text-muted-foreground">Call Assist flag</span>
+                <Badge variant={data.featureFlags.CALL_ASSIST_ENABLED ? "destructive" : "default"} className="text-xs">
+                  {data.featureFlags.CALL_ASSIST_ENABLED ? "ON ⚠" : "OFF ✓"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between rounded border p-2">
+                <span className="text-muted-foreground">Field Sales flag</span>
+                <Badge variant={data.featureFlags.FIELD_SALES_ENABLED ? "destructive" : "default"} className="text-xs">
+                  {data.featureFlags.FIELD_SALES_ENABLED ? "ON ⚠" : "OFF ✓"}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Knowledge + Rep Binding */}
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center justify-between rounded border p-2">
+                <span className="text-muted-foreground">Knowledge revisions</span>
+                <Badge variant={data.knowledgeReadiness.ready ? "default" : "destructive"} className="text-xs">
+                  {data.knowledgeReadiness.approvedIndexedRevisions} approved
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between rounded border p-2">
+                <span className="text-muted-foreground">Agent binding conflicts</span>
+                <Badge variant={data.repBinding.healthy ? "default" : "destructive"} className="text-xs">
+                  {data.repBinding.bindingConflicts === 0 ? "None ✓" : `${data.repBinding.bindingConflicts} conflict(s)`}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Certification receipt */}
+            {cert ? (
+              <div className="rounded border p-3 space-y-1 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Last Certification</span>
+                  <Badge variant={cert.aggregateVerdict === "PASS" ? "default" : "destructive"} className="text-xs">
+                    {cert.aggregateVerdict}
+                  </Badge>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Completed: {cert.completedAt ? new Date(cert.completedAt).toLocaleString() : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Migration head: {cert.migrationHead}
+                </div>
+                <div className="text-xs text-muted-foreground flex items-center gap-1">
+                  SHA match:{" "}
+                  {cert.shaMatches === null ? (
+                    <span className="text-amber-500">unknown (RELEASE_SHA not set)</span>
+                  ) : cert.shaMatches ? (
+                    <span className="text-green-600">✓</span>
+                  ) : (
+                    <span className="text-destructive">STALE ⚠</span>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground flex items-center gap-1">
+                  Config match:{" "}
+                  {cert.configFingerprintMatch ? (
+                    <span className="text-green-600">✓</span>
+                  ) : (
+                    <span className="text-destructive">MISMATCH — re-run ⚠</span>
+                  )}
+                </div>
+                {cert.populationFingerprint && (
+                  <div className="text-xs text-muted-foreground">
+                    Population fingerprint: <code className="font-mono">{cert.populationFingerprint.slice(0, 16)}…</code>
+                    <span className="ml-1 text-amber-600">(verify cohort unchanged)</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded border p-3 text-sm text-muted-foreground">
+                No admin-triggered certification run found. Use "Run Check" to certify.
+              </div>
+            )}
+
+            {/* Blockers */}
+            {data.blockers.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-destructive">Blockers ({data.blockers.length})</div>
+                {data.blockers.map((b, i) => (
+                  <div key={i} className="flex items-start gap-1 text-xs text-destructive">
+                    <XCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                    <span>{b}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Gate results (collapsed summary) */}
+            {cert?.gateResults && cert.gateResults.length > 0 && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  Gate results ({cert.gateResults.filter(g => g.status === "PASS").length}/{cert.gateResults.length} passed)
+                </summary>
+                <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                  {cert.gateResults.map((g, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded border p-1.5">
+                      {g.status === "PASS" ? (
+                        <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                      ) : g.status === "NOT_APPLICABLE" ? (
+                        <span className="w-3 h-3 shrink-0 text-muted-foreground">—</span>
+                      ) : (
+                        <XCircle className="w-3 h-3 text-destructive shrink-0" />
+                      )}
+                      <span className="font-mono">{g.gate}</span>
+                      <Badge variant={g.status === "PASS" ? "default" : g.status === "NOT_APPLICABLE" ? "secondary" : "destructive"} className="text-xs ml-auto">
+                        {g.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Rollback checklist */}
+            {data.rollbackChecklist && data.rollbackChecklist.length > 0 && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  Rollback checklist ({data.rollbackChecklist.length} steps)
+                </summary>
+                <ol className="mt-2 space-y-1 list-decimal list-inside">
+                  {data.rollbackChecklist.map((s, i) => (
+                    <li key={i} className="text-muted-foreground">
+                      <span className="font-medium text-foreground">{s.step}</span> — {s.description}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

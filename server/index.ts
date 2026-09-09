@@ -354,6 +354,16 @@ app.use((req, _res, next) => {
     await setupVite(httpServer, app);
   }
 
+  // Restore field-sales freeze flag from DB BEFORE accepting traffic.
+  // Fail-closed: defaults to frozen on DB error (see initializeFieldSalesFreezeState).
+  // Must run before listen() so the rollback kill switch is active on first request.
+  try {
+    const { initializeFieldSalesFreezeState } = await import("./services/field-sales-rollback");
+    await initializeFieldSalesFreezeState();
+  } catch {
+    // initializeFieldSalesFreezeState itself handles the fail-closed default; ignore re-throws
+  }
+
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
@@ -420,6 +430,9 @@ app.use((req, _res, next) => {
         );
         pauseInitialized = false;
       }
+
+      // Restore field-sales freeze flag from DB (non-blocking for workers; defaults to frozen on failure)
+      // Field-sales freeze state was already loaded synchronously before listen() above.
 
       // W01: selective mode starts only the named BullMQ capability groups.
       // full/core also run non-BullMQ seeds, schedulers, and GHL hydration.

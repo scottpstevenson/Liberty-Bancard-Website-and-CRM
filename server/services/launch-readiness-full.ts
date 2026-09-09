@@ -729,6 +729,71 @@ async function checkReporting(): Promise<SubsystemResult> {
   }
 }
 
+// ─── 26. Sales Rep Operations ─────────────────────────────────────────────────
+async function checkSalesRepOps(): Promise<SubsystemResult> {
+  try {
+    const { featureFlags } = await import("./feature-flags");
+
+    const [knowledgeRows, bindingRows, readinessRows] = await Promise.all([
+      db.execute(sql`
+        SELECT COUNT(*) AS cnt FROM knowledge_source_revisions
+        WHERE index_state = 'indexed' AND review_state = 'approved'
+      `),
+      db.execute(sql`
+        SELECT COUNT(*) AS conflicts FROM (
+          SELECT user_id FROM agents WHERE status = 'active' GROUP BY user_id HAVING COUNT(*) > 1
+        ) sub
+      `),
+      db.execute(sql`
+        SELECT aggregate_verdict, completed_at, release_sha FROM sales_rep_ops_readiness_runs
+        WHERE status = 'complete' ORDER BY completed_at DESC LIMIT 1
+      `),
+    ]);
+
+    const knowledgeCount = Number((knowledgeRows.rows[0] as any)?.cnt ?? 0);
+    const bindingConflicts = Number((bindingRows.rows[0] as any)?.conflicts ?? 0);
+    const lastRun = readinessRows.rows[0] as any;
+    const lastVerdict: string = lastRun?.aggregate_verdict ?? "none";
+    const callAssistEnabled = featureFlags.CALL_ASSIST_ENABLED;
+    const fieldSalesEnabled = featureFlags.FIELD_SALES_ENABLED;
+
+    // Stale receipt check: verify the last completed run's SHA matches the running release.
+    // A missing or blank RELEASE_SHA means the running deployment cannot be identified,
+    // so ANY prior receipt is treated as stale — fail closed per kill-line.
+    const currentSha = (process.env.RELEASE_SHA ?? "").trim() || null;
+    const receiptSha: string | null = lastRun?.release_sha ?? null;
+    const receiptStale = !currentSha || !receiptSha || currentSha !== receiptSha;
+
+    const issues: string[] = [];
+    if (knowledgeCount === 0) issues.push("no approved+indexed knowledge revision");
+    if (bindingConflicts > 0) issues.push(`${bindingConflicts} agent binding conflict(s)`);
+    if (callAssistEnabled) issues.push("CALL_ASSIST_ENABLED is on");
+    if (fieldSalesEnabled) issues.push("FIELD_SALES_ENABLED is on");
+    // A non-PASS verdict is a blocker: absent (none), BLOCKED_EXTERNAL, FAIL, or stale all prevent certification.
+    const verdictIsPass = lastVerdict === "PASS";
+    if (!verdictIsPass) issues.push(`last readiness run verdict is ${lastVerdict} (need PASS)`);
+    if (receiptStale) issues.push(`certification receipt is stale (SHA mismatch: cert=${receiptSha?.slice(0, 12) ?? "?"}, running=${currentSha?.slice(0, 12) ?? "?"})`);
+
+    // knowledge_revision_indexed is mandatory; a non-PASS verdict blocks certification entirely.
+    const status: SubsystemStatus =
+      knowledgeCount === 0 || bindingConflicts > 0 || !verdictIsPass || receiptStale ? "fail" :
+      issues.length > 0 ? "warn" : "pass";
+
+    return {
+      id: "sales_rep_ops",
+      name: "Sales Rep Operations",
+      status,
+      evidence: issues.length === 0
+        ? `Sales Rep Ops certified. Knowledge revisions: ${knowledgeCount} approved. Both feature flags OFF. Last readiness: ${lastVerdict}.`
+        : `Sales Rep Ops issues: ${issues.join("; ")}. Knowledge: ${knowledgeCount} approved.`,
+      checkedAt: now(),
+      details: { knowledgeCount, bindingConflicts, callAssistEnabled, fieldSalesEnabled, lastVerdict, lastReadinessCompletedAt: lastRun?.completed_at ?? null },
+    };
+  } catch (err: any) {
+    return { id: "sales_rep_ops", name: "Sales Rep Operations", status: "fail", evidence: `Sales Rep Ops probe failed: ${err.message}`, checkedAt: now() };
+  }
+}
+
 // ─── Master runner ───────────────────────────────────────────────────────────
 export async function runAllLaunchReadinessChecks(): Promise<{
   subsystems: SubsystemResult[];
@@ -764,6 +829,7 @@ export async function runAllLaunchReadinessChecks(): Promise<{
     checkOutboundPause(),
     checkAuditLog(),
     checkReporting(),
+    checkSalesRepOps(),
   ]);
 
   const subsystems: SubsystemResult[] = results.map((r, i) => {
@@ -776,7 +842,7 @@ export async function runAllLaunchReadinessChecks(): Promise<{
       "Statement Review","Underwriting","Document Vault","Form Submissions (Public Site)",
       "GHL Contact/Deal Sync","GHL Email Transport","Gmail / Send-As","Webhooks",
       "Queue / BullMQ / Redis / DB Health","Outbound Global Pause + Per-Channel Pause",
-      "Audit Log","Reporting / Acquisition Hub",
+      "Audit Log","Reporting / Acquisition Hub","Sales Rep Operations",
     ];
     return { id: `check_${i}`, name: names[i] ?? `Check ${i + 1}`, status: "fail" as SubsystemStatus, evidence: `Probe threw: ${(r.reason as any)?.message ?? r.reason}`, checkedAt };
   });

@@ -20,7 +20,7 @@ import { eq, and, isNull, desc, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { auditChange } from "../services/audit-change";
 import { serverError } from "../utils/server-error";
-import { requireFieldSales, requireFieldSalesEligible, getPilotRepIds, getPilotRepIdsAsync } from "./field-territories";
+import { requireFieldSales, requireFieldSalesEligible, requireFieldSalesUnfrozen, getPilotRepIds, getPilotRepIdsAsync } from "./field-territories";
 import { checkFieldEligibility, computeStopFingerprint } from "../services/field-eligibility";
 import { onStatementRequested } from "../services/statement-acquisition";
 import { storage } from "../storage";
@@ -582,7 +582,7 @@ export function registerFieldRoutesRoutes(app: Express) {
   // ── Claim stop ────────────────────────────────────────────────────────────
   app.post(
     "/api/field-routes/:routeId/stops/:stopId/claim",
-    requireFieldSalesEligible,
+    requireFieldSalesUnfrozen,
     isAuthenticated,
     async (req: Request, res: Response) => {
       try {
@@ -646,7 +646,7 @@ export function registerFieldRoutesRoutes(app: Express) {
   // ── Release stop claim ────────────────────────────────────────────────────
   app.delete(
     "/api/field-routes/:routeId/stops/:stopId/claim",
-    requireFieldSalesEligible,
+    requireFieldSalesUnfrozen,
     isAuthenticated,
     async (req: Request, res: Response) => {
       try {
@@ -702,7 +702,7 @@ export function registerFieldRoutesRoutes(app: Express) {
   // ── Record visit ──────────────────────────────────────────────────────────
   app.post(
     "/api/field-visits",
-    requireFieldSalesEligible,
+    requireFieldSalesUnfrozen,
     isAuthenticated,
     async (req: Request, res: Response) => {
       try {

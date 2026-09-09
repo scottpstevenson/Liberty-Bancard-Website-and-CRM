@@ -80,6 +80,8 @@ import { registerSaveCaseRoutes } from "./routes/save-cases";
 import { registerAiMemoryRoutes } from "./routes/ai-memory";
 import { registerFieldTerritoriesRoutes } from "./routes/field-territories";
 import { registerFieldRoutesRoutes } from "./routes/field-routes";
+import { registerPilotPreviewRoutes } from "./routes/pilot-preview";
+import { registerFieldSalesRollbackRoutes } from "./services/field-sales-rollback";
 import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 import { registerCensusRoutes } from "./routes/census";
 import { registerReconciliationRoutes } from "./routes/reconciliation";
@@ -254,6 +256,8 @@ export async function registerRoutes(
   registerOutreachQueueRoutes(app);          // #1493 — ready-for-outreach rep queue
   registerFieldTerritoriesRoutes(app);       // #1861 — field sales territories
   registerFieldRoutesRoutes(app);            // #1861 — field sales routes & visits
+  registerPilotPreviewRoutes(app);           // #1875 — pilot preview (admin/manager gate)
+  registerFieldSalesRollbackRoutes(app);     // #1875 — field sales rollback controls (admin only)
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

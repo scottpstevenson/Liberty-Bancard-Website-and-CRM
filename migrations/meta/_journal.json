@@ -1729,6 +1729,13 @@
       "when": 1800000004500,
       "tag": "0242_field_sales_visits",
       "breakpoints": false
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1800000004600,
+      "tag": "0243_sales_rep_ops_readiness",
+      "breakpoints": false
     }
   ]
 }

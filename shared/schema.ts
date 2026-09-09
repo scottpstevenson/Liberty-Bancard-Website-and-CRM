@@ -8800,3 +8800,48 @@ export const fieldVisits = pgTable("field_visits", {
   index("fv_rep_visited_idx").on(table.repUserId, table.visitedAt),
 ]);
 export type FieldVisit = typeof fieldVisits.$inferSelect;
+
+// ─── Sales Rep Ops Readiness Receipts ────────────────────────────────────────
+
+export const READINESS_GATE_STATUSES = ['PASS', 'FAIL', 'BLOCKED_EXTERNAL', 'NOT_APPLICABLE'] as const;
+export type ReadinessGateStatus = typeof READINESS_GATE_STATUSES[number];
+
+export const READINESS_AGGREGATE_VERDICTS = ['PASS', 'FAIL', 'BLOCKED_EXTERNAL'] as const;
+export type ReadinessAggregateVerdict = typeof READINESS_AGGREGATE_VERDICTS[number];
+
+export const salesRepOpsReadinessRuns = pgTable("sales_rep_ops_readiness_runs", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull().unique(),
+  releaseSha: text("release_sha").notNull(),
+  migrationHead: text("migration_head").notNull(),
+  configFingerprint: text("config_fingerprint").notNull(),
+  populationFingerprint: text("population_fingerprint").notNull(),
+  status: text("status").notNull().default("running"),
+  gateResults: jsonb("gate_results").notNull().default([]),
+  aggregateVerdict: text("aggregate_verdict"),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  triggeredByUserId: varchar("triggered_by_user_id").references(() => users.id),
+});
+
+export const insertSalesRepOpsReadinessRunSchema = createInsertSchema(salesRepOpsReadinessRuns);
+export type SalesRepOpsReadinessRun = typeof salesRepOpsReadinessRuns.$inferSelect;
+export type InsertSalesRepOpsReadinessRun = typeof salesRepOpsReadinessRuns.$inferInsert;
+
+export const salesRepPilotPreviews = pgTable("sales_rep_pilot_previews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  readinessRunId: integer("readiness_run_id").references(() => salesRepOpsReadinessRuns.id),
+  previewFingerprint: text("preview_fingerprint").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  repUserIds: text("rep_user_ids").array().notNull(),
+  candidateContactIds: integer("candidate_contact_ids").array().notNull(),
+  candidateLocationIds: integer("candidate_location_ids").array().notNull(),
+  policyVersion: text("policy_version").notNull(),
+  verdictSummary: jsonb("verdict_summary").notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertSalesRepPilotPreviewSchema = createInsertSchema(salesRepPilotPreviews);
+export type SalesRepPilotPreview = typeof salesRepPilotPreviews.$inferSelect;
+export type InsertSalesRepPilotPreview = typeof salesRepPilotPreviews.$inferInsert;

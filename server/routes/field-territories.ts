@@ -16,7 +16,14 @@ import { serverError } from "../utils/server-error";
 import { featureFlags } from "../services/feature-flags";
 import { storage } from "../storage";
 
-/** Middleware: returns 404 when FIELD_SALES_ENABLED is false */
+// In-process freeze flag — set by rollback service, checked synchronously in middleware.
+// Updated by setFieldSalesFrozen() exported below; persisted to DB by the rollback route.
+let _fieldSalesFrozen = false;
+export function setFieldSalesFrozen(frozen: boolean): void { _fieldSalesFrozen = frozen; }
+export function isFieldSalesFrozen(): boolean { return _fieldSalesFrozen; }
+
+/** Middleware: returns 404 when FIELD_SALES_ENABLED is false.
+ *  For mutation routes (claim/visit/cancel), also returns 503 when frozen via rollback. */
 export function requireFieldSales(req: Request, res: Response, next: NextFunction): void {
   if (!featureFlags.FIELD_SALES_ENABLED) {
     res.status(404).json({ message: "Not found" });
@@ -25,13 +32,53 @@ export function requireFieldSales(req: Request, res: Response, next: NextFunctio
   next();
 }
 
+/**
+ * Middleware: requires FIELD_SALES_ENABLED, checks the freeze flag, AND checks pilot eligibility
+ * via an authoritative async DB lookup (no stale-cache fallback for mutation paths).
+ *
+ * Fails closed: if the DB lookup throws, mutations are denied with 503.
+ * This ensures a rep removed from the pilot cannot use a cached empty list to bypass authorization.
+ */
+export async function requireFieldSalesUnfrozen(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!featureFlags.FIELD_SALES_ENABLED) {
+    res.status(404).json({ message: "Not found" });
+    return;
+  }
+  if (_fieldSalesFrozen) {
+    res.status(503).json({ message: "Field sales operations are currently frozen by rollback. Contact admin.", code: "FIELD_SALES_FROZEN" });
+    return;
+  }
+  // Authoritative uncached pilot-cohort check — fails closed on DB error.
+  // Using getPilotRepIdsUncached() (no cache) guarantees that a de-listed rep whose
+  // cache was invalidated cannot bypass this gate even momentarily.
+  try {
+    const pilotReps = await getPilotRepIdsUncached();
+    // Empty cohort is fail-closed: once the pilot list has been established and then emptied,
+    // no agents (other than admin/manager) can perform mutations. This prevents "last rep de-listed
+    // re-enables everyone" attacks. An empty list from DB is indistinguishable from "no one authorized."
+    const userId = (req as any).user?.id ?? "";
+    const role = (req as any).user?.role ?? "";
+    if (role !== "admin" && role !== "manager") {
+      if (pilotReps.length === 0 || !pilotReps.includes(userId)) {
+        res.status(403).json({ message: "Field sales not enabled for your account" });
+        return;
+      }
+    }
+    next();
+  } catch {
+    // Fail closed: if DB pilot-membership lookup fails, deny the mutation.
+    res.status(503).json({ message: "Field sales authorization temporarily unavailable", code: "PILOT_LOOKUP_FAILED" });
+  }
+}
+
 // ── Pilot rep list — DB-backed with in-process cache ─────────────────────────
 
 const PILOT_CACHE_TTL_MS = 60_000; // 1 minute
 let _pilotCache: { ids: string[]; expiresAt: number } | null = null;
 
 /** Reads pilot rep IDs from DB (system_settings key "field_pilot_reps").
- *  Env var FIELD_PILOT_REPS always wins when non-empty (escape hatch). */
+ *  Env var FIELD_PILOT_REPS always wins when non-empty (escape hatch).
+ *  On DB failure, returns the stale cache if available, otherwise propagates error. */
 export async function getPilotRepIdsAsync(): Promise<string[]> {
   const envRaw = process.env.FIELD_PILOT_REPS ?? "";
   if (envRaw.trim().length > 0) {
@@ -48,9 +95,25 @@ export async function getPilotRepIdsAsync(): Promise<string[]> {
       : [];
     _pilotCache = { ids, expiresAt: now + PILOT_CACHE_TTL_MS };
     return ids;
-  } catch {
-    return _pilotCache?.ids ?? [];
+  } catch (err) {
+    // No stale cache — propagate so callers can fail closed
+    throw err;
   }
+}
+
+/**
+ * Uncached, direct DB read of pilot rep IDs for mutation authorization.
+ * Never returns a cached value. Propagates DB errors so callers can fail closed.
+ * Env var FIELD_PILOT_REPS wins when non-empty (escape hatch, considered authoritative).
+ */
+export async function getPilotRepIdsUncached(): Promise<string[]> {
+  const envRaw = process.env.FIELD_PILOT_REPS ?? "";
+  if (envRaw.trim().length > 0) {
+    return envRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  // Direct DB read — no cache, propagates errors (fail-closed callers require this)
+  const raw = await storage.getSystemSetting("field_pilot_reps");
+  return Array.isArray(raw) ? (raw as unknown[]).map(String).filter(Boolean) : [];
 }
 
 /** Synchronous read from the in-process cache (populated by getPilotRepIdsAsync).

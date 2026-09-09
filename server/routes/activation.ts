@@ -1650,5 +1650,167 @@ export function registerActivationRoutes(app: Express) {
       serverError(res, err);
     }
   });
+
+  // ─── Sales Rep Operations Activation Card ─────────────────────────────────
+
+  // GET /api/activation/sales-rep-ops-readiness — admin only; returns current readiness state
+  app.get("/api/activation/sales-rep-ops-readiness", requireRole("admin"), async (_req, res) => {
+    try {
+      const { featureFlags } = await import("../services/feature-flags");
+
+      const [knowledgeRows, bindingRows, latestRunRows, agentCountRows] = await Promise.all([
+        db.execute(sql`
+          SELECT COUNT(*) AS cnt FROM knowledge_source_revisions
+          WHERE index_state = 'indexed' AND review_state = 'approved'
+        `),
+        db.execute(sql`
+          SELECT COUNT(*) AS conflicts FROM (
+            SELECT user_id FROM agents WHERE status = 'active' GROUP BY user_id HAVING COUNT(*) > 1
+          ) sub
+        `),
+        db.execute(sql`
+          SELECT run_id, aggregate_verdict, gate_results, completed_at, migration_head, release_sha, config_fingerprint, population_fingerprint
+          FROM sales_rep_ops_readiness_runs
+          WHERE status = 'complete' AND triggered_by_user_id IN (
+            SELECT id FROM users WHERE role = 'admin'
+          )
+          ORDER BY completed_at DESC LIMIT 1
+        `),
+        db.execute(sql`
+          SELECT COUNT(DISTINCT a.user_id) AS active_agents
+          FROM agents a WHERE a.status = 'active'
+        `),
+      ]);
+
+      const knowledgeCount = Number((knowledgeRows.rows[0] as any)?.cnt ?? 0);
+      const bindingConflicts = Number((bindingRows.rows[0] as any)?.conflicts ?? 0);
+      const lastRun = latestRunRows.rows[0] as any;
+      const activeAgentCount = Number((agentCountRows.rows[0] as any)?.active_agents ?? 0);
+
+      const callAssistEnabled = featureFlags.CALL_ASSIST_ENABLED;
+      const fieldSalesEnabled = featureFlags.FIELD_SALES_ENABLED;
+
+      const blockers: string[] = [];
+      if (bindingConflicts > 0) blockers.push(`${bindingConflicts} agent user_id binding conflict(s)`);
+      if (callAssistEnabled) blockers.push("CALL_ASSIST_ENABLED is on — must be false for certification");
+      if (fieldSalesEnabled) blockers.push("FIELD_SALES_ENABLED is on — must be false for certification");
+      if (knowledgeCount === 0) blockers.push("No approved+indexed knowledge revision found");
+      // Absent or non-PASS receipts are blockers: absent (no run), BLOCKED_EXTERNAL, and FAIL
+      // all mean the system is not certified for this exact release.
+      const lastVerdict: string = lastRun?.aggregate_verdict ?? "none";
+      const currentSha = (process.env.RELEASE_SHA ?? "").trim() || null;
+      const receiptSha: string | null = lastRun?.release_sha ?? null;
+      // Treat absent/unknown RELEASE_SHA as stale: if we cannot identify the running release,
+      // any prior PASS receipt is unverifiable and must not be accepted as current certification.
+      const receiptStale = !currentSha || !receiptSha || currentSha !== receiptSha;
+
+      // Compare config fingerprint from receipt against current flag state.
+      // A mismatch means the certified config no longer matches the live config.
+      // Also compare the population fingerprint: the receipt's certified population fingerprint
+      // is exposed in the response so admins can confirm the same cohort is still intended.
+      const { computeConfigFingerprint } = await import("../services/sales-rep-ops-readiness");
+      const currentConfigFingerprint = computeConfigFingerprint();
+      const receiptConfigFingerprint: string | null = lastRun?.config_fingerprint ?? null;
+      const configMismatch = receiptConfigFingerprint && currentConfigFingerprint !== receiptConfigFingerprint;
+      const receiptPopulationFingerprint: string | null = lastRun?.population_fingerprint ?? null;
+
+      if (!lastRun) {
+        blockers.push("No completed readiness run found — run POST /api/activation/sales-rep-ops-readiness/run");
+      } else if (lastVerdict !== "PASS") {
+        blockers.push(`Last readiness run verdict is ${lastVerdict} (need PASS)`);
+      }
+      if (receiptStale) {
+        blockers.push(`Certification receipt is stale (SHA mismatch: cert=${receiptSha?.slice(0, 12) ?? "?"}, running=${currentSha?.slice(0, 12) ?? "?"}) — re-run readiness check`);
+      }
+      if (configMismatch) {
+        blockers.push("Config fingerprint mismatch — feature flag state changed since last certification; re-run readiness check");
+      }
+
+      res.json({
+        ok: true,
+        card: "sales_rep_ops",
+        featureFlags: {
+          CALL_ASSIST_ENABLED: callAssistEnabled,
+          FIELD_SALES_ENABLED: fieldSalesEnabled,
+          expectedState: "both OFF for certification",
+        },
+        knowledgeReadiness: {
+          approvedIndexedRevisions: knowledgeCount,
+          ready: knowledgeCount > 0,
+        },
+        repBinding: {
+          activeAgents: activeAgentCount,
+          bindingConflicts,
+          healthy: bindingConflicts === 0,
+        },
+        certification: lastRun
+          ? (() => {
+              // Stale receipt detection: compare stored SHA/config against current running release
+              const currentSha = process.env.RELEASE_SHA ?? null;
+              const receiptSha = lastRun.release_sha ?? null;
+              const shaMatch = currentSha && receiptSha ? currentSha === receiptSha : null;
+              return {
+                runId: lastRun.run_id,
+                aggregateVerdict: lastRun.aggregate_verdict,
+                completedAt: lastRun.completed_at,
+                migrationHead: lastRun.migration_head,
+                releaseSha: receiptSha,
+                currentReleaseSha: currentSha,
+                shaMatches: shaMatch,
+                stale: shaMatch === false, // null = unknown (RELEASE_SHA not set)
+                configFingerprint: lastRun.config_fingerprint,
+                configFingerprintMatch: !configMismatch,
+                // populationFingerprint from receipt: admin must confirm this matches the intended cohort.
+                // Since contact/location IDs are not stored server-side, the admin uses this fingerprint
+                // to confirm no cohort changes occurred after certification. A changed cohort requires a new run.
+                populationFingerprint: receiptPopulationFingerprint,
+                populationFingerprintNote: "Verify this fingerprint matches the intended pilot cohort — any cohort change invalidates this receipt",
+                // gate_results returned for admin visibility; no PII in stored gate_results
+                gateResults: lastRun.gate_results ?? [],
+              };
+            })()
+          : null,
+        blockers,
+        rollbackChecklist: [
+          { step: "Disable flags", description: "POST /api/admin/field-sales/disable-flags — sets CALL_ASSIST_ENABLED and FIELD_SALES_ENABLED to false" },
+          { step: "Freeze mutations", description: "PATCH /api/admin/field-sales/freeze — prevents new claim/visit mutations immediately" },
+          { step: "Release claims", description: "POST /api/admin/field-sales/release-claims — transitions claimed stops back to released" },
+          { step: "Cancel routes", description: "POST /api/admin/field-sales/cancel-routes — cancels open pilot routes" },
+          { step: "Expire cohort", description: "DELETE /api/field-territories/:id/assignments/:assignmentId — sets ends_at=now() on pilot rep territory assignments" },
+        ],
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // POST /api/activation/sales-rep-ops-readiness/run — admin only; triggers a fresh readiness run
+  app.post("/api/activation/sales-rep-ops-readiness/run", requireRole("admin"), async (req, res) => {
+    try {
+      const { pilotRepIds, pilotContactIds, pilotLocationIds } = req.body ?? {};
+      const { runSalesRepOpsReadiness } = await import("../services/sales-rep-ops-readiness");
+
+      const result = await runSalesRepOpsReadiness({
+        triggeredByUserId: String((req.user as any)?.id ?? ""),
+        pilotRepIds: Array.isArray(pilotRepIds) ? pilotRepIds.map(String) : [],
+        pilotContactIds: Array.isArray(pilotContactIds) ? pilotContactIds.map(Number) : [],
+        pilotLocationIds: Array.isArray(pilotLocationIds) ? pilotLocationIds.map(Number) : [],
+      });
+
+      res.json({
+        ok: true,
+        fromCache: result.fromCache,
+        runId: result.runId,
+        id: result.id,
+        status: result.status,
+        aggregateVerdict: result.aggregateVerdict,
+        gateResults: result.gateResults,
+        startedAt: result.startedAt,
+        completedAt: result.completedAt,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
 }
 
