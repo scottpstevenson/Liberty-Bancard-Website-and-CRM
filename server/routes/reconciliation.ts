@@ -80,6 +80,116 @@ function csvCell(v: string | boolean | number | null | undefined): string {
 // ──────────────────────────────────────────────────────────────────────────────
 export function registerReconciliationRoutes(app: Express): void {
 
+  // ── GET /api/admin/contacts/suppressed-fake-phones ────────────────────────
+  // Returns the count and a paged list of contacts suppressed by fake-phone
+  // remediation (suppression_reason = 'fake_phone_detected').
+  // Query params: limit (default 50, max 200), cursor (contact_id, for keyset paging)
+  // Add ?format=csv to download as CSV.
+  app.get("/api/admin/contacts/suppressed-fake-phones", requireRole("admin"), async (req, res) => {
+    try {
+      const format = req.query.format as string | undefined;
+      const limitRaw = parseInt((req.query.limit as string) || "50", 10);
+      const limit = Math.min(Math.max(1, isNaN(limitRaw) ? 50 : limitRaw), 200);
+      const cursorRaw = req.query.cursor as string | undefined;
+      const cursor = cursorRaw && /^\d+$/.test(cursorRaw) ? parseInt(cursorRaw, 10) : null;
+
+      if (format === "csv") {
+        // CSV export — no paging, returns all rows
+        const csvR = await pool.query<{
+          id: number;
+          first_name: string | null;
+          last_name: string | null;
+          email: string | null;
+          phone: string | null;
+          suppressed_at: Date | null;
+        }>(
+          `SELECT id,
+                  first_name,
+                  last_name,
+                  email,
+                  phone,
+                  updated_at AS suppressed_at
+             FROM contacts
+            WHERE suppression_reason = 'fake_phone_detected'
+              AND do_not_auto_contact = true
+            ORDER BY id ASC`,
+        );
+
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="suppressed-fake-phones-${new Date().toISOString().slice(0, 10)}.csv"`,
+        );
+        res.write("contact_id,name,email,phone,suppressed_at\n");
+        for (const row of csvR.rows) {
+          const name = [row.first_name, row.last_name].filter(Boolean).join(" ");
+          res.write(
+            [
+              csvCell(row.id),
+              csvCell(name || null),
+              csvCell(row.email),
+              csvCell(row.phone),
+              csvCell(row.suppressed_at ? new Date(row.suppressed_at).toISOString() : null),
+            ].join(",") + "\n",
+          );
+        }
+        res.end();
+        return;
+      }
+
+      // Count
+      const countR = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM contacts
+          WHERE suppression_reason = 'fake_phone_detected'
+            AND do_not_auto_contact = true`,
+      );
+      const total = parseInt(countR.rows[0]?.count ?? "0", 10);
+
+      // Paged list
+      const listR = await pool.query<{
+        id: number;
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+        phone: string | null;
+        suppressed_at: Date | null;
+      }>(
+        `SELECT id,
+                first_name,
+                last_name,
+                email,
+                phone,
+                updated_at AS suppressed_at
+           FROM contacts
+          WHERE suppression_reason = 'fake_phone_detected'
+            AND do_not_auto_contact = true
+            ${cursor != null ? `AND id > ${cursor}` : ""}
+          ORDER BY id ASC
+          LIMIT ${limit + 1}`,
+      );
+
+      const rows = listR.rows.slice(0, limit);
+      const hasMore = listR.rows.length > limit;
+      const nextCursor = hasMore ? rows[rows.length - 1]?.id ?? null : null;
+
+      res.json({
+        total,
+        hasMore,
+        nextCursor,
+        contacts: rows.map(r => ({
+          id: r.id,
+          name: [r.first_name, r.last_name].filter(Boolean).join(" ") || null,
+          email: r.email,
+          phone: r.phone,
+          suppressedAt: r.suppressed_at ? new Date(r.suppressed_at).toISOString() : null,
+        })),
+      });
+    } catch (err) {
+      serverError(res, err, "suppressed-fake-phones");
+    }
+  });
+
   // ── POST /api/admin/reconciliation/runs ───────────────────────────────────
   // Start a new reconciliation run from a completed census run.
   app.post("/api/admin/reconciliation/runs", requireRole("admin"), async (req, res) => {

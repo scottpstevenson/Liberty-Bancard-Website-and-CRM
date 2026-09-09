@@ -956,11 +956,23 @@ const EXPORT_TYPES = [
   { type: "shared-email", label: "Shared Email Clusters CSV" },
 ];
 
+interface SuppressedFakePhonesData {
+  total: number;
+  hasMore: boolean;
+  nextCursor: number | null;
+  contacts: Array<{ id: number; name: string | null; email: string | null; phone: string | null; suppressedAt: string | null }>;
+}
 function RemediationPanel({ runId, signals }: { runId: string; signals: QualitySignalRow[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [opResults, setOpResults] = useState<Record<string, RemediationOp>>({});
+
+  const { data: suppressedData, isLoading: suppressedLoading } = useQuery<SuppressedFakePhonesData>({
+    queryKey: ["/api/admin/contacts/suppressed-fake-phones"],
+    queryFn: () => apiRequest("GET", "/api/admin/contacts/suppressed-fake-phones").then(r => r.json()),
+    refetchInterval: 30_000,
+  });
 
   const getSignalCount = (code: string) => signals.find(s => s.code === code)?.contactCount ?? 0;
 
@@ -1090,6 +1102,68 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
             </div>
           );
         })}
+      </div>
+
+      {/* Live fake-phone suppression counter */}
+      <div className="border rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <p className="text-xs font-semibold">Currently suppressed via fake-phone remediation</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Contacts with <code>suppression_reason = &apos;fake_phone_detected&apos;</code> and{" "}
+              <code>do_not_auto_contact = true</code> across the entire CRM.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {suppressedLoading ? (
+              <span className="text-xs text-muted-foreground">Loading…</span>
+            ) : (
+              <span className="text-sm font-semibold tabular-nums">
+                {(suppressedData?.total ?? 0).toLocaleString()} contact{suppressedData?.total !== 1 ? "s" : ""}
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1"
+              disabled={!suppressedData || suppressedData.total === 0}
+              onClick={() => window.open("/api/admin/contacts/suppressed-fake-phones?format=csv")}
+            >
+              <Download className="h-3 w-3" /> Export CSV
+            </Button>
+          </div>
+        </div>
+        {suppressedData && suppressedData.contacts.length > 0 && (
+          <div className="overflow-x-auto rounded border border-border/50 mt-1">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/40 text-left">
+                  <th className="px-2 py-1 font-medium">ID</th>
+                  <th className="px-2 py-1 font-medium">Name</th>
+                  <th className="px-2 py-1 font-medium">Email</th>
+                  <th className="px-2 py-1 font-medium">Phone</th>
+                  <th className="px-2 py-1 font-medium">Suppressed at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suppressedData.contacts.map(c => (
+                  <tr key={c.id} className="border-t border-border/30 hover:bg-muted/20">
+                    <td className="px-2 py-1 font-mono text-[10px]">{c.id}</td>
+                    <td className="px-2 py-1">{c.name ?? <span className="text-muted-foreground italic">—</span>}</td>
+                    <td className="px-2 py-1 font-mono text-[10px]">{c.email ?? "—"}</td>
+                    <td className="px-2 py-1 font-mono text-[10px]">{c.phone ?? "—"}</td>
+                    <td className="px-2 py-1 text-muted-foreground">{c.suppressedAt ? new Date(c.suppressedAt).toLocaleDateString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {suppressedData.hasMore && (
+              <p className="text-[10px] text-muted-foreground px-2 py-1">
+                Showing first 50 of {suppressedData.total.toLocaleString()} — download CSV for full list.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Shared-identity exports */}
