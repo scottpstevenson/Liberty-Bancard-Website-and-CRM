@@ -1660,6 +1660,13 @@
       "when": 1800000000800,
       "tag": "0232_crosswalk_run_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "0233",
+      "when": 1800000000900,
+      "tag": "0233_quality_signal_projection",
+      "breakpoints": true
     }
   ]
 }

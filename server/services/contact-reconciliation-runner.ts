@@ -40,6 +40,13 @@ import {
   type ReconciliationContactRow,
 } from "./reconciliation-classifier";
 import { leaseOwnerTag as censusLeaseOwnerTag } from "./contact-census-runner";
+import {
+  classifyContactQuality,
+  buildQualityRunContext,
+  normalizeNanpPhone,
+  type QualityContactInput,
+  type QualityRunContext,
+} from "./contact-quality-signals";
 
 const { Client } = pg;
 
@@ -52,6 +59,7 @@ export function leaseOwnerTag(): string {
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 const RULES_VERSION = "1.0.0";
+const QUALITY_RULES_VERSION = "quality-v1";
 const BATCH_SIZE = 200;
 const LEASE_DURATION_SECS = 120;
 const LEASE_REFRESH_EVERY_N = 10;
@@ -112,7 +120,7 @@ async function isLoginHealthy(): Promise<boolean> {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Load shared-phone data from census run context
+// Load shared-phone data from census run context (legacy raw-string approach)
 // ──────────────────────────────────────────────────────────────────────────────
 async function loadSharedPhoneData(
   client: pg.PoolClient,
@@ -140,13 +148,139 @@ async function loadSharedPhoneData(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Insert member batch
+// Load quality-v1 shared phone cohort (normalized 10-digit NANP, set-based)
 // ──────────────────────────────────────────────────────────────────────────────
+async function loadQualitySharedPhones(
+  client: pg.PoolClient,
+  censusRunId: string,
+): Promise<Array<{ normalized_phone: string; contact_count: number; domain_count: number }>> {
+  // Normalize phone to canonical 10-digit NANP inside SQL before grouping so that
+  // "5125550200" and "15125550200" and "(512) 555-0200" all land in the same bucket.
+  // NANP normalization: strip all non-digits, then if 11 digits and starts with '1', drop the leading 1.
+  // Wrap in a subquery so normalized_phone is a real column available to GROUP BY / HAVING.
+  // PostgreSQL permits SELECT aliases in GROUP BY but not in HAVING (SQL:2003 restriction).
+  const r = await client.query(`
+    SELECT normalized_phone, contact_count, domain_count
+    FROM (
+      SELECT
+        CASE
+          WHEN length(regexp_replace(c.phone, '[^0-9]', '', 'g')) = 11
+               AND left(regexp_replace(c.phone, '[^0-9]', '', 'g'), 1) = '1'
+          THEN right(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10)
+          WHEN length(regexp_replace(c.phone, '[^0-9]', '', 'g')) = 10
+          THEN regexp_replace(c.phone, '[^0-9]', '', 'g')
+        END AS normalized_phone,
+        COUNT(DISTINCT c.id) AS contact_count,
+        COUNT(DISTINCT lower(split_part(c.email, '@', 2)))
+          FILTER (WHERE c.email IS NOT NULL AND TRIM(c.email) <> '') AS domain_count
+      FROM contact_census_members ccm
+      JOIN contacts c ON c.id = ccm.contact_id
+      WHERE ccm.run_id = $1
+        AND c.phone IS NOT NULL AND TRIM(c.phone) <> ''
+        AND c.archived_at IS NULL
+      GROUP BY normalized_phone
+    ) sub
+    WHERE normalized_phone IS NOT NULL
+      AND contact_count > 1
+  `, [censusRunId]);
+
+  return r.rows.map((row: any) => ({
+    normalized_phone: row.normalized_phone as string,
+    contact_count: parseInt(row.contact_count, 10),
+    domain_count: parseInt(row.domain_count, 10),
+  }));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Load quality-v1 shared email cohort (normalized lowercase, set-based)
+// ──────────────────────────────────────────────────────────────────────────────
+async function loadQualitySharedEmails(
+  client: pg.PoolClient,
+  censusRunId: string,
+): Promise<Array<{ normalized_email: string; contact_count: number; domain_count: number }>> {
+  const r = await client.query(`
+    SELECT
+      lower(trim(c.email))                      AS normalized_email,
+      COUNT(DISTINCT c.id)                      AS contact_count,
+      COUNT(DISTINCT lower(split_part(c.email, '@', 2))) AS domain_count
+    FROM contact_census_members ccm
+    JOIN contacts c ON c.id = ccm.contact_id
+    WHERE ccm.run_id = $1
+      AND c.email IS NOT NULL AND TRIM(c.email) <> ''
+      AND c.archived_at IS NULL
+    GROUP BY lower(trim(c.email))
+    HAVING COUNT(DISTINCT c.id) > 1
+  `, [censusRunId]);
+
+  return r.rows.map((row: any) => ({
+    normalized_email: row.normalized_email as string,
+    contact_count: parseInt(row.contact_count, 10),
+    domain_count: parseInt(row.domain_count, 10),
+  }));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Load crosswalk decisions for a batch of contact IDs (set-based, not N+1)
+// Returns: contactId → "candidate" | "conflict" | "none"
+// Only uses completed crosswalk runs; excludes running/failed/cancelled/stale.
+// ──────────────────────────────────────────────────────────────────────────────
+async function loadCrosswalkDecisions(
+  client: pg.PoolClient,
+  contactIds: number[],
+): Promise<Map<number, "candidate" | "conflict">> {
+  if (contactIds.length === 0) return new Map();
+
+  // contacts with business_id are already BUSINESS_LINK_VERIFIED — skip crosswalk lookup.
+  // For contacts without business_id, check if there are approved decisions from
+  // completed crosswalk runs where the subject's existing_fk_contact_id matches.
+  const r = await client.query(`
+    SELECT
+      cis.existing_fk_contact_id                                                    AS contact_id,
+      COUNT(DISTINCT cid.id) FILTER (WHERE cid.decision = 'approved'
+        AND NOT cid.stale_at_decision)                                             AS approved_count,
+      COUNT(DISTINCT cic.candidate_id)
+        FILTER (WHERE cid.decision = 'approved' AND NOT cid.stale_at_decision
+          AND cand.candidate_type = 'business')                                    AS business_candidate_count
+    FROM contact_identity_subjects cis
+    JOIN contact_identity_reconciliation_runs cirr
+      ON cirr.id = cis.run_id AND cirr.status = 'completed'
+    LEFT JOIN contact_identity_decisions cid ON cid.subject_id = cis.id
+    LEFT JOIN contact_identity_candidates cand ON cand.id = cid.candidate_id
+    LEFT JOIN LATERAL (SELECT cid.candidate_id) cic ON true
+    WHERE cis.existing_fk_contact_id = ANY($1::int[])
+    GROUP BY cis.existing_fk_contact_id
+  `, [contactIds]);
+
+  const out = new Map<number, "candidate" | "conflict">();
+  for (const row of r.rows) {
+    const contactId = parseInt(row.contact_id, 10);
+    const approvedCount = parseInt(row.approved_count, 10);
+    const bizCandidateCount = parseInt(row.business_candidate_count, 10);
+    if (bizCandidateCount > 1) {
+      out.set(contactId, "conflict");
+    } else if (approvedCount > 0 && bizCandidateCount >= 1) {
+      out.set(contactId, "candidate");
+    }
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Insert member batch (supports optional quality signal columns)
+// ──────────────────────────────────────────────────────────────────────────────
+interface MemberBatchRow extends ReturnType<typeof classifyReconciliation> {
+  // Optional quality columns — present for quality-v1 runs only
+  qualitySignalCodes?: string[];
+  qualitySignalDetails?: Record<string, unknown>;
+}
+
 async function insertMemberBatch(
   client: pg.PoolClient,
-  results: ReturnType<typeof classifyReconciliation>[],
+  results: MemberBatchRow[],
 ): Promise<void> {
   if (results.length === 0) return;
+
+  const hasQuality = results[0].qualitySignalCodes !== undefined;
 
   const columns = [
     "run_id", "contact_id", "census_member_id", "census_lane",
@@ -157,6 +291,7 @@ async function insertMemberBatch(
     "overall_action_state", "primary_lane", "gap_codes",
     "has_business_id", "has_company_name", "has_email", "has_phone",
     "has_vertical", "has_first_name", "has_last_name",
+    ...(hasQuality ? ["quality_signal_codes", "quality_signal_details"] : []),
   ];
 
   const valuePlaceholders: string[] = [];
@@ -164,7 +299,7 @@ async function insertMemberBatch(
   let paramIdx = 1;
 
   for (const r of results) {
-    const rowParams = [
+    const rowParams: unknown[] = [
       r.runId, r.contactId, r.censusMemberId, r.censusLane,
       r.nameQualityState, r.emailQualityState, r.phoneQualityState,
       r.companyQualityState, r.verticalState, r.duplicateRiskState,
@@ -174,6 +309,10 @@ async function insertMemberBatch(
       r.hasBusinessId, r.hasCompanyName, r.hasEmail, r.hasPhone,
       r.hasVertical, r.hasFirstName, r.hasLastName,
     ];
+    if (hasQuality) {
+      rowParams.push(r.qualitySignalCodes ?? []);
+      rowParams.push(JSON.stringify(r.qualitySignalDetails ?? {}));
+    }
     valuePlaceholders.push(`(${rowParams.map(() => `$${paramIdx++}`).join(",")})`);
     values.push(...rowParams);
   }
@@ -339,14 +478,18 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
   let paused = false;
 
   try {
-    // Get the source census run info
+    // Get the source census run info AND rules_version
     const runR = await client.query(
-      `SELECT source_census_run_id FROM contact_reconciliation_runs WHERE id = $1`,
+      `SELECT source_census_run_id, rules_version, quality_flagged_contacts,
+              quality_signal_instances, suppressed_cosmetic_candidates
+       FROM contact_reconciliation_runs WHERE id = $1`,
       [runId],
     );
     if (runR.rows.length === 0) return;
 
     const sourceCensusRunId: string = runR.rows[0].source_census_run_id;
+    const rulesVersion: string = runR.rows[0].rules_version ?? RULES_VERSION;
+    const isQualityRun = rulesVersion === QUALITY_RULES_VERSION;
 
     // Get census watermark
     const censusR = await client.query(
@@ -370,7 +513,8 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
     // Read the current run row to restore checkpoint state (supports resume).
     const thisRunR = await client.query(
       `SELECT cursor_contact_census_member_id, total_processed, total_proposed,
-              lane_counts, dimension_counts
+              lane_counts, dimension_counts,
+              quality_flagged_contacts, quality_signal_instances, suppressed_cosmetic_candidates
        FROM contact_reconciliation_runs WHERE id = $1`,
       [runId],
     );
@@ -381,8 +525,24 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
       denominatorAtStart: denominator,
     });
 
-    // Load shared-phone data from census run
-    const sharedPhoneMap = await loadSharedPhoneData(client, sourceCensusRunId);
+    // Load shared-phone data from census run (legacy path for non-quality runs)
+    const sharedPhoneMap = isQualityRun
+      ? new Map<string, number>()
+      : await loadSharedPhoneData(client, sourceCensusRunId);
+
+    // Load quality context once (quality-v1 runs only)
+    let qualityCtx: QualityRunContext | null = null;
+    if (isQualityRun) {
+      const [sharedPhoneRows, sharedEmailRows] = await Promise.all([
+        loadQualitySharedPhones(client, sourceCensusRunId),
+        loadQualitySharedEmails(client, sourceCensusRunId),
+      ]);
+      qualityCtx = buildQualityRunContext(new Date(), sharedPhoneRows, sharedEmailRows);
+      console.log(
+        `[ReconRunner] Quality context loaded: shared_phones=${sharedPhoneRows.length}` +
+        ` shared_emails=${sharedEmailRows.length}`,
+      );
+    }
 
     // Restore checkpoint — if cursor > 0 this is a resumed run
     const laneCounts: Record<string, number> =
@@ -403,6 +563,10 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
     let totalProposed = parseInt(String(thisRun?.total_proposed ?? "0"), 10) || 0;
     let totalOrgCandidates = 0;
     let totalClusters = 0;
+    // Quality counters (restored from checkpoint for resume)
+    let qualityFlaggedContacts = parseInt(String(thisRun?.quality_flagged_contacts ?? "0"), 10) || 0;
+    let qualitySignalInstances = parseInt(String(thisRun?.quality_signal_instances ?? "0"), 10) || 0;
+    let suppressedCosmeticCandidates = parseInt(String(thisRun?.suppressed_cosmetic_candidates ?? "0"), 10) || 0;
     let batchNum = 0;
 
     while (true) {
@@ -464,7 +628,8 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
         }
       }
 
-      // Fetch batch of census members with current contact data
+      // Fetch batch of census members with current contact data.
+      // quality-v1 extends the SELECT with additional compliance/suppression fields.
       const batchStart = Date.now();
       const batchR = await client.query(`
         SELECT
@@ -476,7 +641,15 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
           c.do_not_contact, c.suppression_reason, c.email_status,
           c.bounce_status, c.complaint_status, c.consent_tier,
           c.record_class, c.ghl_contact_id, c.lead_source,
-          c.business_id, c.updated_at::text AS contact_updated_at  -- raw text preserves microsecond precision for CAS
+          c.business_id, c.updated_at::text AS contact_updated_at,
+          -- quality-v1 additional fields (safe to include in all runs; NULL for old contacts)
+          c.email_validation_updated_at,
+          c.do_not_auto_contact,
+          c.dnc_reason, c.dnc_date,
+          c.opted_out_email, c.opt_out_status,
+          c.unsubscribe_status,
+          c.sms_status, c.sms_consent_status,
+          c.next_allowed_contact_date
         FROM contact_census_members ccm
         JOIN contacts c ON c.id = ccm.contact_id
         WHERE ccm.run_id = $1
@@ -500,12 +673,18 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
 
       if (batchR.rows.length === 0) break;
 
-      const classifiedResults: ReturnType<typeof classifyReconciliation>[] = [];
+      // Load crosswalk decisions for this batch (quality-v1 only, set-based — not N+1)
+      const batchContactIds = batchR.rows.map((r: any) => r.contact_id as number);
+      const crosswalkMap = isQualityRun
+        ? await loadCrosswalkDecisions(client, batchContactIds)
+        : new Map<number, "candidate" | "conflict">();
+
+      const classifiedResults: MemberBatchRow[] = [];
       const orgBatch: Array<{ contactId: number; companyName: string }> = [];
       const dupBatch: Array<{ contactId: number; phone: string }> = [];
       const proposalBatch: Array<{
         contactId: number;
-        contactUpdatedAt: string; // raw DB string — microsecond precision preserved
+        contactUpdatedAt: string;
         proposalType: string;
         fieldName: string;
         currentValue: string | null;
@@ -513,6 +692,11 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
         confidence: number;
         beforeValues: Record<string, unknown>;
       }> = [];
+
+      // Quality-v1 per-batch counters
+      let batchQualityFlagged = 0;
+      let batchQualityInstances = 0;
+      let batchSuppressedCosmetic = 0;
 
       for (const raw of batchR.rows) {
         const normalizedPhone = raw.phone?.trim() || null;
@@ -545,10 +729,79 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
           sharedPhoneCompanyCount: companyCount,
         };
 
-        const result = classifyReconciliation(row, runId, parseInt(raw.census_member_id));
+        const result = classifyReconciliation(row, runId, parseInt(raw.census_member_id)) as MemberBatchRow;
+
+        // ── quality-v1 path: classify quality signals, suppress cosmetic proposals ──
+        if (isQualityRun && qualityCtx) {
+          const crosswalkDec = crosswalkMap.get(raw.contact_id as number) ?? null;
+          const qInput: QualityContactInput = {
+            contactId: raw.contact_id,
+            firstName: raw.first_name || null,
+            lastName: raw.last_name || null,
+            phone: raw.phone || null,
+            email: raw.email || null,
+            emailStatus: raw.email_status || null,
+            emailValidationUpdatedAt: raw.email_validation_updated_at
+              ? new Date(raw.email_validation_updated_at) : null,
+            doNotContact: raw.do_not_contact ?? false,
+            doNotAutoContact: raw.do_not_auto_contact ?? false,
+            dncReason: raw.dnc_reason || null,
+            dncDate: raw.dnc_date ? new Date(raw.dnc_date) : null,
+            suppressionReason: raw.suppression_reason || null,
+            optedOutEmail: raw.opted_out_email ?? null,
+            optOutStatus: raw.opt_out_status || null,
+            unsubscribeStatus: raw.unsubscribe_status || null,
+            bounceStatus: raw.bounce_status || null,
+            complaintStatus: raw.complaint_status || null,
+            smsStatus: raw.sms_status || null,
+            smsConsentStatus: raw.sms_consent_status || null,
+            consentTier: raw.consent_tier || null,
+            nextAllowedContactDate: raw.next_allowed_contact_date
+              ? new Date(raw.next_allowed_contact_date) : null,
+            businessId: raw.business_id != null ? parseInt(raw.business_id) : null,
+            companyName: raw.company_name || null,
+            crosswalkDecisionType: crosswalkDec ?? "none",
+          };
+          const qResult = classifyContactQuality(qInput, qualityCtx);
+          result.qualitySignalCodes = qResult.signalCodes;
+          result.qualitySignalDetails = qResult.signalDetails;
+
+          // Count quality signals
+          if (qResult.signalCodes.length > 0) batchQualityFlagged++;
+          batchQualityInstances += qResult.signalCodes.length;
+
+          // Suppress cosmetic proposals: count what WOULD have been generated but do NOT insert
+          const rawContactUpdatedAt: string = String(raw.contact_updated_at);
+          const wouldBeProposals = generateProposals(row, result, new Date(rawContactUpdatedAt));
+          batchSuppressedCosmetic += wouldBeProposals.length;
+          // Do NOT push to proposalBatch for quality-v1 runs
+        } else {
+          // ── Legacy path: generate normalization proposals ────────────────────
+          const rawContactUpdatedAt: string = String(raw.contact_updated_at);
+          const proposals = generateProposals(row, result, new Date(rawContactUpdatedAt));
+          for (const p of proposals) {
+            proposalBatch.push({
+              contactId: raw.contact_id,
+              contactUpdatedAt: rawContactUpdatedAt,
+              proposalType: p.proposalType,
+              fieldName: p.fieldName,
+              currentValue: p.currentValue,
+              proposedValue: p.proposedValue,
+              confidence: p.confidence,
+              beforeValues: {
+                first_name: raw.first_name,
+                last_name: raw.last_name,
+                email: raw.email,
+                phone: raw.phone,
+                company_name: raw.company_name,
+              },
+            });
+          }
+        }
+
         classifiedResults.push(result);
 
-        // Tally
+        // Tally lane/dimension counts
         laneCounts[result.primaryLane] = (laneCounts[result.primaryLane] ?? 0) + 1;
         dimensionCounts.r1_name[result.nameQualityState] = (dimensionCounts.r1_name[result.nameQualityState] ?? 0) + 1;
         dimensionCounts.r2_email[result.emailQualityState] = (dimensionCounts.r2_email[result.emailQualityState] ?? 0) + 1;
@@ -567,44 +820,19 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
           orgBatch.push({ contactId: raw.contact_id, companyName: raw.company_name });
         }
 
-        // Duplicate cluster batch
-        if (result.duplicateRiskState === "shared_phone_multi_company" && normalizedPhone) {
+        // Duplicate cluster batch (legacy: uses raw phone; quality-v1: uses SHARED_PHONE_REVIEW signal)
+        if (!isQualityRun && result.duplicateRiskState === "shared_phone_multi_company" && normalizedPhone) {
           dupBatch.push({ contactId: raw.contact_id, phone: normalizedPhone });
-        }
-
-        // Normalization proposals
-        // Pass contact_updated_at as the raw database string so microsecond
-        // precision is preserved end-to-end for the SQL CAS predicate in approval.
-        const rawContactUpdatedAt: string = String(raw.contact_updated_at);
-        const proposals = generateProposals(row, result, new Date(rawContactUpdatedAt));
-        for (const p of proposals) {
-          proposalBatch.push({
-            contactId: raw.contact_id,
-            contactUpdatedAt: rawContactUpdatedAt,
-            proposalType: p.proposalType,
-            fieldName: p.fieldName,
-            currentValue: p.currentValue,
-            proposedValue: p.proposedValue,
-            confidence: p.confidence,
-            beforeValues: {
-              first_name: raw.first_name,
-              last_name: raw.last_name,
-              email: raw.email,
-              phone: raw.phone,
-              company_name: raw.company_name,
-            },
-          });
+        } else if (isQualityRun && result.qualitySignalCodes?.includes("SHARED_PHONE_REVIEW") && normalizedPhone) {
+          // Use normalized NANP phone for quality-v1 clusters
+          const nanp = normalizeNanpPhone(raw.phone);
+          if (nanp) dupBatch.push({ contactId: raw.contact_id, phone: nanp });
         }
 
         totalProcessed++;
       }
 
       // ── Atomic batch commit ─────────────────────────────────────────────────
-      // Wrap all batch writes AND the checkpoint update in a single transaction
-      // on the same `client` connection. If a concurrent admin cancel/pause has
-      // changed status away from 'running', the checkpoint predicate returns 0
-      // rows and we ROLLBACK — undoing the member/proposal inserts too — so
-      // cursor and counters stay in sync with what is durably committed.
       const nextCursor = batchR.rows[batchR.rows.length - 1].census_member_id;
       let insertedCount = 0;
       let batchCommitted = false;
@@ -613,21 +841,34 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
 
         await insertMemberBatch(client, classifiedResults);
         await upsertOrgCandidates(client, runId, orgBatch);
-        await upsertDuplicateClusters(client, runId, dupBatch, sharedPhoneMap);
-        insertedCount = await insertProposalBatch(client, runId, proposalBatch);
+        if (!isQualityRun) {
+          await upsertDuplicateClusters(client, runId, dupBatch, sharedPhoneMap);
+          insertedCount = await insertProposalBatch(client, runId, proposalBatch);
+        } else {
+          // Quality-v1: clusters keyed by normalized NANP phone
+          const nanpMap = new Map<string, number>();
+          for (const d of dupBatch) nanpMap.set(d.phone, 2); // threshold already passed
+          await upsertDuplicateClusters(client, runId, dupBatch, nanpMap);
+        }
+
+        // Build checkpoint update for quality-v1 vs legacy
+        const qualityUpdates = isQualityRun ? `
+          quality_flagged_contacts = quality_flagged_contacts + ${batchQualityFlagged},
+          quality_signal_instances = quality_signal_instances + ${batchQualityInstances},
+          suppressed_cosmetic_candidates = suppressed_cosmetic_candidates + ${batchSuppressedCosmetic},
+        ` : "";
 
         const cpR = await client.query(
           `UPDATE contact_reconciliation_runs
            SET cursor_contact_census_member_id=$2, total_processed=$3,
-               total_proposed=$4, lane_counts=$5, dimension_counts=$6, updated_at=now()
+               total_proposed=$4, lane_counts=$5, dimension_counts=$6,
+               ${qualityUpdates}updated_at=now()
            WHERE id=$1 AND lease_owner=$7 AND status='running'`,
           [runId, nextCursor, totalProcessed, totalProposed + insertedCount,
            JSON.stringify(laneCounts), JSON.stringify(dimensionCounts), owner],
         );
 
         if ((cpR.rowCount ?? 0) === 0) {
-          // Status changed externally — roll back the batch writes so they are
-          // not orphaned without a matching checkpoint advance.
           await client.query("ROLLBACK");
           console.warn(`[ReconRunner] Batch rolled back for run ${runId} — status changed or lease lost`);
           return;
@@ -643,6 +884,9 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
       if (!batchCommitted) return;
 
       totalProposed += insertedCount;
+      qualityFlaggedContacts += batchQualityFlagged;
+      qualitySignalInstances += batchQualityInstances;
+      suppressedCosmeticCandidates += batchSuppressedCosmetic;
       cursor = nextCursor;
       batchNum++;
     }
@@ -664,12 +908,32 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
         pool.query(`SELECT COUNT(*) AS n FROM contact_duplicate_clusters WHERE run_id = $1`, [runId]),
       ]);
 
+      // Compute final quality_signal_counts breakdown for quality-v1 runs
+      let finalQualitySignalCounts: Record<string, number> = {};
+      if (isQualityRun) {
+        const qscR = await pool.query(
+          `SELECT unnest(quality_signal_codes) AS code, COUNT(*) AS n
+           FROM contact_reconciliation_members
+           WHERE run_id = $1
+           GROUP BY 1`,
+          [runId],
+        );
+        for (const row of qscR.rows) {
+          finalQualitySignalCounts[row.code as string] = parseInt(row.n, 10);
+        }
+      }
+
       const finR = await pool.query(
         `UPDATE contact_reconciliation_runs SET
            status='completed', completed_at=now(), total_processed=$2,
            total_proposed=$3, total_org_candidates=$4, total_clusters=$5,
            lane_counts=$6, dimension_counts=$7,
-           cursor_contact_census_member_id=$8, updated_at=now()
+           cursor_contact_census_member_id=$8,
+           quality_flagged_contacts=$10,
+           quality_signal_instances=$11,
+           suppressed_cosmetic_candidates=$12,
+           quality_signal_counts=$13,
+           updated_at=now()
          WHERE id=$1 AND lease_owner=$9 AND status='running'`,
         [
           runId, totalProcessed, totalProposed,
@@ -677,6 +941,10 @@ export async function executeReconciliationRun(runId: string, owner: string): Pr
           parseInt(clusterCount.rows[0].n, 10),
           JSON.stringify(laneCounts), JSON.stringify(dimensionCounts),
           cursor, owner,
+          qualityFlaggedContacts,
+          qualitySignalInstances,
+          suppressedCosmeticCandidates,
+          JSON.stringify(finalQualitySignalCounts),
         ],
       );
       if ((finR.rowCount ?? 0) === 0) {
@@ -706,8 +974,10 @@ export async function createAndStartReconRun(opts: {
   sourceCensusRunId: string;
   requestedBy: string;
   environmentLabel: string;
+  rulesVersion?: string;
 }): Promise<string> {
   const owner = leaseOwnerTag();
+  const rulesVersion = opts.rulesVersion ?? RULES_VERSION;
 
   const r = await pool.query(
     `INSERT INTO contact_reconciliation_runs
@@ -715,7 +985,7 @@ export async function createAndStartReconRun(opts: {
         status, lease_owner, lease_expires_at)
      VALUES ($1, $2, $3, $4, 'running', $5, now() + interval '${LEASE_DURATION_SECS} seconds')
      RETURNING id`,
-    [opts.sourceCensusRunId, opts.environmentLabel, RULES_VERSION, opts.requestedBy, owner],
+    [opts.sourceCensusRunId, opts.environmentLabel, rulesVersion, opts.requestedBy, owner],
   );
   const runId: string = r.rows[0].id;
 

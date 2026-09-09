@@ -221,7 +221,9 @@ function classifyD6(row: CensusContactRow, asOf: Date): string {
   const status = row.emailStatus ?? "unvalidated";
 
   if (["bounced", "invalid", "unsafe", "blocked"].includes(status)) return "invalid";
-  if (["opted_out", "subscribed"].includes(status)) return "opted_out";
+  // NOTE: 'subscribed' means subscribed to email — it is NOT opted_out.
+  // Only 'opted_out' drives the opted_out validation state.
+  if (status === "opted_out") return "opted_out";
 
   if (status === "valid") {
     if (!row.emailValidationUpdatedAt) return "stale"; // anomalous

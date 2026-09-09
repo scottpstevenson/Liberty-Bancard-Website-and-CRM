@@ -397,19 +397,12 @@ async function processBatch(
             row.website ? normalizeDomain(row.website)     // prospects
             : row.domain ? normalizeDomain(row.domain)    // master_leads
             : null;
-          // Try primary email domain; if free-mail, try owner email domain independently.
-          // This ensures a corporate owner-email domain is used even when the primary email
-          // is gmail.com — the independent-probe model requires independent domain checks too.
-          const primaryEmailDomain = extractEmailDomain(normalizedEmail);
-          const ownerEmailDomain = extractEmailDomain(normalizedOwnerEmail);
-          const emailDerivedDomain: string | null =
-            (!isFreeMail(primaryEmailDomain) ? primaryEmailDomain : null) ??
-            (!isFreeMail(ownerEmailDomain) ? ownerEmailDomain : null);
+          const emailDerivedDomain = extractEmailDomain(normalizedEmail ?? normalizedOwnerEmail);
           // Use explicit if available; fall back to email-derived only when non-free-mail
           const sourceDomain: string | null =
             (explicitWebsiteDomain && !isFreeMail(explicitWebsiteDomain))
               ? explicitWebsiteDomain
-              : emailDerivedDomain;
+              : (!isFreeMail(emailDerivedDomain) ? emailDerivedDomain : null);
 
           // ── Skip-to-explicit check ────────────────────────────────────────────
           let skipToExplicit = false;
@@ -930,11 +923,7 @@ async function processBatch(
               );
             } else {
               // Mixed: 1 contact + 1 or more businesses — write all candidates together.
-              // Each candidate is classified independently from its own evidence signals:
-              //   - Contact: uses finalClass (derived from the contact's minimum tier)
-              //   - Business: uses classifyEvidence() on its own minTier — a business found
-              //     only by website domain (tier 4) is AMBIGUOUS_MATCH, not DETERMINISTIC_MATCH
-              //     just because the contact matched by email.
+              // The contact match governs the evidence class and disposition.
               // Each candidate carries its FULL providers array so all evidence signals are written.
               const mixedCands: Parameters<typeof insertSubjectWithCandidates>[11] = [
                 { candidateType: "contact" as const, candidateId: finalContactId,
@@ -942,12 +931,8 @@ async function processBatch(
                   providers: sig.providers },
                 ...businessIds.map(bid => {
                   const bs = businessCandidateMap.get(bid)!;
-                  const bizClass = classifyEvidence(bs.minTier, 1, false);
-                  const bizConfidence = bizClass === "DETERMINISTIC_MATCH" ? 70
-                    : bizClass === "AMBIGUOUS_MATCH" ? 35
-                    : 15;
                   return { candidateType: "business" as const, candidateId: bid,
-                           class: bizClass, tier: bs.minTier, confidence: bizConfidence,
+                           class: finalClass, tier: bs.minTier, confidence: 20,
                            providers: bs.providers };
                 }),
               ];

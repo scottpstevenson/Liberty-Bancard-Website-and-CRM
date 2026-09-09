@@ -14,7 +14,43 @@ import {
   // Note: Select components retained for run filter controls below
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle, GitMerge, ThumbsUp, ThumbsDown, RotateCcw } from "lucide-react";
+import { RefreshCw, Play, Pause, Download, BarChart3, Eye, CheckCircle2, AlertTriangle, XCircle, GitMerge, ThumbsUp, ThumbsDown, RotateCcw, ShieldCheck, Filter } from "lucide-react";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Quality signal types
+// ──────────────────────────────────────────────────────────────────────────────
+interface QualitySignalRow {
+  code: string;
+  severity: "critical" | "warning" | "info";
+  description: string;
+  instanceCount: number;
+  contactCount: number;
+  pct: number;
+}
+
+interface QualitySummary {
+  runId: string;
+  rulesVersion: string;
+  status: string;
+  environmentLabel: string;
+  sourceCensusRunId: string;
+  denominator: number;
+  processedContacts: number;
+  contactsWithAnySignal: number;
+  qualitySignalInstances: number;
+  suppressedCosmeticCandidates: number;
+  historicalProposals: number;
+  signals: QualitySignalRow[];
+  completedAt: string | null;
+  createdAt: string;
+}
+
+interface ReconCluster {
+  id: string;
+  cluster_key: string;
+  cluster_reason: string;
+  created_at: string;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -510,6 +546,7 @@ interface ReconciliationRun {
   id: string;
   source_census_run_id: string;
   status: string;
+  rules_version: string;
   failure_reason: string | null;
   total_processed: number | null;
   total_proposed: number | null;
@@ -518,6 +555,9 @@ interface ReconciliationRun {
   created_at: string;
   completed_at: string | null;
   lane_counts: Record<string, number> | null;
+  quality_flagged_contacts: number | null;
+  quality_signal_instances: number | null;
+  suppressed_cosmetic_candidates: number | null;
 }
 
 interface ReconciliationProposal {
@@ -594,19 +634,13 @@ interface CrosswalkCluster {
   last_seen_at: string;
 }
 
-function DuplicateClustersSection({ runId: _runId, runData }: { runId: string; runData: ReconciliationRun }) {
+function DuplicateClustersSection({ runId, runData }: { runId: string; runData: ReconciliationRun }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Load the most recent crosswalk run to get clusters from the identity endpoint.
-  const crosswalkRunsQuery = useQuery<{ runs: Array<{ id: string; status: string }> }>({
-    queryKey: ["/api/admin/identity-crosswalk/runs"],
+  // Fix: use the selected reconciliation run's cluster endpoint, not the identity-crosswalk endpoint.
+  const clustersQuery = useQuery<{ clusters: ReconCluster[]; total: number }>({
+    queryKey: [`/api/admin/reconciliation/runs/${runId}/clusters?limit=30`],
     enabled: drawerOpen,
-  });
-  const crosswalkRunId = crosswalkRunsQuery.data?.runs?.[0]?.id ?? null;
-
-  const clustersQuery = useQuery<{ clusters: CrosswalkCluster[]; nextCursor: string | null }>({
-    queryKey: [`/api/admin/identity-crosswalk/runs/${crosswalkRunId}/clusters?limit=30`],
-    enabled: drawerOpen && !!crosswalkRunId,
   });
 
   return (
@@ -615,13 +649,13 @@ function DuplicateClustersSection({ runId: _runId, runData }: { runId: string; r
         <Tile label="Members Scanned" value={(runData.total_processed ?? 0).toLocaleString()} />
         <Tile label="Proposals" value={(runData.total_proposed ?? 0).toLocaleString()} />
         <Tile label="Org Candidates" value={(runData.total_org_candidates ?? 0).toLocaleString()} />
-        {/* Clickable Duplicate Clusters tile — loads list from server, no UUID entry */}
+        {/* Clickable Duplicate Clusters tile — loads list from reconciliation run */}
         <button
           onClick={() => setDrawerOpen((o) => !o)}
           className={`rounded-xl border p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${drawerOpen ? "bg-muted/40 border-primary/40" : "bg-card border-border"}`}
-          title="Click to view duplicate cluster list"
+          title="Click to view identity collision clusters"
         >
-          <div className="text-[11px] text-muted-foreground mb-1 font-medium">Duplicate Clusters</div>
+          <div className="text-[11px] text-muted-foreground mb-1 font-medium">Identity Collision Review</div>
           <div className="text-lg font-bold flex items-center gap-2">
             {(runData.total_clusters ?? 0).toLocaleString()}
             <Eye className="h-3.5 w-3.5 text-muted-foreground" />
@@ -629,50 +663,33 @@ function DuplicateClustersSection({ runId: _runId, runData }: { runId: string; r
         </button>
       </div>
 
-      {/* Cluster list drawer — populated from /runs/:runId/clusters, no UUID required */}
+      {/* Cluster list drawer — populated from /api/admin/reconciliation/runs/:runId/clusters */}
       {drawerOpen && (
         <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold">Duplicate Clusters</p>
+            <p className="text-xs font-semibold">Identity Collision Clusters</p>
             <button onClick={() => setDrawerOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">✕ Close</button>
           </div>
-          {(crosswalkRunsQuery.isLoading || clustersQuery.isLoading) && (
+          {clustersQuery.isLoading && (
             <p className="text-xs text-muted-foreground">Loading clusters…</p>
           )}
-          {!crosswalkRunId && !crosswalkRunsQuery.isLoading && (
-            <p className="text-xs text-muted-foreground">No identity crosswalk run found. Start a run from the Identity Crosswalk page.</p>
-          )}
           {clustersQuery.data && clustersQuery.data.clusters.length === 0 && (
-            <p className="text-xs text-muted-foreground">No duplicate clusters found in the latest crosswalk run.</p>
+            <p className="text-xs text-muted-foreground">No collision clusters found in this reconciliation run.</p>
           )}
           {clustersQuery.data && clustersQuery.data.clusters.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-1 pr-4 font-medium text-muted-foreground">Contact</th>
-                    <th className="text-right py-1 pr-4 font-medium text-muted-foreground">Sources</th>
-                    <th className="text-left py-1 font-medium text-muted-foreground">Sample Sources</th>
+                    <th className="text-left py-1 pr-4 font-medium text-muted-foreground">Cluster Key</th>
+                    <th className="text-left py-1 font-medium text-muted-foreground">Reason</th>
                   </tr>
                 </thead>
                 <tbody>
                   {clustersQuery.data.clusters.map((cl) => (
-                    <tr key={cl.contact_id} className="border-b border-border/40 hover:bg-muted/20">
-                      <td className="py-1 pr-4">
-                        <a href={`/dashboard/contacts/${cl.contact_id}`} className="text-blue-600 hover:underline">
-                          #{cl.contact_id}
-                        </a>
-                      </td>
-                      <td className="py-1 pr-4 text-right font-bold text-red-700">{cl.source_count}</td>
-                      <td className="py-1">
-                        <div className="flex flex-wrap gap-1">
-                          {cl.sample_sources.map((s) => (
-                            <span key={s} className="px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-[10px] font-mono">
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
+                    <tr key={cl.id} className="border-b border-border/40 hover:bg-muted/20">
+                      <td className="py-1 pr-4 font-mono text-[10px]">{cl.cluster_key}</td>
+                      <td className="py-1 text-muted-foreground">{cl.cluster_reason.replace(/_/g, " ")}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -698,6 +715,199 @@ function DuplicateClustersSection({ runId: _runId, runData }: { runId: string; r
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Quality breakdown panel for quality-v1 runs
+// ──────────────────────────────────────────────────────────────────────────────
+function SeverityBadge({ severity }: { severity: string }) {
+  const map: Record<string, string> = {
+    critical: "bg-red-100 text-red-800",
+    warning: "bg-yellow-100 text-yellow-800",
+    info: "bg-blue-100 text-blue-800",
+  };
+  return <Badge className={`text-xs ${map[severity] ?? "bg-gray-100 text-gray-600"}`}>{severity}</Badge>;
+}
+
+function QualityBreakdownPanel({ runId }: { runId: string }) {
+  const [selectedSignal, setSelectedSignal] = useState<string | null>(null);
+  const [memberCursor, setMemberCursor] = useState<number>(0);
+
+  const { data, isLoading } = useQuery<QualitySummary>({
+    queryKey: [`/api/admin/reconciliation/runs/${runId}/quality-summary`],
+    refetchInterval: (q) =>
+      q.state.data?.status === "running" ? 4_000 : false,
+  });
+
+  const { data: membersData, isLoading: membersLoading } = useQuery<{
+    members: Array<{ contactId: number; firstName: string | null; lastName: string | null; companyName: string | null; signalCodes: string[] }>;
+    nextCursor: number | null;
+    hasMore: boolean;
+  }>({
+    queryKey: [`/api/admin/reconciliation/runs/${runId}/quality-members`, selectedSignal, memberCursor],
+    queryFn: () => {
+      const params = new URLSearchParams({ signal_code: selectedSignal!, limit: "50" });
+      if (memberCursor) params.set("cursor", String(memberCursor));
+      return apiRequest("GET", `/api/admin/reconciliation/runs/${runId}/quality-members?${params}`).then(r => r.json());
+    },
+    enabled: !!selectedSignal,
+  });
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading quality summary…</p>;
+  if (!data) return <p className="text-sm text-muted-foreground text-red-600">Quality summary not available for this run.</p>;
+
+  const isQualityRun = data.rulesVersion === "quality-v1";
+  if (!isQualityRun) {
+    return (
+      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600">
+        This is a legacy reconciliation run (rules_version: <code>{data.rulesVersion}</code>).
+        Quality signals are available on runs started with <code>quality-v1</code>.
+      </div>
+    );
+  }
+
+  const denominator = data.denominator || 1;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary header */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Tile label="Processed Contacts" value={data.processedContacts.toLocaleString()} />
+        <Tile
+          label="Contacts w/ Any Signal"
+          value={data.contactsWithAnySignal.toLocaleString()}
+        />
+        <Tile label="Signal Instances" value={data.qualitySignalInstances.toLocaleString()} />
+        <Tile label="Suppressed Cosmetic" value={data.suppressedCosmeticCandidates.toLocaleString()} />
+        <Tile label="Historical Proposals" value={data.historicalProposals.toLocaleString()} />
+      </div>
+
+      <div className="text-xs text-muted-foreground">
+        Frozen census denominator: <strong>{data.denominator.toLocaleString()}</strong> contacts.
+        Percentages are signal contacts / denominator.
+      </div>
+
+      {/* Quality signal breakdown table */}
+      {data.signals.length === 0 ? (
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          No quality signals emitted yet. Run may still be processing.
+        </div>
+      ) : (
+        <div>
+          <p className="text-sm font-semibold mb-2 flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" /> Quality Signal Breakdown
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Signal</th>
+                  <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Severity</th>
+                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground">Contacts</th>
+                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground">Instances</th>
+                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground">% of Census</th>
+                  <th className="text-left py-2 font-medium text-muted-foreground">Description</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {data.signals.sort((a, b) => {
+                  const sevOrder = { critical: 0, warning: 1, info: 2 };
+                  return (sevOrder[a.severity] - sevOrder[b.severity]) || b.contactCount - a.contactCount;
+                }).map((sig) => (
+                  <tr key={sig.code} className="border-b border-border/40 hover:bg-muted/20">
+                    <td className="py-2 pr-3 font-mono text-[11px]">{sig.code}</td>
+                    <td className="py-2 pr-3"><SeverityBadge severity={sig.severity} /></td>
+                    <td className="py-2 pr-3 text-right font-medium">{sig.contactCount.toLocaleString()}</td>
+                    <td className="py-2 pr-3 text-right text-muted-foreground">{sig.instanceCount.toLocaleString()}</td>
+                    <td className="py-2 pr-3 text-right">{((sig.contactCount / denominator) * 100).toFixed(1)}%</td>
+                    <td className="py-2 pr-3 text-muted-foreground max-w-xs">{sig.description}</td>
+                    <td className="py-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs gap-1"
+                        onClick={() => { setSelectedSignal(sig.code); setMemberCursor(0); }}
+                      >
+                        <Filter className="h-3 w-3" /> View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Quality member drawer */}
+      {selectedSignal && (
+        <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold flex items-center gap-2">
+              <Filter className="h-3 w-3" />
+              Contacts with <code className="font-mono">{selectedSignal}</code>
+            </p>
+            <button
+              onClick={() => setSelectedSignal(null)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >✕ Close</button>
+          </div>
+          {membersLoading ? (
+            <p className="text-xs text-muted-foreground">Loading contacts…</p>
+          ) : !membersData?.members.length ? (
+            <p className="text-xs text-muted-foreground">No contacts found for this signal in this page.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-1 pr-3 font-medium text-muted-foreground">Contact ID</th>
+                    <th className="text-left py-1 pr-3 font-medium text-muted-foreground">Name</th>
+                    <th className="text-left py-1 pr-3 font-medium text-muted-foreground">Company</th>
+                    <th className="text-left py-1 font-medium text-muted-foreground">All Signals</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {membersData.members.map((m) => (
+                    <tr key={m.contactId} className="border-b border-border/40 hover:bg-muted/20">
+                      <td className="py-1 pr-3">
+                        <a href={`/dashboard/contacts/${m.contactId}`} className="text-blue-600 hover:underline">
+                          #{m.contactId}
+                        </a>
+                      </td>
+                      <td className="py-1 pr-3">{[m.firstName, m.lastName].filter(Boolean).join(" ") || "—"}</td>
+                      <td className="py-1 pr-3 text-muted-foreground">{m.companyName || "—"}</td>
+                      <td className="py-1">
+                        <div className="flex flex-wrap gap-1">
+                          {m.signalCodes.map((code) => (
+                            <span key={code} className="px-1 py-0.5 rounded text-[9px] font-mono bg-blue-50 border border-blue-200">
+                              {code}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {membersData.hasMore && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 text-xs"
+                  onClick={() => setMemberCursor(membersData.nextCursor ?? 0)}
+                >
+                  Load more
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReconciliationRunDetail({ runId }: { runId: string }) {
   const { data, isLoading } = useQuery<ReconciliationRun>({
     queryKey: [`/api/admin/reconciliation/runs/${runId}`],
@@ -705,17 +915,27 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
       q.state.data?.status === "running" || q.state.data?.status === "pending" ? 3_000 : false,
   });
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  const isQuality = data.rules_version === "quality-v1";
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2 flex-wrap">
           <CardTitle className="text-base">Run {data.id.slice(0, 8)}…</CardTitle>
           <StatusBadge status={data.status} />
+          {isQuality && (
+            <Badge className="bg-purple-100 text-purple-800 text-xs">quality-v1</Badge>
+          )}
         </div>
         <CardDescription className="text-xs">Census run: {data.source_census_run_id.slice(0, 8)}…</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DuplicateClustersSection runId={runId} runData={data} />
+        {isQuality ? (
+          <QualityBreakdownPanel runId={runId} />
+        ) : (
+          <DuplicateClustersSection runId={runId} runData={data} />
+        )}
       </CardContent>
     </Card>
   );
@@ -916,6 +1136,11 @@ function ReconciliationTab() {
     staleTime: 30_000,
   });
 
+  // quality-v1 flow: census-scoped preview → token → full run (no circular dependency)
+  const [qualityPreviewToken, setQualityPreviewToken] = useState<string | null>(null);
+  const [qualityPreviewResult, setQualityPreviewResult] = useState<Record<string, unknown> | null>(null);
+
+  // Legacy reconciliation run (generates proposals)
   const startMutation = useMutation({
     mutationFn: (sourceCensusRunId: string) =>
       apiRequest("POST", `/api/admin/reconciliation/runs`, { sourceCensusRunId }),
@@ -926,6 +1151,46 @@ function ReconciliationTab() {
       if (data.runId) setSelectedRunId(data.runId);
     },
     onError: (err: any) => toast({ title: "Failed to start run", description: err.message, variant: "destructive" }),
+  });
+
+  // Step 1: Run bounded preview directly on the census (no recon run needed).
+  // POST /api/admin/reconciliation/quality-preview returns an acceptance token.
+  const previewMutation = useMutation({
+    mutationFn: async (censusRunId: string) => {
+      const res = await apiRequest("POST", `/api/admin/reconciliation/quality-preview`, { censusRunId });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Preview failed"); }
+      return res.json() as Promise<Record<string, unknown>>;
+    },
+    onSuccess: (data) => {
+      setQualityPreviewToken(data.acceptanceToken as string);
+      setQualityPreviewResult(data);
+      toast({
+        title: "Quality preview complete",
+        description: `${data.contactsScanned} contacts sampled, ${data.contactsWithAnySignal} flagged. Review and start the full run.`,
+      });
+    },
+    onError: (err: any) => toast({ title: "Preview failed", description: err.message, variant: "destructive" }),
+  });
+
+  // Step 2: Start full quality-v1 run using the acceptance token from the preview
+  const startQualityFullMutation = useMutation({
+    mutationFn: async ({ sourceCensusRunId, token }: { sourceCensusRunId: string; token: string }) => {
+      const res = await apiRequest("POST", `/api/admin/reconciliation/runs`, {
+        sourceCensusRunId,
+        rulesVersion: "quality-v1",
+        previewAcceptanceToken: token,
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed to start quality run"); }
+      return res.json();
+    },
+    onSuccess: async (data) => {
+      toast({ title: "Quality-v1 run started", description: `Run ID: ${data.runId?.slice(0, 8)}…` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/reconciliation/runs"] });
+      if (data.runId) setSelectedRunId(data.runId);
+      setQualityPreviewToken(null);
+      setQualityPreviewResult(null);
+    },
+    onError: (err: any) => toast({ title: "Failed to start quality run", description: err.message, variant: "destructive" }),
   });
 
   const frozenCensus = censusRuns?.runs.find((r) => r.status === "completed");
@@ -949,25 +1214,61 @@ function ReconciliationTab() {
             <GitMerge className="h-4 w-4" /> Start Reconciliation Run
           </CardTitle>
           <CardDescription>
-            Reads a frozen census snapshot. Generates normalization proposals, org candidates, and duplicate
-            clusters. No canonical records are written until proposals are individually approved.
+            Legacy mode generates normalization proposals. Quality-v1 mode classifies contacts with
+            26 signal codes — requires a bounded preview review before starting the full run.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-3 items-center">
+        <CardContent className="space-y-4">
           {frozenCensus ? (
             <>
               <div className="text-sm text-muted-foreground">
                 Using census run: <code className="text-xs">{frozenCensus.id.slice(0, 8)}…</code>{" "}
                 <EnvBadge label={frozenCensus.environment_label} />
               </div>
-              <Button
-                className="ml-auto gap-2"
-                onClick={() => startMutation.mutate(frozenCensus.id)}
-                disabled={startMutation.isPending}
-              >
-                <Play className="h-4 w-4" />
-                {startMutation.isPending ? "Starting…" : "Start Reconciliation"}
-              </Button>
+              <div className="flex flex-wrap gap-3 items-center">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => startMutation.mutate(frozenCensus.id)}
+                  disabled={startMutation.isPending}
+                >
+                  <Play className="h-4 w-4" />
+                  {startMutation.isPending ? "Starting…" : "Start Legacy Reconciliation"}
+                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Quality-v1: Step 1 — preview on census (no run needed) */}
+                  <Button
+                    variant={qualityPreviewToken ? "outline" : "default"}
+                    className="gap-2"
+                    onClick={() => previewMutation.mutate(frozenCensus.id)}
+                    disabled={previewMutation.isPending}
+                  >
+                    <Filter className="h-4 w-4" />
+                    {previewMutation.isPending ? "Previewing…" : qualityPreviewToken ? "Re-run Preview" : "Quality Preview (5k contacts)"}
+                  </Button>
+                  {/* Quality-v1: Step 2 — start full run after preview accepted */}
+                  {qualityPreviewToken && (
+                    <Button
+                      className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => startQualityFullMutation.mutate({ sourceCensusRunId: frozenCensus.id, token: qualityPreviewToken })}
+                      disabled={startQualityFullMutation.isPending}
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                      {startQualityFullMutation.isPending ? "Starting…" : "Start Full Quality-v1 Run"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {qualityPreviewResult && (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 space-y-1">
+                  <p className="font-semibold">Preview complete — review results, then start the full run:</p>
+                  <p>Contacts sampled: <strong>{(qualityPreviewResult.contactsScanned as number).toLocaleString()}</strong></p>
+                  <p>Contacts with any signal: <strong>{(qualityPreviewResult.contactsWithAnySignal as number).toLocaleString()}</strong></p>
+                  <p>Total signal instances: <strong>{(qualityPreviewResult.signalInstances as number).toLocaleString()}</strong></p>
+                  <p>Cosmetic proposals generated: <strong>{qualityPreviewResult.cosmeticProposals as number}</strong> ✓</p>
+                  <p>Canonical mutations: <strong>{qualityPreviewResult.canonicalMutations as number}</strong> ✓</p>
+                </div>
+              )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">

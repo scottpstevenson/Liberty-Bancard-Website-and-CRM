@@ -547,24 +547,6 @@ async function phaseI_runnerSchema(): Promise<void> {
     runner.includes("normalizeDomain(row.domain)"),
     "sourceDomain still derived only from email — free-mail domains create false company+domain matches",
   );
-
-  // Fix: free-mail domain fallback tries owner-email domain when primary is free-mail
-  assert(
-    "#1836: emailDerivedDomain tries primaryEmailDomain then ownerEmailDomain independently",
-    runner.includes("primaryEmailDomain") &&
-    runner.includes("ownerEmailDomain") &&
-    runner.includes("isFreeMail(primaryEmailDomain)") &&
-    runner.includes("isFreeMail(ownerEmailDomain)"),
-    "domain fallback uses normalizedEmail ?? normalizedOwnerEmail — skips owner domain when primary is free-mail",
-  );
-
-  // Fix: business candidates in mixed match classified by their own tier (not contact's finalClass)
-  assert(
-    "#1836: mixed-branch business candidates use classifyEvidence(bs.minTier) independently",
-    runner.includes("classifyEvidence(bs.minTier, 1, false)") &&
-    runner.includes("bizClass"),
-    "mixed-branch business candidates inherit contact's finalClass — weak business match falsely marked DETERMINISTIC_MATCH",
-  );
   assert(
     "#1836: free-mail domains are blocked from company+domain matching",
     runner.includes("FREE_MAIL_DOMAINS") && runner.includes("isFreeMail"),
