@@ -9,6 +9,7 @@ import type {
   DailyStats,
   Residual,
   ChargebackSubmission,
+  DisputeEvidenceSubmission,
   ChargebackResult,
   MerchantUpdateResult,
   ProcessorHealthState,
@@ -229,7 +230,7 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
 
   // REV-05A §13/#1737: getTransactions is a #1737-domain function.
   // Returns held result — pending_task_1737 owns transaction data.
-  async getTransactions(_mid: string, _startDate: string, _endDate: string): Promise<HeldResult> {
+  async getTransactions(_mid: string, _startDate: string, _endDate: string, _options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<HeldResult> {
     return { status: "held", reason: "pending_task_1737" };
   }
 
@@ -242,14 +243,29 @@ export class NmiProcessorAdapter implements IProcessorAdapter {
   // REV-05A §13/#1737: getDailyStats is a #1737-domain function.
   // Returns held result — pending_task_1737 owns daily stats and
   // all simulation data generation has been removed.
-  async getDailyStats(_mid: string, _startDate: string, _endDate: string): Promise<HeldResult> {
+  async getDailyStats(_mid: string, _startDate: string, _endDate: string, _options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<HeldResult> {
     return { status: "held", reason: "pending_task_1737" };
   }
 
-  // REV-05A §13/#1737: submitChargeback is a #1737-domain function.
-  // Returns held result — pending_task_1737 owns chargeback submissions.
-  async submitChargeback(_submission: ChargebackSubmission): Promise<HeldResult> {
+  // REV-06A §9/#1737: submitDisputeEvidence is a #1737-domain function.
+  // NMI adapter stays HeldResult — NMI contract not independently verified.
+  async submitDisputeEvidence(_submission: DisputeEvidenceSubmission): Promise<HeldResult> {
     return { status: "held", reason: "pending_task_1737" };
+  }
+
+  /** @deprecated — Compatibility wrapper delegating to submitDisputeEvidence(). */
+  async submitChargeback(submission: ChargebackSubmission): Promise<HeldResult> {
+    return this.submitDisputeEvidence({
+      mid: submission.mid,
+      caseId: submission.caseNumber ?? "",
+      transactionId: submission.transactionId,
+      amount: submission.amount,
+      reason: submission.reason,
+      cardBrand: submission.cardBrand,
+      responseDeadline: submission.responseDeadline,
+      evidenceNotes: submission.evidenceNotes,
+      providerIdempotencyKey: submission.providerIdempotencyKey,
+    });
   }
 
   async updateMerchant(processorApplicationId: string, updates: Partial<MerchantProfile>, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<MerchantUpdateResult> {

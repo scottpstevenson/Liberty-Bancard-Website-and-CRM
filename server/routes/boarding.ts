@@ -865,33 +865,55 @@ export function registerBoardingRoutes(app: Express) {
 
       const midLog = (deal.boardingLog as any[]) || [];
       const midSubmittedEntry = [...midLog].reverse().find((e: any) => e.event === "submitted");
-      const midProcessorName = midSubmittedEntry?.processor || undefined;
+      const midProcessorName = midSubmittedEntry?.processor || "payarc";
+
+      // REV-06A §14: requireConfirmedActivationSnapshot MUST be the first gate before
+      // any provider I/O. Thread the snapshot-authorized base URL into the adapter so
+      // the transport host is never selected independently of the activation authority.
+      const { requireConfirmedActivationSnapshot: requireSnapshot } = await import("../services/processors/registry");
+      let snapshotAuthorizedBaseUrl: string | null = null;
+      try {
+        const snap = await requireSnapshot(midProcessorName, "get_daily_stats");
+        snapshotAuthorizedBaseUrl = snap.authorizedBaseUrl;
+      } catch (snapErr: any) {
+        return res.json({
+          success: false,
+          held: true,
+          reason: snapErr?.message ?? "Activation snapshot gate blocked get_daily_stats",
+          code: snapErr?.code ?? "ACTIVATION_SNAPSHOT_REQUIRED",
+          upserted: 0,
+        });
+      }
+
       const midProcessor = midProcessorName ? getProcessor(midProcessorName) : getDefaultProcessor();
       const stats = await midProcessor.getDailyStats(
         deal.mid,
         startDate.toISOString().split("T")[0],
-        endDate.toISOString().split("T")[0]
+        endDate.toISOString().split("T")[0],
+        { snapshotAuthorizedBaseUrl },
       );
 
-      // REV-05A: getDailyStats returns HeldResult for #1737 domain — not an array.
-      // If held, return early. This prevents the caller from iterating a non-array.
+      // REV-06A: getDailyStats returns HeldResult when not authorized or when provider fails.
       if (!Array.isArray(stats)) {
-        return res.json({ success: false, held: true, reason: (stats as any).reason ?? "pending_task_1737", upserted: 0 });
+        return res.json({ success: false, held: true, reason: (stats as any).reason ?? "provider_held", upserted: 0 });
       }
       let upserted = 0;
       for (const stat of stats) {
+        // REV-06A: pass null (not undefined) for absent optional fields so Drizzle
+        // explicitly clears any stale prior value on upsert rather than omitting the
+        // column (which would silently retain the old value).
         await storage.upsertMidDailyStat({
           mid: deal.mid,
           dealId,
           contactId: deal.contactId || undefined,
           date: stat.date,
           volume: stat.volume,
-          txCount: stat.txCount,
-          avgTicket: stat.avgTicket,
-          effectiveRate: stat.effectiveRate,
-          chargebackCount: stat.chargebackCount,
-          chargebackAmount: stat.chargebackAmount,
-          refundCount: stat.refundCount,
+          txCount: stat.txCount ?? null,
+          avgTicket: stat.avgTicket ?? null,
+          effectiveRate: stat.effectiveRate ?? null,
+          chargebackCount: stat.chargebackCount ?? null,
+          chargebackAmount: stat.chargebackAmount ?? null,
+          refundCount: stat.refundCount ?? null,
           fetchedAt: new Date(),
         });
         upserted++;

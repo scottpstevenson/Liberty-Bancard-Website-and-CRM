@@ -1,6 +1,12 @@
 {
   "version": "7",
   "dialect": "postgresql",
+
+  "version": "7",
+  "dialect": "postgresql",
+
+  "version": "7",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 6,
@@ -1687,6 +1693,30 @@
       "when": 1800000001200,
       "tag": "0236_rep_identity_canonical_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "7",
+      "when": 1800000002200,
+      "tag": "0237_rev06a_credential_authority_matrix",
+      "breakpoints": false
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1800000003200,
+      "tag": "0238_rev06a_merchant_sandbox_snapshot",
+      "breakpoints": false
+    }
+  ,
+    {
+      "idx": 243,
+      "version": "7",
+      "when": 1800000004200,
+      "tag": "0239_rev06a_mid_daily_stats_nullable",
+      "breakpoints": false
     }
   ]
+
+}
 }

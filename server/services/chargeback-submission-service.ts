@@ -64,16 +64,35 @@ export async function processChargebackSubmissionCommand(commandId: string): Pro
   }
   try {
     const adapter = getDefaultProcessor();
-    const result = await adapter.submitChargeback({
+    // REV-06A §9: Use canonical submitDisputeEvidence() — Liberty never creates a
+    // chargeback. Disputes originate externally; this uploads evidence to an existing
+    // provider case. Falls back to submitChargeback() compatibility wrapper if the
+    // adapter only implements the deprecated interface.
+    const evidencePayload = {
       mid: (row.evidence_manifest as any)?.submission?.mid ?? "",
-      transactionId: (row.evidence_manifest as any)?.submission?.transactionId ?? String(chargeback.id), amount: chargeback.amount,
-      reason: chargeback.reasonDescription || chargeback.reasonCode, cardBrand: chargeback.cardBrand,
-      caseNumber: (row.evidence_manifest as any)?.submission?.caseNumber ?? undefined,
-      evidenceNotes: (row.evidence_manifest as any)?.submission?.evidenceNotes ?? undefined,
+      caseId: (row.evidence_manifest as any)?.submission?.caseNumber ?? "",
+      transactionId: (row.evidence_manifest as any)?.submission?.transactionId ?? String(chargeback.id),
+      amount: chargeback.amount,
+      reason: chargeback.reasonDescription || chargeback.reasonCode,
+      cardBrand: chargeback.cardBrand,
       responseDeadline: chargeback.responseDeadline?.toISOString(),
+      evidenceNotes: (row.evidence_manifest as any)?.submission?.evidenceNotes ?? undefined,
       providerIdempotencyKey: String(row.idempotency_key),
-    });
-    // REV-05A: submitChargeback now returns HeldResult | ChargebackResult.
+    };
+    const result = typeof (adapter as any).submitDisputeEvidence === "function"
+      ? await (adapter as any).submitDisputeEvidence(evidencePayload)
+      : await adapter.submitChargeback({
+          mid: evidencePayload.mid,
+          transactionId: evidencePayload.transactionId,
+          amount: evidencePayload.amount,
+          reason: evidencePayload.reason,
+          cardBrand: evidencePayload.cardBrand,
+          caseNumber: evidencePayload.caseId || undefined,
+          responseDeadline: evidencePayload.responseDeadline,
+          evidenceNotes: evidencePayload.evidenceNotes,
+          providerIdempotencyKey: evidencePayload.providerIdempotencyKey,
+        });
+    // REV-05A/REV-06A: submitDisputeEvidence returns HeldResult | ChargebackResult.
     // If held, do not attempt canonical state mutation.
     if ("status" in result && (result as any).status === "held") {
       await db.execute(sql`

@@ -142,6 +142,30 @@ export function getDefaultProcessor(): IProcessorAdapter {
  */
 const QUALIFYING_SNAPSHOT_STATUSES = new Set(["owner_confirmed", "sandbox_verified", "production_authorized"]);
 
+/**
+ * resolveOperationSnapshot — Pure resolver for per-operation snapshot precedence.
+ *
+ * Given a list of snapshots ordered newest-first, returns the newest row that
+ * explicitly lists `requiredOperation` in its supportedOperations — regardless
+ * of that row's status. The caller must then validate the returned row's status.
+ *
+ * Revocation semantics: a newer held/expired row that lists the operation
+ * BLOCKS access to an older qualifying row for the same operation. Only a newer
+ * snapshot that does NOT list the operation at all is invisible to this operation's
+ * resolution — it neither grants nor revokes.
+ *
+ * Exported for deterministic unit testing (no DB dependency).
+ */
+export function resolveOperationSnapshot<T extends { status: string; supportedOperations: unknown }>(
+  rowsNewestFirst: T[],
+  requiredOperation: string,
+): T | undefined {
+  return rowsNewestFirst.find(r =>
+    Array.isArray(r.supportedOperations) &&
+    (r.supportedOperations as string[]).includes(requiredOperation)
+  );
+}
+
 export async function requireConfirmedActivationSnapshot(
   processorName: string,
   requiredOperation: string = "board_merchant",
@@ -151,27 +175,51 @@ export async function requireConfirmedActivationSnapshot(
   supportedOperations: string[];
   status: string;
 }> {
-  // REV-05A: Evaluate ONLY the latest snapshot. A newer expired/held snapshot
-  // supersedes any older owner_confirmed one — the gate does not fall back to
-  // historical rows. This prevents an expired snapshot from remaining usable
-  // after it has been explicitly revoked.
+  // REV-06A: Resolve the latest snapshot that LISTS the specific required operation
+  // in its supported_operations array. Different operations may use different
+  // credentials and authorized base URLs — a single "latest row wins" model
+  // would route all operations through the most-recently-issued snapshot, which
+  // may point to a different host/credential than the operation requires.
+  //
+  // Resolution order:
+  //   1. Fetch all snapshots for this processor, newest-first.
+  //   2. Walk the list and return the first row that (a) has a qualifying status
+  //      (owner_confirmed / sandbox_verified / production_authorized) AND (b)
+  //      explicitly lists requiredOperation in its supportedOperations array.
+  //   3. If no qualifying row lists the operation, the gate throws — fail closed.
+  //
+  // Expired/held rows are NOT skipped globally. They are skipped only for the
+  // specific operation being checked. An older, still-qualifying snapshot for
+  // "board_merchant" is NOT superseded by a newer sandbox-only snapshot that
+  // omits "board_merchant" from its supported_operations.
+  // Order by created_at DESC, id DESC to break ties deterministically.
+  // PostgreSQL's NOW() is transaction-stable, so rows inserted in the same
+  // transaction share an identical created_at timestamp. Without the id tie-breaker
+  // their relative order is undefined and a revocation row can lose to the row it
+  // was meant to supersede.
   const rows = await db
     .select()
     .from(processorActivationSnapshots)
     .where(eq(processorActivationSnapshots.processorName, processorName))
-    .orderBy(desc(processorActivationSnapshots.createdAt))
-    .limit(1);
+    .orderBy(desc(processorActivationSnapshots.createdAt), desc(processorActivationSnapshots.id));
 
-  const latest = rows[0];
-  const latestStatus = latest?.status ?? "none";
+  // For error messages: report the overall latest row's status regardless of operation.
+  const latestStatus = rows[0]?.status ?? "none";
 
+  // Find the newest snapshot that LISTS this operation (any status — including held/expired).
+  const newestForOp = resolveOperationSnapshot(rows, requiredOperation);
+
+  // Gate: if no snapshot at all lists this operation → blocked.
+  // Gate: if the newest snapshot for this operation is held/expired → revocation honored.
+  const latest = newestForOp;
   if (!latest || !QUALIFYING_SNAPSHOT_STATUSES.has(latest.status)) {
+    const opStatus = latest?.status ?? "none";
     throw Object.assign(
       new Error(
-        `[REV-05A] Processor transport blocked: latest activation snapshot for '${processorName}' has status '${latestStatus}'. ` +
-        `Owner must create a new owner_confirmed snapshot before boarding activates.`
+        `[REV-05A] Processor transport blocked: newest snapshot for '${processorName}' listing '${requiredOperation}' has status '${opStatus}'. ` +
+        `${latest ? "A held/expired snapshot revokes this operation — create a new owner_confirmed snapshot to re-enable." : "No snapshot lists this operation — add it to an owner_confirmed snapshot."}`
       ),
-      { code: "ACTIVATION_SNAPSHOT_REQUIRED", processorName, latestStatus }
+      { code: "ACTIVATION_SNAPSHOT_REQUIRED", processorName, latestStatus, opStatus }
     );
   }
 
@@ -315,13 +363,20 @@ export async function getProcessorHealthState(name: string = "payarc"): Promise<
   let snapshotAuthorizedBaseUrl: string | null = null;
   if (!isMock || isProductionEnv) {
     try {
-      const rows = await db
+      // REV-06A: Use the same per-operation resolution as requireConfirmedActivationSnapshot.
+      // Health state reflects boarding authority specifically — it checks whether
+      // "board_merchant" has a qualifying, entitlement-correct snapshot.
+      // Using global-latest-wins here would cause health to report missing_contract
+      // if the newest overall snapshot omits "board_merchant" (e.g. a merchant-key
+      // snapshot that intentionally scopes only data operations).
+      const allRows = await db
         .select()
         .from(processorActivationSnapshots)
         .where(eq(processorActivationSnapshots.processorName, name))
-        .orderBy(desc(processorActivationSnapshots.createdAt))
-        .limit(1);
-      const snap = rows[0] ?? null;
+        .orderBy(desc(processorActivationSnapshots.createdAt), desc(processorActivationSnapshots.id));
+
+      // Resolve the newest snapshot that lists "board_merchant" (any status).
+      const snap = resolveOperationSnapshot(allRows, "board_merchant") ?? null;
       const snapStatus = snap?.status ?? "none";
 
       if (!snap || !QUALIFYING_SNAPSHOT_STATUSES.has(snapStatus)) {
@@ -339,14 +394,6 @@ export async function getProcessorHealthState(name: string = "payarc"): Promise<
       }
       if (!isProductionEnv && !snap.sandboxEntitlement && !snap.productionEntitlement) {
         const state: ProcessorHealthState = "held";
-        record.cachedHealthState = state;
-        record.healthStateAt = new Date();
-        return state;
-      }
-      // Check board_merchant op.
-      const ops = (snap.supportedOperations as string[]) ?? [];
-      if (!ops.includes("board_merchant")) {
-        const state: ProcessorHealthState = "missing_contract";
         record.cachedHealthState = state;
         record.healthStateAt = new Date();
         return state;

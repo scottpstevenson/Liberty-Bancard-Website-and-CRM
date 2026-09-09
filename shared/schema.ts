@@ -3894,13 +3894,19 @@ export const midDailyStats = pgTable("mid_daily_stats", {
   dealId: integer("deal_id").references(() => deals.id),
   contactId: integer("contact_id").references(() => contacts.id),
   date: text("date").notNull(),
-  volume: real("volume").default(0),
-  txCount: integer("tx_count").default(0),
-  avgTicket: real("avg_ticket").default(0),
-  effectiveRate: real("effective_rate").default(0),
-  chargebackCount: integer("chargeback_count").default(0),
-  chargebackAmount: real("chargeback_amount").default(0),
-  refundCount: integer("refund_count").default(0),
+  volume: real("volume").notNull(),
+  /** Nullable — absent when provider does not supply count for this record. Never zero-filled. */
+  txCount: integer("tx_count"),
+  /** Nullable — derived from txCount; absent when txCount is absent. Never zero-filled. */
+  avgTicket: real("avg_ticket"),
+  /** Nullable — derived from fee/gross; absent when fee is not supplied. Never zero-filled. */
+  effectiveRate: real("effective_rate"),
+  /** Nullable — absent when provider does not supply chargeback data. Never zero-filled. */
+  chargebackCount: integer("chargeback_count"),
+  /** Nullable — absent when provider does not supply chargeback amount. Never zero-filled. */
+  chargebackAmount: real("chargeback_amount"),
+  /** Nullable — absent when provider does not supply refund count. Never zero-filled. */
+  refundCount: integer("refund_count"),
   fetchedAt: timestamp("fetched_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [

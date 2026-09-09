@@ -17,6 +17,7 @@ import type {
   DailyStats,
   Residual,
   ChargebackSubmission,
+  DisputeEvidenceSubmission,
   ChargebackResult,
   MerchantUpdateResult,
   ProcessorHealthState,
@@ -132,7 +133,7 @@ export class MockProcessorAdapter implements IProcessorAdapter {
    * getTransactions — #1737 DOMAIN — returns HeldResult.
    * Transactions/stats are Task #1737 (REV-06A) scope. Never fake.
    */
-  async getTransactions(_mid: string, _startDate: string, _endDate: string): Promise<Transaction[] | HeldResult> {
+  async getTransactions(_mid: string, _startDate: string, _endDate: string, _options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<Transaction[] | HeldResult> {
     return { status: "held", reason: "pending_task_1737" };
   }
 
@@ -146,15 +147,31 @@ export class MockProcessorAdapter implements IProcessorAdapter {
   /**
    * getDailyStats — #1737 DOMAIN — returns HeldResult.
    */
-  async getDailyStats(_mid: string, _startDate: string, _endDate: string): Promise<DailyStats[] | HeldResult> {
+  async getDailyStats(_mid: string, _startDate: string, _endDate: string, _options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<DailyStats[] | HeldResult> {
     return { status: "held", reason: "pending_task_1737" };
   }
 
   /**
-   * submitChargeback — #1737 DOMAIN — returns HeldResult.
+   * submitDisputeEvidence — REV-06A §9 / #1737 DOMAIN — returns HeldResult.
+   * Mock adapter never returns fake dispute data.
    */
-  async submitChargeback(_submission: ChargebackSubmission): Promise<ChargebackResult | HeldResult> {
+  async submitDisputeEvidence(_submission: DisputeEvidenceSubmission): Promise<ChargebackResult | HeldResult> {
     return { status: "held", reason: "pending_task_1737" };
+  }
+
+  /** @deprecated — Compatibility wrapper delegating to submitDisputeEvidence(). */
+  async submitChargeback(submission: ChargebackSubmission): Promise<ChargebackResult | HeldResult> {
+    return this.submitDisputeEvidence({
+      mid: submission.mid,
+      caseId: submission.caseNumber ?? "",
+      transactionId: submission.transactionId,
+      amount: submission.amount,
+      reason: submission.reason,
+      cardBrand: submission.cardBrand,
+      responseDeadline: submission.responseDeadline,
+      evidenceNotes: submission.evidenceNotes,
+      providerIdempotencyKey: submission.providerIdempotencyKey,
+    });
   }
 
   async updateMerchant(processorApplicationId: string, _updates: Partial<MerchantProfile>, options?: { snapshotAuthorizedBaseUrl?: string }): Promise<MerchantUpdateResult> {

@@ -127,13 +127,20 @@ export interface Transaction {
 export interface DailyStats {
   mid: string;
   date: string;
+  /** Gross/settled volume in dollars. Always present (primary required field). */
   volume: number;
-  txCount: number;
-  avgTicket: number;
-  effectiveRate: number;
-  chargebackCount: number;
-  chargebackAmount: number;
-  refundCount: number;
+  /** Transaction count — absent when provider does not include it for this record. */
+  txCount?: number;
+  /** Average ticket — derived only when txCount is present. */
+  avgTicket?: number;
+  /** Effective rate — derived only when fee is present. */
+  effectiveRate?: number;
+  /** Chargeback count — absent when provider does not include it for this record. */
+  chargebackCount?: number;
+  /** Chargeback amount in dollars — absent when provider does not include it. */
+  chargebackAmount?: number;
+  /** Refund count — absent when provider does not include it for this record. */
+  refundCount?: number;
 }
 
 export interface Residual {
@@ -147,6 +154,33 @@ export interface Residual {
   volume?: number;
 }
 
+/**
+ * REV-06A §9 corrected: Liberty never creates a chargeback. Disputes originate
+ * externally. This type represents the evidence submission payload sent to an
+ * EXISTING provider-verified dispute case via POST /v1/cases/{id}/upload.
+ */
+export interface DisputeEvidenceSubmission {
+  /** Canonical MID generation identifier */
+  mid: string;
+  /** Payarc dispute/case ID (not fabricated — must be from provider) */
+  caseId: string;
+  /** Original transaction ID matched to the dispute */
+  transactionId: string;
+  amount: number;
+  reason: string;
+  cardBrand: string;
+  /** ISO date: deadline for evidence response (from provider) */
+  responseDeadline?: string;
+  /** Narrative description of the evidence */
+  evidenceNotes?: string;
+  /** Stable command UUID, forwarded to processors that support idempotent requests. */
+  providerIdempotencyKey?: string;
+}
+
+/**
+ * @deprecated — Use DisputeEvidenceSubmission. Kept for backward compatibility.
+ * Liberty never creates a chargeback; this interface proxied to evidence submission.
+ */
 export interface ChargebackSubmission {
   mid: string;
   transactionId: string;
@@ -205,7 +239,7 @@ export interface IProcessorAdapter {
    * Fetch transactions for a MID over a date range.
    * #1737 DOMAIN — returns HeldResult until REV-06A certifies this path.
    */
-  getTransactions(mid: string, startDate: string, endDate: string): Promise<Transaction[] | HeldResult>;
+  getTransactions(mid: string, startDate: string, endDate: string, options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<Transaction[] | HeldResult>;
 
   /**
    * Fetch residuals for a given month.
@@ -217,11 +251,24 @@ export interface IProcessorAdapter {
    * Fetch daily stats for a MID over a date range.
    * #1737 DOMAIN — returns HeldResult until REV-06A certifies this path.
    */
-  getDailyStats(mid: string, startDate: string, endDate: string): Promise<DailyStats[] | HeldResult>;
+  getDailyStats(mid: string, startDate: string, endDate: string, options?: { snapshotAuthorizedBaseUrl?: string | null }): Promise<DailyStats[] | HeldResult>;
 
   /**
-   * Submit chargeback evidence to the processor.
-   * #1737 DOMAIN — returns HeldResult until REV-06A certifies this path.
+   * Submit dispute response evidence to the processor for an EXISTING provider case.
+   * REV-06A §9 corrected: Liberty never creates a chargeback. Disputes originate
+   * externally. This method uploads evidence to an existing Payarc case via the
+   * provider's verified dispute API.
+   * #1737 DOMAIN — returns HeldResult until POST /v1/cases/{id}/upload is
+   * confirmed authorized via sandbox probe (currently 401 — credential entitlement
+   * not yet granted by Payarc for this operation).
+   */
+  submitDisputeEvidence(submission: DisputeEvidenceSubmission): Promise<ChargebackResult | HeldResult>;
+
+  /**
+   * @deprecated — Use submitDisputeEvidence(). Compatibility wrapper preserved
+   * so existing callers (chargeback-submission-service.ts) don't break during
+   * the REV-06A transition. Delegates to submitDisputeEvidence().
+   * Liberty never creates a chargeback — the name was a misnomer.
    */
   submitChargeback(submission: ChargebackSubmission): Promise<ChargebackResult | HeldResult>;
 
