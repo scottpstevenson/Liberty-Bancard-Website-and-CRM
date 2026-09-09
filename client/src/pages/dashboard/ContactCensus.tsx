@@ -569,6 +569,7 @@ interface ReconciliationRun {
   quality_flagged_contacts: number | null;
   quality_signal_instances: number | null;
   suppressed_cosmetic_candidates: number | null;
+  quality_signal_counts: Record<string, number> | null;
 }
 
 interface ReconciliationProposal {
@@ -638,6 +639,23 @@ function ReconciliationRunsList({
                     <span>{run.total_proposed?.toLocaleString() ?? 0} proposals</span>
                   )}
                 </p>
+              )}
+              {run.rules_version === "quality-v1" && run.quality_signal_counts && Object.keys(run.quality_signal_counts).length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                  {Object.entries(run.quality_signal_counts)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 5)
+                    .map(([code, count]) => (
+                      <span key={code} className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+                        {code}: <strong className="text-foreground">{count.toLocaleString()}</strong>
+                      </span>
+                    ))}
+                  {Object.keys(run.quality_signal_counts).length > 5 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      +{Object.keys(run.quality_signal_counts).length - 5} more
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             <code className="text-xs text-muted-foreground shrink-0">{run.id.slice(0, 8)}…</code>
