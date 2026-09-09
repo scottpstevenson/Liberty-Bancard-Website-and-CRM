@@ -823,10 +823,18 @@ export default function LeadImports() {
       const invalidOrErrored = (data.invalidRows || 0) + (data.errors || 0);
       const { optOutPreserved, optOutApplied } = normalizeOptOut(data as Record<string, unknown>);
 
+      const deferredToStaging = data.deferredToStaging || 0;
+
       let title = "Import Complete";
       let description = `${inserted.toLocaleString()} new contact(s) imported. ${data.dealsCreated || 0} deal(s) created. Format: ${data.sourceFormat?.replace(/_/g, " ")}`;
 
-      if (inserted === 0 && alreadyExists > 0) {
+      if (deferredToStaging > 0 && inserted === 0) {
+        // Outscraper / Apollo rows go to compliance staging — not directly to contacts
+        title = "Rows Staged for Compliance Review";
+        description = `${deferredToStaging.toLocaleString()} row(s) from this ${data.sourceFormat?.replace(/_/g, " ")} file were queued for qualification review. Go to Lead Ops Center → South Florida Qualification to promote them to contacts.`;
+      } else if (deferredToStaging > 0) {
+        description += ` ${deferredToStaging.toLocaleString()} row(s) staged for compliance review (Lead Ops Center).`;
+      } else if (inserted === 0 && alreadyExists > 0) {
         title = "Import Processed — No New Contacts";
         description = `All ${alreadyExists.toLocaleString()} row(s) already exist in your CRM — no new contacts were added.`;
         if (invalidOrErrored > 0) {

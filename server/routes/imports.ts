@@ -1791,6 +1791,7 @@ Guidelines:
       let optOutApplied = 0;
       let invalidRows = 0;
       let errors = 0;
+      let deferredToStaging = 0;
       const verticalCounts: Record<string, number> = {};
       let hotLeads = 0;
       let warmLeads = 0;
@@ -1849,6 +1850,7 @@ Guidelines:
               },
             }],
           });
+          deferredToStaging++;
           await recordImportRowDisposition({
             executionId: importExecution.id,
             claimToken: executionClaim.claimToken!,
@@ -2265,6 +2267,7 @@ Guidelines:
         sourceFormat,
         optOutPreserved,
         optOutApplied,
+        deferredToStaging,
       };
       };
       registerPersistedCsvProcessor(processCsvImport);
