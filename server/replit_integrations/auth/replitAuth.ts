@@ -945,11 +945,11 @@ export const isAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>
 
   const invalidReason = await checkSessionValidity(req);
   if (invalidReason) {
-    req.logout(() => {
-      req.session?.destroy(() => {
-        res.clearCookie("connect.sid");
-      });
-    });
+    // Clear cookie BEFORE sending the response; the async logout/destroy
+    // callbacks must not touch `res` after the response body is flushed
+    // or they cause ERR_HTTP_HEADERS_SENT.
+    res.clearCookie("connect.sid");
+    req.logout(() => { req.session?.destroy(() => {}); });
     return res.status(401).json({
       message: invalidReason === "session_expired"
         ? "Your session has expired. Please log in again."
@@ -965,7 +965,8 @@ export const isAdmin: RoleAwareRequestHandler = tagRoles<RequestHandler>(async (
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
   const invalidReason = await checkSessionValidity(req);
   if (invalidReason) {
-    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    res.clearCookie("connect.sid");
+    req.logout(() => { req.session?.destroy(() => {}); });
     return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
   }
   if (getUserRole(req) === "admin") return next();
@@ -976,7 +977,8 @@ export const isAffiliate: RoleAwareRequestHandler = tagRoles<RequestHandler>(asy
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
   const invalidReason = await checkSessionValidity(req);
   if (invalidReason) {
-    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    res.clearCookie("connect.sid");
+    req.logout(() => { req.session?.destroy(() => {}); });
     return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
   }
   const role = getUserRole(req);
@@ -990,7 +992,8 @@ export const isPartnerAuthenticated: RoleAwareRequestHandler = tagRoles<RequestH
   }
   const invalidReason = await checkSessionValidity(req);
   if (invalidReason) {
-    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    res.clearCookie("connect.sid");
+    req.logout(() => { req.session?.destroy(() => {}); });
     return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
   }
   if (getUserRole(req) === "partner") return next();
@@ -1001,7 +1004,8 @@ export const isDashboardUser: RoleAwareRequestHandler = tagRoles<RequestHandler>
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
   const invalidReason = await checkSessionValidity(req);
   if (invalidReason) {
-    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    res.clearCookie("connect.sid");
+    req.logout(() => { req.session?.destroy(() => {}); });
     return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
   }
   const role = getUserRole(req);
@@ -1022,7 +1026,8 @@ export function requireRole(...roles: string[]): RoleAwareRequestHandler {
     }
     const invalidReason = await checkSessionValidity(req);
     if (invalidReason) {
-      req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+      res.clearCookie("connect.sid");
+      req.logout(() => { req.session?.destroy(() => {}); });
       return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
     }
     const role = getUserRole(req);

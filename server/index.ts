@@ -307,16 +307,20 @@ app.use((req, _res, next) => {
   await assertCro02PurposePolicies();
   await registerRoutes(httpServer, app);
   // Resume only durable, expired CSV executions after routes are registered.
-  // The recovery processor is request-free and uses the canonical contact
-  // writer; failed recovery is non-fatal to startup and remains retryable.
-  try {
-    const { resumeExpiredCsvImports } = await import("./services/csv-import-recovery");
-    const { processPersistedCsvImport } = await import("./services/csv-import-processor");
-    const resumed = await resumeExpiredCsvImports(processPersistedCsvImport);
-    if (resumed > 0) console.log(`[StartupReconcile] Resumed ${resumed} expired CSV import execution(s)`);
-  } catch (error) {
-    console.error("[StartupReconcile] CSV import recovery failed — continuing startup:", error);
-  }
+  // Fire-and-forget: recovery is heavy (can process hundreds of thousands of
+  // rows) and must not block startup or hold pool connections during the
+  // critical startup window.  Each recovered execution claims its own lease
+  // so concurrent restarts are safe.
+  setImmediate(async () => {
+    try {
+      const { resumeExpiredCsvImports } = await import("./services/csv-import-recovery");
+      const { processPersistedCsvImport } = await import("./services/csv-import-processor");
+      const resumed = await resumeExpiredCsvImports(processPersistedCsvImport);
+      if (resumed > 0) console.log(`[StartupReconcile] Resumed ${resumed} expired CSV import execution(s)`);
+    } catch (error) {
+      console.error("[StartupReconcile] CSV import recovery failed — will retry on next restart:", error);
+    }
+  });
 
   const { logSmtpStartupWarning } = await import("./services/smtp-email");
   logSmtpStartupWarning();
@@ -333,8 +337,13 @@ app.use((req, _res, next) => {
 
     console.error("Internal Server Error:", err);
 
+    // If the response is already started (e.g. SSE stream, chunked transfer),
+    // calling next(err) routes into Sentry's error handler which tries to
+    // append headers and causes ERR_HTTP_HEADERS_SENT.  Just destroy the
+    // socket cleanly instead.
     if (res.headersSent) {
-      return next(err);
+      res.destroy?.();
+      return;
     }
 
     if (status >= 500) {
