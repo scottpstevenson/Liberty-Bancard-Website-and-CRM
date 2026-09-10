@@ -2879,6 +2879,37 @@ async function runSequencesTick(): Promise<void> {
 }
 
 async function runEnrichmentTick(): Promise<void> {
+  // ── enrichment_progress startup reset ──────────────────────────────────────
+  // If a prior run was interrupted (e.g. worker crash), reset the key to 'idle'
+  // so the next scheduled tick can proceed. Cursor-based resume is not supported
+  // by this architecture; only the status flag needs to be cleared.
+  // (See task MI-01 for context — do NOT implement resumable-cursor recovery.)
+  try {
+    const { storage: _storage } = await import("../storage");
+    const { db: _db } = await import("../db");
+    const { auditLogs: _auditLogs } = await import("@shared/schema");
+    const progressRaw = await _storage.getSystemSetting("enrichment_progress");
+    if (progressRaw && (progressRaw as any).status === "interrupted") {
+      const priorStatus = (progressRaw as any).status;
+      const priorInterruptedAt = (progressRaw as any).interruptedAt ?? null;
+      await _storage.setSystemSetting("enrichment_progress", {
+        ...(progressRaw as any),
+        status: "idle",
+        interruptedAt: null,
+        resetAt: new Date().toISOString(),
+      });
+      _db.insert(_auditLogs).values({
+        action: "enrichment_progress_reset",
+        entityType: "system",
+        actorType: "system",
+        details: { priorStatus, priorInterruptedAt },
+      }).catch((e: any) => console.error("[Queue:enrichment] audit log insert failed:", e?.message));
+      console.log("[Queue:enrichment] enrichment_progress was interrupted — reset to idle.");
+    }
+  } catch (resetErr: any) {
+    console.error("[Queue:enrichment] enrichment_progress reset error (non-fatal):", resetErr?.message);
+  }
+
   const { processNextCro03Item, processNextCro03Mutation } = await import("./cro03/enrichment-factory");
   const { processNextCro03bRecipeItem } = await import("./cro03/admission-service");
   try {

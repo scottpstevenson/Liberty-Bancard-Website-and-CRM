@@ -1555,8 +1555,39 @@ export function registerProspectsRoutes(app: Express) {
 
 
   // === BATCH RE-ENRICHMENT & CLASSIFICATION ===
-  app.post("/api/sunbiz/re-enrich-all", requireRole("admin", "manager"), async (_req, res) => {
-    res.status(503).json({ code: "CRO03_LEGACY_PATH_RETIRED", message: "Use a CRO-03 durable batch after canonical intake." });
+  // DEPRECATED: This route no longer triggers enrichment. The scheduled pipeline
+  // (runEnrichmentTick → processSunbizEnrichmentQueue + runSunbizAutoConvert)
+  // is the only active intake path. Hits are logged for observability.
+  app.post("/api/sunbiz/re-enrich-all", requireRole("admin", "manager"), async (req, res) => {
+    // Fire-and-forget audit log — failure does not affect the 200 response.
+    const { auditLogs: _auditLogs } = await import("@shared/schema");
+    db.insert(_auditLogs).values({
+      action: "legacy_enrich_all_attempted",
+      entityType: "system",
+      actorType: "user",
+      actorId: (req as any).user?.id ? String((req as any).user.id) : undefined,
+      details: { ip: req.ip, userAgent: req.headers["user-agent"] },
+    }).catch((err: any) => console.error("[sunbiz] audit log insert failed:", err?.message));
+
+    // Increment the in-process observability counter (read via /api/lead-ops/health).
+    const { incrementLegacyEnrichAttemptCounter } = await import("./lead-ops");
+    incrementLegacyEnrichAttemptCounter();
+
+    // Report the actual active intake path(s) rather than hard-coding an assumption.
+    const { featureFlags } = await import("../services/feature-flags");
+    const sunbizOn = featureFlags.SUNBIZ_ENRICHMENT_ENABLED;
+    const legacyOn  = featureFlags.LEGACY_OUTREACH_ENABLED;
+    const activeIntakePath =
+      sunbizOn && legacyOn ? "both"
+      : sunbizOn ? "scheduled-sunbiz-pipeline"
+      : legacyOn ? "legacy-outreach-cycle"
+      : "none";
+
+    res.status(200).json({
+      deprecated: true,
+      message: "This trigger is deprecated and has no effect. Check the Lead Ops health panel for the currently active intake path.",
+      activeIntakePath,
+    });
   });
 
   app.get("/api/sunbiz/enrichment-progress", isAuthenticated, async (req, res) => {

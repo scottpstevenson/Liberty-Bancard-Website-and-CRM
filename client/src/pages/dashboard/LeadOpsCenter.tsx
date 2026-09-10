@@ -54,6 +54,13 @@ interface LeadOpsHealth {
   lastEnrichedAt: string | null;
   minutesSinceLastJob: number | null;
   workerActive: boolean;
+  // Worker-authority truth fields (MI-01)
+  intakeAuthority: "scheduled-sunbiz-pipeline" | "legacy-outreach-cycle" | "both" | "none";
+  enrichmentProgressStatus: "idle" | "running" | "interrupted" | "failed";
+  sunbizEnrichmentEnabled: boolean;
+  freeEnrichmentPendingJobs: number;
+  lastScheduledEnrichmentAt: string | null;
+  legacyRouteAttemptsSinceStartup: number;
 }
 
 interface LeadOpsConfig {
@@ -801,7 +808,7 @@ export default function LeadOpsCenter() {
       </div>
 
       {/* ── Pipeline Health widget ───────────────────────────────────────── */}
-      <Card className="border shadow-sm">
+      <Card id="pipeline-health-card" className="border shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -860,6 +867,62 @@ export default function LeadOpsCenter() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Could not load health data.</p>
+          )}
+          {/* ── Worker-authority truth fields (MI-01) ───────────────────── */}
+          {health && (
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-muted-foreground mb-0.5">Intake Authority</div>
+                <div className={`font-medium truncate ${
+                  health.intakeAuthority === "none"
+                    ? "text-muted-foreground"
+                    : health.intakeAuthority === "both"
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-green-700 dark:text-green-400"
+                }`}>
+                  {health.intakeAuthority === "scheduled-sunbiz-pipeline" ? "Scheduled pipeline"
+                   : health.intakeAuthority === "legacy-outreach-cycle" ? "Legacy outreach cycle"
+                   : health.intakeAuthority === "both" ? "Both (scheduled + legacy)"
+                   : "None"}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-muted-foreground mb-0.5">Enrichment State</div>
+                <div className={`font-medium truncate ${
+                  health.enrichmentProgressStatus === "interrupted" || health.enrichmentProgressStatus === "failed"
+                    ? "text-amber-600 dark:text-amber-400"
+                    : health.enrichmentProgressStatus === "running"
+                    ? "text-blue-600 dark:text-blue-400"
+                    : "text-green-700 dark:text-green-400"
+                }`}>
+                  {health.enrichmentProgressStatus}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-muted-foreground mb-0.5">Sunbiz Gate</div>
+                <div className={`font-medium ${health.sunbizEnrichmentEnabled ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}`}>
+                  {health.sunbizEnrichmentEnabled ? "Enabled" : "Disabled"}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-muted-foreground mb-0.5">Free Enrich Pending</div>
+                <div className="font-medium">{health.freeEnrichmentPendingJobs.toLocaleString()}</div>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-muted-foreground mb-0.5">Last Scheduled Run</div>
+                <div className="font-medium truncate">
+                  {health.lastScheduledEnrichmentAt
+                    ? new Date(health.lastScheduledEnrichmentAt).toLocaleTimeString()
+                    : "Never"}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-muted-foreground mb-0.5">Legacy Trigger Hits</div>
+                <div className={`font-medium ${health.legacyRouteAttemptsSinceStartup > 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                  {health.legacyRouteAttemptsSinceStartup} since restart
+                </div>
+              </div>
+            </div>
           )}
           {health && !health.workerActive && health.minutesSinceLastJob !== null && health.minutesSinceLastJob >= 15 && (
             <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 px-3 py-2">
@@ -961,18 +1024,24 @@ export default function LeadOpsCenter() {
                 </CardDescription>
               </div>
             </div>
-            <Button
-              size="sm"
-              onClick={() => aiSegmentMutation.mutate()}
-              disabled={aiSegmentMutation.isPending}
-              className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
-            >
-              {aiSegmentMutation.isPending
-                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                : <Sparkles className="h-3.5 w-3.5" />
-              }
-              {aiAnalysis ? "Re-analyze" : "Analyze My Lead Pool"}
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                size="sm"
+                onClick={() => aiSegmentMutation.mutate()}
+                disabled={aiSegmentMutation.isPending}
+                className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                title="Returns a narrative over a random sample. Does not enrich, qualify, or write any records."
+              >
+                {aiSegmentMutation.isPending
+                  ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  : <Sparkles className="h-3.5 w-3.5" />
+                }
+                {aiAnalysis ? "Re-analyze" : "Analyze My Lead Pool"}
+              </Button>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-purple-300 text-purple-600 dark:border-purple-700 dark:text-purple-400">
+                Diagnostic only
+              </Badge>
+            </div>
           </div>
         </CardHeader>
 
@@ -1156,28 +1225,19 @@ export default function LeadOpsCenter() {
         )}
 
         <div className="ml-auto flex gap-2">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 gap-1.5">
-                <Zap className="h-3.5 w-3.5" />
-                Enrich All Pending
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Enrich all pending leads?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will queue {stats?.pending_processing?.toLocaleString() || "all pending"} leads for enrichment. The pipeline runs every 10 minutes. This may take several hours for large pools.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => bulkEnrichMutation.mutate("all")}>
-                  Queue All
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              This trigger is deprecated. Enrichment runs automatically via the{" "}
+              <button
+                className="underline font-medium hover:no-underline"
+                onClick={() => document.getElementById("pipeline-health-card")?.scrollIntoView({ behavior: "smooth" })}
+              >
+                scheduled pipeline
+              </button>
+              .
+            </span>
+          </div>
         </div>
       </div>
 

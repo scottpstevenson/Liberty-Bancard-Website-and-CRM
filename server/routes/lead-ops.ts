@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import { db } from "../db";
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { requireRole } from "../replit_integrations/auth";
 import OpenAI from "openai";
+import { featureFlags } from "../services/feature-flags";
 import { listInboundRequests } from "../services/inbound-request-authority";
-import { inboundRequestEffects } from "@shared/schema";
+import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 
 function getOpenAI() {
   return new OpenAI({
@@ -17,6 +18,14 @@ function getOpenAI() {
 // ── In-process health cache (60s TTL) ────────────────────────────────────────
 let _healthCache: { data: any; ts: number } | null = null;
 const HEALTH_CACHE_TTL_MS = 60_000;
+
+// ── In-memory counter: legacy route hits since last startup ───────────────────
+let _legacyRouteAttemptsSinceStartup = 0;
+
+/** Called by the deprecated POST /api/sunbiz/re-enrich-all route in prospects.ts */
+export function incrementLegacyEnrichAttemptCounter(): void {
+  _legacyRouteAttemptsSinceStartup++;
+}
 
 export function registerLeadOpsRoutes(app: Express) {
   app.get("/api/lead-ops/inbound-requests", requireRole("admin", "manager"), async (req, res) => {
@@ -299,6 +308,8 @@ export function registerLeadOpsRoutes(app: Express) {
 
       if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
         return res.json({
+          diagnostic_only: true,
+          disclaimer: "This is a narrative analysis of a sample — it does not modify records or qualify candidates.",
           summary: "AI analysis requires OPENAI_API_KEY to be configured.",
           segments: [], recommendations: [], outreachPriority: [], pool, verticals: verts,
         });
@@ -354,6 +365,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       try { parsed = JSON.parse(text); } catch {}
 
       res.json({
+        diagnostic_only: true,
+        disclaimer: "This is a narrative analysis of a sample — it does not modify records or qualify candidates.",
         summary:          parsed.summary          || "Analysis complete.",
         segments:         parsed.segments          || [],
         recommendations:  parsed.recommendations   || [],
@@ -364,7 +377,11 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       });
     } catch (err: any) {
       console.error("[LeadOps] ai-segment error:", err?.message);
-      res.status(500).json({ error: err?.message || "AI analysis failed" });
+      res.status(500).json({
+        diagnostic_only: true,
+        disclaimer: "This is a narrative analysis of a sample — it does not modify records or qualify candidates.",
+        error: err?.message || "AI analysis failed",
+      });
     }
   });
 
@@ -386,34 +403,59 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   });
 
   // ── GET /api/lead-ops/health ───────────────────────────────────────────────
-  // Pipeline health stats — enrichment throughput, queue depth, success rate.
+  // Pipeline health stats — enrichment throughput, queue depth, success rate,
+  // plus worker-authority truth fields (intake path, enrichment_progress
+  // status, free-enrichment pending jobs, last scheduled enrichment timestamp).
   // Cached for 60 seconds to avoid hammering the DB on every poll.
   app.get("/api/lead-ops/health", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const now = Date.now();
       if (_healthCache && now - _healthCache.ts < HEALTH_CACHE_TTL_MS) {
-        return res.json(_healthCache.data);
+        // Always inject the live in-memory counter (not cached — resets on restart).
+        return res.json({ ..._healthCache.data, legacyRouteAttemptsSinceStartup: _legacyRouteAttemptsSinceStartup });
       }
 
-      const result = await db.execute(sql`
-        SELECT
-          COUNT(*) FILTER (WHERE enriched_at >= NOW() - INTERVAL '24 hours')::int          AS enriched_today,
-          COUNT(*) FILTER (
-            WHERE enriched_at >= NOW() - INTERVAL '24 hours'
-              AND (email IS NOT NULL OR owner_email IS NOT NULL)
-          )::int                                                                             AS emails_today,
-          COUNT(*) FILTER (
-            WHERE enriched_at >= NOW() - INTERVAL '24 hours'
-              AND (phone IS NOT NULL OR owner_phone IS NOT NULL)
-          )::int                                                                             AS phones_today,
-          COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int                        AS queue_depth,
-          COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int                       AS total_enriched,
-          COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int                         AS total_failed,
-          MAX(enriched_at)                                                                   AS last_enriched_at
-        FROM sunbiz_entities
-      `);
+      const [enrichResult, freeEnrichResult, jobRow, progressRaw] = await Promise.all([
+        db.execute(sql`
+          SELECT
+            COUNT(*) FILTER (WHERE enriched_at >= NOW() - INTERVAL '24 hours')::int          AS enriched_today,
+            COUNT(*) FILTER (
+              WHERE enriched_at >= NOW() - INTERVAL '24 hours'
+                AND (email IS NOT NULL OR owner_email IS NOT NULL)
+            )::int                                                                             AS emails_today,
+            COUNT(*) FILTER (
+              WHERE enriched_at >= NOW() - INTERVAL '24 hours'
+                AND (phone IS NOT NULL OR owner_phone IS NOT NULL)
+            )::int                                                                             AS phones_today,
+            COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int                        AS queue_depth,
+            COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int                       AS total_enriched,
+            COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int                         AS total_failed,
+            MAX(enriched_at)                                                                   AS last_enriched_at
+          FROM sunbiz_entities
+        `),
+        // Match runFreeContactEnrichmentTick()'s exact eligibility predicate:
+        // (domain IS NOT NULL OR website IS NOT NULL) AND status='pending'
+        // AND doNotContactFlag IS NOT TRUE
+        // AND no sdr_merchant_contacts row with email already present.
+        db.select({ count: sql<number>`COUNT(*)::int` })
+          .from(sdrMerchants)
+          .where(sql`
+            (${sdrMerchants.domain} IS NOT NULL OR ${sdrMerchants.website} IS NOT NULL)
+            AND ${sdrMerchants.ownerEnrichmentStatus} = 'pending'
+            AND ${sdrMerchants.doNotContactFlag} IS NOT TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM sdr_merchant_contacts mc
+              WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL
+            )
+          `),
+        db.select({ lastFinishedAt: backgroundJobs.lastFinishedAt })
+          .from(backgroundJobs)
+          .where(eq(backgroundJobs.jobName, "enrichment-queue-processor"))
+          .limit(1),
+        storage.getSystemSetting("enrichment_progress").catch(() => null),
+      ]);
 
-      const row = ((result as any).rows ?? result)[0] || {};
+      const row = ((enrichResult as any).rows ?? enrichResult)[0] || {};
       const successRate = (row.total_enriched + row.total_failed) > 0
         ? Math.round((row.total_enriched / (row.total_enriched + row.total_failed)) * 100)
         : 0;
@@ -423,6 +465,38 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         ? Math.floor((Date.now() - lastEnrichedAt.getTime()) / 60000)
         : null;
       const workerActive = minutesSinceLastJob !== null && minutesSinceLastJob < 15;
+
+      const freeEnrichPending = Number(freeEnrichResult[0]?.count ?? 0);
+      const lastJobRow = jobRow[0];
+      const lastScheduledEnrichmentAt = lastJobRow?.lastFinishedAt
+        ? new Date(lastJobRow.lastFinishedAt).toISOString()
+        : null;
+
+      const progressObj = (progressRaw as any) || {};
+      const enrichmentProgressStatus: string =
+        progressObj.status === "running" ? "running"
+        : progressObj.status === "interrupted" ? "interrupted"
+        : progressObj.status === "failed" ? "failed"
+        : "idle";
+
+      // Use the same featureFlags getters that runEnrichmentTick() and runDailyOutreachCycle()
+      // check — backed by dbFallbackBool() and accounting for wizard/DB overrides.
+      const sunbizEnrichmentEnabled = featureFlags.SUNBIZ_ENRICHMENT_ENABLED;
+      const legacyOutreachEnabled   = featureFlags.LEGACY_OUTREACH_ENABLED;
+
+      // Truthfully report which intake path(s) are active.
+      // runDailyOutreachCycle (LEGACY_OUTREACH_ENABLED gate) calls reEnrichAllSunbizEntities()
+      // unconditionally in Phase A, so when that path is live BOTH intake paths are active.
+      const intakeAuthority: "scheduled-sunbiz-pipeline" | "legacy-outreach-cycle" | "both" | "none" =
+        sunbizEnrichmentEnabled && legacyOutreachEnabled ? "both"
+        : sunbizEnrichmentEnabled ? "scheduled-sunbiz-pipeline"
+        : legacyOutreachEnabled   ? "legacy-outreach-cycle"
+        : "none";
+
+      // Use sunbiz_entities.MAX(enriched_at) as the definitive "last Sunbiz enrichment ran"
+      // timestamp — this reflects actual completion of the Sunbiz enrichment steps, not the
+      // job-registry heartbeat which fires before those steps execute in runEnrichmentTick().
+      const lastScheduledEnrichmentAtDerived = lastEnrichedAt?.toISOString() ?? null;
 
       const data = {
         enrichedToday:        row.enriched_today    ?? 0,
@@ -435,10 +509,16 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         lastEnrichedAt:       lastEnrichedAt?.toISOString() ?? null,
         minutesSinceLastJob:  minutesSinceLastJob,
         workerActive,
+        // ── Worker-authority truth fields ───────────────────────────────────
+        intakeAuthority,
+        enrichmentProgressStatus,
+        sunbizEnrichmentEnabled,
+        freeEnrichmentPendingJobs:        freeEnrichPending,
+        lastScheduledEnrichmentAt:        lastScheduledEnrichmentAtDerived,
       };
 
       _healthCache = { data, ts: now };
-      res.json(data);
+      res.json({ ...data, legacyRouteAttemptsSinceStartup: _legacyRouteAttemptsSinceStartup });
     } catch (err: any) {
       console.error("[LeadOps] health error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to load health stats" });

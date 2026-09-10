@@ -3611,27 +3611,34 @@ export function registerAdminRoutes(app: Express) {
         } catch { return { createdAt: null, details: null }; }
       }
 
+      const nullAudit = { createdAt: null, details: null };
       const [lastGhlSync, lastTestEmail, lastWebhookEvent, lastSunbizRun, lastClassification, lastBackupSuccess, lastBackupFailed] = await Promise.all([
-        lastAuditEntry(["ghl_sync_completed", "GHL_SYNC_TICK_COMPLETE", "ghl_sync_contacts"]),
-        lastAuditEntry(["integration_readiness_test_email"]),
-        lastAuditEntry(["webhook_received", "ghl_webhook_received", "inbound_message_processed"]),
-        lastAuditEntry(["sunbiz_enrichment_completed", "sunbiz_batch_enriched", "sunbiz_enrichment_run"]),
-        lastAuditEntry(["inbox_classified", "intent_classified", "reply_classified"]),
-        lastAuditEntry(["db_backup_success"]),
-        lastAuditEntry(["db_backup_failed"]),
+        withTimeout(lastAuditEntry(["ghl_sync_completed", "GHL_SYNC_TICK_COMPLETE", "ghl_sync_contacts"]), 8_000, nullAudit),
+        withTimeout(lastAuditEntry(["integration_readiness_test_email"]), 8_000, nullAudit),
+        withTimeout(lastAuditEntry(["webhook_received", "ghl_webhook_received", "inbound_message_processed"]), 8_000, nullAudit),
+        withTimeout(lastAuditEntry(["sunbiz_enrichment_completed", "sunbiz_batch_enriched", "sunbiz_enrichment_run"]), 8_000, nullAudit),
+        withTimeout(lastAuditEntry(["inbox_classified", "intent_classified", "reply_classified"]), 8_000, nullAudit),
+        withTimeout(lastAuditEntry(["db_backup_success"]), 8_000, nullAudit),
+        withTimeout(lastAuditEntry(["db_backup_failed"]), 8_000, nullAudit),
       ]);
 
       // ── Active cohort size ────────────────────────────────────────────────────
       let activeCohortSize = 0;
       try {
-        const cohortRows = await db.execute(auditSql.raw(`
-          SELECT COUNT(*) as c FROM contacts
-          WHERE lifecycle_stage IN ('prospect','warm_lead','qualified')
-          AND email_status NOT IN ('bounced','invalid','unsubscribed')
-          AND do_not_contact = false
-          LIMIT 1
-        `));
-        activeCohortSize = parseInt(String((cohortRows.rows[0] as any)?.c ?? "0"), 10) || 0;
+        const cohortResult = await withTimeout(
+          db.execute(auditSql.raw(`
+            SELECT COUNT(*) as c FROM contacts
+            WHERE lifecycle_stage IN ('prospect','warm_lead','qualified')
+            AND email_status NOT IN ('bounced','invalid','unsubscribed')
+            AND do_not_contact = false
+            LIMIT 1
+          `)),
+          8_000,
+          null,
+        );
+        if (cohortResult) {
+          activeCohortSize = parseInt(String((cohortResult.rows[0] as any)?.c ?? "0"), 10) || 0;
+        }
       } catch {}
 
       // ── Gmail OAuth status ────────────────────────────────────────────────────
@@ -6286,13 +6293,18 @@ export function registerAdminRoutes(app: Express) {
       // 4. CRO-03 provider transport — reads runtime env, consistent with assertCro03cAuthorityBeforeIo gate
       const cro03TransportEnabled = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED === "true";
 
+      // Shared defensive timeout so no single query can stall the entire response.
+      function withActivationTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
+        return Promise.race([p, new Promise<T>(resolve => setTimeout(() => resolve(fallback), 8_000))]);
+      }
+
       // 5. Serper gateway status
       let serperGatewayEnabled = false;
       let serperGatewayStatus = "unknown";
       try {
-        const sgRow = (await db.execute(sql`
+        const sgRow = (await withActivationTimeout(db.execute(sql`
           SELECT enabled, status FROM serper_control ORDER BY id DESC LIMIT 1
-        `)).rows[0] as any;
+        `), null))?.rows[0] as any;
         if (sgRow) {
           serperGatewayEnabled = Boolean(sgRow.enabled);
           serperGatewayStatus = sgRow.status ?? "unknown";
@@ -6305,9 +6317,9 @@ export function registerAdminRoutes(app: Express) {
       // 7. Vertical resolver wiring — check by counting sunbiz-auto contacts with a non-null vertical
       let verticalWired = false;
       try {
-        const vr = (await db.execute(sql`
+        const vr = (await withActivationTimeout(db.execute(sql`
           SELECT COUNT(*) AS c FROM contacts WHERE 'sunbiz-auto' = ANY(tags) AND vertical IS NOT NULL LIMIT 1
-        `)).rows[0] as any;
+        `), null))?.rows[0] as any;
         verticalWired = Number(vr?.c ?? 0) > 0;
       } catch { /* ignore */ }
 
@@ -6315,11 +6327,11 @@ export function registerAdminRoutes(app: Express) {
       let autoConvertActive = false;
       let recentlyPromoted = 0;
       try {
-        const ac = (await db.execute(sql`
+        const ac = (await withActivationTimeout(db.execute(sql`
           SELECT COUNT(*) AS c FROM audit_logs
           WHERE action = 'prospect_auto_promoted'
             AND created_at >= NOW() - INTERVAL '7 days'
-        `)).rows[0] as any;
+        `), null))?.rows[0] as any;
         recentlyPromoted = Number(ac?.c ?? 0);
         autoConvertActive = recentlyPromoted > 0;
       } catch { /* ignore */ }
@@ -6328,10 +6340,10 @@ export function registerAdminRoutes(app: Express) {
       let classificationActive = false;
       let productionClassifiedCount = 0;
       try {
-        const cc = (await db.execute(sql`
+        const cc = (await withActivationTimeout(db.execute(sql`
           SELECT COUNT(*) AS c FROM contacts
           WHERE 'sunbiz-auto' = ANY(tags) AND record_class = 'production'
-        `)).rows[0] as any;
+        `), null))?.rows[0] as any;
         productionClassifiedCount = Number(cc?.c ?? 0);
         classificationActive = productionClassifiedCount > 0;
       } catch { /* ignore */ }
@@ -6340,11 +6352,11 @@ export function registerAdminRoutes(app: Express) {
       let canaryCompleted = false;
       let lastCanaryAt: string | null = null;
       try {
-        const cr = (await db.execute(sql`
+        const cr = (await withActivationTimeout(db.execute(sql`
           SELECT created_at FROM audit_logs
           WHERE action = 'sunbiz_enrichment_canary_completed'
           ORDER BY created_at DESC LIMIT 1
-        `)).rows[0] as any;
+        `), null))?.rows[0] as any;
         if (cr?.created_at) {
           canaryCompleted = true;
           lastCanaryAt = cr.created_at instanceof Date
