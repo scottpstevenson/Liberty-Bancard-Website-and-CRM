@@ -1004,6 +1004,81 @@ export function registerReconciliationRoutes(app: Express): void {
     }
   });
 
+  // ── GET /api/admin/reconciliation/runs/:runId/remediation/validate-emails/preview
+  // Dry-run: runs the local email pre-filter and returns the survivor/credit
+  // counts WITHOUT starting a ZeroBounce campaign or consuming any credits.
+  // The UI must call this first and show the results before allowing the user
+  // to confirm the paid POST action.
+  app.get(
+    "/api/admin/reconciliation/runs/:runId/remediation/validate-emails/preview",
+    requireRole("admin"),
+    async (req, res) => {
+      const runId = validateRunId(req.params.runId, res);
+      if (!runId) return;
+      try {
+        const runR = await pool.query(
+          `SELECT id, status, rules_version FROM contact_reconciliation_runs WHERE id = $1`,
+          [runId],
+        );
+        if (runR.rows.length === 0) return res.status(404).json({ error: "Run not found" });
+        if (runR.rows[0].rules_version !== "quality-v1") {
+          return res.status(400).json({ error: "Remediation requires a quality-v1 run" });
+        }
+
+        const [membersR, dncR, alreadyValidatedR] = await Promise.all([
+          pool.query(
+            `SELECT m.contact_id, c.email
+             FROM contact_reconciliation_members m
+             JOIN contacts c ON c.id = m.contact_id
+             WHERE m.run_id = $1
+               AND 'EMAIL_UNVALIDATED' = ANY(m.quality_signal_codes)
+               AND NOT ('DNC_GLOBAL' = ANY(m.quality_signal_codes))
+               AND NOT ('AUTO_CONTACT_BLOCKED' = ANY(m.quality_signal_codes))`,
+            [runId],
+          ),
+          pool.query(
+            `SELECT COUNT(*)::int AS n FROM contact_reconciliation_members
+             WHERE run_id = $1
+               AND 'EMAIL_UNVALIDATED' = ANY(quality_signal_codes)
+               AND ('DNC_GLOBAL' = ANY(quality_signal_codes)
+                    OR 'AUTO_CONTACT_BLOCKED' = ANY(quality_signal_codes))`,
+            [runId],
+          ),
+          pool.query(
+            `SELECT COUNT(*)::int AS n FROM contact_reconciliation_members m
+             JOIN contacts c ON c.id = m.contact_id
+             WHERE m.run_id = $1
+               AND 'EMAIL_UNVALIDATED' = ANY(m.quality_signal_codes)
+               AND c.email_status = 'valid'`,
+            [runId],
+          ),
+        ]);
+
+        const contacts = (membersR.rows as Array<{ contact_id: number; email: string | null }>)
+          .map(r => ({ contactId: r.contact_id, email: r.email }));
+
+        const preFilter = await runEmailPreFilter(contacts);
+        const survivorCount = preFilter.counts.passed;
+
+        return res.json({
+          totalEligible: contacts.length,
+          dnc_skipped: dncR.rows[0]?.n ?? 0,
+          already_validated_skipped: alreadyValidatedR.rows[0]?.n ?? 0,
+          locally_syntax_rejected: preFilter.counts.syntax_rejected,
+          locally_placeholder_rejected: preFilter.counts.placeholder_rejected,
+          no_mx_authoritative: preFilter.counts.no_mx_authoritative,
+          disposable_rejected: preFilter.counts.disposable_rejected,
+          dns_indeterminate: preFilter.counts.dns_indeterminate,
+          max_zb_credits: survivorCount,
+          unique_surviving_emails: survivorCount,
+        });
+      } catch (err: any) {
+        console.error("[validate-emails preview]", err);
+        return res.status(500).json({ error: "Preview failed", detail: err.message });
+      }
+    },
+  );
+
   // ── POST /api/admin/reconciliation/runs/:runId/remediation/validate-emails ─
   // Idempotent. Creates or returns the in-progress validate-emails operation.
   // Runs the local email pre-filter then hands passing contacts to the canonical

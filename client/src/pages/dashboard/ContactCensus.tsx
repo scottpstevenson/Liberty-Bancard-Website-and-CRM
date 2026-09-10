@@ -1026,11 +1026,26 @@ interface SuppressedFakePhonesData {
   nextCursor: number | null;
   contacts: Array<{ id: number; name: string | null; email: string | null; phone: string | null; suppressedAt: string | null }>;
 }
+interface ValidateEmailsPreview {
+  totalEligible: number;
+  dnc_skipped: number;
+  already_validated_skipped: number;
+  locally_syntax_rejected: number;
+  locally_placeholder_rejected: number;
+  no_mx_authoritative: number;
+  disposable_rejected: number;
+  dns_indeterminate: number;
+  max_zb_credits: number;
+  unique_surviving_emails: number;
+}
+
 function RemediationPanel({ runId, signals }: { runId: string; signals: QualitySignalRow[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [opResults, setOpResults] = useState<Record<string, RemediationOp>>({});
+  const [validatePreview, setValidatePreview] = useState<ValidateEmailsPreview | null>(null);
+  const [showValidateDialog, setShowValidateDialog] = useState(false);
 
   const { data: suppressedData, isLoading: suppressedLoading } = useQuery<SuppressedFakePhonesData>({
     queryKey: ["/api/admin/contacts/suppressed-fake-phones"],
@@ -1040,12 +1055,26 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
 
   const getSignalCount = (code: string) => signals.find(s => s.code === code)?.contactCount ?? 0;
 
+  // Step 1: fetch dry-run preview (free — no ZeroBounce credits consumed)
+  const previewMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("GET", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails/preview`)
+        .then(r => r.json() as Promise<ValidateEmailsPreview>),
+    onSuccess: (data) => {
+      setValidatePreview(data);
+      setShowValidateDialog(true);
+    },
+    onError: () => toast({ title: "Error", description: "Could not load validation preview.", variant: "destructive" }),
+  });
+
+  // Step 2: actually launch ZeroBounce (only called after user confirms preview)
   const validateMutation = useMutation({
     mutationFn: () =>
       apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails`, {})
         .then(r => r.json() as Promise<RemediationOp>),
     onSuccess: (data) => {
       setOpResults(prev => ({ ...prev, validate_emails: data }));
+      setShowValidateDialog(false);
       toast({ title: "Email validation triggered", description: data.alreadyRunning ? "Existing operation returned." : "Pre-filter completed; passing contacts sent to ZeroBounce." });
     },
     onError: () => toast({ title: "Error", description: "Failed to trigger email validation.", variant: "destructive" }),
@@ -1137,11 +1166,11 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
                       size="sm"
                       variant="default"
                       className="h-7 text-xs gap-1"
-                      disabled={validateMutation.isPending || count === 0}
-                      onClick={() => validateMutation.mutate()}
+                      disabled={previewMutation.isPending || validateMutation.isPending || count === 0}
+                      onClick={() => previewMutation.mutate()}
                     >
                       <Zap className="h-3 w-3" />
-                      {validateMutation.isPending ? "Running…" : `Validate ${count.toLocaleString()} emails`}
+                      {previewMutation.isPending ? "Analysing…" : validateMutation.isPending ? "Launching…" : `Validate ${count.toLocaleString()} emails`}
                     </Button>
                   )}
                 </div>
@@ -1247,6 +1276,52 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
           ))}
         </div>
       </div>
+
+      {/* ZeroBounce validation cost-preview confirmation dialog */}
+      <AlertDialog open={showValidateDialog} onOpenChange={setShowValidateDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Email Validation</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                {validatePreview && (
+                  <>
+                    <p>The local pre-filter has analysed the unvalidated cohort. Review before spending ZeroBounce credits:</p>
+                    <div className="rounded border bg-muted/40 p-3 space-y-1 text-xs font-mono">
+                      <div className="flex justify-between"><span>Total evaluated</span><span className="font-semibold">{validatePreview.totalEligible.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>DNC / blocked skipped</span><span>{validatePreview.dnc_skipped.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>Already validated skipped</span><span>{validatePreview.already_validated_skipped.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>Syntax rejected (local)</span><span>{validatePreview.locally_syntax_rejected.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>Placeholder rejected (local)</span><span>{validatePreview.locally_placeholder_rejected.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>No MX record (local)</span><span>{validatePreview.no_mx_authoritative.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>Disposable domain (local)</span><span>{validatePreview.disposable_rejected.toLocaleString()}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>DNS indeterminate (local)</span><span>{validatePreview.dns_indeterminate.toLocaleString()}</span></div>
+                      <div className="border-t pt-1 mt-1 flex justify-between font-semibold text-foreground">
+                        <span>Max ZeroBounce credits</span>
+                        <span className="text-amber-600">{validatePreview.max_zb_credits.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Only the <strong>{validatePreview.unique_surviving_emails.toLocaleString()}</strong> emails that pass all local gates will be sent to ZeroBounce. Credits are consumed per email validated.
+                    </p>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={validateMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={validateMutation.isPending || (validatePreview?.max_zb_credits ?? 0) === 0}
+              onClick={(e) => { e.preventDefault(); validateMutation.mutate(); }}
+            >
+              {validateMutation.isPending
+                ? "Launching…"
+                : `Approve — validate ${(validatePreview?.max_zb_credits ?? 0).toLocaleString()} emails`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

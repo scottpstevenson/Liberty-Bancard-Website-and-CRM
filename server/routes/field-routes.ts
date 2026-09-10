@@ -99,7 +99,7 @@ export function registerFieldRoutesRoutes(app: Express) {
             .where(eq(salesTerritories.id, territoryId))
             .limit(1);
           if (!territory) return res.status(404).json({ message: "Territory not found" });
-          territoryCriteria = territory.criteria as typeof territoryCriteria;
+          territoryCriteria = territory.criteria as { postalCodes?: string[]; cities?: string[]; states?: string[] } | null;
         }
 
         // Build territory-scoped WHERE clause for businesses
