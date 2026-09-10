@@ -1060,6 +1060,34 @@ export function registerReconciliationRoutes(app: Express): void {
         const preFilter = await runEmailPreFilter(contacts);
         const survivorCount = preFilter.counts.passed;
 
+        // Crosswalk-relevant: survivors whose email validation could actually
+        // change a crosswalk decision — i.e. they already have a candidate
+        // with INSUFFICIENT_EVIDENCE or AMBIGUOUS_MATCH from the most recent
+        // identity run. Validating their email may promote them to a reviewable
+        // match. Contacts with no crosswalk candidate get no benefit from ZB.
+        const passingContactIds = preFilter.outcomes
+          .filter(o => o.gate === "pass")
+          .map(o => o.contactId);
+
+        let crosswalkRelevantCount = 0;
+        if (passingContactIds.length > 0) {
+          const cwR = await pool.query(
+            `SELECT COUNT(DISTINCT cic.subject_id)::int AS n
+             FROM contact_identity_candidates cic
+             INNER JOIN (
+               SELECT id FROM contact_identity_reconciliation_runs
+               ORDER BY created_at DESC LIMIT 1
+             ) latest_run ON cic.run_id = latest_run.id
+             WHERE cic.subject_id = ANY($1::int[])
+               AND cic.evidence_class IN ('INSUFFICIENT_EVIDENCE','AMBIGUOUS_MATCH')`,
+            [passingContactIds],
+          );
+          crosswalkRelevantCount = cwR.rows[0]?.n ?? 0;
+        }
+
+        const creditCap = req.query.creditCap ? parseInt(req.query.creditCap as string, 10) : null;
+        const cappedSurvivorCount = creditCap && creditCap > 0 ? Math.min(survivorCount, creditCap) : survivorCount;
+
         return res.json({
           totalEligible: contacts.length,
           dnc_skipped: dncR.rows[0]?.n ?? 0,
@@ -1071,6 +1099,8 @@ export function registerReconciliationRoutes(app: Express): void {
           dns_indeterminate: preFilter.counts.dns_indeterminate,
           max_zb_credits: survivorCount,
           unique_surviving_emails: survivorCount,
+          crosswalk_relevant_count: crosswalkRelevantCount,
+          capped_credit_count: cappedSurvivorCount,
         });
       } catch (err: any) {
         console.error("[validate-emails preview]", err);
@@ -1172,10 +1202,14 @@ export function registerReconciliationRoutes(app: Express): void {
         const contacts = allMembers.map(r => ({ contactId: r.contact_id, email: r.email }));
         const preFilter = await runEmailPreFilter(contacts);
 
-        // Collect passing contact IDs for ZeroBounce
-        const passingIds = preFilter.outcomes
+        // Collect passing contact IDs for ZeroBounce, respecting optional cap.
+        const creditCap = req.body?.creditCap ? parseInt(String(req.body.creditCap), 10) : null;
+        const allPassingIds = preFilter.outcomes
           .filter(o => o.gate === "pass")
           .map(o => o.contactId);
+        const passingIds = (creditCap && creditCap > 0 && creditCap < allPassingIds.length)
+          ? allPassingIds.slice(0, creditCap)
+          : allPassingIds;
 
         // Helper: mark the remediation operation failed and re-throw.
         async function failOperation(reason: string, err: unknown): Promise<never> {

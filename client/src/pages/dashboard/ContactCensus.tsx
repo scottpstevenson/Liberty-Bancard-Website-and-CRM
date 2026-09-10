@@ -1037,6 +1037,8 @@ interface ValidateEmailsPreview {
   dns_indeterminate: number;
   max_zb_credits: number;
   unique_surviving_emails: number;
+  crosswalk_relevant_count: number;
+  capped_credit_count: number;
 }
 
 function RemediationPanel({ runId, signals }: { runId: string; signals: QualitySignalRow[] }) {
@@ -1046,6 +1048,7 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
   const [opResults, setOpResults] = useState<Record<string, RemediationOp>>({});
   const [validatePreview, setValidatePreview] = useState<ValidateEmailsPreview | null>(null);
   const [showValidateDialog, setShowValidateDialog] = useState(false);
+  const [creditCap, setCreditCap] = useState<number>(2000);
 
   const { data: suppressedData, isLoading: suppressedLoading } = useQuery<SuppressedFakePhonesData>({
     queryKey: ["/api/admin/contacts/suppressed-fake-phones"],
@@ -1058,7 +1061,7 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
   // Step 1: fetch dry-run preview (free — no ZeroBounce credits consumed)
   const previewMutation = useMutation({
     mutationFn: () =>
-      apiRequest("GET", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails/preview`)
+      apiRequest("GET", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails/preview?creditCap=${creditCap}`)
         .then(r => r.json() as Promise<ValidateEmailsPreview>),
     onSuccess: (data) => {
       setValidatePreview(data);
@@ -1070,7 +1073,7 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
   // Step 2: actually launch ZeroBounce (only called after user confirms preview)
   const validateMutation = useMutation({
     mutationFn: () =>
-      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails`, {})
+      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/remediation/validate-emails`, { creditCap })
         .then(r => r.json() as Promise<RemediationOp>),
     onSuccess: (data) => {
       setOpResults(prev => ({ ...prev, validate_emails: data }));
@@ -1297,13 +1300,55 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
                       <div className="flex justify-between text-muted-foreground"><span>Disposable domain (local)</span><span>{validatePreview.disposable_rejected.toLocaleString()}</span></div>
                       <div className="flex justify-between text-muted-foreground"><span>DNS indeterminate (local)</span><span>{validatePreview.dns_indeterminate.toLocaleString()}</span></div>
                       <div className="border-t pt-1 mt-1 flex justify-between font-semibold text-foreground">
-                        <span>Max ZeroBounce credits</span>
-                        <span className="text-amber-600">{validatePreview.max_zb_credits.toLocaleString()}</span>
+                        <span>Passes all local gates</span>
+                        <span>{validatePreview.max_zb_credits.toLocaleString()}</span>
                       </div>
+                      {validatePreview.crosswalk_relevant_count > 0 && (
+                        <div className="flex justify-between text-blue-600 font-semibold">
+                          <span>↳ Crosswalk-relevant (ZB can improve match)</span>
+                          <span>{validatePreview.crosswalk_relevant_count.toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Only the <strong>{validatePreview.unique_surviving_emails.toLocaleString()}</strong> emails that pass all local gates will be sent to ZeroBounce. Credits are consumed per email validated.
-                    </p>
+
+                    {/* Credit cap */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-foreground">Credit cap</label>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="number"
+                          min={1}
+                          max={validatePreview.max_zb_credits}
+                          value={creditCap}
+                          onChange={e => {
+                            const v = parseInt(e.target.value) || 1;
+                            setCreditCap(Math.max(1, Math.min(validatePreview.max_zb_credits, v)));
+                          }}
+                          className="w-28 rounded border bg-background px-2 py-1 text-sm text-right font-mono"
+                        />
+                        <span className="text-xs text-muted-foreground">of {validatePreview.max_zb_credits.toLocaleString()} eligible</span>
+                        {validatePreview.crosswalk_relevant_count > 0 && creditCap !== validatePreview.crosswalk_relevant_count && (
+                          <button
+                            type="button"
+                            className="text-xs text-blue-600 underline underline-offset-2"
+                            onClick={() => setCreditCap(validatePreview.crosswalk_relevant_count)}
+                          >
+                            Use crosswalk count ({validatePreview.crosswalk_relevant_count.toLocaleString()})
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Start small — confirm crosswalk match rate improves before expanding.
+                        {validatePreview.crosswalk_relevant_count > 0 && (
+                          <>{" "}<span className="text-blue-600">{validatePreview.crosswalk_relevant_count.toLocaleString()} contacts have unresolved crosswalk candidates</span> — those give the highest yield per credit.</>
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex justify-between items-center">
+                      <span>Credits that will be consumed</span>
+                      <span className="font-bold text-amber-700 font-mono">{Math.min(creditCap, validatePreview.max_zb_credits).toLocaleString()}</span>
+                    </div>
                   </>
                 )}
               </div>
@@ -1317,7 +1362,7 @@ function RemediationPanel({ runId, signals }: { runId: string; signals: QualityS
             >
               {validateMutation.isPending
                 ? "Launching…"
-                : `Approve — validate ${(validatePreview?.max_zb_credits ?? 0).toLocaleString()} emails`}
+                : `Approve — validate ${Math.min(creditCap, validatePreview?.max_zb_credits ?? 0).toLocaleString()} emails`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
