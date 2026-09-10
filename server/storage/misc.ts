@@ -326,38 +326,49 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async createCsvImport(importData: InsertCsvImport): Promise<CsvImport> {
-    const [record] = await db
-      .insert(csvImports)
-      .values(importData)
-      .onConflictDoUpdate({
-        target: csvImports.executionId,
-        set: {
-          // Reset counters and status so a re-uploaded file (same hash →
-          // same executionId) processes cleanly instead of crashing with a
-          // unique-constraint violation.
-          status: importData.status ?? "processing",
-          fileName: importData.fileName,
-          sourceFormat: importData.sourceFormat,
-          totalRows: importData.totalRows,
-          newRecords: 0,
-          duplicatesSkipped: 0,
-          updatedRecords: 0,
-          invalidRows: 0,
-          skippedRows: 0,
-          errorsCount: 0,
-          dealsCreated: 0,
-          hotLeads: 0,
-          warmLeads: 0,
-          coldLeads: 0,
-          completedAt: null,
-          processedRows: null,
-          lastProgressAt: null,
-          staleReason: null,
-          optOutPreserved: 0,
-          optOutApplied: 0,
-        },
-      })
-      .returning();
+    // The partial unique index on execution_id (WHERE execution_id IS NOT NULL)
+    // cannot be used as a Drizzle conflict target, so we fall back to raw SQL.
+    if (importData.executionId) {
+      const { pool } = await import("../db");
+      const r = await pool.query<CsvImport>(
+        `INSERT INTO csv_imports (execution_id, file_name, source_format, total_rows, import_source, status, imported_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (execution_id) WHERE execution_id IS NOT NULL
+         DO UPDATE SET
+           file_name         = EXCLUDED.file_name,
+           source_format     = EXCLUDED.source_format,
+           total_rows        = EXCLUDED.total_rows,
+           new_records       = 0,
+           duplicates_skipped = 0,
+           updated_records   = 0,
+           invalid_rows      = 0,
+           skipped_rows      = 0,
+           errors_count      = 0,
+           deals_created     = 0,
+           hot_leads         = 0,
+           warm_leads        = 0,
+           cold_leads        = 0,
+           status            = EXCLUDED.status,
+           completed_at      = NULL,
+           processed_rows    = NULL,
+           last_progress_at  = NULL,
+           stale_reason      = NULL,
+           opt_out_preserved = 0,
+           opt_out_applied   = 0
+         RETURNING *`,
+        [
+          importData.executionId,
+          importData.fileName,
+          importData.sourceFormat,
+          importData.totalRows ?? 0,
+          importData.importSource ?? null,
+          importData.status ?? "processing",
+          importData.importedBy ?? null,
+        ],
+      );
+      return r.rows[0];
+    }
+    const [record] = await db.insert(csvImports).values(importData).returning();
     return record;
   }
 

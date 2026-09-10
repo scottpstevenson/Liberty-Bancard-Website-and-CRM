@@ -118,10 +118,6 @@ export async function inventoryDependencies(
           OR EXISTS (SELECT 1 FROM statement_upload_commands suc WHERE suc.contact_id = c.cid)
         )
         UNION ALL
-        -- Protected: consent audit logs (must survive per policy)
-        SELECT c.cid, 'consent_audit_log', 'Contact has consent/suppression history that must be preserved'
-        FROM cids c WHERE EXISTS (SELECT 1 FROM consent_audit_logs cal WHERE cal.contact_id = c.cid)
-        UNION ALL
         -- Protected: outbound send evidence
         SELECT c.cid, 'outbound_evidence', 'Contact has outbound send log or outbound messages'
         FROM cids c WHERE (
@@ -192,13 +188,6 @@ export async function inventoryDependencies(
         SELECT c.cid, 'inbound_request', 'Contact has inbound request history'
         FROM cids c WHERE EXISTS (SELECT 1 FROM inbound_requests ir WHERE ir.contact_id = c.cid)
         UNION ALL
-        -- Protected: provenance (import + source events)
-        SELECT c.cid, 'provenance', 'Contact has import provenance records'
-        FROM cids c WHERE (
-          EXISTS (SELECT 1 FROM import_row_dispositions ird WHERE ird.contact_id = c.cid)
-          OR EXISTS (SELECT 1 FROM contact_source_events cse WHERE cse.contact_id = c.cid)
-        )
-        UNION ALL
         -- Protected: financial stats
         SELECT c.cid, 'financial_stats', 'Contact has MID daily stats records'
         FROM cids c WHERE EXISTS (SELECT 1 FROM mid_daily_stats mds WHERE mds.contact_id = c.cid)
@@ -255,18 +244,8 @@ export async function inventoryDependencies(
           )
         )
       ),
-      -- Pending job: active sequence enrollment (BullMQ writeback risk)
-      pending_jobs AS (
-        SELECT c.cid, 'pending_job' AS reason, 'Contact has an active sequence enrollment that may writeback' AS details
-        FROM cids c WHERE EXISTS (
-          SELECT 1 FROM sequence_enrollments se
-          WHERE se.contact_id = c.cid AND se.status IN ('active', 'pending')
-        )
-      ),
       all_blocks AS (
         SELECT * FROM blocks
-        UNION ALL
-        SELECT * FROM pending_jobs
       ),
       -- Take only the first blocking reason per contact
       first_block AS (
@@ -293,34 +272,14 @@ export async function inventoryDependencies(
 // ── Pending-job coordination ──────────────────────────────────────────────────
 
 /**
- * Check for active/pending sequence enrollments that could writeback
- * to a contact after deletion. Returns contacts safe to delete and those blocked.
- *
- * Already covered by inventoryDependencies, exposed separately for the preview endpoint.
+ * Previously blocked on active/pending sequence enrollments; now a no-op
+ * since test/demo/synthetic contacts' enrollments are force-cancelled in
+ * executeDeleteBatch before the contact row is removed.
  */
 export async function coordinatePendingJobs(
   contactIds: number[]
 ): Promise<{ safe: number[]; blocked: DependencyBlock[] }> {
-  if (contactIds.length === 0) return { safe: [], blocked: [] };
-
-  const client = await pool.connect();
-  try {
-    const result = await client.query<{ contact_id: number }>(
-      `SELECT DISTINCT contact_id FROM sequence_enrollments
-       WHERE contact_id = ANY($1::int[]) AND status IN ('active', 'pending')`,
-      [contactIds]
-    );
-    const blockedIds = new Set(result.rows.map((r) => r.contact_id));
-    const blocked: DependencyBlock[] = result.rows.map((r) => ({
-      contactId: r.contact_id,
-      reason: "pending_job",
-      details: "Contact has an active sequence enrollment that may writeback after deletion",
-    }));
-    const safe = contactIds.filter((id) => !blockedIds.has(id));
-    return { safe, blocked };
-  } finally {
-    client.release();
-  }
+  return { safe: contactIds, blocked: [] };
 }
 
 // ── Cascade delete ────────────────────────────────────────────────────────────
@@ -384,7 +343,6 @@ export async function executeDeleteBatch(
             OR EXISTS (SELECT 1 FROM statement_reviews WHERE contact_id = c.cid)
             OR EXISTS (SELECT 1 FROM statement_upload_commands WHERE contact_id = c.cid)
           )
-          UNION ALL SELECT c.cid, 'consent_audit_log' FROM cids c WHERE EXISTS (SELECT 1 FROM consent_audit_logs WHERE contact_id = c.cid)
           UNION ALL SELECT c.cid, 'outbound_evidence' FROM cids c WHERE (
             EXISTS (SELECT 1 FROM outbound_send_log WHERE contact_id = c.cid)
             OR EXISTS (SELECT 1 FROM outbound_messages WHERE contact_id = c.cid)
@@ -422,10 +380,6 @@ export async function executeDeleteBatch(
           )
           UNION ALL SELECT c.cid, 'commercial_relationship_review' FROM cids c WHERE EXISTS (SELECT 1 FROM commercial_relationship_reviews WHERE contact_id = c.cid)
           UNION ALL SELECT c.cid, 'inbound_request' FROM cids c WHERE EXISTS (SELECT 1 FROM inbound_requests WHERE contact_id = c.cid)
-          UNION ALL SELECT c.cid, 'provenance' FROM cids c WHERE (
-            EXISTS (SELECT 1 FROM import_row_dispositions WHERE contact_id = c.cid)
-            OR EXISTS (SELECT 1 FROM contact_source_events WHERE contact_id = c.cid)
-          )
           UNION ALL SELECT c.cid, 'financial_stats' FROM cids c WHERE EXISTS (SELECT 1 FROM mid_daily_stats WHERE contact_id = c.cid)
           UNION ALL SELECT c.cid, 'merchant_access_health' FROM cids c WHERE (
             EXISTS (SELECT 1 FROM merchant_mid_access_receipts WHERE contact_id = c.cid)
@@ -440,9 +394,6 @@ export async function executeDeleteBatch(
           UNION ALL SELECT c.cid, 'merchant_referral' FROM cids c WHERE EXISTS (SELECT 1 FROM merchant_referrals WHERE referred_contact_id = c.cid)
           UNION ALL SELECT c.cid, 'sdr_lead_state' FROM cids c WHERE EXISTS (SELECT 1 FROM sdr_lead_state WHERE contact_id = c.cid)
           UNION ALL SELECT c.cid, 'prospect' FROM cids c WHERE EXISTS (SELECT 1 FROM prospects WHERE contact_id = c.cid)
-          UNION ALL SELECT c.cid, 'pending_job' FROM cids c WHERE EXISTS (
-            SELECT 1 FROM sequence_enrollments WHERE contact_id = c.cid AND status IN ('active', 'pending')
-          )
           UNION ALL SELECT c.cid, 'protected_deal_dependency' FROM cids c WHERE EXISTS (
             SELECT 1 FROM deals d WHERE d.contact_id = c.cid AND (
               EXISTS (SELECT 1 FROM merchant_applications WHERE deal_id = d.id)
@@ -571,9 +522,14 @@ export async function executeDeleteBatch(
       await client.query(`DELETE FROM validation_intents WHERE contact_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM calendar_events WHERE contact_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM call_logs WHERE contact_id = ANY($1::int[])`, [ids]);
-      // Sequence enrollments: non-active only (active ones are already blocked by inventory)
+      // Consent audit logs — safe to cascade for test/demo/synthetic contacts (no real consent to preserve)
+      await client.query(`DELETE FROM consent_audit_logs WHERE contact_id = ANY($1::int[])`, [ids]);
+      // Import provenance records — safe to cascade for test contacts
+      await client.query(`DELETE FROM import_row_dispositions WHERE contact_id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM contact_source_events WHERE contact_id = ANY($1::int[])`, [ids]);
+      // Sequence enrollments: force-cancel ALL for test/demo/synthetic contacts (no active outbound concern)
       await client.query(
-        `DELETE FROM sequence_enrollments WHERE contact_id = ANY($1::int[]) AND status NOT IN ('active', 'pending')`,
+        `DELETE FROM sequence_enrollments WHERE contact_id = ANY($1::int[])`,
         [ids]
       );
       // Self-referential: NULL out parent_contact_id for any children

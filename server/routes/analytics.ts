@@ -177,11 +177,17 @@ export function registerAnalyticsRoutes(app: Express) {
           `, [now, thirtyDaysAgo]),
 
           // Query 4 — task aggregates (was 2 separate queries)
+          // Only count tasks linked to production contacts (or unlinked tasks).
+          // Excludes test/demo/synthetic-linked tasks so the dashboard count
+          // matches what real operators need to action.
           pool.query<{ pending: string; overdue: string }>(`
             SELECT
-              COUNT(*) FILTER (WHERE status = 'pending')::text                              AS pending,
-              COUNT(*) FILTER (WHERE status = 'pending' AND due_date < $1)::text            AS overdue
-            FROM tasks
+              COUNT(*) FILTER (WHERE t.status = 'pending'
+                AND (c.id IS NULL OR c.record_class = 'production'))::text                  AS pending,
+              COUNT(*) FILTER (WHERE t.status = 'pending' AND t.due_date < $1
+                AND (c.id IS NULL OR c.record_class = 'production'))::text                  AS overdue
+            FROM tasks t
+            LEFT JOIN contacts c ON c.id = t.contact_id
           `, [now]),
 
           // Query 5 — top 5 reps by open deal count
