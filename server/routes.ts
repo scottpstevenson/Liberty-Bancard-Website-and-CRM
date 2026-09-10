@@ -82,6 +82,7 @@ import { registerFieldTerritoriesRoutes } from "./routes/field-territories";
 import { registerFieldRoutesRoutes } from "./routes/field-routes";
 import { registerPilotPreviewRoutes } from "./routes/pilot-preview";
 import { registerFieldSalesRollbackRoutes } from "./services/field-sales-rollback";
+import { registerSourceRegistryRoutes } from "./routes/source-registry";
 import { registerDailyBriefingRoutes } from "./routes/daily-briefing";
 import { registerCensusRoutes } from "./routes/census";
 import { registerReconciliationRoutes } from "./routes/reconciliation";
@@ -258,6 +259,7 @@ export async function registerRoutes(
   registerFieldRoutesRoutes(app);            // #1861 — field sales routes & visits
   registerPilotPreviewRoutes(app);           // #1875 — pilot preview (admin/manager gate)
   registerFieldSalesRollbackRoutes(app);     // #1875 — field sales rollback controls (admin only)
+  registerSourceRegistryRoutes(app);         // MI-02 — South Florida source registry
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

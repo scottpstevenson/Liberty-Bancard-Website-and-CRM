@@ -401,6 +401,25 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 0, // no repeatable job — driven by batch-start requests
     jobName: "run",
   },
+  {
+    name: QUEUE_NAMES.SOURCE_REGISTRY_IMPORT,
+    // Event-driven: jobs enqueued by POST /api/admin/source-registry/:key/import.
+    // concurrency=1: per-adapter advisory lock ensures no overlap anyway, but
+    // serializing BullMQ picks avoids wasting a worker slot on a lock-wait.
+    // attempts=1: a failed import is re-triggered by an admin explicitly; blind
+    // BullMQ retries could double-count new/updated records via idempotency keys.
+    concurrency: 1,
+    // attempts=3: transient failures (network, DB timeout, temp lock contention) are
+    // retried up to 3 times with 30 s backoff. The runner resets the run row to 'queued'
+    // on retryable errors and throws, so BullMQ sees a failed job and retries.
+    // Non-retryable failures (wrong adapter, missing headers, tombstone guard, lease loss)
+    // mark the run permanently 'failed' in the DB and return (BullMQ sees success — no
+    // point retrying a configuration error).
+    attempts: 3,
+    backoffDelay: 30_000,
+    repeatEveryMs: 0, // on-demand only — schedule_disabled=true for all adapters
+    jobName: "run",
+  },
 ];
 
 /**
@@ -898,6 +917,54 @@ class QueueManager {
     await this.cleanupStaleActiveJobs();
     await this.startCro03cWorkerHeartbeat();
 
+    // Recover source-registry import runs left in queued/running state by a prior crash.
+    // Two phases:
+    //   1. Cancel running runs with expired leases (worker likely crashed mid-run).
+    //   2. Re-enqueue stranded queued runs (process crashed between DB insert and enqueue).
+    // Runs after workers are set up so re-enqueued jobs are immediately processable.
+    try {
+      const {
+        cancelStaleRuns,
+        cancelStaleQueuedRuns,
+        listStrandedQueuedRuns,
+      } = await import("../services/source-registry/import-runner");
+
+      // Phase 1: Cancel running runs with expired leases
+      const cancelled = await cancelStaleRuns();
+      if (cancelled > 0) {
+        console.log(`[QueueManager] Startup: cancelled ${cancelled} stale source-registry running run(s) (expired lease)`);
+      }
+
+      // Phase 2: Re-enqueue stranded queued runs (process crashed before enqueue)
+      const stranded = await listStrandedQueuedRuns();
+      if (stranded.length > 0) {
+        const sourceRegistryQueue = this.queues.get(QUEUE_NAMES.SOURCE_REGISTRY_IMPORT);
+        if (sourceRegistryQueue) {
+          for (const { runId, adapterKey } of stranded) {
+            try {
+              await sourceRegistryQueue.add(
+                `source-registry-import:${adapterKey}`,
+                { runId },
+                { removeOnComplete: 50, removeOnFail: 100 }
+              );
+              console.log(`[QueueManager] Startup: re-enqueued stranded source-registry run ${runId} for adapter ${adapterKey}`);
+            } catch (enqErr) {
+              console.warn(`[QueueManager] Startup: failed to re-enqueue stranded run ${runId}:`, (enqErr as Error).message);
+            }
+          }
+        }
+      }
+
+      // Phase 3: Cancel queued runs older than STALE_RUN_TIMEOUT_MS with no csv_data (unrecoverable)
+      const cancelledQueued = await cancelStaleQueuedRuns();
+      if (cancelledQueued > 0) {
+        console.log(`[QueueManager] Startup: cancelled ${cancelledQueued} unrecoverable stale source-registry queued run(s)`);
+      }
+    } catch (srErr) {
+      // Non-fatal: stale run recovery is best-effort
+      console.warn("[QueueManager] Source registry stale-run recovery failed:", (srErr as Error).message);
+    }
+
     // Emit structured startup topology log — no credentials, no PII, no Redis URLs.
     // Connection math (BullMQ v5 shared-client architecture):
     //   • 1 shared IORedis instance for ALL Queue non-blocking ops + Worker non-blocking ops
@@ -1156,6 +1223,34 @@ class QueueManager {
           await this.createReviewQueueItem(config.name, job, err).catch(e =>
             console.error("[QueueManager] Failed to create review queue item:", e)
           );
+
+          // ── SOURCE_REGISTRY_IMPORT: terminal failure finalization ───────────
+          // When all BullMQ retry attempts are exhausted the run row is still 'queued'
+          // (reset by the last retryable throw). Mark it permanently failed and clear
+          // csv_data so the unique partial index releases the adapter slot and the
+          // admin UI stops polling.
+          if (config.name === QUEUE_NAMES.SOURCE_REGISTRY_IMPORT) {
+            try {
+              const jobData = job.data as { runId?: string };
+              if (jobData?.runId) {
+                const { pool: _pool } = await import("../db");
+                await _pool.query(
+                  `UPDATE source_import_runs
+                   SET status = 'failed', completed_at = NOW(), csv_data = NULL,
+                       error_text = $2
+                   WHERE id = $1::uuid AND status IN ('queued', 'running')`,
+                  [jobData.runId, `SOURCE_REGISTRY_EXHAUSTED: all BullMQ retry attempts exhausted. Last error: ${err.message.substring(0, 1600)}`]
+                );
+                console.warn(JSON.stringify({
+                  event: "source_registry:run_exhausted",
+                  runId: jobData.runId,
+                  attempts: job.attemptsMade,
+                }));
+              }
+            } catch (finErr) {
+              console.error("[QueueManager] source-registry terminal finalization failed:", (finErr as Error).message);
+            }
+          }
         }
       });
 
@@ -1976,6 +2071,15 @@ class QueueManager {
             const { processPostEnrichmentJob } = await import("./post-enrichment-worker");
             await processPostEnrichmentJob(_job.data as import("./post-enrichment-worker").PostEnrichmentJobData);
           }
+          break;
+        }
+        case QUEUE_NAMES.SOURCE_REGISTRY_IMPORT: {
+          const { runSourceImport } = await import("../services/source-registry/import-runner");
+          const { runId } = _job.data as { runId: string };
+          if (!runId) throw new Error("source-registry-import job missing runId");
+          // All intent (adapterKey, isFullSnapshot, csvBuffer) is read from the DB row.
+          // The BullMQ payload contains ONLY runId — no source PII or intent in Redis.
+          await runSourceImport({ runId });
           break;
         }
         default:

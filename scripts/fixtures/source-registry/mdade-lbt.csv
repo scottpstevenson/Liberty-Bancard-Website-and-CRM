@@ -1,0 +1,11 @@
+Account_Number,Business_Name,Business_Type,Receipt_Status,Business_Address,City,Zip_Code,Owner_Name,Phone,Email,Issue_Date,Expiration_Date,NAICS_Code
+MDLBT-2024-001,Miami Auto Repair Center,Auto Repair,Active,1001 NW 7th Ave,Miami,33136,Jose Rodriguez,3055552001,,2024-01-15,2025-09-30,811111
+MDLBT-2024-002,Aventura Beauty Salon,Beauty Salon,Active,1002 NE 199th St,Aventura,33180,Rosa Martinez,3055552002,,2024-02-20,2025-09-30,812112
+MDLBT-2024-003,Kendall Restaurant Group,Restaurant,Active,1003 SW 88th St,Miami,33176,Mark Chen,3055552003,,2024-03-10,2025-09-30,722511
+MDLBT-2024-004,Homestead Hardware Store,Hardware,Expired,1004 S Homestead Blvd,Homestead,33030,Tom Baker,3055552004,,2023-09-01,2024-09-30,444130
+MDLBT-2024-005,Coral Gables Dental Office,Dental,Active,1005 Ponce De Leon Blvd,Coral Gables,33134,Dr. Linda Park,3055552005,,2024-01-05,2025-09-30,621210
+MDLBT-2024-006,Doral Tech Solutions,Technology,Active,1006 NW 36th St,Doral,33166,Alex Kim,3055552006,,2024-04-15,2025-09-30,541512
+MDLBT-2024-007,Hialeah Flower Shop,Retail Florist,Active,1007 W 49th St,Hialeah,33012,Maria Flores,3055552007,,2024-05-20,2025-09-30,453110
+MDLBT-2024-008,Brickell Wine Bar,Bar/Restaurant,Active,1008 Brickell Ave,Miami,33131,Sarah Johnson,3055552008,,2024-06-01,2025-09-30,722410
+MDLBT-2024-009,South Miami Gym,Fitness Center,Active,1009 SW 62nd Ave,South Miami,33143,Chris Williams,3055552009,,2024-07-10,2025-09-30,713940
+MDLBT-2024-010,North Miami Printing Co,Printing,Active,1010 NE 125th St,North Miami,33161,Paul Davis,3055552010,,2024-08-01,2025-09-30,323111

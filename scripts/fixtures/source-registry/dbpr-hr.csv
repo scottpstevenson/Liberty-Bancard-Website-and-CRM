@@ -1,0 +1,11 @@
+LicenseNumber,LicenseType,LicenseStatus,BusinessName,LocationAddress,LocationCity,LocationZip,County,OwnerName,Phone,Email,OriginalIssueDate,ExpirationDate
+HR1001234,Public Food Service Establishment,Active,Miami Grill & Bar,123 Biscayne Blvd,Miami,33132,,John Smith,3055551001,info@miamigrill.test,2018-01-15,2026-12-31
+HR1001235,Hotel,Active,Brickell Boutique Hotel,456 Brickell Ave,Miami,33131,,Maria Garcia,3055551002,,2019-03-20,2026-12-31
+HR1001236,Restaurant,Active,Little Havana Kitchen,789 SW 8th St,Miami,33130,,Carlos Perez,3055551003,,2017-06-10,2026-12-31
+HR1001237,Public Food Service Establishment,Active,Wynwood Eats,101 NW 2nd Ave,Miami,33127,,Ana Lopez,3055551004,,2020-11-05,2026-12-31
+HR1001238,Cafeteria,Active,Downtown Cafe,202 E Flagler St,Miami,33131,,Robert Johnson,3055551005,,2016-08-22,2026-12-31
+HR1001239,Restaurant,Inactive,Old Coral Gables Diner,303 Miracle Mile,Coral Gables,33134,,Susan Williams,3055551006,,2010-04-18,2024-12-31
+HR1001240,Public Food Service Establishment,Active,South Beach Bistro,404 Ocean Dr,Miami Beach,33139,,David Brown,3055551007,,2021-02-28,2026-12-31
+HR1001241,Hotel,Active,The Coconut Grove Inn,505 S Bayshore Dr,Miami,33133,,Emily Davis,3055551008,,2015-09-14,2026-12-31
+HR1001242,Snack Bar,Active,Hialeah Quick Bites,606 W 49th St,Hialeah,33012,,Michael Wilson,3055551009,,2022-05-30,2026-12-31
+HR1001243,Bar,Active,Doral Sports Bar,707 NW 36th St,Doral,33166,,Jennifer Taylor,3055551010,,2019-12-01,2026-12-31

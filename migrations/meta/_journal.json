@@ -1736,6 +1736,34 @@
       "when": 1800000004600,
       "tag": "0243_sales_rep_ops_readiness",
       "breakpoints": false
+    },
+    {
+      "idx": 248,
+      "version": "7",
+      "when": 1800000004700,
+      "tag": "0244_source_registry",
+      "breakpoints": false
+    },
+    {
+      "idx": 249,
+      "version": "7",
+      "when": 1800000004800,
+      "tag": "0245_source_registry_csv_store",
+      "breakpoints": false
+    },
+    {
+      "idx": 250,
+      "version": "7",
+      "when": 1800000004900,
+      "tag": "0246_source_registry_reactivation",
+      "breakpoints": false
+    },
+    {
+      "idx": 251,
+      "version": "7",
+      "when": 1800000005000,
+      "tag": "0247_source_registry_manifest",
+      "breakpoints": false
     }
   ]
 }

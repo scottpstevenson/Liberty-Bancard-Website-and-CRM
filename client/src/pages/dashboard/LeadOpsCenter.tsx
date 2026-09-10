@@ -27,6 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
+import { SourceRegistryPanel } from "@/pages/dashboard/SourceRegistryPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LeadOpsStats {
@@ -635,6 +636,9 @@ export default function LeadOpsCenter() {
       </div>
 
       <SouthFloridaQualificationPanel />
+
+      {/* ── MI-02: Data Sources — South Florida Source Registry (admin-only) ── */}
+      {user?.role === "admin" && <SourceRegistryPanel />}
 
       {/* ── Inbound request operations ─────────────────────────────────────── */}
       <Card className="shadow-sm">

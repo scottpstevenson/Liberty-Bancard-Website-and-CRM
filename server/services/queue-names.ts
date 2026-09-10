@@ -30,6 +30,7 @@ export const QUEUE_NAMES = {
   CRO03A_QUALIFICATION: "cro03a-qualification",
   CRO03C_LIVE: "cro03c-live",
   CRO02_OBSERVATION: "cro02-observation",
+  SOURCE_REGISTRY_IMPORT: "source-registry-import",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -294,6 +294,16 @@ const CASES: GuardCase[] = [
   // attribution/feedback pipeline, not manual role-based agent input).
   { method: "POST", path: "/api/admin/cro07/experiments/00000000-0000-0000-0000-000000000000/samples", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "CRO-07 experiment sample ingestion (requireRole admin only; agent/manager now denied; CSRF required so admin also 403 in test harness)" },
   { method: "GET",  path: "/api/admin/cro07/status", anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "CRO-07 truthful status endpoint (admin/manager read-only)" },
+
+  // ── MI-02: Source Registry — admin-only ─────────────────────────────────────
+  // GET list endpoint: isDashboardUser + requireRole("admin"); manager→403.
+  { method: "GET",  path: "/api/admin/source-registry",                         anon: [401], merchant: [403], admin: [200], agent: [403], manager: [403], description: "source registry adapter list (requireRole admin only; agent/manager→403)" },
+  // POST import: isDashboardUser + requireRole("admin"); CSRF fires before role for authenticated POST → 403.
+  { method: "POST", path: "/api/admin/source-registry/dbpr-hr/import",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "source registry import trigger (requireRole admin; CSRF required — all auth roles 403 without token)" },
+  // GET run status: isDashboardUser + requireRole("admin"); non-existent run → 404.
+  { method: "GET",  path: "/api/admin/source-registry/runs/00000000-0000-0000-0000-000000000000", anon: [401], merchant: [403], admin: [404], agent: [403], manager: [403], description: "source registry run status (requireRole admin; 404 for non-existent run)" },
+  // GET adapter run history: isDashboardUser + requireRole("admin").
+  { method: "GET",  path: "/api/admin/source-registry/dbpr-hr/runs",            anon: [401], merchant: [403], admin: [200], agent: [403], manager: [403], description: "source registry run history (requireRole admin only)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

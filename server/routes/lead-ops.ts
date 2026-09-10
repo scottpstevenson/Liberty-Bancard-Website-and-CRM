@@ -498,6 +498,39 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       // job-registry heartbeat which fires before those steps execute in runEnrichmentTick().
       const lastScheduledEnrichmentAtDerived = lastEnrichedAt?.toISOString() ?? null;
 
+      // ── MI-02: sourceRegistryAdapters (additive) ─────────────────────────
+      let sourceRegistryAdapters: Array<{
+        adapterKey: string;
+        lastImportStatus: string | null;
+        lastCompletedAt: string | null;
+        recordCount: number;
+      }> = [];
+      try {
+        const regResult = await db.execute(sql`
+          SELECT
+            a.adapter_key,
+            COUNT(DISTINCT ss.id)::int                AS record_count,
+            MAX(r.completed_at)                       AS last_completed_at,
+            (SELECT r2.status FROM source_import_runs r2
+             WHERE r2.adapter_key = a.adapter_key
+             ORDER BY r2.created_at DESC LIMIT 1)     AS last_import_status
+          FROM source_registry_adapters a
+          LEFT JOIN source_import_runs r ON r.adapter_key = a.adapter_key AND r.status = 'completed'
+          LEFT JOIN cro03_source_subjects ss ON ss.source_system = a.adapter_key AND ss.tombstoned_at IS NULL
+          GROUP BY a.adapter_key
+          ORDER BY a.adapter_key
+        `);
+        sourceRegistryAdapters = ((regResult as any).rows ?? regResult).map((row: any) => ({
+          adapterKey: row.adapter_key,
+          lastImportStatus: row.last_import_status ?? null,
+          lastCompletedAt: row.last_completed_at ? new Date(row.last_completed_at).toISOString() : null,
+          recordCount: Number(row.record_count ?? 0),
+        }));
+      } catch {
+        // sourceRegistryAdapters table may not exist in older schemas — degrade gracefully
+        sourceRegistryAdapters = [];
+      }
+
       const data = {
         enrichedToday:        row.enriched_today    ?? 0,
         emailsToday:          row.emails_today      ?? 0,
@@ -515,6 +548,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         sunbizEnrichmentEnabled,
         freeEnrichmentPendingJobs:        freeEnrichPending,
         lastScheduledEnrichmentAt:        lastScheduledEnrichmentAtDerived,
+        // ── MI-02: Source registry adapters (additive) ─────────────────────
+        sourceRegistryAdapters,
       };
 
       _healthCache = { data, ts: now };

@@ -114,6 +114,13 @@ export const uploadCsv = multer({
   fileFilter: csvMimeFilter,
 });
 
+/** 50 MB CSV upload — for source registry imports where government files can exceed 10 MB. */
+export const uploadCsvLarge = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: csvMimeFilter,
+});
+
 export interface ProposalPlan {
   name: string;
   shortName: string;
