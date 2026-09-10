@@ -30,6 +30,8 @@ backups/
 !fixtures/csv-import/outscraper_missing_emails.csv
 !fixtures/csv-import/reconciliation_all_invalid.csv
 !fixtures/csv-import/reconciliation_mixed.csv
+!scripts/fixtures/source-registry/dbpr-hr.csv
+!scripts/fixtures/source-registry/mdade-lbt.csv
 !exports/ghl-workflow-checklist.csv
 *.sql
 !migrations/**/*.sql
