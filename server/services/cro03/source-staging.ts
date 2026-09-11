@@ -125,6 +125,8 @@ export interface CreateCro03SourceBatchInput {
  */
 export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput): Promise<{
   id: string; replayed: boolean; totalCount: number; blockedCount: number;
+  /** IDs of cro03_source_occurrences rows written (or confirmed existing) in this batch. */
+  occurrenceIds: string[];
 }> {
   if (!input.idempotencyKey || input.idempotencyKey.length > 200) throw new Error("CRO03_INVALID_IDEMPOTENCY_KEY");
   if (!input.subjects.length || input.subjects.length > 1000) throw new Error("CRO03_INVALID_SOURCE_SELECTION");
@@ -166,7 +168,19 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
       if (existing.selection_hash !== selectionHash || existing.command_fingerprint !== commandFingerprint) {
         throw new Error("CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH");
       }
-      return { id: String(existing.id), replayed: true, totalCount: Number(existing.total_count), blockedCount: Number(existing.blocked_count) };
+      // Replay: re-fetch the occurrence IDs that were written in the original transaction
+      const replayedOccurrences = rows(await tx.execute(sql`
+        SELECT o.id FROM cro03_source_occurrences o
+          JOIN cro03_batch_memberships m ON m.source_subject_id = o.source_subject_id
+                                        AND m.source_observation_id = o.source_observation_id
+         WHERE m.batch_id = ${existing.id}::uuid
+         ORDER BY m.ordinal
+      `));
+      return {
+        id: String(existing.id), replayed: true,
+        totalCount: Number(existing.total_count), blockedCount: Number(existing.blocked_count),
+        occurrenceIds: replayedOccurrences.map((r) => String(r.id)),
+      };
     }
     const batch = rows(await tx.execute(sql`
       INSERT INTO cro03_enrichment_batches
@@ -177,6 +191,7 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
               'completed',${drafts.length},0,${drafts.length},${selectionHash},${commandFingerprint},NOW())
       RETURNING id
     `))[0];
+    const batchOccurrenceIds: string[] = [];
     for (const [ordinal, draft] of drafts.entries()) {
       const entry = input.subjects[ordinal];
       let subject = rows(await tx.execute(sql`
@@ -221,6 +236,7 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
         SELECT id FROM cro03_source_occurrences
          WHERE source_subject_id=${subject.id}::uuid AND source_event_key=${sourceEventKey}
       `))[0];
+      batchOccurrenceIds.push(String(occurrenceRow.id));
       for (const [field, rawValue] of Object.entries(entry.candidateValues ?? {}) as Array<[Cro03CandidateField, string]>) {
         if (!rawValue?.trim()) continue;
         const candidate = makeCro03NormalizedCandidate(field, rawValue);
@@ -272,6 +288,6 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
                 ${draft.payloadHash},${hashCro03Evidence(SOUTH_FLORIDA_STAGING_RECIPE.route)},NOW())
       `);
     }
-    return { id: String(batch.id), replayed: false, totalCount: drafts.length, blockedCount: drafts.length };
+    return { id: String(batch.id), replayed: false, totalCount: drafts.length, blockedCount: drafts.length, occurrenceIds: batchOccurrenceIds };
   });
 }

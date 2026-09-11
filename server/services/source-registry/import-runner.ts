@@ -381,7 +381,7 @@ export async function runSourceImport(params: {
 
       const idempotencyKey = `source-registry:${adapterKey}:${runId}:offset-${offset}`;
 
-      await createCro03SourceBatch({
+      const batchResult = await createCro03SourceBatch({
         idempotencyKey,
         actorType: "import",
         actorId: `source-registry-${adapterKey}`,
@@ -432,6 +432,10 @@ export async function runSourceImport(params: {
           timestampProvenance: "import",
         })),
       });
+
+      // batchResult is used for error detection; occurrence IDs are recovered
+      // from the DB at finalization time (crash-safe — see Step 5 below).
+      void batchResult;
 
       // Renew lease after each batch to prevent stale-run recovery from cancelling
       // a legitimate long-running import between batches.
@@ -543,6 +547,44 @@ export async function runSourceImport(params: {
         throw new Error(
           `SOURCE_REGISTRY_FINALIZE_RACE: run ${runId} could not be finalized — lease token mismatch or status changed during write.`
         );
+      }
+
+      // Step 5: Write CRO-03A qualification command outbox rows — atomic with completion.
+      // Occurrence IDs are recovered durably from the DB (via cro03_enrichment_batches +
+      // cro03_batch_memberships) so crash-and-resume runs that processed some batches
+      // before the crash are included. The idempotency key prefix uniquely scopes every
+      // batch to this run. ON CONFLICT DO NOTHING ensures re-runs after a crash between
+      // Step 4 and COMMIT do not produce duplicate command rows.
+      const occurrenceRowsResult = await client.query<{ id: string }>(
+        `SELECT DISTINCT o.id
+           FROM cro03_enrichment_batches b
+           JOIN cro03_batch_memberships m
+                ON m.batch_id = b.id
+               AND m.source_subject_id IS NOT NULL
+               AND m.source_observation_id IS NOT NULL
+           JOIN cro03_source_occurrences o
+                ON o.source_subject_id = m.source_subject_id
+               AND o.source_observation_id = m.source_observation_id
+          WHERE b.idempotency_key LIKE $1`,
+        [`source-registry:${adapterKey}:${runId}:%`]
+      );
+      const durableOccurrenceIds = occurrenceRowsResult.rows.map((r) => String(r.id));
+      if (durableOccurrenceIds.length > 0) {
+        const OUTBOX_CHUNK_SIZE = 500;
+        for (let ci = 0; ci < durableOccurrenceIds.length; ci += OUTBOX_CHUNK_SIZE) {
+          const chunkIds = durableOccurrenceIds.slice(ci, ci + OUTBOX_CHUNK_SIZE);
+          const chunkNumber = Math.floor(ci / OUTBOX_CHUNK_SIZE);
+          const chunkSelectionHash = createHash("sha256")
+            .update([...chunkIds].sort().join(","))
+            .digest("hex");
+          await client.query(
+            `INSERT INTO cro03a_qualification_commands
+               (source_import_run_id, chunk_number, selection_hash, occurrence_ids, state)
+             VALUES ($1::uuid, $2, $3, $4::jsonb, 'pending')
+             ON CONFLICT (source_import_run_id, chunk_number, selection_hash) DO NOTHING`,
+            [runId, chunkNumber, chunkSelectionHash, JSON.stringify(chunkIds)]
+          );
+        }
       }
 
       await client.query("COMMIT");

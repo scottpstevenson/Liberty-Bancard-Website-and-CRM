@@ -461,6 +461,28 @@ const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
     cronPattern:  process.env.ZEROBOUNCE_AUTO_RUN_CRON ?? "0 6 * * *", // 6 AM UTC daily
     jobId:        "zb-auto-run-repeatable",
   },
+  {
+    // CRO-03A qualification command outbox processor.
+    // Picks up cro03a_qualification_commands rows written atomically with source-registry
+    // import finalization and converts them to createCro03aQualificationRun() calls.
+    // Runs every 2 minutes (dev: 5 min) with FOR UPDATE SKIP LOCKED so concurrent
+    // schedule invocations are safe.
+    queueName:    QUEUE_NAMES.CRO03A_QUALIFICATION,
+    jobName:      "process-outbox",
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 2 * 60 * 1000, // 2 min prod, 5 min dev
+    jobId:        "cro03a-qualification-outbox-repeatable",
+  },
+  {
+    // CRO-03A stale-occurrence watchdog.
+    // Checks for source-registry imports completed > 48h ago with undecided occurrences.
+    // Writes a rate-limited audit_logs alert (one per run per day). Does not block deploy.
+    // Runs daily at 7 AM UTC; override with CRO03A_WATCHDOG_CRON.
+    queueName:    QUEUE_NAMES.CRO03A_QUALIFICATION,
+    jobName:      "watchdog-stale-occurrences",
+    repeatEveryMs: 24 * 60 * 60 * 1000, // documentation only when cronPattern is set
+    cronPattern:  process.env.CRO03A_WATCHDOG_CRON ?? "0 7 * * *", // 7 AM UTC daily
+    jobId:        "cro03a-watchdog-stale-occurrences-repeatable",
+  },
 ];
 
 export interface QueueMetric {
@@ -1524,10 +1546,20 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.CRO03A_QUALIFICATION: {
-          const { processCro03aQualificationRunQueueSafe, recoverCro03aQualificationRunsQueueSafe } =
-            await import("./cro03a/qualification-service");
+          const {
+            processCro03aQualificationRunQueueSafe,
+            recoverCro03aQualificationRunsQueueSafe,
+            processOutboxCro03aQualificationCommands,
+            watchdogCro03aStaleOccurrences,
+          } = await import("./cro03a/qualification-service");
           if (_job.name === "run" && typeof _job.data?.runId === "string") {
             await processCro03aQualificationRunQueueSafe(_job.data.runId);
+          } else if (_job.name === "process-outbox") {
+            const result = await processOutboxCro03aQualificationCommands();
+            console.log(`[CRO03A Outbox] processed=${result.processed} failed=${result.failed}`);
+          } else if (_job.name === "watchdog-stale-occurrences") {
+            const result = await watchdogCro03aStaleOccurrences();
+            console.log(`[CRO03A Watchdog] staleRuns=${result.staleRunCount} alertsWritten=${result.alertsWritten}`);
           } else {
             await recoverCro03aQualificationRunsQueueSafe();
           }

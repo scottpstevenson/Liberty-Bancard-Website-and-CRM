@@ -1249,3 +1249,250 @@ export async function stageCro03aSourceCensus(input: {
     snapshots: Object.fromEntries(Object.entries(cursors).map(([source, cursor]) => [source, cursor.snapshotKey])),
   };
 }
+// ── CRO-03A Qualification Command Outbox Processor ───────────────────────────
+// System actor ID used for auto-wired qualification runs from the source registry.
+const CRO03A_AUTOWIRE_ACTOR_ID = "system:cro03a-autowire";
+
+/**
+ * Polls cro03a_qualification_commands WHERE state='pending', claims each row
+ * with FOR UPDATE SKIP LOCKED, calls createCro03aQualificationRun() for each
+ * chunk, and marks the command completed or failed. Safe to call concurrently —
+ * SKIP LOCKED prevents double-processing.
+ */
+export async function processOutboxCro03aQualificationCommands(): Promise<{ processed: number; failed: number }> {
+  let processed = 0;
+  let failed = 0;
+
+  // Table may not exist yet (rolling upgrade — feature-detect before querying).
+  try {
+    const tableCheck = resultRows(await db.execute(sql`
+      SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'cro03a_qualification_commands'
+       LIMIT 1
+    `));
+    if (tableCheck.length === 0) return { processed: 0, failed: 0 };
+  } catch {
+    return { processed: 0, failed: 0 };
+  }
+
+  // Recover stale 'processing' rows: a worker that claimed a command and then
+  // crashed leaves it in 'processing' indefinitely. Reset any row that has been
+  // processing for more than 30 minutes so the next sweep can reclaim it.
+  // Bounded retries: after 3 failures (tracked in error_text) we leave the row
+  // as 'failed' so it no longer blocks the watchdog's stale-occurrence alert.
+  try {
+    await db.execute(sql`
+      UPDATE cro03a_qualification_commands
+         SET state = CASE
+               WHEN error_text LIKE 'RETRY:3:%' THEN 'failed'
+               WHEN error_text LIKE 'RETRY:2:%' THEN 'pending'
+               WHEN error_text LIKE 'RETRY:1:%' THEN 'pending'
+               ELSE 'pending'
+             END,
+             claimed_at = NULL,
+             error_text = CASE
+               WHEN error_text LIKE 'RETRY:3:%' THEN error_text
+               WHEN error_text LIKE 'RETRY:2:%' THEN 'RETRY:3:' || COALESCE(error_text, '')
+               WHEN error_text LIKE 'RETRY:1:%' THEN 'RETRY:2:' || COALESCE(error_text, '')
+               ELSE                                   'RETRY:1:' || COALESCE(error_text, '')
+             END
+       WHERE state = 'processing'
+         AND claimed_at < NOW() - INTERVAL '30 minutes'
+    `);
+  } catch {
+    // Non-fatal: continue to process pending rows even if recovery fails
+  }
+
+  // Claim up to 10 pending commands per sweep to bound each invocation's runtime.
+  const pending = resultRows(await db.execute(sql`
+    SELECT id, source_import_run_id, chunk_number, selection_hash, occurrence_ids
+      FROM cro03a_qualification_commands
+     WHERE state = 'pending'
+     ORDER BY created_at
+     LIMIT 10
+     FOR UPDATE SKIP LOCKED
+  `));
+
+  for (const row of pending) {
+    const cmdId = String(row.id);
+    try {
+      // Claim: transition pending → processing, stamping claimed_at for stale-recovery.
+      const claimed = resultRows(await db.execute(sql`
+        UPDATE cro03a_qualification_commands
+           SET state = 'processing', claimed_at = NOW()
+         WHERE id = ${cmdId}::uuid AND state = 'pending'
+         RETURNING id
+      `))[0];
+      if (!claimed) continue; // race — another processor claimed it first
+
+      const occurrenceIds: string[] = (typeof row.occurrence_ids === "string"
+        ? JSON.parse(row.occurrence_ids)
+        : row.occurrence_ids) as string[];
+
+      if (!occurrenceIds.length) {
+        await db.execute(sql`
+          UPDATE cro03a_qualification_commands
+             SET state = 'completed', processed_at = NOW()
+           WHERE id = ${cmdId}::uuid
+        `);
+        processed++;
+        continue;
+      }
+
+      const runIdempotencyKey = `cro03a-autowire:${String(row.source_import_run_id)}:chunk:${Number(row.chunk_number)}:${String(row.selection_hash).slice(0, 16)}`;
+      await createCro03aQualificationRun({
+        idempotencyKey: runIdempotencyKey,
+        occurrenceIds,
+        actorId: CRO03A_AUTOWIRE_ACTOR_ID,
+        actorRole: "admin",
+      });
+
+      await db.execute(sql`
+        UPDATE cro03a_qualification_commands
+           SET state = 'completed', processed_at = NOW()
+         WHERE id = ${cmdId}::uuid
+      `);
+      processed++;
+    } catch (err: any) {
+      console.error(`[CRO03A Outbox] Failed to process command ${cmdId}:`, err?.message);
+      try {
+        await db.execute(sql`
+          UPDATE cro03a_qualification_commands
+             SET state = 'failed',
+                 error_text = ${String(err?.message ?? "unknown").slice(0, 1000)},
+                 processed_at = NOW()
+           WHERE id = ${cmdId}::uuid
+        `);
+      } catch {
+        // Non-fatal: swallow secondary failure
+      }
+      failed++;
+    }
+  }
+
+  return { processed, failed };
+}
+
+// ── CRO-03A Stale-Occurrence Watchdog ────────────────────────────────────────
+
+/**
+ * Watchdog: queries for source_import_runs that completed > 48h ago and still have
+ * provider_csv_row occurrences with no qualification decision. Distinguishes
+ * never-enqueued, queued, running, failed, and decided states.
+ * Writes a rate-limited audit_logs entry (one per run per day) for each stale run.
+ * Does NOT block deployment.
+ */
+export async function watchdogCro03aStaleOccurrences(): Promise<{
+  staleRunCount: number; alertsWritten: number;
+}> {
+  // Feature-detect both tables required for the watchdog.
+  try {
+    const tableCheck = resultRows(await db.execute(sql`
+      SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name IN ('cro03a_qualification_commands', 'source_import_runs')
+    `));
+    if (tableCheck.length < 2) return { staleRunCount: 0, alertsWritten: 0 };
+  } catch {
+    return { staleRunCount: 0, alertsWritten: 0 };
+  }
+
+  // Find completed imports > 48h old that still have undecided provider_csv_row
+  // occurrences. Occurrences are scoped to their specific run via source_event_key:
+  // the import-runner sets sourceEventKey = `${adapterKey}:${stableKey}:${runId}`,
+  // so the LIKE pattern `adapterKey || ':%:' || runId` uniquely identifies all
+  // occurrences that belong to exactly this run (no cross-run contamination).
+  const staleRuns = resultRows(await db.execute(sql`
+    SELECT sir.id AS run_id,
+           sir.completed_at,
+           sir.adapter_key,
+           COUNT(o.id)::int AS undecided_count
+      FROM source_import_runs sir
+      JOIN cro03_source_subjects s
+           ON s.source_system = sir.adapter_key
+          AND s.subject_type = 'provider_csv_row'
+      JOIN cro03_source_occurrences o
+           ON o.source_subject_id = s.id
+          AND o.source_event_key LIKE sir.adapter_key || ':%:' || sir.id::text
+      LEFT JOIN cro03a_qualification_decisions qd
+           ON qd.occurrence_id = o.id
+     WHERE sir.status = 'completed'
+       AND sir.completed_at < NOW() - INTERVAL '48 hours'
+       AND qd.id IS NULL
+     GROUP BY sir.id, sir.completed_at, sir.adapter_key
+     LIMIT 50
+  `));
+
+  if (staleRuns.length === 0) return { staleRunCount: 0, alertsWritten: 0 };
+
+  let alertsWritten = 0;
+
+  for (const staleRun of staleRuns) {
+    const runId = String(staleRun.run_id);
+    const undecidedCount = Number(staleRun.undecided_count);
+
+    // Check command state to classify the gap
+    const commands = resultRows(await db.execute(sql`
+      SELECT state, COUNT(*)::int AS cnt
+        FROM cro03a_qualification_commands
+       WHERE source_import_run_id = ${runId}::uuid
+       GROUP BY state
+    `));
+    const commandsByState: Record<string, number> = Object.fromEntries(
+      commands.map((r) => [String(r.state), Number(r.cnt)])
+    );
+    const neverEnqueued = commands.length === 0;
+    const hasPending = (commandsByState.pending ?? 0) > 0;
+    const hasProcessing = (commandsByState.processing ?? 0) > 0;
+
+    // Still actively queued/running — not stale yet
+    if (hasPending || hasProcessing) continue;
+
+    // Rate-limit: one audit alert per run per day
+    const existingAlert = resultRows(await db.execute(sql`
+      SELECT id FROM audit_logs
+       WHERE action = 'cro03a_stale_occurrence_alert'
+         AND entity_key = ${runId}
+         AND created_at >= NOW() - INTERVAL '24 hours'
+       LIMIT 1
+    `))[0];
+    if (existingAlert) continue;
+
+    const hasFailed = (commandsByState.failed ?? 0) > 0;
+    const staleSummary = neverEnqueued
+      ? "NEVER_ENQUEUED"
+      : hasFailed
+        ? "QUALIFICATION_COMMANDS_FAILED"
+        : "COMPLETED_WITHOUT_DECISIONS";
+
+    try {
+      await db.execute(sql`
+        INSERT INTO audit_logs
+          (action, entity_type, entity_key, actor_type, actor_id, details)
+        VALUES (
+          'cro03a_stale_occurrence_alert',
+          'source_import_run',
+          ${runId},
+          'system',
+          'cro03a-watchdog',
+          ${JSON.stringify({
+            adapterKey: String(staleRun.adapter_key),
+            completedAt: String(staleRun.completed_at),
+            undecidedCount,
+            staleSummary,
+            commandsByState,
+          })}::jsonb
+        )
+      `);
+      alertsWritten++;
+      console.warn(
+        `[CRO03A Watchdog] Stale occurrence alert: run=${runId} adapter=${staleRun.adapter_key} ` +
+        `undecided=${undecidedCount} status=${staleSummary}`
+      );
+    } catch (err: any) {
+      console.error(`[CRO03A Watchdog] Failed to write alert for run ${runId}:`, err?.message);
+    }
+  }
+
+  return { staleRunCount: staleRuns.length, alertsWritten };
+}

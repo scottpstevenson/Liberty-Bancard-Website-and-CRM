@@ -814,6 +814,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     capability: "deterministic-integration",
     providerDenial: "disposable PostgreSQL only; no network or provider transports",
   },
+  {
+    name: "CRO-03A Autowire and Stale-Occurrence Watchdog Certification",
+    script: "scripts/certify-cro03a-autowire.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL only; no provider transports, no network, no live DB",
+  },
 ];
 
 function defineSuite(definition: SuiteManifestDefinition): SuiteManifestEntry {

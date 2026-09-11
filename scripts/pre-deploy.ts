@@ -710,6 +710,12 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 120,
     requiresDisposableTestDatabase: true,
   },
+  {
+    name: "CRO-03A Autowire and Stale-Occurrence Watchdog Certification (disposable DB fixtures a/b/c)",
+    script: "scripts/certify-cro03a-autowire.ts",
+    timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
+  },
 ];
 
 // ── External config items — non-blocking, reported separately ─────────────────
