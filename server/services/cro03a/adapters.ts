@@ -110,6 +110,12 @@ export function providerCsvSourceSubject(input: {
   const phone = text(row.phone);
   const website = text(row.website) ?? text(row.domain);
   const city = text(row.city); const state = text(row.state); const zip = text(row.zip) ?? text(row.postalCode);
+  // Map industry classification and entity status into normalized candidates so
+  // they appear in cro03_normalized_candidates for admin review. The policy
+  // evaluator already reads these directly from the raw payload; candidateValues
+  // ensures they also land in the normalized candidate table.
+  const category = text(row.industry) ?? text(row.vertical) ?? text(row.category);
+  const entityStatus = text(row.entityStatus) ?? text(row.status);
   return {
     ...base("provider_csv_row", `${input.importExecutionId}:${input.sourceRowNumber}`, input.sourceSystem,
       `${input.sourceSystem}:${input.importExecutionId}:${input.sourceRowNumber}`, row, {
@@ -117,6 +123,8 @@ export function providerCsvSourceSubject(input: {
         ...(phone ? { phone } : {}), ...(website ? { website } : {}),
         ...(city ? { city } : {}), ...(state ? { state } : {}),
         ...(zip ? { postal_code: zip } : {}),
+        ...(category ? { category } : {}),
+        ...(entityStatus ? { entity_status: entityStatus } : {}),
       }, { importExecutionId: input.importExecutionId, sourceRowNumber: input.sourceRowNumber }),
     sourceObservedAt: input.sourceObservedAt,
     timestampProvenance: input.sourceObservedAt ? "import" : "ingestion_only",

@@ -1819,34 +1819,41 @@ Guidelines:
         const isProviderExport = sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list";
         if (isProviderExport) {
           const { createCro03SourceBatch } = await import("../services/cro03/source-staging");
+          const { providerCsvSourceSubject } = await import("../services/cro03a/adapters");
+          const csvSourceSystem = sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo";
+          // Build the subject draft via the canonical adapter. `mapped` uses
+          // internal field names (companyName, city, state, vertical, etc.)
+          // that align with the adapter's row accessors so category/entity_status
+          // candidateValues are populated for CRO-03B arbitration.
+          const draft = providerCsvSourceSubject({
+            importExecutionId: importExecution.id,
+            sourceRowNumber,
+            sourceSystem: csvSourceSystem,
+            row: {
+              ...mapped,
+              // `mapped.companyName` is already present; the adapter also reads
+              // `row.company` and `row.businessName` as fallbacks — no extra copy needed.
+              // `mapped.vertical` is the normalized internal name; expose it under
+              // `industry` as well so the adapter's industry→category mapping fires.
+              ...(mapped.vertical ? { industry: mapped.vertical } : {}),
+              // Expose `status` so the adapter's entity_status mapping fires for
+              // any status column the CSV column map captured.
+              ...(mapped.status ? { status: mapped.status } : {}),
+            },
+          });
           await createCro03SourceBatch({
             idempotencyKey: `csv-source:${importExecution.id}:${sourceRowNumber}`,
             actorType: "import", actorId: actor.actorId, purpose: "staging_review",
             subjects: [{
-              subjectType: "provider_csv_row",
-              subjectKey: `${importExecution.id}:${sourceRowNumber}`,
-              sourceSystem: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
-              provenance: { importExecutionId: importExecution.id, sourceRowNumber, rowFingerprint },
+              ...draft,
+              // Merge audit-only fields that the adapter does not produce.
               payload: {
+                ...draft.payload,
                 sourceRowNumber, rowFingerprint, sourceFormat,
-                ...(mapped.companyName ? { businessName: mapped.companyName } : {}),
-                ...(mapped.website ? { website: mapped.website } : {}),
-                ...(mapped.address ? { address: mapped.address } : {}),
-                ...(mapped.city ? { city: mapped.city } : {}),
-                ...(mapped.state ? { state: mapped.state } : {}),
-                ...(mapped.vertical ? { vertical: mapped.vertical } : {}),
               },
-              sourceEventKey: `${importExecution.id}:${sourceRowNumber}`,
-              timestampProvenance: "import",
-              candidateValues: {
-                ...(mapped.companyName ? { business_name: mapped.companyName } : {}),
-                ...(mapped.website ? { website: mapped.website } : {}),
-                ...(mapped.email ? { email: mapped.email } : {}),
-                ...(mapped.phone ? { phone: mapped.phone } : {}),
-                ...(mapped.address ? { address: mapped.address } : {}),
-                ...(mapped.city ? { city: mapped.city } : {}),
-                ...(mapped.state ? { state: mapped.state } : {}),
-                ...(mapped.title ? { owner_title: mapped.title } : {}),
+              provenance: {
+                ...draft.provenance,
+                rowFingerprint, sourceFormat,
               },
             }],
           });
