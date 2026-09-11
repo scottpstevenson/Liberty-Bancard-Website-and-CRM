@@ -369,6 +369,18 @@ export function detectFromHtml(html: string): DetectionResult[] {
   return results;
 }
 
+/**
+ * HTML-only processor detection — MI-04 free enrichment path.
+ *
+ * Wraps the existing detectFromHtml() function. Zero imports from serper;
+ * zero network calls. Kill-line contract: this function must never result
+ * in an outbound Serper request regardless of HTML content.
+ */
+export function detectProcessorsFromHtmlOnly(html: string, _url: string): DetectionResult[] {
+  if (!html) return [];
+  return detectFromHtml(html);
+}
+
 async function detectFromSerper(businessName: string, city?: string, state?: string): Promise<DetectionResult[]> {
   if (!isSerperConfigured()) return [];
 

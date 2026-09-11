@@ -1576,8 +1576,9 @@ function getNextRunTime(): Date {
 }
 
 export function startNightlyDiscovery(): void {
-  console.warn("[LeadFinder] Nightly discovery disabled pending durable command ownership");
-  return;
+  throw new Error(
+    "DURABLE_DISCOVERY_AUTHORITY_REQUIRED: legacy nightly discovery is retired. Use the durable BullMQ enrichment pipeline instead."
+  );
   const { featureFlags } = require("../../services/feature-flags");
   if (!featureFlags.NIGHTLY_DISCOVERY_ENABLED) {
     console.log("[LeadFinder] NIGHTLY_DISCOVERY_ENABLED=false, nightly discovery not started");

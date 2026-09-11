@@ -1240,16 +1240,13 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.post("/api/sdr/discovery/nightly/start", isAuthenticated, async (req, res) => {
-    if ((req as any).user?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    try {
-      const { startNightlyDiscovery } = await import("../services/sdr/lead-finder");
-      startNightlyDiscovery();
-      res.json({ message: "Nightly discovery scheduler started" });
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: safeMessage(errMsg) });
-    }
+  app.post("/api/sdr/discovery/nightly/start", isAuthenticated, async (_req, res) => {
+    // MI-04: Legacy nightly discovery is retired. Durable BullMQ pipeline is now
+    // the sole authority for free enrichment scheduling.
+    return res.status(410).json({
+      code: "DURABLE_DISCOVERY_AUTHORITY_REQUIRED",
+      message: "Legacy nightly discovery is retired. The free enrichment pipeline is now managed by the durable BullMQ enrichment queue with a 4-hour cadence fence.",
+    });
   });
 
   app.post("/api/sdr/discovery/nightly/stop", isAuthenticated, async (req, res) => {

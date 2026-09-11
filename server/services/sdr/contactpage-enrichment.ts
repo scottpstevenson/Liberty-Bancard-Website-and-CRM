@@ -148,3 +148,74 @@ export async function getOwnerEmailCoverage(): Promise<{
 
   return { totalMerchants, merchantsWithEmail, coveragePct };
 }
+
+/**
+ * Business-scoped contact-page enrichment — MI-04 free enrichment path.
+ *
+ * Accepts a businessId + domain. Returns email count evidence only.
+ * Never writes sdr_merchant_contacts rows.
+ */
+export interface ContactPageBusinessResult {
+  emailCount: number;
+  enriched: boolean;
+  /** true when at least one page fetch completed (even with no emails); false if root domain fetch failed */
+  fetchCompleted: boolean;
+}
+
+export async function runContactPageBusinessEnrichment(
+  businessId: number,
+  domain: string
+): Promise<ContactPageBusinessResult> {
+  const { isSafeFetchTarget } = await import("./url-safety");
+  const { safeFetch } = await import("./safe-fetch");
+
+  const baseUrl = domain.startsWith("http") ? domain : `https://${domain}`;
+  const baseUrlObj = (() => {
+    try { return new URL(baseUrl); } catch { return null; }
+  })();
+  if (!baseUrlObj) return { emailCount: 0, enriched: false, fetchCompleted: false };
+
+  // SSRF check on the root domain before attempting any page
+  const safe = await isSafeFetchTarget(baseUrl);
+  if (!safe) {
+    console.warn(`[ContactPage-Business] SSRF blocked domain for business ${businessId}: ${domain}`);
+    // SSRF block is a valid skip — not a transient transport failure.
+    return { emailCount: 0, enriched: false, fetchCompleted: true };
+  }
+
+  const emailSet = new Set<string>();
+  const urlsToTry = [
+    baseUrl,
+    ...CONTACT_PATHS.map(p => baseUrlObj.origin + p),
+  ];
+
+  // Track whether the root-domain fetch completed. Sub-pages are best-effort.
+  let rootFetchCompleted = false;
+
+  for (const url of urlsToTry) {
+    try {
+      // Use safeFetch: enforces redirect validation + size cap + SSRF re-check per redirect
+      const resp = await safeFetch(url, { timeoutMs: 10000 });
+      if (url === baseUrl) {
+        // null = transport failure (timeout/DNS/SSRF block); non-null = fetch completed
+        rootFetchCompleted = resp !== null;
+      }
+      if (resp?.ok) {
+        // body is eagerly read by safeFetch — no separate async read needed
+        const html = resp.body ?? "";
+        const emails = extractEmailsFromHtml(html);
+        for (const e of emails) emailSet.add(e);
+        if (emailSet.size > 0 && url !== baseUrl) break; // found on a contact page
+      }
+      if (url !== baseUrl) {
+        await new Promise(r => setTimeout(r, RATE_LIMIT_MS));
+      }
+    } catch {
+      // non-fatal: proceed to next page
+    }
+  }
+
+  const emailCount = emailSet.size;
+  console.log(`[ContactPage-Business] Business ${businessId}: emailCount=${emailCount}, rootFetchCompleted=${rootFetchCompleted}`);
+  return { emailCount, enriched: emailCount > 0, fetchCompleted: rootFetchCompleted };
+}

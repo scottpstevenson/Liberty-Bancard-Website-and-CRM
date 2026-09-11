@@ -1600,6 +1600,8 @@ class QueueManager {
             }
           } else if (_job.name === "statement-blueprint" && typeof _job.data?.dealId === "number") {
             await runStatementBlueprintJob(_job.data.dealId);
+          } else if (_job.name === "free-contact-enrichment" && typeof _job.data?.businessId === "number") {
+            await runFreeBusinessEnrichmentForBusiness(_job.data.businessId);
           } else if (_job.name === "free-contact-enrichment" && typeof _job.data?.merchantId === "number") {
             await runFreeContactEnrichmentForMerchant(_job.data.merchantId);
           } else if (_job.name === "inbound-confirmation-followup") {
@@ -3053,23 +3055,157 @@ async function runEnrichmentTick(): Promise<void> {
 
   const { runLeadScoringDeferredRecovery } = await import("./contact-lead-scoring-trigger");
   await runLeadScoringDeferredRecovery().catch(err => console.error("[Queue:enrichment] Lead scoring deferred recovery error (best-effort):", err));
+
+  // ── Free enrichment pipeline (MI-04) — durable 4-hour cadence fence ──────
+  // The ENRICHMENT queue fires every 10 minutes, giving 144 possible calls per
+  // day. The fence uses an atomic advisory-locked transaction to check+claim the
+  // cycle in one DB round-trip, preventing concurrent workers from both firing.
+  try {
+    const { featureFlags: _freeEnrichFlags } = await import("./feature-flags");
+    if (_freeEnrichFlags.FREE_ENRICHMENT_ENABLED) {
+      const { db: _cadenceDb } = await import("../db");
+      const { sql: _cadenceSql } = await import("drizzle-orm");
+      const CADENCE_HOURS = 4;
+
+      // Atomic claim: advisory-locked transaction reads the current timestamp and
+      // conditionally upserts the new one. Returns the claimed timestamp (or null
+      // if the fence was not yet elapsed). Because pg_advisory_xact_lock is
+      // session-scoped to the transaction, concurrent workers serialize here.
+      const claimResult = await _cadenceDb.transaction(async (tx) => {
+        // Exclusive transaction-level lock keyed to "free_enrichment_cadence"
+        await tx.execute(_cadenceSql`SELECT pg_advisory_xact_lock(hashtext('free_enrichment_cadence'))`);
+
+        const rows = ((await tx.execute(_cadenceSql`
+          SELECT value FROM system_settings WHERE key = 'free_enrichment_last_started_at'
+        `)) as any).rows ?? [];
+
+        const lastVal = rows[0]?.value;
+        const lastAt = lastVal ? new Date(String(lastVal)) : null;
+        const nowMs = Date.now();
+        const elapsedMs = lastAt && !Number.isNaN(lastAt.getTime()) ? nowMs - lastAt.getTime() : Infinity;
+
+        if (elapsedMs < CADENCE_HOURS * 60 * 60 * 1000) {
+          return { claimed: false, elapsedMs };
+        }
+
+        // Store as JSONB — the value column requires valid JSON, so the ISO string
+        // must be JSON-encoded (quoted) before insertion.
+        const nowIso = new Date(nowMs).toISOString();
+        const nowJsonb = JSON.stringify(nowIso); // produces '"2026-..."' — valid JSON string
+        await tx.execute(_cadenceSql`
+          INSERT INTO system_settings (key, value, updated_at)
+          VALUES ('free_enrichment_last_started_at', ${nowJsonb}::jsonb, NOW())
+          ON CONFLICT (key) DO UPDATE SET value = ${nowJsonb}::jsonb, updated_at = NOW()
+        `);
+        return { claimed: true, elapsedMs };
+      });
+
+      if (claimResult.claimed) {
+        console.log(`[FreeEnrich] Cadence fence claimed (${Math.round(claimResult.elapsedMs / 60000)} min since last run) — starting tick`);
+        try {
+          await runCanonicalBusinessEnrichmentTick();
+          // Record the last successful tick completion (separate key, non-atomic)
+          const { storage: _freeStorage } = await import("../storage");
+          await _freeStorage.setSystemSetting("free_enrichment_last_tick", new Date().toISOString()).catch(() => {});
+        } catch (tickErr: any) {
+          // Tick failure: clear the claimed timestamp so the fence can retry sooner
+          const { db: _resetDb } = await import("../db");
+          const { sql: _resetSql } = await import("drizzle-orm");
+          await _resetDb.execute(_resetSql`
+            DELETE FROM system_settings WHERE key = 'free_enrichment_last_started_at'
+          `).catch(() => {});
+          console.error("[FreeEnrich] Tick failed; cadence lease cleared for retry:", tickErr?.message);
+        }
+      } else {
+        console.debug(`[FreeEnrich] Cadence fence: skipping (${Math.round(claimResult.elapsedMs / 60000)} min elapsed, fence=${CADENCE_HOURS * 60} min)`);
+      }
+    }
+  } catch (freeEnrichErr: any) {
+    console.error("[FreeEnrich] Cadence fence error (non-fatal):", freeEnrichErr?.message);
+  }
 }
 
+/**
+ * MI-04 canonical path: selects from `businesses` ONLY and enqueues { businessId } jobs.
+ * This function NEVER touches sdr_merchants, sdr_merchant_contacts, or any paid provider.
+ * It is the only function the 4-hour cadence fence calls.
+ *
+ * The legacy sdr_merchants enrichment (`runFreeContactEnrichmentTick`) runs separately,
+ * is not gated on FREE_ENRICHMENT_ENABLED, and is not part of the MI-04 pipeline.
+ */
+async function runCanonicalBusinessEnrichmentTick(): Promise<void> {
+  const BATCH = 20;
+  const { db: _db } = await import("../db");
+  const { sql: _sql } = await import("drizzle-orm");
+
+  const businessRows = await _db.execute(_sql`
+    SELECT id FROM businesses
+    WHERE website_domain IS NOT NULL
+      AND record_class = 'canonical'
+      AND (
+        free_enrichment_status IS NULL
+        OR (free_enrichment_status = 'failed' AND free_enrichment_attempt_count < 3)
+        OR (free_enrichment_status = 'enriched' AND free_enrichment_completed_at < NOW() - INTERVAL '90 days')
+      )
+    ORDER BY id
+    LIMIT ${BATCH}
+  `);
+  const businesses: { id: number }[] = ((businessRows as any).rows ?? businessRows).map((r: any) => ({ id: Number(r.id) }));
+
+  if (businesses.length === 0) {
+    console.log("[CanonicalEnrich] No businesses pending free enrichment");
+    return;
+  }
+
+  const qm = requireQueueManagerReady();
+  const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
+  if (!enrichmentQueue) {
+    console.warn("[CanonicalEnrich] Enrichment queue not found — skipping job enqueue");
+    return;
+  }
+
+  for (const b of businesses) {
+    // Do NOT use a static jobId per businessId — completed jobs are retained
+    // (removeOnComplete: count) and BullMQ silently skips new jobs with the same ID.
+    // For the 90-day stale-enrichment path the same business must be enqueued again;
+    // a static ID would block it indefinitely once the prior completed job is cached.
+    // Deduplication within the same 4-hour cycle is handled by the handler's idempotency
+    // check (free_enrichment_status + completed_at), not by BullMQ job ID.
+    await enrichmentQueue.add(
+      "free-contact-enrichment",
+      { businessId: b.id },
+      {
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
+        removeOnComplete: true,  // Remove immediately — no static-ID accumulation
+        removeOnFail: { count: 100 },
+      }
+    ).catch((err: Error) => console.error(`[CanonicalEnrich] Failed to enqueue business ${b.id}:`, err));
+  }
+  console.log(`[CanonicalEnrich] Enqueued ${businesses.length} per-business enrichment jobs`);
+}
+
+/**
+ * Legacy SDR merchants enrichment tick. Runs independently of FREE_ENRICHMENT_ENABLED.
+ * This path writes sdr_merchant_contacts and may call paid providers; it is separate
+ * from the MI-04 canonical business pipeline.
+ */
 async function runFreeContactEnrichmentTick(): Promise<void> {
   const BATCH = 20;
-  const { db } = await import("../db");
-  const { sdrMerchants } = await import("@shared/schema");
-  const { sql, and } = await import("drizzle-orm");
+  const { db: _db } = await import("../db");
+  const { sql: _sql } = await import("drizzle-orm");
 
-  const pending = await db
+  const { sdrMerchants } = await import("@shared/schema");
+  const { and } = await import("drizzle-orm");
+  const pending = await _db
     .select({ id: sdrMerchants.id })
     .from(sdrMerchants)
     .where(
       and(
-        sql`(${sdrMerchants.domain} IS NOT NULL OR ${sdrMerchants.website} IS NOT NULL)`,
-        sql`${sdrMerchants.ownerEnrichmentStatus} = 'pending'`,
-        sql`${sdrMerchants.doNotContactFlag} IS NOT TRUE`,
-        sql`NOT EXISTS (SELECT 1 FROM sdr_merchant_contacts mc WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL)`,
+        _sql`(${sdrMerchants.domain} IS NOT NULL OR ${sdrMerchants.website} IS NOT NULL)`,
+        _sql`${sdrMerchants.ownerEnrichmentStatus} = 'pending'`,
+        _sql`${sdrMerchants.doNotContactFlag} IS NOT TRUE`,
+        _sql`NOT EXISTS (SELECT 1 FROM sdr_merchant_contacts mc WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL)`,
       )
     )
     .limit(BATCH);
@@ -3079,7 +3215,7 @@ async function runFreeContactEnrichmentTick(): Promise<void> {
   const qm = requireQueueManagerReady();
   const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
   if (!enrichmentQueue) {
-    console.warn("[FreeEnrich] Enrichment queue not found — skipping job enqueue");
+    console.warn("[FreeEnrich] Enrichment queue not found — skipping legacy merchant enqueue");
     return;
   }
 
@@ -3094,9 +3230,8 @@ async function runFreeContactEnrichmentTick(): Promise<void> {
         removeOnComplete: { count: 50 },
         removeOnFail: { count: 100 },
       }
-    ).catch(err => console.error(`[FreeEnrich] Failed to enqueue merchant ${m.id}:`, err));
+    ).catch((err: Error) => console.error(`[FreeEnrich] Failed to enqueue merchant ${m.id}:`, err));
   }
-
   console.log(`[FreeEnrich] Enqueued ${pending.length} per-merchant enrichment jobs`);
 }
 
@@ -3188,6 +3323,299 @@ async function runFreeContactEnrichmentForMerchant(merchantId: number): Promise<
       .where(eq(sdrMerchants.id, merchantId))
       .catch(e => console.error(`[FreeEnrich] Status update failed for merchant ${merchantId}:`, e));
     console.log(`[FreeEnrich] Merchant ${merchantId}: failed (no email found by any source)`);
+  }
+}
+
+/**
+ * Per-business free enrichment handler — MI-04 canonical pipeline.
+ *
+ * Kill-line contracts enforced here:
+ * - Never calls Serper, Apollo, Outscraper, or ZeroBounce
+ * - Never writes contacts or sdr_merchant_contacts rows
+ * - Re-run on already-enriched businesses (within 90 days) is a no-op
+ * - CRO-03 evidence written via createCro03SourceBatch() only
+ */
+async function runFreeBusinessEnrichmentForBusiness(businessId: number): Promise<void> {
+  const { db: _db } = await import("../db");
+  const { sql: _sql } = await import("drizzle-orm");
+
+  // Load business row
+  const bizRows = ((await _db.execute(_sql`
+    SELECT id, website_domain, canonical_name, free_enrichment_status, free_enrichment_completed_at, free_enrichment_attempt_count
+    FROM businesses WHERE id = ${businessId}
+  `)) as any).rows ?? [];
+  const biz = bizRows[0];
+  if (!biz) {
+    console.warn(`[FreeEnrich-Business] Business ${businessId} not found — skipping`);
+    return;
+  }
+
+  const domain: string | null = biz.website_domain;
+  if (!domain) {
+    console.warn(`[FreeEnrich-Business] Business ${businessId} has no website_domain — skipping`);
+    // No-domain skips are safe to write unconditionally (no concurrent worker dispute).
+    await _db.execute(_sql`
+      UPDATE businesses SET free_enrichment_status = 'skipped', free_enrichment_last_attempt_at = NOW()
+      WHERE id = ${businessId} AND website_domain IS NULL
+    `);
+    return;
+  }
+
+  // Atomic claim — exactly one concurrent worker wins.
+  //
+  // The WHERE predicate is the EXACT eligibility predicate from the scheduler and
+  // health query, including the attempt_count < 3 cap. Rows beyond the cap, rows
+  // already claimed (status='processing'), enriched-within-90-days rows, and rows
+  // without a domain are all excluded. A losing worker exits immediately with no
+  // adapter execution, no CRO-03 write, and no status overwrite.
+  //
+  // We also return website_domain from the UPDATE so we always use the domain that
+  // was valid at claim time — not a value read before the UPDATE that could have
+  // changed in between.
+  const claimResult = ((await _db.execute(_sql`
+    UPDATE businesses
+    SET free_enrichment_status = 'processing',
+        free_enrichment_last_attempt_at = NOW(),
+        free_enrichment_attempt_count = COALESCE(free_enrichment_attempt_count, 0) + 1
+    WHERE id = ${businessId}
+      AND website_domain IS NOT NULL
+      AND record_class = 'canonical'
+      AND (
+        free_enrichment_status IS NULL
+        OR (free_enrichment_status = 'failed'
+            AND COALESCE(free_enrichment_attempt_count, 0) < 3)
+        OR (free_enrichment_status = 'enriched'
+            AND free_enrichment_completed_at < NOW() - INTERVAL '90 days')
+      )
+    RETURNING id, website_domain, free_enrichment_attempt_count
+  `)) as any).rows ?? [];
+
+  if (claimResult.length === 0) {
+    // Claim lost: another worker already claimed, row is not eligible, or
+    // already enriched within 90 days. No work to do.
+    console.log(`[FreeEnrich-Business] Business ${businessId} claim lost or not eligible — skipping`);
+    return;
+  }
+
+  // Use the domain value returned from the atomic claim (not the pre-claim read).
+  const claimedDomain: string = claimResult[0]?.website_domain;
+  const attemptCount = Number(claimResult[0]?.free_enrichment_attempt_count ?? 1);
+
+  // Overwrite the domain variable to ensure all downstream code uses the claimed value.
+  if (claimedDomain !== domain) {
+    console.log(`[FreeEnrich-Business] Domain changed between read and claim for business ${businessId}: using claimed domain '${claimedDomain}'`);
+  }
+  const activeDomain = claimedDomain;
+
+  const evidencePayload: Record<string, unknown> = {
+    domain: activeDomain,
+    attemptCount,
+    startedAt: new Date().toISOString(),
+  };
+  let finalStatus: "enriched" | "failed" = "failed";
+  let lastErrorCode: string | null = null;
+  // Track how many adapters reported fetchCompleted=true (i.e., made a real network
+  // round-trip, regardless of whether they found any data). If EVERY adapter returns
+  // fetchCompleted=false, the run encountered a total transport outage and must throw
+  // so BullMQ retries. Zero-result completed fetches are fine and mark as enriched.
+  let completedFetchCount = 0;
+
+  try {
+    // 1. RDAP — registrant org only, no contact writes
+    try {
+      const { runRdapBusinessEnrichment } = await import("./sdr/rdap-enrichment");
+      const rdapResult = await runRdapBusinessEnrichment(businessId, activeDomain);
+      if (rdapResult.fetchCompleted) completedFetchCount++;
+      evidencePayload.rdap = { registrantOrg: rdapResult.registrantOrg, registrar: rdapResult.registrar };
+    } catch (rdapErr: any) {
+      console.error(`[FreeEnrich-Business] RDAP error for business ${businessId}:`, rdapErr?.message);
+      evidencePayload.rdapError = rdapErr?.message;
+      // fetchCompleted stays uncounted — thrown = transport failure
+    }
+
+    // 2. JSON-LD — business schema data
+    let jsonldEmailCount = 0;
+    try {
+      const { runJsonLdBusinessEnrichment } = await import("./sdr/jsonld-enrichment");
+      const jldResult = await runJsonLdBusinessEnrichment(businessId, activeDomain);
+      if (jldResult.fetchCompleted) completedFetchCount++;
+      jsonldEmailCount = jldResult.emailCount;
+      evidencePayload.jsonld = { emailCount: jldResult.emailCount };
+    } catch (jldErr: any) {
+      console.error(`[FreeEnrich-Business] JSON-LD error for business ${businessId}:`, jldErr?.message);
+      evidencePayload.jsonldError = jldErr?.message;
+    }
+
+    // 3. Contact-page — email count evidence (not raw emails)
+    let contactPageEmailCount = 0;
+    try {
+      const { runContactPageBusinessEnrichment } = await import("./sdr/contactpage-enrichment");
+      const cpResult = await runContactPageBusinessEnrichment(businessId, activeDomain);
+      if (cpResult.fetchCompleted) completedFetchCount++;
+      contactPageEmailCount = cpResult.emailCount;
+      evidencePayload.contactPage = { emailCount: cpResult.emailCount };
+    } catch (cpErr: any) {
+      console.error(`[FreeEnrich-Business] ContactPage error for business ${businessId}:`, cpErr?.message);
+      evidencePayload.contactPageError = cpErr?.message;
+    }
+
+    // 4. HTML-only processor detection (MI-04 kill-line: NO Serper fallback)
+    const processorSignalRows: Array<{ vendor: string; signalType: string; method: string; confidence: number; evidence: string }> = [];
+    try {
+      const { safeFetch } = await import("./sdr/safe-fetch");
+      // Import from the Serper-free HTML-only module (kill-line: no Serper in import graph)
+      const { detectProcessorsFromHtmlOnly } = await import("./sdr/processor-detector-html-only");
+      const htmlUrl = activeDomain.startsWith("http") ? activeDomain : `https://${activeDomain}`;
+      const htmlResp = await safeFetch(htmlUrl, { timeoutMs: 10000 });
+      // null = transport failure (timeout/DNS/SSRF block); count only non-null responses
+      if (htmlResp !== null) {
+        completedFetchCount++;
+        if (htmlResp.ok) {
+          // body is eagerly read by safeFetch — no separate async read needed
+          const html = htmlResp.body ?? "";
+          const detections = detectProcessorsFromHtmlOnly(html, htmlUrl);
+          evidencePayload.processorSignals = { count: detections.length, vendors: detections.map(d => d.vendor) };
+
+          // Write processor_signals rows (canonical authority)
+          for (const detection of detections) {
+            try {
+              // ON CONFLICT target uses the unique index added in migration 0251:
+              //   (business_id, vendor_name, detection_method)
+              // Without a named target, ON CONFLICT DO NOTHING would not deduplicate.
+              await _db.execute(_sql`
+                INSERT INTO processor_signals (business_id, signal_type, vendor_name, detection_method, confidence_score, evidence, detected_at)
+                VALUES (${businessId}, ${detection.signalType}, ${detection.vendor}, ${detection.detectionMethod}, ${detection.confidence}, ${detection.evidence}, NOW())
+                ON CONFLICT (business_id, vendor_name, detection_method) DO NOTHING
+              `);
+              processorSignalRows.push({ vendor: detection.vendor, signalType: detection.signalType, method: detection.detectionMethod, confidence: detection.confidence, evidence: detection.evidence });
+            } catch (sigErr: any) {
+              console.error(`[FreeEnrich-Business] processor_signals write error for business ${businessId}:`, sigErr?.message);
+            }
+          }
+        }
+      } else {
+        evidencePayload.processorError = "safeFetch returned null (SSRF block or transport failure)";
+      }
+    } catch (procErr: any) {
+      console.error(`[FreeEnrich-Business] Processor detection error for business ${businessId}:`, procErr?.message);
+      evidencePayload.processorError = procErr?.message;
+    }
+
+    // Guard: if EVERY adapter returned fetchCompleted=false (or threw), treat the run
+    // as a total transport outage and propagate an error so BullMQ can retry.
+    // This prevents a DNS blackout or broad site outage from being silently recorded
+    // as a successful enrichment and suppressing retries for 90 days.
+    if (completedFetchCount === 0) {
+      throw new Error(
+        `ALL_ADAPTERS_TRANSPORT_FAILED: business ${businessId} (domain=${activeDomain}) — ` +
+        `all fetch attempts failed (timeout/DNS/SSRF). Will retry via BullMQ.`
+      );
+    }
+
+    // Summary for businesses.free_enrichment_evidence (counts + hashes, NOT raw evidence authority)
+    const evidenceSummary = {
+      rdapOrg: (evidencePayload.rdap as any)?.registrantOrg ?? null,
+      jsonldEmailCount,
+      contactPageEmailCount,
+      processorSignalCount: processorSignalRows.length,
+      processorVendors: processorSignalRows.map(r => r.vendor),
+      collectedAt: new Date().toISOString(),
+    };
+
+    // 5. CRO-03 evidence — createCro03SourceBatch() only (immutable hash/provenance contract).
+    // This is a required step: failure propagates to BullMQ for retry so evidence is
+    // never permanently lost. Do NOT catch-and-swallow this call.
+    //
+    // Idempotency key: content-addressed by ALL stable subject payload fields.
+    // Must include every field that appears in the CRO-03 payload below, so that
+    // any change in evidence (rdapOrg, email counts, vendor list) produces a new key.
+    // This prevents CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH on retries or stale-refresh runs
+    // where the same vendor list exists but other evidence fields changed.
+    const rdapOrgForKey = (evidencePayload.rdap as any)?.registrantOrg ?? "";
+    const { createHash } = await import("crypto");
+
+    // Sort signal rows ONCE and reuse the same sorted array for both the idempotency
+    // fingerprint and the CRO-03 payload. CRO-03 hashes arrays order-sensitively;
+    // if fingerprint and payload use different orderings (e.g. sorted vs. detector order),
+    // the key resolves to an existing batch whose selection hash doesn't match the new
+    // payload order → CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH on any replay.
+    const sortedSignals = [...processorSignalRows].sort((a, b) => {
+      const t1 = `${a.vendor}:${a.method}:${a.confidence}`;
+      const t2 = `${b.vendor}:${b.method}:${b.confidence}`;
+      return t1 < t2 ? -1 : t1 > t2 ? 1 : 0;
+    });
+
+    // Fingerprint covers EVERY field in the CRO-03 payload so that any evidence change
+    // produces a new key → a new observation rather than a PAYLOAD_MISMATCH.
+    const signalsTuples = sortedSignals.map(r => `${r.vendor}:${r.method}:${r.confidence}`).join("|");
+    const contentFingerprint = createHash("sha256")
+      .update([
+        businessId,
+        activeDomain,
+        rdapOrgForKey,
+        jsonldEmailCount,
+        contactPageEmailCount,
+        signalsTuples,
+      ].join("::"))
+      .digest("hex")
+      .slice(0, 16);
+    const cro03IdempotencyKey = `free-enrichment-business-${businessId}-${contentFingerprint}`;
+
+    const { createCro03SourceBatch } = await import("./cro03/source-staging");
+    await createCro03SourceBatch({
+      idempotencyKey: cro03IdempotencyKey,
+      actorType: "system",
+      actorId: "free-enrichment-pipeline",
+      purpose: "staging_review",
+      subjects: [
+        {
+          subjectType: "business",
+          subjectKey: String(businessId),
+          sourceSystem: "free_enrichment",
+          payload: {
+            domain: activeDomain,
+            rdapOrg: rdapOrgForKey || null,
+            jsonldEmailCount,
+            contactPageEmailCount,
+          },
+          provenance: { sourceSystem: "free_enrichment", stage: "rdap", observedAt: new Date().toISOString() },
+          timestampProvenance: "ingestion_only",
+        },
+        ...(sortedSignals.length > 0 ? [{
+          subjectType: "business" as const,
+          subjectKey: String(businessId),
+          sourceSystem: "html_processor_detection",
+          payload: {
+            domain: activeDomain,
+            // Same sorted array used in fingerprint — order is canonical and deterministic.
+            signals: sortedSignals.map(r => ({ vendor: r.vendor, method: r.method, confidence: r.confidence })),
+          },
+          provenance: { sourceSystem: "html_processor_detection", observedAt: new Date().toISOString() },
+          timestampProvenance: "ingestion_only" as const,
+        }] : []),
+      ],
+    });
+    // CRO-03 succeeded — now it is safe to mark enriched
+    finalStatus = "enriched";
+    await _db.execute(_sql`
+      UPDATE businesses
+      SET free_enrichment_status = 'enriched',
+          free_enrichment_completed_at = NOW(),
+          free_enrichment_evidence = ${JSON.stringify(evidenceSummary)}::jsonb
+      WHERE id = ${businessId}
+    `);
+    console.log(`[FreeEnrich-Business] Business ${businessId} enriched: ${JSON.stringify(evidenceSummary)}`);
+
+  } catch (err: any) {
+    lastErrorCode = err?.message?.slice(0, 200) ?? "UNKNOWN_ERROR";
+    console.error(`[FreeEnrich-Business] Fatal error for business ${businessId}:`, err?.message);
+    await _db.execute(_sql`
+      UPDATE businesses
+      SET free_enrichment_status = 'failed',
+          free_enrichment_last_error_code = ${lastErrorCode}
+      WHERE id = ${businessId}
+    `);
+    throw err; // Let BullMQ retry
   }
 }
 

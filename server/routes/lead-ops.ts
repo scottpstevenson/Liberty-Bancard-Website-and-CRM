@@ -423,7 +423,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     // Wrap the heavy sunbiz_entities aggregate in a 30-second statement timeout
     // so a runaway scan degrades to stale data rather than holding a pool
     // connection indefinitely.
-    const [enrichResult, freeEnrichResult, jobRow, progressRaw] = await Promise.all([
+    const [enrichResult, freeEnrichResult, canonicalFreeEnrichResult, jobRow, progressRaw] = await Promise.all([
       db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL statement_timeout = '30000'`);
         return tx.execute(sql`
@@ -459,6 +459,20 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL
           )
         `),
+      // MI-04: Canonical businesses free enrichment queue depth.
+      // Predicate must exactly match runCanonicalBusinessEnrichmentTick() so the UI
+      // tile reflects the true backlog (null + retryable-failed + stale-enriched,
+      // canonical-only). Also includes record_class guard and attempt count cap.
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count FROM businesses
+        WHERE website_domain IS NOT NULL
+          AND record_class = 'canonical'
+          AND (
+            free_enrichment_status IS NULL
+            OR (free_enrichment_status = 'failed' AND free_enrichment_attempt_count < 3)
+            OR (free_enrichment_status = 'enriched' AND free_enrichment_completed_at < NOW() - INTERVAL '90 days')
+          )
+      `).catch(() => null),
       db.select({ lastFinishedAt: backgroundJobs.lastFinishedAt })
         .from(backgroundJobs)
         .where(eq(backgroundJobs.jobName, "enrichment-queue-processor"))
@@ -478,6 +492,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     const workerActive = minutesSinceLastJob !== null && minutesSinceLastJob < 15;
 
     const freeEnrichPending = Number(freeEnrichResult[0]?.count ?? 0);
+    const canonicalFreeEnrichmentQueueDepth = Number(
+      ((canonicalFreeEnrichResult as any)?.rows ?? canonicalFreeEnrichResult)?.[0]?.count ?? 0
+    );
     const lastJobRow = jobRow[0];
 
     const progressObj = (progressRaw as any) || {};
@@ -556,6 +573,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       sunbizEnrichmentEnabled,
       freeEnrichmentPendingJobs:        freeEnrichPending,
       lastScheduledEnrichmentAt:        lastScheduledEnrichmentAtDerived,
+      // ── MI-04: Canonical free enrichment queue depth ────────────────────
+      canonicalFreeEnrichmentQueueDepth,
       // ── MI-02: Source registry adapters (additive) ─────────────────────
       sourceRegistryAdapters,
     };
@@ -676,6 +695,81 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     } catch (err: any) {
       console.error("[LeadOps] reset-stuck-jobs error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to reset stuck jobs" });
+    }
+  });
+
+  // ── GET /api/lead-ops/businesses/:businessId ──────────────────────────────
+  // MI-04: Returns a single businesses row plus its processor_signals rows.
+  // NOTE: Do NOT reuse the Sunbiz /entities endpoint — businesses and sunbiz_entities
+  // are separate tables with different schemas.
+  app.get("/api/lead-ops/businesses/:businessId", requireRole("admin", "manager"), async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ error: "Invalid businessId" });
+    try {
+      const [bizResult, signalsResult] = await Promise.all([
+        db.execute(sql`
+          SELECT id, canonical_name, normalized_name, website_domain, main_phone, main_email,
+                 city, state, vertical, status,
+                 free_enrichment_status, free_enrichment_attempt_count,
+                 free_enrichment_last_attempt_at, free_enrichment_completed_at,
+                 free_enrichment_last_error_code, free_enrichment_evidence
+          FROM businesses WHERE id = ${businessId}
+        `),
+        db.execute(sql`
+          SELECT id, signal_type, vendor_name, detection_method, confidence_score, evidence, detected_at
+          FROM processor_signals WHERE business_id = ${businessId}
+          ORDER BY detected_at DESC
+        `).catch(() => null),
+      ]);
+      const biz = ((bizResult as any).rows ?? bizResult)[0];
+      if (!biz) return res.status(404).json({ error: "Business not found" });
+      const signals = ((signalsResult as any)?.rows ?? signalsResult) ?? [];
+      res.json({ business: biz, processorSignals: signals });
+    } catch (err: any) {
+      console.error("[LeadOps] businesses/:id error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to load business" });
+    }
+  });
+
+  // ── POST /api/lead-ops/businesses/:businessId/enrich-free ─────────────────
+  // MI-04: Manually enqueue a single free enrichment job for a canonical business.
+  // Returns 202. Must use /businesses/:businessId — NOT /entities/:id.
+  app.post("/api/lead-ops/businesses/:businessId/enrich-free", requireRole("admin", "manager"), async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ error: "Invalid businessId" });
+    try {
+      // Validate the business is canonical before enqueueing
+      const bizCheck = await db.execute(sql`
+        SELECT id, record_class FROM businesses WHERE id = ${businessId}
+      `);
+      const biz = ((bizCheck as any).rows ?? bizCheck)[0];
+      if (!biz) return res.status(404).json({ error: "Business not found" });
+      if (biz.record_class !== "canonical") {
+        return res.status(422).json({
+          error: `Business #${businessId} has record_class='${biz.record_class}'; only canonical businesses are eligible for free enrichment`
+        });
+      }
+
+      const { requireQueueManagerReady, QUEUE_NAMES } = await import("../services/queue-manager");
+      const qm = requireQueueManagerReady();
+      const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
+      if (!enrichmentQueue) return res.status(503).json({ error: "Enrichment queue not available" });
+
+      await enrichmentQueue.add(
+        "free-contact-enrichment",
+        { businessId },
+        {
+          jobId: `free-business-enrichment-manual-${businessId}-${Date.now()}`,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5000 },
+          removeOnComplete: { count: 50 },
+          removeOnFail: { count: 100 },
+        }
+      );
+      res.status(202).json({ queued: true, businessId });
+    } catch (err: any) {
+      console.error("[LeadOps] enrich-free error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to enqueue enrichment" });
     }
   });
 

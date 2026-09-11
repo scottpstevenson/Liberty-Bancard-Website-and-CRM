@@ -30,7 +30,7 @@ export const CRO03C_PROVIDER_KEYS = [
 
 export const CRO03_SOURCE_SUBJECT_TYPES = [
   "contact", "prospect", "sunbiz_entity", "sdr_merchant", "provider_csv_row", "public_web",
-  "lead_discovery_result", "master_lead",
+  "lead_discovery_result", "master_lead", "business",
 ] as const;
 export type Cro03SourceSubjectType = typeof CRO03_SOURCE_SUBJECT_TYPES[number];
 

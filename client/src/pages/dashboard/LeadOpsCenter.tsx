@@ -62,6 +62,7 @@ interface LeadOpsHealth {
   freeEnrichmentPendingJobs: number;
   lastScheduledEnrichmentAt: string | null;
   legacyRouteAttemptsSinceStartup: number;
+  canonicalFreeEnrichmentQueueDepth?: number;
 }
 
 interface LeadOpsConfig {
@@ -145,6 +146,216 @@ function formatInboundDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+// ─── MI-04: Canonical Business Free Enrichment Panel ─────────────────────────
+
+interface CanonicalBusiness {
+  id: number;
+  canonical_name: string | null;
+  website_domain: string | null;
+  city: string | null;
+  state: string | null;
+  vertical: string | null;
+  free_enrichment_status: string | null;
+  free_enrichment_attempt_count: number;
+  free_enrichment_last_attempt_at: string | null;
+  free_enrichment_completed_at: string | null;
+  free_enrichment_evidence: Record<string, unknown> | null;
+}
+
+interface ProcessorSignal {
+  id: number;
+  signal_type: string;
+  vendor_name: string;
+  detection_method: string;
+  confidence_score: number;
+  evidence: string | null;
+  detected_at: string | null;
+}
+
+function freeEnrichStatusBadge(status: string | null) {
+  if (!status) return "bg-gray-100 text-gray-600 border-gray-200";
+  if (status === "enriched")   return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300";
+  if (status === "processing") return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300";
+  if (status === "failed")     return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300";
+  if (status === "skipped")    return "bg-gray-100 text-gray-600 border-gray-200";
+  return "bg-yellow-100 text-yellow-800 border-yellow-200"; // queued / null
+}
+
+function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number | null }) {
+  const { toast } = useToast();
+  const [lookupId, setLookupId] = useState("");
+  const [businessId, setBusinessId] = useState<number | null>(null);
+
+  const businessQuery = useQuery<{ business: CanonicalBusiness; processorSignals: ProcessorSignal[] }>({
+    queryKey: [`/api/lead-ops/businesses/${businessId}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/lead-ops/businesses/${businessId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: businessId !== null,
+  });
+
+  const enrichMutation = useMutation({
+    mutationFn: async (id: number) => {
+      // Use apiRequest so the CSRF token is attached — raw fetch would return 403
+      const res = await apiRequest("POST", `/api/lead-ops/businesses/${id}/enrich-free`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Enrichment queued", description: "Free enrichment job enqueued for this business." });
+      businessQuery.refetch();
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
+  const biz = businessQuery.data?.business;
+  const signals = businessQuery.data?.processorSignals ?? [];
+
+  const signalTypeLabel = (t: string) => {
+    if (t === "processor") return "💳";
+    if (t === "pos") return "🖥️";
+    if (t === "booking_platform") return "📅";
+    if (t === "ecommerce_platform") return "🛒";
+    return "📦";
+  };
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          <div>
+            <CardTitle className="text-base">Canonical Business Enrichment</CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              Free enrichment pipeline (MI-04) — HTML signals, RDAP, JSON-LD, contact pages.
+              {healthQueueDepth !== null && (
+                <span className="ml-2 font-medium text-foreground">
+                  {healthQueueDepth.toLocaleString()} pending in queue.
+                </span>
+              )}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-4">
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Enter business ID…"
+            value={lookupId}
+            onChange={(e) => setLookupId(e.target.value)}
+            className="h-8 text-sm w-40"
+            onKeyDown={(e) => { if (e.key === "Enter") setBusinessId(Number(lookupId) || null); }}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5"
+            onClick={() => setBusinessId(Number(lookupId) || null)}
+            disabled={!lookupId || isNaN(Number(lookupId))}
+          >
+            Look up
+          </Button>
+        </div>
+
+        {businessQuery.isLoading && (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-3/4" />
+          </div>
+        )}
+
+        {businessQuery.isError && (
+          <p className="text-sm text-destructive">
+            {businessQuery.error instanceof Error ? businessQuery.error.message : "Failed to load business"}
+          </p>
+        )}
+
+        {biz && (
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-muted/10 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div>
+                  <div className="font-medium text-sm">{biz.canonical_name ?? `Business #${biz.id}`}</div>
+                  {biz.website_domain && (
+                    <a
+                      href={`https://${biz.website_domain}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-500 hover:underline"
+                    >
+                      {biz.website_domain}
+                    </a>
+                  )}
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {[biz.city, biz.state].filter(Boolean).join(", ")}
+                    {biz.vertical && <> · {biz.vertical}</>}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1.5 py-0 h-5 ${freeEnrichStatusBadge(biz.free_enrichment_status)}`}
+                  >
+                    {biz.free_enrichment_status ?? "unprocessed"}
+                  </Badge>
+                  {biz.free_enrichment_completed_at && (
+                    <div className="text-[10px] text-muted-foreground">
+                      Enriched {new Date(biz.free_enrichment_completed_at).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Processor/POS/booking/ecommerce signals as tags */}
+              {signals.length > 0 && (
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1">Detected signals</div>
+                  <div className="flex flex-wrap gap-1">
+                    {signals.map((s) => (
+                      <Badge
+                        key={s.id}
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0 h-5"
+                        title={`${s.detection_method} · confidence ${Math.round(s.confidence_score * 100)}%`}
+                      >
+                        {signalTypeLabel(s.signal_type)} {s.vendor_name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Email count evidence (not raw emails) */}
+              {biz.free_enrichment_evidence && (
+                <div className="text-[10px] text-muted-foreground">
+                  {typeof (biz.free_enrichment_evidence as any).jsonldEmailCount === "number" && (
+                    <span className="mr-3">JSON-LD emails: {(biz.free_enrichment_evidence as any).jsonldEmailCount}</span>
+                  )}
+                  {typeof (biz.free_enrichment_evidence as any).contactPageEmailCount === "number" && (
+                    <span>Contact-page emails: {(biz.free_enrichment_evidence as any).contactPageEmailCount}</span>
+                  )}
+                </div>
+              )}
+
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5 mt-1"
+                onClick={() => enrichMutation.mutate(biz.id)}
+                disabled={enrichMutation.isPending}
+              >
+                <RefreshCw className={`h-3 w-3 ${enrichMutation.isPending ? "animate-spin" : ""}`} />
+                Enrich now
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ─── Enrichment Queue Panel ───────────────────────────────────────────────────
@@ -926,6 +1137,15 @@ export default function LeadOpsCenter() {
                   {health.legacyRouteAttemptsSinceStartup} since restart
                 </div>
               </div>
+              {/* MI-04: Canonical free enrichment queue depth */}
+              {typeof health.canonicalFreeEnrichmentQueueDepth === "number" && (
+                <div className="rounded-md border bg-muted/10 px-3 py-2">
+                  <div className="text-muted-foreground mb-0.5">Canonical Free Enrich Queue</div>
+                  <div className="font-medium">
+                    {health.canonicalFreeEnrichmentQueueDepth.toLocaleString()} pending
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {health && !health.workerActive && health.minutesSinceLastJob !== null && health.minutesSinceLastJob >= 15 && (
@@ -1011,6 +1231,9 @@ export default function LeadOpsCenter() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── MI-04: Canonical Business Free Enrichment ────────────────────── */}
+      <CanonicalBusinessPanel healthQueueDepth={typeof health?.canonicalFreeEnrichmentQueueDepth === "number" ? health.canonicalFreeEnrichmentQueueDepth : null} />
 
       {/* ── Enrichment Queue Management ──────────────────────────────────── */}
       <EnrichmentQueuePanel />
