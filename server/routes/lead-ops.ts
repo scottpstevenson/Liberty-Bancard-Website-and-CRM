@@ -679,6 +679,27 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // ── GET /api/lead-ops/canonical-summary ──────────────────────────────────
+  // MI-03: On-demand diagnostic endpoint for canonical pipeline health.
+  // Returns canonicalBusinessesCount and openConflictEvidenceCount without
+  // blocking the 60-second health cache on large table scans.
+  app.get("/api/lead-ops/canonical-summary", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const [businessResult, conflictResult] = await Promise.all([
+        db.execute(sql`SELECT COUNT(*)::int AS count FROM businesses WHERE id > 0`),
+        db.execute(sql`SELECT COUNT(*)::int AS count FROM canonical_conflict_evidence WHERE status='open'`).catch(() => null),
+      ]);
+      const canonicalBusinessesCount = Number(((businessResult as any).rows ?? businessResult)[0]?.count ?? 0);
+      const openConflictEvidenceCount = conflictResult
+        ? Number(((conflictResult as any).rows ?? conflictResult)[0]?.count ?? 0)
+        : null;
+      res.json({ canonicalBusinessesCount, openConflictEvidenceCount });
+    } catch (err: any) {
+      console.error("[LeadOps] canonical-summary error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to load canonical summary" });
+    }
+  });
+
   // ── GET /api/lead-ops/export-enriched ─────────────────────────────────────
   // Streams a CSV of all enriched sunbiz entities for offline analysis.
   // Columns: entity_id, company_name, vertical, score, has_email, has_phone, enriched_at, city, state

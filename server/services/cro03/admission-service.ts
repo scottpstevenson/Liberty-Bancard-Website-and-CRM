@@ -408,9 +408,86 @@ export async function reviewAndProjectCro03bItem(
   const strongAnchor = winners.website?.value || winners.phone?.value ||
     (winners.address?.value && winners.city?.value && winners.state?.value);
   if (!companyName || !strongAnchor) throw new Error("CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED");
+
   const owner = (winners.owner_name?.value ?? "").trim().split(/\s+/);
   const email = winners.email?.value;
-  if (!email) throw new Error("CRO03B_WINNING_EMAIL_REQUIRED");
+
+  // MI-03: Business-only projection path — when the recipe item has no winning
+  // email (e.g., a sunbiz entity observation with no contact anchor), route to
+  // projectBusinessOnly() instead of projectCro03bCanonical(). This writes a
+  // businesses row + canonical_source_links + business_locations without
+  // creating a contact, running email validation, or touching outreach.
+  if (!email) {
+    // Derive canonical namespace from the handoff's source_type/source_system/source_key.
+    // For sunbiz_entity: resolve filing_number from sunbiz_entities to use as stable_key.
+    // All other types: use the handoff's source_system/source_type/source_key directly
+    // with source_type renamed to a canonical type label.
+    const handoff = rows(await db.execute(sql`
+      SELECT h.source_system, h.source_type, h.source_key
+        FROM cro03a_handoffs h
+        JOIN cro03b_recipe_items i ON i.handoff_id = h.id
+       WHERE i.id = ${itemId}::uuid
+    `))[0];
+
+    const handoffSourceType: string = handoff?.source_type ?? "unknown";
+    const handoffSourceSystem: string = handoff?.source_system ?? "cro03b";
+    const handoffSourceKey: string = handoff?.source_key ?? itemId;
+
+    // ── Canonical namespace derivation ──────────────────────────────────────
+    // Sunbiz entity subject_key format: `filing:<filing_number>` or `row:<id>`.
+    // Canonical namespace: ('sunbiz_entities', 'sunbiz_filing', bare_filing_number).
+    // For `row:<id>` keys: look up the filing_number from sunbiz_entities by id.
+    // county_fips is derived from the occurrence payload city/state (not from a
+    // non-existent principal_county column on sunbiz_entities).
+    // Other source types: use handoff source_system/source_type/source_key directly.
+    let canonicalSourceSystem: string;
+    let canonicalSourceType: string;
+    let canonicalStableKey: string;
+
+    if (handoffSourceType === "sunbiz_entity") {
+      canonicalSourceSystem = "sunbiz_entities";
+      canonicalSourceType = "sunbiz_filing";
+      if (handoffSourceKey.startsWith("filing:")) {
+        // filing:<filing_number> → bare filing_number
+        canonicalStableKey = handoffSourceKey.slice("filing:".length).trim();
+      } else if (handoffSourceKey.startsWith("row:")) {
+        // row:<id> → look up filing_number from sunbiz_entities
+        const entityId = Number(handoffSourceKey.slice("row:".length));
+        const entity = rows(await db.execute(sql`
+          SELECT filing_number FROM sunbiz_entities WHERE id = ${entityId} LIMIT 1
+        `))[0];
+        canonicalStableKey = String(entity?.filing_number ?? handoffSourceKey).trim();
+      } else {
+        canonicalStableKey = handoffSourceKey.trim();
+      }
+    } else {
+      canonicalSourceSystem = handoffSourceSystem;
+      canonicalSourceType = handoffSourceType;
+      canonicalStableKey = handoffSourceKey;
+    }
+
+    const { projectBusinessOnly } = await import("./projection-service");
+    return projectBusinessOnly({
+      itemId,
+      sourceSystem: canonicalSourceSystem,
+      sourceType: canonicalSourceType,
+      stableKey: canonicalStableKey,
+      organization: {
+        canonicalName: companyName,
+        websiteDomain: winners.website?.value
+          ? normalizeCandidateValue("website", winners.website.value).split("/")[0] : undefined,
+        mainPhone: winners.phone?.value, city: winners.city?.value, state: winners.state?.value,
+      },
+      // county_fips from winners.state — FIPS mapping would require a zip code lookup;
+      // winners does not surface a zip code reliably, so this is left null here.
+      // MI-09 can enrich county_fips via the occurrence payload's postal_code.
+      location: {
+        city: winners.city?.value, state: winners.state?.value,
+        countyFips: null,
+      },
+    });
+  }
+
   const phone = winners.phone?.value;
   if (!phone) throw new Error("CRO03B_WINNING_PHONE_REQUIRED");
   const { projectCro03bCanonical } = await import("./projection-service");

@@ -101,7 +101,25 @@ export function evaluateCro03aCandidate(input: {
     complexity: Number(payload.locationCount) > 1 || !!value(payload, "estimatedVolume", "monthlyVolume", "employeeCount") ? 10 : 0,
     completeness: hasBusiness && hasLocation && hasSource ? 5 : 0,
   } : v1Components;
-  const score = Object.values(components).reduce((sum, part) => sum + part, 0);
+  // ── MI-03: v2 draft scoring dimensions ──────────────────────────────────────
+  // These dimensions are DRAFT-ONLY and must NOT affect activated policy output.
+  // They are computed here for fit-v2 evaluations so the draft policy document
+  // can record scores, but MI-09 owns activation.
+  // ── MI-03: v2 draft scoring dimensions ──────────────────────────────────────
+  // These dimensions are DRAFT-ONLY and must NOT affect activated policy output.
+  // They are computed here for fit-v2 evaluations so the draft policy document
+  // can record scores, but MI-09 owns activation.
+  let v2BonusTotal = 0;
+  if (fitV2) {
+    // +15 if candidate has a canonical_source_links row confirmed within 90 days
+    const sourceRegistryActive = (payload._sourceRegistryActiveWithin90Days === true) ? 15 : 0;
+    // +10 if candidate has source links across ≥2 distinct county_fips values
+    const multiCountyPresence = (Number(payload._distinctCountyFipsCount ?? 0) >= 2) ? 10 : 0;
+    // −20 if location_count > 5 (chain penalty)
+    const chainPenalty = Number(payload.locationCount ?? payload.location_count ?? 0) > 5 ? -20 : 0;
+    v2BonusTotal = sourceRegistryActive + multiCountyPresence + chainPenalty;
+  }
+  const score = Object.values(components).reduce((sum, part) => sum + part, 0) + v2BonusTotal;
   const reasonCodes: string[] = [...geography.reasonCodes];
   const missing: string[] = [];
   if (!hasBusiness) missing.push("business_identity");

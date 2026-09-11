@@ -1052,7 +1052,30 @@ async function run(): Promise<void> {
     failures++;
   }
 
-  const totalCases = CASES.length + 5; // + campaign/sequence BOLA, ownership paths, reanalyze, and CSV checks
+  // ── MI-03: canonical-conflicts admin-only guard ─────────────────────────────
+  console.log("\n── MI-03: canonical-conflicts admin-only guard ──");
+  try {
+    const [anonRes, merchantRes, adminRes] = await Promise.all([
+      fetch(`${BASE_URL}/api/admin/canonical-conflicts`),
+      fetch(`${BASE_URL}/api/admin/canonical-conflicts`, { headers: { cookie: merchantCookie } }),
+      fetch(`${BASE_URL}/api/admin/canonical-conflicts`, { headers: { cookie: adminCookie } }),
+    ]);
+    const anonOk = anonRes.status === 401;
+    const merchantOk = merchantRes.status === 403;
+    const adminOk = adminRes.status === 200;
+    if (anonOk && merchantOk && adminOk) {
+      console.log(`✓ GET /api/admin/canonical-conflicts: anon→${anonRes.status}(401✓) merchant→${merchantRes.status}(403✓) admin→${adminRes.status}(200✓)`);
+    } else {
+      if (!anonOk)    { console.log(`  ✗ anon→${anonRes.status} (expected 401)`);    failures++; }
+      if (!merchantOk){ console.log(`  ✗ merchant→${merchantRes.status} (expected 403)`); failures++; }
+      if (!adminOk)   { console.log(`  ✗ admin→${adminRes.status} (expected 200)`);  failures++; }
+    }
+  } catch (err) {
+    console.log(`✗ canonical-conflicts guard threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  const totalCases = CASES.length + 6; // + campaign/sequence BOLA, ownership paths, reanalyze, CSV checks, canonical-conflicts
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

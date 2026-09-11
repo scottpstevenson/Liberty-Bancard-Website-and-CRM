@@ -1764,6 +1764,20 @@
       "when": 1800000005000,
       "tag": "0247_source_registry_manifest",
       "breakpoints": false
+    },
+    {
+      "idx": 252,
+      "version": "7",
+      "when": 1800000005100,
+      "tag": "0248_canonical_source_links",
+      "breakpoints": false
+    },
+    {
+      "idx": 253,
+      "version": "7",
+      "when": 1800000005200,
+      "tag": "0249_canonical_conflict_evidence",
+      "breakpoints": false
     }
   ]
 }

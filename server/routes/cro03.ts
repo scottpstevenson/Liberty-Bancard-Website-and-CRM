@@ -517,6 +517,68 @@ export function registerCro03Routes(app: Express): void {
     res.json(await getCro03aSourceCensus());
   });
 
+  // MI-03: Filtered census — accepts county_fips[], vertical[], source_type[] query params.
+  app.get("/api/cro03a/census", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const toArray = (v: unknown): string[] | undefined => {
+        if (!v) return undefined;
+        const arr = Array.isArray(v) ? v : [v];
+        const strs = arr.map(String).filter((s) => s.trim().length > 0);
+        return strs.length ? strs : undefined;
+      };
+      const filters = {
+        countyFips: toArray(req.query["county_fips[]"] ?? req.query.county_fips),
+        vertical: toArray(req.query["vertical[]"] ?? req.query.vertical),
+        sourceType: toArray(req.query["source_type[]"] ?? req.query.source_type),
+      };
+      res.json(await getCro03aSourceCensus(filters));
+    } catch (error) {
+      res.status(400).json(safeError(error));
+    }
+  });
+
+  // MI-03: Read API for canonical conflict evidence (admin only, paginated, no raw payloads).
+  app.get("/api/admin/canonical-conflicts", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const status = typeof req.query.status === "string" ? req.query.status : "open";
+
+      const rows = ((await db.execute(sql`
+        SELECT id, business_id_a, business_id_b, conflict_type, field, status,
+               created_at, acknowledged_at, acknowledged_by
+          FROM canonical_conflict_evidence
+         WHERE (${status === "all"} OR status = ${status})
+         ORDER BY created_at DESC
+         LIMIT ${limit} OFFSET ${offset}
+      `)) as any).rows ?? [];
+
+      const total = (((await db.execute(sql`
+        SELECT COUNT(*)::int AS total FROM canonical_conflict_evidence
+         WHERE (${status === "all"} OR status = ${status})
+      `)) as any).rows ?? [])[0]?.total ?? 0;
+
+      res.json({
+        items: rows.map((row: any) => ({
+          id: row.id,
+          businessIdA: row.business_id_a,
+          businessIdB: row.business_id_b ?? null,
+          conflictType: row.conflict_type,
+          field: row.field ?? null,
+          status: row.status,
+          createdAt: row.created_at,
+          acknowledgedAt: row.acknowledged_at ?? null,
+          acknowledgedBy: row.acknowledged_by ?? null,
+        })),
+        total,
+        limit,
+        offset,
+      });
+    } catch (error) {
+      res.status(500).json({ code: "CANONICAL_CONFLICTS_FETCH_FAILED", message: "Failed to load conflict evidence." });
+    }
+  });
+
   app.post("/api/cro03a/source-census/stage", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const parsed = censusStageSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ code: "CRO03A_INVALID_REQUEST", message: "Invalid census scope." });

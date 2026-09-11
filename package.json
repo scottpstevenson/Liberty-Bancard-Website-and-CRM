@@ -22,12 +22,12 @@
     "merchant:migrate:execute": "MERCHANT_DATA_BACKFILL_AUTHORIZED=true npx tsx scripts/migrate-merchant-protected-data.ts --execute",
     "merchant:migrate:verify": "npx tsx scripts/migrate-merchant-protected-data.ts --verify",
     "test:merchant-migration-safety": "npx tsx scripts/test-merchant-migration-safety.ts",
-    "db:rehearsal": "npx tsx scripts/run-local-rehearsal.ts"
-    ,"test:db-rehearsal": "npx tsx scripts/test-local-rehearsal-core.ts"
-    ,"test:db-rehearsal:integration": "npx tsx scripts/test-local-rehearsal-integration.ts"
-    ,"test:consent-authority": "npx tsx scripts/test-consent-authority.ts"
-    ,"test:consent-writer-dominance": "npx tsx scripts/test-consent-writer-dominance.ts"
-    ,"test:task1721-structure": "npx tsx scripts/test-task1721-inbox-statement-structure.ts && npx tsx scripts/test-task1721-inbox-pagination.ts"
+    "db:rehearsal": "npx tsx scripts/run-local-rehearsal.ts",
+    "test:db-rehearsal": "npx tsx scripts/test-local-rehearsal-core.ts",
+    "test:db-rehearsal:integration": "npx tsx scripts/test-local-rehearsal-integration.ts",
+    "test:consent-authority": "npx tsx scripts/test-consent-authority.ts",
+    "test:consent-writer-dominance": "npx tsx scripts/test-consent-writer-dominance.ts",
+    "test:task1721-structure": "npx tsx scripts/test-task1721-inbox-statement-structure.ts && npx tsx scripts/test-task1721-inbox-pagination.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -136,9 +136,9 @@
     "@tailwindcss/vite": "^4.1.18",
     "@types/archiver": "^8.0.0",
     "@types/bcryptjs": "^2.4.6",
+    "@types/connect-pg-simple": "^7.0.3",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
-    "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "^5.0.0",
     "@types/express-session": "^1.18.2",
     "@types/memoizee": "^0.4.12",

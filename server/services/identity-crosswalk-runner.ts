@@ -672,6 +672,28 @@ async function processBatch(
           // Safety cap: LIMIT 20. >20 businesses sharing an identifier is a data-quality
           // issue; cap prevents runaway scans while still recording all practical cases.
           if (frozenBusinessesMaxId > BigInt(0)) {
+            // ── Tier 2: canonical_source_links exact namespace match ─────────────
+            // Requires exact match within the same (source_system, source_type, stable_key)
+            // namespace. Cross-registry comparisons are prohibited.
+            // For sunbiz_entities: stable_key = filing_number when present.
+            // Returns DETERMINISTIC_MATCH (tier 2) consistent with classifyEvidence().
+            if (row.filing_number) {
+              const cslR = await tx.query(
+                `SELECT csl.business_id
+                   FROM canonical_source_links csl
+                   JOIN businesses b ON b.id = csl.business_id
+                  WHERE csl.source_system = 'sunbiz_entities'
+                    AND csl.source_type = 'sunbiz_filing'
+                    AND csl.stable_key = $1
+                    AND b.id <= $2
+                  LIMIT 20`,
+                [String(row.filing_number).trim(), frozenBusinessesMaxId],
+              );
+              for (const cslRow of cslR.rows) {
+                addBusinessSignal(Number(cslRow.business_id), "canonical_source_link_filing", 2);
+              }
+            }
+
             // Business by website domain (tier 4)
             if (sourceDomain) {
               const bDomR = await tx.query(
@@ -1318,21 +1340,61 @@ export async function executeIdentityRun(runId: string, owner: string): Promise<
   // the top-level lifecycle catch block marks the run 'failed' with that reason.
   hmacFingerprint("_preflight_check_");
 
-  // ── Tier 2 filing-number: record as one-time run-level skip note ──────────
-  // Gen-1 defers filing-number matching because the businesses table has no
-  // filing_number column. Record this as a run-level skip in run_notes so the
-  // sweep report clearly reflects the scope. Only write the first time (run just
-  // entered running state from pending).
+  // ── Tier 2: source-qualified DETERMINISTIC_MATCH via canonical_source_links ─
+  // MI-03 replaces the Gen-1 filing-number skip with a lookup through
+  // canonical_source_links. An exact match within the same registry namespace
+  // (source_system + source_type + stable_key) is classified DETERMINISTIC_MATCH.
+  // Cross-registry comparisons are prohibited — a DBPR license and a Sunbiz
+  // filing number are never compared directly.
+  // Precondition: if no canonical_source_links rows exist, record
+  // CROSSWALK_PRECONDITIONS_NOT_MET and continue without tier-2 matching.
+  const tier2PreconditionRows = await pool.query(
+    `SELECT source_system, source_type, COUNT(*)::int AS link_count
+       FROM canonical_source_links
+      GROUP BY source_system, source_type`,
+  );
   const existingNotes: Record<string, unknown> = run.run_notes ?? {};
-  if (!existingNotes["tier_skips"]) {
-    await pool.query(
-      `UPDATE contact_identity_reconciliation_runs
-       SET run_notes = COALESCE(run_notes,'{}') ||
-           '{"tier_skips":[{"tier":2,"status":"skipped","reason":"filing_number_no_governed_business_filing_identifier","deferred_to":"Gen-2"}]}'::jsonb,
-           updated_at = now()
-       WHERE id = $1 AND lease_owner = $2`,
-      [runId, owner],
-    );
+  if (tier2PreconditionRows.rows.length === 0) {
+    if (!existingNotes["tier2_precondition"]) {
+      const tier2Note = {
+        status: "CROSSWALK_PRECONDITIONS_NOT_MET",
+        reason: "no_canonical_source_links",
+        numerator: 0,
+        denominator: 0,
+        recordedAt: new Date().toISOString(),
+      };
+      await pool.query(
+        `UPDATE contact_identity_reconciliation_runs
+         SET run_notes = jsonb_set(COALESCE(run_notes,'{}'), '{tier2_precondition}', $3::jsonb),
+             updated_at = now()
+         WHERE id = $1 AND lease_owner = $2`,
+        [runId, owner, JSON.stringify(tier2Note)],
+      );
+    }
+  } else {
+    // Record per-registry numerator/denominator in run_notes for observability
+    const perRegistry = tier2PreconditionRows.rows.map((r) => ({
+      sourceSystem: r.source_system,
+      sourceType: r.source_type,
+      linkCount: Number(r.link_count),
+    }));
+    const totalLinks = perRegistry.reduce((s, r) => s + r.linkCount, 0);
+    if (!existingNotes["tier2_precondition"]) {
+      const tier2Note = {
+        status: "preconditions_met",
+        numerator: totalLinks,
+        denominator: totalLinks,
+        perRegistry,
+        recordedAt: new Date().toISOString(),
+      };
+      await pool.query(
+        `UPDATE contact_identity_reconciliation_runs
+         SET run_notes = jsonb_set(COALESCE(run_notes,'{}'), '{tier2_precondition}', $3::jsonb),
+             updated_at = now()
+         WHERE id = $1 AND lease_owner = $2`,
+        [runId, owner, JSON.stringify(tier2Note)],
+      );
+    }
   }
 
   let batchNum = 0;

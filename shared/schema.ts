@@ -4737,6 +4737,8 @@ export const businessLocations = pgTable("business_locations", {
   rating: real("rating"),
   reviewCount: integer("review_count"),
   isPrimary: boolean("is_primary").default(false),
+  countyFips: text("county_fips"),
+  licenseSourceKey: text("license_source_key"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -4749,6 +4751,53 @@ export const insertBusinessLocationSchema = createInsertSchema(businessLocations
 
 export type BusinessLocation = typeof businessLocations.$inferSelect;
 export type InsertBusinessLocation = z.infer<typeof insertBusinessLocationSchema>;
+
+// ── MI-03: canonical_source_links ─────────────────────────────────────────────
+// Governed source identifier store linking a businesses row to its authoritative
+// source identifiers per registry namespace. Cross-registry comparisons are prohibited.
+export const canonicalSourceLinks = pgTable("canonical_source_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  sourceSystem: text("source_system").notNull(),
+  sourceType: text("source_type").notNull(),
+  stableKey: text("stable_key").notNull(),
+  registryId: text("registry_id"),
+  rawEvidence: jsonb("raw_evidence"),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastConfirmedAt: timestamp("last_confirmed_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("canonical_source_links_namespace_key_unique").on(table.sourceSystem, table.sourceType, table.stableKey),
+  index("canonical_source_links_business_id_idx").on(table.businessId),
+  index("canonical_source_links_last_confirmed_at_idx").on(table.lastConfirmedAt),
+]);
+
+export type CanonicalSourceLink = typeof canonicalSourceLinks.$inferSelect;
+export type InsertCanonicalSourceLink = typeof canonicalSourceLinks.$inferInsert;
+
+// ── MI-03: canonical_conflict_evidence ────────────────────────────────────────
+// Append-only conflict log written by projectBusinessOnly() when resolveOrganization()
+// returns AMBIGUOUS_ORGANIZATION_MATCH. Admin resolution UI belongs to MI-07.
+export const canonicalConflictEvidence = pgTable("canonical_conflict_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessIdA: integer("business_id_a").references(() => businesses.id).notNull(),
+  businessIdB: integer("business_id_b").references(() => businesses.id),
+  conflictType: text("conflict_type").notNull(),
+  field: text("field"),
+  evidencePayload: jsonb("evidence_payload"),
+  status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  acknowledgedBy: text("acknowledged_by"),
+}, (table) => [
+  index("canonical_conflict_evidence_status_idx").on(table.status),
+  index("canonical_conflict_evidence_business_a_idx").on(table.businessIdA),
+  index("canonical_conflict_evidence_created_at_idx").on(table.createdAt),
+]);
+
+export type CanonicalConflictEvidence = typeof canonicalConflictEvidence.$inferSelect;
+export type InsertCanonicalConflictEvidence = typeof canonicalConflictEvidence.$inferInsert;
 
 export const leadSources = pgTable("lead_sources", {
   id: serial("id").primaryKey(),

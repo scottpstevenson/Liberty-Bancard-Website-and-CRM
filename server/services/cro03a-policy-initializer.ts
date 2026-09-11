@@ -36,6 +36,36 @@ type Tx = { execute: (query: ReturnType<typeof sql>) => Promise<unknown> };
 
 export const CRO03A_SEED_POLICY_KEY = "south_florida_candidate_qualification";
 export const CRO03A_SEED_POLICY_VERSION = 1;
+
+// ── MI-03: Policy v2 draft ───────────────────────────────────────────────────
+// Adds Restaurant, Bar, Fitness/Wellness, Specialty Retail, Lodging/Hospitality.
+// status='draft' — MI-09 owns activation. New scoring dimensions are in fit.ts.
+export const CRO03A_V2_POLICY_VERSION = 2;
+export const CRO03A_V2_POLICY_DOCUMENT = {
+  geographyReferenceVersion: "south-florida-fips-v1",
+  counties: { Broward: "12011", "Miami-Dade": "12086", "Palm Beach": "12099" },
+  disabledCounties: { Monroe: "12087" },
+  verticalAlgorithmVersion: "v1",
+  subverticalMapVersion: "1",
+  fitVersion: "fit-v2",
+  targetVerticals: [
+    "Auto", "Healthcare", "Salon/Spa",
+    "Restaurant", "Bar", "Fitness", "Retail", "Lodging",
+  ],
+  selectedMinimum: 70,
+  reviewMinimum: 50,
+  freshnessDays: 90,
+  sourceCensus: [
+    "prospects", "sunbiz_entities", "provider_csv_rows", "sdr_merchants",
+    "lead_discovery_results", "master_leads", "public_web",
+  ],
+  // v2 draft scoring dimensions (activation: MI-09)
+  v2ScoringDimensions: {
+    source_registry_active: { condition: "canonical_source_links.last_confirmed_at within 90 days", points: 15 },
+    multi_county_presence: { condition: "distinct county_fips >= 2 in business_locations", points: 10 },
+    chain_penalty: { condition: "location_count > 5", points: -20 },
+  },
+} as const;
 // Exact content of the row `migrations/0187_cro03a_candidate_qualification.sql`
 // inserts. Must stay byte-for-byte identical to that migration's seed values.
 export const CRO03A_SEED_POLICY_DOCUMENT = {
@@ -85,6 +115,23 @@ async function assertTableShape(tx: Tx, table: string, expected: Record<string, 
  * already points at any active policy (including this one, converged on a
  * prior boot), it is left untouched.
  */
+/** Idempotent seed of the v2 DRAFT policy row. Never activates it. */
+async function seedCro03aPolicyV2Draft(tx: Tx): Promise<void> {
+  const existing = rows(await tx.execute(sql`
+    SELECT id, status FROM cro03a_policy_documents
+     WHERE policy_key = ${CRO03A_SEED_POLICY_KEY} AND version = ${CRO03A_V2_POLICY_VERSION}
+  `))[0];
+  if (existing) return; // already seeded — do not touch (immutable trigger blocks updates)
+  await tx.execute(sql`
+    INSERT INTO cro03a_policy_documents (policy_key, version, policy, policy_hash, status, created_by)
+    VALUES (${CRO03A_SEED_POLICY_KEY}, ${CRO03A_V2_POLICY_VERSION},
+            ${JSON.stringify(CRO03A_V2_POLICY_DOCUMENT)}::jsonb,
+            encode(sha256(${JSON.stringify(CRO03A_V2_POLICY_DOCUMENT)}::text::bytea),'hex'),
+            'draft', 'cro03a-policy-initializer:mi03')
+    ON CONFLICT (policy_key, version) DO NOTHING
+  `);
+}
+
 export async function initializeCro03aPolicy(): Promise<void> {
   await db.transaction(async (tx) => {
     // Serialize concurrent startups on a dedicated advisory-lock key so
@@ -184,5 +231,8 @@ export async function initializeCro03aPolicy(): Promise<void> {
             WHERE a.action = 'cro03a_policy_activated' AND a.entity_key = p.id::text
          )
     `);
+
+    // MI-03: seed the v2 draft policy row (never activated — MI-09 owns activation).
+    await seedCro03aPolicyV2Draft(tx as unknown as Tx);
   });
 }

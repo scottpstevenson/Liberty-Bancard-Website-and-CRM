@@ -1,5 +1,5 @@
 import { and, gt, inArray, isNull, lte, sql } from "drizzle-orm";
-import { db } from "../../db";
+import { db, pool } from "../../db";
 import { prospects, sunbizEntities, sdrMerchants, leadDiscoveryResults, masterLeads } from "@shared/schema";
 import { hashCro03Evidence } from "../cro03/source-staging";
 import { createCro03SourceBatch } from "../cro03/source-staging";
@@ -104,6 +104,26 @@ async function loadOccurrences(
   }));
   if (loaded.length !== unique.length) throw new Error("CRO03A_OCCURRENCE_NOT_FOUND");
   if (options.enrichRelationships === false) return loaded;
+
+  // ── MI-03: Feature-detect canonical_source_links table before the loop ────
+  // The enrichment queries below target canonical_source_links, which is added
+  // in migration 0248. If that migration has not yet been applied (rolling
+  // upgrade, test environment without MI-03 migrations), we skip the enrichment
+  // rather than issuing a query inside a transaction that could cause a 25P02
+  // "current transaction is aborted" error for every occurrence in the batch.
+  // This detection runs ONCE outside the per-occurrence loop.
+  let canonicalSourceLinksAvailable = false;
+  try {
+    const tableCheck = resultRows(await db.execute(sql`
+      SELECT 1 FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='canonical_source_links'
+       LIMIT 1
+    `));
+    canonicalSourceLinksAvailable = tableCheck.length > 0;
+  } catch {
+    canonicalSourceLinksAvailable = false;
+  }
+
   for (const occurrence of loaded) {
     const prior = resultRows(await executor.execute(sql`
       SELECT id FROM cro03a_handoffs
@@ -153,6 +173,64 @@ async function loadOccurrences(
           if (relation.business_id != null) occurrence.provenance.exactStrongIdentityMatches = ["canonical_business_fk"];
         }
       }
+    }
+
+    // ── MI-03: v2 fit dimension enrichment ──────────────────────────────────
+    // Only runs when canonical_source_links table is confirmed available above.
+    // Uses EXACT (source_system, source_type, stable_key) matching to enforce
+    // namespace isolation — cross-registry comparisons are prohibited.
+    // Sunbiz subject_key format is `filing:<filing_number>` or `row:<id>`;
+    // the canonical stable_key strips the `filing:` prefix to match what
+    // projectBusinessOnly() writes under ('sunbiz_entities','sunbiz_filing').
+    // All queries use `db` (not `executor`) so they are always run outside any
+    // caller-supplied transaction — avoiding 25P02 aborted-transaction errors.
+    if (canonicalSourceLinksAvailable) {
+      let stableKey = String(occurrence.subjectKey).trim();
+      let cslSourceSystem: string;
+      let cslSourceType: string;
+
+      if (occurrence.subjectType === "sunbiz_entity") {
+        cslSourceSystem = "sunbiz_entities";
+        cslSourceType = "sunbiz_filing";
+        if (stableKey.startsWith("filing:")) {
+          stableKey = stableKey.slice("filing:".length).trim();
+        } else {
+          // row:<id> — filing_number not yet resolved; skip enrichment.
+          occurrence.payload._sourceRegistryActiveWithin90Days = false;
+          occurrence.payload._distinctCountyFipsCount = 0;
+          continue; // eslint-disable-line no-continue
+        }
+      } else {
+        cslSourceSystem = occurrence.sourceSystem;
+        cslSourceType = occurrence.subjectType;
+      }
+
+      const linkRows = resultRows(await db.execute(sql`
+        SELECT csl.business_id
+          FROM canonical_source_links csl
+         WHERE csl.source_system = ${cslSourceSystem}
+           AND csl.source_type   = ${cslSourceType}
+           AND csl.stable_key    = ${stableKey}
+           AND csl.last_confirmed_at >= NOW() - INTERVAL '90 days'
+         LIMIT 1
+      `));
+      if (linkRows.length > 0) {
+        occurrence.payload._sourceRegistryActiveWithin90Days = true;
+        const businessId = Number(linkRows[0].business_id);
+        const countyRows = resultRows(await db.execute(sql`
+          SELECT COUNT(DISTINCT county_fips)::int AS distinct_fips
+            FROM business_locations
+           WHERE business_id = ${businessId}
+             AND county_fips IS NOT NULL
+        `));
+        occurrence.payload._distinctCountyFipsCount = Number(countyRows[0]?.distinct_fips ?? 0);
+      } else {
+        occurrence.payload._sourceRegistryActiveWithin90Days = false;
+        occurrence.payload._distinctCountyFipsCount = 0;
+      }
+    } else {
+      occurrence.payload._sourceRegistryActiveWithin90Days = false;
+      occurrence.payload._distinctCountyFipsCount = 0;
     }
   }
   return loaded;
@@ -953,13 +1031,81 @@ export async function activateCro03aPolicy(input: {
   });
 }
 
-export async function getCro03aSourceCensus() {
+export async function getCro03aSourceCensus(filters?: {
+  countyFips?: string[];
+  vertical?: string[];
+  sourceType?: string[];
+}) {
   const [policy, staged] = await Promise.all([getActivePolicy(), db.execute(sql`
     SELECT source_system,subject_type,COUNT(*)::int AS count
       FROM cro03_source_subjects GROUP BY source_system,subject_type ORDER BY source_system,subject_type
   `)]);
   const stagedRows = resultRows(staged);
-  const candidates = resultRows(await db.execute(sql`
+
+  // Build a filtered count from cro03_source_observations using filter params
+  let filteredCount: number | null = null;
+  let filteredSample: any[] = [];
+  const hasFilters = (filters?.countyFips?.length ?? 0) > 0
+    || (filters?.vertical?.length ?? 0) > 0
+    || (filters?.sourceType?.length ?? 0) > 0;
+
+  if (hasFilters) {
+    // Build conditions dynamically. All payload probes use JSONB operators.
+    const conditions: string[] = ["1=1"];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (filters?.sourceType?.length) {
+      conditions.push(`s.subject_type = ANY($${idx}::text[])`);
+      params.push(filters.sourceType);
+      idx++;
+    }
+    if (filters?.countyFips?.length) {
+      // county_fips may live in the observation payload or in business_locations
+      conditions.push(`(
+        v.payload->>'countyFips' = ANY($${idx}::text[])
+        OR v.payload->>'county_fips' = ANY($${idx}::text[])
+      )`);
+      params.push(filters.countyFips);
+      idx++;
+    }
+    if (filters?.vertical?.length) {
+      conditions.push(`(
+        lower(v.payload->>'vertical') = ANY($${idx}::text[])
+        OR lower(v.payload->>'industry') = ANY($${idx}::text[])
+      )`);
+      params.push(filters.vertical.map((v) => v.toLowerCase()));
+      idx++;
+    }
+
+    const whereClause = conditions.join(" AND ");
+    // Use pg pool directly for parameterized dynamic queries (sql.raw does not support params)
+    const countResult = (await pool.query(
+      `SELECT COUNT(*)::int AS total
+         FROM cro03_source_subjects s
+         JOIN cro03_source_occurrences o ON o.source_subject_id = s.id
+         JOIN cro03_source_observations v ON v.id = o.source_observation_id
+        WHERE ${whereClause}`,
+      params,
+    )).rows;
+    filteredCount = Number(countResult[0]?.total ?? 0);
+
+    const sampleResult = (await pool.query(
+      `SELECT s.subject_type, s.source_system,
+              encode(sha256(s.subject_key::bytea),'hex') AS source_key_hash,
+              o.source_observed_at
+         FROM cro03_source_subjects s
+         JOIN cro03_source_occurrences o ON o.source_subject_id = s.id
+         JOIN cro03_source_observations v ON v.id = o.source_observation_id
+        WHERE ${whereClause}
+        ORDER BY o.source_observed_at DESC
+        LIMIT 25`,
+      params,
+    )).rows;
+    filteredSample = sampleResult;
+  }
+
+  const candidates = hasFilters ? filteredSample : resultRows(await db.execute(sql`
     SELECT DISTINCT ON (s.id)
            o.id AS occurrence_id,s.subject_type,s.source_system,
            encode(sha256(s.subject_key::bytea),'hex') AS source_key_hash,
@@ -970,6 +1116,7 @@ export async function getCro03aSourceCensus() {
       ORDER BY s.id,o.source_observed_at DESC,o.ingested_at DESC,o.id DESC
      LIMIT 100
   `));
+
   return {
     policyVersion: policy.version,
     activePolicyHash: policy.policyHash,
@@ -977,10 +1124,11 @@ export async function getCro03aSourceCensus() {
     sources: CRO03A_SOURCE_CENSUS.map((source) => ({
       source, stagedCount: stagedRows.filter((row) => String(row.source_system) === source).reduce((sum, row) => sum + Number(row.count), 0),
     })),
-    candidates: candidates.map((row) => ({
-      occurrenceId: row.occurrence_id, sourceType: row.subject_type, sourceSystem: row.source_system,
+    candidates: (hasFilters ? filteredSample : candidates).map((row) => ({
+      occurrenceId: row.occurrence_id ?? null, sourceType: row.subject_type, sourceSystem: row.source_system,
       sourceKeyHash: row.source_key_hash, sourceObservedAt: row.source_observed_at,
     })),
+    ...(hasFilters ? { filteredCount, appliedFilters: filters } : {}),
     excludedSourceTypes: ["contacts", "businesses", "companies", "deals", "opportunities", "cr04", "cr06", "ghl"],
   };
 }

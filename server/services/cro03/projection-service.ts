@@ -301,6 +301,220 @@ export async function processNextCro03bTerminalHookRequest(itemId?: string): Pro
   return true;
 }
 
+// ── MI-03: Business-only projection ───────────────────────────────────────────
+// Writes a businesses row + canonical_source_links + business_locations row
+// WITHOUT touching contacts, email validation, outreach, or GHL.
+// Called in the authorized-projection step of the CRO-03B admission flow.
+//
+// Transaction model (three independent steps):
+//   Step 1: Read-only check of canonical_source_links for idempotency (no tx)
+//   Step 2: resolveOrganization() — owns its own db.transaction() internally.
+//           MUST NOT be called inside an outer db.transaction(): Drizzle nested
+//           transactions share the same PG connection via savepoints, so an outer
+//           rollback would attempt to undo the business creation committed by
+//           resolveOrganization, causing connection-state corruption.
+//   Step 3: Small write tx — inserts canonical_source_links (ON CONFLICT for
+//           concurrent-race detection), upserts business_locations via partial
+//           unique index (migration 0248), advances recipe item to 'completed',
+//           writes audit log.
+//
+// Any orphan business created by a losing concurrent resolveOrganization() call
+// is harmless — it is discoverable via businesses.id and can be merged by MI-07.
+
+export async function projectBusinessOnly(input: {
+  itemId: string;
+  sourceSystem: string;
+  sourceType: string;
+  stableKey: string;
+  organization: {
+    canonicalName: string;
+    websiteDomain?: string | null;
+    googlePlaceId?: string | null;
+    mainPhone?: string | null;
+    city?: string | null;
+    state?: string | null;
+  };
+  location?: {
+    countyFips?: string | null;
+    licenseSourceKey?: string | null;
+    streetAddress?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    isPrimary?: boolean;
+  };
+  rawEvidence?: Record<string, unknown> | null;
+}): Promise<
+  | { outcome: "created" | "matched"; businessId: number; sourceLinkId: string }
+  | { outcome: "conflict"; candidateIds: number[]; conflictEvidenceId: string }
+> {
+  // ── Step 1: Source-link-first idempotency check (no transaction) ──────────
+  const existingLink = rows(await db.execute(sql`
+    SELECT id, business_id FROM canonical_source_links
+     WHERE source_system = ${input.sourceSystem}
+       AND source_type   = ${input.sourceType}
+       AND stable_key    = ${input.stableKey}
+     LIMIT 1
+  `))[0];
+
+  if (existingLink) {
+    const businessId = Number(existingLink.business_id);
+    const sourceLinkId = String(existingLink.id);
+    await db.execute(sql`
+      UPDATE canonical_source_links
+         SET last_confirmed_at = NOW(),
+             raw_evidence = COALESCE(${input.rawEvidence ? JSON.stringify(input.rawEvidence) : null}::jsonb, raw_evidence),
+             updated_at = NOW()
+       WHERE id = ${sourceLinkId}::uuid
+    `);
+    return { outcome: "matched" as const, businessId, sourceLinkId };
+  }
+
+  // ── Step 2: Resolve or create the businesses row (resolveOrganization tx) ─
+  const organization = await resolveOrganization(input.organization);
+
+  // ── Step 3: Write source link + location + recipe item in one small tx ────
+  return db.transaction(async (tx) => {
+    if (organization.kind === "deferred") {
+      const conflictRow = rows(await tx.execute(sql`
+        INSERT INTO canonical_conflict_evidence
+          (business_id_a, business_id_b, conflict_type, field, evidence_payload)
+        VALUES (
+          ${organization.candidateIds[0] ?? null},
+          ${organization.candidateIds[1] ?? null},
+          ${organization.reasonCode},
+          NULL,
+          ${JSON.stringify({
+            sourceSystem: input.sourceSystem,
+            sourceType: input.sourceType,
+            stableKey: input.stableKey,
+            itemId: input.itemId,
+            candidateIds: organization.candidateIds,
+          })}::jsonb
+        )
+        RETURNING id
+      `))[0];
+      const conflictEvidenceId = String(conflictRow.id);
+      await tx.execute(sql`
+        INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+        VALUES ('system','canonical_conflict_evidence_written','canonical_conflict_evidence',${conflictEvidenceId},
+                ${JSON.stringify({ itemId: input.itemId, reasonCode: organization.reasonCode, candidateIds: organization.candidateIds })}::jsonb,
+                'system','cro03b')
+      `);
+      await tx.execute(sql`
+        UPDATE cro03b_recipe_items
+           SET state='review_required', terminal_code=${organization.reasonCode}, updated_at=NOW()
+         WHERE id=${input.itemId}::uuid
+      `);
+      return { outcome: "conflict" as const, candidateIds: organization.candidateIds, conflictEvidenceId };
+    }
+
+    const resolvedBusinessId = organization.business.id;
+    const isNew = organization.kind === "created";
+
+    // ON CONFLICT returns the winning row. Re-read RETURNING business_id to
+    // detect a concurrent-projection race where another tx won first.
+    const linkRow = rows(await tx.execute(sql`
+      INSERT INTO canonical_source_links
+        (business_id, source_system, source_type, stable_key, raw_evidence, first_seen_at, last_confirmed_at)
+      VALUES
+        (${resolvedBusinessId}, ${input.sourceSystem}, ${input.sourceType}, ${input.stableKey},
+         ${input.rawEvidence ? JSON.stringify(input.rawEvidence) : null}::jsonb,
+         NOW(), NOW())
+      ON CONFLICT (source_system, source_type, stable_key) DO UPDATE
+        SET last_confirmed_at = NOW(),
+            raw_evidence = COALESCE(EXCLUDED.raw_evidence, canonical_source_links.raw_evidence),
+            updated_at = NOW()
+      RETURNING id, business_id
+    `))[0];
+    const sourceLinkId = String(linkRow.id);
+    const storedBusinessId = Number(linkRow.business_id);
+
+    if (storedBusinessId !== resolvedBusinessId) {
+      // Concurrent race — a different business won this source link.
+      const conflictRow = rows(await tx.execute(sql`
+        INSERT INTO canonical_conflict_evidence
+          (business_id_a, business_id_b, conflict_type, field, evidence_payload)
+        VALUES (${storedBusinessId}, ${resolvedBusinessId}, 'concurrent_projection_race', 'business_id',
+                ${JSON.stringify({
+                  sourceSystem: input.sourceSystem, sourceType: input.sourceType,
+                  stableKey: input.stableKey, itemId: input.itemId,
+                  resolvedBusinessId, storedBusinessId,
+                })}::jsonb)
+        RETURNING id
+      `))[0];
+      const conflictEvidenceId = String(conflictRow.id);
+      await tx.execute(sql`
+        INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+        VALUES ('system','canonical_conflict_evidence_written','canonical_conflict_evidence',${conflictEvidenceId},
+                ${JSON.stringify({ itemId: input.itemId, reasonCode: 'concurrent_projection_race', candidateIds: [storedBusinessId, resolvedBusinessId] })}::jsonb,
+                'system','cro03b')
+      `);
+      await tx.execute(sql`
+        UPDATE cro03b_recipe_items
+           SET state='review_required', terminal_code='concurrent_projection_race', updated_at=NOW()
+         WHERE id=${input.itemId}::uuid
+      `);
+      return { outcome: "conflict" as const, candidateIds: [storedBusinessId, resolvedBusinessId], conflictEvidenceId };
+    }
+
+    // Authoritative business_id confirmed. Upsert business_locations.
+    // Migration 0248 adds a partial unique index on (business_id, county_fips)
+    // WHERE county_fips IS NOT NULL — use ON CONFLICT for atomic upsert.
+    // When county_fips is null, no location row is written (MI-09 enriches later).
+    const countyFips = input.location?.countyFips ?? null;
+    if (countyFips !== null) {
+      await tx.execute(sql`
+        INSERT INTO business_locations
+          (business_id, street_address, city, state, postal_code, is_primary, county_fips, license_source_key)
+        VALUES
+          (${storedBusinessId},
+           ${input.location?.streetAddress ?? null},
+           ${input.location?.city ?? input.organization.city ?? null},
+           ${input.location?.state ?? input.organization.state ?? null},
+           ${input.location?.postalCode ?? null},
+           ${input.location?.isPrimary ?? true},
+           ${countyFips},
+           ${input.location?.licenseSourceKey ?? null})
+        ON CONFLICT (business_id, county_fips) WHERE county_fips IS NOT NULL
+        DO UPDATE SET
+          license_source_key = COALESCE(EXCLUDED.license_source_key, business_locations.license_source_key),
+          updated_at = NOW()
+      `);
+    }
+
+    await tx.execute(sql`
+      UPDATE cro03b_recipe_items
+         SET business_id=${storedBusinessId}, state='completed', terminal_code='business_only_projection_completed',
+             completed_at=COALESCE(completed_at,NOW()), updated_at=NOW()
+       WHERE id=${input.itemId}::uuid
+    `);
+    await tx.execute(sql`
+      UPDATE cro03b_step_executions
+         SET state='completed', attempt_count=attempt_count+1, outcome_code='business_only_projection_completed',
+             completed_at=COALESCE(completed_at,NOW()), updated_at=NOW()
+       WHERE item_id=${input.itemId}::uuid AND step_key='canonical-projection' AND state<>'completed'
+    `);
+    const auditAction = isNew ? "canonical_business_created" : "canonical_business_updated";
+    await tx.execute(sql`
+      INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+      VALUES ('system',${auditAction},'business',${String(storedBusinessId)},
+              ${JSON.stringify({
+                itemId: input.itemId,
+                sourceSystem: input.sourceSystem,
+                sourceType: input.sourceType,
+                stableKey: input.stableKey,
+                sourceLinkId,
+                countyFips,
+              })}::jsonb,
+              'system','cro03b')
+    `);
+
+    return { outcome: (isNew ? "created" : "matched") as "created" | "matched", businessId: storedBusinessId, sourceLinkId };
+  });
+}
+
+
 export function cro03bArbitrationCandidateSetHash(candidates: ReadonlyArray<{
   id: string; valueHash: string; authority: number; confidence: number; observedAt: string;
 }>) {
