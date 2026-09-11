@@ -218,6 +218,13 @@ export interface NormalizedSourceRecord {
   address?: string | null;
   /** Phone number from source — used as strong-anchor in CRO-03B arbitration */
   phone?: string | null;
+  /**
+   * Pre-resolved canonical vertical string (e.g. "Restaurant", "Hospitality").
+   * Adapters that can resolve this from a source license type set it here so
+   * import-runner.ts can emit it directly as the `vertical` payload field
+   * consumed by CRO-03A fit.ts without re-resolving at import time.
+   */
+  vertical?: string | null;
 }
 
 export interface SourceAdapter {

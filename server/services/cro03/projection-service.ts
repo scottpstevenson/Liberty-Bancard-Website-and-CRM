@@ -367,6 +367,44 @@ export async function projectBusinessOnly(input: {
              updated_at = NOW()
        WHERE id = ${sourceLinkId}::uuid
     `);
+    // Upsert business_locations so records linked before countyFips became available
+    // can gain location data on replay (e.g. after the MI-06 import-runner field fix).
+    const replayCountyFips = input.location?.countyFips ?? null;
+    if (replayCountyFips !== null) {
+      await db.execute(sql`
+        INSERT INTO business_locations
+          (business_id, street_address, city, state, postal_code, is_primary, county_fips, license_source_key)
+        VALUES
+          (${businessId},
+           ${input.location?.streetAddress ?? null},
+           ${input.location?.city ?? input.organization.city ?? null},
+           ${input.location?.state ?? input.organization.state ?? null},
+           ${input.location?.postalCode ?? null},
+           ${input.location?.isPrimary ?? true},
+           ${replayCountyFips},
+           ${input.location?.licenseSourceKey ?? null})
+        ON CONFLICT (business_id, county_fips) WHERE county_fips IS NOT NULL
+        DO UPDATE SET
+          license_source_key = COALESCE(EXCLUDED.license_source_key, business_locations.license_source_key),
+          updated_at = NOW()
+      `);
+    }
+    // Advance the recipe item to completed (idempotent — WHERE state <> 'completed' guard).
+    // When a source link already existed, the recipe item was never advanced in the prior run.
+    await db.execute(sql`
+      UPDATE cro03b_recipe_items
+         SET business_id=${businessId}, state='completed',
+             terminal_code='business_only_projection_completed',
+             completed_at=COALESCE(completed_at,NOW()), updated_at=NOW()
+       WHERE id=${input.itemId}::uuid AND state<>'completed'
+    `);
+    await db.execute(sql`
+      UPDATE cro03b_step_executions
+         SET state='completed', attempt_count=attempt_count+1,
+             outcome_code='business_only_projection_completed',
+             completed_at=COALESCE(completed_at,NOW()), updated_at=NOW()
+       WHERE item_id=${input.itemId}::uuid AND step_key='canonical-projection' AND state<>'completed'
+    `);
     return { outcome: "matched" as const, businessId, sourceLinkId };
   }
 

@@ -65,6 +65,7 @@ import { db } from "../server/db";
 import { providerCsvSourceSubject } from "../server/services/cro03a/adapters";
 import { createCro03SourceBatch } from "../server/services/cro03/source-staging";
 import {
+  activateCro03aPolicy,
   createCro03aQualificationRun,
   processCro03aQualificationRunQueueSafe,
 } from "../server/services/cro03a/qualification-service";
@@ -676,111 +677,104 @@ console.log(
 );
 
 // ═════════════════════════════════════════════════════════════════════════════
-// PATHS D / E / F SETUP — scaffold helper for DBPR-HR records
+// PATH D — Real DBPR-HR adapter path: real CRO-03A chain with v3 policy
 // ═════════════════════════════════════════════════════════════════════════════
+//
+// This path exercises the FULL real chain for DBPR-HR records:
+//   CSV row → dbprHrAdapter.normalize() → runSourceImport() →
+//   createCro03aQualificationRun() (v3 policy with Restaurant/Hospitality) →
+//   processCro03aQualificationRunQueueSafe() → handoff →
+//   admitCro03bHandoffs() → processNextCro03bRecipeItem() →
+//   reviewAndProjectCro03bItem() → projectBusinessOnly() →
+//   business_only_projection_completed + business_locations(county_fips)
+//
+// Post-deployment operations note:
+//   After deploying MI-06 field fixes, re-import the current DBPR-HR source snapshot
+//   to create new occurrences with canonical payload fields (vertical, entityStatus,
+//   postalCode). Qualify only the newly created occurrences idempotently via the
+//   auto-wire. Historical immutable observations (created before #1915) do NOT need
+//   to be mutated — the re-import creates new occurrences with the correct shape.
 
-// DBPR-HR records currently cannot pass CRO-03A under the active policy because
-// Restaurant/Hospitality verticals are not in targetVerticals (["Auto","Healthcare","Salon/Spa"]).
-// This helper inserts a minimal run→item→decision→handoff chain directly in the
-// DB so we can certify the CRO-03B arbitration path independently of that policy.
-// The scaffold uses disposition='selected' and a score of 75 — above the 70-point
-// threshold — so the handoff is formally "selected" but only for test purposes.
+console.log(`\n[cert] ── Path D: DBPR-HR real CRO-03A chain (v3 policy) + CRO-03B pipeline (run=${run}) ──`);
 
-async function scaffoldDbprHrHandoff(opts: {
-  label: string;
-  occurrenceId: string;
-  subjectKey: string;
-}): Promise<string> {
-  const policyRow = rows(await db.execute(sql`
-    SELECT pd.id, pd.policy_hash, pd.version
-      FROM cro03a_policy_control pc
-      JOIN cro03a_policy_documents pd ON pd.id = pc.active_policy_id
-     LIMIT 1
-  `))[0];
-  assert(policyRow, `${opts.label}: active CRO-03A policy must exist`);
+// ── D_SETUP: Save prior policy pointer and activate v3 in this disposable DB ──
 
-  const occurrenceIds = JSON.stringify([opts.occurrenceId]);
-  const scopeHash = crypto.createHash("sha256")
-    .update(`cert-scaffold:${opts.label}:${run}`).digest("hex");
-  const selectionHash = crypto.createHash("sha256")
-    .update(`cert-scaffold-sel:${opts.label}:${run}`).digest("hex");
+const pathDPriorPolicyControl = rows(await db.execute(sql`
+  SELECT active_policy_id, expected_version FROM cro03a_policy_control WHERE id = 1
+`))[0];
+assert(pathDPriorPolicyControl, "Path D setup: cro03a_policy_control row must exist");
 
-  const qualRun = rows(await db.execute(sql`
-    INSERT INTO cro03a_qualification_runs
-      (idempotency_key, actor_id, actor_role, policy_id, policy_hash, scope_hash,
-       frozen_occurrence_ids, state, total_count, selected_count, review_count,
-       terminal_count, completed_at)
-    VALUES (
-      ${`cert-scaffold-run:${opts.label}:${run}`},
-      ${String(admin.id)}, 'admin',
-      ${String(policyRow.id)}::uuid,
-      ${String(policyRow.policy_hash)},
-      ${scopeHash},
-      ${occurrenceIds}::jsonb,
-      'completed', 1, 1, 0, 1, NOW()
-    )
-    RETURNING id
-  `))[0];
-  assert(qualRun, `${opts.label}: qualification_run insert must succeed`);
+const pathDV3Policy = rows(await db.execute(sql`
+  SELECT id, version, policy_hash
+    FROM cro03a_policy_documents
+   WHERE policy_key = 'south_florida_candidate_qualification' AND version = 3
+   LIMIT 1
+`))[0];
+assert(pathDV3Policy, "Path D setup: v3 policy document must exist (migration 0256 must be applied)");
 
-  const qualItem = rows(await db.execute(sql`
-    INSERT INTO cro03a_qualification_items
-      (run_id, occurrence_id, ordinal, state)
-    VALUES (${String(qualRun.id)}::uuid, ${opts.occurrenceId}::uuid, 1, 'completed')
-    RETURNING id
-  `))[0];
+// Safety guard: refuse to activate v3 in a production environment.
+// Production activation requires MI-09 operator approval and a v1-vs-v3 impact preview.
+assert(
+  process.env.NODE_ENV !== "production",
+  "Path D setup: REFUSED — v3 policy activation must not run in a production environment. " +
+  "Use a disposable certification DB. Production activation is deferred to MI-09.",
+);
+// Additional guard: verify the DB is not named with 'prod' to catch mis-pointed connections.
+const pathDCurrentDb = rows(await db.execute(sql`SELECT current_database() AS dbname`))[0];
+assert(
+  !String(pathDCurrentDb?.dbname ?? "").toLowerCase().includes("prod"),
+  `Path D setup: REFUSED — connected database '${pathDCurrentDb?.dbname}' appears to be a production database. ` +
+  `v3 policy activation must only run in the disposable cert environment.`,
+);
 
-  const qualDecision = rows(await db.execute(sql`
-    INSERT INTO cro03a_qualification_decisions
-      (item_id, run_id, occurrence_id, disposition, score,
-       geography_result, vertical_result, active_state_evidence,
-       identity_relationship_evidence, fit_components, reason_codes,
-       missing_field_classes, frozen_occurrence_ids,
-       policy_id, policy_version, policy_hash, selection_hash)
-    VALUES (
-      ${String(qualItem.id)}::uuid, ${String(qualRun.id)}::uuid,
-      ${opts.occurrenceId}::uuid,
-      'selected', 75,
-      '{"eligible":true,"evidenceClass":"verified","reasonCodes":[]}'::jsonb,
-      '{"vertical":"Restaurant","targetVertical":true,"subverticalMapVersion":"1"}'::jsonb,
-      '{"active":true,"rawStatus":"Active","synthetic":false}'::jsonb,
-      '{"exactMatches":[],"conflictingExactMatches":[],"weakMatches":[]}'::jsonb,
-      '{}'::jsonb, '["cert_scaffold"]'::jsonb, '[]'::jsonb,
-      ${occurrenceIds}::jsonb,
-      ${String(policyRow.id)}::uuid,
-      ${Number(policyRow.version)},
-      ${String(policyRow.policy_hash)},
-      ${selectionHash}
-    )
-    RETURNING id
-  `))[0];
+// Activate v3 only in this disposable DB cert environment.
+// Production activation is deferred to MI-09 — a v1-vs-v3 impact preview is required first.
+const pathDActivated = await activateCro03aPolicy({
+  policyId: String(pathDV3Policy.id),
+  expectedVersion: Number(pathDPriorPolicyControl.expected_version),
+  reason: "cert-path-d-v3-activation-disposable-db-only",
+  actorId: String(admin.id),
+});
+console.log(
+  `[cert] Path D setup: v3 policy activated in disposable DB ` +
+  `(policyId=${pathDV3Policy.id} hash=${pathDV3Policy.policy_hash} controlVersion=${pathDActivated.controlVersion})`,
+);
 
-  const handoffRow = rows(await db.execute(sql`
-    INSERT INTO cro03a_handoffs
-      (run_id, decision_id, source_type, source_system, source_key,
-       occurrence_ids, policy_id, policy_version, policy_hash,
-       reason_codes, missing_field_classes, selection_hash, effect_authorized)
-    VALUES (
-      ${String(qualRun.id)}::uuid, ${String(qualDecision.id)}::uuid,
-      'provider_csv_row', 'dbpr-hr', ${opts.subjectKey},
-      ${occurrenceIds}::jsonb,
-      ${String(policyRow.id)}::uuid,
-      ${Number(policyRow.version)},
-      ${String(policyRow.policy_hash)},
-      '[]'::jsonb, '[]'::jsonb, ${selectionHash}, FALSE
-    )
-    RETURNING id
-  `))[0];
+// Seed a disposable DB runtime attestation documenting migration_head alignment.
+// CRO03C_CURRENT_MIGRATION_HEAD = "0255_mi06_business_email_winner" (from contracts.ts).
+// This attestation is not required for CRO-03B processing but documents that the
+// cert ran against the correct migration head.
+const pathDAttestationId = crypto.randomUUID();
+const pathDAttestationHash = crypto.createHash("sha256")
+  .update(`cert-path-d-attestation:${run}:migration_head:0255_mi06_business_email_winner`).digest("hex");
+const pathDFakeReleaseSha = "0000000000000000000000000000000000000000";
+await db.execute(sql`
+  INSERT INTO cro03c_runtime_attestations
+    (id, idempotency_key, artifact_sha, migration_head, deployment_identity,
+     environment_identity, web_boot_identity, worker_boot_identity,
+     queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
+     expires_at, attestation_hash, created_by)
+  VALUES (
+    ${pathDAttestationId}::uuid,
+    ${"cert-path-d-attestation:" + run},
+    ${pathDFakeReleaseSha},
+    ${"0255_mi06_business_email_winner"},
+    ${"cert-path-d"},
+    ${"disposable-db"},
+    ${"cert-web-boot"},
+    ${"cert-worker-boot"},
+    ${pathDAttestationHash},
+    NOW(),
+    TRUE, TRUE,
+    NOW() + INTERVAL '1 hour',
+    ${pathDAttestationHash},
+    ${String(admin.id)}
+  )
+  ON CONFLICT (idempotency_key) DO NOTHING
+`);
+console.log("[cert] Path D setup: disposable DB attestation seeded (migration_head=0255_mi06_business_email_winner)");
 
-  return String(handoffRow.id);
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// PATH D — Real DBPR-HR adapter path (MI-02 field fix certification)
-// ═════════════════════════════════════════════════════════════════════════════
-
-console.log(`\n[cert] ── Path D: DBPR-HR adapter field fix + CRO-03B pipeline (run=${run}) ──`);
-
+try {
 // ── D0: Assert adapter directly exposes the new fields ───────────────────────
 
 const pathDAdapterRow = {
@@ -799,9 +793,11 @@ assert.equal(pathDNormalized!.city, "Miami", "Path D adapter: city must be expos
 assert.equal(pathDNormalized!.address, "456 Biscayne Blvd", "Path D adapter: address must be exposed on NormalizedSourceRecord");
 assert.equal(pathDNormalized!.phone, "3055551234", "Path D adapter: phone must be exposed on NormalizedSourceRecord");
 assert.equal(pathDNormalized!.state, "FL", "Path D adapter: state must be 'FL' (derived from known source geography)");
-console.log("[cert] PASS Path D adapter: normalize() exposes city/state/address/phone on NormalizedSourceRecord");
+assert.equal(pathDNormalized!.vertical, "Restaurant",
+  `Path D adapter: vertical must be 'Restaurant' (canonical string from DBPR_HR_VERTICAL_MAP); got '${pathDNormalized!.vertical}'`);
+console.log("[cert] PASS Path D adapter: normalize() exposes city/state/address/phone/vertical on NormalizedSourceRecord");
 
-// ── D1: Positive fixture — has phone → strong anchor passes after import ──────
+// ── D1: Positive fixture — has phone → real CRO-03A chain → business_locations ─
 
 const pathDLicense1 = `HR-D1-${run.slice(0, 8)}`;
 const pathDPhone1 = `786${runDigits}`;
@@ -850,7 +846,7 @@ console.log(
   `city=${pathD1FieldMap.get("city")}, state=${pathD1FieldMap.get("state")}`,
 );
 
-// Also verify occurrence payload contains the new fields
+// Verify occurrence payload contains canonical field names (not deprecated aliases)
 const pathD1Payload = rows(await db.execute(sql`
   SELECT obs.payload
     FROM cro03_source_observations obs
@@ -866,21 +862,83 @@ assert(pathD1PayloadObj.phone, "Path D positive: occurrence payload must include
 assert(pathD1PayloadObj.city, "Path D positive: occurrence payload must include city field for CRO-03A evaluation");
 assert(pathD1PayloadObj.state, "Path D positive: occurrence payload must include state field for CRO-03A evaluation");
 assert(pathD1PayloadObj.address, "Path D positive: occurrence payload must include address field for CRO-03A evaluation");
-console.log("[cert] Path D positive: occurrence payload includes city/state/address/phone");
+assert.equal(String(pathD1PayloadObj.vertical), "Restaurant",
+  `Path D positive: occurrence payload.vertical must be 'Restaurant' (canonical string); got '${pathD1PayloadObj.vertical}'`);
+assert.equal(String(pathD1PayloadObj.entityStatus), "active",
+  `Path D positive: occurrence payload.entityStatus must be 'active' (string, not boolean); got '${pathD1PayloadObj.entityStatus}'`);
+assert(pathD1PayloadObj.postalCode, "Path D positive: occurrence payload must include postalCode (canonical field, not deprecated addressZip)");
+assert(!("addressZip" in pathD1PayloadObj),
+  "Path D positive: occurrence payload must NOT contain deprecated addressZip field");
+assert(!("licenseType" in pathD1PayloadObj),
+  "Path D positive: occurrence payload must NOT contain raw licenseType — vertical string is used instead");
+console.log(
+  "[cert] Path D positive: occurrence payload canonical fields verified — " +
+  `vertical=${pathD1PayloadObj.vertical} entityStatus=${pathD1PayloadObj.entityStatus} postalCode=${pathD1PayloadObj.postalCode}`,
+);
 
-// Scaffold CRO-03A handoff (DBPR-HR can't pass CRO-03A under current vertical policy)
-const pathD1HandoffId = await scaffoldDbprHrHandoff({
-  label: "path-d-pos",
-  occurrenceId: String(pathD1Occurrence.id),
-  subjectKey: `dbpr-hr:${pathDLicense1}`,
+// Run real CRO-03A qualification against v3 policy (Restaurant/Hospitality now targetVerticals)
+const pathD1QualRun = await createCro03aQualificationRun({
+  idempotencyKey: `cert-path-d-pos-qual:${run}`,
+  occurrenceIds: [String(pathD1Occurrence.id)],
+  actorId: String(admin.id),
+  actorRole: "admin",
 });
+await processCro03aQualificationRunQueueSafe(pathD1QualRun.id);
+
+// Assert decision fields
+const pathD1Decision = rows(await db.execute(sql`
+  SELECT d.disposition, d.score, d.vertical_result, d.active_state_evidence,
+         d.policy_id, d.policy_version, d.policy_hash
+    FROM cro03a_qualification_decisions d
+    JOIN cro03a_qualification_items i ON i.id = d.item_id
+   WHERE i.run_id = ${pathD1QualRun.id}::uuid
+   LIMIT 1
+`))[0];
+assert(pathD1Decision, "Path D positive: qualification decision must exist after CRO-03A run");
+assert.equal(String(pathD1Decision.disposition), "selected",
+  `Path D positive: decision disposition must be 'selected'; got '${pathD1Decision.disposition}'`);
+assert(Number(pathD1Decision.score) >= 70,
+  `Path D positive: decision score must be >= 70 (selectedMinimum); got ${pathD1Decision.score}`);
+
+const pathD1VerticalResult = typeof pathD1Decision.vertical_result === "string"
+  ? JSON.parse(pathD1Decision.vertical_result)
+  : (pathD1Decision.vertical_result as Record<string, unknown>);
+assert.equal(String(pathD1VerticalResult?.vertical), "Restaurant",
+  `Path D positive: decision vertical must be 'Restaurant'; got '${pathD1VerticalResult?.vertical}'`);
+assert(
+  pathD1VerticalResult?.targetVertical === true || String(pathD1VerticalResult?.targetVertical) === "true",
+  `Path D positive: decision targetVertical must be true (v3 includes Restaurant); got '${pathD1VerticalResult?.targetVertical}'`,
+);
+
+const pathD1ActiveEvidence = typeof pathD1Decision.active_state_evidence === "string"
+  ? JSON.parse(pathD1Decision.active_state_evidence)
+  : (pathD1Decision.active_state_evidence as Record<string, unknown>);
+assert(
+  pathD1ActiveEvidence?.active === true || String(pathD1ActiveEvidence?.active).toLowerCase() === "true",
+  `Path D positive: active_state_evidence.active must be true (entityStatus='active'); got '${pathD1ActiveEvidence?.active}'`,
+);
+assert(pathD1Decision.policy_id, "Path D positive: decision must reference a policy_id");
+assert(pathD1Decision.policy_hash, "Path D positive: decision must reference a policy_hash");
+assert.equal(Number(pathD1Decision.policy_version), 3,
+  `Path D positive: decision policy_version must be 3 (v3 policy); got '${pathD1Decision.policy_version}'`);
+console.log(
+  `[cert] Path D positive: CRO-03A decision — disposition=selected score=${pathD1Decision.score} ` +
+  `vertical=Restaurant targetVertical=true entityStatus=active policyVersion=3`,
+);
+
+// Get handoff created by real CRO-03A qualification
+const pathD1Handoff = rows(await db.execute(sql`
+  SELECT id FROM cro03a_handoffs WHERE run_id = ${pathD1QualRun.id}::uuid
+`))[0];
+assert(pathD1Handoff, "Path D positive: handoff must be created by CRO-03A qualification (disposition=selected)");
+const pathD1HandoffId = String(pathD1Handoff.id);
 
 // Admit to CRO-03B
 const pathD1Admitted = await admitCro03bHandoffs({
   handoffIds: [pathD1HandoffId],
   actorId: String(admin.id),
   actorRole: "admin",
-  reason: "CRO-03B certification — Path D positive (phone present)",
+  reason: "CRO-03B certification — Path D positive real chain (phone present)",
 });
 assert(!pathD1Admitted.replayed, "Path D positive: admission must not replay");
 
@@ -910,12 +968,37 @@ const pathD1ItemFinal = rows(await db.execute(sql`
 `))[0];
 assert.equal(pathD1ItemFinal.terminal_code, "business_only_projection_completed",
   `Path D positive: terminal_code must be 'business_only_projection_completed'; got '${pathD1ItemFinal.terminal_code}'`);
+
+// Assert exactly one canonical_source_links row with source_system='dbpr-hr'
+const pathD1SourceLinks = rows(await db.execute(sql`
+  SELECT source_system, stable_key, business_id
+    FROM canonical_source_links
+   WHERE source_system = 'dbpr-hr' AND stable_key = ${'dbpr-hr:' + pathDLicense1}
+`));
+assert.equal(pathD1SourceLinks.length, 1,
+  `Path D positive: must have exactly 1 canonical_source_links row for source_system='dbpr-hr'; got ${pathD1SourceLinks.length}`);
+const pathD1BusinessId = Number((pathD1SourceLinks[0] as any).business_id);
+assert(pathD1BusinessId > 0, "Path D positive: canonical_source_links must reference a valid businesses.id");
+
+// Assert full business_locations row with county_fips='12086' (Miami-Dade, zip 33101)
+const pathD1Locations = rows(await db.execute(sql`
+  SELECT county_fips, postal_code, street_address, city, state
+    FROM business_locations
+   WHERE business_id = ${pathD1BusinessId}
+`));
+assert(pathD1Locations.length > 0,
+  "Path D positive: business_locations row must be created (countyFips loaded from occurrence payload)");
+const pathD1Location = pathD1Locations[0] as any;
+assert.equal(String(pathD1Location.county_fips), "12086",
+  `Path D positive: business_locations.county_fips must be '12086' (Miami-Dade for zip 33101); got '${pathD1Location.county_fips}'`);
 console.log(
-  `[cert] PASS Path D positive: import exposes phone/city/state/address → strong-anchor passes → ` +
-  `business_only_projection_completed (outcome=${pathD1ProjectResult.outcome})`,
+  `[cert] PASS Path D positive: real CRO-03A v3 chain → ` +
+  `decision=selected score=${pathD1Decision.score} vertical=Restaurant targetVertical=true policyVersion=3 → ` +
+  `business_only_projection_completed (outcome=${pathD1ProjectResult.outcome}) → ` +
+  `canonical_source_links(dbpr-hr) → business_locations(county_fips=${pathD1Location.county_fips})`,
 );
 
-// ── D2: Negative fixture — no phone, no address → strong-anchor must fail ─────
+// ── D2: Negative fixture — no phone, no address → CRO-03A qualifies but CRO-03B safe-holds ─
 
 const pathDLicense2 = `HR-D2-${run.slice(0, 8)}`;
 const pathDCsv2 = Buffer.from([
@@ -939,14 +1022,23 @@ const pathD2Occurrence = rows(await db.execute(sql`
 `))[0];
 assert(pathD2Occurrence, "Path D negative: occurrence must exist after import");
 
-const pathD2HandoffId = await scaffoldDbprHrHandoff({
-  label: "path-d-neg",
-  occurrenceId: String(pathD2Occurrence.id),
-  subjectKey: `dbpr-hr:${pathDLicense2}`,
+// Run real CRO-03A against v3 policy — record qualifies (vertical+geo+active score >= 70)
+const pathD2QualRun = await createCro03aQualificationRun({
+  idempotencyKey: `cert-path-d-neg-qual:${run}`,
+  occurrenceIds: [String(pathD2Occurrence.id)],
+  actorId: String(admin.id),
+  actorRole: "admin",
 });
+await processCro03aQualificationRunQueueSafe(pathD2QualRun.id);
+
+const pathD2Handoff = rows(await db.execute(sql`
+  SELECT id FROM cro03a_handoffs WHERE run_id = ${pathD2QualRun.id}::uuid
+`))[0];
+assert(pathD2Handoff,
+  "Path D negative: handoff must be created by CRO-03A qualification (vertical+geo+active scoring passes even without phone)");
 
 const pathD2Admitted = await admitCro03bHandoffs({
-  handoffIds: [pathD2HandoffId],
+  handoffIds: [String(pathD2Handoff.id)],
   actorId: String(admin.id),
   actorRole: "admin",
   reason: "CRO-03B certification — Path D negative (no phone, no address)",
@@ -974,6 +1066,27 @@ await assert.rejects(
 console.log(
   "[cert] PASS Path D negative: no phone + no address → CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED correctly fired",
 );
+
+} finally {
+  // ── D_TEARDOWN: Restore prior CRO-03A policy control pointer (guaranteed) ──
+  // v3 was activated only for this cert run. Restore the prior active policy so
+  // subsequent cert paths and production workflows are not affected.
+  // Uses try/finally to guarantee restoration even if assertions above throw.
+  try {
+    await activateCro03aPolicy({
+      policyId: String(pathDPriorPolicyControl.active_policy_id),
+      expectedVersion: pathDActivated.controlVersion,
+      reason: "cert-path-d-restore-prior-policy-after-v3-cert",
+      actorId: String(admin.id),
+    });
+    console.log(
+      `[cert] Path D teardown: prior policy (id=${pathDPriorPolicyControl.active_policy_id}) restored — ` +
+      `production activation of v3 deferred to MI-09`,
+    );
+  } catch (teardownErr: any) {
+    console.error(`[cert] WARN Path D teardown: failed to restore prior policy — ${teardownErr?.message}. Manual restore required.`);
+  }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PATH E — Cross-source dedup: Apollo + DBPR-HR → same businesses.id

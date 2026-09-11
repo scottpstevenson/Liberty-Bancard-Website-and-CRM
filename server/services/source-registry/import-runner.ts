@@ -395,9 +395,16 @@ export async function runSourceImport(params: {
             rawPayload: r.rawPayload,
             // Public registry fields included in plain payload for audit readability
             businessName: r.businessName ?? null,
-            addressZip: r.zip ?? null,
+            // postalCode: canonical field name read by fit.ts geography evaluator
+            postalCode: r.zip ?? null,
             countyFips: r.countyFips,
-            licenseType: r.licenseType,
+            // vertical: pre-resolved canonical vertical string (e.g. "Restaurant", "Hospitality")
+            // consumed by resolveCro03aVertical() → fit.ts targetVertical scoring.
+            // Adapters that cannot resolve this emit null; CRO-03A falls back to industry/payload.
+            vertical: r.vertical ?? null,
+            // entityStatus: canonical active/inactive string consumed by fit.ts activeRaw check.
+            // Must NOT be the raw boolean sourceStatusActive — fit.ts reads a string value.
+            entityStatus: r.sourceStatusActive ? "active" : "inactive",
             sourceStatus: r.sourceStatus,
             sourceStatusActive: r.sourceStatusActive,
             stableKey: r.stableKey,

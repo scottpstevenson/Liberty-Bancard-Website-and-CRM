@@ -47,6 +47,49 @@ const HR_ESTABLISHMENT_ALLOWLIST = new Set([
   "Seating",
 ]);
 
+/**
+ * Maps each HR_ESTABLISHMENT_ALLOWLIST license type to its canonical CRO-03A vertical string.
+ * Hospitality: lodging types (hotel, motel, resort, B&B, vacation rental, etc.)
+ * Restaurant: all food/beverage service types
+ * Every entry in HR_ESTABLISHMENT_ALLOWLIST must appear here — fail-closed by omission.
+ */
+const DBPR_HR_VERTICAL_MAP: Record<string, "Restaurant" | "Hospitality"> = {
+  // Lodging → Hospitality
+  "Hotel": "Hospitality",
+  "Motel": "Hospitality",
+  "Resort": "Hospitality",
+  "Bed and Breakfast Inn": "Hospitality",
+  "Transient Apartment": "Hospitality",
+  "Vacation Rental": "Hospitality",
+  "Condominium Hotel": "Hospitality",
+  // Food & Beverage → Restaurant
+  "Restaurant": "Restaurant",
+  "Cafeteria": "Restaurant",
+  "Snack Bar": "Restaurant",
+  "Catering Service": "Restaurant",
+  "Food Service Establishment": "Restaurant",
+  "Public Food Service Establishment": "Restaurant",
+  "Permanent Food Service": "Restaurant",
+  "Temporary Food Service": "Restaurant",
+  "Vending Machine": "Restaurant",
+  "Mobile Food Dispensing Vehicle": "Restaurant",
+  "Theme Park Food Service": "Restaurant",
+  "Catering Only": "Restaurant",
+  "Counter Service": "Restaurant",
+  "Take Out": "Restaurant",
+  "Bakery": "Restaurant",
+  "Juice Bar": "Restaurant",
+  "Deli": "Restaurant",
+  "Fast Food": "Restaurant",
+  "Drive Through": "Restaurant",
+  "Food Truck": "Restaurant",
+  "Bar": "Restaurant",
+  "Tavern": "Restaurant",
+  "Lounge": "Restaurant",
+  "Nightclub": "Restaurant",
+  "Seating": "Restaurant",
+};
+
 const ACTIVE_STATUS_MAPPING: Record<string, boolean> = {
   "Active": true,
   "Current, Active": true,
@@ -117,6 +160,10 @@ export const dbprHrAdapter: SourceAdapter = {
       rawPayload,
       countyFips,
       licenseType: licenseType || null,
+      // Pre-resolved canonical vertical string for CRO-03A payload.
+      // null is impossible here because HR_ESTABLISHMENT_ALLOWLIST.has(licenseType)
+      // was verified above, and every allowlisted type is in DBPR_HR_VERTICAL_MAP.
+      vertical: DBPR_HR_VERTICAL_MAP[licenseType] ?? null,
       sourceStatus: sourceStatus || null,
       sourceStatusActive: ACTIVE_STATUS_MAPPING[sourceStatus] ?? false,
       businessName,

@@ -423,7 +423,7 @@ export async function reviewAndProjectCro03bItem(
     // All other types: use the handoff's source_system/source_type/source_key directly
     // with source_type renamed to a canonical type label.
     const handoff = rows(await db.execute(sql`
-      SELECT h.source_system, h.source_type, h.source_key
+      SELECT h.source_system, h.source_type, h.source_key, h.occurrence_ids
         FROM cro03a_handoffs h
         JOIN cro03b_recipe_items i ON i.handoff_id = h.id
        WHERE i.id = ${itemId}::uuid
@@ -466,6 +466,41 @@ export async function reviewAndProjectCro03bItem(
       canonicalStableKey = handoffSourceKey;
     }
 
+    // ── Load countyFips from frozen occurrence observation payloads ────────────
+    // The handoff's occurrence_ids column holds the frozen list of occurrence IDs
+    // that were qualified. Each occurrence's source_observation payload carries the
+    // countyFips derived at import time by deriveCountyFipsFromZip().
+    // Rules:
+    //   - All null → pass null (MI-09 can enrich later via postal_code).
+    //   - Exactly one distinct non-null value → use it.
+    //   - Multiple conflicting non-null values → safe-hold; operator review required.
+    const rawOccurrenceIds: unknown = handoff?.occurrence_ids;
+    const frozenOccurrenceIds: string[] = Array.isArray(rawOccurrenceIds)
+      ? rawOccurrenceIds.map(String)
+      : typeof rawOccurrenceIds === "string"
+      ? (() => { try { return JSON.parse(rawOccurrenceIds) as string[]; } catch { return []; } })()
+      : [];
+    let resolvedCountyFips: string | null = null;
+    if (frozenOccurrenceIds.length > 0) {
+      const fipsObsRows = rows(await db.execute(sql`
+        SELECT DISTINCT (obs.payload->>'countyFips') AS county_fips
+          FROM cro03_source_observations obs
+          JOIN cro03_source_occurrences occ ON occ.source_observation_id = obs.id
+         WHERE occ.id = ANY(${JSON.stringify(frozenOccurrenceIds)}::uuid[])
+           AND obs.payload->>'countyFips' IS NOT NULL
+           AND obs.payload->>'countyFips' != ''
+      `));
+      const distinctFips = fipsObsRows.map((r: any) => String(r.county_fips)).filter(Boolean);
+      if (distinctFips.length === 1) {
+        resolvedCountyFips = distinctFips[0];
+      } else if (distinctFips.length > 1) {
+        throw new Error(
+          `CRO03B_COUNTY_FIPS_CONFLICT: item ${itemId} has conflicting countyFips values ` +
+          `across frozen occurrences: ${distinctFips.join(", ")} — operator review required`,
+        );
+      }
+    }
+
     const { projectBusinessOnly } = await import("./projection-service");
     return projectBusinessOnly({
       itemId,
@@ -478,12 +513,19 @@ export async function reviewAndProjectCro03bItem(
           ? normalizeCandidateValue("website", winners.website.value).split("/")[0] : undefined,
         mainPhone: winners.phone?.value, city: winners.city?.value, state: winners.state?.value,
       },
-      // county_fips from winners.state — FIPS mapping would require a zip code lookup;
-      // winners does not surface a zip code reliably, so this is left null here.
-      // MI-09 can enrich county_fips via the occurrence payload's postal_code.
       location: {
-        city: winners.city?.value, state: winners.state?.value,
-        countyFips: null,
+        city: winners.city?.value,
+        state: winners.state?.value,
+        postalCode: winners.postal_code?.value,
+        streetAddress: winners.address?.value,
+        countyFips: resolvedCountyFips,
+        // licenseSourceKey: bare license identifier stored in business_locations for
+        // traceability back to the governing source record. Subject keys are formatted
+        // as "registryId:licenseNumber" (e.g. "dbpr-hr:HR-12345") — strip the prefix
+        // so business_locations stores the bare license number ("HR-12345").
+        licenseSourceKey: canonicalStableKey.startsWith(`${canonicalSourceSystem}:`)
+          ? canonicalStableKey.slice(`${canonicalSourceSystem}:`.length)
+          : (canonicalStableKey || undefined),
       },
     });
   }
