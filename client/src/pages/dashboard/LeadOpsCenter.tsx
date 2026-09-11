@@ -405,7 +405,7 @@ export default function LeadOpsCenter() {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    refetchInterval: 60000,
+    refetchInterval: 120000,
   });
 
   const configQuery = useQuery<LeadOpsConfig>({
@@ -840,7 +840,7 @@ export default function LeadOpsCenter() {
               }
             </div>
             <span className="text-[10px] text-muted-foreground">
-              Auto-refreshes every 60s
+              Auto-refreshes every 2m
             </span>
           </div>
         </CardHeader>

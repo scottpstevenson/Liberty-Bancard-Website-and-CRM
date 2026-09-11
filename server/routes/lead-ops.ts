@@ -15,9 +15,19 @@ function getOpenAI() {
   });
 }
 
-// ── In-process health cache (60s TTL) ────────────────────────────────────────
+// ── In-process health cache (300 s TTL) with single-flight guard ──────────────
 let _healthCache: { data: any; ts: number } | null = null;
-const HEALTH_CACHE_TTL_MS = 60_000;
+let _healthInflight: Promise<any> | null = null;
+// Incremented each time the cache is invalidated.  A completed computation
+// only publishes its result if its captured generation still matches, so an
+// orphaned promise (started before a manual reset) cannot overwrite newer
+// data or accidentally clear a newer in-flight promise.
+let _healthGeneration = 0;
+const HEALTH_CACHE_TTL_MS = 300_000;
+// Test-mode hook: set HEALTH_CACHE_TEST_MODE=1 to collapse the TTL to 0 and
+// inject a __dbRoundTrips counter into the response body.
+const HEALTH_CACHE_TEST_MODE = process.env.HEALTH_CACHE_TEST_MODE === "1";
+let _healthTestRoundTrips = 0;
 
 // ── In-memory counter: legacy route hits since last startup ───────────────────
 let _legacyRouteAttemptsSinceStartup = 0;
@@ -406,17 +416,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // Pipeline health stats — enrichment throughput, queue depth, success rate,
   // plus worker-authority truth fields (intake path, enrichment_progress
   // status, free-enrichment pending jobs, last scheduled enrichment timestamp).
-  // Cached for 60 seconds to avoid hammering the DB on every poll.
-  app.get("/api/lead-ops/health", requireRole("admin", "manager"), async (_req, res) => {
-    try {
-      const now = Date.now();
-      if (_healthCache && now - _healthCache.ts < HEALTH_CACHE_TTL_MS) {
-        // Always inject the live in-memory counter (not cached — resets on restart).
-        return res.json({ ..._healthCache.data, legacyRouteAttemptsSinceStartup: _legacyRouteAttemptsSinceStartup });
-      }
+  // Cached for 300 s with a single-flight guard: concurrent cache-miss callers
+  // all await the same in-flight Promise instead of launching separate DB scans.
 
-      const [enrichResult, freeEnrichResult, jobRow, progressRaw] = await Promise.all([
-        db.execute(sql`
+  async function runHealthComputation(): Promise<any> {
+    // Wrap the heavy sunbiz_entities aggregate in a 30-second statement timeout
+    // so a runaway scan degrades to stale data rather than holding a pool
+    // connection indefinitely.
+    const [enrichResult, freeEnrichResult, jobRow, progressRaw] = await Promise.all([
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL statement_timeout = '30000'`);
+        return tx.execute(sql`
           SELECT
             COUNT(*) FILTER (WHERE enriched_at >= NOW() - INTERVAL '24 hours')::int          AS enriched_today,
             COUNT(*) FILTER (
@@ -432,128 +442,189 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int                         AS total_failed,
             MAX(enriched_at)                                                                   AS last_enriched_at
           FROM sunbiz_entities
-        `),
-        // Match runFreeContactEnrichmentTick()'s exact eligibility predicate:
-        // (domain IS NOT NULL OR website IS NOT NULL) AND status='pending'
-        // AND doNotContactFlag IS NOT TRUE
-        // AND no sdr_merchant_contacts row with email already present.
-        db.select({ count: sql<number>`COUNT(*)::int` })
-          .from(sdrMerchants)
-          .where(sql`
-            (${sdrMerchants.domain} IS NOT NULL OR ${sdrMerchants.website} IS NOT NULL)
-            AND ${sdrMerchants.ownerEnrichmentStatus} = 'pending'
-            AND ${sdrMerchants.doNotContactFlag} IS NOT TRUE
-            AND NOT EXISTS (
-              SELECT 1 FROM sdr_merchant_contacts mc
-              WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL
-            )
-          `),
-        db.select({ lastFinishedAt: backgroundJobs.lastFinishedAt })
-          .from(backgroundJobs)
-          .where(eq(backgroundJobs.jobName, "enrichment-queue-processor"))
-          .limit(1),
-        storage.getSystemSetting("enrichment_progress").catch(() => null),
-      ]);
-
-      const row = ((enrichResult as any).rows ?? enrichResult)[0] || {};
-      const successRate = (row.total_enriched + row.total_failed) > 0
-        ? Math.round((row.total_enriched / (row.total_enriched + row.total_failed)) * 100)
-        : 0;
-
-      const lastEnrichedAt = row.last_enriched_at ? new Date(row.last_enriched_at) : null;
-      const minutesSinceLastJob = lastEnrichedAt
-        ? Math.floor((Date.now() - lastEnrichedAt.getTime()) / 60000)
-        : null;
-      const workerActive = minutesSinceLastJob !== null && minutesSinceLastJob < 15;
-
-      const freeEnrichPending = Number(freeEnrichResult[0]?.count ?? 0);
-      const lastJobRow = jobRow[0];
-      const lastScheduledEnrichmentAt = lastJobRow?.lastFinishedAt
-        ? new Date(lastJobRow.lastFinishedAt).toISOString()
-        : null;
-
-      const progressObj = (progressRaw as any) || {};
-      const enrichmentProgressStatus: string =
-        progressObj.status === "running" ? "running"
-        : progressObj.status === "interrupted" ? "interrupted"
-        : progressObj.status === "failed" ? "failed"
-        : "idle";
-
-      // Use the same featureFlags getters that runEnrichmentTick() and runDailyOutreachCycle()
-      // check — backed by dbFallbackBool() and accounting for wizard/DB overrides.
-      const sunbizEnrichmentEnabled = featureFlags.SUNBIZ_ENRICHMENT_ENABLED;
-      const legacyOutreachEnabled   = featureFlags.LEGACY_OUTREACH_ENABLED;
-
-      // Truthfully report which intake path(s) are active.
-      // runDailyOutreachCycle (LEGACY_OUTREACH_ENABLED gate) calls reEnrichAllSunbizEntities()
-      // unconditionally in Phase A, so when that path is live BOTH intake paths are active.
-      const intakeAuthority: "scheduled-sunbiz-pipeline" | "legacy-outreach-cycle" | "both" | "none" =
-        sunbizEnrichmentEnabled && legacyOutreachEnabled ? "both"
-        : sunbizEnrichmentEnabled ? "scheduled-sunbiz-pipeline"
-        : legacyOutreachEnabled   ? "legacy-outreach-cycle"
-        : "none";
-
-      // Use sunbiz_entities.MAX(enriched_at) as the definitive "last Sunbiz enrichment ran"
-      // timestamp — this reflects actual completion of the Sunbiz enrichment steps, not the
-      // job-registry heartbeat which fires before those steps execute in runEnrichmentTick().
-      const lastScheduledEnrichmentAtDerived = lastEnrichedAt?.toISOString() ?? null;
-
-      // ── MI-02: sourceRegistryAdapters (additive) ─────────────────────────
-      let sourceRegistryAdapters: Array<{
-        adapterKey: string;
-        lastImportStatus: string | null;
-        lastCompletedAt: string | null;
-        recordCount: number;
-      }> = [];
-      try {
-        const regResult = await db.execute(sql`
-          SELECT
-            a.adapter_key,
-            COUNT(DISTINCT ss.id)::int                AS record_count,
-            MAX(r.completed_at)                       AS last_completed_at,
-            (SELECT r2.status FROM source_import_runs r2
-             WHERE r2.adapter_key = a.adapter_key
-             ORDER BY r2.created_at DESC LIMIT 1)     AS last_import_status
-          FROM source_registry_adapters a
-          LEFT JOIN source_import_runs r ON r.adapter_key = a.adapter_key AND r.status = 'completed'
-          LEFT JOIN cro03_source_subjects ss ON ss.source_system = a.adapter_key AND ss.tombstoned_at IS NULL
-          GROUP BY a.adapter_key
-          ORDER BY a.adapter_key
         `);
-        sourceRegistryAdapters = ((regResult as any).rows ?? regResult).map((row: any) => ({
-          adapterKey: row.adapter_key,
-          lastImportStatus: row.last_import_status ?? null,
-          lastCompletedAt: row.last_completed_at ? new Date(row.last_completed_at).toISOString() : null,
-          recordCount: Number(row.record_count ?? 0),
-        }));
-      } catch {
-        // sourceRegistryAdapters table may not exist in older schemas — degrade gracefully
-        sourceRegistryAdapters = [];
+      }),
+      // Match runFreeContactEnrichmentTick()'s exact eligibility predicate:
+      // (domain IS NOT NULL OR website IS NOT NULL) AND status='pending'
+      // AND doNotContactFlag IS NOT TRUE
+      // AND no sdr_merchant_contacts row with email already present.
+      db.select({ count: sql<number>`COUNT(*)::int` })
+        .from(sdrMerchants)
+        .where(sql`
+          (${sdrMerchants.domain} IS NOT NULL OR ${sdrMerchants.website} IS NOT NULL)
+          AND ${sdrMerchants.ownerEnrichmentStatus} = 'pending'
+          AND ${sdrMerchants.doNotContactFlag} IS NOT TRUE
+          AND NOT EXISTS (
+            SELECT 1 FROM sdr_merchant_contacts mc
+            WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL
+          )
+        `),
+      db.select({ lastFinishedAt: backgroundJobs.lastFinishedAt })
+        .from(backgroundJobs)
+        .where(eq(backgroundJobs.jobName, "enrichment-queue-processor"))
+        .limit(1),
+      storage.getSystemSetting("enrichment_progress").catch(() => null),
+    ]);
+
+    const row = ((enrichResult as any).rows ?? enrichResult)[0] || {};
+    const successRate = (row.total_enriched + row.total_failed) > 0
+      ? Math.round((row.total_enriched / (row.total_enriched + row.total_failed)) * 100)
+      : 0;
+
+    const lastEnrichedAt = row.last_enriched_at ? new Date(row.last_enriched_at) : null;
+    const minutesSinceLastJob = lastEnrichedAt
+      ? Math.floor((Date.now() - lastEnrichedAt.getTime()) / 60000)
+      : null;
+    const workerActive = minutesSinceLastJob !== null && minutesSinceLastJob < 15;
+
+    const freeEnrichPending = Number(freeEnrichResult[0]?.count ?? 0);
+    const lastJobRow = jobRow[0];
+
+    const progressObj = (progressRaw as any) || {};
+    const enrichmentProgressStatus: string =
+      progressObj.status === "running" ? "running"
+      : progressObj.status === "interrupted" ? "interrupted"
+      : progressObj.status === "failed" ? "failed"
+      : "idle";
+
+    // Use the same featureFlags getters that runEnrichmentTick() and runDailyOutreachCycle()
+    // check — backed by dbFallbackBool() and accounting for wizard/DB overrides.
+    const sunbizEnrichmentEnabled = featureFlags.SUNBIZ_ENRICHMENT_ENABLED;
+    const legacyOutreachEnabled   = featureFlags.LEGACY_OUTREACH_ENABLED;
+
+    // Truthfully report which intake path(s) are active.
+    // runDailyOutreachCycle (LEGACY_OUTREACH_ENABLED gate) calls reEnrichAllSunbizEntities()
+    // unconditionally in Phase A, so when that path is live BOTH intake paths are active.
+    const intakeAuthority: "scheduled-sunbiz-pipeline" | "legacy-outreach-cycle" | "both" | "none" =
+      sunbizEnrichmentEnabled && legacyOutreachEnabled ? "both"
+      : sunbizEnrichmentEnabled ? "scheduled-sunbiz-pipeline"
+      : legacyOutreachEnabled   ? "legacy-outreach-cycle"
+      : "none";
+
+    // Use sunbiz_entities.MAX(enriched_at) as the definitive "last Sunbiz enrichment ran"
+    // timestamp — this reflects actual completion of the Sunbiz enrichment steps, not the
+    // job-registry heartbeat which fires before those steps execute in runEnrichmentTick().
+    const lastScheduledEnrichmentAtDerived = lastEnrichedAt?.toISOString() ?? null;
+
+    // ── MI-02: sourceRegistryAdapters (additive) ─────────────────────────
+    let sourceRegistryAdapters: Array<{
+      adapterKey: string;
+      lastImportStatus: string | null;
+      lastCompletedAt: string | null;
+      recordCount: number;
+    }> = [];
+    try {
+      const regResult = await db.execute(sql`
+        SELECT
+          a.adapter_key,
+          COUNT(DISTINCT ss.id)::int                AS record_count,
+          MAX(r.completed_at)                       AS last_completed_at,
+          (SELECT r2.status FROM source_import_runs r2
+           WHERE r2.adapter_key = a.adapter_key
+           ORDER BY r2.created_at DESC LIMIT 1)     AS last_import_status
+        FROM source_registry_adapters a
+        LEFT JOIN source_import_runs r ON r.adapter_key = a.adapter_key AND r.status = 'completed'
+        LEFT JOIN cro03_source_subjects ss ON ss.source_system = a.adapter_key AND ss.tombstoned_at IS NULL
+        GROUP BY a.adapter_key
+        ORDER BY a.adapter_key
+      `);
+      sourceRegistryAdapters = ((regResult as any).rows ?? regResult).map((row: any) => ({
+        adapterKey: row.adapter_key,
+        lastImportStatus: row.last_import_status ?? null,
+        lastCompletedAt: row.last_completed_at ? new Date(row.last_completed_at).toISOString() : null,
+        recordCount: Number(row.record_count ?? 0),
+      }));
+    } catch {
+      // sourceRegistryAdapters table may not exist in older schemas — degrade gracefully
+      sourceRegistryAdapters = [];
+    }
+
+    return {
+      enrichedToday:        row.enriched_today    ?? 0,
+      emailsToday:          row.emails_today      ?? 0,
+      phonesToday:          row.phones_today      ?? 0,
+      queueDepth:           row.queue_depth       ?? 0,
+      totalEnriched:        row.total_enriched    ?? 0,
+      totalFailed:          row.total_failed      ?? 0,
+      successRate,
+      lastEnrichedAt:       lastEnrichedAt?.toISOString() ?? null,
+      minutesSinceLastJob:  minutesSinceLastJob,
+      workerActive,
+      // ── Worker-authority truth fields ───────────────────────────────────
+      intakeAuthority,
+      enrichmentProgressStatus,
+      sunbizEnrichmentEnabled,
+      freeEnrichmentPendingJobs:        freeEnrichPending,
+      lastScheduledEnrichmentAt:        lastScheduledEnrichmentAtDerived,
+      // ── MI-02: Source registry adapters (additive) ─────────────────────
+      sourceRegistryAdapters,
+    };
+  }
+
+  /**
+   * Coalescing cache refresh: concurrent misses all await the **same** in-flight
+   * Promise.  Both the creator and any joiners go through the same stale-fallback
+   * try/catch, so every caller gets stale data (with isStale:true) when the
+   * computation fails and a previous cache entry exists.
+   *
+   * Generation tracking prevents a stale/orphaned computation (e.g. one that was
+   * started before a manual cache invalidation) from overwriting a newer result or
+   * clearing a newer _healthInflight value.
+   */
+  async function getOrRefreshHealth(): Promise<{ data: any; isStale: boolean }> {
+    const now = Date.now();
+    const ttl = HEALTH_CACHE_TEST_MODE ? 0 : HEALTH_CACHE_TTL_MS;
+    if (_healthCache && now - _healthCache.ts < ttl) {
+      return { data: _healthCache.data, isStale: false };
+    }
+
+    if (!_healthInflight) {
+      // First caller after a cache miss — own this generation and start computation.
+      const gen = ++_healthGeneration;
+      _healthInflight = runHealthComputation()
+        .then((data) => {
+          if (HEALTH_CACHE_TEST_MODE) _healthTestRoundTrips++;
+          // Only publish if our generation is still current (not superseded by reset).
+          if (_healthGeneration === gen) {
+            _healthCache = { data, ts: Date.now() };
+          }
+          return data;
+        })
+        .finally(() => {
+          // Only clear the shared pointer if it is still ours.
+          if (_healthGeneration === gen) {
+            _healthInflight = null;
+          }
+        });
+      // Note: rejection is intentionally left unhandled on the promise itself so
+      // that all awaiting callers (below) receive the rejection and can apply the
+      // stale-fallback logic uniformly.
+    }
+
+    // Every caller — creator and all joiners — awaits here with the same error
+    // handling so stale-data fallback is applied to every concurrent request.
+    try {
+      const data = await _healthInflight!;
+      return { data, isStale: false };
+    } catch (err) {
+      if (_healthCache) {
+        console.error("[LeadOps] health refresh failed — serving stale cache:", (err as Error)?.message);
+        return { data: _healthCache.data, isStale: true };
       }
+      throw err;
+    }
+  }
 
-      const data = {
-        enrichedToday:        row.enriched_today    ?? 0,
-        emailsToday:          row.emails_today      ?? 0,
-        phonesToday:          row.phones_today      ?? 0,
-        queueDepth:           row.queue_depth       ?? 0,
-        totalEnriched:        row.total_enriched    ?? 0,
-        totalFailed:          row.total_failed      ?? 0,
-        successRate,
-        lastEnrichedAt:       lastEnrichedAt?.toISOString() ?? null,
-        minutesSinceLastJob:  minutesSinceLastJob,
-        workerActive,
-        // ── Worker-authority truth fields ───────────────────────────────────
-        intakeAuthority,
-        enrichmentProgressStatus,
-        sunbizEnrichmentEnabled,
-        freeEnrichmentPendingJobs:        freeEnrichPending,
-        lastScheduledEnrichmentAt:        lastScheduledEnrichmentAtDerived,
-        // ── MI-02: Source registry adapters (additive) ─────────────────────
-        sourceRegistryAdapters,
-      };
-
-      _healthCache = { data, ts: now };
-      res.json({ ...data, legacyRouteAttemptsSinceStartup: _legacyRouteAttemptsSinceStartup });
+  app.get("/api/lead-ops/health", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { data, isStale } = await getOrRefreshHealth();
+      // Always inject the live in-memory counter (not cached — resets on restart).
+      res.json({
+        ...data,
+        legacyRouteAttemptsSinceStartup: _legacyRouteAttemptsSinceStartup,
+        ...(isStale ? { isStale: true } : {}),
+        ...(HEALTH_CACHE_TEST_MODE ? { __dbRoundTrips: _healthTestRoundTrips } : {}),
+      });
     } catch (err: any) {
       console.error("[LeadOps] health error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to load health stats" });
@@ -588,8 +659,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         details: { cleared, method: "db_processing_reset" },
       });
 
-      // Bust the health cache so the next poll reflects updated counts
+      // Bust the health cache so the next poll reflects updated counts.
+      // Incrementing _healthGeneration orphans any in-flight computation: its
+      // .then() and .finally() callbacks will see a generation mismatch and
+      // will neither overwrite _healthCache nor clear _healthInflight.
       _healthCache = null;
+      _healthGeneration++;
+      _healthInflight = null;
 
       res.json({
         cleared,
