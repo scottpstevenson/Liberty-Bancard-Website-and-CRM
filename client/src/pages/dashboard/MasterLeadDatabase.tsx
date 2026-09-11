@@ -17,10 +17,15 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Database, Shield, CheckCircle2, AlertCircle, Loader2, RefreshCw,
   TrendingUp, Users, BarChart3, Filter, ChevronLeft, ChevronRight,
-  MessageSquareOff, ArrowUpCircle, Download, Zap, XCircle,
+  MessageSquareOff, ArrowUpCircle, Download, Zap, XCircle, GitMerge,
+  Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -59,6 +64,43 @@ interface SmsStatus {
   ghlPhoneNumberIdSet: boolean;
   a2pRegistrationIdSet: boolean;
   blockedReason: string | null;
+}
+
+// ─── Pipeline types ───────────────────────────────────────────────────────────
+
+interface PipelineLead {
+  id: string;
+  status: string;
+  company: string | null;
+  normalizedCompany: string | null;
+  domain: string | null;
+  maskedEmail: string | null;
+  emailType: string | null;
+  phone: string | null;
+  vertical: string | null;
+  countyFips: string | null;
+  qualityScore: number | null;
+  fitTier: string | null;
+  readinessReason: string | null;
+  canonicalBusinessId: number | null;
+  cro03GenerationId: string | null;
+  openConflictCount: number;
+  promotedAt: string | null;
+  createdAt: string;
+}
+
+interface PipelineStats {
+  staged: number;
+  readyToPromote: number;
+  suppressed: number;
+  duplicates: number;
+  promoted: number;
+}
+
+interface PromotionPreview {
+  rows: Array<{ masterLeadId: string; company: string | null; blocker: string | null; eligible: boolean }>;
+  eligibleCount: number;
+  blockedCount: number;
 }
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -117,6 +159,470 @@ function BarBreakdown({ rows, labelKey, countKey, maxRows = 10 }: {
       {rows.length > maxRows && (
         <p className="text-xs text-muted-foreground">+{rows.length - maxRows} more</p>
       )}
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+// ─── Fit tier badge ───────────────────────────────────────────────────────────
+
+function FitTierBadge({ tier }: { tier: string | null }) {
+  const colors: Record<string, string> = {
+    A: "bg-emerald-100 text-emerald-800",
+    B: "bg-blue-100 text-blue-800",
+    C: "bg-amber-100 text-amber-700",
+  };
+  const cls = colors[tier ?? ""] ?? "bg-gray-100 text-gray-700";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${cls}`}>
+      {tier ?? "—"}
+    </span>
+  );
+}
+
+// ─── Pipeline Review Tab ──────────────────────────────────────────────────────
+
+function PipelineReviewTab() {
+  const { toast } = useToast();
+  const [pipelineStatusFilter, setPipelineStatusFilter] = useState("staged");
+  const [pipelineFitTier, setPipelineFitTier] = useState("all");
+  const [pipelinePage, setPipelinePage] = useState(0);
+  const [bulkPreviewGenerationId, setBulkPreviewGenerationId] = useState("");
+  const [showBulkPreviewDialog, setShowBulkPreviewDialog] = useState(false);
+  const [bulkPreviewData, setBulkPreviewData] = useState<PromotionPreview | null>(null);
+  const [promotingPipelineId, setPromotingPipelineId] = useState<string | null>(null);
+  const PIPELINE_PAGE_SIZE = 50;
+
+  const { data: pipelineStats, refetch: refetchPipelineStats } = useQuery<PipelineStats>({
+    queryKey: ["/api/master-leads/pipeline-stats"],
+    queryFn: async () => {
+      const r = await fetch("/api/master-leads/pipeline-stats", { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load pipeline stats");
+      return r.json();
+    },
+  });
+
+  const pipelineParams = new URLSearchParams({
+    status: pipelineStatusFilter,
+    ...(pipelineFitTier !== "all" && { fitTier: pipelineFitTier }),
+    page: String(pipelinePage),
+    limit: String(PIPELINE_PAGE_SIZE),
+  });
+
+  const { data: pipelineLeads, isLoading: pipelineLoading, refetch: refetchPipeline } = useQuery<{
+    leads: PipelineLead[]; total: number;
+  }>({
+    queryKey: ["/api/master-leads/pipeline", pipelineStatusFilter, pipelineFitTier, pipelinePage],
+    queryFn: async () => {
+      const r = await fetch(`/api/master-leads/pipeline?${pipelineParams}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load pipeline leads");
+      return r.json();
+    },
+  });
+
+  const promotePipelineMutation = useMutation({
+    mutationFn: async (masterLeadId: string) => {
+      const csrf = getCsrfToken();
+      const r = await fetch(`/api/master-leads/pipeline/${masterLeadId}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ message: "Failed" }));
+        throw new Error(`${err.code ?? ""}: ${err.message ?? "Promotion failed"}`);
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Lead promoted to contact (local_only mode)" });
+      setPromotingPipelineId(null);
+      refetchPipeline();
+      refetchPipelineStats();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Promotion failed", description: err.message, variant: "destructive" });
+      setPromotingPipelineId(null);
+    },
+  });
+
+  const suppressPipelineMutation = useMutation({
+    mutationFn: async (masterLeadId: string) => {
+      const csrf = getCsrfToken();
+      const r = await fetch(`/api/master-leads/pipeline/${masterLeadId}/suppress`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+        credentials: "include",
+        body: JSON.stringify({ reason: "admin_suppressed" }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ message: "Failed" }));
+        throw new Error(err.message ?? "Suppress failed");
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Lead suppressed" });
+      refetchPipeline();
+      refetchPipelineStats();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Suppress failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkPreviewMutation = useMutation({
+    mutationFn: async (generationId: string) => {
+      const r = await fetch(`/api/master-leads/generations/${generationId}/promotion-preview`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load preview");
+      return r.json() as Promise<PromotionPreview>;
+    },
+    onSuccess: (data) => {
+      setBulkPreviewData(data);
+      setShowBulkPreviewDialog(true);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Preview failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkPromoteMutation = useMutation({
+    mutationFn: async (generationId: string) => {
+      const csrf = getCsrfToken();
+      const r = await fetch(`/api/master-leads/generations/${generationId}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      if (!r.ok) throw new Error("Bulk promote failed");
+      return r.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: `Promoted ${data.promotedCount} leads`, description: `${data.blockedCount} blocked` });
+      setShowBulkPreviewDialog(false);
+      refetchPipeline();
+      refetchPipelineStats();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Bulk promote failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const pipelineTotalPages = Math.ceil((pipelineLeads?.total ?? 0) / PIPELINE_PAGE_SIZE);
+
+  return (
+    <div className="space-y-4">
+      {/* Pipeline stats counter */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[
+          { label: "Staged", value: pipelineStats?.staged ?? 0, color: "text-blue-700" },
+          { label: "Ready", value: pipelineStats?.readyToPromote ?? 0, color: "text-green-700" },
+          { label: "Promoted", value: pipelineStats?.promoted ?? 0, color: "text-emerald-700" },
+          { label: "Suppressed", value: pipelineStats?.suppressed ?? 0, color: "text-red-700" },
+          { label: "Duplicates", value: pipelineStats?.duplicates ?? 0, color: "text-amber-700" },
+        ].map(({ label, value, color }) => (
+          <Card key={label}>
+            <CardContent className="pt-3 pb-3">
+              <p className={`text-xl font-bold ${color}`}>{value.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">{label}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Bulk promote by generation */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <GitMerge className="h-4 w-4" />
+            Bulk Promote by Generation
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input
+              placeholder="cro03_generation_id (UUID)"
+              value={bulkPreviewGenerationId}
+              onChange={(e) => setBulkPreviewGenerationId(e.target.value)}
+              className="h-8 text-sm font-mono w-80"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!bulkPreviewGenerationId.trim() || bulkPreviewMutation.isPending}
+              onClick={() => bulkPreviewMutation.mutate(bulkPreviewGenerationId.trim())}
+            >
+              {bulkPreviewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
+              Preview
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pipeline leads table */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Pipeline Leads
+              {pipelineLeads && (
+                <Badge variant="secondary" className="ml-1">{pipelineLeads.total.toLocaleString()}</Badge>
+              )}
+            </CardTitle>
+            <Button size="sm" variant="outline" className="h-7" onClick={() => { refetchPipeline(); refetchPipelineStats(); }}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Refresh
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <Select value={pipelineStatusFilter} onValueChange={(v) => { setPipelineStatusFilter(v); setPipelinePage(0); }}>
+              <SelectTrigger className="h-8 text-sm w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="staged">Staged</SelectItem>
+                <SelectItem value="promoted">Promoted</SelectItem>
+                <SelectItem value="suppressed">Suppressed</SelectItem>
+                <SelectItem value="duplicate">Duplicate</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={pipelineFitTier} onValueChange={(v) => { setPipelineFitTier(v); setPipelinePage(0); }}>
+              <SelectTrigger className="h-8 text-sm w-28">
+                <SelectValue placeholder="All tiers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All tiers</SelectItem>
+                <SelectItem value="A">A</SelectItem>
+                <SelectItem value="B">B</SelectItem>
+                <SelectItem value="C">C</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Tier</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead className="hidden md:table-cell">Vertical</TableHead>
+                  <TableHead className="hidden lg:table-cell">County</TableHead>
+                  <TableHead className="hidden lg:table-cell">Score</TableHead>
+                  <TableHead className="hidden md:table-cell">Readiness</TableHead>
+                  <TableHead>Conflicts</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pipelineLoading ? (
+                  [...Array(5)].map((_, i) => (
+                    <TableRow key={i}>
+                      {[...Array(9)].map((_, j) => (
+                        <TableCell key={j}><div className="h-4 bg-muted rounded animate-pulse w-20" /></TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : !pipelineLeads?.leads?.length ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      No pipeline leads found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pipelineLeads.leads.map((lead) => (
+                    <TableRow key={lead.id}>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium text-sm truncate max-w-[180px]">{lead.company ?? "—"}</p>
+                          {lead.domain && <p className="text-xs text-muted-foreground">{lead.domain}</p>}
+                        </div>
+                      </TableCell>
+                      <TableCell><FitTierBadge tier={lead.fitTier} /></TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="text-xs font-mono">{lead.maskedEmail ?? "—"}</p>
+                          {lead.emailType && (
+                            <span className="text-xs text-green-600">{lead.emailType}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell text-xs">{lead.vertical ?? "—"}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-xs">{lead.countyFips ?? "—"}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-xs">{lead.qualityScore != null ? lead.qualityScore.toFixed(0) : "—"}</TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {lead.readinessReason && (
+                          <span className="text-xs font-mono bg-muted px-1 rounded">{lead.readinessReason}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {lead.openConflictCount > 0 ? (
+                          <Badge variant="destructive" className="text-xs">{lead.openConflictCount}</Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {lead.status === "staged" && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs text-green-700 border-green-300 hover:bg-green-50"
+                                    disabled={lead.openConflictCount > 0 || promotePipelineMutation.isPending}
+                                    onClick={() => setPromotingPipelineId(lead.id)}
+                                  >
+                                    <ArrowUpCircle className="h-3 w-3 mr-1" />
+                                    Promote
+                                  </Button>
+                                </TooltipTrigger>
+                                {lead.openConflictCount > 0 && (
+                                  <TooltipContent>
+                                    <p>Cannot promote — {lead.openConflictCount} open conflict(s)</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          {lead.status === "staged" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-red-600 hover:bg-red-50"
+                              disabled={suppressPipelineMutation.isPending}
+                              onClick={() => suppressPipelineMutation.mutate(lead.id)}
+                            >
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Suppress
+                            </Button>
+                          )}
+                          {lead.status === "promoted" && (
+                            <span className="text-xs text-emerald-600 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Promoted
+                            </span>
+                          )}
+                          {lead.status === "suppressed" && (
+                            <span className="text-xs text-red-500">Suppressed</span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {pipelineTotalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <p className="text-xs text-muted-foreground">
+                Page {pipelinePage + 1} of {pipelineTotalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setPipelinePage(p => p - 1)} disabled={pipelinePage === 0}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => setPipelinePage(p => p + 1)} disabled={pipelinePage >= pipelineTotalPages - 1}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pipeline promote confirmation */}
+      <AlertDialog open={!!promotingPipelineId} onOpenChange={(open) => { if (!open) setPromotingPipelineId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ArrowUpCircle className="h-5 w-5 text-green-600" />
+              Promote Pipeline Lead to Contact?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will create a new <strong>contacts</strong> row in <strong>local_only mode</strong> — no GHL sync,
+              no sequence enrollment, no deal, no outbound effect of any kind.
+              The contact will have <code>consent_tier=cold_no_consent</code>.
+              <br /><br />
+              This action is governed by preconditions (valid email, no open conflicts, no duplicate contact).
+              If preconditions are unmet, the promotion returns a 422 with the specific blocker.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-green-600 hover:bg-green-700"
+              onClick={() => { if (promotingPipelineId) promotePipelineMutation.mutate(promotingPipelineId); }}
+              disabled={promotePipelineMutation.isPending}
+            >
+              {promotePipelineMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Promoting…</>
+                : "Yes, Promote to Contact"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk promote preview dialog */}
+      <AlertDialog open={showBulkPreviewDialog} onOpenChange={setShowBulkPreviewDialog}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bulk Promote Preview</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-green-700">{bulkPreviewData?.eligibleCount ?? 0}</p>
+                    <p className="text-xs text-green-600">Eligible to promote</p>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-amber-700">{bulkPreviewData?.blockedCount ?? 0}</p>
+                    <p className="text-xs text-amber-600">Blocked</p>
+                  </div>
+                </div>
+                {(bulkPreviewData?.rows ?? []).filter(r => !r.eligible).length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium mb-1">Blocked rows:</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {(bulkPreviewData?.rows ?? []).filter(r => !r.eligible).map(r => (
+                        <div key={r.masterLeadId} className="flex justify-between text-xs bg-muted px-2 py-1 rounded">
+                          <span className="truncate">{r.company ?? r.masterLeadId}</span>
+                          <span className="text-red-600 shrink-0 ml-2">{r.blocker}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Only eligible rows will be promoted. Blocked rows are skipped with per-row reason codes.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-green-600 hover:bg-green-700"
+              disabled={bulkPromoteMutation.isPending || (bulkPreviewData?.eligibleCount ?? 0) === 0}
+              onClick={() => { if (bulkPreviewGenerationId) bulkPromoteMutation.mutate(bulkPreviewGenerationId.trim()); }}
+            >
+              {bulkPromoteMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Promoting…</>
+                : `Promote ${bulkPreviewData?.eligibleCount ?? 0} eligible`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -260,7 +766,7 @@ export default function MasterLeadDatabase() {
             Master Lead Database
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Authoritative staged lead pool — deduped, suppressed, and status-tracked. No lead auto-enrolls from here.
+            Manual-import &amp; CRO-03 pipeline staging pool — deduped, suppressed, and status-tracked.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -515,6 +1021,27 @@ export default function MasterLeadDatabase() {
         </Card>
       )}
 
+      {/* Tabs: Manual Import | Pipeline Review */}
+      <Tabs defaultValue="manual-import">
+        <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="manual-import" className="flex items-center gap-1.5">
+            <Download className="h-3.5 w-3.5" />
+            Manual Import
+          </TabsTrigger>
+          <TabsTrigger value="pipeline-review" className="flex items-center gap-1.5">
+            <GitMerge className="h-3.5 w-3.5" />
+            Pipeline Review
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Pipeline Review tab (MI-07) ── */}
+        <TabsContent value="pipeline-review" className="mt-4">
+          <PipelineReviewTab />
+        </TabsContent>
+
+        {/* ── Manual Import tab (existing content) ── */}
+        <TabsContent value="manual-import">
+
       {/* Lead table with filters */}
       <Card>
         <CardHeader className="pb-3">
@@ -763,6 +1290,9 @@ export default function MasterLeadDatabase() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+        </TabsContent>{/* end manual-import TabsContent */}
+      </Tabs>
     </div>
   );
 }

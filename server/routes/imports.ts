@@ -2768,4 +2768,307 @@ Guidelines:
     res.json(progress || { status: "idle" });
   });
 
+  // =========================================================
+  // MI-07: PIPELINE PROMOTION ROUTES
+  // =========================================================
+
+  // Pipeline stats: counts derived from staging receipts
+  app.get("/api/master-leads/pipeline-stats", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const [stagedResult, suppressedResult, duplicateResult, promotedResult] = await Promise.all([
+        // staged = currently staged (not yet promoted/suppressed)
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_leads WHERE pipeline_origin='cro03_pipeline' AND status='staged'`),
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_lead_staging_receipts WHERE disposition='suppressed'`),
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_lead_staging_receipts WHERE disposition='duplicate'`),
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_leads WHERE pipeline_origin='cro03_pipeline' AND status='promoted'`),
+      ]);
+      // readyToPromote = staged rows that pass the core promotion preconditions:
+      // - businesses.email_discovery_status = 'provider_valid'
+      // - no open canonical_conflict_evidence row for the business
+      // This is a best-effort server-side count; per-row enforcement remains in the promote endpoint.
+      const readyResult = await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt
+        FROM master_leads ml
+        JOIN businesses b ON b.id = ml.canonical_business_id
+        WHERE ml.pipeline_origin = 'cro03_pipeline'
+          AND ml.status = 'staged'
+          AND b.email_discovery_status = 'provider_valid'
+          AND NOT EXISTS (
+            SELECT 1 FROM canonical_conflict_evidence cce
+            WHERE (cce.business_id_a = ml.canonical_business_id OR cce.business_id_b = ml.canonical_business_id)
+              AND cce.status = 'open'
+          )
+      `);
+      const staged = Number((stagedResult.rows[0] as any)?.cnt ?? 0);
+      res.json({
+        staged,
+        readyToPromote: Number((readyResult.rows[0] as any)?.cnt ?? 0),
+        suppressed: Number((suppressedResult.rows[0] as any)?.cnt ?? 0),
+        duplicates: Number((duplicateResult.rows[0] as any)?.cnt ?? 0),
+        promoted: Number((promotedResult.rows[0] as any)?.cnt ?? 0),
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // List pipeline-staged leads (for Pipeline Review tab)
+  app.get("/api/master-leads/pipeline", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { status = "staged", generationId, fitTier, county, page = "0", limit = "50" } = req.query as Record<string, string>;
+      const offset = Number(page) * Number(limit);
+
+      let whereClause = sql`ml.pipeline_origin = 'cro03_pipeline'`;
+      if (status) whereClause = sql`${whereClause} AND ml.status = ${status}`;
+      if (generationId) whereClause = sql`${whereClause} AND ml.cro03_generation_id = ${generationId}::uuid`;
+      if (fitTier) whereClause = sql`${whereClause} AND ml.fit_tier = ${fitTier}`;
+      if (county) whereClause = sql`${whereClause} AND ml.county_fips = ${county}`;
+
+      const leadsResult = await db.execute(sql`
+        SELECT
+          ml.id, ml.status, ml.company, ml.normalized_company, ml.domain,
+          ml.masked_email, ml.email_type, ml.phone, ml.contact_name, ml.contact_title,
+          ml.vertical, ml.county_fips, ml.quality_score, ml.fit_tier,
+          ml.outreach_readiness, ml.readiness_reason,
+          ml.canonical_business_id, ml.cro03_generation_id::text,
+          ml.promoted_at, ml.promoted_by, ml.suppressed_at, ml.created_at,
+          (
+            SELECT COUNT(*)::int FROM canonical_conflict_evidence cce
+            WHERE (cce.business_id_a = ml.canonical_business_id OR cce.business_id_b = ml.canonical_business_id)
+              AND cce.status = 'open'
+          ) AS open_conflict_count
+        FROM master_leads ml
+        WHERE ${whereClause}
+        ORDER BY ml.created_at DESC
+        LIMIT ${Number(limit)} OFFSET ${offset}
+      `);
+
+      const countResult = await db.execute(sql`
+        SELECT COUNT(*)::int AS total FROM master_leads ml WHERE ${whereClause}
+      `);
+
+      // Map snake_case SQL columns to camelCase for the UI contract
+      const leads = (leadsResult.rows as any[]).map((r) => ({
+        id: r.id,
+        status: r.status,
+        company: r.company,
+        normalizedCompany: r.normalized_company,
+        domain: r.domain,
+        maskedEmail: r.masked_email,
+        emailType: r.email_type,
+        phone: r.phone,
+        contactName: r.contact_name,
+        contactTitle: r.contact_title,
+        vertical: r.vertical,
+        countyFips: r.county_fips,
+        qualityScore: r.quality_score != null ? Number(r.quality_score) : null,
+        fitTier: r.fit_tier,
+        outreachReadiness: r.outreach_readiness,
+        readinessReason: r.readiness_reason,
+        canonicalBusinessId: r.canonical_business_id != null ? Number(r.canonical_business_id) : null,
+        cro03GenerationId: r.cro03_generation_id,
+        promotedAt: r.promoted_at,
+        promotedBy: r.promoted_by,
+        suppressedAt: r.suppressed_at,
+        createdAt: r.created_at,
+        openConflictCount: Number(r.open_conflict_count ?? 0),
+      }));
+
+      res.json({
+        leads,
+        total: Number((countResult.rows[0] as any)?.total ?? 0),
+        page: Number(page),
+        limit: Number(limit),
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Promotion preview for a single lead (no writes)
+  app.get("/api/master-leads/pipeline/:id/promotion-check", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { checkPromotionPreconditions } = await import("../services/master-leads/pipeline-promotion");
+      const masterLeadId = String(req.params.id);
+      const check = await checkPromotionPreconditions(masterLeadId);
+      res.json({
+        masterLeadId,
+        eligible: check.blocker === null,
+        blocker: check.blocker,
+        message: (check as any).message ?? null,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Promote a single pipeline lead to a contact
+  app.post("/api/master-leads/pipeline/:id/promote", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { promoteMasterLead, checkPromotionPreconditions } = await import("../services/master-leads/pipeline-promotion");
+      const masterLeadId = String(req.params.id);
+
+      // Pre-check for clear fast-fail on obviously invalid rows, but allow
+      // ALREADY_PROMOTED to pass through so promoteMasterLead() can return
+      // the idempotent success result (with original contactId) on committed retries.
+      const check = await checkPromotionPreconditions(masterLeadId);
+      if (check.blocker && check.blocker !== "ALREADY_PROMOTED") {
+        return res.status(422).json({ code: check.blocker, message: (check as any).message });
+      }
+
+      const promotedBy = String((req.user as any)?.id ?? "admin");
+      const result = await promoteMasterLead({ masterLeadId, promotedBy });
+
+      if (!result.success) {
+        return res.status(422).json({ code: result.code, message: result.message });
+      }
+
+      res.json({
+        success: true,
+        contactId: result.contactId,
+        masterLeadId: result.masterLeadId,
+        alreadyPromoted: result.alreadyPromoted ?? false,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Suppress a pipeline lead
+  app.post("/api/master-leads/pipeline/:id/suppress", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { reason = "admin_suppressed" } = req.body;
+      const masterLeadId = String(req.params.id);
+      const actorId = String((req.user as any)?.id ?? "admin");
+
+      // Atomic: verify pipeline_origin, then conditionally transition status in one transaction.
+      // Using FOR UPDATE + conditional UPDATE prevents a concurrent promotion from being overwritten.
+      await db.transaction(async (tx) => {
+        // Lock the row first
+        const lockResult = (await tx.execute(sql`
+          SELECT id, status, pipeline_origin
+          FROM master_leads
+          WHERE id = ${masterLeadId}::uuid
+          FOR UPDATE
+          LIMIT 1
+        `)).rows as any[];
+
+        if (lockResult.length === 0) {
+          throw Object.assign(new Error("Not found"), { statusCode: 404 });
+        }
+        const lead = lockResult[0];
+        if (lead.pipeline_origin !== "cro03_pipeline") {
+          throw Object.assign(new Error("Not a pipeline row"), { statusCode: 400 });
+        }
+        if (lead.status !== "staged") {
+          throw Object.assign(
+            new Error(`Cannot suppress a lead in status '${lead.status}'`),
+            { statusCode: 422 },
+          );
+        }
+
+        // Conditional UPDATE — only transitions if status is still 'staged'
+        await tx.execute(sql`
+          UPDATE master_leads
+             SET status = 'suppressed', suppression_reason = ${reason}, suppressed_at = NOW(), updated_at = NOW()
+           WHERE id = ${masterLeadId}::uuid
+             AND status = 'staged'
+        `);
+
+        await tx.execute(sql`
+          INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+          VALUES (${actorId}, 'master_lead_pipeline_suppressed', 'master_lead', ${masterLeadId},
+                  ${JSON.stringify({ reason })}::jsonb, 'user', ${actorId})
+        `);
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      const statusCode = (err as any).statusCode;
+      if (statusCode === 404) return res.status(404).json({ message: "Not found" });
+      if (statusCode === 400) return res.status(400).json({ message: err.message });
+      if (statusCode === 422) return res.status(422).json({ message: err.message });
+      serverError(res, err);
+    }
+  });
+
+  // Bulk promote preview for a generation
+  app.get("/api/master-leads/generations/:id/promotion-preview", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { previewGenerationPromotion } = await import("../services/master-leads/pipeline-promotion");
+      const preview = await previewGenerationPromotion(String(req.params.id));
+      res.json(preview);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Bulk promote eligible rows for a generation
+  app.post("/api/master-leads/generations/:id/promote", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { promoteGenerationEligible } = await import("../services/master-leads/pipeline-promotion");
+      const promotedBy = String((req.user as any)?.id ?? "admin");
+      const result = await promoteGenerationEligible(String(req.params.id), promotedBy);
+      res.json({
+        success: true,
+        promotedCount: result.promoted.length,
+        blockedCount: result.blocked.length,
+        promoted: result.promoted,
+        blocked: result.blocked,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Generation batch reconciliation stats
+  app.get("/api/master-leads/generations/:id/stats", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const generationId = String(req.params.id);
+      const batchResult = (await db.execute(sql`
+        SELECT total_submitted, staged_count, duplicate_count, suppressed_count, failed_count, reconciled_at
+        FROM master_lead_generation_batches
+        WHERE cro03_generation_id = ${generationId}::uuid
+        LIMIT 1
+      `)).rows as any[];
+
+      if (batchResult.length === 0) {
+        // Compute on the fly from receipts
+        const receiptResult = (await db.execute(sql`
+          SELECT
+            COUNT(*)::int                                                  AS total_submitted,
+            COUNT(*) FILTER (WHERE disposition='staged')::int             AS staged_count,
+            COUNT(*) FILTER (WHERE disposition='duplicate')::int          AS duplicate_count,
+            COUNT(*) FILTER (WHERE disposition='suppressed')::int         AS suppressed_count,
+            COUNT(*) FILTER (WHERE disposition='failed')::int             AS failed_count
+          FROM master_lead_staging_receipts
+          WHERE cro03_generation_id = ${generationId}::uuid
+        `)).rows[0] as any;
+
+        return res.json({
+          cro03GenerationId: generationId,
+          totalSubmitted: Number(receiptResult?.total_submitted ?? 0),
+          stagedCount: Number(receiptResult?.staged_count ?? 0),
+          duplicateCount: Number(receiptResult?.duplicate_count ?? 0),
+          suppressedCount: Number(receiptResult?.suppressed_count ?? 0),
+          failedCount: Number(receiptResult?.failed_count ?? 0),
+          reconciledAt: null,
+        });
+      }
+
+      const r = batchResult[0];
+      res.json({
+        cro03GenerationId: generationId,
+        totalSubmitted: Number(r.total_submitted),
+        stagedCount: Number(r.staged_count),
+        duplicateCount: Number(r.duplicate_count),
+        suppressedCount: Number(r.suppressed_count),
+        failedCount: Number(r.failed_count),
+        reconciledAt: r.reconciled_at,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
 }

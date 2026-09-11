@@ -1111,7 +1111,69 @@ async function run(): Promise<void> {
     failures++;
   }
 
-  const totalCases = CASES.length + 6 + 1; // + campaign/sequence BOLA, ownership paths, reanalyze, CSV checks, canonical-conflicts, MI-06
+  // ── MI-07: pipeline promotion endpoints role guards ─────────────────────────
+  console.log("\n── MI-07: pipeline promotion endpoints role guards ──");
+  try {
+    const MI07_ROUTES = [
+      { method: "GET",  path: "/api/master-leads/pipeline-stats",           desc: "GET pipeline-stats" },
+      { method: "GET",  path: "/api/master-leads/pipeline",                 desc: "GET pipeline leads" },
+      { method: "GET",  path: "/api/master-leads/pipeline/test-id/promotion-check", desc: "GET promotion-check" },
+      { method: "GET",  path: "/api/master-leads/generations/test-id/promotion-preview", desc: "GET promotion-preview" },
+      { method: "GET",  path: "/api/master-leads/generations/test-id/stats", desc: "GET generation stats" },
+    ];
+    // POST routes need CSRF token for admin, anon gets 401, agent/merchant get 403
+    const MI07_POST_ROUTES = [
+      "/api/master-leads/pipeline/test-id/promote",
+      "/api/master-leads/pipeline/test-id/suppress",
+      "/api/master-leads/generations/test-id/promote",
+    ];
+    const adminCsrfRes = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie: adminCookie } });
+    const adminCsrfToken = adminCsrfRes.ok ? (await adminCsrfRes.json() as any).token : "";
+
+    let mi07Failures = 0;
+
+    for (const { method, path, desc } of MI07_ROUTES) {
+      const [anonStatus, merchantStatus, adminStatus] = await Promise.all([
+        fetch(`${BASE_URL}${path}`, { method }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method, headers: { cookie: merchantCookie } }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method, headers: { cookie: adminCookie } }).then(r => r.status),
+      ]);
+      const anonOk = anonStatus === 401;
+      const merchantOk = merchantStatus === 403;
+      const adminOk = adminStatus !== 401 && adminStatus !== 403;
+      if (anonOk && merchantOk && adminOk) {
+        console.log(`  ✓ ${method} ${path}: anon→${anonStatus} merchant→${merchantStatus} admin→${adminStatus}`);
+      } else {
+        if (!anonOk)    { console.log(`  ✗ ${desc}: anon→${anonStatus} (expected 401)`); failures++; mi07Failures++; }
+        if (!merchantOk){ console.log(`  ✗ ${desc}: merchant→${merchantStatus} (expected 403)`); failures++; mi07Failures++; }
+        if (!adminOk)   { console.log(`  ✗ ${desc}: admin→${adminStatus} (expected non-401/403)`); failures++; mi07Failures++; }
+      }
+    }
+
+    for (const path of MI07_POST_ROUTES) {
+      const [anonStatus, merchantStatus, adminStatus] = await Promise.all([
+        fetch(`${BASE_URL}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method: "POST", headers: { cookie: merchantCookie, "content-type": "application/json", "x-csrf-token": "" }, body: "{}" }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method: "POST", headers: { cookie: adminCookie, "content-type": "application/json", "x-csrf-token": adminCsrfToken }, body: "{}" }).then(r => r.status),
+      ]);
+      const anonOk = anonStatus === 401;
+      const merchantOk = merchantStatus === 403;
+      const adminOk = adminStatus !== 401 && adminStatus !== 403;
+      if (anonOk && merchantOk && adminOk) {
+        console.log(`  ✓ POST ${path}: anon→${anonStatus} merchant→${merchantStatus} admin→${adminStatus}`);
+      } else {
+        if (!anonOk)    { console.log(`  ✗ POST ${path}: anon→${anonStatus} (expected 401)`); failures++; mi07Failures++; }
+        if (!merchantOk){ console.log(`  ✗ POST ${path}: merchant→${merchantStatus} (expected 403)`); failures++; mi07Failures++; }
+        if (!adminOk)   { console.log(`  ✗ POST ${path}: admin→${adminStatus} (expected non-401/403)`); failures++; mi07Failures++; }
+      }
+    }
+    if (mi07Failures === 0) console.log(`  ✓ All ${MI07_ROUTES.length + MI07_POST_ROUTES.length} MI-07 routes correctly guarded`);
+  } catch (err) {
+    console.log(`✗ MI-07 routes guard check threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  const totalCases = CASES.length + 6 + 1 + 1; // + BOLA/ownership/reanalyze/CSV/canonical-conflicts/MI-06/MI-07
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

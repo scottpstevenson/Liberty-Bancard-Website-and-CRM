@@ -387,6 +387,7 @@ interface WriteResultInput {
 async function writeBusinessValidationResult(input: WriteResultInput): Promise<void> {
   const { intentId, claimToken, businessId, email, discoveryStatus, zbStatus, normalizedEmailHash } = input;
 
+  let newStagingIntentId: string | null = null;
   await db.transaction(async (tx) => {
     // Step 1: Atomically transition the intent from 'claimed' → 'completed'.
     // Requiring state='claimed' prevents a cancelled/superseded intent from
@@ -456,7 +457,64 @@ async function writeBusinessValidationResult(input: WriteResultInput): Promise<v
               })}::jsonb,
               'system', 'cro03c_business_validation')
     `);
+
+    // MI-07: Atomically insert a staging intent when result is provider_valid.
+    // The intent row is consumed by the master-lead-stager BullMQ worker.
+    // We resolve the generation_id through business_validation_intents → winner_selection → generation.
+    // ON CONFLICT DO NOTHING prevents duplicate pending intents for the same business+generation.
+    // The new intent ID is returned from the transaction so we can enqueue AFTER the tx commits.
+    if (discoveryStatus === "provider_valid") {
+      const genResult = (await tx.execute(sql`
+        SELECT ws.generation_id
+        FROM business_validation_intents bvi
+        JOIN cro03c_email_winner_selections ws ON ws.id = bvi.winner_selection_id
+        WHERE bvi.id = ${intentId}::uuid
+          AND ws.generation_id IS NOT NULL
+        LIMIT 1
+      `)).rows as any[];
+
+      if (genResult.length > 0) {
+        const generationId = String(genResult[0].generation_id);
+        const stagingIntentResult = (await tx.execute(sql`
+          INSERT INTO master_lead_staging_intents
+            (canonical_business_id, cro03_generation_id, status, created_at, updated_at)
+          VALUES
+            (${businessId}, ${generationId}::uuid, 'pending', NOW(), NOW())
+          ON CONFLICT (canonical_business_id, cro03_generation_id) WHERE status = 'pending'
+          DO NOTHING
+          RETURNING id
+        `)).rows as any[];
+
+        // Capture intent ID here so we can enqueue after the transaction commits.
+        if (stagingIntentResult.length > 0) {
+          newStagingIntentId = String(stagingIntentResult[0].id);
+        }
+      }
+    }
   });
+
+  // Enqueue AFTER db.transaction() resolves — the row is now visible to the worker.
+  // setImmediate is intentionally not used: we want the enqueue to run synchronously
+  // relative to the caller so a successful validation always results in an enqueued job.
+  if (newStagingIntentId) {
+    try {
+      const { requireQueueManagerReady, QUEUE_NAMES } = await import("../queue-manager");
+      const qm = requireQueueManagerReady();
+      const queue = qm.getQueue(QUEUE_NAMES.MASTER_LEAD_STAGER);
+      if (queue) {
+        await queue.add("stage", { intentId: newStagingIntentId }, {
+          attempts: 5,
+          backoff: { type: "exponential", delay: 15_000 },
+          removeOnComplete: { count: 500 },
+          removeOnFail: { count: 200 },
+        });
+      }
+    } catch (err) {
+      // QueueManager may not be ready in test environments — log and continue.
+      // The recover-pending-intents schedule will catch the un-enqueued intent.
+      console.error("[MasterLeadStager] Failed to enqueue staging intent:", err);
+    }
+  }
 }
 
 // ── Startup reconciliation for existing businesses.mainEmail values ───────────

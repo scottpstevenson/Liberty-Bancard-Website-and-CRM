@@ -420,6 +420,18 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 0, // on-demand only — schedule_disabled=true for all adapters
     jobName: "run",
   },
+  {
+    // MI-07: master-lead-stager — event-driven; one job per staging intent.
+    // Jobs are enqueued by writeBusinessValidationResult() when provider_valid.
+    // concurrency=3: staging jobs are mostly DB reads/writes with no external calls.
+    // attempts=5: exponential backoff; failed intent rows remain pending for retry.
+    name: QUEUE_NAMES.MASTER_LEAD_STAGER,
+    concurrency: 3,
+    attempts: 5,
+    backoffDelay: 15_000,
+    repeatEveryMs: 0, // event-driven only
+    jobName: "stage",
+  },
 ];
 
 /**
@@ -482,6 +494,16 @@ const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
     repeatEveryMs: 24 * 60 * 60 * 1000, // documentation only when cronPattern is set
     cronPattern:  process.env.CRO03A_WATCHDOG_CRON ?? "0 7 * * *", // 7 AM UTC daily
     jobId:        "cro03a-watchdog-stale-occurrences-repeatable",
+  },
+  {
+    // MI-07: master-lead-stager pending-intent recovery sweep.
+    // Re-enqueues any committed pending intents that were not consumed due to a
+    // queue-outage window between writeBusinessValidationResult() and BullMQ delivery.
+    // Safe to run frequently — idempotency guards in the worker prevent double-staging.
+    queueName:    QUEUE_NAMES.MASTER_LEAD_STAGER,
+    jobName:      "recover-pending-intents",
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 10 * 60 * 1000, // 10 min prod, 5 min dev
+    jobId:        "mi07-stager-recovery-repeatable",
   },
 ];
 
@@ -2160,6 +2182,30 @@ class QueueManager {
           // All intent (adapterKey, isFullSnapshot, csvBuffer) is read from the DB row.
           // The BullMQ payload contains ONLY runId — no source PII or intent in Redis.
           await runSourceImport({ runId });
+          break;
+        }
+        case QUEUE_NAMES.MASTER_LEAD_STAGER: {
+          const { processMasterLeadStagingIntent, recoverPendingIntents } = await import("../workers/master-lead-stager.worker");
+
+          if (_job.name === "recover-pending-intents") {
+            // Periodic recovery sweep — re-enqueues committed pending intents older
+            // than 5 min that were never delivered to BullMQ (e.g. post-queue-outage).
+            const result = await recoverPendingIntents({ olderThanMinutes: 5, limit: 200 });
+            if (result.recovered > 0) {
+              console.log(`[MasterLeadStager] Recovery sweep re-enqueued ${result.recovered} pending intents`);
+            }
+            break;
+          }
+
+          // Regular staging job: consume a master_lead_staging_intents row.
+          // Payload contains only intentId — no PII/email in Redis.
+          // Pass isTerminalAttempt so the worker only marks the intent 'failed' on the
+          // last attempt; transient failures leave the intent 'pending' so BullMQ can retry.
+          const { intentId } = _job.data as { intentId: string };
+          if (!intentId) throw new Error("master-lead-stager job missing intentId");
+          const attemptsAllowed = _job.opts?.attempts ?? 5;
+          const isTerminalAttempt = (_job.attemptsMade ?? 0) >= attemptsAllowed - 1;
+          await processMasterLeadStagingIntent(intentId, { isTerminalAttempt });
           break;
         }
         default:

@@ -58,6 +58,7 @@ export const WORKER_CAPABILITY_GROUPS = {
   /** Live provider execution gate: CRO03C dispatch and recovery */
   "provider-live": [
     "cro03c-live",
+    "master-lead-stager", // MI-07: terminal step of cro03c pipeline — stages validated leads
   ],
   /** Email validation via ZeroBounce */
   "email-validation": [

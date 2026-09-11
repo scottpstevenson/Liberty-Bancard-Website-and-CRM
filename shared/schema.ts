@@ -7270,6 +7270,26 @@ export const masterLeads = pgTable("master_leads", {
 
   importedAt: timestamp("imported_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
+
+  // ── MI-07: Pipeline columns (added in migration 0257) ──────────────────────
+  // Discriminator: 'manual_import' (default) | 'cro03_pipeline'
+  pipelineOrigin: text("pipeline_origin").notNull().default("manual_import"),
+  // FK to businesses.id — set only for cro03_pipeline rows
+  canonicalBusinessId: integer("canonical_business_id"),
+  // FK to cro03c_generations.id (UUID) — set only for cro03_pipeline rows
+  cro03GenerationId: uuid("cro03_generation_id"),
+  // SHA-256 hex hash of normalised email — used for dedup; never plaintext
+  emailTokenHash: text("email_token_hash"),
+  // County FIPS from business_locations
+  countyFips: text("county_fips"),
+  // Masked email display (e.g. j***@example.com) for pipeline rows
+  maskedEmail: text("masked_email"),
+  // Timestamp when pipeline row was suppressed by admin
+  suppressedAt: timestamp("suppressed_at", { withTimezone: true }),
+  // FK to contacts.id after successful pipeline promotion
+  promotedContactId: integer("promoted_contact_id"),
+  // Updated timestamp for pipeline mutations
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
 }, (table) => [
   index("master_leads_batch_id_idx").on(table.importBatchId),
   index("master_leads_domain_idx").on(table.domain),
@@ -7279,10 +7299,73 @@ export const masterLeads = pgTable("master_leads", {
   index("master_leads_vertical_idx").on(table.vertical),
   index("master_leads_fit_tier_idx").on(table.fitTier),
   index("master_leads_promoted_at_idx").on(table.promotedAt),
+  index("master_leads_pipeline_origin_idx").on(table.pipelineOrigin),
+  index("master_leads_canonical_business_id_idx").on(table.canonicalBusinessId),
 ]);
 
 export type MasterLead = typeof masterLeads.$inferSelect;
 export type InsertMasterLead = typeof masterLeads.$inferInsert;
+
+// ── MI-07: master_lead_staging_intents ───────────────────────────────────────
+// Durable outbox — one row per (canonical_business_id, cro03_generation_id).
+// Written atomically by writeBusinessValidationResult() when provider_valid.
+// Consumed by master-lead-stager.worker.ts BullMQ worker.
+export const masterLeadStagingIntents = pgTable("master_lead_staging_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  canonicalBusinessId: integer("canonical_business_id").references(() => businesses.id).notNull(),
+  cro03GenerationId: uuid("cro03_generation_id").notNull(),
+  status: text("status").notNull().default("pending"), // pending | consumed | failed
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("master_lead_staging_intents_status_idx").on(table.status),
+  index("master_lead_staging_intents_business_idx").on(table.canonicalBusinessId),
+]);
+
+export type MasterLeadStagingIntent = typeof masterLeadStagingIntents.$inferSelect;
+export type InsertMasterLeadStagingIntent = typeof masterLeadStagingIntents.$inferInsert;
+
+// ── MI-07: master_lead_staging_receipts ──────────────────────────────────────
+// One receipt per (cro03_generation_id, canonical_business_id).
+// Source of truth for disposition — generation totals derived from here.
+export const masterLeadStagingReceipts = pgTable("master_lead_staging_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cro03GenerationId: uuid("cro03_generation_id").notNull(),
+  canonicalBusinessId: integer("canonical_business_id").references(() => businesses.id).notNull(),
+  masterLeadId: uuid("master_lead_id"), // NULL for duplicate/suppressed
+  disposition: text("disposition").notNull(), // staged | duplicate | suppressed | failed
+  suppressionReason: text("suppression_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("master_lead_staging_receipts_gen_biz_uidx").on(table.cro03GenerationId, table.canonicalBusinessId),
+  index("master_lead_staging_receipts_generation_idx").on(table.cro03GenerationId),
+  index("master_lead_staging_receipts_master_lead_idx").on(table.masterLeadId),
+]);
+
+export type MasterLeadStagingReceipt = typeof masterLeadStagingReceipts.$inferSelect;
+export type InsertMasterLeadStagingReceipt = typeof masterLeadStagingReceipts.$inferInsert;
+
+// ── MI-07: master_lead_generation_batches ────────────────────────────────────
+// Per-generation totals computed from receipts at reconciliation time.
+export const masterLeadGenerationBatches = pgTable("master_lead_generation_batches", {
+  id: serial("id").primaryKey(),
+  cro03GenerationId: uuid("cro03_generation_id").notNull().unique(),
+  totalSubmitted: integer("total_submitted").notNull().default(0),
+  stagedCount: integer("staged_count").notNull().default(0),
+  duplicateCount: integer("duplicate_count").notNull().default(0),
+  suppressedCount: integer("suppressed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("master_lead_generation_batches_generation_idx").on(table.cro03GenerationId),
+]);
+
+export type MasterLeadGenerationBatch = typeof masterLeadGenerationBatches.$inferSelect;
+export type InsertMasterLeadGenerationBatch = typeof masterLeadGenerationBatches.$inferInsert;
 
 // ── Agent Payout Ledger ────────────────────────────────────────────────────────
 export const agentPayouts = pgTable("agent_payouts", {

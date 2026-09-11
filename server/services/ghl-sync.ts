@@ -369,6 +369,24 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     const contact = await storage.getContact(contactId);
     if (!contact) return { success: false, error: "Contact not found" };
 
+    // ── Pipeline local-only fence ─────────────────────────────────────────────
+    // Contacts promoted via the CRO-03 pipeline carry a terminal GHL projection
+    // row (terminal_reason='pipeline_local_only'). They must never be exported to
+    // GHL — not through the normal broad scan, not through fullSyncToGhl(), and
+    // not through half-open circuit recovery.
+    const localOnlyFence = ((await db.execute(sql`
+      SELECT 1 FROM contact_provider_projections
+      WHERE contact_id = ${contactId}
+        AND provider = 'ghl'
+        AND state = 'terminal'
+        AND terminal_reason = 'pipeline_local_only'
+      LIMIT 1
+    ` as any)).rows as any[]);
+    if (localOnlyFence.length > 0) {
+      console.log(`[GHL Sync] Contact #${contactId} is pipeline_local_only — skipping GHL export`);
+      return { success: false, error: "PIPELINE_LOCAL_ONLY" };
+    }
+
     // ── Pre-send payload validation (task #1604) ─────────────────────────────
     // A single malformed/placeholder email causes GHL to 422, which (as a
     // "retryable" classification) would wedge circuit recovery. Strip the bad
