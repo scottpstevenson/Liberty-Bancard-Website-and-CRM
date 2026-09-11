@@ -9,7 +9,10 @@ import {
   type Cro03cLiveProviderContext,
 } from "../cro03/live-execution";
 
-const APOLLO_API_URL = "https://api.apollo.io/v1";
+const APOLLO_API_URL = "https://api.apollo.io";
+const APOLLO_ORG_SEARCH_PATH = "/api/v1/mixed_companies/search";
+const APOLLO_PEOPLE_SEARCH_PATH = "/api/v1/mixed_people/api_search";
+const APOLLO_PEOPLE_REVEAL_PATH = "/api/v1/people/match";
 const CRO03C_APOLLO_CALLER = "server/services/cro03/live-provider-executors.ts";
 
 export interface ApolloBusiness {
@@ -95,6 +98,12 @@ export type Cro03cApolloExecution =
     organizationId: string;
     organization: ApolloRedactedBusiness;
     people: ApolloRedactedBusiness[];
+    /**
+     * MI-05: Apollo person IDs (opaque database identifiers, not PII) for the
+     * ranked person list. Preserved so the executor can issue credit-bearing
+     * People Match (reveal) requests per person. Parallel-indexed to `people`.
+     */
+    personIds: string[];
     billing: ApolloCreditCertainty & { certainty: "exact"; creditedUnits: number };
   }
   | {
@@ -414,7 +423,7 @@ export async function executeApolloForCro03c(
     // cap only from its receipt afterwards.
     const remainingUnits = resultCap - creditedUnits;
     if (remainingUnits < 1) break;
-    const response = await postApolloForCro03c(context, "/organizations/search", {
+    const response = await postApolloForCro03c(context, APOLLO_ORG_SEARCH_PATH, {
       ...query,
       ...(frozenIdentity.city || frozenIdentity.state
         ? { organization_locations: [`${frozenIdentity.city?.trim() ?? ""}${frozenIdentity.city && frozenIdentity.state ? ", " : ""}${frozenIdentity.state?.trim() ?? ""}`] }
@@ -448,10 +457,12 @@ export async function executeApolloForCro03c(
   if (remainingUnits < 1) {
     return {
       outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
-      people: [], billing: { certainty: "exact", creditedUnits, providerReference },
+      people: [], personIds: [], billing: { certainty: "exact", creditedUnits, providerReference },
     };
   }
-  const peopleResponse = await postApolloForCro03c(context, "/mixed_people/search", {
+  // People search (zero credits on standard plan, no email returned).
+  // Reveal is a separate credit-bearing call per person (see revealApolloPerson).
+  const peopleResponse = await postApolloForCro03c(context, APOLLO_PEOPLE_SEARCH_PATH, {
     organization_ids: [selectedId], page: 1, per_page: Math.min(resultCap, remainingUnits),
   }, fetchOverride);
   const peopleCredits = peopleResponse.billing.creditedUnits;
@@ -465,13 +476,19 @@ export async function executeApolloForCro03c(
   }
   creditedUnits += peopleCredits;
   providerReference ??= peopleResponse.billing.providerReference;
-  const people = (Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [])
+  const rawPeople = (Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [])
     .filter((person: Record<string, any>) => organizationId(person.organization || person) === selectedId)
-    .slice(0, resultCap)
-    .map((person: Record<string, any>) => redactedApolloBusiness(parseApolloPerson(person)));
+    .slice(0, resultCap);
+  const people = rawPeople.map((person: Record<string, any>) => redactedApolloBusiness(parseApolloPerson(person)));
+  // MI-05: preserve opaque Apollo person IDs (non-PII) for the reveal step.
+  // IMPORTANT: keep empty-string placeholders for persons without an ID so
+  // personIds[] stays parallel with people[]. The executor zips by index; a
+  // missing ID must not shift subsequent valid IDs to pair with the wrong title.
+  const personIds: string[] = rawPeople
+    .map((person: Record<string, any>) => String(person.id ?? person.person_id ?? ""));
   return {
     outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
-    people, billing: { certainty: "exact", creditedUnits, providerReference },
+    people, personIds, billing: { certainty: "exact", creditedUnits, providerReference },
   };
 }
 
@@ -505,7 +522,7 @@ export async function resolveApolloOrganizationForFrozenIdentity(
 
   const organizations = new Map<string, Record<string, any>>();
   for (const query of queries) {
-    const data = await postApollo("/organizations/search", {
+    const data = await postApollo(APOLLO_ORG_SEARCH_PATH, {
       ...query,
       ...(requestCity || requestState
         ? { organization_locations: [`${requestCity ?? ""}${requestCity && requestState ? ", " : ""}${requestState ?? ""}`] }
@@ -528,7 +545,7 @@ export async function resolveApolloOrganizationForFrozenIdentity(
   if (alternatives.length !== 1) return { outcome: "ambiguous", alternatives };
 
   const selected = alternatives[0];
-  const peopleData = await postApollo("/mixed_people/search", {
+  const peopleData = await postApollo(APOLLO_PEOPLE_SEARCH_PATH, {
     organization_ids: [selected.organizationId],
     page: 1,
     per_page: 100,
@@ -633,7 +650,7 @@ export async function testApolloConnection(): Promise<{ success: true; count: nu
 
   let response: Response;
   try {
-    response = await fetch(`${APOLLO_API_URL}/mixed_people/search`, {
+    response = await fetch(`${APOLLO_API_URL}${APOLLO_PEOPLE_SEARCH_PATH}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -716,7 +733,7 @@ export async function searchApolloForDiscovery(
       per_page: perPage,
     };
 
-    const response = await (fetchOverride ?? fetch)(`${APOLLO_API_URL}/mixed_people/search`, {
+    const response = await (fetchOverride ?? fetch)(`${APOLLO_API_URL}${APOLLO_PEOPLE_SEARCH_PATH}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -771,4 +788,85 @@ export async function searchApolloForDiscovery(
     if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
     throw err;
   }
+}
+
+// ── MI-05: Apollo People Reveal (credit-bearing per-person call) ──────────────
+
+export type ApolloMatchConfidence = "high" | "medium" | "low" | "none";
+
+export interface ApolloRevealResult {
+  outcome: "accepted" | "quarantine" | "no_result";
+  /** Present for 'accepted' and 'quarantine' (medium confidence). Encrypted by caller before storage. */
+  email?: string;
+  /** Present for 'accepted' and 'quarantine'. */
+  matchConfidence?: ApolloMatchConfidence;
+  billing: ApolloCreditCertainty;
+}
+
+/**
+ * People Match (reveal) endpoint.  Separate credit-bearing call per person.
+ * - 'high' match_confidence → accepted.
+ * - 'medium' → quarantine for operator review.
+ * - 'low' | 'none' → no_result, no candidate written.
+ * Phone reveal is explicitly excluded (reveal_phone_number: false).
+ * MI-05 hard limit: max 3 reveals per business/generation (enforced by callers).
+ */
+export async function revealApolloPerson(
+  context: Cro03cLiveProviderContext,
+  personId: string,
+  fetchOverride: ApolloFetch,
+): Promise<ApolloRevealResult> {
+  if (!context || context.kind !== "cro03c_live" || context.provider !== "apollo") {
+    throw new Error("CRO03C_PROVIDER_CONTEXT_REQUIRED");
+  }
+  assertCro03cLiveContext(context);
+  if (!fetchOverride) throw new Error("APOLLO_FETCH_OVERRIDE_REQUIRED");
+  if (!personId) throw new Error("APOLLO_PERSON_ID_REQUIRED");
+  if (!process.env.APOLLO_API_KEY) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+  }
+
+  const response = await postApolloForCro03c(
+    context,
+    APOLLO_PEOPLE_REVEAL_PATH,
+    {
+      id: personId,
+      reveal_personal_emails: true,
+      reveal_phone_number: false, // Phone reveal requires async webhook; excluded from MI-05.
+    },
+    fetchOverride,
+  );
+
+  if (!response.ok || response.billing.certainty !== "exact" || response.billing.creditedUnits === undefined) {
+    return { outcome: "quarantine", billing: response.billing };
+  }
+
+  const person = response.body?.person ?? response.body?.people?.[0] ?? null;
+  if (!person) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: response.billing.creditedUnits } };
+  }
+
+  const rawConfidence = person.match_confidence as string | undefined;
+  const matchConfidence: ApolloMatchConfidence =
+    rawConfidence === "high" ? "high"
+    : rawConfidence === "medium" ? "medium"
+    : rawConfidence === "low" ? "low"
+    : "none";
+
+  const email: string | null = person.email ?? person.personal_email ?? null;
+  const billing: ApolloCreditCertainty = { certainty: "exact", creditedUnits: response.billing.creditedUnits };
+
+  if (matchConfidence === "low" || matchConfidence === "none") {
+    return { outcome: "no_result", matchConfidence, billing };
+  }
+  if (matchConfidence === "medium") {
+    // Include the email so the caller can persist it with quarantined disposition
+    // for operator review. Do NOT write it to receipts or logs.
+    return { outcome: "quarantine", matchConfidence, billing, ...(email ? { email } : {}) };
+  }
+  // high: accepted only if email present.
+  if (!email) {
+    return { outcome: "no_result", matchConfidence, billing };
+  }
+  return { outcome: "accepted", email, matchConfidence, billing };
 }

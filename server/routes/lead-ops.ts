@@ -556,6 +556,34 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       sourceRegistryAdapters = [];
     }
 
+    // ── MI-05: CRO-03C provider spend aggregates (last 24 h) ─────────────
+    // Source: cro03c_stage_operations (settled_units, settled_amount_micros).
+    // cro03_provider_ledger is legacy and intentionally NOT queried here.
+    let apolloDailySpend = 0;
+    let outscraperDailySpend = 0;
+    let serperDailySpend = 0;
+    try {
+      const spendResult = await db.execute(sql`
+        SELECT
+          provider,
+          COALESCE(SUM(settled_amount_micros), 0)::bigint AS total_micros
+        FROM cro03c_stage_operations
+        WHERE completed_at >= NOW() - INTERVAL '24 hours'
+          AND state = 'completed'
+        GROUP BY provider
+      `);
+      const spendRows: any[] = (spendResult as any).rows ?? spendResult ?? [];
+      for (const r of spendRows) {
+        const micros = Number(r.total_micros ?? 0);
+        if (r.provider === "apollo")     apolloDailySpend     = micros;
+        if (r.provider === "outscraper") outscraperDailySpend = micros;
+        if (r.provider === "serper")     serperDailySpend     = micros;
+      }
+    } catch {
+      // cro03c_stage_operations may not have a settled_at column in all
+      // environments — degrade gracefully.
+    }
+
     return {
       enrichedToday:        row.enriched_today    ?? 0,
       emailsToday:          row.emails_today      ?? 0,
@@ -577,6 +605,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       canonicalFreeEnrichmentQueueDepth,
       // ── MI-02: Source registry adapters (additive) ─────────────────────
       sourceRegistryAdapters,
+      // ── MI-05: Provider spend (last 24 h, from cro03c_stage_operations) ─
+      apolloDailySpend,
+      outscraperDailySpend,
+      serperDailySpend,
     };
   }
 

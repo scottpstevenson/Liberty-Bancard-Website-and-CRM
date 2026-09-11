@@ -11,7 +11,7 @@ export const CRO03_HASH_ALGORITHM_VERSION = "sha256-v1" as const;
 /** Single release/migration binding shared by CRO03C authorities and workers.
  * Kept here rather than live-execution so provider-readiness-control can verify
  * it without importing an executor that itself calls readiness control. */
-export const CRO03C_CURRENT_MIGRATION_HEAD = "0202_cro03c_transport_invocation_checkpoint" as const;
+export const CRO03C_CURRENT_MIGRATION_HEAD = "0252_cro03c_candidate_evidence" as const;
 
 /** The one-time initial-rollout singleton key. Kept here (not live-execution)
  * so dependency-free callers — e.g. an operator discovery tool that must not

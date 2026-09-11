@@ -1792,6 +1792,13 @@
       "when": 1800000005400,
       "tag": "0251_processor_signals_unique",
       "breakpoints": false
+    },
+    {
+      "idx": 256,
+      "version": "7",
+      "when": 1800000006000,
+      "tag": "0252_cro03c_candidate_evidence",
+      "breakpoints": false
     }
   ]
 }

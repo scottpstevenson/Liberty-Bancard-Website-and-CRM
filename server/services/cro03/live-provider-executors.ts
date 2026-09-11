@@ -1,11 +1,16 @@
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { db } from "../../db";
 import { assertProviderActivation } from "../provider-manifest";
 import { serperGateway, type SerperEndpoint } from "../serper-gateway";
-import { executeApolloForCro03c, type ApolloFrozenOrganizationIdentity } from "../sdr/apollo";
+import { executeApolloForCro03c, revealApolloPerson, type ApolloFrozenOrganizationIdentity } from "../sdr/apollo";
 import {
   executeCro03cOutscraper, type Cro03cFrozenOutscraperQuery,
 } from "../sdr/outscraper";
+import { writeCandidateEvidence, readCandidateEvidence } from "./candidate-evidence-service";
+import { isEmailCandidateAccepted } from "./candidate-selector";
+import { projectBusinessEnrichmentFields } from "./projection-service";
 import { processValidationIntent } from "../provider-readiness-control";
 import { hashCro03Evidence } from "./source-staging";
 import {
@@ -27,6 +32,74 @@ import type { DurableEgressLimiter, EgressTransport } from "./safe-egress";
  * stage plan before crossing this boundary.
  */
 const CALLER = "server/services/cro03/live-provider-executors.ts";
+
+/** Title rank for Apollo reveal priority (lower = higher priority). */
+const APOLLO_REVEAL_TITLE_RANK: Record<string, number> = {
+  owner: 0, president: 1, ceo: 2, founder: 3,
+  "co-founder": 3, gm: 4, "general manager": 4, director: 5,
+};
+
+const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+const rows = (result: any): any[] => result?.rows ?? result ?? [];
+
+/**
+ * Look up the canonical businessId for a CRO-03C generation.
+ * Traces: cro03c_generations → cro03a_handoffs → canonical_source_links.
+ * Returns null if no confirmed business link exists yet.
+ */
+async function resolveBusinessIdForGeneration(generationId: string): Promise<number | null> {
+  const result = rows(await db.execute(sql`
+    SELECT csl.business_id
+      FROM cro03c_generations g
+      JOIN cro03a_handoffs h ON h.id = g.handoff_id
+      JOIN canonical_source_links csl
+        ON csl.source_system = h.source_system
+       AND csl.source_type   = h.source_type
+       AND csl.stable_key    = h.source_key
+     WHERE g.id = ${generationId}::uuid
+     LIMIT 1
+  `));
+  const id = result[0]?.business_id;
+  return id != null ? Number(id) : null;
+}
+
+/**
+ * Extract email addresses from a Serper response body.
+ * Returns only addresses that pass the business-level candidate selector.
+ * Order: knowledge-graph attributes first, then organic snippets.
+ */
+function extractSerperBusinessEmails(data: any): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  function scan(text: string | null | undefined) {
+    if (!text) return;
+    const matches = text.match(EMAIL_RE) ?? [];
+    for (const m of matches) {
+      const lower = m.toLowerCase();
+      if (!seen.has(lower) && isEmailCandidateAccepted(lower, "business")) {
+        seen.add(lower);
+        candidates.push(lower);
+      }
+    }
+  }
+
+  // Knowledge graph — highest authority.
+  const kg = data?.knowledgeGraph;
+  if (kg) {
+    scan(kg.email);
+    const attrs = kg.attributes ?? {};
+    for (const v of Object.values(attrs)) scan(String(v));
+  }
+
+  // Organic results.
+  for (const organic of (data?.organic ?? [])) {
+    scan(organic.snippet);
+    scan(organic.title);
+  }
+
+  return candidates;
+}
 const SHA256 = /^[0-9a-f]{64}$/i;
 /**
  * These registries are deliberately empty until a reviewed CRO03C release
@@ -261,7 +334,49 @@ export async function executeCro03cLiveProvider(
       if (!response.ok) return result(context, input, "failed", 0, {
         ...redactedSerperMetadata(response.status),
       });
-      return result(context, input, "success", 1, redactedSerperMetadata(response.status));
+
+      // ── MI-05: extract org-level candidate evidence from Serper response ──
+      // Business emails from Serper are subject_type='business' and eligible
+      // for businesses.mainEmail projection. Never written to contacts.
+      let candidatesAttempted = 0;
+      if (response.data) {
+        const orgEmails = extractSerperBusinessEmails(response.data);
+        for (const [idx, email] of orgEmails.slice(0, 3).entries()) {
+          // Evidence writes are durable; failure must propagate so the durable
+          // stage worker retries rather than silently completing a paid stage
+          // with no persisted evidence.
+          await writeCandidateEvidence({
+            generationId: context.generationId,
+            stageKey: context.stageKey,
+            field: "email",
+            value: email,
+            subjectType: "business",
+            confidence: 70,
+            // Unique source_rank per email so all candidates survive the uniqueness key.
+            sourceRank: 20 + idx,
+          });
+          candidatesAttempted++;
+        }
+        // Retry-safe projection: read persisted business evidence from DB
+        // (not the transient orgEmails list). A retry after a failed projection
+        // reads the durable candidates and projects correctly.
+        // Projection failure must also propagate so the worker retries.
+        const businessId = await resolveBusinessIdForGeneration(context.generationId);
+        if (businessId != null) {
+          const persistedCandidates = await readCandidateEvidence(context.generationId, {
+            subjectType: "business",
+            dispositions: ["staged", "accepted"],
+          });
+          if (persistedCandidates.length > 0) {
+            await projectBusinessEnrichmentFields({ businessId, generationId: context.generationId, candidates: persistedCandidates });
+          }
+        }
+      }
+
+      return result(context, input, "success", 1, {
+        ...redactedSerperMetadata(response.status),
+        candidatesAttempted,
+      });
     }
 
     case "apollo": {
@@ -286,6 +401,95 @@ export async function executeCro03cLiveProvider(
       if (creditedUnits === undefined) {
         return result(context, input, "ambiguous", 0, { billingCertainty: "unknown" });
       }
+      let revealCredits = 0;
+      let personCandidatesWritten = 0;
+
+      if (response.outcome === "success" && response.personIds.length > 0) {
+        // ── MI-05: Apollo person reveals (max 3, ranked by title) ────────────
+        // Person IDs are opaque Apollo DB identifiers, not PII (MI-05 §1).
+        // Person emails are subject_type='person' — NOT written to businesses.
+        // Serper/Outscraper org emails are the only path to businesses.mainEmail.
+        const REVEAL_CAP = 3;
+
+        // Preserve {personId, ownerTitle} as a zipped pair BEFORE filtering so
+        // a missing personId never shifts a valid ID to pair with the wrong title.
+        const paired = response.people
+          .map((p, i) => ({ personId: response.personIds[i] ?? "", title: p.ownerTitle?.toLowerCase() ?? "" }))
+          .filter((x) => x.personId.length > 0);
+        const ranked = [...paired]
+          .sort((a, b) => (APOLLO_REVEAL_TITLE_RANK[a.title] ?? 99) - (APOLLO_REVEAL_TITLE_RANK[b.title] ?? 99))
+          .slice(0, REVEAL_CAP);
+
+        // Enforce remaining reservation budget: reveals are credit-bearing.
+        // executeApolloForCro03c may have consumed up to reservedUnits already.
+        const revealBudget = Math.max(0, input.reservedUnits - creditedUnits);
+        let revealBudgetUsed = 0;
+
+        for (const { personId } of ranked) {
+          if (revealBudgetUsed >= revealBudget) break; // no remaining budget
+
+          let revealResult;
+          try {
+            revealResult = await revealApolloPerson(context, personId, (url, init) => fetch(url, init));
+          } catch (err: any) {
+            // Post-dispatch transport failure: billing unknown — must not continue
+            // further reveals and must not report settled units for this reveal.
+            // Return ambiguous so the durable stage worker reconciles correctly.
+            return result(context, input, "ambiguous", 0, {
+              revealError: "transport_failure",
+              partialRevealCredits: revealCredits,
+              providerReference: response.billing.providerReference ?? null,
+            }, response.billing.providerReference);
+          }
+          // Unknown billing certainty must also be treated as ambiguous — not
+          // silently converted to zero, which would underreport paid usage.
+          if (revealResult.billing.certainty !== "exact" || typeof revealResult.billing.creditedUnits !== "number") {
+            return result(context, input, "ambiguous", 0, {
+              revealBillingCertainty: "unknown",
+              partialRevealCredits: revealCredits,
+              providerReference: (revealResult.billing as any).providerReference ?? response.billing.providerReference ?? null,
+            }, response.billing.providerReference);
+          }
+          const thisRevealCredits = revealResult.billing.creditedUnits;
+          revealCredits += thisRevealCredits;
+          revealBudgetUsed += thisRevealCredits;
+          if (revealResult.outcome === "accepted" && revealResult.email && isEmailCandidateAccepted(revealResult.email, "person")) {
+            // high-confidence reveal — write as 'staged' for projection.
+            // Failure propagates so the durable worker retries.
+            const { wasNew } = await writeCandidateEvidence({
+              generationId: context.generationId,
+              stageKey: context.stageKey,
+              field: "email",
+              value: revealResult.email,
+              subjectType: "person",
+              disposition: "staged",
+              confidence: 85,
+              sourceRank: 10,
+              apolloMatchConfidence: revealResult.matchConfidence ?? "high",
+            });
+            // Only count genuinely new inserts; conflict = idempotent retry.
+            if (wasNew) personCandidatesWritten++;
+          } else if (revealResult.outcome === "quarantine" && revealResult.email && isEmailCandidateAccepted(revealResult.email, "person")) {
+            // medium-confidence reveal — write with 'quarantined' disposition for operator review.
+            // Durable so it survives retries; not eligible for projection until approved.
+            // Failure propagates so the durable worker retries.
+            await writeCandidateEvidence({
+              generationId: context.generationId,
+              stageKey: context.stageKey,
+              field: "email",
+              value: revealResult.email,
+              subjectType: "person",
+              disposition: "quarantined",
+              confidence: 50,
+              sourceRank: 30,
+              apolloMatchConfidence: revealResult.matchConfidence ?? "medium",
+            });
+          }
+          // low | none → no write; billing still settled above.
+        }
+      }
+
+      const totalCreditedUnits = creditedUnits + revealCredits;
       const evidence = response.outcome === "success"
         ? {
           // Receipt metadata is an operational audit surface, not enrichment
@@ -293,17 +497,18 @@ export async function executeCro03cLiveProvider(
           organizationId: response.organizationId,
           organizationCount: 1,
           peopleCount: response.people.length,
-          billing: { creditedUnits },
+          personCandidatesWritten,
+          billing: { creditedUnits: totalCreditedUnits },
         }
         : {
-          billing: { creditedUnits },
+          billing: { creditedUnits: totalCreditedUnits },
           providerReference: response.billing.providerReference ?? null,
         };
       return result(
         context,
         input,
         response.outcome === "success" ? "success" : response.outcome === "no_result" ? "no_result" : "ambiguous",
-        creditedUnits,
+        totalCreditedUnits,
         evidence,
         response.billing.providerReference,
       );
@@ -386,7 +591,44 @@ export async function executeCro03cLiveProvider(
       await assertCro03cAuthorityBeforeIo(context);
       await dependencies.beforeTransportInvocation?.();
       const execution = await executeCro03cOutscraper(context, input);
-      return result(context, input, execution.outcome, execution.settledUnits, execution.evidence);
+
+      // ── MI-05: extract org-level candidate evidence from Outscraper ──────
+      let outscraperCandidatesAttempted = 0;
+      if (execution.outcome === "success" && execution.businessEmails.length > 0) {
+        const acceptedEmails = execution.businessEmails.filter((e) => isEmailCandidateAccepted(e, "business"));
+        for (const [idx, email] of acceptedEmails.slice(0, 3).entries()) {
+          // Evidence writes must propagate failures so the durable stage worker
+          // retries rather than silently completing with no persisted evidence.
+          await writeCandidateEvidence({
+            generationId: context.generationId,
+            stageKey: context.stageKey,
+            field: "email",
+            value: email,
+            subjectType: "business",
+            confidence: 75,
+            // Unique source_rank per email so all candidates survive the uniqueness key.
+            sourceRank: 15 + idx,
+          });
+          outscraperCandidatesAttempted++;
+        }
+        // Retry-safe projection: read persisted business evidence from DB.
+        // Projection failure must also propagate so the worker retries.
+        const businessId = await resolveBusinessIdForGeneration(context.generationId);
+        if (businessId != null) {
+          const persistedCandidates = await readCandidateEvidence(context.generationId, {
+            subjectType: "business",
+            dispositions: ["staged", "accepted"],
+          });
+          if (persistedCandidates.length > 0) {
+            await projectBusinessEnrichmentFields({ businessId, generationId: context.generationId, candidates: persistedCandidates });
+          }
+        }
+      }
+
+      return result(context, input, execution.outcome, execution.settledUnits, {
+        ...execution.evidence,
+        outscraperCandidatesAttempted,
+      });
     }
   }
 }

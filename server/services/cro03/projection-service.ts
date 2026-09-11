@@ -522,3 +522,148 @@ export function cro03bArbitrationCandidateSetHash(candidates: ReadonlyArray<{
     b.authority - a.authority || b.confidence - a.confidence ||
     a.observedAt.localeCompare(b.observedAt) || a.id.localeCompare(b.id)));
 }
+// ── MI-05: Business enrichment projection ────────────────────────────────────
+// Sibling of projectBusinessOnly(). Writes provider-sourced enrichment fields
+// to the businesses table with CAS and idempotency guards.
+//
+// Kill lines:
+//  - Does NOT write person-level candidates to businesses (subjectType check).
+//  - Does NOT call writeContact(), updateContactLocalFirst(), or any contact path.
+//  - Does NOT use cro03_mutation_commands (no generation_id there).
+//  - Idempotent: second call with same generationId + field → no additional write.
+
+/**
+ * Candidate input for projectBusinessEnrichmentFields().
+ * Produced by candidate-evidence-service.readCandidateEvidence() after decryption.
+ */
+export interface BusinessEnrichmentCandidate {
+  field: string;
+  value: string;
+  subjectType: "business" | "person";
+  confidence: number;
+  stageKey: string;
+}
+
+export interface ProjectBusinessEnrichmentResult {
+  businessId: number;
+  generationId: string;
+  fieldsWritten: string[];
+  fieldsSkipped: string[];
+  fieldsIdempotent: string[];
+}
+
+/**
+ * Projects business-level enrichment candidates onto the businesses row.
+ * Only subject_type='business' candidates are eligible; person-level candidates
+ * are ignored here (held for MI-06 contact promotion).
+ *
+ * CAS: only overwrites if incoming confidence > currently stored confidence.
+ * Idempotent: a second call with the same generationId + field is a no-op.
+ */
+export async function projectBusinessEnrichmentFields(input: {
+  businessId: number;
+  generationId: string;
+  candidates: BusinessEnrichmentCandidate[];
+}): Promise<ProjectBusinessEnrichmentResult> {
+  const { businessId, generationId } = input;
+  const fieldsWritten: string[] = [];
+  const fieldsSkipped: string[] = [];
+  const fieldsIdempotent: string[] = [];
+
+  // Only these fields may be projected from business-level candidates.
+  const PROJECTABLE_BUSINESS_FIELDS: Record<string, string> = {
+    email: "main_email",
+    phone: "main_phone",
+    website: "website_domain",
+  };
+
+  // Filter to business-level candidates only.
+  const businessCandidates = input.candidates.filter((c) => c.subjectType === "business");
+
+  for (const candidate of businessCandidates) {
+    const dbColumn = PROJECTABLE_BUSINESS_FIELDS[candidate.field];
+    if (!dbColumn) {
+      fieldsSkipped.push(candidate.field);
+      continue;
+    }
+
+    await db.transaction(async (tx) => {
+      // Idempotency check: has this generationId already written this field?
+      const existing = rows(await tx.execute(sql`
+        SELECT id, confidence, generation_id FROM businesses_enrichment_provenance
+         WHERE business_id = ${businessId} AND field = ${candidate.field}
+         FOR UPDATE
+      `))[0];
+
+      if (existing && String(existing.generation_id ?? "") === generationId) {
+        fieldsIdempotent.push(candidate.field);
+        return;
+      }
+
+      // CAS: only overwrite if incoming confidence > stored confidence.
+      // When no provenance row exists, treat stored confidence as 0 — BUT also
+      // check whether the businesses row already has a non-null value for this field.
+      // If it does and confidence is equal, we must not overwrite it (protect
+      // pre-existing canonical data that was written before MI-05 provenance existed).
+      if (existing && Number(existing.confidence) >= candidate.confidence) {
+        fieldsSkipped.push(candidate.field);
+        return;
+      }
+
+      // No provenance row: check if businesses already has a non-null value.
+      // Treat the existing value as having confidence=0 but protect it if
+      // the candidate is not materially more confident (confidence must be > 0).
+      if (!existing && candidate.confidence <= 0) {
+        fieldsSkipped.push(candidate.field);
+        return;
+      }
+      if (!existing) {
+        const currentRow = rows(await tx.execute(sql`
+          SELECT ${sql.raw(dbColumn)} AS val FROM businesses WHERE id = ${businessId}
+        `))[0];
+        const currentVal = currentRow?.val;
+        if (currentVal !== null && currentVal !== undefined && String(currentVal).trim() !== "") {
+          // Existing canonical value with no provenance record — treat as pre-existing.
+          // Only allow overwrite if incoming confidence clears the minimum threshold (50).
+          if (candidate.confidence < 50) {
+            fieldsSkipped.push(candidate.field);
+            return;
+          }
+        }
+      }
+
+      // Write to businesses.
+      await tx.execute(sql`
+        UPDATE businesses
+           SET ${sql.raw(dbColumn)} = ${candidate.value}, updated_at = NOW()
+         WHERE id = ${businessId}
+      `);
+
+      // Upsert provenance record.
+      await tx.execute(sql`
+        INSERT INTO businesses_enrichment_provenance
+          (business_id, field, generation_id, stage_key, confidence, written_at)
+        VALUES
+          (${businessId}, ${candidate.field}, ${generationId}::uuid,
+           ${candidate.stageKey}, ${candidate.confidence}, NOW())
+        ON CONFLICT (business_id, field)
+        DO UPDATE SET
+          generation_id = EXCLUDED.generation_id,
+          stage_key     = EXCLUDED.stage_key,
+          confidence    = EXCLUDED.confidence,
+          written_at    = NOW()
+      `);
+
+      await tx.execute(sql`
+        INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+        VALUES ('system', 'business_enrichment_field_projected', 'business', ${String(businessId)},
+                ${JSON.stringify({ field: candidate.field, generationId, stageKey: candidate.stageKey, confidence: candidate.confidence })}::jsonb,
+                'system', 'cro03c_projection')
+      `);
+
+      fieldsWritten.push(candidate.field);
+    });
+  }
+
+  return { businessId, generationId, fieldsWritten, fieldsSkipped, fieldsIdempotent };
+}

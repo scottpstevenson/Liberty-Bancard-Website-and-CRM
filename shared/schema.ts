@@ -8894,3 +8894,51 @@ export const salesRepPilotPreviews = pgTable("sales_rep_pilot_previews", {
 export const insertSalesRepPilotPreviewSchema = createInsertSchema(salesRepPilotPreviews);
 export type SalesRepPilotPreview = typeof salesRepPilotPreviews.$inferSelect;
 export type InsertSalesRepPilotPreview = typeof salesRepPilotPreviews.$inferInsert;
+
+// ── MI-05: CRO-03C native candidate evidence (0252) ──────────────────────────
+// Stores encrypted per-field evidence produced by live CRO-03C provider
+// executors. Bridge between provider transport and canonical projection.
+// subject_type = 'business' → eligible for businesses.mainEmail projection.
+// subject_type = 'person'   → Apollo reveal, held for MI-06 validation.
+
+export const cro03cCandidateEvidence = pgTable("cro03c_candidate_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  stageKey: text("stage_key").notNull(),
+  field: text("field").notNull(),
+  sourceRank: integer("source_rank").notNull().default(100),
+  subjectType: text("subject_type").notNull(),
+  disposition: text("disposition").notNull().default("staged"),
+  confidence: integer("confidence").notNull().default(0),
+  envelopeCiphertext: text("envelope_ciphertext").notNull(),
+  envelopeNonce: text("envelope_nonce").notNull(),
+  envelopeTag: text("envelope_tag").notNull(),
+  envelopeKeyVersion: integer("envelope_key_version").notNull().default(1),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  maskedValue: text("masked_value").notNull(),
+  /** Apollo People Match confidence: 'high' | 'medium' | 'low' | 'none'. NULL for non-person candidates. */
+  apolloMatchConfidence: text("apollo_match_confidence"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // MI-05: value hash included so multiple email candidates survive per (generation, stage, field).
+  uniqueIndex("cro03c_candidate_evidence_gen_stage_field_value_uniq").on(table.generationId, table.stageKey, table.field, table.normalizedValueHash),
+  index("cro03c_candidate_evidence_generation_idx").on(table.generationId),
+]);
+export type Cro03cCandidateEvidence = typeof cro03cCandidateEvidence.$inferSelect;
+
+// ── MI-05: businesses enrichment provenance (CAS tracking) ───────────────────
+// Tracks which CRO-03C generation last wrote each enrichment field on a
+// businesses row. Required for CAS in projectBusinessEnrichmentFields().
+export const businessesEnrichmentProvenance = pgTable("businesses_enrichment_provenance", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "cascade" }),
+  field: text("field").notNull(),
+  generationId: uuid("generation_id").notNull(),
+  stageKey: text("stage_key").notNull(),
+  confidence: integer("confidence").notNull().default(0),
+  writtenAt: timestamp("written_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("businesses_enrichment_provenance_business_field_uniq").on(table.businessId, table.field),
+  index("businesses_enrichment_provenance_generation_idx").on(table.generationId),
+]);
+export type BusinessesEnrichmentProvenance = typeof businessesEnrichmentProvenance.$inferSelect;

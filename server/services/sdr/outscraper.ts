@@ -46,6 +46,13 @@ export interface Cro03cOutscraperExecutionResult {
   readonly billingCertainty: "certain" | "ambiguous";
   /** A receipt-safe representation; it never contains the query or contacts. */
   readonly evidence: Readonly<Record<string, unknown>>;
+  /**
+   * MI-05: Business-level email addresses extracted from parsed results.
+   * Already filtered through the candidate selector (role-based accepted,
+   * synthetic/disposable rejected). NOT placed in evidence/receipts.
+   * Passed to the executor for candidate evidence write + projection.
+   */
+  readonly businessEmails: readonly string[];
 }
 
 export interface Cro03cOutscraperExecutionOptions {
@@ -248,6 +255,7 @@ function ambiguousCro03cEvidence(status: number | null): Cro03cOutscraperExecuti
   return {
     outcome: "ambiguous", settledUnits: 0, settledAmountMicros: 0, billingCertainty: "ambiguous",
     evidence: { responseReceived: status !== null, status, billing: "unverifiable" },
+    businessEmails: [],
   };
 }
 
@@ -321,12 +329,18 @@ export async function executeCro03cOutscraper(
     if (settledUnits > input.reservedUnits || !Number.isSafeInteger(settledAmountMicros)) {
       return ambiguousCro03cEvidence(response.status);
     }
+    // MI-05: extract business emails before redaction. Selector filtering
+    // happens in the executor; here we pass all non-null emails found.
+    const businessEmails: string[] = results
+      .map((r) => r.email ?? null)
+      .filter((e): e is string => typeof e === "string" && e.length > 0);
     return {
       outcome: settledUnits ? "success" : "no_result",
       settledUnits,
       settledAmountMicros,
       billingCertainty: "certain",
       evidence: redactedCro03cEvidence(results, settledUnits, response.status),
+      businessEmails,
     };
   } catch {
     return ambiguousCro03cEvidence(response.status);

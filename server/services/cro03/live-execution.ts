@@ -328,13 +328,15 @@ export function deriveCro03cProviderInput(provider: string, payload: any, schedu
       justification: { handoffHash: hashCro03Evidence({ observationId: source.observation_id, payloadHash: source.payload_hash }), strongAnchor: true } };
   }
   if (provider === "apollo") {
-    if (!name || (!website && !address)) return null;
+    // MI-05: Apollo requires a confirmed HTTPS domain. Address-only is not sufficient.
+    if (!name || !website) return null;
     let domain: string | null = null;
     try {
-      const parsed = website ? new URL(website) : null;
-      if (parsed && (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port)) return null;
-      domain = parsed?.hostname ?? null;
+      const parsed = new URL(website);
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) return null;
+      domain = parsed.hostname;
     } catch { return null; }
+    if (!domain) return null;
     return { provider, amountMicros, reservedUnits: 5, ...pricing, identity: { domain, legalName: name, city: city ?? null, state: state ?? null, address: address ?? null } };
   }
   // The reviewed OpenAI model/prompt allowlists are intentionally empty. Do
@@ -401,7 +403,9 @@ export function planCro03cEvidenceStages(input: {
     } else if (provider === "outscraper") {
       applicable = fieldGap && Boolean(name && city && state); gapCode = name && city && state ? "unresolved_business_gap" : "missing_strong_anchor";
     } else if (provider === "apollo") {
-      applicable = contactGap && Boolean(name && (httpsDomain || address)); gapCode = contactGap ? "unresolved_contact_gap" : "sufficient_contact_evidence";
+      // Apollo People Search/Enrichment requires a confirmed HTTPS domain.
+      // Address-only is insufficient — MI-05 prerequisite guard.
+      applicable = contactGap && Boolean(name && httpsDomain); gapCode = contactGap && httpsDomain ? "unresolved_contact_gap" : contactGap ? "missing_approved_https_domain" : "sufficient_contact_evidence";
     } // OpenAI has no reviewed request bundle, hence is never applicable.
 
     if (!applicable) {
