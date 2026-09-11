@@ -210,6 +210,14 @@ export interface NormalizedSourceRecord {
   businessName: string | null;
   /** ZIP code extracted for FIPS derivation */
   zip: string | null;
+  /** City from source — used in CRO-03A payload and CRO-03B candidateValues */
+  city?: string | null;
+  /** State from source (or derived from known source geography) */
+  state?: string | null;
+  /** Street address from source */
+  address?: string | null;
+  /** Phone number from source — used as strong-anchor in CRO-03B arbitration */
+  phone?: string | null;
 }
 
 export interface SourceAdapter {

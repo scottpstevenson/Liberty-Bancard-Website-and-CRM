@@ -402,6 +402,13 @@ export async function runSourceImport(params: {
             sourceStatusActive: r.sourceStatusActive,
             stableKey: r.stableKey,
             registryId: r.registryId,
+            // Location and contact fields for CRO-03A evaluation and CRO-03B arbitration.
+            // Sourced from NormalizedSourceRecord — adapter-specific derivation.
+            // Hard-coded state (e.g. 'FL' for DBPR) lives in the adapter, not here.
+            ...(r.city != null ? { city: r.city } : {}),
+            ...(r.state != null ? { state: r.state } : {}),
+            ...(r.address != null ? { address: r.address } : {}),
+            ...(r.phone != null ? { phone: r.phone } : {}),
           },
           // candidateValues populate cro03_normalized_candidates for CRO-03B arbitration.
           // These use canonical field names from Cro03CandidateField.
@@ -412,6 +419,12 @@ export async function runSourceImport(params: {
             registry_id: `${adapterKey}:${r.stableKey}`,
             // Entity status for active/inactive signal
             entity_status: r.sourceStatusActive ? "active" : (r.sourceStatus ?? "unknown"),
+            // Location and contact anchor fields for CRO-03B strong-anchor check.
+            // phone OR (address + city + state) satisfies the strong-anchor requirement.
+            ...(r.city != null ? { city: r.city } : {}),
+            ...(r.state != null ? { state: r.state } : {}),
+            ...(r.address != null ? { address: r.address } : {}),
+            ...(r.phone != null ? { phone: r.phone } : {}),
           },
           provenance: {
             sourceSystem: r.registryId,

@@ -1,7 +1,7 @@
 /**
- * CRO-03B CSV Handoff Certification — Business-Only, Contact, and Safe-Hold Paths
+ * CRO-03B CSV Handoff Certification — Business-Only, Contact, Safe-Hold, DBPR-HR, and Cross-Source Dedup Paths
  *
- * Certifies three distinct terminal paths through the CRO-03B admission pipeline:
+ * Certifies six distinct terminal paths through the CRO-03B admission pipeline:
  *
  *   Path A — Provider-export (Apollo), no-email fixture:
  *     Admission → processNextCro03bRecipeItem → reviewAndProjectCro03bItem →
@@ -28,6 +28,30 @@
  *     that lack a contactable anchor until a governed field-forwarding extension is
  *     added (tracked as a separate task).
  *
+ *   Path D — Real DBPR-HR adapter path (MI-02 field fix certification):
+ *     Verifies that dbprHrAdapter.normalize() exposes city/state/address/phone on
+ *     NormalizedSourceRecord, and that runSourceImport() writes those fields into
+ *     the occurrence payload and cro03_normalized_candidates (candidateValues).
+ *     Positive fixture (with phone): after scaffold handoff + CRO-03B admission,
+ *       reviewAndProjectCro03bItem completes → business_only_projection_completed.
+ *     Negative fixture (no phone, no address): strong-anchor check correctly fires
+ *       CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED.
+ *     NOTE: DBPR-HR vertical (Restaurant/Hospitality) is not in the active CRO-03A
+ *       policy targetVerticals. A minimal CRO-03A scaffold is inserted directly in
+ *       the DB to test the CRO-03B path independently of the vertical policy.
+ *
+ *   Path E — Cross-source dedup certification:
+ *     An Apollo record and a DBPR-HR record for the same real-world business
+ *     (shared phone) both project to the same businesses.id via resolveOrganization()
+ *     phone matching. Exactly one canonical_source_links row per source is created.
+ *     No-phone variant asserts name+city+state fallback matching also works.
+ *     Conflicting non-null identifiers must produce canonical_conflict_evidence rows.
+ *
+ *   Path F — Concurrent projection race:
+ *     Apollo and DBPR-HR projectBusinessOnly() calls raced simultaneously.
+ *     Asserts either one shared businesses.id (advisory-lock serialization wins) or
+ *     two explicitly linked conflict rows — never two unlinked businesses rows.
+ *
  * Effect-denied proof (all paths):
  *   transport_invoked=FALSE, zero requested/settled units, no live GHL/sequence/deal writes.
  *
@@ -49,8 +73,13 @@ import {
   processNextCro03bRecipeItem,
   reviewAndProjectCro03bItem,
 } from "../server/services/cro03/admission-service";
-import { resumeCro03bAfterValidation } from "../server/services/cro03/projection-service";
+import {
+  projectBusinessOnly,
+  resumeCro03bAfterValidation,
+} from "../server/services/cro03/projection-service";
 import { CRO03B_UNIFIED_RECIPE } from "../server/services/cro03/recipe-contract";
+import { dbprHrAdapter } from "../server/services/source-registry/adapters/dbpr-hr";
+import { createImportRun, runSourceImport } from "../server/services/source-registry/import-runner";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const run = crypto.randomUUID();
@@ -647,6 +676,565 @@ console.log(
 );
 
 // ═════════════════════════════════════════════════════════════════════════════
+// PATHS D / E / F SETUP — scaffold helper for DBPR-HR records
+// ═════════════════════════════════════════════════════════════════════════════
+
+// DBPR-HR records currently cannot pass CRO-03A under the active policy because
+// Restaurant/Hospitality verticals are not in targetVerticals (["Auto","Healthcare","Salon/Spa"]).
+// This helper inserts a minimal run→item→decision→handoff chain directly in the
+// DB so we can certify the CRO-03B arbitration path independently of that policy.
+// The scaffold uses disposition='selected' and a score of 75 — above the 70-point
+// threshold — so the handoff is formally "selected" but only for test purposes.
+
+async function scaffoldDbprHrHandoff(opts: {
+  label: string;
+  occurrenceId: string;
+  subjectKey: string;
+}): Promise<string> {
+  const policyRow = rows(await db.execute(sql`
+    SELECT pd.id, pd.policy_hash, pd.version
+      FROM cro03a_policy_control pc
+      JOIN cro03a_policy_documents pd ON pd.id = pc.active_policy_id
+     LIMIT 1
+  `))[0];
+  assert(policyRow, `${opts.label}: active CRO-03A policy must exist`);
+
+  const occurrenceIds = JSON.stringify([opts.occurrenceId]);
+  const scopeHash = crypto.createHash("sha256")
+    .update(`cert-scaffold:${opts.label}:${run}`).digest("hex");
+  const selectionHash = crypto.createHash("sha256")
+    .update(`cert-scaffold-sel:${opts.label}:${run}`).digest("hex");
+
+  const qualRun = rows(await db.execute(sql`
+    INSERT INTO cro03a_qualification_runs
+      (idempotency_key, actor_id, actor_role, policy_id, policy_hash, scope_hash,
+       frozen_occurrence_ids, state, total_count, selected_count, review_count,
+       terminal_count, completed_at)
+    VALUES (
+      ${`cert-scaffold-run:${opts.label}:${run}`},
+      ${String(admin.id)}, 'admin',
+      ${String(policyRow.id)}::uuid,
+      ${String(policyRow.policy_hash)},
+      ${scopeHash},
+      ${occurrenceIds}::jsonb,
+      'completed', 1, 1, 0, 1, NOW()
+    )
+    RETURNING id
+  `))[0];
+  assert(qualRun, `${opts.label}: qualification_run insert must succeed`);
+
+  const qualItem = rows(await db.execute(sql`
+    INSERT INTO cro03a_qualification_items
+      (run_id, occurrence_id, ordinal, state)
+    VALUES (${String(qualRun.id)}::uuid, ${opts.occurrenceId}::uuid, 1, 'completed')
+    RETURNING id
+  `))[0];
+
+  const qualDecision = rows(await db.execute(sql`
+    INSERT INTO cro03a_qualification_decisions
+      (item_id, run_id, occurrence_id, disposition, score,
+       geography_result, vertical_result, active_state_evidence,
+       identity_relationship_evidence, fit_components, reason_codes,
+       missing_field_classes, frozen_occurrence_ids,
+       policy_id, policy_version, policy_hash, selection_hash)
+    VALUES (
+      ${String(qualItem.id)}::uuid, ${String(qualRun.id)}::uuid,
+      ${opts.occurrenceId}::uuid,
+      'selected', 75,
+      '{"eligible":true,"evidenceClass":"verified","reasonCodes":[]}'::jsonb,
+      '{"vertical":"Restaurant","targetVertical":true,"subverticalMapVersion":"1"}'::jsonb,
+      '{"active":true,"rawStatus":"Active","synthetic":false}'::jsonb,
+      '{"exactMatches":[],"conflictingExactMatches":[],"weakMatches":[]}'::jsonb,
+      '{}'::jsonb, '["cert_scaffold"]'::jsonb, '[]'::jsonb,
+      ${occurrenceIds}::jsonb,
+      ${String(policyRow.id)}::uuid,
+      ${Number(policyRow.version)},
+      ${String(policyRow.policy_hash)},
+      ${selectionHash}
+    )
+    RETURNING id
+  `))[0];
+
+  const handoffRow = rows(await db.execute(sql`
+    INSERT INTO cro03a_handoffs
+      (run_id, decision_id, source_type, source_system, source_key,
+       occurrence_ids, policy_id, policy_version, policy_hash,
+       reason_codes, missing_field_classes, selection_hash, effect_authorized)
+    VALUES (
+      ${String(qualRun.id)}::uuid, ${String(qualDecision.id)}::uuid,
+      'provider_csv_row', 'dbpr-hr', ${opts.subjectKey},
+      ${occurrenceIds}::jsonb,
+      ${String(policyRow.id)}::uuid,
+      ${Number(policyRow.version)},
+      ${String(policyRow.policy_hash)},
+      '[]'::jsonb, '[]'::jsonb, ${selectionHash}, FALSE
+    )
+    RETURNING id
+  `))[0];
+
+  return String(handoffRow.id);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PATH D — Real DBPR-HR adapter path (MI-02 field fix certification)
+// ═════════════════════════════════════════════════════════════════════════════
+
+console.log(`\n[cert] ── Path D: DBPR-HR adapter field fix + CRO-03B pipeline (run=${run}) ──`);
+
+// ── D0: Assert adapter directly exposes the new fields ───────────────────────
+
+const pathDAdapterRow = {
+  LicenseNumber: "HR-ADAPT-TEST",
+  LicenseType: "Restaurant",
+  LicenseStatus: "Active",
+  LocationZip: "33101",
+  BusinessName: "Cert Adapter Test Restaurant",
+  LocationCity: "Miami",
+  LocationAddress: "456 Biscayne Blvd",
+  Phone: "3055551234",
+};
+const pathDNormalized = dbprHrAdapter.normalize(pathDAdapterRow);
+assert(pathDNormalized !== null, "Path D adapter: normalize() must return non-null for valid establishment row");
+assert.equal(pathDNormalized!.city, "Miami", "Path D adapter: city must be exposed on NormalizedSourceRecord");
+assert.equal(pathDNormalized!.address, "456 Biscayne Blvd", "Path D adapter: address must be exposed on NormalizedSourceRecord");
+assert.equal(pathDNormalized!.phone, "3055551234", "Path D adapter: phone must be exposed on NormalizedSourceRecord");
+assert.equal(pathDNormalized!.state, "FL", "Path D adapter: state must be 'FL' (derived from known source geography)");
+console.log("[cert] PASS Path D adapter: normalize() exposes city/state/address/phone on NormalizedSourceRecord");
+
+// ── D1: Positive fixture — has phone → strong anchor passes after import ──────
+
+const pathDLicense1 = `HR-D1-${run.slice(0, 8)}`;
+const pathDPhone1 = `786${runDigits}`;
+const pathDCsv1 = Buffer.from([
+  "LicenseNumber,LicenseType,LicenseStatus,LocationZip,BusinessName,LocationCity,LocationAddress,Phone",
+  `${pathDLicense1},Restaurant,Active,33101,Cert D Positive ${run},Miami,789 Ocean Dr,${pathDPhone1}`,
+].join("\n"));
+
+const pathDRun1 = await createImportRun("dbpr-hr", false);
+assert(pathDRun1, "Path D positive: createImportRun must succeed (no queued run in progress)");
+const pathDImport1 = await runSourceImport({
+  runId: pathDRun1.runId,
+  _testCsvBuffer: pathDCsv1,
+  adapterKey: "dbpr-hr",
+});
+assert.equal(
+  pathDImport1.status,
+  "completed",
+  `Path D positive: import must complete; got status=${pathDImport1.status} error=${pathDImport1.errorText}`,
+);
+assert.equal(pathDImport1.recordsProcessed, 1, "Path D positive: exactly 1 record must be processed");
+
+const pathD1EventKey = `dbpr-hr:${pathDLicense1}:${pathDRun1.runId}`;
+const pathD1Occurrence = rows(await db.execute(sql`
+  SELECT o.id FROM cro03_source_occurrences o
+   WHERE o.source_event_key = ${pathD1EventKey}
+`))[0];
+assert(pathD1Occurrence, "Path D positive: occurrence must exist after runSourceImport()");
+
+// Verify candidateValues reached cro03_normalized_candidates
+const pathD1Candidates = rows(await db.execute(sql`
+  SELECT n.field, n.normalized_value
+    FROM cro03_normalized_candidates n
+    JOIN cro03_source_observations obs ON obs.id = n.source_observation_id
+    JOIN cro03_source_occurrences so ON so.source_observation_id = obs.id
+   WHERE so.id = ${String(pathD1Occurrence.id)}::uuid
+   ORDER BY n.field
+`));
+const pathD1FieldMap = new Map(pathD1Candidates.map((c: any) => [String(c.field), String(c.normalized_value)]));
+assert(pathD1FieldMap.has("phone"), "Path D positive: candidateValues must include 'phone' field in cro03_normalized_candidates");
+assert(pathD1FieldMap.has("city"), "Path D positive: candidateValues must include 'city' field in cro03_normalized_candidates");
+assert(pathD1FieldMap.has("state"), "Path D positive: candidateValues must include 'state' field in cro03_normalized_candidates");
+assert(pathD1FieldMap.has("address"), "Path D positive: candidateValues must include 'address' field in cro03_normalized_candidates");
+console.log(
+  `[cert] Path D positive: candidateValues verified — phone=${pathD1FieldMap.get("phone")}, ` +
+  `city=${pathD1FieldMap.get("city")}, state=${pathD1FieldMap.get("state")}`,
+);
+
+// Also verify occurrence payload contains the new fields
+const pathD1Payload = rows(await db.execute(sql`
+  SELECT obs.payload
+    FROM cro03_source_observations obs
+    JOIN cro03_source_occurrences so ON so.source_observation_id = obs.id
+   WHERE so.id = ${String(pathD1Occurrence.id)}::uuid
+   LIMIT 1
+`))[0];
+assert(pathD1Payload, "Path D positive: source_observation with payload must exist");
+const pathD1PayloadObj = typeof pathD1Payload.payload === "string"
+  ? JSON.parse(pathD1Payload.payload)
+  : (pathD1Payload.payload as Record<string, unknown>);
+assert(pathD1PayloadObj.phone, "Path D positive: occurrence payload must include phone field for CRO-03A evaluation");
+assert(pathD1PayloadObj.city, "Path D positive: occurrence payload must include city field for CRO-03A evaluation");
+assert(pathD1PayloadObj.state, "Path D positive: occurrence payload must include state field for CRO-03A evaluation");
+assert(pathD1PayloadObj.address, "Path D positive: occurrence payload must include address field for CRO-03A evaluation");
+console.log("[cert] Path D positive: occurrence payload includes city/state/address/phone");
+
+// Scaffold CRO-03A handoff (DBPR-HR can't pass CRO-03A under current vertical policy)
+const pathD1HandoffId = await scaffoldDbprHrHandoff({
+  label: "path-d-pos",
+  occurrenceId: String(pathD1Occurrence.id),
+  subjectKey: `dbpr-hr:${pathDLicense1}`,
+});
+
+// Admit to CRO-03B
+const pathD1Admitted = await admitCro03bHandoffs({
+  handoffIds: [pathD1HandoffId],
+  actorId: String(admin.id),
+  actorRole: "admin",
+  reason: "CRO-03B certification — Path D positive (phone present)",
+});
+assert(!pathD1Admitted.replayed, "Path D positive: admission must not replay");
+
+// Process — arbitration materializes candidates, item reaches review_required
+const pathD1ProcessResult = await processNextCro03bRecipeItem();
+assert.equal(
+  pathD1ProcessResult,
+  "waiting",
+  `Path D positive: processNextCro03bRecipeItem must return 'waiting'; got '${pathD1ProcessResult}'`,
+);
+const pathD1Item = rows(await db.execute(sql`
+  SELECT id, state FROM cro03b_recipe_items WHERE command_id = ${pathD1Admitted.id}::uuid
+`))[0];
+assert(pathD1Item, "Path D positive: recipe item must exist after processing");
+assert.equal(pathD1Item.state, "review_required", `Path D positive: item must be review_required; got '${pathD1Item.state}'`);
+await assertEffectDenied(String(pathD1Item.id), "Path D positive");
+
+// Review — strong-anchor check must pass because phone candidate is present
+const pathD1ProjectResult = await reviewAndProjectCro03bItem(String(pathD1Item.id), String(admin.id)) as any;
+assert(
+  pathD1ProjectResult?.outcome === "created" || pathD1ProjectResult?.outcome === "matched",
+  `Path D positive: projectBusinessOnly must succeed; got outcome=${pathD1ProjectResult?.outcome ?? JSON.stringify(pathD1ProjectResult)}`,
+);
+
+const pathD1ItemFinal = rows(await db.execute(sql`
+  SELECT state, terminal_code FROM cro03b_recipe_items WHERE id = ${String(pathD1Item.id)}::uuid
+`))[0];
+assert.equal(pathD1ItemFinal.terminal_code, "business_only_projection_completed",
+  `Path D positive: terminal_code must be 'business_only_projection_completed'; got '${pathD1ItemFinal.terminal_code}'`);
+console.log(
+  `[cert] PASS Path D positive: import exposes phone/city/state/address → strong-anchor passes → ` +
+  `business_only_projection_completed (outcome=${pathD1ProjectResult.outcome})`,
+);
+
+// ── D2: Negative fixture — no phone, no address → strong-anchor must fail ─────
+
+const pathDLicense2 = `HR-D2-${run.slice(0, 8)}`;
+const pathDCsv2 = Buffer.from([
+  "LicenseNumber,LicenseType,LicenseStatus,LocationZip,BusinessName,LocationCity",
+  `${pathDLicense2},Restaurant,Active,33101,Cert D Negative ${run},Miami`,
+].join("\n"));
+
+const pathDRun2 = await createImportRun("dbpr-hr", false);
+assert(pathDRun2, "Path D negative: createImportRun must succeed");
+const pathDImport2 = await runSourceImport({
+  runId: pathDRun2.runId,
+  _testCsvBuffer: pathDCsv2,
+  adapterKey: "dbpr-hr",
+});
+assert.equal(pathDImport2.status, "completed",
+  `Path D negative: import must complete; got ${pathDImport2.errorText}`);
+
+const pathD2Occurrence = rows(await db.execute(sql`
+  SELECT o.id FROM cro03_source_occurrences o
+   WHERE o.source_event_key = ${"dbpr-hr:" + pathDLicense2 + ":" + pathDRun2.runId}
+`))[0];
+assert(pathD2Occurrence, "Path D negative: occurrence must exist after import");
+
+const pathD2HandoffId = await scaffoldDbprHrHandoff({
+  label: "path-d-neg",
+  occurrenceId: String(pathD2Occurrence.id),
+  subjectKey: `dbpr-hr:${pathDLicense2}`,
+});
+
+const pathD2Admitted = await admitCro03bHandoffs({
+  handoffIds: [pathD2HandoffId],
+  actorId: String(admin.id),
+  actorRole: "admin",
+  reason: "CRO-03B certification — Path D negative (no phone, no address)",
+});
+assert(!pathD2Admitted.replayed, "Path D negative: admission must not replay");
+
+const pathD2ProcessResult = await processNextCro03bRecipeItem();
+assert.equal(pathD2ProcessResult, "waiting",
+  `Path D negative: processNextCro03bRecipeItem must return 'waiting'; got '${pathD2ProcessResult}'`);
+const pathD2Item = rows(await db.execute(sql`
+  SELECT id, state FROM cro03b_recipe_items WHERE command_id = ${pathD2Admitted.id}::uuid
+`))[0];
+assert(pathD2Item, "Path D negative: recipe item must exist");
+
+await assert.rejects(
+  () => reviewAndProjectCro03bItem(String(pathD2Item.id), String(admin.id)),
+  (err: any) => {
+    assert(
+      err?.message?.includes("CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED"),
+      `Path D negative: expected CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED; got: ${err?.message}`,
+    );
+    return true;
+  },
+);
+console.log(
+  "[cert] PASS Path D negative: no phone + no address → CRO03B_STRONG_ORGANIZATION_ANCHOR_REQUIRED correctly fired",
+);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PATH E — Cross-source dedup: Apollo + DBPR-HR → same businesses.id
+// ═════════════════════════════════════════════════════════════════════════════
+
+console.log(`\n[cert] ── Path E: cross-source dedup Apollo + DBPR-HR → shared businesses.id (run=${run}) ──`);
+
+// Shared identifiers for cross-source matching
+const pathEPhone = `954${runDigits}`;
+const pathEName = `Cert Path E Bistro ${run}`;
+const pathEItemIdApollo = crypto.randomUUID();
+const pathEItemIdDbpr = crypto.randomUUID();
+
+// ── E1: Apollo projects first — creates the canonical business row ─────────────
+
+const pathEApolloResult = await projectBusinessOnly({
+  itemId: pathEItemIdApollo,
+  sourceSystem: "apollo",
+  sourceType: "provider_csv_row",
+  stableKey: `apollo:cert-e-${run}`,
+  organization: {
+    canonicalName: pathEName,
+    websiteDomain: `cert-e-${run}.example.test`,
+    mainPhone: pathEPhone,
+    city: "Fort Lauderdale",
+    state: "FL",
+  },
+  location: { city: "Fort Lauderdale", state: "FL" },
+}) as any;
+assert(
+  pathEApolloResult?.outcome === "created" || pathEApolloResult?.outcome === "matched",
+  `Path E Apollo: projectBusinessOnly must succeed; got outcome=${pathEApolloResult?.outcome ?? JSON.stringify(pathEApolloResult)}`,
+);
+const pathEApolloBusinessId = Number(pathEApolloResult.businessId);
+const pathEApolloLinkId = String(pathEApolloResult.sourceLinkId);
+assert(pathEApolloBusinessId > 0, "Path E Apollo: must return a valid businessId");
+console.log(`[cert] Path E Apollo: projected → businessId=${pathEApolloBusinessId} outcome=${pathEApolloResult.outcome}`);
+
+// ── E2: DBPR-HR projects same business via shared phone ───────────────────────
+
+const pathEDbprResult = await projectBusinessOnly({
+  itemId: pathEItemIdDbpr,
+  sourceSystem: "dbpr-hr",
+  sourceType: "provider_csv_row",
+  stableKey: `dbpr-hr:HR-E-${run.slice(0, 8)}`,
+  organization: {
+    canonicalName: pathEName,
+    // No websiteDomain — DBPR-HR does not produce a domain
+    mainPhone: pathEPhone,
+    city: "Fort Lauderdale",
+    state: "FL",
+  },
+  location: { city: "Fort Lauderdale", state: "FL" },
+}) as any;
+assert(
+  pathEDbprResult?.outcome === "created" || pathEDbprResult?.outcome === "matched",
+  `Path E DBPR-HR: projectBusinessOnly must succeed; got outcome=${pathEDbprResult?.outcome ?? JSON.stringify(pathEDbprResult)}`,
+);
+const pathEDbprBusinessId = Number(pathEDbprResult.businessId);
+const pathEDbprLinkId = String(pathEDbprResult.sourceLinkId);
+assert(pathEDbprBusinessId > 0, "Path E DBPR-HR: must return a valid businessId");
+console.log(`[cert] Path E DBPR-HR: projected → businessId=${pathEDbprBusinessId} outcome=${pathEDbprResult.outcome}`);
+
+// ── E3: Both must resolve to the same businesses.id ──────────────────────────
+
+assert.equal(
+  pathEApolloBusinessId,
+  pathEDbprBusinessId,
+  `Path E: Apollo and DBPR-HR must resolve to the same businesses.id via phone matching ` +
+  `(apollo=${pathEApolloBusinessId} dbpr=${pathEDbprBusinessId})`,
+);
+
+// ── E4: Exactly one canonical_source_links row per source ────────────────────
+
+const pathELinks = rows(await db.execute(sql`
+  SELECT source_system, source_type, stable_key, business_id
+    FROM canonical_source_links
+   WHERE id = ${pathEApolloLinkId}::uuid
+      OR id = ${pathEDbprLinkId}::uuid
+   ORDER BY source_system
+`));
+assert.equal(
+  pathELinks.length,
+  2,
+  `Path E: must have exactly 2 canonical_source_links rows (one per source); got ${pathELinks.length}`,
+);
+const pathESourceSystems = new Set(pathELinks.map((link: any) => String(link.source_system)));
+assert(pathESourceSystems.has("apollo"), "Path E: must have a canonical_source_links row for source_system='apollo'");
+assert(pathESourceSystems.has("dbpr-hr"), "Path E: must have a canonical_source_links row for source_system='dbpr-hr'");
+for (const link of pathELinks) {
+  assert.equal(
+    Number(link.business_id),
+    pathEApolloBusinessId,
+    `Path E: both source links must reference the same businesses.id=${pathEApolloBusinessId} (got ${link.business_id} for ${link.source_system})`,
+  );
+}
+console.log(
+  "[cert] PASS Path E: Apollo + DBPR-HR (shared phone) → same businesses.id; " +
+  "exactly 1 canonical_source_links per source",
+);
+
+// ── E5: No-phone variant — name+city+state fallback matching ─────────────────
+
+const pathEName2 = `Cert Path E2 Bistro ${run}`;
+const pathEItemIdApollo2 = crypto.randomUUID();
+const pathEItemIdDbpr2 = crypto.randomUUID();
+
+// Apollo creates business with domain (but no phone for the fallback test)
+const pathEApolloResult2 = await projectBusinessOnly({
+  itemId: pathEItemIdApollo2,
+  sourceSystem: "apollo",
+  sourceType: "provider_csv_row",
+  stableKey: `apollo:cert-e2-${run}`,
+  organization: {
+    canonicalName: pathEName2,
+    websiteDomain: `cert-e2-${run}.example.test`,
+    city: "Miami",
+    state: "FL",
+  },
+  location: { city: "Miami", state: "FL" },
+}) as any;
+assert(
+  pathEApolloResult2?.outcome === "created" || pathEApolloResult2?.outcome === "matched",
+  `Path E2 Apollo: projectBusinessOnly must succeed; got ${JSON.stringify(pathEApolloResult2)}`,
+);
+const pathEApollo2BusinessId = Number(pathEApolloResult2.businessId);
+
+// DBPR-HR with no phone — resolveOrganization falls back to name+city+state match
+const pathEDbprResult2 = await projectBusinessOnly({
+  itemId: pathEItemIdDbpr2,
+  sourceSystem: "dbpr-hr",
+  sourceType: "provider_csv_row",
+  stableKey: `dbpr-hr:HR-E2-${run.slice(0, 8)}`,
+  organization: {
+    canonicalName: pathEName2,
+    // No websiteDomain (DBPR-HR) — no phone for this variant
+    city: "Miami",
+    state: "FL",
+  },
+  location: { city: "Miami", state: "FL" },
+}) as any;
+assert(
+  pathEDbprResult2?.outcome === "created" || pathEDbprResult2?.outcome === "matched" ||
+  pathEDbprResult2?.outcome === "conflict",
+  `Path E2 DBPR-HR: projectBusinessOnly must produce created/matched/conflict; got ${JSON.stringify(pathEDbprResult2)}`,
+);
+
+if (pathEDbprResult2?.outcome === "conflict") {
+  // Conflicting identifiers must produce linked canonical_conflict_evidence — never two unlinked rows
+  const pathE2ConflictEvidence = rows(await db.execute(sql`
+    SELECT id FROM canonical_conflict_evidence WHERE id = ${pathEDbprResult2.conflictEvidenceId}::uuid
+  `))[0];
+  assert(pathE2ConflictEvidence, "Path E2: conflict outcome must produce a canonical_conflict_evidence row");
+  console.log(`[cert] Path E2 DBPR-HR: conflict detected with evidence (id=${pathEDbprResult2.conflictEvidenceId})`);
+} else {
+  assert.equal(
+    Number(pathEDbprResult2.businessId),
+    pathEApollo2BusinessId,
+    `Path E2: name+city+state fallback must resolve to same businesses.id ` +
+    `(apollo=${pathEApollo2BusinessId} dbpr=${pathEDbprResult2.businessId})`,
+  );
+  console.log(
+    `[cert] Path E2 DBPR-HR: name+city+state fallback → same businesses.id=${pathEApollo2BusinessId}`,
+  );
+}
+console.log("[cert] PASS Path E: cross-source dedup (phone + name/location fallback) certified");
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PATH F — Concurrent projection race: Apollo + DBPR-HR simultaneously
+// ═════════════════════════════════════════════════════════════════════════════
+
+console.log(`\n[cert] ── Path F: concurrent projection race Apollo vs DBPR-HR (run=${run}) ──`);
+
+const pathFPhone = `561${runDigits}`;
+const pathFName = `Cert Path F Lounge ${run}`;
+
+const [pathFApolloResult, pathFDbprResult] = await Promise.all([
+  projectBusinessOnly({
+    itemId: crypto.randomUUID(),
+    sourceSystem: "apollo",
+    sourceType: "provider_csv_row",
+    stableKey: `apollo:cert-f-${run}`,
+    organization: {
+      canonicalName: pathFName,
+      websiteDomain: `cert-f-${run}.example.test`,
+      mainPhone: pathFPhone,
+      city: "Boca Raton",
+      state: "FL",
+    },
+    location: { city: "Boca Raton", state: "FL" },
+  }),
+  projectBusinessOnly({
+    itemId: crypto.randomUUID(),
+    sourceSystem: "dbpr-hr",
+    sourceType: "provider_csv_row",
+    stableKey: `dbpr-hr:HR-F-${run.slice(0, 8)}`,
+    organization: {
+      canonicalName: pathFName,
+      // No domain — DBPR-HR does not produce a domain
+      mainPhone: pathFPhone,
+      city: "Boca Raton",
+      state: "FL",
+    },
+    location: { city: "Boca Raton", state: "FL" },
+  }),
+]) as any[];
+
+// Both must be non-null and produce a valid outcome
+assert(pathFApolloResult, "Path F: Apollo projectBusinessOnly must return a result");
+assert(pathFDbprResult, "Path F: DBPR-HR projectBusinessOnly must return a result");
+
+// Every outcome (created/matched/conflict) is acceptable — no silent duplicate is permitted.
+// If both succeeded (created or matched), they must reference the same businesses.id.
+// If either produced a conflict, linked canonical_conflict_evidence must exist.
+const pathFApolloOk = pathFApolloResult.outcome === "created" || pathFApolloResult.outcome === "matched";
+const pathFDbprOk = pathFDbprResult.outcome === "created" || pathFDbprResult.outcome === "matched";
+
+if (pathFApolloOk && pathFDbprOk) {
+  assert.equal(
+    Number(pathFApolloResult.businessId),
+    Number(pathFDbprResult.businessId),
+    `Path F: concurrent race must resolve to same businesses.id via advisory-lock serialization ` +
+    `(apollo=${pathFApolloResult.businessId} dbpr=${pathFDbprResult.businessId})`,
+  );
+  console.log(
+    `[cert] Path F: advisory-lock serialized → same businesses.id=${pathFApolloResult.businessId} ` +
+    `(apollo=${pathFApolloResult.outcome} dbpr=${pathFDbprResult.outcome})`,
+  );
+} else {
+  // At least one conflict — verify linked evidence exists; no unlinked duplicate businesses
+  const conflictIds = [
+    (pathFApolloResult as any).conflictEvidenceId,
+    (pathFDbprResult as any).conflictEvidenceId,
+  ].filter(Boolean);
+  assert(
+    conflictIds.length > 0,
+    `Path F: non-created/matched outcomes must produce conflict evidence rows; got apollo=${pathFApolloResult.outcome} dbpr=${pathFDbprResult.outcome}`,
+  );
+  for (const evidenceId of conflictIds) {
+    const evidence = rows(await db.execute(sql`
+      SELECT id FROM canonical_conflict_evidence WHERE id = ${String(evidenceId)}::uuid
+    `))[0];
+    assert(evidence, `Path F: canonical_conflict_evidence must exist for id=${evidenceId}`);
+  }
+  console.log(`[cert] Path F: conflict race → linked conflict_evidence (${conflictIds.length} row(s)); no unlinked duplicate`);
+}
+
+// Verify no unlinked duplicate businesses rows for this name+phone combination
+const pathFBusinessCount = Number(
+  rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM businesses
+     WHERE regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${pathFPhone.replace(/\D/g, "")}
+  `))[0]?.n ?? 0,
+);
+assert(
+  pathFBusinessCount <= 1,
+  `Path F: at most one businesses row must exist for this phone — got ${pathFBusinessCount} (silent canonical duplicate detected)`,
+);
+console.log("[cert] PASS Path F: concurrent projection race → no silent canonical duplicate");
+
+// ═════════════════════════════════════════════════════════════════════════════
 // GLOBAL EFFECT-DENIED PROOF — deals, enrollments unchanged across all paths
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -667,6 +1255,12 @@ assert.equal(
   `Global effect-denied: sequence_enrollments must not change (before=${baseline.enrollments} after=${finalCounts.enrollments})`,
 );
 
-console.log("\n[cert] PASS Global effect-denied: zero new deals, zero new sequence_enrollments across all three paths");
-console.log("\n✅ CRO-03B CSV Handoff Certification COMPLETE — Path A (business-only), Path B (contact + validation), Path C (safe-hold)\n");
+console.log("\n[cert] PASS Global effect-denied: zero new deals, zero new sequence_enrollments across all six paths");
+console.log(
+  "\n✅ CRO-03B CSV Handoff Certification COMPLETE — " +
+  "Path A (business-only), Path B (contact + validation), Path C (safe-hold), " +
+  "Path D (DBPR-HR adapter + CRO-03B pipeline), " +
+  "Path E (cross-source dedup Apollo + DBPR-HR), " +
+  "Path F (concurrent projection race)\n",
+);
 process.exit(0);

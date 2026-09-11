@@ -107,6 +107,10 @@ export const dbprHrAdapter: SourceAdapter = {
       expirationDate: rawRow["ExpirationDate"] || rawRow["Expiration Date"] || "",
     });
 
+    const city = (rawRow["LocationCity"] || rawRow["Location City"] || rawRow["CITY"] || "").trim() || null;
+    const address = (rawRow["LocationAddress"] || rawRow["Location Address"] || rawRow["ADDRESS"] || "").trim() || null;
+    const phone = (rawRow["Phone"] || rawRow["PHONE"] || "").trim() || null;
+
     return {
       registryId: "dbpr-hr",
       stableKey: licenseNumber,
@@ -117,6 +121,11 @@ export const dbprHrAdapter: SourceAdapter = {
       sourceStatusActive: ACTIVE_STATUS_MAPPING[sourceStatus] ?? false,
       businessName,
       zip,
+      // Derived from known source geography — DBPR issues licenses only in Florida
+      state: "FL",
+      city,
+      address,
+      phone,
     };
   },
 };
