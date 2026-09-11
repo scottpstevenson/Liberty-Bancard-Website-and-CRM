@@ -649,6 +649,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "database-backed certification mode suppresses queue transport; provider/public network transport remains denied",
   },
   {
+    name: "CRO-03B CSV Handoff Certification — Business-Only, Contact, and Safe-Hold Paths",
+    script: "scripts/certify-cro03b-csv-handoff.ts",
+    capability: "deterministic-integration",
+    providerDenial: "database-backed certification mode; all external recipe stages (public-web, rdap, jsonld, serper, outscraper, openai, apollo) are recorded as transport_denied with zero units; no live GHL, SMTP, or provider call is made",
+  },
+  {
     name: "CRO-03B Legacy Writer Inventory",
     script: "scripts/check-cro03b-legacy-writers.ts",
     capability: "deterministic-static",

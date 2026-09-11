@@ -450,6 +450,13 @@ const MANDATORY_SUITES: Suite[] = [
     env: { NODE_ENV: "test" },
   },
   {
+    name: "CRO-03B CSV Handoff Certification — Business-Only, Contact, and Safe-Hold Paths",
+    script: "scripts/certify-cro03b-csv-handoff.ts",
+    timeoutSecs: 180,
+    requiresDisposableTestDatabase: true,
+    env: { NODE_ENV: "test" },
+  },
+  {
     name: "CRO-03 Ledger Convergence Under Live Triggers (#1750 — production-seed-convergence repair vs. real cro03_ledger_immutable/cro03_ledger_lineage_guard triggers and unique indexes)",
     script: "scripts/test-cro03-ledger-convergence.ts",
     timeoutSecs: 60,
