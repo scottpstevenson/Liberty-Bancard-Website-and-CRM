@@ -398,6 +398,20 @@ app.use((req, _res, next) => {
           console.error("[ContactClassBackfill] Failed (non-fatal, will retry on next restart):", err?.message ?? err);
         });
       });
+      // MI-06: Fire-and-forget reconciliation for pre-MI-06 businesses.mainEmail values.
+      // For every businesses row where mainEmail IS NOT NULL and email_discovery_status IS NULL,
+      // set email_discovery_status='discovered' and create a business_validation_intents row.
+      setImmediate(() => {
+        import("./services/cro03/business-validation-service").then(({ reconcileExistingBusinessEmails }) =>
+          reconcileExistingBusinessEmails()
+        ).then((result) => {
+          if (result.processed > 0 || result.errors > 0) {
+            console.log(`[MI06Reconcile] mainEmail reconciliation: processed=${result.processed} errors=${result.errors}`);
+          }
+        }).catch((err: any) => {
+          console.error("[MI06Reconcile] Startup reconciliation failed (non-fatal):", err?.message ?? err);
+        });
+      });
       const certificationDenyMode = process.env.VG_PROVIDER_DENY_MODE === "1";
       // Read profile once, early — every gated block below references _bgProfile.
       // Fail-closed: absent/invalid → "off" (no workers, no seeds, no hydration).

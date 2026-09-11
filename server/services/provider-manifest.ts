@@ -151,7 +151,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "zerobounce", capability: ["email_validation"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/zerobounce.ts"],
-    approvedCallers: ["server/services/zerobounce-campaign-worker.ts", "server/services/cro03/live-provider-executors.ts"], secretNames: ["ZEROBOUNCE_API_KEY"],
+    approvedCallers: ["server/services/zerobounce-campaign-worker.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/business-validation-service.ts"], secretNames: ["ZEROBOUNCE_API_KEY"],
     durableOperation: "batch", budget: { required: true, accounting: "control_row", unit: "request" },
     timeoutMs: 10_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["email"], redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT,

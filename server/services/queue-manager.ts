@@ -1541,8 +1541,54 @@ class QueueManager {
       switch (queueName) {
         case QUEUE_NAMES.CRO03C_LIVE: {
           const { dispatchCro03cLive, recoverCro03cLiveDispatches } = await import("./cro03/live-worker");
-          if (_job.name === "recover") await recoverCro03cLiveDispatches();
-          else await dispatchCro03cLive(typeof _job.data?.commandId === "string" ? _job.data.commandId : undefined);
+          if (_job.name === "recover") {
+            await recoverCro03cLiveDispatches();
+          } else {
+            await dispatchCro03cLive(typeof _job.data?.commandId === "string" ? _job.data.commandId : undefined);
+          }
+          // MI-06: After the main enrichment dispatch:
+          // 1. Consume pending business_validation_intents (with active command authority).
+          // 2. Retry DNS-indeterminate businesses that have new staged candidates.
+          try {
+            const {
+              reclaimExpiredBusinessValidationClaims,
+              dispatchPendingWinnerSelections,
+              dispatchPendingBusinessValidationIntents,
+              dispatchDnsIndeterminateRetries,
+              markStaleBusinessEmails,
+            } = await import("./cro03/business-validation-service");
+            // Step 0: Reclaim pre-I/O expired claimed intents back to pending so
+            // crashed-worker recoveries complete within one tick.
+            const reclaimResult = await reclaimExpiredBusinessValidationClaims({ limit: 20 });
+            if (reclaimResult.reclaimed > 0) {
+              console.log(`[CRO03C BizReclaim] reclaimed=${reclaimResult.reclaimed}`);
+            }
+            // Step 1: Select winners for businesses with staged candidates.
+            const winnerResult = await dispatchPendingWinnerSelections({ limit: 10 });
+            if (winnerResult.triggered > 0 || winnerResult.errors > 0) {
+              console.log(`[CRO03C BizWinner] triggered=${winnerResult.triggered} errors=${winnerResult.errors}`);
+            }
+            // Step 2: Consume pending validation intents (with active command authority).
+            const bizResult = await dispatchPendingBusinessValidationIntents({ limit: 10 });
+            if (bizResult.dispatched > 0 || bizResult.errors > 0) {
+              console.log(`[CRO03C BizEmail] dispatched=${bizResult.dispatched} errors=${bizResult.errors}`);
+            }
+            // Step 3: Retry DNS-indeterminate businesses.
+            const dnsResult = await dispatchDnsIndeterminateRetries({ limit: 5 });
+            if (dnsResult.triggered > 0 || dnsResult.errors > 0) {
+              console.log(`[CRO03C BizDNS] retried=${dnsResult.triggered} errors=${dnsResult.errors}`);
+            }
+            // Step 4: Mark provider_valid results as stale after 90 days (sampled — full
+            // scan happens at most once per tick but is capped to avoid timeout).
+            // Uses the same 90-day TTL as evidenceTtlSeconds in recipe-contract.ts:66.
+            const staleResult = await markStaleBusinessEmails({ limit: 50 });
+            if (staleResult.marked > 0) {
+              console.log(`[CRO03C BizStale] marked=${staleResult.marked}`);
+            }
+          } catch (bizErr: any) {
+            // Never let business validation errors kill the main enrichment tick.
+            console.error("[CRO03C BizEmail] dispatch error:", bizErr?.message ?? bizErr);
+          }
           break;
         }
         case QUEUE_NAMES.CRO03A_QUALIFICATION: {

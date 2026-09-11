@@ -11,7 +11,7 @@ export const CRO03_HASH_ALGORITHM_VERSION = "sha256-v1" as const;
 /** Single release/migration binding shared by CRO03C authorities and workers.
  * Kept here rather than live-execution so provider-readiness-control can verify
  * it without importing an executor that itself calls readiness control. */
-export const CRO03C_CURRENT_MIGRATION_HEAD = "0252_cro03c_candidate_evidence" as const;
+export const CRO03C_CURRENT_MIGRATION_HEAD = "0255_mi06_business_email_winner" as const;
 
 /** The one-time initial-rollout singleton key. Kept here (not live-execution)
  * so dependency-free callers — e.g. an operator discovery tool that must not
@@ -38,6 +38,14 @@ export const CRO03_CANDIDATE_DISPOSITIONS = [
   "staged", "accepted", "rejected", "duplicate", "quarantined", "excluded", "superseded",
 ] as const;
 export type Cro03CandidateDisposition = typeof CRO03_CANDIDATE_DISPOSITIONS[number];
+
+// MI-06: Email discovery status enum (matches DB CHECK constraint in migration 0255).
+export const EMAIL_DISCOVERY_STATUSES = [
+  "absent", "discovered", "syntax_invalid", "placeholder", "no_mx", "dns_indeterminate",
+  "disposable", "no_valid_candidate", "provider_valid", "provider_invalid", "provider_catch_all",
+  "provider_unknown", "provider_spamtrap", "stale", "bounced", "suppressed",
+] as const;
+export type EmailDiscoveryStatus = typeof EMAIL_DISCOVERY_STATUSES[number];
 
 export const CRO03_PROVIDERS = ["zerobounce", "serper", "outscraper", "apollo"] as const;
 export type Cro03Provider = typeof CRO03_PROVIDERS[number];

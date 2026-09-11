@@ -331,7 +331,7 @@ section("6. Migration binding — CRO03C_CURRENT_MIGRATION_HEAD");
 
 try {
   const contractsSrc = readFileSync("server/services/cro03/contracts.ts", "utf8");
-  assert("CRO03C_CURRENT_MIGRATION_HEAD updated to 0252", contractsSrc.includes("0252_cro03c_candidate_evidence"));
+  assert("CRO03C_CURRENT_MIGRATION_HEAD updated to 0255", contractsSrc.includes("0255_mi06_business_email_winner"));
   assert("Old 0202 migration head removed", !contractsSrc.includes("0202_cro03c_transport_invocation_checkpoint"));
 } catch (err: any) {
   assert("contracts.ts readable", false, (err as Error).message);

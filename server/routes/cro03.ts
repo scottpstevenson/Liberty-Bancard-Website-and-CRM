@@ -140,10 +140,12 @@ const cro03cCommandSchema = z.discriminatedUnion("commandType", [
     maxAmountMicros: z.number().int().nonnegative(),
   }).strict(),
   // Initial validation authority is derived exclusively from frozen membership
-  // and the approved ZeroBounce schedule. There are deliberately no browser
-  // fields for either validation cap.
+  // and the approved ZeroBounce schedule. Contact cap (validationMaxUnits) is
+  // server-derived from handoffIds.length. Business email validation cap is
+  // caller-supplied and independently enforced via a separate authorization table.
   cro03cCommandBaseSchema.extend({
     commandType: z.literal("initial_batch"),
+    businessValidationMaxUnits: z.number().int().nonnegative().max(10_000).optional(),
   }).strict(),
 ]);
 const cro03cCancelSchema = z.object({

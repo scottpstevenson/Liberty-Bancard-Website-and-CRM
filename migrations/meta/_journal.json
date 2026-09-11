@@ -1813,6 +1813,13 @@
       "when": 1800000006300,
       "tag": "0254_cro03a_qualification_commands_claimed_at",
       "breakpoints": false
+    },
+    {
+      "idx": 259,
+      "version": "7",
+      "when": 1800000006400,
+      "tag": "0255_mi06_business_email_winner",
+      "breakpoints": false
     }
   ]
 }

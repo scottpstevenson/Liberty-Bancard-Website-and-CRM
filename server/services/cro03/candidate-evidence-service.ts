@@ -51,6 +51,10 @@ export interface CandidateEvidenceWriteInput {
   confidence: number;
   sourceRank?: number;
   apolloMatchConfidence?: "high" | "medium" | "low" | "none" | null;
+  /** MI-06: business_id for business-scoped candidates (populated at evidence creation). */
+  businessId?: number | null;
+  /** MI-06: arbitrary per-candidate metadata, e.g. { ownerTitle: "owner" } for Apollo person reveals. */
+  candidateMetadata?: Record<string, unknown> | null;
 }
 
 export interface CandidateEvidenceRecord {
@@ -135,21 +139,30 @@ export async function writeCandidateEvidence(
       (generation_id, stage_key, field, source_rank, subject_type, disposition,
        confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
        envelope_key_version, normalized_value_hash, masked_value,
-       apollo_match_confidence)
+       apollo_match_confidence, business_id, candidate_metadata)
     VALUES
       (${input.generationId}::uuid, ${input.stageKey}, ${input.field},
        ${input.sourceRank ?? 100}, ${input.subjectType}, ${disposition},
        ${input.confidence},
        ${ciphertext}, ${nonce}, ${tag}, ${KEY_VERSION},
        ${normalizedValueHash}, ${maskedValue},
-       ${input.apolloMatchConfidence ?? null})
-    ON CONFLICT (generation_id, stage_key, field, normalized_value_hash) DO NOTHING
-    RETURNING id
+       ${input.apolloMatchConfidence ?? null},
+       ${input.businessId ?? null},
+       ${input.candidateMetadata ? JSON.stringify(input.candidateMetadata) : null}::jsonb)
+    ON CONFLICT (generation_id, stage_key, field, normalized_value_hash) DO UPDATE
+      -- MI-06: repair NULL business_id on retry once canonical linking resolves.
+      -- Only update; never downgrade a non-null binding to NULL.
+      SET business_id = COALESCE(cro03c_candidate_evidence.business_id, EXCLUDED.business_id),
+          candidate_metadata = COALESCE(cro03c_candidate_evidence.candidate_metadata, EXCLUDED.candidate_metadata)
+    RETURNING id, (xmax = 0) AS was_inserted
   `));
   if (inserted.length > 0) {
-    return { id: String(inserted[0].id), wasNew: true };
+    const row = inserted[0];
+    // was_inserted is true for new rows; false for DO UPDATE (conflict repair).
+    const wasNew = row.was_inserted === true || row.was_inserted === "true" || row.was_inserted === "t";
+    return { id: String(row.id), wasNew };
   }
-  // Conflict: exact duplicate value — fetch the existing id.
+  // Fallback: no row returned (should not happen with DO UPDATE, but guard defensively).
   const existing = rows(await db.execute(sql`
     SELECT id FROM cro03c_candidate_evidence
      WHERE generation_id = ${input.generationId}::uuid

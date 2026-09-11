@@ -744,7 +744,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
                  city, state, vertical, status,
                  free_enrichment_status, free_enrichment_attempt_count,
                  free_enrichment_last_attempt_at, free_enrichment_completed_at,
-                 free_enrichment_last_error_code, free_enrichment_evidence
+                 free_enrichment_last_error_code, free_enrichment_evidence,
+                 email_discovery_status, email_validation_updated_at,
+                 email_selected_candidate_hash, email_outreach_catch_all_approved_at,
+                 email_outreach_approved_by
           FROM businesses WHERE id = ${businessId}
         `),
         db.execute(sql`
@@ -756,7 +759,47 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const biz = ((bizResult as any).rows ?? bizResult)[0];
       if (!biz) return res.status(404).json({ error: "Business not found" });
       const signals = ((signalsResult as any)?.rows ?? signalsResult) ?? [];
-      res.json({ business: biz, processorSignals: signals });
+
+      // MI-06: derive isStale boolean from email_validation_updated_at.
+      // Kill line: do NOT mutate email_discovery_status during GET handler.
+      const STALE_DAYS = 90;
+      const emailValidationUpdatedAt = biz.email_validation_updated_at ? new Date(biz.email_validation_updated_at) : null;
+      const isStale = emailValidationUpdatedAt
+        ? (Date.now() - emailValidationUpdatedAt.getTime()) > STALE_DAYS * 24 * 3600 * 1000 &&
+          biz.email_discovery_status === "provider_valid"
+        : false;
+
+      // MI-06: load winner selection and pending intent for this business (if any).
+      const [winnerResult, intentResult] = await Promise.all([
+        db.execute(sql`
+          SELECT ws.id, ws.source, ws.subject_type, ws.confidence, ws.state,
+                 ws.normalized_value_hash, ce.masked_value
+            FROM cro03c_email_winner_selections ws
+            LEFT JOIN cro03c_candidate_evidence ce ON ce.id = ws.candidate_evidence_id
+           WHERE ws.business_id = ${businessId} AND ws.state = 'selected'
+           ORDER BY ws.created_at DESC LIMIT 1
+        `).catch(() => null),
+        db.execute(sql`
+          SELECT id, state, approval_required, apollo_match_confidence, disposition,
+                 attempt_count, created_at
+            FROM business_validation_intents
+           WHERE business_id = ${businessId}
+             AND state NOT IN ('superseded','revoked','completed','failed')
+           ORDER BY created_at DESC LIMIT 1
+        `).catch(() => null),
+      ]);
+      const winnerSelection = winnerResult ? (((winnerResult as any).rows ?? winnerResult)[0] ?? null) : null;
+      const pendingIntent = intentResult ? (((intentResult as any).rows ?? intentResult)[0] ?? null) : null;
+
+      res.json({
+        business: biz,
+        processorSignals: signals,
+        emailDiscoveryStatus: biz.email_discovery_status ?? null,
+        emailValidationUpdatedAt: biz.email_validation_updated_at ?? null,
+        isStale,
+        winnerSelection,
+        pendingIntent,
+      });
     } catch (err: any) {
       console.error("[LeadOps] businesses/:id error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to load business" });
@@ -802,6 +845,155 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     } catch (err: any) {
       console.error("[LeadOps] enrich-free error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to enqueue enrichment" });
+    }
+  });
+
+  // ── MI-06: POST /api/lead-ops/businesses/:businessId/trigger-winner-selection ──
+  // Manually triggers winner selection for a specific business (admin only).
+  // Required for Phase 2 rollout.
+  app.post("/api/lead-ops/businesses/:businessId/trigger-winner-selection", requireRole("admin"), async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ error: "Invalid businessId" });
+    const { generationId } = req.body ?? {};
+    if (!generationId || typeof generationId !== "string") {
+      return res.status(400).json({ error: "generationId (string) is required" });
+    }
+    try {
+      const { selectEmailWinner } = await import("../services/cro03/candidate-selector");
+      const result = await selectEmailWinner(businessId, generationId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[LeadOps] trigger-winner-selection error:", err?.message);
+      res.status(500).json({ error: err?.message || "Winner selection failed" });
+    }
+  });
+
+  // ── MI-06: POST /api/lead-ops/businesses/:businessId/approve-catch-all ───────
+  // Approve a catch-all result for outreach use. Does NOT change email_discovery_status.
+  // Only writes email_outreach_catch_all_approved_at and email_outreach_approved_by.
+  app.post("/api/lead-ops/businesses/:businessId/approve-catch-all", requireRole("admin"), async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ error: "Invalid businessId" });
+    try {
+      const bizCheck = await db.execute(sql`
+        SELECT id, email_discovery_status, email_selected_candidate_hash
+          FROM businesses WHERE id = ${businessId}
+      `);
+      const biz = ((bizCheck as any).rows ?? bizCheck)[0];
+      if (!biz) return res.status(404).json({ error: "Business not found" });
+      if (biz.email_discovery_status !== "provider_catch_all") {
+        return res.status(422).json({
+          error: `Catch-all approval is only valid when email_discovery_status='provider_catch_all'. Current status: '${biz.email_discovery_status}'`,
+        });
+      }
+      // CAS: bind approval to the current winning candidate hash.
+      // Prevents stale approvals from authorizing future, different candidates.
+      const selectedHash = biz.email_selected_candidate_hash;
+      if (!selectedHash) {
+        return res.status(422).json({ error: "No selected candidate hash — winner selection not yet complete." });
+      }
+      const actor = (req as any).user?.id ?? (req as any).user?.email ?? "admin";
+      // Decrypt the winner candidate email so we can write main_email.
+      // SDR consumers (compliance-engine, voice-orchestrator, sdr.ts) gate on
+      // mainEmail IS NOT NULL — without this write, catch-all approval has no
+      // outreach effect regardless of the approval metadata.
+      const winnerEvidence = ((await db.execute(sql`
+        SELECT ce.envelope_ciphertext, ce.envelope_nonce, ce.envelope_tag,
+               ce.envelope_key_version, ce.field
+          FROM cro03c_email_winner_selections ws
+          JOIN cro03c_candidate_evidence ce ON ce.id = ws.candidate_evidence_id
+         WHERE ws.business_id = ${businessId}
+           AND ws.state = 'selected'
+           AND ws.normalized_value_hash = ${String(selectedHash)}
+         LIMIT 1
+      `)) as any)?.rows?.[0];
+      if (!winnerEvidence) {
+        return res.status(422).json({ error: "Winner candidate evidence not found for the current selected hash." });
+      }
+
+      let decryptedEmail: string;
+      try {
+        const { unseal } = await import("../services/cro03/candidate-evidence-service");
+        decryptedEmail = unseal(String(winnerEvidence.field), {
+          ciphertext: String(winnerEvidence.envelope_ciphertext),
+          nonce: String(winnerEvidence.envelope_nonce),
+          tag: String(winnerEvidence.envelope_tag),
+          keyVersion: Number(winnerEvidence.envelope_key_version),
+        });
+      } catch {
+        return res.status(500).json({ error: "Failed to decrypt winner email for approval." });
+      }
+
+      const updated = ((await db.execute(sql`
+        UPDATE businesses
+           SET email_outreach_catch_all_approved_at = NOW(),
+               email_outreach_approved_by = ${String(actor)},
+               email_outreach_approved_candidate_hash = ${String(selectedHash)},
+               main_email = ${decryptedEmail},
+               updated_at = NOW()
+         WHERE id = ${businessId}
+           AND email_discovery_status = 'provider_catch_all'
+           AND email_selected_candidate_hash = ${String(selectedHash)}
+         RETURNING id
+      `)) as any)?.rows ?? [];
+      if (updated.length === 0) {
+        return res.status(409).json({
+          error: "Approval CAS failed — email_discovery_status or selected candidate hash changed concurrently.",
+        });
+      }
+      res.json({
+        success: true,
+        message: "Catch-all approved for outreach. main_email written from winner candidate. email_discovery_status unchanged.",
+        emailDiscoveryStatus: biz.email_discovery_status,
+        approvedCandidateHash: selectedHash,
+      });
+    } catch (err: any) {
+      console.error("[LeadOps] approve-catch-all error:", err?.message);
+      res.status(500).json({ error: err?.message || "Approval failed" });
+    }
+  });
+
+  // ── MI-06: POST /api/lead-ops/businesses/:businessId/approve-medium-confidence-validation ──
+  // Approve a medium-confidence intent for ZeroBounce validation.
+  // Sets approval_required=FALSE so the intent can be claimed.
+  // SEPARATE from catch-all approval — different route, different modal, different action.
+  app.post("/api/lead-ops/businesses/:businessId/approve-medium-confidence-validation", requireRole("admin"), async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ error: "Invalid businessId" });
+    const { intentId } = req.body ?? {};
+    if (!intentId || typeof intentId !== "string") {
+      return res.status(400).json({ error: "intentId (string) is required" });
+    }
+    try {
+      const intentCheck = await db.execute(sql`
+        SELECT id, state, approval_required, apollo_match_confidence
+          FROM business_validation_intents
+         WHERE id = ${intentId}::uuid AND business_id = ${businessId}
+      `);
+      const intent = ((intentCheck as any).rows ?? intentCheck)[0];
+      if (!intent) return res.status(404).json({ error: "Intent not found for this business" });
+      if (intent.state !== "pending" || !intent.approval_required) {
+        return res.status(422).json({
+          error: `Intent must be in state='pending' with approval_required=TRUE. State: '${intent.state}', approval_required: ${intent.approval_required}`,
+        });
+      }
+      await db.execute(sql`
+        UPDATE business_validation_intents
+           SET approval_required = FALSE, updated_at = NOW()
+         WHERE id = ${intentId}::uuid
+           AND business_id = ${businessId}
+           AND state = 'pending'
+           AND approval_required = TRUE
+      `);
+      res.json({
+        success: true,
+        message: "Medium-confidence intent approved for ZeroBounce validation.",
+        intentId,
+        note: "The intent is now eligible for claim. This does NOT approve for outreach — ZeroBounce must confirm validity first.",
+      });
+    } catch (err: any) {
+      console.error("[LeadOps] approve-medium-confidence-validation error:", err?.message);
+      res.status(500).json({ error: err?.message || "Approval failed" });
     }
   });
 

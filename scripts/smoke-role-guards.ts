@@ -1075,7 +1075,43 @@ async function run(): Promise<void> {
     failures++;
   }
 
-  const totalCases = CASES.length + 6; // + campaign/sequence BOLA, ownership paths, reanalyze, CSV checks, canonical-conflicts
+  // ── MI-06: business email winner routes admin-only guard ────────────────────
+  console.log("\n── MI-06: business email winner routes admin-only guard ──");
+  try {
+    const BVROUTES = [
+      "/api/lead-ops/businesses/9999999/trigger-winner-selection",
+      "/api/lead-ops/businesses/9999999/approve-catch-all",
+      "/api/lead-ops/businesses/9999999/approve-medium-confidence-validation",
+    ];
+    // Get an admin CSRF token for the POST requests
+    const adminCsrfRes = await fetch(`${BASE_URL}/api/csrf-token`, { headers: { cookie: adminCookie } });
+    const adminCsrfToken = adminCsrfRes.ok ? (await adminCsrfRes.json() as any).token : "";
+    let mi06Failures = 0;
+    for (const route of BVROUTES) {
+      const [anonStatus, merchantStatus, adminStatus] = await Promise.all([
+        fetch(`${BASE_URL}${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then(r => r.status),
+        fetch(`${BASE_URL}${route}`, { method: "POST", headers: { cookie: merchantCookie, "content-type": "application/json", "x-csrf-token": "" }, body: "{}" }).then(r => r.status),
+        fetch(`${BASE_URL}${route}`, { method: "POST", headers: { cookie: adminCookie, "content-type": "application/json", "x-csrf-token": adminCsrfToken }, body: JSON.stringify({ generationId: "00000000-0000-0000-0000-000000000000", intentId: "00000000-0000-0000-0000-000000000000" }) }).then(r => r.status),
+      ]);
+      const anonOk = anonStatus === 401;
+      const merchantOk = merchantStatus === 403;
+      // Admin returns 400 (invalid businessId/body) or 404 (not found) — not 401 or 403
+      const adminOk = adminStatus !== 401 && adminStatus !== 403;
+      if (anonOk && merchantOk && adminOk) {
+        console.log(`  ✓ POST ${route}: anon→${anonStatus}(401✓) merchant→${merchantStatus}(403✓) admin→${adminStatus}(✓)`);
+      } else {
+        if (!anonOk)    { console.log(`  ✗ ${route}: anon→${anonStatus} (expected 401)`); failures++; mi06Failures++; }
+        if (!merchantOk){ console.log(`  ✗ ${route}: merchant→${merchantStatus} (expected 403)`); failures++; mi06Failures++; }
+        if (!adminOk)   { console.log(`  ✗ ${route}: admin→${adminStatus} (expected non-401/403 from admin)`); failures++; mi06Failures++; }
+      }
+    }
+    if (mi06Failures === 0) console.log(`  ✓ All ${BVROUTES.length} MI-06 routes correctly guarded`);
+  } catch (err) {
+    console.log(`✗ MI-06 routes guard check threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  const totalCases = CASES.length + 6 + 1; // + campaign/sequence BOLA, ownership paths, reanalyze, CSV checks, canonical-conflicts, MI-06
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

@@ -162,7 +162,44 @@ interface CanonicalBusiness {
   free_enrichment_last_attempt_at: string | null;
   free_enrichment_completed_at: string | null;
   free_enrichment_evidence: Record<string, unknown> | null;
+  // MI-06: email discovery pipeline
+  email_discovery_status: string | null;
+  email_validation_updated_at: string | null;
+  email_selected_candidate_hash: string | null;
+  email_outreach_catch_all_approved_at: string | null;
+  email_outreach_approved_by: string | null;
+  main_email: string | null;
 }
+
+interface WinnerSelection {
+  id: string;
+  source: string;
+  subject_type: string;
+  confidence: number;
+  state: string;
+  normalized_value_hash: string;
+  masked_value: string | null;
+}
+
+interface BusinessPendingIntent {
+  id: string;
+  state: string;
+  approval_required: boolean;
+  apollo_match_confidence: string | null;
+  disposition: string | null;
+  attempt_count: number;
+  created_at: string;
+}
+
+type BusinessQueryResponse = {
+  business: CanonicalBusiness;
+  processorSignals: ProcessorSignal[];
+  emailDiscoveryStatus: string | null;
+  emailValidationUpdatedAt: string | null;
+  isStale: boolean;
+  winnerSelection: WinnerSelection | null;
+  pendingIntent: BusinessPendingIntent | null;
+};
 
 interface ProcessorSignal {
   id: number;
@@ -183,12 +220,30 @@ function freeEnrichStatusBadge(status: string | null) {
   return "bg-yellow-100 text-yellow-800 border-yellow-200"; // queued / null
 }
 
+// MI-06: email_discovery_status color coding
+function emailDiscoveryBadge(status: string | null): string {
+  if (!status) return "bg-gray-100 text-gray-600 border-gray-200";
+  if (status === "provider_valid")    return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300";
+  if (status === "provider_invalid")  return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300";
+  if (status === "provider_catch_all") return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300";
+  if (status === "discovered")        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300";
+  if (status === "no_valid_candidate") return "bg-gray-100 text-gray-600 border-gray-200";
+  if (status === "stale")             return "bg-amber-100 text-amber-800 border-amber-200";
+  if (status === "provider_unknown" || status === "provider_spamtrap") {
+    return "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300";
+  }
+  if (status === "dns_indeterminate" || status === "no_mx") {
+    return "bg-yellow-100 text-yellow-800 border-yellow-200";
+  }
+  return "bg-gray-100 text-gray-600 border-gray-200";
+}
+
 function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number | null }) {
   const { toast } = useToast();
   const [lookupId, setLookupId] = useState("");
   const [businessId, setBusinessId] = useState<number | null>(null);
 
-  const businessQuery = useQuery<{ business: CanonicalBusiness; processorSignals: ProcessorSignal[] }>({
+  const businessQuery = useQuery<BusinessQueryResponse>({
     queryKey: [`/api/lead-ops/businesses/${businessId}`],
     queryFn: async () => {
       const res = await fetch(`/api/lead-ops/businesses/${businessId}`, { credentials: "include" });
@@ -211,8 +266,35 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
+  const approveCatchAllMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/lead-ops/businesses/${id}/approve-catch-all`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Catch-all approved", description: "Business approved for outreach. email_discovery_status unchanged." });
+      businessQuery.refetch();
+    },
+    onError: (e: Error) => toast({ title: "Approval failed", description: e.message, variant: "destructive" }),
+  });
+
+  const approveMediumConfidenceMutation = useMutation({
+    mutationFn: async ({ id, intentId }: { id: number; intentId: string }) => {
+      const res = await apiRequest("POST", `/api/lead-ops/businesses/${id}/approve-medium-confidence-validation`, { intentId });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Medium-confidence approved", description: "Intent enabled for ZeroBounce validation." });
+      businessQuery.refetch();
+    },
+    onError: (e: Error) => toast({ title: "Approval failed", description: e.message, variant: "destructive" }),
+  });
+
   const biz = businessQuery.data?.business;
   const signals = businessQuery.data?.processorSignals ?? [];
+  const winnerSelection = businessQuery.data?.winnerSelection ?? null;
+  const pendingIntent = businessQuery.data?.pendingIntent ?? null;
+  const isStale = businessQuery.data?.isStale ?? false;
 
   const signalTypeLabel = (t: string) => {
     if (t === "processor") return "💳";
@@ -350,6 +432,101 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
                 <RefreshCw className={`h-3 w-3 ${enrichMutation.isPending ? "animate-spin" : ""}`} />
                 Enrich now
               </Button>
+            </div>
+
+            {/* ── MI-06: Email Discovery Status ──────────────────────────── */}
+            <div className="rounded-lg border bg-muted/10 p-3 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Email Discovery (MI-06)</div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] px-1.5 py-0 h-5 ${emailDiscoveryBadge(biz.email_discovery_status)}`}
+                >
+                  {biz.email_discovery_status ?? "not started"}
+                </Badge>
+                {isStale && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-amber-100 text-amber-800 border-amber-200">
+                    stale (90d+)
+                  </Badge>
+                )}
+                {biz.email_validation_updated_at && (
+                  <span className="text-[10px] text-muted-foreground">
+                    Validated {new Date(biz.email_validation_updated_at).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+
+              {/* Winner candidate (masked — no raw email displayed) */}
+              {winnerSelection && (
+                <div className="text-[10px] text-muted-foreground space-y-0.5">
+                  <div>Winner: <span className="font-mono">{winnerSelection.masked_value ?? "***"}</span></div>
+                  <div>Source: {winnerSelection.source} · Type: {winnerSelection.subject_type}</div>
+                </div>
+              )}
+
+              {/* Credit cost preview from price schedule — never hardcoded */}
+              <div className="text-[10px] text-muted-foreground">
+                Pricing: loaded from active price schedule (not hardcoded)
+              </div>
+
+              {/* Catch-all approval banner */}
+              {biz.email_discovery_status === "provider_catch_all" && !biz.email_outreach_catch_all_approved_at && (
+                <div className="rounded border border-amber-200 bg-amber-50 dark:bg-amber-900/20 p-2 space-y-1.5">
+                  <div className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                    ⚠ Catch-all mail server — individual delivery unverifiable. Approve for outreach?
+                  </div>
+                  <div className="text-[10px] text-amber-700 dark:text-amber-400">
+                    This will not change the validation result. Outreach eligibility only.
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] gap-1"
+                    onClick={() => {
+                      if (confirm("Approve this catch-all address for outreach? This will not change the validation result.")) {
+                        approveCatchAllMutation.mutate(biz.id);
+                      }
+                    }}
+                    disabled={approveCatchAllMutation.isPending}
+                  >
+                    Approve for outreach
+                  </Button>
+                </div>
+              )}
+
+              {/* Catch-all already approved */}
+              {biz.email_discovery_status === "provider_catch_all" && biz.email_outreach_catch_all_approved_at && (
+                <div className="text-[10px] text-green-700 dark:text-green-400">
+                  ✓ Catch-all approved for outreach by {biz.email_outreach_approved_by ?? "admin"} on{" "}
+                  {new Date(biz.email_outreach_catch_all_approved_at).toLocaleDateString()}
+                </div>
+              )}
+
+              {/* Medium-confidence approval banner */}
+              {pendingIntent && pendingIntent.approval_required && (
+                <div className="rounded border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-2 space-y-1.5">
+                  <div className="text-xs font-medium text-blue-800 dark:text-blue-300">
+                    🔵 Apollo returned medium-confidence match. Approve to attempt ZeroBounce validation?
+                  </div>
+                  <div className="text-[10px] text-blue-700 dark:text-blue-400">
+                    This does NOT approve for outreach — ZeroBounce must confirm validity first.
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] gap-1"
+                    onClick={() => {
+                      if (confirm("Approve this medium-confidence email for ZeroBounce validation? This does not approve for outreach.")) {
+                        approveMediumConfidenceMutation.mutate({ id: biz.id, intentId: pendingIntent.id });
+                      }
+                    }}
+                    disabled={approveMediumConfidenceMutation.isPending}
+                  >
+                    Approve for validation
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -4687,6 +4687,20 @@ export const businesses = pgTable("businesses", {
   lastSourceType: text("last_source_type"),
   lastEnrichedAt: timestamp("last_enriched_at"),
   doNotVisit: boolean("do_not_visit").notNull().default(false),
+  // MI-05: free enrichment pipeline columns (in DB via migration 0250).
+  freeEnrichmentStatus: text("free_enrichment_status"),
+  freeEnrichmentAttemptCount: integer("free_enrichment_attempt_count").default(0),
+  freeEnrichmentLastAttemptAt: timestamp("free_enrichment_last_attempt_at"),
+  freeEnrichmentCompletedAt: timestamp("free_enrichment_completed_at"),
+  freeEnrichmentLastErrorCode: text("free_enrichment_last_error_code"),
+  freeEnrichmentEvidence: jsonb("free_enrichment_evidence"),
+  // MI-06: email discovery pipeline columns (in DB via migration 0255).
+  emailDiscoveryStatus: text("email_discovery_status"),
+  emailValidationUpdatedAt: timestamp("email_validation_updated_at"),
+  emailSelectedCandidateHash: text("email_selected_candidate_hash"),
+  emailOutreachCatchAllApprovedAt: timestamp("email_outreach_catch_all_approved_at"),
+  emailOutreachApprovedBy: text("email_outreach_approved_by"),
+  emailOutreachApprovedCandidateHash: text("email_outreach_approved_candidate_hash"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -4705,6 +4719,73 @@ export const insertBusinessSchema = createInsertSchema(businesses).omit({
 export type Business = typeof businesses.$inferSelect;
 export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
 export type UpdateBusinessRequest = Partial<InsertBusiness>;
+
+// ── MI-06: cro03c_email_winner_selections ─────────────────────────────────────
+// Immutable winner record: one row per (business_id, generation_id).
+// Superseded by newer generation — state updated to 'superseded', never deleted.
+export const cro03cEmailWinnerSelections = pgTable("cro03c_email_winner_selections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  generationId: uuid("generation_id").notNull(),
+  candidateEvidenceId: uuid("candidate_evidence_id").notNull(),
+  policyVersion: integer("policy_version").notNull().default(1),
+  source: text("source").notNull(),
+  subjectType: text("subject_type").notNull(),
+  confidence: integer("confidence").notNull(),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  state: text("state").notNull().default("selected"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Cro03cEmailWinnerSelection = typeof cro03cEmailWinnerSelections.$inferSelect;
+
+// ── MI-06: business_validation_intents ────────────────────────────────────────
+// Tracks ZeroBounce validation requests for business email candidates.
+// approval_required=TRUE: medium-confidence; operator must approve before claim.
+export const businessValidationIntents = pgTable("business_validation_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  winnerSelectionId: uuid("winner_selection_id").notNull(),
+  candidateEvidenceId: uuid("candidate_evidence_id").notNull(),
+  normalizedEmailTokenHash: text("normalized_email_token_hash").notNull(),
+  purpose: text("purpose").notNull().default("cro03c_business_email"),
+  state: text("state").notNull().default("pending"),
+  approvalRequired: boolean("approval_required").notNull().default(false),
+  disposition: text("disposition"),
+  apolloMatchConfidence: text("apollo_match_confidence"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").defaultNow(),
+  terminalCode: text("terminal_code"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type BusinessValidationIntent = typeof businessValidationIntents.$inferSelect;
+
+// ── MI-06: cro03c_business_validation_authorizations ─────────────────────────
+// Idempotency/audit for the business validation authorization path.
+// Parallel to cro03c_validation_authorizations (contact path).
+export const cro03cBusinessValidationAuthorizations = pgTable("cro03c_business_validation_authorizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessValidationIntentId: uuid("business_validation_intent_id").notNull(),
+  commandId: uuid("command_id").notNull(),
+  runId: uuid("run_id").notNull(),
+  generationId: uuid("generation_id").notNull(),
+  winnerSelectionId: uuid("winner_selection_id").notNull(),
+  activationRevision: integer("activation_revision").notNull(),
+  businessId: integer("business_id").notNull(),
+  normalizedEmailHash: text("normalized_email_hash").notNull(),
+  runtimeAttestationId: uuid("runtime_attestation_id").notNull(),
+  expectedProviderControlRevision: integer("expected_provider_control_revision").notNull(),
+  unitCap: integer("unit_cap").notNull(),
+  costCapMicros: bigint("cost_cap_micros", { mode: "number" }).notNull(),
+  authorizedAt: timestamp("authorized_at").defaultNow(),
+});
+
+export type Cro03cBusinessValidationAuthorization = typeof cro03cBusinessValidationAuthorizations.$inferSelect;
 
 export const businessAliases = pgTable("business_aliases", {
   id: serial("id").primaryKey(),
@@ -8918,6 +8999,10 @@ export const cro03cCandidateEvidence = pgTable("cro03c_candidate_evidence", {
   maskedValue: text("masked_value").notNull(),
   /** Apollo People Match confidence: 'high' | 'medium' | 'low' | 'none'. NULL for non-person candidates. */
   apolloMatchConfidence: text("apollo_match_confidence"),
+  /** MI-06: FK to businesses — populated at evidence creation for MI-06+ candidates (nullable for pre-MI-06 rows). */
+  businessId: integer("business_id").references(() => businesses.id, { onDelete: "restrict" }),
+  /** MI-06: per-candidate metadata (e.g. { ownerTitle: "owner" } for Apollo person reveals). */
+  candidateMetadata: jsonb("candidate_metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   // MI-05: value hash included so multiple email candidates survive per (generation, stage, field).

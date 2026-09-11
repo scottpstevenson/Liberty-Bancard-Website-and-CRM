@@ -571,8 +571,10 @@ export async function projectBusinessEnrichmentFields(input: {
   const fieldsIdempotent: string[] = [];
 
   // Only these fields may be projected from business-level candidates.
+  // MI-06: email is intentionally excluded — email must go through winner
+  // selection and ZeroBounce validation before writing to businesses.mainEmail.
+  // businesses.mainEmail is only written after a provider_valid ZeroBounce result.
   const PROJECTABLE_BUSINESS_FIELDS: Record<string, string> = {
-    email: "main_email",
     phone: "main_phone",
     website: "website_domain",
   };

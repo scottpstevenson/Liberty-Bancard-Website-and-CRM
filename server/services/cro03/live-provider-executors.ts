@@ -12,6 +12,7 @@ import { writeCandidateEvidence, readCandidateEvidence } from "./candidate-evide
 import { isEmailCandidateAccepted } from "./candidate-selector";
 import { projectBusinessEnrichmentFields } from "./projection-service";
 import { processValidationIntent } from "../provider-readiness-control";
+import { processBusinessValidationIntent } from "./business-validation-service";
 import { hashCro03Evidence } from "./source-staging";
 import {
   assertCro03cAuthorityBeforeIo,
@@ -169,8 +170,10 @@ export interface Cro03cOpenAiInput extends PricedInput {
 
 export interface Cro03cZeroBounceInput extends PricedInput {
   readonly provider: "zerobounce";
-  /** A previously authorized cro03_winning_email validation intent. */
-  readonly intentId: string;
+  /** A previously authorized cro03_winning_email validation intent (contact path). Mutually exclusive with businessIntentId. */
+  readonly intentId?: string;
+  /** MI-06: A previously authorized business_validation_intents record (business path). Mutually exclusive with intentId. */
+  readonly businessIntentId?: string;
 }
 
 export interface Cro03cOutscraperInput extends Cro03cFrozenOutscraperQuery {}
@@ -338,10 +341,19 @@ export async function executeCro03cLiveProvider(
       // ── MI-05: extract org-level candidate evidence from Serper response ──
       // Business emails from Serper are subject_type='business' and eligible
       // for businesses.mainEmail projection. Never written to contacts.
+      // MI-06: resolve businessId BEFORE writing evidence so all candidates
+      //   carry business_id (required for selectEmailWinner() business binding).
       let candidatesAttempted = 0;
       if (response.data) {
         const orgEmails = extractSerperBusinessEmails(response.data);
-        for (const [idx, email] of orgEmails.slice(0, 3).entries()) {
+        // Resolve businessId before writing so candidates carry business_id.
+        // MI-06: fail-fast when businessId is null — do not write NULL-scoped business email candidates.
+        // The generation-to-business binding is required for selectEmailWinner() to function.
+        const serperBusinessId = await resolveBusinessIdForGeneration(context.generationId);
+        if (!serperBusinessId) {
+          console.warn(`[CRO03C Serper] Business ID not resolved for generation ${context.generationId}; skipping business email evidence writes.`);
+        }
+        for (const [idx, email] of (serperBusinessId ? orgEmails.slice(0, 3) : []).entries()) {
           // Evidence writes are durable; failure must propagate so the durable
           // stage worker retries rather than silently completing a paid stage
           // with no persisted evidence.
@@ -354,6 +366,7 @@ export async function executeCro03cLiveProvider(
             confidence: 70,
             // Unique source_rank per email so all candidates survive the uniqueness key.
             sourceRank: 20 + idx,
+            businessId: serperBusinessId ?? undefined,
           });
           candidatesAttempted++;
         }
@@ -361,14 +374,13 @@ export async function executeCro03cLiveProvider(
         // (not the transient orgEmails list). A retry after a failed projection
         // reads the durable candidates and projects correctly.
         // Projection failure must also propagate so the worker retries.
-        const businessId = await resolveBusinessIdForGeneration(context.generationId);
-        if (businessId != null) {
+        if (serperBusinessId != null) {
           const persistedCandidates = await readCandidateEvidence(context.generationId, {
             subjectType: "business",
             dispositions: ["staged", "accepted"],
           });
           if (persistedCandidates.length > 0) {
-            await projectBusinessEnrichmentFields({ businessId, generationId: context.generationId, candidates: persistedCandidates });
+            await projectBusinessEnrichmentFields({ businessId: serperBusinessId, generationId: context.generationId, candidates: persistedCandidates });
           }
         }
       }
@@ -403,6 +415,8 @@ export async function executeCro03cLiveProvider(
       }
       let revealCredits = 0;
       let personCandidatesWritten = 0;
+      // MI-06: businessId for candidateMetadata (resolved lazily inside loop, cached here).
+      let apolloBusinessId: number | null | undefined = undefined;
 
       if (response.outcome === "success" && response.personIds.length > 0) {
         // ── MI-05: Apollo person reveals (max 3, ranked by title) ────────────
@@ -425,7 +439,7 @@ export async function executeCro03cLiveProvider(
         const revealBudget = Math.max(0, input.reservedUnits - creditedUnits);
         let revealBudgetUsed = 0;
 
-        for (const { personId } of ranked) {
+        for (const { personId } of ranked) { // title resolved below via ranked lookup
           if (revealBudgetUsed >= revealBudget) break; // no remaining budget
 
           let revealResult;
@@ -453,8 +467,24 @@ export async function executeCro03cLiveProvider(
           const thisRevealCredits = revealResult.billing.creditedUnits;
           revealCredits += thisRevealCredits;
           revealBudgetUsed += thisRevealCredits;
+          // MI-06: resolve businessId once per generation for candidateMetadata enrichment.
+          // Done here (inside loop) to avoid pre-loop async, but cached on first resolution.
+          if (apolloBusinessId === undefined) {
+            apolloBusinessId = await resolveBusinessIdForGeneration(context.generationId);
+          }
+          const ownerTitle = ranked.find(rp => rp.personId === personId)?.title ?? null;
+          const candidateMetadata = ownerTitle ? { ownerTitle } : null;
+
+          // MI-06: apollo business_id binding is required for selectEmailWinner().
+          // If resolution failed, propagate via throw so the durable stage retries and
+          // canonical linking has another chance to resolve. Do NOT write NULL-scoped evidence.
+          if (apolloBusinessId === null) {
+            throw new Error("CRO03C_APOLLO_BUSINESS_ID_UNRESOLVED");
+          }
+
           if (revealResult.outcome === "accepted" && revealResult.email && isEmailCandidateAccepted(revealResult.email, "person")) {
             // high-confidence reveal — write as 'staged' for projection.
+            // MI-06: include businessId and candidateMetadata for tier-1 owner ranking.
             // Failure propagates so the durable worker retries.
             const { wasNew } = await writeCandidateEvidence({
               generationId: context.generationId,
@@ -466,11 +496,14 @@ export async function executeCro03cLiveProvider(
               confidence: 85,
               sourceRank: 10,
               apolloMatchConfidence: revealResult.matchConfidence ?? "high",
+              businessId: apolloBusinessId,
+              candidateMetadata: candidateMetadata ?? undefined,
             });
             // Only count genuinely new inserts; conflict = idempotent retry.
             if (wasNew) personCandidatesWritten++;
           } else if (revealResult.outcome === "quarantine" && revealResult.email && isEmailCandidateAccepted(revealResult.email, "person")) {
             // medium-confidence reveal — write with 'quarantined' disposition for operator review.
+            // MI-06: include businessId and candidateMetadata so selectEmailWinner can rank it.
             // Durable so it survives retries; not eligible for projection until approved.
             // Failure propagates so the durable worker retries.
             await writeCandidateEvidence({
@@ -483,6 +516,8 @@ export async function executeCro03cLiveProvider(
               confidence: 50,
               sourceRank: 30,
               apolloMatchConfidence: revealResult.matchConfidence ?? "medium",
+              businessId: apolloBusinessId,
+              candidateMetadata: candidateMetadata ?? undefined,
             });
           }
           // low | none → no write; billing still settled above.
@@ -546,16 +581,40 @@ export async function executeCro03cLiveProvider(
     }
 
     case "zerobounce": {
-      if (!input.intentId) throw new Error("CRO03C_PROVIDER_INPUT_UNSUPPORTED");
+      // Exactly one of intentId (contact path) or businessIntentId (business path) must be set.
+      const hasContactIntent = Boolean(input.intentId);
+      const hasBusinessIntent = Boolean(input.businessIntentId);
+      if ((!hasContactIntent && !hasBusinessIntent) || (hasContactIntent && hasBusinessIntent)) {
+        throw new Error("CRO03C_PROVIDER_INPUT_UNSUPPORTED");
+      }
       assertProviderActivation({
         sourceId: "zerobounce", caller: CALLER, explicitPaidApproval: true,
       });
       await assertCro03cAuthorityBeforeIo(context);
       await dependencies.beforeTransportInvocation?.();
-      const status = await processValidationIntent(input.intentId);
-      if (status === "completed") return result(context, input, "success", 1, { status }, input.intentId);
-      if (status === "deferred") return result(context, input, "blocked", 0, { status }, input.intentId);
-      return result(context, input, status === "not_found" ? "failed" : "ambiguous", 0, { status }, input.intentId);
+
+      if (hasContactIntent) {
+        // Contact path: existing processValidationIntent.
+        const status = await processValidationIntent(input.intentId!);
+        if (status === "completed") return result(context, input, "success", 1, { status }, input.intentId);
+        if (status === "deferred") return result(context, input, "blocked", 0, { status }, input.intentId);
+        return result(context, input, status === "not_found" ? "failed" : "ambiguous", 0, { status }, input.intentId);
+      }
+
+      // MI-06 Business path: processBusinessValidationIntent.
+      // Pass the full execution context so the service can call
+      // authorizeCro03cBusinessValidation() before any ZeroBounce I/O.
+      const bizStatus = await processBusinessValidationIntent(input.businessIntentId!, {
+        commandId: context.commandId,
+        runId: context.runId,
+        generationId: context.generationId,
+        activationRevision: context.activationRevision,
+        runtimeAttestationId: context.runtimeAttestationId,
+        expiresAt: context.expiresAt,
+      });
+      if (bizStatus === "completed") return result(context, input, "success", 1, { status: bizStatus }, input.businessIntentId);
+      if (bizStatus === "deferred") return result(context, input, "blocked", 0, { status: bizStatus }, input.businessIntentId);
+      return result(context, input, bizStatus === "not_found" ? "failed" : "ambiguous", 0, { status: bizStatus }, input.businessIntentId);
     }
 
     case "first_party_web": {
@@ -596,7 +655,14 @@ export async function executeCro03cLiveProvider(
       let outscraperCandidatesAttempted = 0;
       if (execution.outcome === "success" && execution.businessEmails.length > 0) {
         const acceptedEmails = execution.businessEmails.filter((e) => isEmailCandidateAccepted(e, "business"));
-        for (const [idx, email] of acceptedEmails.slice(0, 3).entries()) {
+        // MI-06: resolve businessId BEFORE writing so all candidates carry business_id
+        //   (required for selectEmailWinner() generation-to-business binding).
+        // Fail-fast when businessId is null — do not write NULL-scoped business email candidates.
+        const outscraperBusinessId = await resolveBusinessIdForGeneration(context.generationId);
+        if (!outscraperBusinessId) {
+          console.warn(`[CRO03C Outscraper] Business ID not resolved for generation ${context.generationId}; skipping business email evidence writes.`);
+        }
+        for (const [idx, email] of (outscraperBusinessId ? acceptedEmails.slice(0, 3) : []).entries()) {
           // Evidence writes must propagate failures so the durable stage worker
           // retries rather than silently completing with no persisted evidence.
           await writeCandidateEvidence({
@@ -608,19 +674,19 @@ export async function executeCro03cLiveProvider(
             confidence: 75,
             // Unique source_rank per email so all candidates survive the uniqueness key.
             sourceRank: 15 + idx,
+            businessId: outscraperBusinessId ?? undefined,
           });
           outscraperCandidatesAttempted++;
         }
         // Retry-safe projection: read persisted business evidence from DB.
         // Projection failure must also propagate so the worker retries.
-        const businessId = await resolveBusinessIdForGeneration(context.generationId);
-        if (businessId != null) {
+        if (outscraperBusinessId != null) {
           const persistedCandidates = await readCandidateEvidence(context.generationId, {
             subjectType: "business",
             dispositions: ["staged", "accepted"],
           });
           if (persistedCandidates.length > 0) {
-            await projectBusinessEnrichmentFields({ businessId, generationId: context.generationId, candidates: persistedCandidates });
+            await projectBusinessEnrichmentFields({ businessId: outscraperBusinessId, generationId: context.generationId, candidates: persistedCandidates });
           }
         }
       }

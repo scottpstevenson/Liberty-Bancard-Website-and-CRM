@@ -776,6 +776,10 @@ export async function createCro03cCommand(input: {
   provider?: keyof typeof CRO03C_PROVIDER_CONTRACTS;
   maxUnits?: number;
   maxAmountMicros?: number;
+  /** For initial_batch: explicit cap for the business email validation ZeroBounce path.
+   *  Independent of validationMaxUnits (contact path). Must be set for any command
+   *  intended to authorize business email validation via authorizeCro03cBusinessValidation(). */
+  businessValidationMaxUnits?: number;
   reason: string;
   expiresAt: Date | string;
   /** Required for commandType==="continuous_occurrence": binds this command
@@ -851,6 +855,8 @@ export async function createCro03cCommand(input: {
     // race, without relying on a separate, optional bind step.
     let continuousDerivedMaxUnits = 0;
     let continuousDerivedMaxAmountMicros = 0;
+    let continuousBizValMaxUnits = 0;
+    let continuousBizValMaxAmountMicros = 0;
     if (input.commandType === "continuous_occurrence") {
       const occurrence = rows(await tx.execute(sql`
         SELECT o.id, o.definition_hash, o.enumeration_checkpoint, o.selected_count, o.cro03c_command_id,
@@ -872,6 +878,16 @@ export async function createCro03cCommand(input: {
         throw new Error("CRO08A_PROVIDER_BUDGET_UNDEFINED");
       }
       continuousDerivedMaxUnits = Math.min(Number(occurrence.selected_count), providerBudget.maxUnitsPerOccurrence!);
+      // Derive business email validation cap from 'zerobounce_business' budget key.
+      // If the operator did not include this key in the occurrence budgets, the command
+      // gets businessValidationMaxUnits=0 and cannot authorize business ZeroBounce calls.
+      const bizBudgetRaw = budgets["zerobounce_business"];
+      if (bizBudgetRaw && Number.isInteger(bizBudgetRaw.maxUnitsPerOccurrence) &&
+          (bizBudgetRaw.maxUnitsPerOccurrence as number) >= 0) {
+        continuousBizValMaxUnits = Math.min(
+          Number(occurrence.selected_count), bizBudgetRaw.maxUnitsPerOccurrence as number,
+        );
+      }
       // The occurrence's frozen enumeration is the sole authority for which
       // handoffs may receive provider work under this command: every
       // caller-supplied handoffId must be exact membership of the durable
@@ -900,6 +916,12 @@ export async function createCro03cCommand(input: {
       if (input.commandType === "continuous_occurrence") {
         continuousDerivedMaxAmountMicros = continuousDerivedMaxUnits * schedule.amountMicros;
         if (!Number.isSafeInteger(continuousDerivedMaxAmountMicros)) throw new Error("CRO03C_CONTINUOUS_CAP_INVALID");
+        // Business-validation amount cap uses ZeroBounce price, NOT the primary provider price.
+        // e.g. for a Serper occurrence: primary cap uses serper.amountMicros; business-validation
+        // cap must use pricing.zerobounce.amountMicros so the ZeroBounce budget is consistent
+        // with what authorizeCro03cBusinessValidation() verifies.
+        continuousBizValMaxAmountMicros = continuousBizValMaxUnits * Number(pricing.zerobounce.amountMicros);
+        if (!Number.isSafeInteger(continuousBizValMaxAmountMicros)) throw new Error("CRO03C_CONTINUOUS_CAP_INVALID");
       }
     }
     const attestation = rows(await tx.execute(sql`
@@ -978,6 +1000,15 @@ export async function createCro03cCommand(input: {
     }
     const commandId = randomUUID();
     const runId = randomUUID();
+    // Business validation caps: caller-supplied for initial_batch.
+    // Separate from contact validationMaxUnits — each path independently
+    // enforces its own cap so neither path can consume the other's budget.
+    const bizValMaxUnits = (input.commandType === "initial_batch")
+      ? Math.max(0, Math.floor(input.businessValidationMaxUnits ?? 0))
+      : 0;
+    const bizValMaxAmountMicros = bizValMaxUnits * validationUnitAmountMicros;
+    if (!Number.isSafeInteger(bizValMaxAmountMicros)) throw new Error("CRO03C_INITIAL_BATCH_CAP_INVALID");
+
     const commandCaps = input.commandType === "initial_batch"
       ? {
           // Initial rollout authority is intentionally bounded to consuming
@@ -985,6 +1016,8 @@ export async function createCro03cCommand(input: {
           // command/generation decision; recipe adjacency is not authority.
           provider: "internal_source", maxUnits: 0, maxAmountMicros: 0,
           validationMaxUnits, validationMaxAmountMicros,
+          businessValidationMaxUnits: bizValMaxUnits,
+          businessValidationMaxAmountMicros: bizValMaxAmountMicros,
           validationPriceScheduleVersion: Number(pricing.zerobounce.version),
           validationPriceScheduleHash: stableCro03RecipeHash(pricing.zerobounce),
         }
@@ -994,10 +1027,21 @@ export async function createCro03cCommand(input: {
           // provider spend (unlike initial_batch) but, unlike micro_canary,
           // its unit ceiling is server-derived above from the locked
           // schedule occurrence/definition budgets — never from the caller.
+          // Business validation caps are not supported on continuous_occurrence
+          // commands — use an initial_batch command or a dedicated validation command.
           provider: input.provider, maxUnits: continuousDerivedMaxUnits, maxAmountMicros: continuousDerivedMaxAmountMicros,
+          businessValidationMaxUnits: continuousBizValMaxUnits,
+          businessValidationMaxAmountMicros: continuousBizValMaxAmountMicros,
+          // Include ZeroBounce price schedule bindings so authorizeCro03cBusinessValidation()
+          // can verify schedule integrity against the same keys used by the initial_batch path.
+          validationPriceScheduleVersion: Number(pricing.zerobounce.version),
+          validationPriceScheduleHash: stableCro03RecipeHash(pricing.zerobounce),
           scheduleOccurrenceId: input.scheduleOccurrenceId, scheduleDefinitionHash: input.scheduleDefinitionHash,
         }
-      : { provider: input.provider, maxUnits: input.maxUnits, maxAmountMicros: input.maxAmountMicros };
+      : {
+          provider: input.provider, maxUnits: input.maxUnits, maxAmountMicros: input.maxAmountMicros,
+          businessValidationMaxUnits: 0, businessValidationMaxAmountMicros: 0,
+        };
     // The command key binds the server-derived caps into command identity; an
     // idempotency token can never silently identify a differently capped
     // scope. For continuous_occurrence, the schedule occurrence id is also
@@ -1556,6 +1600,119 @@ export async function planCro03cStage(input: {
   return { id: String(prior.id), replayed: true };
 }
 
+/**
+ * Reserve a cro03c_stage_operations row for a business email validation intent.
+ *
+ * This is the business-path parallel to reserveCro03cProviderOperation() — it writes
+ * the same accounting record but skips assertCro03cStageEligible() since business
+ * validation has its own authorization chain (authorizeCro03cBusinessValidation()).
+ *
+ * Attempt identity is allocated atomically inside a serialized transaction:
+ * 1. FOR UPDATE on the intent row to serialize concurrent reservations for the same intent.
+ * 2. COUNT existing stage_operations for this intent to derive nextAttempt.
+ * 3. INSERT new operation with key {intentId}:{nextAttempt} and stage_key scoped per attempt.
+ *
+ * This prevents the race where two workers derive the same attempt number via an
+ * unlocked COUNT and both proceed with the same operation key.
+ *
+ * Caller does NOT pass attemptNumber — it is derived atomically inside this function.
+ */
+export async function reserveCro03cBusinessValidationOperation(input: {
+  generationId: string;
+  intentId: string;
+  commandId: string;
+  activationRevision: number;
+  priceScheduleVersion: number;
+  priceScheduleHash: string;
+  amountMicros: number;
+}): Promise<{ operationId: string; attemptNumber: number; replayed: boolean }> {
+  return db.transaction(async (tx) => {
+    // Step 1: Lock the intent row to serialize concurrent reservations for this intent.
+    // Two workers that both win the dispatcher query cannot both proceed past this lock.
+    const intent = rows(await tx.execute(sql`
+      SELECT id, state FROM business_validation_intents
+       WHERE id = ${input.intentId}::uuid
+         AND state IN ('pending', 'claimed')
+       FOR UPDATE
+    `))[0];
+    if (!intent) throw new Error("CRO03C_INTENT_NOT_RESERVABLE");
+
+    // Step 2: Atomically count existing operations for this intent to allocate nextAttempt.
+    // Every prior attempt (whether settled as blocked, success, or quarantined) contributes
+    // to the count. The winner of the FOR UPDATE lock always gets a unique attemptNumber.
+    const existingCount = Number(
+      rows(await tx.execute(sql`
+        SELECT COUNT(*) AS n FROM cro03c_stage_operations
+         WHERE operation_type = 'business_email_validation'
+           AND operation_key LIKE ${"cro03c:biz-validation:" + input.intentId + ":%"}
+      `))[0]?.n ?? 0,
+    );
+    const attemptNumber = existingCount + 1;
+    const stageKey = `business_email_validation:${input.intentId}:${attemptNumber}`;
+    const operationKey = `cro03c:biz-validation:${input.intentId}:${attemptNumber}`;
+
+    // Step 3: Validate command authority and price schedule.
+    const authority = rows(await tx.execute(sql`
+      SELECT c.id AS command_id, c.state, c.cancel_requested_at, c.expires_at,
+             c.caps, a.price_schedules
+        FROM cro03c_generations g
+        JOIN cro03c_commands c ON c.id = g.command_id
+        JOIN cro03c_activation_policies a ON a.id = c.activation_policy_id
+       WHERE g.id = ${input.generationId}::uuid
+         AND c.id = ${input.commandId}::uuid
+         AND c.activation_revision = ${input.activationRevision}
+       FOR UPDATE OF c
+    `))[0];
+    // Allow 'completed' commands whose expiry has not yet passed.
+    // Evidence-producing commands complete before business validation dispatchers run.
+    // Operators must set command expiry long enough for post-completion ZeroBounce
+    // to complete (typically 7 days). After expiry, validation is re-queued under a
+    // new command; the old authority window is closed.
+    if (!authority || !["running", "completed"].includes(String(authority.state)) ||
+        authority.cancel_requested_at ||
+        new Date(authority.expires_at).getTime() <= Date.now()) {
+      throw new Error("CRO03C_AUTHORITY_REVOKED");
+    }
+    const schedule = ((authority.price_schedules ?? {}) as any)["zerobounce"] as Cro03cPriceSchedule | undefined;
+    if (!schedule || schedule.version !== input.priceScheduleVersion ||
+        stableCro03RecipeHash(schedule) !== input.priceScheduleHash ||
+        schedule.amountMicros !== input.amountMicros) {
+      throw new Error("CRO03C_PRICE_SCHEDULE_UNKNOWN");
+    }
+    const caps = (authority.caps ?? {}) as any;
+    if (caps.businessValidationMaxUnits !== undefined &&
+        Number(caps.businessValidationMaxUnits) < 1) {
+      throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
+    }
+
+    // Step 4: Insert the operation. ON CONFLICT DO NOTHING is a safety net;
+    // the FOR UPDATE lock above makes a real conflict impossible for the same intentId.
+    const inserted = rows(await tx.execute(sql`
+      INSERT INTO cro03c_stage_operations
+        (generation_id, stage_key, provider, operation_type, operation_key, caller,
+         unit_type, currency, price_schedule_version, price_schedule_hash,
+         max_reserved_units, max_reserved_amount_micros, state)
+      VALUES
+        (${input.generationId}::uuid, ${stageKey}, 'zerobounce',
+         'business_email_validation', ${operationKey},
+         'server/services/cro03/business-validation-service.ts',
+         'request', 'USD',
+         ${input.priceScheduleVersion}, ${input.priceScheduleHash},
+         1, ${input.amountMicros}, 'reserved')
+      ON CONFLICT (operation_key) DO NOTHING
+      RETURNING id
+    `))[0];
+    if (!inserted) {
+      // Safety net: a prior run in this same transaction inserted this key.
+      const existing = rows(await tx.execute(sql`
+        SELECT id FROM cro03c_stage_operations WHERE operation_key = ${operationKey}
+      `))[0];
+      return { operationId: String(existing.id), attemptNumber, replayed: true };
+    }
+    return { operationId: String(inserted.id), attemptNumber, replayed: false };
+  });
+}
+
 export async function assertCro03cStageEligible(generationId: string, stageKey: string): Promise<void> {
   const stage = rows(await db.execute(sql`
     SELECT disposition FROM cro03c_stage_dispositions
@@ -1850,6 +2007,161 @@ export async function authorizeCro03cValidation(input: {
   return authorization;
 }
 
+/**
+ * MI-06 Step 5: Authorize a ZeroBounce call for a business email candidate.
+ * Parallel to authorizeCro03cValidation (contact path). Equivalent lock/check depth.
+ *
+ * Validates:
+ *  - business_validation_intents state and purpose
+ *  - businesses.email_selected_candidate_hash matches input
+ *  - cro03c_email_winner_selections state = 'selected'
+ *  - Activation revision, command/run/generation state, artifact SHA, migration head
+ *  - Runtime attestation freshness
+ *  - Price schedule integrity from activation policy (businessValidationMaxUnits/AmountMicros caps)
+ *  - Provider controls: zerobounce enabled, circuit closed
+ *
+ * Kill lines: No ZeroBounce I/O without this completing successfully.
+ */
+export async function authorizeCro03cBusinessValidation(input: {
+  businessIntentId: string;
+  commandId: string;
+  runId: string;
+  generationId: string;
+  activationRevision: number;
+  businessId: number;
+  normalizedEmailHash: string;
+  runtimeAttestationId: string;
+  expiresAt: Date | string;
+}): Promise<{ id: string; replayed: boolean }> {
+  if (!SHA256.test(input.normalizedEmailHash)) throw new Error("CRO03C_EMAIL_HASH_INVALID");
+  if (!Number.isInteger(input.activationRevision) || input.activationRevision < 1) {
+    throw new Error("CRO03C_VALIDATION_CAP_INVALID");
+  }
+  const expiresAt = new Date(input.expiresAt);
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) throw new Error("CRO03C_VALIDATION_EXPIRED");
+  const authorization = await db.transaction(async (tx) => {
+    // Lock every mutable subject/control row before writing authorization.
+    // FOR UPDATE on all 9 required tables.
+    const authority = rows(await tx.execute(sql`
+      SELECT bvi.id, bvi.winner_selection_id, p.price_schedules, c.caps,
+             pc.version AS provider_control_revision,
+             biz.email_selected_candidate_hash
+        FROM business_validation_intents bvi
+        JOIN businesses biz ON biz.id = bvi.business_id
+        JOIN cro03c_email_winner_selections ws ON ws.id = bvi.winner_selection_id
+        JOIN cro03c_commands c ON c.id = ${input.commandId}::uuid
+        JOIN cro03c_runs r ON r.id = ${input.runId}::uuid AND r.command_id = c.id
+        JOIN cro03c_generations g ON g.id = ${input.generationId}::uuid
+          AND g.command_id = c.id AND g.run_id = r.id
+        JOIN cro03c_runtime_attestations t ON t.id = c.runtime_attestation_id
+          AND t.id = ${input.runtimeAttestationId}::uuid
+        JOIN cro03c_activation_policies p ON p.id = c.activation_policy_id
+        JOIN provider_controls pc ON pc.provider = 'zerobounce'
+       WHERE bvi.id = ${input.businessIntentId}::uuid
+         AND bvi.purpose = 'cro03c_business_email'
+         AND bvi.state = 'pending'
+         AND bvi.approval_required = FALSE
+         AND bvi.business_id = ${input.businessId}
+         AND bvi.normalized_email_token_hash = ${input.normalizedEmailHash}
+         AND biz.email_selected_candidate_hash = ${input.normalizedEmailHash}
+         AND ws.normalized_value_hash = ${input.normalizedEmailHash}
+         AND ws.state = 'selected'
+         AND ws.business_id = ${input.businessId}
+         AND ws.generation_id = ${input.generationId}::uuid
+         AND c.activation_revision = ${input.activationRevision}
+         AND c.state IN ('running', 'completed')
+         AND c.cancel_requested_at IS NULL AND c.expires_at > NOW()
+         AND r.state IN ('running', 'completed') AND g.state IN ('running', 'completed')
+         AND g.activation_revision = ${input.activationRevision}
+         AND t.artifact_sha = ${process.env.RELEASE_SHA ?? ""}
+         AND t.migration_head = ${CRO03C_MIGRATION_HEAD}
+         AND t.db_healthy = TRUE AND t.redis_healthy = TRUE
+         AND t.expires_at > NOW()
+         AND ${expiresAt}::timestamptz <= c.expires_at
+         AND ${expiresAt}::timestamptz <= t.expires_at
+         AND pc.enabled = TRUE AND pc.circuit_state = 'closed'
+       FOR UPDATE OF bvi, biz, ws, c, r, g, t, pc
+    `))[0];
+    if (!authority) throw new Error("CRO03C_VALIDATION_AUTHORITY_DENIED");
+    const schedule = (authority.price_schedules ?? {}).zerobounce as Cro03cPriceSchedule | undefined;
+    const commandCaps = authority.caps ?? {};
+    const unitCap = 1;
+    const costCapMicros = Number(schedule?.amountMicros);
+    // Price schedule integrity — same rigor as contact path.
+    // businessValidationMaxUnits and businessValidationMaxAmountMicros MUST be explicitly
+    // set in the command caps — no fallback to validationMaxUnits/validationMaxAmountMicros.
+    // Falling back would allow contact + business authorizations to each consume the full
+    // declared cap, permitting up to 2× the declared ZeroBounce unit/cost authority.
+    // Spec: "Do not create a parallel daily-cap system; use the command-scoped cap pattern."
+    if (!schedule || schedule.unitType !== "request" ||
+        schedule.billingSemantics !== "per_unit_no_result_billable" ||
+        !Number.isInteger(schedule.amountMicros) || schedule.amountMicros < 1 ||
+        !Number.isInteger(commandCaps.businessValidationMaxUnits) ||
+        Number(commandCaps.businessValidationMaxUnits) < 1 ||
+        !Number.isInteger(commandCaps.businessValidationMaxAmountMicros) ||
+        Number(commandCaps.businessValidationMaxAmountMicros) < 1 ||
+        Number(commandCaps.validationPriceScheduleVersion) !== schedule.version ||
+        commandCaps.validationPriceScheduleHash !== stableCro03RecipeHash(schedule)) {
+      throw new Error("CRO03C_VALIDATION_CAP_INVALID");
+    }
+    const bizValMaxUnits = Number(commandCaps.businessValidationMaxUnits);
+    const bizValMaxAmountMicros = Number(commandCaps.businessValidationMaxAmountMicros);
+    // Idempotency: check for existing authorization with same binding.
+    const existing = rows(await tx.execute(sql`
+      SELECT id FROM cro03c_business_validation_authorizations
+       WHERE business_validation_intent_id = ${input.businessIntentId}::uuid
+         AND command_id = ${input.commandId}::uuid AND run_id = ${input.runId}::uuid
+         AND generation_id = ${input.generationId}::uuid
+         AND activation_revision = ${input.activationRevision}
+         AND business_id = ${input.businessId}
+         AND normalized_email_hash = ${input.normalizedEmailHash}
+         AND runtime_attestation_id = ${input.runtimeAttestationId}::uuid
+         AND expected_provider_control_revision = ${Number(authority.provider_control_revision)}
+         AND unit_cap = ${unitCap} AND cost_cap_micros = ${costCapMicros}
+    `))[0];
+    if (existing) return { id: String(existing.id), replayed: true };
+    // Aggregate existing non-revoked business validations for this command to enforce cap.
+    const aggregate = rows(await tx.execute(sql`
+      SELECT COALESCE(SUM(a.unit_cap), 0)::int AS units,
+             COALESCE(SUM(a.cost_cap_micros), 0)::bigint AS amount
+        FROM cro03c_business_validation_authorizations a
+       WHERE a.command_id = ${input.commandId}::uuid
+    `))[0];
+    if (Number(aggregate.units) + unitCap > bizValMaxUnits ||
+        Number(aggregate.amount) + costCapMicros > bizValMaxAmountMicros) {
+      throw new Error("CRO03C_VALIDATION_COMMAND_CAP_EXHAUSTED");
+    }
+    const created = rows(await tx.execute(sql`
+      INSERT INTO cro03c_business_validation_authorizations
+        (business_validation_intent_id, command_id, run_id, generation_id,
+         winner_selection_id, activation_revision, business_id, normalized_email_hash,
+         runtime_attestation_id, expected_provider_control_revision, unit_cap, cost_cap_micros)
+      VALUES
+        (${input.businessIntentId}::uuid, ${input.commandId}::uuid, ${input.runId}::uuid,
+         ${input.generationId}::uuid, ${String(authority.winner_selection_id)}::uuid,
+         ${input.activationRevision}, ${input.businessId}, ${input.normalizedEmailHash},
+         ${input.runtimeAttestationId}::uuid, ${Number(authority.provider_control_revision)},
+         ${unitCap}, ${costCapMicros})
+      ON CONFLICT (business_validation_intent_id, command_id, run_id, generation_id,
+                   activation_revision, business_id, normalized_email_hash,
+                   runtime_attestation_id, expected_provider_control_revision,
+                   unit_cap, cost_cap_micros)
+      DO NOTHING
+      RETURNING id
+    `))[0];
+    if (created) {
+      await tx.execute(sql`
+        UPDATE business_validation_intents
+           SET updated_at = NOW()
+         WHERE id = ${input.businessIntentId}::uuid AND purpose = 'cro03c_business_email'
+      `);
+    }
+    if (created) return { id: String(created.id), replayed: false };
+    throw new Error("CRO03C_VALIDATION_AUTHORIZATION_CONFLICT");
+  });
+  return authorization;
+}
+
 export async function revokeCro03cValidationAuthorization(authorizationId: string, actorId: string, reason: string): Promise<boolean> {
   if (!reason?.trim()) throw new Error("CRO03C_REASON_INVALID");
   const result = await db.transaction(async (tx) => {
@@ -2053,6 +2365,70 @@ export async function cancelCro03cCommand(input: {
               (op.provider='zerobounce' AND op.idempotency_key='validation-intent:' || i.id::text))
          AND op.state IN ('pending','running')
     `);
+    // MI-06: Supersede all pending/claimed business_validation_intents for this command.
+    // Path 1: intents that have already authorized (joined via cro03c_business_validation_authorizations).
+    // Path 2: intents that are pending but not yet authorized (joined via winner_selection → generation → command).
+    // Both paths must be covered — using OR/UNION to hit both in one statement.
+    await tx.execute(sql`
+      UPDATE business_validation_intents bvi
+         SET state = 'superseded', updated_at = NOW()
+       WHERE bvi.state IN ('pending','claimed')
+         AND (
+           -- Path 1: intent has been authorized under this command.
+           EXISTS (
+             SELECT 1 FROM cro03c_business_validation_authorizations a
+              WHERE a.business_validation_intent_id = bvi.id
+                AND a.command_id = ${input.commandId}::uuid
+           )
+           OR
+           -- Path 2: intent's winner selection belongs to a generation of this command.
+           EXISTS (
+             SELECT 1 FROM cro03c_email_winner_selections ws
+             JOIN cro03c_generations g ON g.id = ws.generation_id
+             JOIN cro03c_runs r ON r.id = g.run_id
+              WHERE ws.id = bvi.winner_selection_id
+                AND r.command_id = ${input.commandId}::uuid
+           )
+         )
+    `);
+    // MI-06: Quarantine any outstanding business validation stage_operations for this command.
+    // settleCro03cProviderOperation() refuses settlement after cancellation, so operations
+    // that were reserved (pre-ZeroBounce or mid-flight) must be quarantined here transactionally.
+    // We also write a terminal receipt for each quarantined operation so the accounting
+    // record is always complete — no reserved operation is ever left without a receipt.
+    const quarantinedOps = rows(await tx.execute(sql`
+      UPDATE cro03c_stage_operations
+         SET state = 'quarantined',
+             terminal_disposition = 'ambiguous',
+             billing_certainty = 'ambiguous',
+             reconciliation_required = TRUE,
+             completed_at = NOW()
+       WHERE operation_type = 'business_email_validation'
+         AND state = 'reserved'
+         AND generation_id IN (
+           SELECT g.id FROM cro03c_generations g
+             JOIN cro03c_runs r ON r.id = g.run_id
+            WHERE r.command_id = ${input.commandId}::uuid
+         )
+      RETURNING id, generation_id
+    `));
+    // Write an idempotent terminal receipt for each quarantined operation.
+    // This receipt records the cancellation event so reconciliation can identify the cause.
+    for (const op of quarantinedOps) {
+      const receiptKey = `cro03c:${String(op.id)}:terminal`;
+      const evidenceHash = hashCro03Evidence({ provider: "zerobounce", outcome: "ambiguous", cause: "command_cancelled", operationId: String(op.id) });
+      await tx.execute(sql`
+        INSERT INTO cro03c_receipts
+          (generation_id, stage_operation_id, receipt_key, receipt_type, normalized_outcome,
+           evidence_hash, redacted_metadata, settled_units, settled_amount_micros)
+        VALUES
+          (${String(op.generation_id)}::uuid, ${String(op.id)}::uuid, ${receiptKey},
+           'terminal', 'ambiguous', ${evidenceHash},
+           ${JSON.stringify({ cause: "command_cancelled", commandId: input.commandId })}::jsonb,
+           0, 0)
+        ON CONFLICT (receipt_key) DO NOTHING
+      `);
+    }
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.command.cancelled','cro03c_command',${receiptKey},
