@@ -486,7 +486,7 @@ export async function reviewAndProjectCro03bItem(
         SELECT DISTINCT (obs.payload->>'countyFips') AS county_fips
           FROM cro03_source_observations obs
           JOIN cro03_source_occurrences occ ON occ.source_observation_id = obs.id
-         WHERE occ.id = ANY(${JSON.stringify(frozenOccurrenceIds)}::uuid[])
+         WHERE occ.id = ANY(ARRAY[${sql.join(frozenOccurrenceIds.map((id) => sql`${id}::uuid`), sql`,`)}])
            AND obs.payload->>'countyFips' IS NOT NULL
            AND obs.payload->>'countyFips' != ''
       `));

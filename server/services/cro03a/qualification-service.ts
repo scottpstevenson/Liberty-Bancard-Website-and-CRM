@@ -25,12 +25,12 @@ const resultRows = (result: any): any[] => result?.rows ?? result ?? [];
 const json = <T>(value: T | string): T => typeof value === "string" ? JSON.parse(value) as T : value;
 const allowedSelectableTypes = new Set(["prospect", "sunbiz_entity", "sdr_merchant", "provider_csv_row", "lead_discovery_result", "master_lead"]);
 
-type FrozenOccurrence = {
+export type FrozenOccurrence = {
   occurrenceId: string; subjectId: string; subjectType: string; sourceSystem: string;
   subjectKey: string; sourceObservedAt: string; payloadHash: string;
   payload: Record<string, unknown>; provenance: Record<string, unknown>;
 };
-type ActivePolicy = { id: string; version: number; policyHash: string; policy: Record<string, any>; controlVersion: number };
+export type ActivePolicy = { id: string; version: number; policyHash: string; policy: Record<string, any>; controlVersion: number };
 
 const algorithmIdentityFor = (policy: Record<string, any>) => policy.fitVersion === "fit-v2"
   ? { ...CRO03A_FIT_V2_POLICY_IDENTITY, policy }
@@ -64,7 +64,7 @@ async function persistAlgorithmIdentityIfSupported(
   }
 }
 
-async function getActivePolicy(executor: any = db): Promise<ActivePolicy> {
+export async function getActivePolicy(executor: any = db): Promise<ActivePolicy> {
   const row = resultRows(await executor.execute(sql`
     SELECT p.id,p.version,p.policy_hash,p.policy,c.expected_version
       FROM cro03a_policy_control c
@@ -78,7 +78,7 @@ async function getActivePolicy(executor: any = db): Promise<ActivePolicy> {
   };
 }
 
-async function loadOccurrences(
+export async function loadOccurrences(
   ids: readonly string[],
   executor: any = db,
   options: { enrichRelationships?: boolean } = {},
@@ -283,7 +283,7 @@ function evaluateOccurrence(occurrence: FrozenOccurrence, policy: ActivePolicy, 
   });
 }
 
-function evaluateOccurrenceSet(occurrences: FrozenOccurrence[], policy: ActivePolicy, asOf: string) {
+export function evaluateOccurrenceSet(occurrences: FrozenOccurrence[], policy: ActivePolicy, asOf: string) {
   const selectedSubjects = new Set<string>();
   return occurrences.map((occurrence) => {
     let evaluation = evaluateOccurrence(occurrence, policy, asOf);

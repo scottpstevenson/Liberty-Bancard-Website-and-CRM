@@ -33,7 +33,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
 import { initializeCro02PurposePolicies } from "./cro02-purpose-policy-initializer";
-import { initializeCro03aPolicy, CRO03A_SEED_POLICY_KEY, CRO03A_SEED_POLICY_VERSION } from "./cro03a-policy-initializer";
+import { initializeCro03aPolicy, CRO03A_SEED_POLICY_KEY, CRO03A_SEED_POLICY_VERSION, CRO03A_SEED_POLICY_HASH } from "./cro03a-policy-initializer";
 import { CRO02_POLICY_VERSION, CRO02_PURPOSE_POLICY_DOCUMENTS } from "./commercial-resolution";
 
 // The 8 canonical (purpose, policy_version) key pairs this module's
@@ -716,16 +716,87 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
       return { id: "cro02_purpose_policies", classification: "immutable_revision_seed", tables: ["commercial_purpose_policies"], outcome: missing.length === 0 ? "already_present" : "unexpected", detail: missing.length === 0 ? `all ${CRO02_SEED_KEY_VALUES.length} canonical purpose policy keys present in shadow mode` : `missing canonical key(s): ${missing.map((k) => k.join("/")).join(", ")}` };
     },
     async () => {
-      // A truthy active_policy_id alone doesn't prove it points at the
-      // canonical policy document — verify the pointer resolves to the
-      // exact registered (policy_key, version).
-      const row = rows(await db.execute(sql`
-        SELECT d.policy_key, d.version FROM cro03a_policy_control c
-        JOIN cro03a_policy_documents d ON d.id = c.active_policy_id
-        WHERE c.id = 1
+      // Two-part check, kept deliberately separate so each failure reports
+      // a distinct detail string:
+      //
+      //   (a) The immutable v1 seed row must still exist in cro03a_policy_documents.
+      //       It is append-only, so it can never disappear after the migration
+      //       that inserted it — but production's Publish-managed schema could
+      //       be missing it if the convergence initializer was never reached.
+      //
+      //   (b) The cro03a_policy_control pointer must resolve to a document with
+      //       the canonical policy_key ("south_florida_candidate_qualification")
+      //       and a hash that matches its stored policy field.  The version is
+      //       NOT constrained here — the operator may have legitimately promoted
+      //       a later version (e.g. v3), which must not permanently break this
+      //       health check.
+      //
+      // Both assertions must pass; whichever fails first is surfaced as the
+      // detail message.  Return "already_present" only when both pass.
+      const v1Row = rows(await db.execute(sql`
+        SELECT id, policy_hash FROM cro03a_policy_documents
+         WHERE policy_key = ${CRO03A_SEED_POLICY_KEY}
+           AND version = ${CRO03A_SEED_POLICY_VERSION}
+         LIMIT 1
       `))[0];
-      const matches = row && row.policy_key === CRO03A_SEED_POLICY_KEY && Number(row.version) === CRO03A_SEED_POLICY_VERSION;
-      return { id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed", tables: ["cro03a_policy_documents", "cro03a_policy_control"], outcome: matches ? "already_present" : "unexpected", detail: matches ? "active policy pointer resolves to canonical document" : `active policy pointer missing or does not resolve to canonical ${CRO03A_SEED_POLICY_KEY}/v${CRO03A_SEED_POLICY_VERSION}` };
+      if (!v1Row) {
+        return {
+          id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed" as const,
+          tables: ["cro03a_policy_documents", "cro03a_policy_control"],
+          outcome: "unexpected" as const,
+          detail: `v1 canonical seed row missing from cro03a_policy_documents (policy_key=${CRO03A_SEED_POLICY_KEY} version=${CRO03A_SEED_POLICY_VERSION})`,
+        };
+      }
+      if (String(v1Row.policy_hash) !== CRO03A_SEED_POLICY_HASH) {
+        return {
+          id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed" as const,
+          tables: ["cro03a_policy_documents", "cro03a_policy_control"],
+          outcome: "unexpected" as const,
+          detail: `v1 seed row hash diverges from canonical (stored=${v1Row.policy_hash} expected=${CRO03A_SEED_POLICY_HASH})`,
+        };
+      }
+      const controlRow = rows(await db.execute(sql`
+        SELECT d.policy_key, d.version, d.policy_hash, d.policy
+          FROM cro03a_policy_control c
+          JOIN cro03a_policy_documents d ON d.id = c.active_policy_id
+         WHERE c.id = 1
+      `))[0];
+      if (!controlRow) {
+        return {
+          id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed" as const,
+          tables: ["cro03a_policy_documents", "cro03a_policy_control"],
+          outcome: "unexpected" as const,
+          detail: `cro03a_policy_control active pointer is unset or does not resolve to a document`,
+        };
+      }
+      if (String(controlRow.policy_key) !== CRO03A_SEED_POLICY_KEY) {
+        return {
+          id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed" as const,
+          tables: ["cro03a_policy_documents", "cro03a_policy_control"],
+          outcome: "unexpected" as const,
+          detail: `active pointer resolves to wrong policy_key: expected=${CRO03A_SEED_POLICY_KEY} got=${controlRow.policy_key}`,
+        };
+      }
+      // Verify the pointed-at document's stored hash matches the policy field
+      // (guards against silent in-place mutation of a policy document).
+      const { hashCro03Evidence } = await import("./cro03/source-staging");
+      const computedHash = hashCro03Evidence(
+        typeof controlRow.policy === "string" ? JSON.parse(controlRow.policy) : controlRow.policy,
+      );
+      if (computedHash !== String(controlRow.policy_hash)) {
+        return {
+          id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed" as const,
+          tables: ["cro03a_policy_documents", "cro03a_policy_control"],
+          outcome: "unexpected" as const,
+          detail: `active policy document hash invalid: stored=${controlRow.policy_hash} computed=${computedHash} (version=${controlRow.version})`,
+        };
+      }
+      return {
+        id: "cro03a_policy_bootstrap", classification: "immutable_revision_seed" as const,
+        tables: ["cro03a_policy_documents", "cro03a_policy_control"],
+        outcome: "already_present" as const,
+        detail: `v1 seed row present (hash valid); active pointer resolves to ${CRO03A_SEED_POLICY_KEY}/v${controlRow.version} (hash valid)`,
+      };
     },
     async () => {
       const row = rows(await db.execute(sql`SELECT recipe_hash, status FROM cro03_staging_recipes WHERE recipe_key = ${CRO03_STAGING_RECIPE_KEY} AND version = ${CRO03_STAGING_RECIPE_VERSION}`))[0];

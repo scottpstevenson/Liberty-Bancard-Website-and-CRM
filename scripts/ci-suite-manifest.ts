@@ -113,6 +113,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "batch processor timing, idempotency, crash-resume, cancellation; no GHL/SMTP",
   },
   {
+    name: "CRO-03A Policy Comparison Service",
+    script: "scripts/test-cro03a-policy-comparison.ts",
+    capability: "deterministic-integration",
+    providerDenial: "seeds source occurrences and a draft policy document in the server DB; comparison service is read-only (no activateCro03aPolicy() call); no GHL, SMTP, or live provider transport",
+  },
+  {
     name: "BT-12 Revenue State Reconciliation Authority Guard",
     script: "scripts/test-bt12-revenue-state-reconciliation.ts",
     capability: "deterministic-static",
@@ -649,10 +655,10 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "database-backed certification mode suppresses queue transport; provider/public network transport remains denied",
   },
   {
-    name: "CRO-03B CSV Handoff Certification — Business-Only, Contact, Safe-Hold, DBPR-HR, and Cross-Source Dedup Paths",
+    name: "CRO-03B CSV Handoff Certification — Business-Only, Contact, Safe-Hold, DBPR-HR, Cross-Source Dedup, and countyFips Conflict Paths",
     script: "scripts/certify-cro03b-csv-handoff.ts",
     capability: "deterministic-integration",
-    providerDenial: "database-backed certification mode; all external recipe stages (public-web, rdap, jsonld, serper, outscraper, openai, apollo) are recorded as transport_denied with zero units; no live GHL, SMTP, or provider call is made; Paths D/E/F exercise the real DBPR-HR adapter path, cross-source dedup via resolveOrganization() phone/name+location matching, and concurrent projection race — all without any live provider transport",
+    providerDenial: "database-backed certification mode; all external recipe stages (public-web, rdap, jsonld, serper, outscraper, openai, apollo) are recorded as transport_denied with zero units; no live GHL, SMTP, or provider call is made; Paths D/E/F exercise the real DBPR-HR adapter path, cross-source dedup via resolveOrganization() phone/name+location matching, and concurrent projection race; Path G certifies CRO03B_COUNTY_FIPS_CONFLICT guard with real DB rows — all without any live provider transport",
   },
   {
     name: "CRO-03B Legacy Writer Inventory",

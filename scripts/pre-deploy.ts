@@ -723,6 +723,36 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
     requiresDisposableTestDatabase: true,
   },
+  {
+    name: "CRO-03A South Florida Geography Scoring (county FIPS, geo evidence classes, freshness, tier assignments)",
+    script: "scripts/test-cro03a-geography.ts",
+    timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "CRO-03A Batch Processor Semantic Equivalence",
+    script: "scripts/test-cro03a-batch-equivalence.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "CRO-03A Batch Processor Performance & Recovery",
+    script: "scripts/test-cro03a-batch-performance.ts",
+    timeoutSecs: 180,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "CRO-03A Policy Comparison Service",
+    script: "scripts/test-cro03a-policy-comparison.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "Identity Crosswalk Gen-1 (read-only evidence sweep, fail-close guards, contact promotion gates)",
+    script: "scripts/test-identity-crosswalk.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
 ];
 
 // ── External config items — non-blocking, reported separately ─────────────────

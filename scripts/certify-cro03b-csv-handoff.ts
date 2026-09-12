@@ -1,7 +1,7 @@
 /**
  * CRO-03B CSV Handoff Certification — Business-Only, Contact, Safe-Hold, DBPR-HR, and Cross-Source Dedup Paths
  *
- * Certifies six distinct terminal paths through the CRO-03B admission pipeline:
+ * Certifies seven distinct terminal paths through the CRO-03B admission pipeline:
  *
  *   Path A — Provider-export (Apollo), no-email fixture:
  *     Admission → processNextCro03bRecipeItem → reviewAndProjectCro03bItem →
@@ -47,6 +47,14 @@
  *     No-phone variant asserts name+city+state fallback matching also works.
  *     Conflicting non-null identifiers must produce canonical_conflict_evidence rows.
  *
+ *   Path G — countyFips conflict (CRO03B_COUNTY_FIPS_CONFLICT guard):
+ *     Two source observations for related occurrences carry conflicting countyFips
+ *     values (12086 Miami-Dade and 12011 Broward) in their payloads. Both
+ *     occurrence IDs are frozen in the same handoff. reviewAndProjectCro03bItem()
+ *     must throw CRO03B_COUNTY_FIPS_CONFLICT; the item remains in review_required;
+ *     zero business_locations, business_projections, or canonical_source_links rows
+ *     are created for the conflicting handoff item.
+ *
  *   Path F — Concurrent projection race:
  *     Apollo and DBPR-HR projectBusinessOnly() calls raced simultaneously.
  *     Asserts either one shared businesses.id (advisory-lock serialization wins) or
@@ -63,7 +71,8 @@ import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../server/db";
 import { providerCsvSourceSubject } from "../server/services/cro03a/adapters";
-import { createCro03SourceBatch } from "../server/services/cro03/source-staging";
+import { createCro03SourceBatch, hashCro03Evidence } from "../server/services/cro03/source-staging";
+import { stableCro03aSelectionHash } from "../server/services/cro03/contracts";
 import {
   activateCro03aPolicy,
   createCro03aQualificationRun,
@@ -1348,6 +1357,298 @@ assert(
 console.log("[cert] PASS Path F: concurrent projection race → no silent canonical duplicate");
 
 // ═════════════════════════════════════════════════════════════════════════════
+// PATH G — countyFips conflict guard (CRO03B_COUNTY_FIPS_CONFLICT)
+// ─────────────────────────────────────────────────────────────────────────────
+// Two source observations for the same source subject carry conflicting
+// countyFips values (12086 Miami-Dade and 12011 Broward). Both occurrence IDs
+// are frozen in the same handoff. reviewAndProjectCro03bItem() must throw
+// CRO03B_COUNTY_FIPS_CONFLICT; item remains review_required; zero
+// business_locations, business_projections, and canonical_source_links rows
+// are created for the conflicting handoff item.
+// ═════════════════════════════════════════════════════════════════════════════
+
+console.log(`\n[cert] ── Path G: countyFips conflict guard (CRO03B_COUNTY_FIPS_CONFLICT) ──`);
+
+// ── G_SETUP: Stage two source observations with conflicting countyFips ────────
+// Two SEPARATE subjects, each with its own occurrence, in the same source system.
+// Occurrence 1: countyFips='12086' (Miami-Dade)
+// Occurrence 2: countyFips='12011' (Broward)
+// Both occurrence IDs are embedded in the handoff at INSERT time — the
+// cro03a_handoffs_immutable BEFORE UPDATE/DELETE trigger forbids any later UPDATE.
+
+const pathGSubjectKey1 = `cert-g-fips-a-${run.slice(0, 8)}`;
+const pathGSubjectKey2 = `cert-g-fips-b-${run.slice(0, 8)}`;
+
+const pathGBasePayload = {
+  vertical: "Auto",
+  city: "Miami",
+  state: "FL",
+  postalCode: "33101",
+  phone: `305${runDigits}`,
+  address: "100 Brickell Ave",
+  entityStatus: "active",
+};
+
+const pathGBatch = await createCro03SourceBatch({
+  idempotencyKey: `cert-path-g-batch:${run}`,
+  actorType: "system",
+  actorId: String(admin.id),
+  purpose: "staging_review",
+  subjects: [
+    {
+      subjectType: "provider_csv_row",
+      subjectKey: pathGSubjectKey1,
+      sourceSystem: "apollo",
+      provenance: { certPath: "G", countyFipsVariant: "miami-dade" },
+      payload: { ...pathGBasePayload, businessName: `Cert G FIPS Conflict ${run.slice(0, 8)}`, countyFips: "12086" },
+    },
+    {
+      subjectType: "provider_csv_row",
+      subjectKey: pathGSubjectKey2,
+      sourceSystem: "apollo",
+      provenance: { certPath: "G", countyFipsVariant: "broward" },
+      payload: { ...pathGBasePayload, businessName: `Cert G FIPS Conflict B ${run.slice(0, 8)}`, countyFips: "12011" },
+    },
+  ],
+});
+assert(pathGBatch.occurrenceIds.length >= 2,
+  `Path G: createCro03SourceBatch must return >= 2 occurrenceIds; got ${pathGBatch.occurrenceIds.length}`);
+
+// ── G1: Retrieve both occurrence IDs ─────────────────────────────────────────
+
+const pathGOcc1 = rows(await db.execute(sql`
+  SELECT o.id FROM cro03_source_occurrences o
+   JOIN cro03_source_subjects s ON s.id = o.source_subject_id
+  WHERE s.subject_key = ${pathGSubjectKey1} AND s.source_system = 'apollo'
+  ORDER BY o.source_observed_at DESC LIMIT 1
+`))[0];
+assert(pathGOcc1, "Path G: occurrence 1 (countyFips=12086) must exist after staging");
+const pathGOcc1Id = String(pathGOcc1.id);
+
+const pathGOcc2 = rows(await db.execute(sql`
+  SELECT o.id FROM cro03_source_occurrences o
+   JOIN cro03_source_subjects s ON s.id = o.source_subject_id
+  WHERE s.subject_key = ${pathGSubjectKey2} AND s.source_system = 'apollo'
+  ORDER BY o.source_observed_at DESC LIMIT 1
+`))[0];
+assert(pathGOcc2, "Path G: occurrence 2 (countyFips=12011) must exist after staging");
+const pathGOcc2Id = String(pathGOcc2.id);
+console.log(`[cert] Path G: occ1=${pathGOcc1Id} (Miami-Dade 12086) occ2=${pathGOcc2Id} (Broward 12011)`);
+
+// ── G2: Resolve current active policy for the scaffold ──────────────────────
+// Path D may have activated a newer policy in this disposable DB — query the
+// live control pointer rather than assuming a fixed version.
+
+const pathGActivePolicy = rows(await db.execute(sql`
+  SELECT p.id, p.version, p.policy_hash
+    FROM cro03a_policy_control c
+    JOIN cro03a_policy_documents p ON p.id = c.active_policy_id
+   WHERE c.id = 1
+`))[0];
+assert(pathGActivePolicy, "Path G: active policy must be resolvable for scaffold");
+const pathGPolicyId    = String(pathGActivePolicy.id);
+const pathGPolicyVer   = Number(pathGActivePolicy.version);
+const pathGPolicyHash  = String(pathGActivePolicy.policy_hash);
+
+// ── G3: INSERT full scaffold (run → item → decision → handoff) ──────────────
+// The handoff is created with occurrence_ids=[occ1.id, occ2.id] at INSERT time,
+// preserving the append-only invariant enforced by cro03a_handoffs_immutable.
+
+const pathGOccIds = [pathGOcc1Id, pathGOcc2Id];
+const pathGSelHash = stableCro03aSelectionHash(pathGOccIds);
+const pathGScopeHash = hashCro03Evidence([...pathGOccIds].sort());
+const pathGOccJson = JSON.stringify(pathGOccIds);
+
+// qualification run
+const pathGRunRow = rows(await db.execute(sql`
+  INSERT INTO cro03a_qualification_runs
+    (idempotency_key, actor_id, actor_role, policy_id, policy_hash,
+     scope_hash, frozen_occurrence_ids, state,
+     total_count, selected_count, review_count, terminal_count, cursor_position)
+  VALUES (
+    ${"cert-path-g-run:" + run}, ${String(admin.id)}, 'admin',
+    ${pathGPolicyId}::uuid, ${pathGPolicyHash},
+    ${pathGScopeHash}, ${pathGOccJson}::jsonb, 'completed',
+    2, 2, 0, 0, 2
+  )
+  RETURNING id
+`))[0];
+assert(pathGRunRow, "Path G: scaffold qualification run must be created");
+const pathGRunId = String(pathGRunRow.id);
+
+// qualification item for occ1 (the "primary" occurrence)
+const pathGItemScaffoldRow = rows(await db.execute(sql`
+  INSERT INTO cro03a_qualification_items
+    (run_id, occurrence_id, ordinal, state, authority_evidence, authority_evaluated_at)
+  VALUES (
+    ${pathGRunId}::uuid, ${pathGOcc1Id}::uuid, 0,
+    'completed', '{}'::jsonb, NOW()
+  )
+  RETURNING id
+`))[0];
+assert(pathGItemScaffoldRow, "Path G: scaffold qualification item must be created");
+const pathGQItemId = String(pathGItemScaffoldRow.id);
+
+// qualification decision — frozen_occurrence_ids includes BOTH occurrences so the
+// handoff's occurrence_ids column inherits the full conflict scenario
+const pathGDecisionRow = rows(await db.execute(sql`
+  INSERT INTO cro03a_qualification_decisions
+    (item_id, run_id, occurrence_id, disposition, score,
+     geography_result, vertical_result, active_state_evidence,
+     identity_relationship_evidence, fit_components, reason_codes,
+     missing_field_classes, frozen_occurrence_ids,
+     policy_id, policy_version, policy_hash, selection_hash)
+  VALUES (
+    ${pathGQItemId}::uuid, ${pathGRunId}::uuid, ${pathGOcc1Id}::uuid,
+    'selected', 75,
+    '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
+    '[]'::jsonb, '[]'::jsonb,
+    ${pathGOccJson}::jsonb,
+    ${pathGPolicyId}::uuid, ${pathGPolicyVer}, ${pathGPolicyHash},
+    ${pathGSelHash}
+  )
+  RETURNING id
+`))[0];
+assert(pathGDecisionRow, "Path G: scaffold qualification decision must be created");
+const pathGDecisionId = String(pathGDecisionRow.id);
+
+// handoff — occurrence_ids holds [occ1.id, occ2.id] at INSERT time (append-only)
+const pathGHandoffScaffold = rows(await db.execute(sql`
+  INSERT INTO cro03a_handoffs
+    (run_id, decision_id, source_type, source_system, source_key,
+     occurrence_ids, policy_id, policy_version, policy_hash,
+     reason_codes, missing_field_classes, selection_hash, effect_authorized)
+  VALUES (
+    ${pathGRunId}::uuid, ${pathGDecisionId}::uuid,
+    'provider_csv_row', 'apollo', ${pathGSubjectKey1},
+    ${pathGOccJson}::jsonb,
+    ${pathGPolicyId}::uuid, ${pathGPolicyVer}, ${pathGPolicyHash},
+    '[]'::jsonb, '[]'::jsonb, ${pathGSelHash}, FALSE
+  )
+  RETURNING id
+`))[0];
+assert(pathGHandoffScaffold, "Path G: scaffold handoff must be created");
+const pathGHandoffId = String(pathGHandoffScaffold.id);
+console.log(`[cert] Path G: scaffold handoff id=${pathGHandoffId} occurrence_ids=${pathGOccJson}`);
+
+// ── G4: Admit to CRO-03B ──────────────────────────────────────────────────────
+
+const pathGAdmitted = await admitCro03bHandoffs({
+  handoffIds: [pathGHandoffId],
+  actorId: String(admin.id),
+  actorRole: "admin",
+  reason: "CRO-03B certification — Path G countyFips conflict",
+});
+
+// ── G5: Process to review_required ────────────────────────────────────────────
+
+await processNextCro03bRecipeItem();
+const pathGItem = rows(await db.execute(sql`
+  SELECT id, state FROM cro03b_recipe_items WHERE command_id = ${pathGAdmitted.id}::uuid
+`))[0];
+assert(pathGItem, "Path G: recipe item must exist after processing");
+assert.equal(pathGItem.state, "review_required",
+  `Path G: item must be review_required after processing; got '${pathGItem.state}'`);
+const pathGItemId = String(pathGItem.id);
+
+// Baseline: count rows BEFORE the projection attempt
+const pathGBaseline = rows(await db.execute(sql`
+  SELECT
+    (SELECT COUNT(*)::int FROM business_locations
+      WHERE business_id IN (
+        SELECT id FROM businesses
+         WHERE name LIKE ${"Cert G FIPS Conflict%"}
+      )
+    ) AS locations,
+    (SELECT COUNT(*)::int FROM business_projections) AS projections,
+    (SELECT COUNT(*)::int FROM canonical_source_links
+      WHERE stable_key IN (${pathGSubjectKey1}, ${pathGSubjectKey2})
+    ) AS source_links
+`))[0];
+
+// ── G6: Call reviewAndProjectCro03bItem — expect CRO03B_COUNTY_FIPS_CONFLICT ─
+
+let pathGConflictErrorCaught = false;
+let pathGConflictErrorMessage = "";
+try {
+  await reviewAndProjectCro03bItem(pathGItemId, String(admin.id));
+} catch (err: any) {
+  pathGConflictErrorMessage = err instanceof Error ? err.message : String(err);
+  if (pathGConflictErrorMessage.includes("CRO03B_COUNTY_FIPS_CONFLICT")) {
+    pathGConflictErrorCaught = true;
+  }
+}
+assert(
+  pathGConflictErrorCaught,
+  `Path G: reviewAndProjectCro03bItem must throw CRO03B_COUNTY_FIPS_CONFLICT; got: "${pathGConflictErrorMessage}"`,
+);
+console.log(`[cert] Path G: CRO03B_COUNTY_FIPS_CONFLICT thrown correctly (${pathGConflictErrorMessage.slice(0, 120)})`);
+
+// ── G7: Item must remain in review_required ───────────────────────────────────
+
+const pathGItemAfter = rows(await db.execute(sql`
+  SELECT state, terminal_code FROM cro03b_recipe_items WHERE id = ${pathGItemId}::uuid
+`))[0];
+assert.equal(
+  pathGItemAfter.state,
+  "review_required",
+  `Path G: item must remain review_required after CRO03B_COUNTY_FIPS_CONFLICT; got '${pathGItemAfter.state}'`,
+);
+console.log(`[cert] Path G: item state remains 'review_required' — no mutation after conflict`);
+
+// ── G8: Zero business_locations rows created for the conflicting item ──────────
+
+const pathGAfterLocations = Number(
+  rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM business_locations
+     WHERE business_id IN (
+       SELECT id FROM businesses WHERE name LIKE ${"Cert G FIPS Conflict%"}
+     )
+  `))[0]?.n ?? 0,
+);
+assert.equal(
+  pathGAfterLocations,
+  Number(pathGBaseline.locations),
+  `Path G: zero business_locations rows must be created for the conflicting item; ` +
+  `baseline=${pathGBaseline.locations} after=${pathGAfterLocations}`,
+);
+console.log("[cert] Path G: zero business_locations rows created");
+
+// ── G9: Zero business_projections rows created ────────────────────────────────
+
+const pathGAfterProjections = Number(
+  rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM business_projections
+  `))[0]?.n ?? 0,
+);
+assert.equal(
+  pathGAfterProjections,
+  Number(pathGBaseline.projections),
+  `Path G: zero business_projections rows must be created; ` +
+  `baseline=${pathGBaseline.projections} after=${pathGAfterProjections}`,
+);
+console.log("[cert] Path G: zero business_projections rows created");
+
+// ── G10: Zero canonical_source_links rows created for this item's subjects ────
+
+const pathGAfterSourceLinks = Number(
+  rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM canonical_source_links
+     WHERE stable_key IN (${pathGSubjectKey1}, ${pathGSubjectKey2})
+  `))[0]?.n ?? 0,
+);
+assert.equal(
+  pathGAfterSourceLinks,
+  Number(pathGBaseline.source_links),
+  `Path G: zero canonical_source_links rows must be created for conflicting subjects; ` +
+  `baseline=${pathGBaseline.source_links} after=${pathGAfterSourceLinks}`,
+);
+console.log("[cert] Path G: zero canonical_source_links rows created");
+
+console.log("[cert] PASS Path G: countyFips conflict guard → CRO03B_COUNTY_FIPS_CONFLICT thrown; " +
+  "item remains review_required; zero business_locations, projections, source_links");
+
+// ═════════════════════════════════════════════════════════════════════════════
 // GLOBAL EFFECT-DENIED PROOF — deals, enrollments unchanged across all paths
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1368,12 +1669,13 @@ assert.equal(
   `Global effect-denied: sequence_enrollments must not change (before=${baseline.enrollments} after=${finalCounts.enrollments})`,
 );
 
-console.log("\n[cert] PASS Global effect-denied: zero new deals, zero new sequence_enrollments across all six paths");
+console.log("\n[cert] PASS Global effect-denied: zero new deals, zero new sequence_enrollments across all seven paths");
 console.log(
   "\n✅ CRO-03B CSV Handoff Certification COMPLETE — " +
   "Path A (business-only), Path B (contact + validation), Path C (safe-hold), " +
   "Path D (DBPR-HR adapter + CRO-03B pipeline), " +
   "Path E (cross-source dedup Apollo + DBPR-HR), " +
-  "Path F (concurrent projection race)\n",
+  "Path F (concurrent projection race), " +
+  "Path G (countyFips conflict → CRO03B_COUNTY_FIPS_CONFLICT)\n",
 );
 process.exit(0);
