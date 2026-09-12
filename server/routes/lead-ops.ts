@@ -423,7 +423,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     // Wrap the heavy sunbiz_entities aggregate in a 30-second statement timeout
     // so a runaway scan degrades to stale data rather than holding a pool
     // connection indefinitely.
-    const [enrichResult, freeEnrichResult, canonicalFreeEnrichResult, paidQueueResult, jobRow, progressRaw] = await Promise.all([
+    const [enrichResult, freeEnrichResult, canonicalFreeEnrichResult, paidQueueResult, jobRow, progressRaw, staleThresholdResult] = await Promise.all([
       db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL statement_timeout = '30000'`);
         return tx.execute(sql`
@@ -486,7 +486,20 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         .where(eq(backgroundJobs.jobName, "enrichment-queue-processor"))
         .limit(1).catch(() => []),
       storage.getSystemSetting("enrichment_progress").catch(() => null),
+      db.execute(sql`SELECT value FROM system_settings WHERE key = 'enrichment_worker_stale_threshold_ms' LIMIT 1`).catch(() => null),
     ]);
+
+    // ── Stale-alert threshold ─────────────────────────────────────────────────
+    // Read from system_settings; default 10 minutes. Configurable so operators
+    // can tighten or loosen without a code deploy.
+    const DEFAULT_ALERT_STALE_MS = 10 * 60 * 1000; // 10 minutes
+    const staleThresholdRows = staleThresholdResult
+      ? ((staleThresholdResult as any).rows ?? staleThresholdResult)
+      : [];
+    const staleThresholdRaw = staleThresholdRows[0]?.value;
+    const workerStalenessThresholdMs = staleThresholdRaw
+      ? Math.max(60_000, Number(staleThresholdRaw))
+      : DEFAULT_ALERT_STALE_MS;
 
     const enrichRows = enrichResult ? ((enrichResult as any).rows ?? enrichResult) : [];
     const row = enrichRows[0] || {};
@@ -722,6 +735,20 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       workerHeartbeats.cro08aProcessor = { available: false, stale: false, error: "query_failed" };
     }
 
+    // ── Enrichment-worker stale alert ─────────────────────────────────────────
+    // Authoritative boolean derived server-side using exact ms comparison so the
+    // client never has to deal with rounding. Only the enrichment worker is in
+    // scope: other workers have independent cadences and must not trigger this
+    // alert even if their last heartbeat is older than the threshold.
+    const enrichmentHb = workerHeartbeats.enrichment;
+    let enrichmentWorkerStaleAlert = false;
+    if (enrichmentHb?.available && !enrichmentHb.error) {
+      const enrichLastAt = enrichmentHb.lastFinishedAt ? new Date(enrichmentHb.lastFinishedAt) : null;
+      const enrichMsAgo = enrichLastAt !== null ? now2 - enrichLastAt.getTime() : null;
+      // null msAgo means no heartbeat ever recorded → treat as stale
+      enrichmentWorkerStaleAlert = enrichMsAgo === null || enrichMsAgo > workerStalenessThresholdMs;
+    }
+
     // ── MI-08: Pipeline counts from /api/master-leads/pipeline-stats ────
     // These are fetched in-process for the health endpoint.
     // Pipeline counts mirror the authoritative /api/master-leads/pipeline-stats
@@ -796,6 +823,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       outscraperDailySpend,
       serperDailySpend,
       // ── MI-08: Per-named-worker heartbeats (per-metric availability) ────
+      workerStalenessThresholdMs,
+      enrichmentWorkerStaleAlert,
       workerHeartbeats,
       // ── MI-09: CRO-08A scheduler/processor worker heartbeats ────────────
       cro08aSchedulerHeartbeat: workerHeartbeats.cro08aScheduler,

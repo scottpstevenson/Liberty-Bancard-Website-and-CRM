@@ -59,6 +59,9 @@ interface LeadOpsHealth {
   workerActive: boolean;
   isStale?: boolean;
   // MI-08
+  workerStalenessThresholdMs?: number;
+  /** Server-derived: true when the enrichment worker has exceeded the staleness threshold */
+  enrichmentWorkerStaleAlert?: boolean;
   workerHeartbeats?: Record<string, WorkerHeartbeat>;
   pipelineCounts?: PipelineCountsMetric;
   freeEnrichQueueDepth?: FreeEnrichQueueDepth;
@@ -205,6 +208,14 @@ export function ProgramHealthPanel() {
 
   const workerKeys = Object.keys(h?.workerHeartbeats ?? {});
 
+  // The server derives enrichmentWorkerStaleAlert with exact ms precision so the
+  // client never re-implements the threshold comparison. Only the enrichment
+  // worker is in scope — other workers have independent cadences.
+  const alertThresholdMs = h?.workerStalenessThresholdMs ?? 10 * 60 * 1000;
+  const alertThresholdMin = Math.round(alertThresholdMs / 60000);
+  const enrichmentHb = h?.workerHeartbeats?.enrichment;
+  const showEnrichmentStaleAlert = h?.enrichmentWorkerStaleAlert === true;
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -232,6 +243,27 @@ export function ProgramHealthPanel() {
           </Button>
         </div>
       </div>
+
+      {/* ── Enrichment worker stale alert banner ─────────────────────────── */}
+      {showEnrichmentStaleAlert && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-medium">
+              Enrichment worker silent for over {alertThresholdMin} minutes
+            </p>
+            {enrichmentHb?.minutesSince !== null && enrichmentHb?.minutesSince !== undefined && (
+              <p className="mt-0.5 text-xs text-amber-700">
+                Last heartbeat {enrichmentHb.minutesSince}m ago — the enrichment queue may have stalled.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Per-named-worker heartbeats ──────────────────────────────────── */}
       <Card>
