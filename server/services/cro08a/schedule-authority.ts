@@ -149,12 +149,84 @@ export async function createCro08aScheduleDefinition(input: Cro08aScheduleDefini
  * same transaction (CAS: partial unique index enforces at most one active
  * row per logical key even under a race).
  */
+/**
+ * Verify that all three MI-09 pilot levels have completed with valid advancement
+ * evidence before activating production schedules. Called by activateCro08aScheduleDefinition.
+ *
+ * This check belongs at activation time (not at issueCro08aCertificationReceipt time)
+ * because: (1) the pre-pilot ceremony issues a receipt to gate the pilots themselves, so
+ * requiring pilot completion at receipt issuance would deadlock the ceremony; (2) the
+ * post-Pilot-3 ceremony issues a SECOND receipt; and (3) only final activation must prove
+ * all three levels ran with valid advancement receipts and terminal enrichment evidence.
+ */
+export async function assertPilotLadderCompletion(): Promise<void> {
+  const pilotCompletion = rows(await db.execute(sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM mi09_pilot_runs pr
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE pd.level = 1 AND pr.state = 'completed') AS l1_completed,
+      (SELECT COUNT(*)::int FROM mi09_pilot_runs pr
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE pd.level = 2 AND pr.state = 'completed') AS l2_completed,
+      (SELECT COUNT(*)::int FROM mi09_pilot_runs pr
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE pd.level = 3 AND pr.state = 'completed') AS l3_completed,
+      (SELECT COUNT(*)::int FROM mi09_pilot_advancement_receipts par
+         JOIN mi09_pilot_runs pr ON pr.id = par.pilot_run_id
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE par.from_level = 1 AND par.to_level = 2
+           AND par.stop_conditions_passed = true
+           AND pr.state = 'completed' AND pd.level = 1) AS adv_1_to_2,
+      (SELECT COUNT(*)::int FROM mi09_pilot_advancement_receipts par
+         JOIN mi09_pilot_runs pr ON pr.id = par.pilot_run_id
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE par.from_level = 2 AND par.to_level = 3
+           AND par.stop_conditions_passed = true
+           AND pr.state = 'completed' AND pd.level = 2) AS adv_2_to_3,
+      (SELECT COUNT(*)::int FROM mi09_pilot_effect_links pel
+         JOIN mi09_pilot_runs pr ON pr.id = pel.pilot_run_id
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE pd.level = 3 AND pr.state = 'completed'
+           AND pel.entity_type IN ('cro03c_command', 'generation')) AS l3_effects,
+      (SELECT COUNT(*)::int
+         FROM mi09_pilot_checkpoints cp
+         JOIN mi09_pilot_runs pr ON pr.id = cp.pilot_run_id
+         JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
+         WHERE pd.level = 3 AND pr.state = 'completed'
+           AND cp.phase = 'enrichment'
+           AND cp.processed_count >= (
+             SELECT COUNT(*)::int FROM mi09_pilot_cohort_members m WHERE m.pilot_run_id = pr.id
+           )) AS l3_enrichment_complete
+  `))[0];
+
+  const gaps: string[] = [];
+  if (!pilotCompletion?.l1_completed)          gaps.push("level_1_run_not_completed");
+  if (!pilotCompletion?.adv_1_to_2)            gaps.push("advancement_1_to_2_missing_or_stop_conditions_failed");
+  if (!pilotCompletion?.l2_completed)          gaps.push("level_2_run_not_completed");
+  if (!pilotCompletion?.adv_2_to_3)            gaps.push("advancement_2_to_3_missing_or_stop_conditions_failed");
+  if (!pilotCompletion?.l3_completed)          gaps.push("level_3_run_not_completed");
+  if (!pilotCompletion?.l3_effects)            gaps.push("level_3_run_has_no_effect_links");
+  if (!pilotCompletion?.l3_enrichment_complete) gaps.push("level_3_enrichment_phase_incomplete");
+
+  if (gaps.length > 0) {
+    throw new Cro08aCertificationDeniedError(
+      `pilot_ladder_not_complete:[${gaps.join(",")}] — ` +
+      `all three MI-09 pilot levels must complete with valid advancement evidence ` +
+      `before CRO-08A continuous schedules can be activated`,
+    );
+  }
+}
+
 export async function activateCro08aScheduleDefinition(input: {
   definitionId: string;
   activatedBy: string;
   reason: string;
   expiresAt?: Date;
 }): Promise<{ activated: true; certificationReceiptId: string }> {
+  // Require all three pilot levels to be complete before activating any production schedule.
+  // This enforces the MI-09 pilot ladder: pilot 1 → pilot 2 → pilot 3 → activation.
+  // The certification receipt check below is an independent gate for the current-release cert.
+  await assertPilotLadderCompletion();
   const { receiptId } = await assertCurrentCro08aCertification();
   await db.transaction(async (tx) => {
     const def = rows(await tx.execute(sql`

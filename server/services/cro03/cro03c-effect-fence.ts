@@ -22,7 +22,10 @@ export interface Cro03cEffectFenceContext {
   commandId: string;
   runId: string;
   correlationId: string;
-  commandType: "initial_batch";
+  // "initial_batch" is the canonical non-outreach batch type.
+  // "pilot_phase" pilot commands must also be guarded by the same zero-spend fence because
+  // they execute enrichment-only work and must never produce GHL/campaign/messaging effects.
+  commandType: "initial_batch" | "pilot_phase";
 }
 
 const storage = new AsyncLocalStorage<Cro03cEffectFenceContext>();

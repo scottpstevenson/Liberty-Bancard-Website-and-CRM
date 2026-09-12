@@ -1339,6 +1339,9 @@ export default function LeadOpsCenter() {
           <TabsTrigger value="pipeline" className="gap-1.5 min-h-[44px] text-sm">
             <TrendingUp className="h-4 w-4" aria-hidden /> Pipeline
           </TabsTrigger>
+          <TabsTrigger value="pilot" className="gap-1.5 min-h-[44px] text-sm">
+            🧪 Pilot
+          </TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5 min-h-[44px] text-sm">
             <HeartPulse className="h-4 w-4" aria-hidden /> Health
           </TabsTrigger>
@@ -2190,10 +2193,131 @@ export default function LeadOpsCenter() {
         </TabsContent>
 
         {/* ── Health tab ─────────────────────────────────────────────────── */}
+        {/* ── MI-09: Pilot Status tab ─────────────────────────────────── */}
+        <TabsContent value="pilot" className="space-y-4">
+          <PilotStatusPanel />
+        </TabsContent>
+
+        {/* ── Health tab ─────────────────────────────────────────────────── */}
         <TabsContent value="health" className="space-y-4">
           <ProgramHealthPanel />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── MI-09: Pilot Status Panel ──────────────────────────────────────────────
+function PilotStatusPanel() {
+  const preflightQuery = useQuery<{ passed: boolean; checks: Record<string, { passed: boolean; detail?: string }> }>({
+    queryKey: ["/api/lead-ops/pilot/preflight"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/preflight", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const runsQuery = useQuery<any[]>({
+    queryKey: ["/api/lead-ops/pilot/runs"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/runs", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const defsQuery = useQuery<any[]>({
+    queryKey: ["/api/lead-ops/pilot/definitions"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/definitions", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const preflight = preflightQuery.data;
+  const runs = runsQuery.data ?? [];
+  const defs = defsQuery.data ?? [];
+
+  const checkEntries = preflight ? Object.entries(preflight.checks) : [];
+  const passedCount = checkEntries.filter(([, c]) => c.passed).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Preflight checklist */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Pre-Pilot Checklist</h3>
+          {preflight && (
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${preflight.passed ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"}`}>
+              {passedCount}/{checkEntries.length} passed
+            </span>
+          )}
+        </div>
+        {preflightQuery.isLoading && <p className="text-xs text-muted-foreground">Loading...</p>}
+        {preflightQuery.isError && <p className="text-xs text-red-500">Failed to load preflight checklist</p>}
+        {checkEntries.length > 0 && (
+          <div className="grid gap-1">
+            {checkEntries.map(([key, check]) => (
+              <div key={key} className="flex items-start gap-2 text-xs">
+                <span className={check.passed ? "text-green-600" : "text-red-500"}>
+                  {check.passed ? "✓" : "✗"}
+                </span>
+                <span className="font-mono">{key}</span>
+                {check.detail && <span className="text-muted-foreground">{check.detail}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Pilot definitions */}
+      <div className="rounded-lg border bg-card p-4 space-y-2">
+        <h3 className="font-semibold text-sm">Pilot Definitions ({defs.length})</h3>
+        {defs.length === 0 && <p className="text-xs text-muted-foreground">No pilot definitions created yet.</p>}
+        {defs.map((d: any) => (
+          <div key={d.id} className="rounded border p-2 text-xs font-mono space-y-0.5">
+            <div className="font-semibold">Level {d.level} — {d.pilot_definition_hash?.slice(0, 12)}…</div>
+            <div className="text-muted-foreground">Counties: {JSON.stringify(d.county_scope)}</div>
+            <div className="text-muted-foreground">Verticals: {JSON.stringify(d.vertical_scope)}</div>
+            <div className="text-muted-foreground">Max cohort: {d.max_cohort_size}</div>
+            <div className="text-muted-foreground">Paid providers: {JSON.stringify(d.paid_providers_allowed)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Active pilot runs */}
+      <div className="rounded-lg border bg-card p-4 space-y-2">
+        <h3 className="font-semibold text-sm">Pilot Runs ({runs.length})</h3>
+        {runs.length === 0 && <p className="text-xs text-muted-foreground">No pilot runs yet. Complete the preflight checklist first.</p>}
+        {runs.map((r: any) => (
+          <div key={r.id} className="rounded border p-2 text-xs space-y-0.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold font-mono">Level {r.level} — {r.id?.slice(0, 8)}…</span>
+              <span className={`px-1.5 py-0.5 rounded-full font-medium ${
+                r.state === "completed" ? "bg-green-100 text-green-800" :
+                r.state === "running"   ? "bg-blue-100 text-blue-800" :
+                r.state === "stopped"   ? "bg-red-100 text-red-800" :
+                r.state === "paused"    ? "bg-yellow-100 text-yellow-800" :
+                "bg-gray-100 text-gray-800"
+              }`}>{r.state}</span>
+            </div>
+            <div className="text-muted-foreground">Started: {r.started_at ? new Date(r.started_at).toLocaleString() : "—"}</div>
+            <div className="text-muted-foreground">Release SHA: {r.release_sha?.slice(0, 12)}…</div>
+            {r.cohort_frozen_hash && <div className="text-muted-foreground">Cohort frozen: ✓</div>}
+            {r.stop_reason && <div className="text-red-600">Stop reason: {r.stop_reason}</div>}
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Pilot lifecycle is controlled through the MI-09 authority service. See{" "}
+        <code className="font-mono">docs/cro03d-ceremony-runbook.md</code> for the full ceremony workflow.
+      </p>
     </div>
   );
 }

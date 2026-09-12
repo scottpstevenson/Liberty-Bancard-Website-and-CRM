@@ -72,17 +72,59 @@ import {
 const PROD_BASE = "https://libertybancard.com";
 const ISSUER_ID = "cro03d-operator";
 
-const PRICING = {
-  internal_source: { version: 1, unitType: "none",    currency: "USD", amountMicros: 0,      billingSemantics: "not_billable" },
-  jsonld:          { version: 1, unitType: "parse",   currency: "USD", amountMicros: 0,      billingSemantics: "not_billable" },
-  first_party_web: { version: 1, unitType: "page",    currency: "USD", amountMicros: 1,      billingSemantics: "per_unit_no_result_free" },
-  rdap:            { version: 1, unitType: "request", currency: "USD", amountMicros: 1,      billingSemantics: "per_unit_no_result_free" },
-  serper:          { version: 1, unitType: "request", currency: "USD", amountMicros: 1000,   billingSemantics: "per_unit_no_result_billable" },
-  outscraper:      { version: 1, unitType: "result",  currency: "USD", amountMicros: 3000,   billingSemantics: "per_unit_no_result_free" },
-  apollo:          { version: 1, unitType: "result",  currency: "USD", amountMicros: 350000, billingSemantics: "per_unit_no_result_free" },
-  openai:          { version: 1, unitType: "token",   currency: "USD", amountMicros: 30,     billingSemantics: "per_unit_no_result_billable" },
-  zerobounce:      { version: 1, unitType: "request", currency: "USD", amountMicros: 8000,   billingSemantics: "per_unit_no_result_billable" },
-} as const;
+// ── Pricing — loaded from mi09_pricing_artifacts at ceremony time ───────────
+// DO NOT add a hardcoded PRICING object here. All provider pricing MUST be
+// captured from the live operator pricing artifact in mi09_pricing_artifacts.
+// Use loadPricingFromArtifacts() below to read the verified artifact at runtime.
+// This ensures the scope hash reflects operator-verified prices, not stale code.
+
+type PriceEntry = { version: number; unitType: string; currency: string; amountMicros: number; billingSemantics: string };
+type PriceSchedule = Record<string, PriceEntry>;
+
+/** Load operator-verified pricing from mi09_pricing_artifacts (latest per provider). */
+async function loadPricingFromArtifacts(
+  sessionCookie: string,
+  csrfToken: string,
+): Promise<PriceSchedule> {
+  const artifacts = await prodFetch(sessionCookie, csrfToken, "/api/lead-ops/pilot/pricing-artifacts") as any[];
+  if (!artifacts || artifacts.length === 0) {
+    throw new Error(
+      "No pricing artifacts found. Operator must capture live provider pricing in " +
+      "mi09_pricing_artifacts before running the ceremony. " +
+      "See docs/cro03d-ceremony-runbook.md for instructions."
+    );
+  }
+  // Use the most recent artifact per provider.
+  const byProvider: Record<string, any> = {};
+  for (const a of artifacts) {
+    const key = String(a.provider_key);
+    if (!byProvider[key] || new Date(a.captured_at) > new Date(byProvider[key].captured_at)) {
+      byProvider[key] = a;
+    }
+  }
+  // Verify all required providers are covered.
+  const { CRO03C_PROVIDER_KEYS } = await import("../server/services/cro03/contracts");
+  const missingProviders = (CRO03C_PROVIDER_KEYS as readonly string[]).filter(
+    (p) => !byProvider[p],
+  );
+  if (missingProviders.length > 0) {
+    throw new Error(
+      `Missing pricing artifacts for providers: ${missingProviders.join(", ")}. ` +
+      "Capture pricing for all providers before running the ceremony."
+    );
+  }
+  const pricing: PriceSchedule = {};
+  for (const [key, a] of Object.entries(byProvider)) {
+    pricing[key] = {
+      version:          Number(a.artifact_version ?? 1),
+      unitType:         String(a.unit_type),
+      currency:         String(a.currency ?? "USD"),
+      amountMicros:     Number(a.amount_micros),
+      billingSemantics: String(a.billing_semantics),
+    };
+  }
+  return pricing;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -210,26 +252,42 @@ async function main() {
   }
   console.log(`✓ Target SHA: ${targetSha}`);
 
-  // STEP 4: Validate pricing against approved contracts (local only)
+  // STEP 4: Validate pricing against approved contracts (loaded from mi09_pricing_artifacts)
+  // Pricing must be loaded from the operator pricing artifact — not hardcoded.
+  // This requires a session, so login must happen before this step in the read phase.
+  // We defer the actual login + pricing load to after the SHA fetch so we can fail fast
+  // on SHA issues before hitting the network. However, since pricing affects the scope
+  // hash, we load it here (before scope construction) using a temporary login.
+  console.log("✓ Loading pricing from operator pricing artifacts...");
+  const { cookie: pricingCookie, csrf: pricingCsrf } = await login();
+  const PRICING = await loadPricingFromArtifacts(pricingCookie, pricingCsrf);
   assertCro03cPriceSchedules(PRICING as Parameters<typeof assertCro03cPriceSchedules>[0]);
   for (const [provider, contract] of Object.entries(CRO03C_PROVIDER_CONTRACTS)) {
     const p = (PRICING as Record<string, { unitType: string; billingSemantics: string }>)[provider];
     if (!p) throw new Error(`Missing pricing for provider: ${provider}`);
     if (p.unitType !== contract.unitType || p.billingSemantics !== contract.billingSemantics) {
-      throw new Error(`Pricing/contract mismatch for ${provider}`);
+      throw new Error(`Pricing/contract mismatch for ${provider}: got unitType=${p.unitType} want=${contract.unitType}`);
     }
   }
-  console.log("✓ Price schedule validated");
+  const pricingArtifactHash = (await import("../server/services/cro03/contracts")).stableCro03RecipeHash(PRICING);
+  console.log(`✓ Price schedule validated from operator artifacts (hash: ${pricingArtifactHash.slice(0, 16)}…)`);
 
   // STEP 5: Build scope and compute scope hash (local only)
+  // IMPORTANT: The scope object must exactly match what cro03cApprovalScope() in
+  // live-execution.ts constructs — it uses: policyKey, recipeVersion, recipeHash,
+  // stagePlanHash, migrationHead, releaseSha, priceSchedules.
+  // pricingArtifactHash is intentionally excluded from the signed scope to avoid
+  // CRO03C_APPROVAL_SCOPE_MISMATCH when verifiedCro03cReceipts() recomputes
+  // the expected scope hash. The pricing hash is stored separately in the
+  // CRO-08A certification receipt (priceScheduleHash field).
   const scope = {
-    policyKey:      "cro03c_live_activation",
-    recipeVersion:  CRO03C_RECIPE_VERSION,
-    recipeHash:     CRO03C_RECIPE_HASH,
-    stagePlanHash:  cro03cStagePlanHash(),
-    migrationHead:  CRO03C_MIGRATION_HEAD,
-    releaseSha:     targetSha,
-    priceSchedules: PRICING,
+    policyKey:          "cro03c_live_activation",
+    recipeVersion:      CRO03C_RECIPE_VERSION,
+    recipeHash:         CRO03C_RECIPE_HASH,
+    stagePlanHash:      cro03cStagePlanHash(),
+    migrationHead:      CRO03C_MIGRATION_HEAD,
+    releaseSha:         targetSha,
+    priceSchedules:     PRICING,
   };
   const scopeHash = stableCro03RecipeHash(scope);
   console.log(`✓ Scope hash: ${scopeHash}`);
@@ -267,10 +325,12 @@ async function main() {
     console.log(`  Signed ${dimension}: ${payload.receiptId}`);
   }
 
-  // STEP 7: Login + CSRF token (session only, no data writes)
-  console.log("\n── Logging in to production ──");
-  const { cookie, csrf } = await login();
-  console.log("  ✓ Session established");
+  // STEP 7: Reuse session established in Step 4 for write-phase calls.
+  // (pricingCookie/pricingCsrf are already valid from the pricing load above.)
+  const cookie = pricingCookie;
+  const csrf = pricingCsrf;
+  console.log("\n── Using existing session from Step 4 ──");
+  console.log("  ✓ Session valid");
 
   // STEP 8: GET /api/admin/cro03c/runtime-identity (read-only GET)
   // This endpoint requires authentication but performs no writes.
@@ -427,13 +487,70 @@ async function main() {
   }) as { policyId?: string; revision?: number; replayed?: boolean };
   console.log(`  ${policy.replayed ? "replayed" : "created"}: revision=${policy.revision} id=${policy.policyId}`);
 
+  // STEP 16: Issue CRO-08A certification receipt (MI-09)
+  // The ceremony now calls issueCro08aCertificationReceipt() with all inputs
+  // verified against authoritative DB rows inside the function.
+  console.log("\n── Issuing CRO-08A certification receipt ──");
+  let cro08aReceiptId: string | null = null;
+  try {
+    // Fetch the current outbound pause epoch from the production API.
+    const pauseState = await prodFetch(cookie, csrf, "/api/admin/pause-state") as {
+      paused: boolean; epoch: number;
+    };
+    if (!pauseState.paused) {
+      throw new Error(
+        "Global outbound is NOT paused. CRO-08A certification requires outbound to remain paused."
+      );
+    }
+
+    // Call the CRO-08A certification receipt issuance endpoint.
+    // This route must be added to the admin routes; it calls issueCro08aCertificationReceipt()
+    // with server-side verification of all inputs.
+    const certResult = await prodFetch(cookie, csrf, "/api/admin/cro08a/certification-receipts", {
+      releaseSha:           targetSha,
+      migrationHead:        CRO03C_MIGRATION_HEAD,
+      providerSet:          Object.keys(PRICING),
+      priceScheduleHash:    pricingArtifactHash,
+      approvalReceiptIds:   receiptIds,
+      runtimeAttestationId: attestation.attestationId,
+      outboundPauseEpoch:   pauseState.epoch,
+      issuedBy:             ISSUER_ID,
+      expiresHours:         24,
+    }) as { id?: string; receiptId?: string; error?: string };
+
+    cro08aReceiptId = certResult.id ?? certResult.receiptId ?? null;
+    if (!cro08aReceiptId) {
+      throw new Error(`CRO-08A receipt issuance failed: ${certResult.error ?? JSON.stringify(certResult)}`);
+    }
+    console.log(`  ✓ CRO-08A certification receipt issued: ${cro08aReceiptId}`);
+  } catch (cro08aErr: any) {
+    // CRO-08A receipt failure IS FATAL. Without a valid certification receipt,
+    // activateCro08aScheduleDefinition() will be blocked, which is the correct
+    // fail-closed behavior. The operator must resolve the error and re-run the
+    // ceremony. See docs/cro03d-ceremony-runbook.md for remediation steps.
+    console.error(`\n  ✗ FATAL: CRO-08A certification receipt issuance failed:`);
+    console.error(`    ${cro08aErr?.message}`);
+    console.error(`\n  The CRO-03D ceremony completed (policy + approval receipts written),`);
+    console.error(`  but CRO-08A schedule activation is BLOCKED until a valid cert receipt exists.`);
+    console.error(`  Re-run: npx tsx scripts/cro03d-run-ceremony.ts`);
+    console.error(`  Or manually issue: POST /api/admin/cro08a/certification-receipts`);
+    console.error(`  See docs/cro03d-ceremony-runbook.md Step 16 for details.`);
+    throw cro08aErr; // fatal — propagates to CLI exit code 1
+  }
+
   // Summary
   console.log("\n=== CRO-03D Ceremony Complete ===");
-  console.log(`  Production SHA:  ${targetSha}`);
-  console.log(`  Scope hash:      ${scopeHash}`);
-  console.log(`  Attestation ID:  ${attestation.attestationId}`);
-  console.log(`  Policy:          revision=${policy.revision}, id=${policy.policyId}`);
-  console.log(`  Receipts:        ${receiptIds.join(", ")}`);
+  console.log(`  Production SHA:       ${targetSha}`);
+  console.log(`  Scope hash:           ${scopeHash}`);
+  console.log(`  Pricing artifact hash: ${pricingArtifactHash.slice(0, 16)}…`);
+  console.log(`  Attestation ID:       ${attestation.attestationId}`);
+  console.log(`  Policy:               revision=${policy.revision}, id=${policy.policyId}`);
+  console.log(`  Receipts:             ${receiptIds.join(", ")}`);
+  if (cro08aReceiptId) {
+    console.log(`  CRO-08A Receipt:      ${cro08aReceiptId}`);
+  } else {
+    console.log(`  CRO-08A Receipt:      ⚠  NOT ISSUED — activate schedules manually`);
+  }
   console.log("\n  Outreach remains PAUSED. Enable from the dashboard when ready.");
 }
 

@@ -360,7 +360,7 @@ export interface Cro03cEvidenceStagePlan {
  */
 export function planCro03cEvidenceStages(input: {
   payload: any;
-  commandType: "micro_canary" | "initial_batch" | "continuous_occurrence";
+  commandType: "micro_canary" | "initial_batch" | "continuous_occurrence" | "pilot_phase";
   caps: { provider?: string | null; maxUnits?: number; maxAmountMicros?: number };
   pricing: Record<string, Cro03cPriceSchedule>;
   source: { observation_id: string; payload_hash: string };
@@ -769,7 +769,7 @@ export async function revokeCro03cApprovalReceipt(input: {
 export async function createCro03cCommand(input: {
   actorId: string;
   idempotencyKey: string;
-  commandType: "micro_canary" | "initial_batch" | "continuous_occurrence";
+  commandType: "micro_canary" | "initial_batch" | "continuous_occurrence" | "pilot_phase";
   expectedActivationRevision: number;
   runtimeAttestationId: string;
   handoffIds: string[];
@@ -790,6 +790,11 @@ export async function createCro03cCommand(input: {
    * second command. */
   scheduleOccurrenceId?: string;
   scheduleDefinitionHash?: string;
+  /** Required for commandType==="pilot_phase": links this command to the MI-09
+   * pilot run it belongs to, for cohort-scoped effect tracking. Unlike initial_batch,
+   * pilot_phase commands are repeatable (one per phase page) and independently bounded
+   * by caller-supplied maxUnits/maxAmountMicros. Provider is optional (Pilot 1 has none). */
+  pilotRunId?: string;
 }): Promise<{ commandId: string; runId: string; replayed: boolean }> {
   if (!input.idempotencyKey || input.idempotencyKey.length > 200) throw new Error("CRO03C_IDEMPOTENCY_KEY_INVALID");
   if (!input.reason?.trim() || input.reason.trim().length > 500) throw new Error("CRO03C_REASON_INVALID");
@@ -811,6 +816,22 @@ export async function createCro03cCommand(input: {
     // budgets. Any caller-supplied maxUnits/maxAmountMicros is ignored.
     if (!input.provider) throw new Error("CRO03C_PROVIDER_REQUIRED");
     if (!input.scheduleOccurrenceId || !input.scheduleDefinitionHash) throw new Error("CRO08A_SCHEDULE_OCCURRENCE_REQUIRED");
+  } else if (input.commandType === "pilot_phase") {
+    // pilot_phase: independently bounded per call (each phase page carries its own cap).
+    // Repeatable unlike initial_batch (no one-shot global reservation).
+    // Provider is optional (Pilot 1 excludes all paid providers — no provider supplied).
+    // Caller-supplied maxUnits/maxAmountMicros must be non-negative integers when supplied.
+    if (!input.pilotRunId) throw new Error("CRO03C_PILOT_PHASE_PILOT_RUN_ID_REQUIRED");
+    if (input.maxUnits !== undefined && (!Number.isInteger(input.maxUnits) || input.maxUnits < 0)) {
+      throw new Error("CRO03C_CAP_INVALID");
+    }
+    if (input.maxAmountMicros !== undefined && (!Number.isInteger(input.maxAmountMicros) || input.maxAmountMicros < 0)) {
+      throw new Error("CRO03C_CAP_INVALID");
+    }
+    // If a provider is supplied, it must be a known provider key.
+    if (input.provider && !CRO03C_PROVIDER_CONTRACTS[input.provider]) {
+      throw new Error("CRO03C_PROVIDER_UNKNOWN");
+    }
   } else if (input.provider) {
     throw new Error("CRO03C_INITIAL_BATCH_CAP_INVALID");
   }

@@ -129,7 +129,7 @@ type ClaimedGeneration = {
   runtime_attestation_id: string;
   pre_run_snapshot_hash: string;
   effect_correlation_id: string;
-  command_type: "initial_batch" | "micro_canary" | "continuous_occurrence";
+  command_type: "initial_batch" | "micro_canary" | "continuous_occurrence" | "pilot_phase";
   schedule_occurrence_id: string | null;
   claim_token: string;
   execution_fence: number;
@@ -604,6 +604,16 @@ export async function dispatchCro03cLive(commandId?: string): Promise<"idle" | "
         commandId: claim.command_id, runId: claim.run_id,
         correlationId: claim.effect_correlation_id, commandType: "continuous_occurrence",
         scheduleOccurrenceId: claim.schedule_occurrence_id ?? "",
+      }, () => dispatchClaim(claim));
+    } else if (claim.command_type === "pilot_phase") {
+      // Pilot-phase commands are enrichment-only and must receive the same zero-spend
+      // "no outbound effect at all" fence as initial_batch. The narrower
+      // continuous_occurrence fence is intentionally NOT used here because pilot_phase
+      // must not authorize any provider spend beyond what the pilot definition allows, and
+      // the effect fence is an independent preventive layer — not a post-run counter comparison.
+      progression = await withCro03cInitialBatchEffectFence({
+        commandId: claim.command_id, runId: claim.run_id,
+        correlationId: claim.effect_correlation_id, commandType: "pilot_phase",
       }, () => dispatchClaim(claim));
     } else {
       progression = await dispatchClaim(claim);

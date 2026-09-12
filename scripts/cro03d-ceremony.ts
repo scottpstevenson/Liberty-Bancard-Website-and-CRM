@@ -53,7 +53,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // ---------------------------------------------------------------------------
 export const CRO03D_APPROVED_COHORT_CAP = 100;
 export const CRO03D_APPROVED_CANARY_CAP_PER_PROVIDER = 10;
-export const CRO03D_APPROVED_MAX_SPEND_MICROS = 150_000_000; // $150.00 in USD micros
+// CRO03D_APPROVED_MAX_SPEND_MICROS has been removed (MI-09).
+// Spend limits are now derived from the operator pricing artifact stored in
+// mi09_pricing_artifacts — no hardcoded dollar amounts are permitted.
+// See docs/cro03d-ceremony-runbook.md for the updated ceremony workflow.
 
 export interface Cro03dRedactedScope {
   releaseSha: string;
@@ -64,7 +67,7 @@ export interface Cro03dRedactedScope {
   providersInScope: readonly string[];
   cohortCap: number;
   canaryCapPerProvider: number;
-  maxSpendMicros: number;
+  // maxSpendMicros removed — derived from mi09_pricing_artifacts at ceremony time.
   currency: "USD";
   derivedAt: string;
 }
@@ -86,7 +89,8 @@ export function deriveCro03dScope(now: Date = new Date()): Cro03dRedactedScope {
   return {
     releaseSha, releaseTree, migrationHead: CRO03C_CURRENT_MIGRATION_HEAD, recipeStagePlanHash: stagePlanHash,
     rolloutKey: CRO03C_INITIAL_ROLLOUT_KEY, providersInScope, cohortCap: CRO03D_APPROVED_COHORT_CAP,
-    canaryCapPerProvider: CRO03D_APPROVED_CANARY_CAP_PER_PROVIDER, maxSpendMicros: CRO03D_APPROVED_MAX_SPEND_MICROS,
+    canaryCapPerProvider: CRO03D_APPROVED_CANARY_CAP_PER_PROVIDER,
+    // maxSpendMicros intentionally omitted — derived from mi09_pricing_artifacts at ceremony time.
     currency: "USD", derivedAt: now.toISOString(),
   };
 }

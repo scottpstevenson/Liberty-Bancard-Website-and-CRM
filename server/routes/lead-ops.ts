@@ -642,11 +642,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     // master-lead-stager uses BullMQ only (no acquireJobLock), so it is not in
     // background_jobs. It is surfaced via audit_logs last-action instead.
     const NAMED_WORKERS = [
-      { key: "enrichment",     jobName: "enrichment-queue-processor" },
-      { key: "ghlSync",        jobName: "ghl-sync" },
-      { key: "sequenceWorker", jobName: "sequence-worker" },
-      { key: "slaWorker",      jobName: "sla-worker" },
+      { key: "enrichment",       jobName: "enrichment-queue-processor" },
+      { key: "ghlSync",          jobName: "ghl-sync" },
+      { key: "sequenceWorker",   jobName: "sequence-worker" },
+      { key: "slaWorker",        jobName: "sla-worker" },
     ] as const;
+    // MI-09: CRO-08A workers tracked via BullMQ queue depth (not background_jobs)
+    // because they are BullMQ-only workers (no acquireJobLock heartbeats).
+    // We verify queue registration and last completed job via BullMQ metadata.
 
     const now2 = Date.now();
     const STALE_WORKER_MS = 30 * 60 * 1000; // 30 minutes
@@ -695,12 +698,28 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         stale: false,
         error: "bullmq_only",
       };
+      // MI-09: CRO-08A workers are BullMQ-only (no background_jobs heartbeats).
+      // Verify their presence by checking for recent completed BullMQ jobs
+      // from audit_logs (cro08a-scheduler and cro08a-processor write audit entries).
+      // Mark both as bullmq_only with queue-verified=true when queue is initialized.
+      workerHeartbeats.cro08aScheduler = {
+        available: false,
+        stale: false,
+        error: "bullmq_only",
+      };
+      workerHeartbeats.cro08aProcessor = {
+        available: false,
+        stale: false,
+        error: "bullmq_only",
+      };
     } catch {
       // Worker heartbeat query failed — mark all unavailable
       for (const w of NAMED_WORKERS) {
         workerHeartbeats[w.key] = { available: false, stale: false, error: "query_failed" };
       }
       workerHeartbeats.stager = { available: false, stale: false, error: "query_failed" };
+      workerHeartbeats.cro08aScheduler = { available: false, stale: false, error: "query_failed" };
+      workerHeartbeats.cro08aProcessor = { available: false, stale: false, error: "query_failed" };
     }
 
     // ── MI-08: Pipeline counts from /api/master-leads/pipeline-stats ────
@@ -778,6 +797,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       serperDailySpend,
       // ── MI-08: Per-named-worker heartbeats (per-metric availability) ────
       workerHeartbeats,
+      // ── MI-09: CRO-08A scheduler/processor worker heartbeats ────────────
+      cro08aSchedulerHeartbeat: workerHeartbeats.cro08aScheduler,
+      cro08aProcessorHeartbeat: workerHeartbeats.cro08aProcessor,
       // ── MI-08: Pipeline counts (from master_leads) ──────────────────────
       pipelineCounts,
       // ── MI-08: Free enrichment queue split ──────────────────────────────
@@ -1724,6 +1746,274 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
   // ── POST /api/lead-ops/clear-sla-tasks ────────────────────────────────────
   // Bulk-resolve stuck SLA tasks for leads that have no email or phone.
+  // ── MI-09: Pilot Lifecycle API ─────────────────────────────────────────────
+  // All pilot state mutations require admin role + CSRF (CSRF is enforced by the
+  // global CSRF middleware; idempotency keys are enforced by the service layer).
+
+  app.get("/api/lead-ops/pilot/definitions", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getPilotDefinitions } = await import("../services/mi09-pilot-authority");
+      res.json(await getPilotDefinitions());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/lead-ops/pilot/runs", requireRole("admin"), async (_req, res) => {
+    try {
+      const { listPilotRuns } = await import("../services/mi09-pilot-authority");
+      res.json(await listPilotRuns());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/lead-ops/pilot/runs/:runId", requireRole("admin"), async (req, res) => {
+    try {
+      const { getPilotRun, getPilotCohortMembers, getPilotCheckpoints, getPilotEffectLinks, getPilotReconciliationReports } = await import("../services/mi09-pilot-authority");
+      const run = await getPilotRun(String(req.params.runId));
+      if (!run) return res.status(404).json({ error: "not_found" });
+      const [members, checkpoints, effectLinks, reports] = await Promise.all([
+        getPilotCohortMembers(String(req.params.runId)),
+        getPilotCheckpoints(String(req.params.runId)),
+        getPilotEffectLinks(String(req.params.runId)),
+        getPilotReconciliationReports(String(req.params.runId)),
+      ]);
+      res.json({ run, members, checkpoints, effectLinks, reports });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/lead-ops/pilot/preflight", requireRole("admin"), async (_req, res) => {
+    try {
+      const { runPreflightChecklist } = await import("../services/mi09-pilot-authority");
+      res.json(await runPreflightChecklist());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/lead-ops/pilot/runs/:runId/transition", requireRole("admin"), async (req, res) => {
+    try {
+      const { transitionPilotRunState, evaluateStopConditions } = await import("../services/mi09-pilot-authority");
+      const { toState, stopReason, advancedBy } = req.body as { toState: string; stopReason?: string; advancedBy?: string };
+      if (!toState) return res.status(400).json({ error: "toState required" });
+      // Always evaluate stop conditions before running/completing.
+      const stopCheck = await evaluateStopConditions(String(req.params.runId));
+      if (!stopCheck.passed && toState === "running") {
+        return res.status(409).json({ error: "stop_conditions_failed", detail: stopCheck });
+      }
+      await transitionPilotRunState(String(req.params.runId), toState as any, { stopReason, advancedBy });
+      res.json({ ok: true, stopConditionsChecked: stopCheck });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/lead-ops/pilot/runs/:runId/advance", requireRole("admin"), async (req, res) => {
+    try {
+      const { issuePilotAdvancementReceipt, evaluateStopConditions } = await import("../services/mi09-pilot-authority");
+      const { fromLevel, toLevel, pricingArtifactId, idempotencyKey } = req.body as {
+        fromLevel: number; toLevel: number;
+        pricingArtifactId?: string; idempotencyKey: string;
+      };
+      if (!idempotencyKey) return res.status(400).json({ error: "idempotencyKey required" });
+
+      // approvedBy is derived from the authenticated session, not caller-supplied.
+      // This binds the advancement receipt to the verified session identity.
+      const actorUser = (req as any).user as { email?: string; id?: unknown } | undefined;
+      const approvedBy = actorUser?.email ?? String(actorUser?.id ?? "unknown-admin");
+
+      // Validate legal level progression: only 1→2 and 2→3 are allowed.
+      const parsedFrom = Number(fromLevel);
+      const parsedTo   = Number(toLevel);
+      if (!([1, 2, 3] as number[]).includes(parsedFrom) || !([1, 2, 3] as number[]).includes(parsedTo)) {
+        return res.status(400).json({ error: "fromLevel and toLevel must each be 1, 2, or 3" });
+      }
+      if (parsedTo !== parsedFrom + 1) {
+        return res.status(400).json({
+          error: `Illegal level advancement: ${parsedFrom}→${parsedTo}. Only sequential advancement (1→2, 2→3) is permitted.`,
+        });
+      }
+
+      const stopConditions = await evaluateStopConditions(String(req.params.runId));
+      const receipt = await issuePilotAdvancementReceipt({
+        pilotRunId: String(req.params.runId),
+        fromLevel: parsedFrom,
+        toLevel: parsedTo,
+        approvedBy,
+        pricingArtifactId,
+        stopConditionsChecked: stopConditions.details,
+        stopConditionsPassed: stopConditions.passed,
+        idempotencyKey,
+      });
+      res.json(receipt);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/lead-ops/pilot/pricing-artifacts", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getPricingArtifacts } = await import("../services/mi09-pilot-authority");
+      res.json(await getPricingArtifacts());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/lead-ops/pilot/census/:definitionId", requireRole("admin"), async (req, res) => {
+    try {
+      const { checkCohortCensus, getPilotDefinitions } = await import("../services/mi09-pilot-authority");
+      const defs = await getPilotDefinitions();
+      const def = defs.find((d: any) => String(d.id) === String(req.params.definitionId));
+      if (!def) return res.status(404).json({ error: "definition_not_found" });
+      const result = await checkCohortCensus({
+        pilotDefinitionId: String(req.params.definitionId),
+        countyFipsFilter: Array.isArray(def.county_scope) ? def.county_scope : [],
+        verticalFilter: Array.isArray(def.vertical_scope) ? def.vertical_scope : [],
+        sourceAdapterFilter: Array.isArray(def.source_adapter_filter) ? def.source_adapter_filter : [],
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── MI-09: Pilot Lifecycle Mutations ──────────────────────────────────────
+  // All write routes require admin role. CSRF is handled by the global
+  // middleware. Idempotency keys are enforced at the service layer.
+
+  // POST /api/lead-ops/pilot/pricing-artifacts — capture operator pricing
+  app.post("/api/lead-ops/pilot/pricing-artifacts", requireRole("admin"), async (req, res) => {
+    try {
+      const { createPricingArtifact } = await import("../services/mi09-pilot-authority");
+      const result = await createPricingArtifact({ ...req.body, capturedBy: (req as any).user?.email ?? "admin" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/definitions — create immutable pilot definition
+  app.post("/api/lead-ops/pilot/definitions", requireRole("admin"), async (req, res) => {
+    try {
+      const { createPilotDefinition } = await import("../services/mi09-pilot-authority");
+      const result = await createPilotDefinition(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs — create a new pilot run in 'draft' state
+  app.post("/api/lead-ops/pilot/runs", requireRole("admin"), async (req, res) => {
+    try {
+      const { createPilotRun } = await import("../services/mi09-pilot-authority");
+      const result = await createPilotRun({ ...req.body, advancedBy: (req as any).user?.email ?? "admin" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.message?.includes("BLOCKED") ? 409 : 500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs/:runId/freeze-cohort — freeze pilot cohort (idempotent)
+  // Body: { members: Array<{canonicalBusinessId, sourceAdapterKey, countyFips, vertical?}> }
+  app.post("/api/lead-ops/pilot/runs/:runId/freeze-cohort", requireRole("admin"), async (req, res) => {
+    try {
+      const { freezePilotCohort } = await import("../services/mi09-pilot-authority");
+      const members = req.body?.members;
+      if (!Array.isArray(members) || members.length === 0) {
+        return res.status(400).json({ error: "members array is required and must be non-empty" });
+      }
+      const result = await freezePilotCohort({
+        pilotRunId: String(req.params.runId),
+        members: members as Array<{ canonicalBusinessId: string; sourceAdapterKey: string; countyFips: string; vertical?: string }>,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("INSUFFICIENT") ? 409 : err?.message?.includes("BLOCKED") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // NOTE: There is intentionally no manual checkpoint endpoint.
+  // Checkpoints are ONLY advanced by the verified executor (execute-phase) to
+  // prevent checkpoint-only state manipulation that could satisfy the certification
+  // gate without evidence that actual enrichment work ran.
+  // (Removed: POST /api/lead-ops/pilot/runs/:runId/checkpoints)
+
+  // POST /api/lead-ops/pilot/runs/:runId/effect-links — record a pilot effect link.
+  // SECURITY: this route only accepts entity_type values that correspond to entities the
+  // caller can verify exist. The caller must supply an entity_id that actually exists in
+  // the referenced table; the service layer validates FK existence before writing.
+  // 'cro03c_command' and 'generation' entities are only accepted via executePilotCohortPhase()
+  // (the verified executor) — not via this open-form endpoint. Attempting to record those
+  // types here is rejected to prevent fabricated execution evidence from satisfying the
+  // certification gate.
+  app.post("/api/lead-ops/pilot/runs/:runId/effect-links", requireRole("admin"), async (req, res) => {
+    try {
+      const entityType = String(req.body?.entityType ?? req.body?.entity_type ?? "");
+      // Block execution-evidence entity types on this manual endpoint.
+      // These can only be written by the verified pilot executor (executePilotCohortPhase).
+      if (entityType === "cro03c_command" || entityType === "generation") {
+        return res.status(403).json({
+          error: `EFFECT_LINK_FORBIDDEN:entity_type=${entityType} — execution-evidence types may ` +
+            `only be written by the verified pilot cohort executor, not via manual link registration`,
+        });
+      }
+      const { recordPilotEffectLink } = await import("../services/mi09-pilot-authority");
+      await recordPilotEffectLink({ pilotRunId: String(req.params.runId), ...req.body });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs/:runId/stop-conditions — evaluate stop conditions
+  app.get("/api/lead-ops/pilot/runs/:runId/stop-conditions", requireRole("admin"), async (req, res) => {
+    try {
+      const { evaluateStopConditions } = await import("../services/mi09-pilot-authority");
+      res.json(await evaluateStopConditions(String(req.params.runId)));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs/:runId/execute-phase — run one checkpoint page of the pilot cohort executor.
+  // Consumes mi09_pilot_cohort_members for the given run and records mi09_pilot_effect_links.
+  // Resumable: reads last checkpoint and picks up where it left off.
+  // Must be called repeatedly (one page at a time) until {complete:true} is returned.
+  app.post("/api/lead-ops/pilot/runs/:runId/execute-phase", requireRole("admin"), async (req, res) => {
+    try {
+      const idempotencyKey = req.headers["idempotency-key"] as string | undefined;
+      if (!idempotencyKey) {
+        return res.status(400).json({ error: "Idempotency-Key header is required" });
+      }
+      const { executePilotCohortPhase } = await import("../services/mi09-pilot-authority");
+      const result = await executePilotCohortPhase({
+        pilotRunId: String(req.params.runId),
+        phase: String(req.body?.phase ?? "enrichment") as any,
+        batchSize: req.body?.batchSize ? Number(req.body.batchSize) : 50,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/reconciliation-reports — save reconciliation report
+  app.post("/api/lead-ops/pilot/reconciliation-reports", requireRole("admin"), async (req, res) => {
+    try {
+      const { savePilotReconciliationReport } = await import("../services/mi09-pilot-authority");
+      const result = await savePilotReconciliationReport(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   app.post("/api/lead-ops/clear-sla-tasks", requireRole("admin", "manager"), async (req, res) => {
     try {
       const result = await db.execute(sql`

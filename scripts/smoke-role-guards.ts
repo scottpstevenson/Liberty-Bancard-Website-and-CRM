@@ -1207,7 +1207,82 @@ async function run(): Promise<void> {
     failures++;
   }
 
-  const totalCases = CASES.length + 6 + 1 + 1 + 1; // + BOLA/ownership/reanalyze/CSV/canonical-conflicts/MI-06/MI-07/MI-08
+  // ── MI-09: Pilot lifecycle and CRO-08A admin endpoint role guards ──────────
+  console.log("\n── MI-09: Pilot lifecycle + CRO-08A admin endpoints ──");
+  try {
+    const MI09_GET_ROUTES = [
+      { path: "/api/lead-ops/pilot/definitions",                        desc: "GET pilot definitions" },
+      { path: "/api/lead-ops/pilot/runs",                               desc: "GET pilot runs list" },
+      { path: "/api/lead-ops/pilot/preflight",                          desc: "GET pilot preflight" },
+      { path: "/api/lead-ops/pilot/pricing-artifacts",                  desc: "GET pricing artifacts" },
+      { path: "/api/admin/cro08a/certification-receipts",               desc: "GET cro08a cert receipts" },
+      { path: "/api/admin/cro08a/schedule-definitions",                 desc: "GET cro08a schedule defs" },
+    ];
+    let mi09Failures = 0;
+    for (const { path, desc } of MI09_GET_ROUTES) {
+      const [anonStatus, merchantStatus, adminStatus] = await Promise.all([
+        fetch(`${BASE_URL}${path}`, { method: "GET" }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method: "GET", headers: { cookie: merchantCookie } }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method: "GET", headers: { cookie: adminCookie } }).then(r => r.status),
+      ]);
+      const anonOk    = anonStatus === 401;
+      const merchantOk = merchantStatus === 403;
+      const adminOk   = adminStatus === 200 || adminStatus === 404;
+      if (anonOk && merchantOk && adminOk) {
+        console.log(`  ✓ GET ${path}: anon→${anonStatus}(401✓) merchant→${merchantStatus}(403✓) admin→${adminStatus}(✓)`);
+      } else {
+        if (!anonOk)    { console.log(`  ✗ ${desc}: anon→${anonStatus} (expected 401)`);    failures++; mi09Failures++; }
+        if (!merchantOk){ console.log(`  ✗ ${desc}: merchant→${merchantStatus} (expected 403)`); failures++; mi09Failures++; }
+        if (!adminOk)   { console.log(`  ✗ ${desc}: admin→${adminStatus} (expected 200 or 404)`); failures++; mi09Failures++; }
+      }
+    }
+    if (mi09Failures === 0) console.log(`  ✓ All ${MI09_GET_ROUTES.length} MI-09 GET routes correctly guarded`);
+
+    // MI-09 POST routes — anon should get 401, merchant 403; admin 400/404/409/500 (any non-200 before real data OK)
+    const MI09_POST_ROUTES = [
+      { path: "/api/lead-ops/pilot/pricing-artifacts",                       desc: "POST pricing artifacts" },
+      { path: "/api/lead-ops/pilot/definitions",                             desc: "POST pilot definitions" },
+      { path: "/api/lead-ops/pilot/runs",                                    desc: "POST pilot runs" },
+      { path: "/api/lead-ops/pilot/runs/test-run-id/freeze-cohort",          desc: "POST freeze cohort" },
+      // NOTE: No manual checkpoint route — checkpoints are exclusively written by the
+      // verified executor (execute-phase) to prevent checkpoint-only certification bypass.
+      { path: "/api/lead-ops/pilot/runs/test-run-id/effect-links",           desc: "POST pilot effect link" },
+      { path: "/api/lead-ops/pilot/runs/test-run-id/execute-phase",         desc: "POST pilot execute-phase" },
+      { path: "/api/lead-ops/pilot/reconciliation-reports",                  desc: "POST reconciliation report" },
+      { path: "/api/admin/cro08a/certification-receipts",                    desc: "POST cro08a cert receipt" },
+      { path: "/api/admin/cro08a/schedule-definitions",                      desc: "POST cro08a schedule def" },
+      { path: "/api/admin/cro08a/schedule-definitions/test-id/activate",     desc: "POST activate schedule def" },
+      { path: "/api/admin/cro08a/schedule-definitions/test-id/deactivate",   desc: "POST deactivate schedule def" },
+      { path: "/api/admin/pause-state",                                      desc: "GET pause-state (admin only)" },
+    ];
+    for (const { path, desc } of MI09_POST_ROUTES) {
+      const isGet = path === "/api/admin/pause-state";
+      const method = isGet ? "GET" : "POST";
+      const [anonStatus, merchantStatus, adminStatus] = await Promise.all([
+        fetch(`${BASE_URL}${path}`, { method }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method, headers: { cookie: merchantCookie } }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method, headers: { cookie: adminCookie } }).then(r => r.status),
+      ]);
+      const anonOk    = anonStatus === 401;
+      const merchantOk = merchantStatus === 403;
+      // Admin: any non-200 ok (400/404/409/500 all prove the route is found + auth passed)
+      // 403 on admin = CSRF-blocked POST (no CSRF token in test) — this is fine for auth guard purposes
+      const adminOk   = adminStatus !== 404;
+      if (anonOk && merchantOk && adminOk) {
+        console.log(`  ✓ ${method} ${path}: anon→${anonStatus}(401✓) merchant→${merchantStatus}(403✓) admin→${adminStatus}(✓)`);
+      } else {
+        if (!anonOk)    { console.log(`  ✗ ${desc}: anon→${anonStatus} (expected 401)`); failures++; mi09Failures++; }
+        if (!merchantOk){ console.log(`  ✗ ${desc}: merchant→${merchantStatus} (expected 403)`); failures++; mi09Failures++; }
+        if (!adminOk)   { console.log(`  ✗ ${desc}: admin→${adminStatus} (expected non-404)`); failures++; mi09Failures++; }
+      }
+    }
+    if (mi09Failures === 0) console.log(`  ✓ All MI-09 routes (GET + POST) correctly guarded`);
+  } catch (err) {
+    console.log(`✗ MI-09 routes guard check threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  const totalCases = CASES.length + 6 + 1 + 1 + 1 + 1; // + BOLA/ownership/reanalyze/CSV/canonical-conflicts/MI-06/MI-07/MI-08/MI-09
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

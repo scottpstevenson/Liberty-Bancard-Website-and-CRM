@@ -82,7 +82,7 @@ export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
   app.get("/api/admin/users/:id/sessions", requireRole('admin'), async (req, res) => {
     try {
-      const sessions = await authStorage.getActiveSessionsForUser(String(req.params.id));
+      const sessions = await authStorage.getActiveSessionsForUser(String(String(req.params.id)));
       res.json(sessions);
     } catch (err: any) {
       serverError(res, err);
@@ -100,7 +100,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete("/api/admin/users/:id/sessions", requireRole('admin'), async (req, res) => {
     try {
-      await authStorage.invalidateAllUserSessions(String(req.params.id));
+      await authStorage.invalidateAllUserSessions(String(String(req.params.id)));
       res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
@@ -205,7 +205,7 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/users/:id/reset-2fa", requireRole('admin'), async (req, res) => {
     try {
       const { authStorage } = await import("../replit_integrations/auth/storage");
-      const userId = String(req.params.id);
+      const userId = String(String(req.params.id));
       const [before] = await db.select().from(users).where(eq(users.id, userId));
       await authStorage.adminResetTotp(userId);
       const [updated] = await db.update(users).set({ updatedAt: new Date() }).where(eq(users.id, userId)).returning();
@@ -227,8 +227,8 @@ export function registerAdminRoutes(app: Express) {
       if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
-      const [existing] = await db.select().from(users).where(eq(users.id, String(req.params.id)));
-      const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
+      const [existing] = await db.select().from(users).where(eq(users.id, String(String(req.params.id))));
+      const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(String(req.params.id)))).returning();
       if (!updated) return res.status(404).json({ message: "User not found" });
       auditChange({
         action: "user_role_changed",
@@ -545,7 +545,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/agents/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const agent = await storage.getAgent(Number(req.params.id));
+      const agent = await storage.getAgent(Number(String(req.params.id)));
       if (!agent) return res.status(404).json({ message: "Not found" });
       res.json(agent);
     } catch (err: any) {
@@ -570,7 +570,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const body = { ...req.body };
       if (body.hireDate && typeof body.hireDate === 'string') { body.hireDate = new Date(body.hireDate); }
-      const updated = await storage.updateAgent(Number(req.params.id), body);
+      const updated = await storage.updateAgent(Number(String(req.params.id)), body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -580,9 +580,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete("/api/agents/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const agent = await storage.getAgent(Number(req.params.id));
+      const agent = await storage.getAgent(Number(String(req.params.id)));
       if (!agent) return res.status(404).json({ message: "Not found" });
-      await storage.updateAgent(Number(req.params.id), { status: "inactive" });
+      await storage.updateAgent(Number(String(req.params.id)), { status: "inactive" });
       res.status(204).send();
     } catch (err: any) {
       serverError(res, err);
@@ -594,7 +594,7 @@ export function registerAdminRoutes(app: Express) {
   /** GET /api/agents/:id/binding-status — returns binding state for a single agent */
   app.get("/api/agents/:id/binding-status", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const agentId = Number(req.params.id);
+      const agentId = Number(String(req.params.id));
       if (!Number.isInteger(agentId) || agentId <= 0) return res.status(400).json({ message: "Invalid agent id" });
       const agent = await storage.getAgent(agentId);
       if (!agent) return res.status(404).json({ message: "Not found" });
@@ -615,7 +615,7 @@ export function registerAdminRoutes(app: Express) {
   /** POST /api/agents/:id/bind-user — preview or commit user→agent binding */
   app.post("/api/agents/:id/bind-user", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const agentId = Number(req.params.id);
+      const agentId = Number(String(req.params.id));
       if (!Number.isInteger(agentId) || agentId <= 0) return res.status(400).json({ message: "Invalid agent id" });
       const schema = z.object({ userId: z.string().min(1), previewOnly: z.boolean() });
       const { userId, previewOnly } = schema.parse(req.body);
@@ -695,7 +695,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put("/api/agent-quotas/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const updated = await storage.updateAgentQuota(Number(req.params.id), req.body);
+      const updated = await storage.updateAgentQuota(Number(String(req.params.id)), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -797,7 +797,7 @@ export function registerAdminRoutes(app: Express) {
       if (mid !== undefined) updates.mid = mid === "" ? null : mid;
       if (merchantName !== undefined) updates.merchantName = merchantName === "" ? null : merchantName;
       if (Object.keys(updates).length === 0) return res.status(400).json({ message: "No editable fields supplied" });
-      const updated = await storage.updateAgentMerchant(Number(req.params.id), updates as any);
+      const updated = await storage.updateAgentMerchant(Number(String(req.params.id)), updates as any);
       if (!updated) return res.status(404).json({ message: "Not found" });
       // REV-05A: Mask MID in agent-merchant update response.
       const { maskMid: _maskMidUpdate } = await import("../utils/mask-mid");
@@ -809,7 +809,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete("/api/agent-merchants/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      await storage.unassignMerchantFromAgent(Number(req.params.id));
+      await storage.unassignMerchantFromAgent(Number(String(req.params.id)));
       res.status(204).send();
     } catch (err: any) {
       serverError(res, err);
@@ -911,7 +911,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/residual-reports/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const report = await storage.getResidualReport(Number(req.params.id));
+      const report = await storage.getResidualReport(Number(String(req.params.id)));
       if (!report) return res.status(404).json({ message: "Not found" });
       res.json(report);
     } catch (err: any) {
@@ -978,7 +978,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.patch("/api/health-alerts/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateHealthAlert(Number(req.params.id), req.body);
+      const updated = await storage.updateHealthAlert(Number(String(req.params.id)), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -1035,7 +1035,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.put("/api/data-requests/:id", requireRole('admin'), async (req, res) => {
     try {
-      const updated = await storage.updateDataDeleteRequest(Number(req.params.id), req.body);
+      const updated = await storage.updateDataDeleteRequest(Number(String(req.params.id)), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -1085,7 +1085,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/testimonial-submissions/:id", isAuthenticated, async (req, res) => {
     try {
-      const submission = await storage.getTestimonialSubmission(Number(req.params.id));
+      const submission = await storage.getTestimonialSubmission(Number(String(req.params.id)));
       if (!submission) return res.status(404).json({ message: "Not found" });
       res.json(submission);
     } catch (err: any) {
@@ -1105,7 +1105,7 @@ export function registerAdminRoutes(app: Express) {
       if (updates.status && updates.status !== "pending" && !updates.reviewedBy) {
         updates.reviewedBy = user?.email || user?.id || "staff";
       }
-      const updated = await storage.updateTestimonialSubmission(Number(req.params.id), updates);
+      const updated = await storage.updateTestimonialSubmission(Number(String(req.params.id)), updates);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -1308,7 +1308,7 @@ export function registerAdminRoutes(app: Express) {
   // PATCH /api/admin/processor-activation-snapshots/:id/expire — mark a snapshot as expired/held
   app.patch("/api/admin/processor-activation-snapshots/:id/expire", requireRole("admin"), async (req, res) => {
     try {
-      const id = parseInt(String(req.params.id), 10);
+      const id = parseInt(String(String(req.params.id)), 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid snapshot ID" });
 
       const { db: _db } = await import("../db");
@@ -1776,7 +1776,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.patch("/api/admin/sending-identities/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id as string, 10);
+      const id = parseInt(String(req.params.id) as string, 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const parsed = insertSendingIdentitySchema.partial().safeParse(req.body);
       if (!parsed.success) {
@@ -1796,7 +1796,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.delete("/api/admin/sending-identities/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id as string, 10);
+      const id = parseInt(String(req.params.id) as string, 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const deleted = await storage.deleteSendingIdentity(id);
       if (!deleted) return res.status(404).json({ message: "Identity not found" });
@@ -3517,7 +3517,7 @@ export function registerAdminRoutes(app: Express) {
       const { acknowledgeAlert } = await import("../services/alert-feed");
       const reason = typeof req.body?.reason === "string" ? req.body.reason : undefined;
       const actor = (req.user as any)?.email ?? (req.user as any)?.id ?? "unknown";
-      const ok = await acknowledgeAlert(Number(req.params.id), String(actor), reason);
+      const ok = await acknowledgeAlert(Number(String(req.params.id)), String(actor), reason);
       if (!ok) return res.status(404).json({ message: "Alert not found" });
       res.json({ ok: true });
     } catch (err: any) {
@@ -4511,7 +4511,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/ghl/shadow-log/:id/review", requireRole("admin"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id as string);
+      const id = parseInt(String(req.params.id) as string);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const { ghlShadowLog } = await import("@shared/schema");
       const { eq: eqCheck } = await import("drizzle-orm");
@@ -4527,7 +4527,7 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/ghl/identity-conflicts/:id/resolve", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(req.params.id as string, 10);
+      const id = parseInt(String(req.params.id) as string, 10);
       const { resolution } = req.body as { resolution: "kept-internal" | "kept-ghl" | "manual" };
       if (!["kept-internal", "kept-ghl", "manual"].includes(resolution)) {
         return res.status(400).json({ message: "resolution must be kept-internal, kept-ghl, or manual" });
@@ -5620,7 +5620,7 @@ export function registerAdminRoutes(app: Express) {
   /** Update a MID (status, notes, activatedAt, etc.) */
   app.patch("/api/admin/mids/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = parseInt(String(req.params.id), 10);
+      const id = parseInt(String(String(req.params.id)), 10);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid MID id" });
 
       const allowedFields = insertMerchantMidSchema.partial();
@@ -6237,7 +6237,7 @@ export function registerAdminRoutes(app: Express) {
   // === SERPER ZERO-YIELD COOLDOWN: manual requeue (#1599) ===
   app.post("/api/admin/sdr/merchants/:id/requeue-serper", isDashboardUser, requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const merchantId = Number(req.params.id);
+      const merchantId = Number(String(req.params.id));
       if (!Number.isInteger(merchantId) || merchantId <= 0) {
         return res.status(400).json({ message: "Invalid merchant id" });
       }
@@ -6554,6 +6554,138 @@ export function registerAdminRoutes(app: Express) {
         results,
         recommendation,
       });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── MI-09: Outbound pause state (read-only) ──────────────────────────────
+  // Canonical pause state for the ceremony script and any read-only consumer
+  // that needs the current pause epoch without writing to the pause ledger.
+  app.get("/api/admin/pause-state", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getPauseState } = await import("../services/outbound-pause-authority");
+      const state = await getPauseState();
+      res.json({
+        paused: state.state !== "unpaused",
+        state:  state.state,
+        epoch:  Number(state.epoch),
+        reason: state.reason,
+        committedAt: state.committedAt,
+        source: state.source,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // ── MI-09: CRO-08A Certification Receipt (hardened) ──────────────────────
+  // Called from scripts/cro03d-run-ceremony.ts STEP 16 after the full ceremony.
+  // issueCro08aCertificationReceipt() verifies all inputs against DB rows before
+  // writing — this route is the single server-side write path for cert receipts.
+  app.post("/api/admin/cro08a/certification-receipts", requireRole("admin"), async (req, res) => {
+    try {
+      const { issueCro08aCertificationReceipt } = await import("../services/cro08a/certification-gate");
+      const {
+        releaseSha, migrationHead, providerSet, priceScheduleHash,
+        approvalReceiptIds, runtimeAttestationId, outboundPauseEpoch,
+        issuedBy, expiresHours,
+      } = req.body as {
+        releaseSha: string; migrationHead: string; providerSet: string[];
+        priceScheduleHash: string; approvalReceiptIds: string[];
+        runtimeAttestationId: string; outboundPauseEpoch: number;
+        issuedBy: string; expiresHours?: number;
+      };
+      if (!releaseSha || !migrationHead || !providerSet?.length ||
+          !priceScheduleHash || !approvalReceiptIds?.length ||
+          !runtimeAttestationId || outboundPauseEpoch === undefined || !issuedBy) {
+        return res.status(400).json({ error: "CRO08A_CERT_MISSING_FIELDS" });
+      }
+      const expiresAt = new Date(Date.now() + (Number(expiresHours ?? 24)) * 3600_000);
+      const result = await issueCro08aCertificationReceipt({
+        releaseSha, migrationHead, providerSet, priceScheduleHash,
+        approvalReceiptIds, runtimeAttestationId,
+        outboundPauseEpoch: Number(outboundPauseEpoch),
+        issuedBy, expiresAt,
+      });
+      res.json({ id: result.id });
+    } catch (err: any) {
+      if (String(err?.message).startsWith("CRO08A_CERTIFICATION_DENIED:")) {
+        return res.status(403).json({ error: err.message });
+      }
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/admin/cro08a/certification-receipts — list recent receipts.
+  app.get("/api/admin/cro08a/certification-receipts", requireRole("admin"), async (_req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const rows = (r: any) => r?.rows ?? r ?? [];
+      const receipts = rows(await db.execute(sql`
+        SELECT id, release_sha, migration_head, outbound_pause_epoch, issued_by, issued_at, expires_at, revoked_at
+        FROM cro08a_certification_receipts ORDER BY issued_at DESC LIMIT 20
+      `));
+      res.json(receipts);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // GET /api/admin/cro08a/schedule-definitions — list schedule definitions.
+  app.get("/api/admin/cro08a/schedule-definitions", requireRole("admin"), async (_req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const rows = (r: any) => r?.rows ?? r ?? [];
+      res.json(rows(await db.execute(sql`
+        SELECT id, logical_key, definition_version, active, purpose, cadence_cron, window_seconds,
+               batch_size, concurrency_limit, budgets, activated_by, activation_reason,
+               activation_expires_at, certification_receipt_id, created_at, updated_at
+        FROM cro08a_schedule_definitions ORDER BY logical_key, definition_version DESC
+      `)));
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // POST /api/admin/cro08a/schedule-definitions — create immutable definition.
+  app.post("/api/admin/cro08a/schedule-definitions", requireRole("admin"), async (req, res) => {
+    try {
+      const { createCro08aScheduleDefinition } = await import("../services/cro08a/schedule-authority");
+      const result = await createCro08aScheduleDefinition({ ...req.body, createdBy: (req as any).user?.email ?? "admin" });
+      res.json(result);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // POST /api/admin/cro08a/schedule-definitions/:id/activate — activate (requires cert receipt).
+  app.post("/api/admin/cro08a/schedule-definitions/:id/activate", requireRole("admin"), async (req, res) => {
+    try {
+      const { activateCro08aScheduleDefinition } = await import("../services/cro08a/schedule-authority");
+      const result = await activateCro08aScheduleDefinition({
+        definitionId: String(req.params.id),
+        activatedBy: (req as any).user?.email ?? "admin",
+        reason: req.body?.reason ?? "operator-activation",
+        expiresAt: req.body?.expiresAt ? new Date(req.body.expiresAt) : undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      if (String(err?.message).startsWith("CRO08A_CERTIFICATION_DENIED:")) {
+        return res.status(403).json({ error: err.message });
+      }
+      serverError(res, err);
+    }
+  });
+
+  // POST /api/admin/cro08a/schedule-definitions/:id/deactivate — deactivate via authority.
+  app.post("/api/admin/cro08a/schedule-definitions/:id/deactivate", requireRole("admin"), async (req, res) => {
+    try {
+      const { deactivateCro08aScheduleDefinition } = await import("../services/cro08a/schedule-authority");
+      await deactivateCro08aScheduleDefinition(String(req.params.id));
+      res.json({ deactivated: true });
     } catch (err: any) {
       serverError(res, err);
     }

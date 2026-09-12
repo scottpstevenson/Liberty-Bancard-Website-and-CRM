@@ -1855,6 +1855,20 @@
       "when": 1800000006900,
       "tag": "0260_mi07_dedup_unique_indexes",
       "breakpoints": false
+    },
+    {
+      "idx": 265,
+      "version": "7",
+      "when": 1800000007000,
+      "tag": "0261_mi09_pilot_lifecycle",
+      "breakpoints": false
+    },
+    {
+      "idx": 266,
+      "version": "7",
+      "when": 1800000007100,
+      "tag": "0262_mi09_pilot_phase_command_type",
+      "breakpoints": false
     }
   ]
 }

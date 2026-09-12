@@ -432,6 +432,29 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 0, // event-driven only
     jobName: "stage",
   },
+  {
+    // MI-09: CRO-08A scheduler — event-driven; scheduling installed via
+    // NAMED_QUEUE_SCHEDULES (see below). Setting repeatEveryMs=0 here prevents
+    // duplicate schedule registration (one registration in QUEUE_CONFIGS + one
+    // in NAMED_QUEUE_SCHEDULES would result in two competing repeatable jobs).
+    name: QUEUE_NAMES.CRO08A_SCHEDULER,
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 30_000,
+    repeatEveryMs: 0, // scheduled via NAMED_QUEUE_SCHEDULES only
+    jobName: "tick",
+  },
+  {
+    // MI-09: CRO-08A processor — event-driven; scheduling installed via
+    // NAMED_QUEUE_SCHEDULES. concurrency=1 ensures at most one occurrence is
+    // processed at a time; lease-renewal keeps long-running jobs alive.
+    name: QUEUE_NAMES.CRO08A_PROCESSOR,
+    concurrency: 1,
+    attempts: 5,
+    backoffDelay: 60_000,
+    repeatEveryMs: 0, // scheduled via NAMED_QUEUE_SCHEDULES only
+    jobName: "process",
+  },
 ];
 
 /**
@@ -504,6 +527,20 @@ const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
     jobName:      "recover-pending-intents",
     repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 10 * 60 * 1000, // 10 min prod, 5 min dev
     jobId:        "mi07-stager-recovery-repeatable",
+  },
+  {
+    // MI-09: CRO-08A scheduler repeatable tick.
+    queueName:    QUEUE_NAMES.CRO08A_SCHEDULER,
+    jobName:      "tick",
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 10 * 60 * 1000,
+    jobId:        "cro08a-scheduler-tick-repeatable",
+  },
+  {
+    // MI-09: CRO-08A processor repeatable run.
+    queueName:    QUEUE_NAMES.CRO08A_PROCESSOR,
+    jobName:      "process",
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 15 * 60 * 1000,
+    jobId:        "cro08a-processor-run-repeatable",
   },
 ];
 
@@ -2182,6 +2219,21 @@ class QueueManager {
           // All intent (adapterKey, isFullSnapshot, csvBuffer) is read from the DB row.
           // The BullMQ payload contains ONLY runId — no source PII or intent in Redis.
           await runSourceImport({ runId });
+          break;
+        }
+        case QUEUE_NAMES.CRO08A_SCHEDULER: {
+          const { processCro08aSchedulerTick } = await import("../workers/cro08a-scheduler.worker");
+          const result = await processCro08aSchedulerTick();
+          console.log(`[Queue:cro08a-scheduler] tick result: ${JSON.stringify(result)}`);
+          break;
+        }
+        case QUEUE_NAMES.CRO08A_PROCESSOR: {
+          const { processCro08aOccurrence } = await import("../workers/cro08a-processor.worker");
+          const extendLock = async () => { try { await _job.extendLock(_job.token ?? "", 120_000); } catch {} };
+          const result = await processCro08aOccurrence({ extendLock });
+          if (result.claimed) {
+            console.log(`[Queue:cro08a-processor] processed occurrence ${result.occurrenceId}: ${result.enumeratedCount} enumerated, reconciled=${result.reconciled}`);
+          }
           break;
         }
         case QUEUE_NAMES.MASTER_LEAD_STAGER: {

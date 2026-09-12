@@ -592,12 +592,130 @@ async function main() {
       VALUES (${attestationId}::uuid,${`cro08a-fullpath-att:${RUN}`},${inventoryId}::uuid,'[]'::jsonb,${process.env.RELEASE_SHA},${CRO03C_MIGRATION_HEAD},'test-deploy','test-env','w','w',${hex64(`qth-fp:${RUN}`)},NOW(),TRUE,TRUE,NOW()+interval '1 hour',${hex64(`att-fp:${RUN}`)},${RUN})`);
     (globalThis as any).__cro08aFullPathAttestationId = attestationId;
 
+    // Insert a mi09_pricing_schedule_snapshots row matching the priceScheduleHash we will
+    // pass to issueCro08aCertificationReceipt(). The hardened gate verifies the composite_hash
+    // against this table. This row is append-only (no cleanup needed — left as test-tagged residue).
+    const testPriceScheduleHash = hex64(`price:${RUN}`);
+    await db.execute(sql`
+      INSERT INTO mi09_pricing_schedule_snapshots
+        (composite_hash, artifact_ids, schedule_json, captured_by, captured_at, expires_at)
+      VALUES (
+        ${testPriceScheduleHash},
+        ${JSON.stringify([])}::jsonb,
+        ${JSON.stringify({ test: true, run: RUN })}::jsonb,
+        ${RUN},
+        NOW(), NOW() + INTERVAL '2 hours'
+      )
+      ON CONFLICT (composite_hash) DO NOTHING
+    `);
+
+    // Insert real cro03c_approval_receipts rows for all 4 required dimensions.
+    // All 4 receipts MUST share the same scope_hash AND it must equal the value
+    // the hardened certification gate computes from the certification inputs:
+    //   SHA-256(JSON.stringify({ migrationHead, releaseSha, providerSet (sorted), priceScheduleHash }))
+    // Using any other scope_hash triggers approval_receipt_scope_hash_mismatch.
+    // cro03c_approval_receipts is append-only (no cleanup needed — left as test-tagged residue).
+    const priceScheduleHash = hex64(`price:${RUN}`);
+    const expectedScopeHash = crypto.createHash("sha256").update(JSON.stringify({
+      migrationHead: CRO03C_MIGRATION_HEAD,
+      releaseSha:    process.env.RELEASE_SHA!,
+      providerSet:   Object.keys(CRO03C_PROVIDER_CONTRACTS).sort(),
+      priceScheduleHash,
+    })).digest("hex");
+    const sharedScopeHash = expectedScopeHash;
+    const sharedScope = {
+      migrationHead: CRO03C_MIGRATION_HEAD,
+      releaseSha:    process.env.RELEASE_SHA!,
+      providerSet:   Object.keys(CRO03C_PROVIDER_CONTRACTS).sort(),
+      priceScheduleHash,
+    };
+    const approvalReceiptIds: string[] = [];
+    for (const dimension of ["operator", "data", "finance", "legal"] as const) {
+      const receiptId = crypto.randomUUID();
+      await db.execute(sql`
+        INSERT INTO cro03c_approval_receipts
+          (id, idempotency_key, dimension, issuer_id, issuer_receipt_id, scope, scope_hash, issued_at, expires_at, signature, created_by)
+        VALUES (
+          ${receiptId}::uuid,
+          ${`cro08a-fullpath-aprec-${dimension}-${RUN}`},
+          ${dimension},
+          ${"cro08a-test-issuer"},
+          ${`cro08a-fullpath-ireceipt-${dimension}-${RUN}`},
+          ${JSON.stringify(sharedScope)}::jsonb,
+          ${sharedScopeHash},
+          NOW(), NOW() + INTERVAL '2 hours',
+          ${"stub-signature-cro08a-test"},
+          ${RUN}
+        )
+      `);
+      approvalReceiptIds.push(receiptId);
+    }
     const receipt = await issueCro08aCertificationReceipt({
       releaseSha: process.env.RELEASE_SHA!, migrationHead: CRO03C_MIGRATION_HEAD, providerSet: Object.keys(CRO03C_PROVIDER_CONTRACTS),
-      priceScheduleHash: hex64(`price:${RUN}`), approvalReceiptIds: [], runtimeAttestationId: attestationId,
+      priceScheduleHash, approvalReceiptIds, runtimeAttestationId: attestationId,
       outboundPauseEpoch: pause.epoch, issuedBy: RUN, expiresAt: new Date(Date.now() + 3600_000),
     });
     assert.ok(receipt.id);
+
+    // Seed the MI-09 pilot ladder so assertPilotLadderCompletion() passes at activation.
+    // activateCro08aScheduleDefinition() requires all 3 levels completed + advancement receipts.
+    // These rows are append-only and left as test-tagged residue.
+    const pilotDefIds: Record<number, string> = {};
+    const pilotRunIds: Record<number, string> = {};
+    for (const level of [1, 2, 3]) {
+      const pilotDefId = crypto.randomUUID();
+      pilotDefIds[level] = pilotDefId;
+      await db.execute(sql`
+        INSERT INTO mi09_pilot_definitions
+          (id, level, county_scope, vertical_scope, source_adapter_filter, max_cohort_size,
+           enrichment_recipe_version, paid_providers_allowed, stop_condition_thresholds,
+           pilot_definition_hash, created_by)
+        VALUES (
+          ${pilotDefId}::uuid, ${level},
+          '["test-county"]'::jsonb, '["test-vertical"]'::jsonb, '["test-adapter"]'::jsonb,
+          10, 1, '{"serper":false,"apollo":false,"outscraper":false}'::jsonb,
+          '{"conflict_rate_pct":5,"apollo_yield_pct":20,"zb_unknown_rate_pct":30}'::jsonb,
+          ${`cro08a-test-pilot-def-${level}-${RUN}`}, ${RUN}
+        )
+      `);
+      const pilotRunId = crypto.randomUUID();
+      pilotRunIds[level] = pilotRunId;
+      await db.execute(sql`
+        INSERT INTO mi09_pilot_runs
+          (id, pilot_definition_id, release_sha, cro03c_selection_policy_version,
+           cro03c_routing_policy_version, cro03c_recipe_version, started_at, state,
+           outbound_pause_epoch, completed_at)
+        VALUES (
+          ${pilotRunId}::uuid, ${pilotDefId}::uuid,
+          ${process.env.RELEASE_SHA ?? "test-sha"}, 1, 1, 1,
+          NOW(), 'completed', 1, NOW()
+        )
+      `);
+    }
+    // Advancement receipts: 1→2 and 2→3
+    // stop_conditions_checked is JSONB (a map of condition → true/false results).
+    for (const [fromLevel, toLevel] of [[1, 2], [2, 3]]) {
+      await db.execute(sql`
+        INSERT INTO mi09_pilot_advancement_receipts
+          (pilot_run_id, from_level, to_level, approved_by, approved_at,
+           stop_conditions_checked, stop_conditions_passed, idempotency_key)
+        VALUES (
+          ${pilotRunIds[fromLevel]}::uuid, ${fromLevel}, ${toLevel}, ${RUN}, NOW(),
+          '{"conflict_rate":true,"apollo_yield":true,"zb_unknown_rate":true}'::jsonb,
+          true, ${`cro08a-test-adv-${fromLevel}-${toLevel}-${RUN}`}
+        )
+      `);
+    }
+    // Level 3 effect link (entity_type='generation') — proves execution occurred.
+    await db.execute(sql`
+      INSERT INTO mi09_pilot_effect_links (pilot_run_id, entity_type, entity_id)
+      VALUES (${pilotRunIds[3]}::uuid, 'generation', ${crypto.randomUUID()})
+    `);
+    // Level 3 enrichment checkpoint (processed_count=0, cohort=0 members → 0 >= 0).
+    await db.execute(sql`
+      INSERT INTO mi09_pilot_checkpoints (pilot_run_id, phase, processed_count, updated_at)
+      VALUES (${pilotRunIds[3]}::uuid, 'enrichment', 0, NOW())
+    `);
 
     const def = await createCro08aScheduleDefinition({
       logicalKey: "candidate_enrichment", purpose: "cro08a full-path test enrichment schedule",
