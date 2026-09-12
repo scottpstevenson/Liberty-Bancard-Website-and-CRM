@@ -155,3 +155,87 @@ export function assertCro03Provider(provider: string): asserts provider is Cro03
     throw new Error(`CRO03_PROVIDER_NOT_ALLOWED:${provider}`);
   }
 }
+
+// ── Shared pricing-artifact → price-schedule shape logic ────────────────────
+//
+// This is the ONE place that turns a set of mi09_pricing_artifacts rows into
+// the composite price schedule shape CRO-03C activation and the CRO-03D
+// ceremony both consume. Both the ceremony script (which reads artifact rows
+// over HTTP as plain JSON) and the server-side MI-09 pricing/snapshot service
+// (which reads the same rows straight from Postgres) call this so the two
+// paths can never independently drift on "latest artifact per provider" or
+// on field-shape. Kept dependency-free (no db import) so it can be imported
+// from either side.
+
+/** The row shape returned by both `getPricingArtifacts()` (raw SQL) and the
+ * `GET /api/lead-ops/pilot/pricing-artifacts` JSON response — the two are
+ * required to stay identical since one is a direct passthrough of the other. */
+export interface Cro03PricingArtifactRow {
+  readonly id: string;
+  readonly provider_key: string;
+  readonly unit_type: string;
+  readonly currency?: string | null;
+  readonly amount_micros: number | string;
+  readonly billing_semantics: string;
+  readonly artifact_version?: number | string | null;
+  readonly captured_at: string | Date;
+}
+
+export interface Cro03PriceScheduleEntry {
+  readonly version: number;
+  readonly unitType: string;
+  readonly currency: string;
+  readonly amountMicros: number;
+  readonly billingSemantics: string;
+}
+
+/** Latest artifact per provider_key, by captured_at. */
+export function selectLatestCro03PricingArtifacts(
+  artifacts: readonly Cro03PricingArtifactRow[],
+): Record<string, Cro03PricingArtifactRow> {
+  const byProvider: Record<string, Cro03PricingArtifactRow> = {};
+  for (const artifact of artifacts) {
+    const key = String(artifact.provider_key);
+    const existing = byProvider[key];
+    if (!existing || new Date(artifact.captured_at).getTime() > new Date(existing.captured_at).getTime()) {
+      byProvider[key] = artifact;
+    }
+  }
+  return byProvider;
+}
+
+/**
+ * Builds the exact composite price-schedule shape the CRO-03C activation
+ * policy and the CRO-03D ceremony script expect: one entry per
+ * CRO03C_PROVIDER_KEYS, each `{version, unitType, currency, amountMicros,
+ * billingSemantics}`, taken from the latest artifact per provider. Throws if
+ * any provider is missing an artifact — this is the single source of truth
+ * for "is pricing fully seeded".
+ */
+export function buildCro03PriceScheduleFromArtifacts(
+  artifacts: readonly Cro03PricingArtifactRow[],
+): { schedule: Record<string, Cro03PriceScheduleEntry>; latestByProvider: Record<string, Cro03PricingArtifactRow> } {
+  const allLatestByProvider = selectLatestCro03PricingArtifacts(artifacts);
+  const missing = (CRO03C_PROVIDER_KEYS as readonly string[]).filter((provider) => !allLatestByProvider[provider]);
+  if (missing.length > 0) {
+    throw new Error(`CRO03_PRICING_ARTIFACTS_MISSING:${missing.join(",")}`);
+  }
+  // Restrict to EXACTLY the 9 canonical CRO03C_PROVIDER_KEYS. selectLatestCro03PricingArtifacts()
+  // returns the latest artifact for every provider_key present in the raw rows — including any
+  // non-canonical key an admin write path might have stored — so this filter is required to keep
+  // both the schedule and the returned artifact-ID set to exactly the canonical 9 providers.
+  const schedule: Record<string, Cro03PriceScheduleEntry> = {};
+  const latestByProvider: Record<string, Cro03PricingArtifactRow> = {};
+  for (const provider of CRO03C_PROVIDER_KEYS as readonly string[]) {
+    const artifact = allLatestByProvider[provider];
+    latestByProvider[provider] = artifact;
+    schedule[provider] = {
+      version: Number(artifact.artifact_version ?? 1),
+      unitType: String(artifact.unit_type),
+      currency: String(artifact.currency ?? "USD"),
+      amountMicros: Number(artifact.amount_micros),
+      billingSemantics: String(artifact.billing_semantics),
+    };
+  }
+  return { schedule, latestByProvider };
+}

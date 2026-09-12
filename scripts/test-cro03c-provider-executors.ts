@@ -17,6 +17,7 @@ const approvedShape = {
   modelHash: digest("gpt-test"),
   system: "reviewed system",
   systemPromptHash: digest("reviewed system"),
+  promptTemplateHash: digest("reviewed prompt template"),
   prompt: "reviewed prompt",
   promptHash: digest("reviewed prompt"),
   maxCompletionTokens: 1,

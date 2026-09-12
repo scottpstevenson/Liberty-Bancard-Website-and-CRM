@@ -649,6 +649,18 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "loads the DB-bound live provider executor graph against disposable PostgreSQL; no provider client method is invoked",
   },
   {
+    name: "MI-09 Pricing Artifact & Snapshot Seed Certification",
+    script: "scripts/test-mi09-pricing-seed-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL only; no provider client, HTTP transport, queue, or scheduler is touched",
+  },
+  {
+    name: "CRO-03C OpenAI Bundle Static Certification",
+    script: "scripts/test-cro03c-openai-bundle-static.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure constructor/approval/validator unit tests; no database, network, queue, or provider transport; OpenAI stage remains unreachable from the live planner",
+  },
+  {
     name: "CRO-03B Durable Recipe Lifecycle",
     script: "scripts/test-cro03b-integration.ts",
     capability: "deterministic-integration",

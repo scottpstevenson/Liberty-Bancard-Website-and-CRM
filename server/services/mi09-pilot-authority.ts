@@ -22,6 +22,11 @@ import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { getPauseState } from "./outbound-pause-authority";
+import {
+  buildCro03PriceScheduleFromArtifacts,
+  stableCro03RecipeHash,
+  type Cro03PricingArtifactRow,
+} from "./cro03/contracts";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -121,6 +126,201 @@ export async function getPricingArtifacts(): Promise<any[]> {
   return rows(await db.execute(sql`
     SELECT * FROM mi09_pricing_artifacts ORDER BY captured_at DESC
   `));
+}
+
+/**
+ * Exact-match reuse: only reuses the latest artifact for a provider if
+ * provider_key/unit_type/currency/amount_micros/billing_semantics/
+ * artifact_version ALL match exactly. Any drift (a real repricing) always
+ * inserts a new version via `createPricingArtifact()` — never mutates the
+ * existing row. Never issues raw INSERT SQL itself.
+ */
+export async function reuseOrCreatePricingArtifact(
+  input: PricingArtifactInput,
+): Promise<{ id: string; artifactHash: string; reused: boolean }> {
+  const currency = input.currency ?? "USD";
+  const artifactVersion = input.artifactVersion ?? 1;
+  const latest = rows(await db.execute(sql`
+    SELECT id, unit_type, currency, amount_micros, billing_semantics, artifact_version, artifact_hash
+      FROM mi09_pricing_artifacts
+     WHERE provider_key = ${input.providerKey}
+     ORDER BY captured_at DESC
+     LIMIT 1
+  `))[0];
+  if (
+    latest &&
+    String(latest.unit_type) === input.unitType &&
+    String(latest.currency) === currency &&
+    Number(latest.amount_micros) === Number(input.amountMicros) &&
+    String(latest.billing_semantics) === input.billingSemantics &&
+    Number(latest.artifact_version) === artifactVersion
+  ) {
+    return { id: String(latest.id), artifactHash: String(latest.artifact_hash), reused: true };
+  }
+  const created = await createPricingArtifact(input);
+  return { ...created, reused: false };
+}
+
+export interface PricingScheduleSnapshotInput {
+  capturedBy: string;
+  /** Snapshot validity window; the documented ceremony-runbook convention is 7 days. */
+  expiresInDays?: number;
+  notes?: string;
+}
+
+export interface PricingScheduleSnapshotResult {
+  id: string;
+  compositeHash: string;
+  artifactIds: string[];
+  reused: boolean;
+  /** True when an existing (but expired) row with the identical composite_hash
+   * was renewed in place — composite_hash is UNIQUE, so a fresh row with the
+   * same hash can never be inserted; renewal is required to make an unchanged
+   * schedule reproducible again after the prior snapshot's expiry. */
+  renewed: boolean;
+  expiresAt: string;
+}
+
+/**
+ * Builds the composite price schedule from the CURRENT latest artifact per
+ * provider using the exact same selection/shape logic
+ * `loadPricingFromArtifacts()` uses in scripts/cro03d-run-ceremony.ts
+ * (both import `buildCro03PriceScheduleFromArtifacts` from contracts.ts, so
+ * the two can never independently drift), hashes it with
+ * `stableCro03RecipeHash` — the identical hash function the CRO-08A
+ * certification gate recomputes and checks against this table — and writes
+ * (or reuses, if an unexpired snapshot with the identical hash already
+ * exists) a `mi09_pricing_schedule_snapshots` row.
+ *
+ * Does NOT set `linked_policy_id`: no `cro03c_activation_policies` row can
+ * exist yet outside the ceremony's own authorized flow, so linking is
+ * intentionally left for a future, separate call (see
+ * `linkPricingArtifactsToPolicy` below) and is never invoked here.
+ */
+export async function createPricingScheduleSnapshot(
+  input: PricingScheduleSnapshotInput,
+): Promise<PricingScheduleSnapshotResult> {
+  const artifacts = (await getPricingArtifacts()) as Cro03PricingArtifactRow[];
+  const { schedule, latestByProvider } = buildCro03PriceScheduleFromArtifacts(artifacts);
+  const compositeHash = stableCro03RecipeHash(schedule);
+  const artifactIds = Object.values(latestByProvider)
+    .map((a) => String(a.id))
+    .sort();
+
+  const existing = rows(await db.execute(sql`
+    SELECT id, artifact_ids, expires_at
+      FROM mi09_pricing_schedule_snapshots
+     WHERE composite_hash = ${compositeHash} AND expires_at > NOW()
+     ORDER BY captured_at DESC
+     LIMIT 1
+  `))[0];
+  if (existing) {
+    // The composite_hash covers only the price-schedule VALUES (unitType,
+    // currency, amountMicros, billingSemantics, version) — it does not cover
+    // WHICH artifact row id backs each provider. Two different artifact ids
+    // can therefore hash identically (e.g. provider X was repriced away and
+    // then repriced back to the exact same values, minting a new row with
+    // the same fields but a different id). A pure hash-match reuse would
+    // silently leave this row's artifact_ids pointing at stale/superseded
+    // artifact ids even though its schedule_json/hash still "matches" —
+    // which is exactly what the certification gate and preflight compare
+    // artifact_ids against. Reconcile the stored ids to the currently
+    // selected latest ids on every reuse, not just on renewal.
+    const storedIds = (
+      Array.isArray(existing.artifact_ids) ? existing.artifact_ids : JSON.parse(existing.artifact_ids)
+    ).map(String).sort();
+    const idsMatch = storedIds.length === artifactIds.length && storedIds.every((id: string, i: number) => id === artifactIds[i]);
+    if (!idsMatch) {
+      await db.execute(sql`
+        UPDATE mi09_pricing_schedule_snapshots
+           SET artifact_ids = ${JSON.stringify(artifactIds)}::jsonb,
+               schedule_json = ${JSON.stringify(schedule)}::jsonb
+         WHERE id = ${existing.id}
+      `);
+    }
+    return {
+      id: String(existing.id),
+      compositeHash,
+      artifactIds,
+      reused: true,
+      renewed: false,
+      expiresAt: String(existing.expires_at),
+    };
+  }
+
+  // No unexpired row exists for this hash, but composite_hash is UNIQUE, so a
+  // prior (now-expired) row with the identical hash may still exist — e.g. the
+  // documented 7-day expiry has elapsed and the operator re-runs the permanent
+  // seed command against an unchanged schedule. A plain INSERT would raise a
+  // uniqueness violation in that case. Use INSERT ... ON CONFLICT (composite_hash)
+  // DO UPDATE, gated to only fire when the existing row is actually expired
+  // (the unexpired case is already handled above), so renewal is atomic and
+  // never silently overwrites a still-valid row from a concurrent caller.
+  const expiresInDays = input.expiresInDays ?? 7;
+  const upserted = rows(await db.execute(sql`
+    INSERT INTO mi09_pricing_schedule_snapshots
+      (composite_hash, artifact_ids, schedule_json, captured_by, expires_at, notes)
+    VALUES (
+      ${compositeHash}, ${JSON.stringify(artifactIds)}::jsonb, ${JSON.stringify(schedule)}::jsonb,
+      ${input.capturedBy}, NOW() + (${expiresInDays} || ' days')::interval, ${input.notes ?? null}
+    )
+    ON CONFLICT (composite_hash) DO UPDATE SET
+      artifact_ids = EXCLUDED.artifact_ids,
+      schedule_json = EXCLUDED.schedule_json,
+      captured_by = EXCLUDED.captured_by,
+      captured_at = NOW(),
+      expires_at = EXCLUDED.expires_at,
+      notes = EXCLUDED.notes
+    WHERE mi09_pricing_schedule_snapshots.expires_at <= NOW()
+    RETURNING id, expires_at, (xmax = 0) AS inserted
+  `));
+  if (upserted[0]) {
+    return {
+      id: String(upserted[0].id),
+      compositeHash,
+      artifactIds,
+      reused: false,
+      renewed: upserted[0].inserted === false || upserted[0].inserted === "f",
+      expiresAt: String(upserted[0].expires_at),
+    };
+  }
+  // The ON CONFLICT WHERE clause matched no row (the conflicting row is no
+  // longer expired — a concurrent caller renewed it between our unexpired
+  // check and this statement). Fall back to reading the now-current row.
+  const race = rows(await db.execute(sql`
+    SELECT id, expires_at FROM mi09_pricing_schedule_snapshots WHERE composite_hash = ${compositeHash}
+  `))[0];
+  if (!race) throw new Error("CRO03_PRICING_SNAPSHOT_UPSERT_RACE_UNRESOLVED");
+  return {
+    id: String(race.id),
+    compositeHash,
+    artifactIds,
+    reused: true,
+    renewed: false,
+    expiresAt: String(race.expires_at),
+  };
+}
+
+/**
+ * Sets `linked_policy_id` on the given artifact rows once a real
+ * `cro03c_activation_policies` row exists (post-ceremony). Built for future
+ * use only: `linked_policy_id` has no FK constraint and is never read by
+ * `certification-gate.ts` or anywhere else in server code today, so this is
+ * intentionally NOT called by the operator seed command or treated as a
+ * preflight-blocking requirement — no activation policy exists yet.
+ */
+export async function linkPricingArtifactsToPolicy(
+  artifactIds: readonly string[],
+  policyId: string,
+): Promise<{ updated: number }> {
+  if (artifactIds.length === 0) return { updated: 0 };
+  const updated = rows(await db.execute(sql`
+    UPDATE mi09_pricing_artifacts
+       SET linked_policy_id = ${policyId}::uuid
+     WHERE id = ANY(${[...artifactIds]}::uuid[])
+    RETURNING id
+  `));
+  return { updated: updated.length };
 }
 
 // ── Pilot Definition ─────────────────────────────────────────────────────────

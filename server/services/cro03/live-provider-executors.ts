@@ -20,6 +20,11 @@ import {
   type Cro03cLiveProviderContext,
 } from "./live-execution";
 import {
+  CRO03C_OPENAI_MODEL, CRO03C_OPENAI_PROMPT_TEMPLATE, CRO03C_OPENAI_RESPONSE_SCHEMA,
+  CRO03C_OPENAI_SYSTEM_PROMPT, validateCro03cOpenAiClassification, verifyCro03cOpenAiPromptRendering,
+  type Cro03cOpenAiEvidence,
+} from "./cro03c-openai-prompt";
+import {
   createCro03cDomainRequestLimiter,
   createCro03cLiveSafeEgress,
   type Cro03cLiveCrawlRequest,
@@ -103,13 +108,16 @@ function extractSerperBusinessEmails(data: any): string[] {
 }
 const SHA256 = /^[0-9a-f]{64}$/i;
 /**
- * These registries are deliberately empty until a reviewed CRO03C release
- * supplies a versioned model and prompt bundle. Environment values and a
- * frozen stage document are not an authority to add a model or instruction.
+ * These registries allowlist the sha256 of the reviewed model name, the
+ * reviewed system prompt, and the reviewed prompt TEMPLATE — never a
+ * rendered, per-business prompt (which is unique per request and can never
+ * be pre-approved). All three are sourced from the single canonical bundle
+ * in `cro03c-openai-prompt.ts` so there is exactly one place a reviewed
+ * change can happen.
  */
-const APPROVED_CRO03C_OPENAI_MODEL_HASHES = new Set<string>();
-const APPROVED_CRO03C_OPENAI_SYSTEM_PROMPT_HASHES = new Set<string>();
-const APPROVED_CRO03C_OPENAI_PROMPT_HASHES = new Set<string>();
+const APPROVED_CRO03C_OPENAI_MODEL_HASHES = new Set<string>([sha256(CRO03C_OPENAI_MODEL)]);
+const APPROVED_CRO03C_OPENAI_SYSTEM_PROMPT_HASHES = new Set<string>([sha256(CRO03C_OPENAI_SYSTEM_PROMPT)]);
+const APPROVED_CRO03C_OPENAI_PROMPT_TEMPLATE_HASHES = new Set<string>([sha256(CRO03C_OPENAI_PROMPT_TEMPLATE)]);
 
 export type Cro03cLiveProviderOutcome =
   | "success"
@@ -163,9 +171,20 @@ export interface Cro03cOpenAiInput extends PricedInput {
   readonly modelHash: string;
   readonly system: string;
   readonly systemPromptHash: string;
+  /** sha256 of the immutable prompt TEMPLATE (not the rendered, per-business
+   * prompt) — this is what gets allowlisted, since the rendered prompt is
+   * different for every business and can never itself be pre-approved. */
+  readonly promptTemplateHash: string;
   readonly prompt: string;
   readonly promptHash: string;
   readonly maxCompletionTokens: number;
+  /** The raw (pre-truncation) evidence `prompt` claims to have been rendered
+   * from. `assertCro03cOpenAiInputApproved` re-renders from this via the
+   * canonical template and requires an exact match against `prompt` — this
+   * is what actually binds the rendered prompt to the approved template,
+   * rather than trusting `promptHash`/`promptTemplateHash` as independent,
+   * unrelated facts. */
+  readonly evidence: Cro03cOpenAiEvidence;
 }
 
 export interface Cro03cZeroBounceInput extends PricedInput {
@@ -241,12 +260,17 @@ function sha256(value: string): string {
  * raw system instruction as its own authority.
  */
 export function assertCro03cOpenAiInputApproved(input: Cro03cOpenAiInput): void {
-  if (!input.model || !input.system || !input.prompt ||
+  if (!input.model || !input.system || !input.prompt || !input.evidence ||
       !Number.isInteger(input.maxCompletionTokens) || input.maxCompletionTokens < 1 ||
       !SHA256.test(input.modelHash) || !SHA256.test(input.systemPromptHash) ||
-      !SHA256.test(input.promptHash)) {
+      !SHA256.test(input.promptHash) || !SHA256.test(input.promptTemplateHash)) {
     throw new Error("CRO03C_PROVIDER_INPUT_UNSUPPORTED");
   }
+  // Tamper/integrity check: the hashes must actually match the strings they
+  // claim to describe. This still runs even though promptHash is no longer
+  // checked against an allowlist Set (a rendered, per-business prompt can
+  // never be pre-approved) — mismatches here mean the input was constructed
+  // inconsistently, not just unapproved.
   if (sha256(input.model) !== input.modelHash.toLowerCase() ||
       sha256(input.system) !== input.systemPromptHash.toLowerCase() ||
       sha256(input.prompt) !== input.promptHash.toLowerCase()) {
@@ -254,8 +278,15 @@ export function assertCro03cOpenAiInputApproved(input: Cro03cOpenAiInput): void 
   }
   if (!APPROVED_CRO03C_OPENAI_MODEL_HASHES.has(input.modelHash.toLowerCase()) ||
       !APPROVED_CRO03C_OPENAI_SYSTEM_PROMPT_HASHES.has(input.systemPromptHash.toLowerCase()) ||
-      !APPROVED_CRO03C_OPENAI_PROMPT_HASHES.has(input.promptHash.toLowerCase())) {
+      !APPROVED_CRO03C_OPENAI_PROMPT_TEMPLATE_HASHES.has(input.promptTemplateHash.toLowerCase())) {
     throw new Error("CRO03C_OPENAI_PROMPT_NOT_APPROVED");
+  }
+  // Structural binding: prove `prompt` actually came from rendering the
+  // canonical template against `evidence` — an approved template hash and a
+  // self-consistent promptHash alone do not establish this (see
+  // verifyCro03cOpenAiPromptRendering doc comment).
+  if (!verifyCro03cOpenAiPromptRendering(input.evidence, input.prompt)) {
+    throw new Error("CRO03C_OPENAI_PROMPT_NOT_RENDERED_FROM_TEMPLATE");
   }
 }
 
@@ -564,19 +595,48 @@ export async function executeCro03cLiveProvider(
         model: input.model,
         messages: [{ role: "system", content: input.system }, { role: "user", content: input.prompt }],
         max_completion_tokens: input.maxCompletionTokens,
+        response_format: {
+          type: "json_schema",
+          json_schema: CRO03C_OPENAI_RESPONSE_SCHEMA,
+        },
       });
       const tokens = completion.usage?.total_tokens;
       if (typeof tokens !== "number" || !Number.isInteger(tokens) || tokens < 0) {
         throw new Error("CRO03C_PROVIDER_PRICING_UNVERIFIABLE");
       }
+      const usage = {
+        promptTokens: completion.usage?.prompt_tokens ?? null,
+        completionTokens: completion.usage?.completion_tokens ?? null,
+        totalTokens: tokens,
+      };
+      // `strict: true` on the SDK request is not trusted alone: parse and
+      // re-validate the structured output server-side. A missing,
+      // unparseable, or schema-invalid response is a real failure, not a
+      // silently-discarded success — it must never reach result()'s
+      // evidence as if it were a valid classification.
+      const rawContent = completion.choices?.[0]?.message?.content;
+      let parsedContent: unknown = null;
+      if (typeof rawContent === "string") {
+        try { parsedContent = JSON.parse(rawContent); } catch { parsedContent = null; }
+      }
+      const classification = validateCro03cOpenAiClassification(parsedContent);
+      if (!classification) {
+        // The provider still consumed tokens even though the structured
+        // output was missing or invalid; settle the real token consumption,
+        // but never as "success" and never with unvalidated content as evidence.
+        return result(context, input, "failed", tokens, {
+          responseReceived: true,
+          model: completion.model,
+          usage,
+          structuredOutputValid: false,
+        });
+      }
       return result(context, input, "success", tokens, {
         responseReceived: true,
         model: completion.model,
-        usage: {
-          promptTokens: completion.usage?.prompt_tokens ?? null,
-          completionTokens: completion.usage?.completion_tokens ?? null,
-          totalTokens: tokens,
-        },
+        usage,
+        structuredOutputValid: true,
+        classification,
       });
     }
 

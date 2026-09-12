@@ -236,7 +236,7 @@ async function main(): Promise<void> {
     serper: { unitType: "request", billingSemantics: "per_unit_no_result_billable" },
     outscraper: { unitType: "result", billingSemantics: "per_unit_no_result_free" },
     openai: { unitType: "token", billingSemantics: "per_unit_no_result_billable" },
-    apollo: { unitType: "result", billingSemantics: "per_unit_no_result_free" },
+    apollo: { unitType: "credit", billingSemantics: "per_unit_no_result_free" },
     zerobounce: { unitType: "request", billingSemantics: "per_unit_no_result_billable" },
   }).map(([provider, contract]) => [provider, {
     version: 1, ...contract, currency: "USD", amountMicros: contract.billingSemantics === "not_billable" ? 0 : 1,

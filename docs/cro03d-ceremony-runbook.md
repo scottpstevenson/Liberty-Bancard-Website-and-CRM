@@ -225,6 +225,27 @@ Any attempt to run the ceremony with hardcoded dollar amounts is a configuration
 
 ### Creating a Pricing Schedule Snapshot (required before ceremony)
 
+**Preferred: use the permanent, idempotent operator command instead of raw SQL.**
+`scripts/seed-mi09-pricing.ts` (task #1940) seeds all 9 provider pricing
+artifacts and a matching `mi09_pricing_schedule_snapshots` row via the governed
+`reuseOrCreatePricingArtifact()` / `createPricingScheduleSnapshot()` service in
+`server/services/mi09-pilot-authority.ts` — never a direct `INSERT`. It is
+dry-run by default and safe to re-run (exact-match reuse, no duplicate rows):
+
+```bash
+npx tsx scripts/seed-mi09-pricing.ts                                  # dry-run, prints what would be seeded
+npx tsx scripts/seed-mi09-pricing.ts --apply --confirm-env=<NODE_ENV> # writes artifacts + snapshot
+npx tsx scripts/preflight-mi09-pricing.ts                             # field-level, hash-recomputing verification before the ceremony
+```
+
+The pricing values it seeds, and the source for each, are documented in the
+`## Pricing to seed` table of task #1940. `linked_policy_id` is intentionally
+left unset by this command — no `cro03c_activation_policies` row exists until
+the ceremony's own authorized flow creates one.
+
+The raw-SQL approach below remains documented for reference/manual recovery
+only; the operator command above is the sanctioned path.
+
 ```sql
 -- Run this AFTER capturing all mi09_pricing_artifacts rows (one per provider).
 -- Replace <hash> with the output of stableCro03RecipeHash(fullPriceSchedule)

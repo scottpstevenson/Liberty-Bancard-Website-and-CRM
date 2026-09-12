@@ -444,6 +444,17 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "MI-09 Pricing Artifact & Snapshot Seed Certification (replay idempotency, hash reproducibility)",
+    script: "scripts/test-mi09-pricing-seed-integration.ts",
+    timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
+  },
+  {
+    name: "CRO-03C OpenAI Bundle Static Certification (template allowlist, token reservation, structured-response validation)",
+    script: "scripts/test-cro03c-openai-bundle-static.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRO-03B Durable Recipe Lifecycle (database-backed, provider-denied)",
     script: "scripts/test-cro03b-integration.ts",
     timeoutSecs: 120,

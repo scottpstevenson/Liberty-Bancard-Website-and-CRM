@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { CRO03B_RECIPE_HASH, CRO03B_RECIPE_VERSION } from "./admission-service";
@@ -14,6 +14,10 @@ import {
 import { getPauseState } from "../outbound-pause-authority";
 import { readCro03cGlobalNoOutboundCounters } from "./cro03c-effect-fence";
 import { getBullMqTestPrefix, getSharedRedisClient } from "../queue-connection";
+import {
+  CRO03C_OPENAI_MODEL, CRO03C_OPENAI_MAX_COMPLETION_TOKENS, CRO03C_OPENAI_RESERVED_UNITS,
+  CRO03C_OPENAI_SYSTEM_PROMPT, CRO03C_OPENAI_PROMPT_TEMPLATE, renderCro03cOpenAiPrompt,
+} from "./cro03c-openai-prompt";
 import { readCro03cWorkerFleet, type Cro03cWorkerHeartbeat } from "./runtime-heartbeat";
 import {
   artifactFromCro03cReceiptRow,
@@ -111,8 +115,16 @@ export const CRO03C_PROVIDER_CONTRACTS: Readonly<Record<string, {
   jsonld: { unitType: "parse", currency: "USD", maxCanaryUnits: 0, legitimateNoResult: true, noResultBillable: false, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "not_billable" },
   serper: { unitType: "request", currency: "USD", maxCanaryUnits: 10, legitimateNoResult: true, noResultBillable: true, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_billable" },
   outscraper: { unitType: "result", currency: "USD", maxCanaryUnits: 25, legitimateNoResult: true, noResultBillable: false, minimumSample: 5, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_free" },
-  openai: { unitType: "token", currency: "USD", maxCanaryUnits: 10, legitimateNoResult: true, noResultBillable: true, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_billable" },
-  apollo: { unitType: "result", currency: "USD", maxCanaryUnits: 25, legitimateNoResult: true, noResultBillable: false, minimumSample: 5, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_free" },
+  // maxCanaryUnits is the ENTIRE canary phase's token budget (per-call
+  // reservedUnits x minimumSample distinct businesses), not a single call's
+  // budget. It must cover CRO03C_OPENAI_RESERVED_UNITS x minimumSample or a
+  // worst-case bounded request+completion can never settle. See the drift
+  // guard immediately below the contracts object.
+  openai: { unitType: "token", currency: "USD", maxCanaryUnits: CRO03C_OPENAI_RESERVED_UNITS * 10, legitimateNoResult: true, noResultBillable: true, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_billable" },
+  // unitType is "credit", not "result": the executor settles
+  // response.billing.creditedUnits (Apollo's x-apollo-credits-used /
+  // credits_used fields), which is Apollo's real billing unit.
+  apollo: { unitType: "credit", currency: "USD", maxCanaryUnits: 25, legitimateNoResult: true, noResultBillable: false, minimumSample: 5, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_free" },
   zerobounce: { unitType: "request", currency: "USD", maxCanaryUnits: 10, legitimateNoResult: true, noResultBillable: true, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_billable" },
 });
 
@@ -126,6 +138,21 @@ export const CRO03C_PROVIDER_CONTRACTS: Readonly<Record<string, {
   if (actual.length !== expected.length || actual.some((k, i) => k !== expected[i])) {
     throw new Error(
       `CRO03C_PROVIDER_KEYS_DRIFT: contracts.ts CRO03C_PROVIDER_KEYS (${expected.join(",")}) no longer matches CRO03C_PROVIDER_CONTRACTS keys (${actual.join(",")})`
+    );
+  }
+}
+
+// Guard against the OpenAI canary budget ever again being too small to
+// settle a single worst-case bounded request+completion across a full
+// canary sample: this is exactly the bug this task fixes, so make it
+// impossible to silently reintroduce.
+{
+  const openaiContract = CRO03C_PROVIDER_CONTRACTS.openai;
+  const minimumWorstCaseBudget = CRO03C_OPENAI_RESERVED_UNITS * openaiContract.minimumSample;
+  if (openaiContract.maxCanaryUnits < minimumWorstCaseBudget) {
+    throw new Error(
+      `CRO03C_OPENAI_CANARY_BUDGET_TOO_SMALL: maxCanaryUnits=${openaiContract.maxCanaryUnits} < ` +
+      `reservedUnits(${CRO03C_OPENAI_RESERVED_UNITS}) x minimumSample(${openaiContract.minimumSample})=${minimumWorstCaseBudget}`
     );
   }
 }
@@ -339,9 +366,33 @@ export function deriveCro03cProviderInput(provider: string, payload: any, schedu
     if (!domain) return null;
     return { provider, amountMicros, reservedUnits: 5, ...pricing, identity: { domain, legalName: name, city: city ?? null, state: state ?? null, address: address ?? null } };
   }
-  // The reviewed OpenAI model/prompt allowlists are intentionally empty. Do
-  // not manufacture a model request from handoff evidence.
+  if (provider === "openai") {
+    // businessName is required; the constructor returns null without it,
+    // exactly as before this bundle existed. This constructor is reachable
+    // only for direct unit-level construction/approval testing —
+    // planCro03cEvidenceStages() never marks "openai" applicable, so it is
+    // never reached from the live planner/dispatch path.
+    if (!name) return null;
+    const evidence = { businessName: name, address, city, state, website };
+    const rendered = renderCro03cOpenAiPrompt(evidence);
+    return {
+      provider, amountMicros, reservedUnits: CRO03C_OPENAI_RESERVED_UNITS, ...pricing,
+      model: CRO03C_OPENAI_MODEL,
+      modelHash: sha256Hex(CRO03C_OPENAI_MODEL),
+      system: CRO03C_OPENAI_SYSTEM_PROMPT,
+      systemPromptHash: sha256Hex(CRO03C_OPENAI_SYSTEM_PROMPT),
+      promptTemplateHash: sha256Hex(CRO03C_OPENAI_PROMPT_TEMPLATE),
+      prompt: rendered,
+      promptHash: sha256Hex(rendered),
+      maxCompletionTokens: CRO03C_OPENAI_MAX_COMPLETION_TOKENS,
+      evidence,
+    };
+  }
   return null;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 export interface Cro03cEvidenceStagePlan {
