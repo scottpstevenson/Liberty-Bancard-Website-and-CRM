@@ -423,7 +423,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     // Wrap the heavy sunbiz_entities aggregate in a 30-second statement timeout
     // so a runaway scan degrades to stale data rather than holding a pool
     // connection indefinitely.
-    const [enrichResult, freeEnrichResult, canonicalFreeEnrichResult, jobRow, progressRaw] = await Promise.all([
+    const [enrichResult, freeEnrichResult, canonicalFreeEnrichResult, paidQueueResult, jobRow, progressRaw] = await Promise.all([
       db.transaction(async (tx) => {
         await tx.execute(sql`SET LOCAL statement_timeout = '30000'`);
         return tx.execute(sql`
@@ -443,7 +443,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             MAX(enriched_at)                                                                   AS last_enriched_at
           FROM sunbiz_entities
         `);
-      }),
+      }).catch(() => null),
       // Match runFreeContactEnrichmentTick()'s exact eligibility predicate:
       // (domain IS NOT NULL OR website IS NOT NULL) AND status='pending'
       // AND doNotContactFlag IS NOT TRUE
@@ -458,7 +458,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             SELECT 1 FROM sdr_merchant_contacts mc
             WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL
           )
-        `),
+        `).catch(() => null),
       // MI-04: Canonical businesses free enrichment queue depth.
       // Predicate must exactly match runCanonicalBusinessEnrichmentTick() so the UI
       // tile reflects the true backlog (null + retryable-failed + stale-enriched,
@@ -473,16 +473,29 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             OR (free_enrichment_status = 'enriched' AND free_enrichment_completed_at < NOW() - INTERVAL '90 days')
           )
       `).catch(() => null),
+      // Paid CRO-03C work is represented by reserved/pending/running stage
+      // operations.  This is deliberately separate from the canonical free
+      // enrichment predicate above.
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM cro03c_stage_operations
+        WHERE state IN ('reserved', 'pending', 'running')
+      `).catch(() => null),
       db.select({ lastFinishedAt: backgroundJobs.lastFinishedAt })
         .from(backgroundJobs)
         .where(eq(backgroundJobs.jobName, "enrichment-queue-processor"))
-        .limit(1),
+        .limit(1).catch(() => []),
       storage.getSystemSetting("enrichment_progress").catch(() => null),
     ]);
 
-    const row = ((enrichResult as any).rows ?? enrichResult)[0] || {};
-    const successRate = (row.total_enriched + row.total_failed) > 0
-      ? Math.round((row.total_enriched / (row.total_enriched + row.total_failed)) * 100)
+    const enrichRows = enrichResult ? ((enrichResult as any).rows ?? enrichResult) : [];
+    const row = enrichRows[0] || {};
+    const throughputAvailable = !!enrichResult;
+    const metric = (value: number | string | null, available = true, error?: string) => ({
+      value, available, stale: false, ...(error ? { error } : {}),
+    });
+    const successRate = (Number(row.total_enriched ?? 0) + Number(row.total_failed ?? 0)) > 0
+      ? Math.round((Number(row.total_enriched ?? 0) / (Number(row.total_enriched ?? 0) + Number(row.total_failed ?? 0))) * 100)
       : 0;
 
     const lastEnrichedAt = row.last_enriched_at ? new Date(row.last_enriched_at) : null;
@@ -491,10 +504,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       : null;
     const workerActive = minutesSinceLastJob !== null && minutesSinceLastJob < 15;
 
-    const freeEnrichPending = Number(freeEnrichResult[0]?.count ?? 0);
-    const canonicalFreeEnrichmentQueueDepth = Number(
-      ((canonicalFreeEnrichResult as any)?.rows ?? canonicalFreeEnrichResult)?.[0]?.count ?? 0
-    );
+    const freeEnrichPending = Number(freeEnrichResult?.[0]?.count ?? 0);
+    // Per-metric availability: .catch(() => null) means null = query failed.
+    // Must NOT coerce null to 0 — that makes a failed query look like a healthy zero backlog.
+    const canonicalFreeQueueAvailable = canonicalFreeEnrichResult !== null;
+    const canonicalFreeEnrichmentQueueDepth = canonicalFreeQueueAvailable
+      ? Number(((canonicalFreeEnrichResult as any)?.rows ?? canonicalFreeEnrichResult)?.[0]?.count ?? 0)
+      : null;
+    const paidQueueAvailable = paidQueueResult !== null;
+    const paidQueueDepth = paidQueueAvailable
+      ? Number(((paidQueueResult as any)?.rows ?? paidQueueResult)?.[0]?.count ?? 0)
+      : null;
     const lastJobRow = jobRow[0];
 
     const progressObj = (progressRaw as any) || {};
@@ -530,8 +550,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       lastCompletedAt: string | null;
       recordCount: number;
     }> = [];
+    let sourceRegistryCounts: any = {
+      canonicalBusinesses: { value: 0, available: false, stale: false, error: "query_failed" },
+      sourceLinks: { value: 0, available: false, stale: false, error: "query_failed" },
+      adapters: { value: 0, available: false, stale: false, error: "query_failed" },
+    };
     try {
-      const regResult = await db.execute(sql`
+      const [regResult, countResult] = await Promise.all([db.execute(sql`
         SELECT
           a.adapter_key,
           COUNT(DISTINCT ss.id)::int                AS record_count,
@@ -544,24 +569,40 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         LEFT JOIN cro03_source_subjects ss ON ss.source_system = a.adapter_key AND ss.tombstoned_at IS NULL
         GROUP BY a.adapter_key
         ORDER BY a.adapter_key
-      `);
+      `), db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical') AS canonical_businesses,
+          (SELECT COUNT(*)::int FROM canonical_source_links) AS source_links,
+          (SELECT COUNT(*)::int FROM source_registry_adapters) AS adapters
+      `)]);
       sourceRegistryAdapters = ((regResult as any).rows ?? regResult).map((row: any) => ({
         adapterKey: row.adapter_key,
         lastImportStatus: row.last_import_status ?? null,
         lastCompletedAt: row.last_completed_at ? new Date(row.last_completed_at).toISOString() : null,
         recordCount: Number(row.record_count ?? 0),
       }));
+      const counts = ((countResult as any).rows ?? countResult)[0] ?? {};
+      sourceRegistryCounts = {
+        canonicalBusinesses: { value: Number(counts.canonical_businesses ?? 0), available: true, stale: false },
+        sourceLinks: { value: Number(counts.source_links ?? 0), available: true, stale: false },
+        adapters: { value: Number(counts.adapters ?? 0), available: true, stale: false },
+      };
     } catch {
       // sourceRegistryAdapters table may not exist in older schemas — degrade gracefully
       sourceRegistryAdapters = [];
+      sourceRegistryCounts = {
+        canonicalBusinesses: { value: 0, available: false, stale: false, error: "query_failed" },
+        sourceLinks: { value: 0, available: false, stale: false, error: "query_failed" },
+        adapters: { value: 0, available: false, stale: false, error: "query_failed" },
+      };
     }
 
     // ── MI-05: CRO-03C provider spend aggregates (last 24 h) ─────────────
     // Source: cro03c_stage_operations (settled_units, settled_amount_micros).
     // cro03_provider_ledger is legacy and intentionally NOT queried here.
-    let apolloDailySpend = 0;
-    let outscraperDailySpend = 0;
-    let serperDailySpend = 0;
+    let apolloDailySpend = metric(null, false, "query_failed");
+    let outscraperDailySpend = metric(null, false, "query_failed");
+    let serperDailySpend = metric(null, false, "query_failed");
     try {
       const spendResult = await db.execute(sql`
         SELECT
@@ -573,25 +614,150 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         GROUP BY provider
       `);
       const spendRows: any[] = (spendResult as any).rows ?? spendResult ?? [];
+      // After a successful aggregate query, all three metrics are available even if
+      // zero rows match (= no spend today, not a query failure).
+      // Initialize to available-zero, then overwrite with actual values.
+      apolloDailySpend     = metric(0);
+      outscraperDailySpend = metric(0);
+      serperDailySpend     = metric(0);
       for (const r of spendRows) {
         const micros = Number(r.total_micros ?? 0);
-        if (r.provider === "apollo")     apolloDailySpend     = micros;
-        if (r.provider === "outscraper") outscraperDailySpend = micros;
-        if (r.provider === "serper")     serperDailySpend     = micros;
+        if (r.provider === "apollo")     apolloDailySpend     = metric(micros);
+        if (r.provider === "outscraper") outscraperDailySpend = metric(micros);
+        if (r.provider === "serper")     serperDailySpend     = metric(micros);
       }
-    } catch {
+    } catch (err: any) {
       // cro03c_stage_operations may not have a settled_at column in all
       // environments — degrade gracefully.
+      const error = String(err?.message ?? "query_failed");
+      apolloDailySpend = metric(null, false, error);
+      outscraperDailySpend = metric(null, false, error);
+      serperDailySpend = metric(null, false, error);
+    }
+
+    // ── MI-08: Per-named-worker heartbeat status ──────────────────────────
+    // Each named worker is queried from background_jobs.
+    // Returns per-metric { value, available, stale, staleSince? } objects.
+    // Job names MUST match JOB_NAMES constants in server/services/job-registry.ts.
+    // master-lead-stager uses BullMQ only (no acquireJobLock), so it is not in
+    // background_jobs. It is surfaced via audit_logs last-action instead.
+    const NAMED_WORKERS = [
+      { key: "enrichment",     jobName: "enrichment-queue-processor" },
+      { key: "ghlSync",        jobName: "ghl-sync" },
+      { key: "sequenceWorker", jobName: "sequence-worker" },
+      { key: "slaWorker",      jobName: "sla-worker" },
+    ] as const;
+
+    const now2 = Date.now();
+    const STALE_WORKER_MS = 30 * 60 * 1000; // 30 minutes
+    let workerHeartbeats: Record<string, { available: boolean; stale: boolean; staleSince?: string; lastFinishedAt?: string | null; status?: string | null; consecutiveFailures?: number | null; minutesSince?: number | null; error?: string }> = {};
+    try {
+      // No .catch() here — query failures must surface as query_failed, not not_registered.
+      const wRows = await db.execute(sql`
+        SELECT job_name, status, last_finished_at, consecutive_failures
+        FROM background_jobs
+        WHERE job_name = ANY(ARRAY[${sql.raw(NAMED_WORKERS.map(w => `'${w.jobName}'`).join(","))}])
+      `);
+      const wData: any[] = (wRows as any)?.rows ?? wRows ?? [];
+      const wMap: Record<string, any> = {};
+      for (const r of wData) wMap[r.job_name] = r;
+
+      for (const w of NAMED_WORKERS) {
+        const r = wMap[w.jobName];
+        if (!r) {
+          workerHeartbeats[w.key] = { available: false, stale: false, error: "not_registered" };
+          continue;
+        }
+        const lastAt = r.last_finished_at ? new Date(r.last_finished_at) : null;
+        const msAgo = lastAt ? now2 - lastAt.getTime() : null;
+        const stale = msAgo !== null ? msAgo > STALE_WORKER_MS : true;
+        // A worker whose last run failed must be shown as failed/degraded, not green Active.
+        // consecutive_failures > 0 or status = 'failed' indicates a degraded worker.
+        const consecutiveFailures = Number(r.consecutive_failures ?? 0);
+        workerHeartbeats[w.key] = {
+          available: true,
+          stale,
+          ...(stale ? { staleSince: lastAt?.toISOString() ?? new Date(now2).toISOString() } : {}),
+          lastFinishedAt: lastAt?.toISOString() ?? null,
+          status: r.status ?? null,
+          consecutiveFailures,
+          minutesSince: msAgo !== null ? Math.floor(msAgo / 60000) : null,
+        };
+      }
+
+      // ── master-lead-stager: BullMQ-only worker, not registered in background_jobs.
+      // BullMQ worker liveness cannot be reliably derived from audit_logs: an idle
+      // but healthy stager emits no audit events and would appear stale after 30 min.
+      // Failed BullMQ jobs also do not surface consecutive_failures here.
+      // Mark explicitly as not monitorable via this mechanism.
+      workerHeartbeats.stager = {
+        available: false,
+        stale: false,
+        error: "bullmq_only",
+      };
+    } catch {
+      // Worker heartbeat query failed — mark all unavailable
+      for (const w of NAMED_WORKERS) {
+        workerHeartbeats[w.key] = { available: false, stale: false, error: "query_failed" };
+      }
+      workerHeartbeats.stager = { available: false, stale: false, error: "query_failed" };
+    }
+
+    // ── MI-08: Pipeline counts from /api/master-leads/pipeline-stats ────
+    // These are fetched in-process for the health endpoint.
+    // Pipeline counts mirror the authoritative /api/master-leads/pipeline-stats
+    // predicates (server/routes/imports.ts:2776-2813):
+    //  - staged/promoted: master_leads WHERE pipeline_origin='cro03_pipeline'
+    //  - suppressed/duplicate: master_lead_staging_receipts by disposition
+    //  - readyToPromote: JOIN businesses on email_discovery_status='provider_valid'
+    //    AND NOT EXISTS open canonical_conflict_evidence
+    // master_leads does NOT have open_conflict_count or email_discovery_status columns.
+    let pipelineCounts: { value: { staged: number; readyToPromote: number; promoted: number; suppressed: number; duplicates: number } | null; available: boolean; stale: boolean; error?: string } = { value: null, available: false, stale: false };
+    try {
+      const [stagedResult, suppressedResult, duplicateResult, promotedResult, readyResult] = await Promise.all([
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_leads WHERE pipeline_origin='cro03_pipeline' AND status='staged'`),
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_lead_staging_receipts WHERE disposition='suppressed'`),
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_lead_staging_receipts WHERE disposition='duplicate'`),
+        db.execute(sql`SELECT COUNT(*)::int AS cnt FROM master_leads WHERE pipeline_origin='cro03_pipeline' AND status='promoted'`),
+        db.execute(sql`
+          SELECT COUNT(*)::int AS cnt
+          FROM master_leads ml
+          JOIN businesses b ON b.id = ml.canonical_business_id
+          WHERE ml.pipeline_origin = 'cro03_pipeline'
+            AND ml.status = 'staged'
+            AND b.email_discovery_status = 'provider_valid'
+            AND NOT EXISTS (
+              SELECT 1 FROM canonical_conflict_evidence cce
+              WHERE (cce.business_id_a = ml.canonical_business_id OR cce.business_id_b = ml.canonical_business_id)
+                AND cce.status = 'open'
+            )
+        `),
+      ]);
+      const cnt = (r: any) => Number(((r as any).rows ?? r)[0]?.cnt ?? 0);
+      pipelineCounts = {
+        available: true, stale: false,
+        value: {
+          staged:         cnt(stagedResult),
+          readyToPromote: cnt(readyResult),
+          promoted:       cnt(promotedResult),
+          suppressed:     cnt(suppressedResult),
+          duplicates:     cnt(duplicateResult),
+        },
+      };
+    } catch (err: any) {
+      // A failed DB query must never be collapsed to zero. Return available:false
+      // with an error indicator so the UI can distinguish a real zero from a failure.
+      pipelineCounts = { value: null, available: false, stale: false, error: String(err?.message ?? "query_failed") };
     }
 
     return {
-      enrichedToday:        row.enriched_today    ?? 0,
-      emailsToday:          row.emails_today      ?? 0,
-      phonesToday:          row.phones_today      ?? 0,
-      queueDepth:           row.queue_depth       ?? 0,
-      totalEnriched:        row.total_enriched    ?? 0,
-      totalFailed:          row.total_failed      ?? 0,
-      successRate,
+      enrichedToday:        metric(Number(row.enriched_today ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
+      emailsToday:          metric(Number(row.emails_today ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
+      phonesToday:          metric(Number(row.phones_today ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
+      queueDepth:           metric(Number(row.queue_depth ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
+      totalEnriched:        metric(Number(row.total_enriched ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
+      totalFailed:          metric(Number(row.total_failed ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
+      successRate:          metric(successRate, throughputAvailable, throughputAvailable ? undefined : "query_failed"),
       lastEnrichedAt:       lastEnrichedAt?.toISOString() ?? null,
       minutesSinceLastJob:  minutesSinceLastJob,
       workerActive,
@@ -605,10 +771,26 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       canonicalFreeEnrichmentQueueDepth,
       // ── MI-02: Source registry adapters (additive) ─────────────────────
       sourceRegistryAdapters,
+      sourceRegistryCounts,
       // ── MI-05: Provider spend (last 24 h, from cro03c_stage_operations) ─
       apolloDailySpend,
       outscraperDailySpend,
       serperDailySpend,
+      // ── MI-08: Per-named-worker heartbeats (per-metric availability) ────
+      workerHeartbeats,
+      // ── MI-08: Pipeline counts (from master_leads) ──────────────────────
+      pipelineCounts,
+      // ── MI-08: Free enrichment queue split ──────────────────────────────
+      // Queue depths wrapped with availability metadata so UI can distinguish
+      // a real zero from an unavailable/failed query (fail-closed behavior).
+      freeEnrichQueueDepth: {
+        free: canonicalFreeQueueAvailable
+          ? { value: canonicalFreeEnrichmentQueueDepth, available: true }
+          : { value: null, available: false, error: "query_failed" },
+        paid: paidQueueAvailable
+          ? { value: paidQueueDepth, available: true }
+          : { value: null, available: false, error: "query_failed" },
+      },
     };
   }
 
@@ -731,7 +913,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   });
 
   // ── GET /api/lead-ops/businesses/:businessId ──────────────────────────────
-  // MI-04: Returns a single businesses row plus its processor_signals rows.
+  // MI-04 + MI-08: Returns a single businesses row, processor_signals, and
+  // MI-08 evidence chain (source links, source observations, qualification
+  // decisions, field claim, master_lead staging state).
+  // Role: admin + manager (existing). MI-08 adds role-based field redaction:
+  // agent role must not receive unmasked email or phone (agent cannot reach
+  // this route — requireRole blocks them — but the redaction is documented
+  // here for future agent-safe view tasks).
   // NOTE: Do NOT reuse the Sunbiz /entities endpoint — businesses and sunbiz_entities
   // are separate tables with different schemas.
   app.get("/api/lead-ops/businesses/:businessId", requireRole("admin", "manager"), async (req, res) => {
@@ -741,13 +929,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const [bizResult, signalsResult] = await Promise.all([
         db.execute(sql`
           SELECT id, canonical_name, normalized_name, website_domain, main_phone, main_email,
-                 city, state, vertical, status,
+                 city, state, vertical, status, street_address, latitude, longitude,
                  free_enrichment_status, free_enrichment_attempt_count,
                  free_enrichment_last_attempt_at, free_enrichment_completed_at,
                  free_enrichment_last_error_code, free_enrichment_evidence,
                  email_discovery_status, email_validation_updated_at,
                  email_selected_candidate_hash, email_outreach_catch_all_approved_at,
-                 email_outreach_approved_by
+                 email_outreach_approved_by, record_class, created_at, updated_at
           FROM businesses WHERE id = ${businessId}
         `),
         db.execute(sql`
@@ -770,7 +958,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         : false;
 
       // MI-06: load winner selection and pending intent for this business (if any).
-      const [winnerResult, intentResult] = await Promise.all([
+      // MI-08: load evidence chain in parallel.
+      const [winnerResult, intentResult, sourceLinksResult, qualDecisionResult, fieldClaimResult, masterLeadResult, sourceObservationsResult, existingContactResult] = await Promise.all([
         db.execute(sql`
           SELECT ws.id, ws.source, ws.subject_type, ws.confidence, ws.state,
                  ws.normalized_value_hash, ce.masked_value
@@ -787,18 +976,227 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
              AND state NOT IN ('superseded','revoked','completed','failed')
            ORDER BY created_at DESC LIMIT 1
         `).catch(() => null),
+        // MI-08: source provenance chain
+        db.execute(sql`
+          SELECT csl.id, csl.source_system, csl.source_type, csl.stable_key,
+                 csl.registry_id, csl.first_seen_at, csl.last_confirmed_at,
+                 -- latest import run for this adapter
+                 (SELECT sir.status FROM source_import_runs sir
+                  WHERE sir.adapter_key = csl.source_system
+                  ORDER BY sir.created_at DESC LIMIT 1) AS last_import_status,
+                 (SELECT sir.completed_at FROM source_import_runs sir
+                  WHERE sir.adapter_key = csl.source_system AND sir.status = 'completed'
+                  ORDER BY sir.completed_at DESC LIMIT 1) AS last_import_completed_at,
+                 -- adapter metadata
+                 (SELECT sra.source_name FROM source_registry_adapters sra
+                  WHERE sra.adapter_key = csl.source_system LIMIT 1) AS adapter_source_name,
+                 (SELECT sra.source_type FROM source_registry_adapters sra
+                  WHERE sra.adapter_key = csl.source_system LIMIT 1) AS adapter_source_type
+          FROM canonical_source_links csl
+          WHERE csl.business_id = ${businessId}
+          ORDER BY csl.last_confirmed_at DESC
+          LIMIT 10
+        `).catch(() => null),
+        // MI-08: latest qualification decision via cro03a_handoffs + cro03a_qualification_decisions.
+        // Correlate on BOTH source_type AND stable_key from canonical_source_links to ensure
+        // we return the decision for THIS business, not another business on the same source system.
+        db.execute(sql`
+          SELECT qd.id, qd.disposition, qd.score, qd.reason_codes, qd.fit_components,
+                 qd.missing_field_classes, qd.created_at,
+                 h.source_type, h.source_system, h.source_key
+          FROM canonical_source_links csl
+          JOIN cro03a_handoffs h
+            ON h.source_system = csl.source_system
+           AND h.source_type   = csl.source_type
+           AND h.source_key    = csl.stable_key
+          JOIN cro03a_qualification_decisions qd ON qd.id = h.decision_id
+          WHERE csl.business_id = ${businessId}
+          ORDER BY qd.created_at DESC LIMIT 1
+        `).catch(() => null),
+        // MI-08: active field claim for this business
+        db.execute(sql`
+          SELECT frs.id, frs.status, frs.claimed_at, frs.claimed_by_user_id,
+                 u.email AS claimed_by_email
+          FROM field_route_stops frs
+          LEFT JOIN users u ON u.id = frs.claimed_by_user_id
+          WHERE frs.business_id = ${businessId} AND frs.status = 'claimed'
+          ORDER BY frs.claimed_at DESC LIMIT 1
+        `).catch(() => null),
+        // MI-08: master_lead staging state for this business.
+        // NOTE: master_leads does NOT have open_conflict_count or email_discovery_status.
+        // Actual columns: id, status, fit_tier, quality_score, email_type, email_valid,
+        // suppression_reason, promoted_at, created_at, pipeline_origin, canonical_business_id.
+        db.execute(sql`
+          SELECT id, status, fit_tier, quality_score, email_type, email_valid,
+                  suppression_reason, promoted_at, created_at, county_fips
+          FROM master_leads
+          WHERE canonical_business_id = ${businessId}
+            AND pipeline_origin = 'cro03_pipeline'
+          ORDER BY created_at DESC LIMIT 1
+        `).catch(() => null),
+        // MI-08: source observations/occurrences — operating status evidence.
+        // Joins canonical_source_links → cro03_source_subjects → cro03_source_observations.
+        // cro03_source_observations.payload is encrypted (payloadHash only, not decrypted here).
+        db.execute(sql`
+          SELECT obs.id, obs.observed_at, obs.observed_by_actor_type,
+                 obs.provenance, obs.payload_hash,
+                 occ.source_observed_at, occ.timestamp_provenance, occ.source_event_key,
+                 ss.source_system, ss.subject_type, ss.subject_key
+          FROM canonical_source_links csl
+          JOIN cro03_source_subjects ss
+            ON ss.source_system = csl.source_system
+           AND ss.subject_type  = csl.source_type
+           AND ss.subject_key   = csl.stable_key
+          JOIN cro03_source_observations obs ON obs.source_subject_id = ss.id
+          JOIN cro03_source_occurrences  occ ON occ.source_observation_id = obs.id
+          WHERE csl.business_id = ${businessId}
+          ORDER BY occ.source_observed_at DESC
+          LIMIT 5
+        `).catch(() => null),
+        // Existing contact/customer check. Contacts stores the canonical phone
+        // in its legacy phone column, so normalize digits at comparison time;
+        // website is similarly normalized to a hostname before comparing.
+        db.execute(sql`
+          SELECT c.id, c.email_status, c.phone, c.lifecycle_state
+          FROM contacts c
+          CROSS JOIN businesses b
+          WHERE b.id = ${businessId}
+            AND (
+              (b.email_selected_candidate_hash IS NOT NULL
+                AND c.email_token_hash = b.email_selected_candidate_hash)
+              OR (
+                b.main_phone IS NOT NULL
+                AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
+                    = regexp_replace(b.main_phone, '[^0-9]', '', 'g')
+              )
+              OR (
+                b.website_domain IS NOT NULL
+                AND regexp_replace(
+                  regexp_replace(lower(COALESCE(c.website, '')), '^https?://(www\\.)?', ''),
+                  '/.*$', ''
+                ) = lower(b.website_domain)
+              )
+            )
+          LIMIT 1
+        `).catch(() => null),
       ]);
+
       const winnerSelection = winnerResult ? (((winnerResult as any).rows ?? winnerResult)[0] ?? null) : null;
       const pendingIntent = intentResult ? (((intentResult as any).rows ?? intentResult)[0] ?? null) : null;
+      const sourceLinks = (sourceLinksResult as any)?.rows ?? sourceLinksResult ?? [];
+      const qualDecision = qualDecisionResult ? (((qualDecisionResult as any).rows ?? qualDecisionResult)[0] ?? null) : null;
+      const fieldClaim = fieldClaimResult ? (((fieldClaimResult as any).rows ?? fieldClaimResult)[0] ?? null) : null;
+      const masterLead = masterLeadResult ? (((masterLeadResult as any).rows ?? masterLeadResult)[0] ?? null) : null;
+      // sourceObservations: operating-status evidence from cro03_source_observations/occurrences.
+      // Raw payload is NOT returned (encrypted in DB); only provenance metadata is exposed.
+      const sourceObservations: any[] = (sourceObservationsResult as any)?.rows ?? sourceObservationsResult ?? [];
+      // Track query success/failure separately from "no match found".
+      // null existingContactResult means the query threw (catch → null);
+      // a successful query with no rows returns an empty array → existingContact = null.
+      const contactMatchAvailable = existingContactResult !== null;
+      const existingContact = contactMatchAvailable
+        ? (((existingContactResult as any).rows ?? existingContactResult)[0] ?? null)
+        : null;
+
+      // MI-08: count open conflicts from canonical_conflict_evidence (the authoritative source).
+      // Used in safeNextAction derivation and returned on masterLead for the UI.
+      // MUST NOT fail open: a query failure must be represented as unknown, not zero.
+      let openConflictCount = 0;
+      let conflictEvidenceAvailable = false;
+      try {
+        const conflictResult = await db.execute(sql`
+          SELECT COUNT(*)::int AS cnt
+          FROM canonical_conflict_evidence
+          WHERE (business_id_a = ${businessId} OR business_id_b = ${businessId})
+            AND status = 'open'
+        `);
+        openConflictCount = Number(((conflictResult as any).rows ?? conflictResult)[0]?.cnt ?? 0);
+        conflictEvidenceAvailable = true;
+      } catch {
+        // Query failed — treat as unknown (not promotable) to avoid fail-open.
+        conflictEvidenceAvailable = false;
+      }
+
+      // MI-08: role-based field redaction.
+      // agent role must not receive unmasked email or phone. admin/manager receive full data.
+      // (requireRole currently blocks agents entirely, but redaction is applied defensively.)
+      const userRole = (req as any).user?.role ?? "agent";
+      const canSeeContactDetails = userRole === "admin" || userRole === "manager";
+      const redactedBiz = {
+        ...biz,
+        main_email: canSeeContactDetails ? biz.main_email : null,
+        main_phone: canSeeContactDetails ? biz.main_phone : null,
+      };
+
+      // MI-08: derive safe next action using authoritative predicates:
+      // - conflict evidence from canonical_conflict_evidence (not a denormalized column)
+      // - email validity from businesses.email_discovery_status = 'provider_valid'
+      //   (matches the readiness predicate in /api/master-leads/pipeline-stats)
+      // CRITICAL: promoted/suppressed lifecycle states are TERMINAL — they must be
+      // checked first. Enrichment and readiness guidance must NEVER override terminal state.
+      // This matches the list endpoint which also prioritizes promoted/suppressed first.
+      const emailValid = biz.email_discovery_status === "provider_valid";
+      let safeNextAction: string;
+      if (masterLead?.status === "promoted") {
+        safeNextAction = "already_promoted";
+      } else if (masterLead?.status === "suppressed") {
+        safeNextAction = "suppressed_no_action";
+      } else if (masterLead?.status === "staged" && !conflictEvidenceAvailable) {
+        // Cannot determine conflict state — do not derive promotable. Fail closed.
+        safeNextAction = "resolve_conflicts_before_promotion";
+      } else if (masterLead?.status === "staged" && !contactMatchAvailable) {
+        // Cannot determine contact duplicate state — do not derive promotable. Fail closed.
+        safeNextAction = "resolve_conflicts_before_promotion";
+      } else if (masterLead?.status === "staged" && openConflictCount > 0) {
+        safeNextAction = "resolve_conflicts_before_promotion";
+      } else if (masterLead?.status === "staged" && emailValid && openConflictCount === 0 && existingContact) {
+        // A duplicate contact match exists — must be resolved before promotion
+        safeNextAction = "resolve_duplicate_contact_before_promotion";
+      } else if (masterLead?.status === "staged" && emailValid && openConflictCount === 0) {
+        safeNextAction = "ready_to_promote";
+      } else if (!biz.email_discovery_status || biz.email_discovery_status === "no_valid_candidate") {
+        safeNextAction = "run_email_discovery";
+      } else if (biz.email_discovery_status === "provider_catch_all" && !biz.email_outreach_catch_all_approved_at) {
+        safeNextAction = "approve_catch_all_for_outreach";
+      } else if (!emailValid) {
+        safeNextAction = "run_email_discovery";
+      } else if (biz.free_enrichment_status === null || biz.free_enrichment_status === "failed") {
+        safeNextAction = "run_free_enrichment";
+      } else {
+        safeNextAction = "monitor";
+      }
 
       res.json({
-        business: biz,
+        business: redactedBiz,
         processorSignals: signals,
         emailDiscoveryStatus: biz.email_discovery_status ?? null,
         emailValidationUpdatedAt: biz.email_validation_updated_at ?? null,
         isStale,
         winnerSelection,
         pendingIntent,
+        // ── MI-08: evidence chain ────────────────────────────────────────────
+        sourceLinks,
+        qualificationDecision: qualDecision,
+        fieldClaim: fieldClaim ? {
+          status: fieldClaim.status,
+          claimedAt: fieldClaim.claimed_at,
+          claimedByUserId: fieldClaim.claimed_by_user_id,
+          // agent email redacted from this endpoint since it's admin/manager only
+          claimedByEmail: canSeeContactDetails ? fieldClaim.claimed_by_email : null,
+        } : null,
+        masterLead: masterLead ? { ...masterLead, openConflictCount } : null,
+         contactMatchAvailable,
+         existingContactMatch: existingContact ? {
+           id: existingContact.id,
+           emailStatus: existingContact.email_status ?? null,
+           lifecycleState: existingContact.lifecycle_state ?? null,
+         } : null,
+         conflictCount: openConflictCount,
+         conflictEvidenceAvailable,
+        safeNextAction,
+        // operating-status evidence from cro03_source_observations/occurrences
+        // (provenance metadata only — raw payload not exposed)
+        sourceObservations,
       });
     } catch (err: any) {
       console.error("[LeadOps] businesses/:id error:", err?.message);
@@ -994,6 +1392,254 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     } catch (err: any) {
       console.error("[LeadOps] approve-medium-confidence-validation error:", err?.message);
       res.status(500).json({ error: err?.message || "Approval failed" });
+    }
+  });
+
+  // ── GET /api/lead-ops/businesses ─────────────────────────────────────────
+  // MI-08: Paginated canonical businesses list for the Businesses tab.
+  // Supports search, vertical filter, email_discovery_status filter, fit-tier
+  // (from master_leads). Role: admin, manager.
+  app.get("/api/lead-ops/businesses", requireRole("admin", "manager"), async (req, res) => {
+    const limit  = Math.min(Number(req.query.limit)  || 50, 200);
+    const offset = Number(req.query.offset) || 0;
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const vertical = typeof req.query.vertical === "string" ? req.query.vertical : "";
+    const emailStatus = typeof req.query.emailStatus === "string" ? req.query.emailStatus : "";
+
+    try {
+      const rows = await db.execute(sql`
+        SELECT
+          b.id,
+          b.canonical_name,
+          b.website_domain,
+          b.city,
+          b.state,
+          b.vertical,
+          b.record_class,
+          b.free_enrichment_status,
+          b.email_discovery_status,
+          b.email_validation_updated_at,
+          b.latitude,
+          b.longitude,
+          b.street_address,
+           -- County is carried by the CRO-03 pipeline master lead row.
+           (SELECT ml.county_fips FROM master_leads ml
+            WHERE ml.canonical_business_id = b.id
+            ORDER BY ml.created_at DESC LIMIT 1)              AS county_fips,
+          b.main_phone,
+          b.main_email,
+          b.created_at,
+          -- Latest master_lead fit_tier for this business
+          (SELECT ml.fit_tier FROM master_leads ml
+           WHERE ml.canonical_business_id = b.id
+           ORDER BY ml.created_at DESC LIMIT 1)              AS fit_tier,
+          -- Active field claim
+          (SELECT frs.status FROM field_route_stops frs
+           WHERE frs.business_id = b.id AND frs.status = 'claimed'
+            ORDER BY frs.claimed_at DESC LIMIT 1)              AS field_claim_status,
+           (SELECT frs.claimed_at FROM field_route_stops frs
+            WHERE frs.business_id = b.id AND frs.status = 'claimed'
+            ORDER BY frs.claimed_at DESC LIMIT 1)              AS field_claimed_at,
+           (SELECT u.email
+            FROM field_route_stops frs
+            LEFT JOIN users u ON u.id = frs.claimed_by_user_id
+            WHERE frs.business_id = b.id AND frs.status = 'claimed'
+            ORDER BY frs.claimed_at DESC LIMIT 1)              AS field_claimed_by_email,
+           CASE
+             WHEN (SELECT ml.status FROM master_leads ml
+                   WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
+                   ORDER BY ml.created_at DESC LIMIT 1) = 'promoted' THEN 'already_promoted'
+             WHEN (SELECT ml.status FROM master_leads ml
+                   WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
+                   ORDER BY ml.created_at DESC LIMIT 1) = 'suppressed' THEN 'suppressed_no_action'
+             WHEN b.email_discovery_status IS NULL OR b.email_discovery_status = 'no_valid_candidate' THEN 'run_email_discovery'
+             WHEN b.email_discovery_status = 'provider_catch_all'
+               AND b.email_outreach_catch_all_approved_at IS NULL THEN 'approve_catch_all_for_outreach'
+             WHEN b.free_enrichment_status IS NULL OR b.free_enrichment_status = 'failed' THEN 'run_free_enrichment'
+             WHEN (SELECT ml.status FROM master_leads ml
+                   WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
+                   ORDER BY ml.created_at DESC LIMIT 1) = 'staged'
+               AND b.email_discovery_status = 'provider_valid' THEN 'staged_awaiting_review'
+             ELSE 'monitor'
+           END                                                  AS safe_next_action,
+          COUNT(*) OVER()::int                               AS total_count
+        FROM businesses b
+        WHERE b.record_class = 'canonical'
+          AND (${search === ""} OR b.canonical_name ILIKE ${'%' + search + '%'} OR b.website_domain ILIKE ${'%' + search + '%'})
+          AND (${vertical === ""} OR b.vertical = ${vertical})
+          AND (${emailStatus === ""} OR b.email_discovery_status = ${emailStatus})
+        ORDER BY b.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+      const data = (rows as any).rows ?? rows;
+      const total = Number(data[0]?.total_count ?? 0);
+      const businesses = data.map((r: any) => {
+        const { total_count, ...rest } = r;
+        if ("field_claim_status" in rest) {
+          rest.fieldClaim = rest.field_claim_status
+            ? {
+                status: rest.field_claim_status,
+                claimedByEmail: rest.field_claimed_by_email ?? null,
+                claimedAt: rest.field_claimed_at ?? null,
+              }
+            : null;
+          delete rest.field_claim_status;
+          delete rest.field_claimed_by_email;
+          delete rest.field_claimed_at;
+        }
+        if ("safe_next_action" in rest) {
+          rest.safeNextAction = rest.safe_next_action;
+          delete rest.safe_next_action;
+        }
+        return rest;
+      });
+      res.json({ businesses, total, limit, offset });
+    } catch (err: any) {
+      console.error("[LeadOps] /businesses list error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to load businesses" });
+    }
+  });
+
+  // ── GET /api/lead-ops/business-verticals ────────────────────────────────────
+  // Returns distinct verticals with counts from canonical businesses table.
+  // Used by the Businesses tab vertical selector; must NOT query sunbiz_entities
+  // (which is the legacy table and may have different vertical classification).
+  app.get("/api/lead-ops/business-verticals", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT vertical, COUNT(*)::int AS count
+        FROM businesses
+        WHERE vertical IS NOT NULL
+          AND record_class = 'canonical'
+        GROUP BY vertical
+        ORDER BY count DESC
+        LIMIT 50
+      `);
+      const rows = (result as any).rows ?? result;
+      res.json({ verticals: rows.map((r: any) => ({ vertical: r.vertical, count: Number(r.count) })) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load verticals" });
+    }
+  });
+
+  // ── GET /api/lead-ops/budget-preview ────────────────────────────────────────
+  // CRO-03C price schedules are stored as immutable JSONB authority artifacts
+  // on the active activation policy (there is no standalone price-schedules
+  // table in this schema). Never turn a missing/invalid schedule into a
+  // fabricated estimate.
+  app.get("/api/lead-ops/budget-preview", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT version, price_schedules
+        FROM cro03c_activation_policies
+        WHERE status = 'approved'
+          AND policy_key = 'cro03c_live_activation'
+        ORDER BY version DESC, created_at DESC
+        LIMIT 1
+      `);
+      const row = ((result as any).rows ?? result)[0];
+      const schedules = row?.price_schedules;
+      if (!schedules || typeof schedules !== "object" || Array.isArray(schedules) || Object.keys(schedules).length === 0) {
+        return res.json({ available: false });
+      }
+      const prices = Object.entries(schedules).map(([provider, value]: [string, any]) => ({
+        provider,
+        version: Number(value?.version ?? row.version ?? 0),
+        unitType: value?.unitType ?? null,
+        currency: value?.currency ?? null,
+        amountMicros: typeof value?.amountMicros === "number" ? value.amountMicros : null,
+        billingSemantics: value?.billingSemantics ?? null,
+      }));
+      const validPrices = prices.filter((p) => p.amountMicros !== null);
+      return res.json(validPrices.length > 0
+        ? { available: true, prices: validPrices }
+        : { available: false });
+    } catch {
+      return res.json({ available: false });
+    }
+  });
+
+  // ── GET /api/lead-ops/businesses/:id/routing-preview ──────────────────────
+  // MI-08: Returns the ordered provider plan for a business by calling
+  // selectCro03Route(). Read-only — does NOT trigger any provider call.
+  // Responds within 500ms (no remote calls involved).
+  app.get("/api/lead-ops/businesses/:businessId/routing-preview", requireRole("admin", "manager"), async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ error: "Invalid businessId" });
+    try {
+      const bizResult = await db.execute(sql`
+        SELECT id, canonical_name, website_domain, main_phone, main_email,
+               email_discovery_status, free_enrichment_status, vertical
+        FROM businesses WHERE id = ${businessId}
+      `);
+      const biz = ((bizResult as any).rows ?? bizResult)[0];
+      if (!biz) return res.status(404).json({ error: "Business not found" });
+
+      const { selectCro03Route } = await import("../services/cro03/routing-policy");
+
+      const hasWebsite = !!biz.website_domain;
+      const hasPhone   = !!biz.main_phone;
+      const hasEmail   = !!biz.main_email;
+      const needsBusinessDiscovery  = !hasWebsite && !hasPhone;
+      const needsContactEnrichment  = hasWebsite && !hasEmail;
+      const needsEmailValidation    = hasEmail && biz.email_discovery_status !== "provider_valid";
+
+      const routePlan = selectCro03Route({
+        hasWebsite, hasPhone, hasEmail,
+        needsBusinessDiscovery,
+        needsContactEnrichment,
+        needsEmailValidation,
+      });
+      let pricing: { available: boolean; prices?: Array<Record<string, unknown>> } = { available: false };
+      try {
+        // Must constrain on policy_key='cro03c_live_activation' so only the
+        // canonical live activation policy is used, not any other approved policy.
+        const pricingResult = await db.execute(sql`
+          SELECT version, price_schedules
+          FROM cro03c_activation_policies
+          WHERE status = 'approved'
+            AND policy_key = 'cro03c_live_activation'
+          ORDER BY version DESC, created_at DESC
+          LIMIT 1
+        `);
+        const pricingRow = ((pricingResult as any).rows ?? pricingResult)[0];
+        const schedules = pricingRow?.price_schedules;
+        if (schedules && typeof schedules === "object" && !Array.isArray(schedules)) {
+          const prices = Object.entries(schedules)
+            .map(([provider, value]: [string, any]) => ({
+              provider,
+              version: Number(value?.version ?? pricingRow.version ?? 0),
+              unitType: value?.unitType ?? null,
+              currency: value?.currency ?? null,
+              amountMicros: typeof value?.amountMicros === "number" ? value.amountMicros : null,
+              billingSemantics: value?.billingSemantics ?? null,
+            }))
+            .filter((price) => price.amountMicros !== null);
+          if (prices.length) pricing = { available: true, prices };
+        }
+      } catch {
+        pricing = { available: false };
+      }
+
+      res.json({
+        businessId,
+        businessName: biz.canonical_name,
+        routingInput: { hasWebsite, hasPhone, hasEmail, needsBusinessDiscovery, needsContactEnrichment, needsEmailValidation },
+        routePlan: {
+          policyVersion: routePlan.policyVersion,
+          providers: routePlan.providers,
+          stopReasons: routePlan.stopReasons,
+          recipes: routePlan.recipes.map(r => ({
+            provider: r.provider,
+            operation: r.operation,
+            requiresPaidEligibility: r.requiresPaidEligibility,
+          })),
+        },
+        pricing,
+      });
+    } catch (err: any) {
+      console.error("[LeadOps] routing-preview error:", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to compute routing preview" });
     }
   });
 

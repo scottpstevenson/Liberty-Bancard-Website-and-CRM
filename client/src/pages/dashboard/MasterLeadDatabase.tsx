@@ -182,8 +182,11 @@ function FitTierBadge({ tier }: { tier: string | null }) {
 }
 
 // ─── Pipeline Review Tab ──────────────────────────────────────────────────────
+// Exported so LeadOpsCenter (MI-08 Staging tab) can embed it without
+// duplicating the component. The /dashboard/master-lead-database route is
+// preserved unchanged — this is a re-export, not a removal.
 
-function PipelineReviewTab() {
+export function PipelineReviewTab() {
   const { toast } = useToast();
   const [pipelineStatusFilter, setPipelineStatusFilter] = useState("staged");
   const [pipelineFitTier, setPipelineFitTier] = useState("all");

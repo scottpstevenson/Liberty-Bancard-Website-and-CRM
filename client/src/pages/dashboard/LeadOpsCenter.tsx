@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -18,16 +18,23 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sparkles, RefreshCw, Trash2, Search, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, Clock, Zap, Users, Mail, Phone,
   TrendingUp, Brain, Target, ArrowRight, Download, Activity,
   X, ShieldAlert, Cpu, RotateCcw, ListTodo, XCircle, RotateCw,
+  Building2, GitBranch, BarChart3, Layers, HeartPulse, MapPin,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
 import { SourceRegistryPanel } from "@/pages/dashboard/SourceRegistryPanel";
+import { ProgramHealthPanel } from "@/pages/dashboard/LeadOps/ProgramHealthPanel";
+import { BusinessDetailPanel } from "@/pages/dashboard/LeadOps/BusinessDetailPanel";
+import { MobileBusinessCard, type BusinessListItem } from "@/pages/dashboard/LeadOps/MobileBusinessCard";
+import { BudgetPreviewModal, useBudgetPreview } from "@/pages/dashboard/LeadOps/BudgetPreviewModal";
+import { PipelineReviewTab } from "@/pages/dashboard/MasterLeadDatabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LeadOpsStats {
@@ -45,13 +52,13 @@ interface LeadOpsStats {
 }
 
 interface LeadOpsHealth {
-  enrichedToday: number;
-  emailsToday: number;
-  phonesToday: number;
-  queueDepth: number;
-  totalEnriched: number;
-  totalFailed: number;
-  successRate: number;
+  enrichedToday: HealthMetric;
+  emailsToday: HealthMetric;
+  phonesToday: HealthMetric;
+  queueDepth: HealthMetric;
+  totalEnriched: HealthMetric;
+  totalFailed: HealthMetric;
+  successRate: HealthMetric;
   lastEnrichedAt: string | null;
   minutesSinceLastJob: number | null;
   workerActive: boolean;
@@ -63,6 +70,18 @@ interface LeadOpsHealth {
   lastScheduledEnrichmentAt: string | null;
   legacyRouteAttemptsSinceStartup: number;
   canonicalFreeEnrichmentQueueDepth?: number;
+  sourceRegistryCounts?: {
+    canonicalBusinesses: HealthMetric;
+    sourceLinks: HealthMetric;
+    adapters: HealthMetric;
+  };
+}
+
+interface HealthMetric {
+  value: number | string | null;
+  available: boolean;
+  stale?: boolean;
+  error?: string;
 }
 
 interface LeadOpsConfig {
@@ -242,6 +261,8 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
   const { toast } = useToast();
   const [lookupId, setLookupId] = useState("");
   const [businessId, setBusinessId] = useState<number | null>(null);
+  // BudgetPreviewModal: gates billable ZeroBounce intent approval
+  const budget = useBudgetPreview();
 
   const businessQuery = useQuery<BusinessQueryResponse>({
     queryKey: [`/api/lead-ops/businesses/${businessId}`],
@@ -503,28 +524,44 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
                 </div>
               )}
 
-              {/* Medium-confidence approval banner */}
+              {/* Medium-confidence approval banner — ZeroBounce is billable,
+                  so the budget preview modal is shown before the action fires */}
               {pendingIntent && pendingIntent.approval_required && (
                 <div className="rounded border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-2 space-y-1.5">
                   <div className="text-xs font-medium text-blue-800 dark:text-blue-300">
                     🔵 Apollo returned medium-confidence match. Approve to attempt ZeroBounce validation?
                   </div>
                   <div className="text-[10px] text-blue-700 dark:text-blue-400">
-                    This does NOT approve for outreach — ZeroBounce must confirm validity first.
+                    This does NOT approve for outreach — ZeroBounce must confirm validity first.{" "}
+                    ZeroBounce validation is a <strong>billable action</strong>; a cost preview will appear before proceeding.
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-6 text-[10px] gap-1"
+                    className="h-6 text-[10px] gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
                     onClick={() => {
-                      if (confirm("Approve this medium-confidence email for ZeroBounce validation? This does not approve for outreach.")) {
-                        approveMediumConfidenceMutation.mutate({ id: biz.id, intentId: pendingIntent.id });
-                      }
+                      // Show budget preview modal before the billable ZeroBounce action.
+                      // The actual approval is executed only after the operator confirms.
+                      budget.requireBudgetConfirmation({
+                        businessId: biz.id,
+                        businessName: biz.canonical_name ?? undefined,
+                        actionType: "zerobounce_validation",
+                        action: () => approveMediumConfidenceMutation.mutate({ id: biz.id, intentId: pendingIntent.id }),
+                      });
                     }}
-                    disabled={approveMediumConfidenceMutation.isPending}
+                    disabled={approveMediumConfidenceMutation.isPending || budget.state.open}
                   >
-                    Approve for validation
+                    Approve for validation…
                   </Button>
+                  {/* Budget preview modal — non-dismissible, blocks action until confirmed or cancelled */}
+                  <BudgetPreviewModal
+                    open={budget.state.open}
+                    businessId={budget.state.businessId}
+                    businessName={budget.state.businessName}
+                    actionType={budget.state.actionType}
+                    onConfirm={budget.handleConfirm}
+                    onCancel={budget.handleCancel}
+                  />
                 </div>
               )}
             </div>
@@ -747,9 +784,270 @@ function EnrichmentQueuePanel() {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
+// ─── MI-08: Businesses Tab ────────────────────────────────────────────────────
+function BusinessesTab({ userRole }: { userRole: string }) {
+  const [search, setSearch] = useState("");
+  const [verticalFilter, setVerticalFilter] = useState("");
+  const [emailStatusFilter, setEmailStatusFilter] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [selectedBusiness, setSelectedBusiness] = useState<BusinessListItem | null>(null);
+  const LIMIT = 50;
+  // Source vertical options from canonical businesses table, not legacy sunbiz_entities.
+  const verticalsQuery = useQuery<{ verticals: Array<{ vertical: string; count: number }> }>({
+    queryKey: ["/api/lead-ops/business-verticals"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/business-verticals", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const verticals = verticalsQuery.data?.verticals ?? [];
+
+  const params = new URLSearchParams({
+    limit: String(LIMIT),
+    offset: String(offset),
+    ...(search ? { search } : {}),
+    ...(verticalFilter ? { vertical: verticalFilter } : {}),
+    ...(emailStatusFilter ? { emailStatus: emailStatusFilter } : {}),
+  });
+
+  const { data, isLoading, isError, error } = useQuery<{ businesses: BusinessListItem[]; total: number }>({
+    queryKey: ["/api/lead-ops/businesses", search, verticalFilter, emailStatusFilter, offset],
+    queryFn: async () => {
+      const r = await fetch(`/api/lead-ops/businesses?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const businesses = data?.businesses ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / LIMIT);
+  const page = Math.floor(offset / LIMIT);
+
+  // Mobile detection
+  const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+
+  return (
+    <div className="space-y-4">
+      {/* Slide-over detail panel */}
+      {selectedBusiness && (
+        <BusinessDetailPanel
+          businessId={selectedBusiness.id}
+          businessName={selectedBusiness.canonical_name ?? undefined}
+          onClose={() => setSelectedBusiness(null)}
+        />
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-[180px] max-w-sm">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
+          <Input
+            placeholder="Search company or domain…"
+            className="pl-9 h-9"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
+            aria-label="Search businesses"
+          />
+        </div>
+        <Select value={verticalFilter || "all"} onValueChange={(v) => { setVerticalFilter(v === "all" ? "" : v); setOffset(0); }}>
+          <SelectTrigger className="w-44 h-9" aria-label="Filter by vertical">
+            <SelectValue placeholder="All verticals" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All verticals</SelectItem>
+            {verticals.map((v) => (
+              <SelectItem key={v.vertical} value={v.vertical}>{v.vertical} ({v.count})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={emailStatusFilter} onValueChange={(v) => { setEmailStatusFilter(v === "all" ? "" : v); setOffset(0); }}>
+          <SelectTrigger className="w-48 h-9" aria-label="Filter by email status">
+            <SelectValue placeholder="All email statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All email statuses</SelectItem>
+            <SelectItem value="provider_valid">Valid</SelectItem>
+            <SelectItem value="provider_catch_all">Catch-all</SelectItem>
+            <SelectItem value="provider_invalid">Invalid</SelectItem>
+            <SelectItem value="discovered">Discovered</SelectItem>
+            <SelectItem value="no_valid_candidate">No candidate</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="text-sm text-muted-foreground ml-auto">
+          {total.toLocaleString()} canonical businesses
+        </div>
+      </div>
+
+      {/* Error */}
+      {isError && (
+        <div className="text-sm text-destructive flex items-center gap-2">
+          <XCircle className="h-4 w-4" />
+          {error instanceof Error ? error.message : "Failed to load businesses"}
+        </div>
+      )}
+
+      {/* Mobile card list (≤768px) */}
+      <div className="md:hidden space-y-3">
+        {isLoading
+          ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)
+          : businesses.length === 0
+            ? <p className="text-sm text-muted-foreground py-8 text-center">No businesses match your filters.</p>
+            : businesses.map((b) => (
+                <MobileBusinessCard key={b.id} business={b} onTap={setSelectedBusiness} />
+              ))
+        }
+      </div>
+
+      {/* Desktop table (>768px) */}
+      <Card className="hidden md:block shadow-sm">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table className="min-w-[800px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Vertical</TableHead>
+                  <TableHead>Email Status</TableHead>
+                  <TableHead>Enrichment</TableHead>
+                  <TableHead>Fit Tier</TableHead>
+                  <TableHead>Field</TableHead>
+                  <TableHead className="w-20">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 8 }).map((_, j) => (
+                          <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : businesses.length === 0
+                    ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                          No businesses match your current filters.
+                        </TableCell>
+                      </TableRow>
+                    )
+                    : businesses.map((b) => (
+                        <TableRow key={b.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedBusiness(b)}>
+                          <TableCell className="font-medium max-w-[200px]">
+                            <div className="truncate">{b.canonical_name}</div>
+                            {b.website_domain && (
+                              <div className="text-[10px] text-blue-500 truncate">{b.website_domain}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {[b.city, b.state].filter(Boolean).join(", ") || "—"}
+                          </TableCell>
+                          <TableCell>
+                            {b.vertical
+                              ? <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">{b.vertical}</Badge>
+                              : <span className="text-muted-foreground text-xs">—</span>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            {b.email_discovery_status ? (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 h-5 ${
+                                  b.email_discovery_status === "provider_valid" ? "bg-green-100 text-green-800" :
+                                  b.email_discovery_status === "provider_catch_all" ? "bg-amber-100 text-amber-800" :
+                                  b.email_discovery_status === "provider_invalid" ? "bg-red-100 text-red-800" :
+                                  b.email_discovery_status === "discovered" ? "bg-blue-100 text-blue-800" :
+                                  "bg-gray-100 text-gray-600"
+                                }`}
+                                aria-label={`Email: ${b.email_discovery_status.replace(/_/g, " ")}`}
+                              >
+                                {b.email_discovery_status.replace(/_/g, " ")}
+                              </Badge>
+                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {b.free_enrichment_status ? (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 h-5 ${
+                                  b.free_enrichment_status === "enriched" ? "bg-green-100 text-green-800" :
+                                  b.free_enrichment_status === "processing" ? "bg-blue-100 text-blue-800" :
+                                  b.free_enrichment_status === "failed" ? "bg-red-100 text-red-800" :
+                                  "bg-gray-100 text-gray-600"
+                                }`}
+                                aria-label={`Enrichment: ${b.free_enrichment_status}`}
+                              >
+                                {b.free_enrichment_status}
+                              </Badge>
+                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {b.fit_tier ? (
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 h-5 font-bold ${
+                                  b.fit_tier === "A" ? "bg-emerald-100 text-emerald-800" :
+                                  b.fit_tier === "B" ? "bg-blue-100 text-blue-800" :
+                                  "bg-amber-100 text-amber-700"
+                                }`}
+                                aria-label={`Fit tier ${b.fit_tier}`}
+                              >
+                                {b.fit_tier}
+                              </Badge>
+                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {b.field_claim_status === "claimed" ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-amber-50 text-amber-700" aria-label="Field claim active">
+                                claimed
+                              </Badge>
+                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost" size="sm" className="h-7 text-xs"
+                              onClick={(e) => { e.stopPropagation(); setSelectedBusiness(b); }}
+                              aria-label={`View details for ${b.canonical_name}`}
+                            >
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                }
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LIMIT))} className="gap-1.5">
+            <ChevronLeft className="h-4 w-4" /> Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">Page {page + 1} / {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={offset + LIMIT >= total} onClick={() => setOffset(offset + LIMIT)} className="gap-1.5">
+            Next <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LeadOpsCenter() {
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // ── Tab state (MI-08) ──────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState("businesses");
 
   // ── Filter / pagination state ──────────────────────────────────────────────
   const [page, setPage] = useState(0);
@@ -1023,12 +1321,102 @@ export default function LeadOpsCenter() {
         </div>
       </div>
 
-      <SouthFloridaQualificationPanel />
+      {/* ── MI-08: Unified Lead Ops Workspace Tabs ───────────────────────────── */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex-wrap h-auto gap-1" aria-label="Lead Ops workspace tabs">
+          <TabsTrigger value="businesses" className="gap-1.5 min-h-[44px] text-sm">
+            <Building2 className="h-4 w-4" aria-hidden /> Businesses
+          </TabsTrigger>
+          <TabsTrigger value="staging" className="gap-1.5 min-h-[44px] text-sm">
+            <GitBranch className="h-4 w-4" aria-hidden /> Staging
+          </TabsTrigger>
+          <TabsTrigger value="sources" className="gap-1.5 min-h-[44px] text-sm">
+            <Layers className="h-4 w-4" aria-hidden /> Sources
+          </TabsTrigger>
+          <TabsTrigger value="census" className="gap-1.5 min-h-[44px] text-sm">
+            <BarChart3 className="h-4 w-4" aria-hidden /> Census
+          </TabsTrigger>
+          <TabsTrigger value="pipeline" className="gap-1.5 min-h-[44px] text-sm">
+            <TrendingUp className="h-4 w-4" aria-hidden /> Pipeline
+          </TabsTrigger>
+          <TabsTrigger value="health" className="gap-1.5 min-h-[44px] text-sm">
+            <HeartPulse className="h-4 w-4" aria-hidden /> Health
+          </TabsTrigger>
+        </TabsList>
 
-      {/* ── MI-02: Data Sources — South Florida Source Registry (admin-only) ── */}
-      {user?.role === "admin" && <SourceRegistryPanel />}
+        {/* ── Businesses tab ─────────────────────────────────────────────── */}
+        <TabsContent value="businesses" className="space-y-4">
+          <BusinessesTab userRole={user?.role ?? "agent"} />
+        </TabsContent>
 
-      {/* ── Inbound request operations ─────────────────────────────────────── */}
+        {/* ── Staging tab (MI-07 Pipeline Review) ───────────────────────── */}
+        <TabsContent value="staging" className="space-y-4">
+          <div className="text-sm text-muted-foreground mb-2">
+            Staging pipeline from MI-07. Deep link:{" "}
+            <a href="/dashboard/master-lead-database" className="text-blue-600 underline hover:no-underline">
+              /dashboard/master-lead-database
+            </a>{" "}
+            is preserved.
+          </div>
+          <PipelineReviewTab />
+        </TabsContent>
+
+        {/* ── Sources tab ────────────────────────────────────────────────── */}
+        <TabsContent value="sources" className="space-y-4">
+          {user?.role === "admin" ? (
+            /* Admin: full import controls + registry panel */
+            <SourceRegistryPanel />
+          ) : (
+            /* Manager: read-only counts. SourceRegistryPanel hits /api/admin/source-registry
+               which is admin-only and returns 403 for managers. Show a safe summary instead. */
+            <Card className="shadow-sm">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-blue-600" aria-hidden />
+                  <CardTitle className="text-sm">Source Registry (read-only)</CardTitle>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">Manager view</Badge>
+                </div>
+                <CardDescription className="text-xs">
+                  Import controls are restricted to admins. You can view pipeline counts in the Health tab.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  {[
+                    ["Canonical businesses", health?.sourceRegistryCounts?.canonicalBusinesses],
+                    ["Source links", health?.sourceRegistryCounts?.sourceLinks],
+                    ["Adapters", health?.sourceRegistryCounts?.adapters],
+                  ].map(([label, metric]) => (
+                    <div key={label as string} className="rounded-md border bg-muted/10 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">{label as string}</div>
+                      <div className="text-lg font-semibold">
+                        {(metric as HealthMetric | undefined)?.available
+                          ? Number((metric as HealthMetric).value ?? 0).toLocaleString()
+                          : "unknown"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <ShieldAlert className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+                  Contact an admin to import or configure data sources.
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── Census tab ─────────────────────────────────────────────────── */}
+        <TabsContent value="census" className="space-y-4">
+          <SouthFloridaQualificationPanel />
+          {/* ── Inbound request operations ─────────────────────────────────── */}
+          {/* NOTE: This section continues below after the tab close for Census */}
+        </TabsContent>
+
+        {/* ── Pipeline tab (enrichment queue + AI + entity table) ─────────── */}
+        <TabsContent value="pipeline" className="space-y-6">
+          {/* Inbound request operations */}
+          {/* ── Inbound request operations ─────────────────────────────── */}
       <Card className="shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1242,18 +1630,22 @@ export default function LeadOpsCenter() {
           ) : health ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
-                { label: "Enriched Today",    value: health.enrichedToday.toLocaleString(),    icon: CheckCircle, color: "text-green-600 dark:text-green-400" },
-                { label: "Emails Found Today", value: health.emailsToday.toLocaleString(),     icon: Mail,        color: "text-blue-600 dark:text-blue-400" },
-                { label: "Phones Found Today", value: health.phonesToday.toLocaleString(),     icon: Phone,       color: "text-indigo-600 dark:text-indigo-400" },
-                { label: "Queue Depth",        value: health.queueDepth.toLocaleString(),      icon: Clock,       color: "text-yellow-600 dark:text-yellow-400" },
-                { label: "Success Rate",       value: `${health.successRate}%`,               icon: TrendingUp,  color: "text-emerald-600 dark:text-emerald-400" },
+                { label: "Enriched Today",    metric: health.enrichedToday,    icon: CheckCircle, color: "text-green-600 dark:text-green-400" },
+                { label: "Emails Found Today", metric: health.emailsToday,     icon: Mail,        color: "text-blue-600 dark:text-blue-400" },
+                { label: "Phones Found Today", metric: health.phonesToday,     icon: Phone,       color: "text-indigo-600 dark:text-indigo-400" },
+                { label: "Queue Depth",        metric: health.queueDepth,      icon: Clock,       color: "text-yellow-600 dark:text-yellow-400" },
+                { label: "Success Rate",       metric: health.successRate,      icon: TrendingUp,  color: "text-emerald-600 dark:text-emerald-400" },
               ].map((s) => (
                 <div key={s.label} className="rounded-lg border bg-muted/20 p-3">
                   <div className="flex items-center gap-1.5 mb-1">
                     <s.icon className={`h-3.5 w-3.5 ${s.color}`} />
                     <span className="text-[11px] text-muted-foreground">{s.label}</span>
                   </div>
-                  <div className="text-lg font-bold">{s.value}</div>
+                  <div className="text-lg font-bold">
+                    {s.metric.available && s.metric.value !== null
+                      ? `${s.metric.value}${s.label === "Success Rate" ? "%" : ""}`
+                      : "unknown"}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1795,6 +2187,13 @@ export default function LeadOpsCenter() {
           </Button>
         </div>
       )}
+        </TabsContent>
+
+        {/* ── Health tab ─────────────────────────────────────────────────── */}
+        <TabsContent value="health" className="space-y-4">
+          <ProgramHealthPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -1173,7 +1173,41 @@ async function run(): Promise<void> {
     failures++;
   }
 
-  const totalCases = CASES.length + 6 + 1 + 1; // + BOLA/ownership/reanalyze/CSV/canonical-conflicts/MI-06/MI-07
+  // ── MI-08: new endpoints role guards ───────────────────────────────────────
+  console.log("\n── MI-08: new endpoints role guards ──");
+  try {
+    const MI08_GET_ROUTES = [
+      { path: "/api/lead-ops/businesses",                           desc: "GET businesses list" },
+      { path: "/api/lead-ops/businesses/9999999/routing-preview",   desc: "GET routing-preview" },
+      { path: "/api/lead-ops/businesses/9999999",                   desc: "GET business detail" },
+    ];
+    let mi08Failures = 0;
+    for (const { path, desc } of MI08_GET_ROUTES) {
+      const [anonStatus, merchantStatus, adminStatus] = await Promise.all([
+        fetch(`${BASE_URL}${path}`, { method: "GET" }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method: "GET", headers: { cookie: merchantCookie } }).then(r => r.status),
+        fetch(`${BASE_URL}${path}`, { method: "GET", headers: { cookie: adminCookie } }).then(r => r.status),
+      ]);
+      const anonOk    = anonStatus === 401;
+      const merchantOk = merchantStatus === 403;
+      // Admin: 200 (found) or 404 (not found by test ID) are the only acceptable successes.
+      // 500 means a server error — the endpoint is broken and must be fixed, not silently accepted.
+      const adminOk   = adminStatus === 200 || adminStatus === 404;
+      if (anonOk && merchantOk && adminOk) {
+        console.log(`  ✓ GET ${path}: anon→${anonStatus}(401✓) merchant→${merchantStatus}(403✓) admin→${adminStatus}(✓)`);
+      } else {
+        if (!anonOk)    { console.log(`  ✗ ${desc}: anon→${anonStatus} (expected 401)`);    failures++; mi08Failures++; }
+        if (!merchantOk){ console.log(`  ✗ ${desc}: merchant→${merchantStatus} (expected 403)`); failures++; mi08Failures++; }
+        if (!adminOk)   { console.log(`  ✗ ${desc}: admin→${adminStatus} (expected 200 or 404, not 500)`); failures++; mi08Failures++; }
+      }
+    }
+    if (mi08Failures === 0) console.log(`  ✓ All ${MI08_GET_ROUTES.length} MI-08 routes correctly guarded`);
+  } catch (err) {
+    console.log(`✗ MI-08 routes guard check threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  }
+
+  const totalCases = CASES.length + 6 + 1 + 1 + 1; // + BOLA/ownership/reanalyze/CSV/canonical-conflicts/MI-06/MI-07/MI-08
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);
