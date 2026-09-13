@@ -16,6 +16,9 @@ import { MockProcessorAdapter } from "./mock.adapter";
 import { db } from "../../db";
 import { processorActivationSnapshots } from "../../../shared/schema";
 import { and, eq, desc } from "drizzle-orm";
+import { resolveOperationSnapshot } from "./operation-snapshot";
+
+export { resolveOperationSnapshot };
 
 interface AdapterRecord {
   adapter: IProcessorAdapter;

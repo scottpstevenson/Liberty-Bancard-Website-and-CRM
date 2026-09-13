@@ -825,7 +825,7 @@ check("KL15: Deterministic adapter runtime behaviors (no-fetch HeldResult, malfo
 
   // ── Test 14: Snapshot revocation — newer held row for operation blocks older qualifying row ──
   {
-    const { resolveOperationSnapshot } = await import("../server/services/processors/registry");
+    const { resolveOperationSnapshot } = await import("../server/services/processors/operation-snapshot");
     const QUALIFYING = new Set(["owner_confirmed", "sandbox_verified", "production_authorized"]);
 
     // Simulate: newest row is held and lists the operation → should block access.
@@ -848,7 +848,7 @@ check("KL15: Deterministic adapter runtime behaviors (no-fetch HeldResult, malfo
 
   // ── Test 15: Snapshot revocation — unrelated newer snapshot does not affect the operation ──
   {
-    const { resolveOperationSnapshot } = await import("../server/services/processors/registry");
+    const { resolveOperationSnapshot } = await import("../server/services/processors/operation-snapshot");
     const QUALIFYING = new Set(["owner_confirmed", "sandbox_verified", "production_authorized"]);
 
     // Newer sandbox_verified snapshot does NOT list "board_merchant" → boarding still resolves to the older qualifying row.
@@ -870,7 +870,7 @@ check("KL15: Deterministic adapter runtime behaviors (no-fetch HeldResult, malfo
 
   // ── Test 16: Snapshot revocation — operation with no snapshot at all → gated ──
   {
-    const { resolveOperationSnapshot } = await import("../server/services/processors/registry");
+    const { resolveOperationSnapshot } = await import("../server/services/processors/operation-snapshot");
     const rows = [
       { status: "sandbox_verified", supportedOperations: ["get_daily_stats"] },
     ];
