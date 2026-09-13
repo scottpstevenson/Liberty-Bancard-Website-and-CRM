@@ -221,7 +221,7 @@ export async function initializeCro03aPolicy(): Promise<void> {
     await tx.execute(sql`
       INSERT INTO audit_logs(action, entity_type, entity_key, details, actor_type, actor_id)
       SELECT 'cro03a_policy_activated', 'cro03a_policy', p.id::text,
-             jsonb_build_object('reason', ${sanitizeAuditPayload("initial governed policy activation")},
+             jsonb_build_object('reason', ${sanitizeAuditPayload("initial governed policy activation")}::text,
                                 'policyVersion', p.version, 'policyHash', p.policy_hash,
                                 'controlVersion', 1),
              'system', 'system'
