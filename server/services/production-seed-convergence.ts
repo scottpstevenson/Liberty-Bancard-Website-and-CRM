@@ -42,7 +42,7 @@ import {
   MI09_PRICING_CURRENCY,
   MI09_PRICING_ACCOUNT_BALANCE_UNITS,
 } from "./cro03/mi09-pricing-seed-data";
-import { reuseOrCreatePricingArtifact, createPricingScheduleSnapshot } from "./mi09-pilot-authority";
+import { reuseOrCreatePricingArtifact, createPricingScheduleSnapshot, getPoolAuthorityDecision, setPoolAuthorityDecision } from "./mi09-pilot-authority";
 
 const MI09_PRICING_SEED_KEY_VALUES: string[][] = MI09_PRICING_SEED_TABLE.map((r) => [r.providerKey, String(MI09_PRICING_ARTIFACT_VERSION)]);
 
@@ -635,6 +635,27 @@ async function convergeMi09PricingArtifacts(): Promise<SeedTargetResult> {
   };
 }
 
+// ── Target: mi09_pool_authority_decision initial value ──────────────────────
+// assertPoolAuthorityDecision() (mi09-pilot-authority.ts) hard-blocks every
+// MI-09 pilot run until system_settings.mi09_pool_authority_decision exists.
+// The owner confirmed the decision (master_leads — the canonical pre-contact
+// pool for validated CRO-03 output) but this environment's production DB
+// access is read-only, so it can only be recorded through this same startup
+// convergence path. This target writes the decision EXACTLY ONCE: if a
+// decision already exists (set here on a prior boot, or later changed by an
+// operator through the admin UI's PUT endpoint), it is left untouched —
+// this must never overwrite a live operator decision on every restart.
+async function convergePoolAuthorityDecision(): Promise<SeedTargetResult> {
+  const id = "mi09_pool_authority_decision";
+  const tables = ["system_settings"];
+  const existing = await getPoolAuthorityDecision();
+  if (existing) {
+    return { id, classification: "schema_required_bootstrap", tables, outcome: "already_present", detail: `pool authority already decided: ${existing.pool} (rev ${existing.revision}, by ${existing.decidedBy})` };
+  }
+  const decision = await setPoolAuthorityDecision({ pool: "master_leads", decidedBy: "system:seed-convergence" });
+  return { id, classification: "schema_required_bootstrap", tables, outcome: "inserted", detail: `recorded initial pool authority decision: ${decision.pool} (rev ${decision.revision})` };
+}
+
 /**
  * Registry of every production-required seed/backfill target this module
  * owns. `write` performs the insert-only convergence (used at startup);
@@ -677,6 +698,11 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
     tables: ["mi09_pricing_artifacts", "mi09_pricing_schedule_snapshots"],
     write: convergeMi09PricingArtifacts,
     seedKeys: { columns: ["provider_key", "artifact_version"], values: MI09_PRICING_SEED_KEY_VALUES },
+  },
+  {
+    id: "mi09_pool_authority_decision", classification: "schema_required_bootstrap",
+    tables: ["system_settings"], write: convergePoolAuthorityDecision,
+    seedKeys: { columns: ["key"], values: [["mi09_pool_authority_decision"]] },
   },
 ];
 
@@ -924,6 +950,15 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
         return { id, classification: "immutable_revision_seed", tables, outcome: "unexpected", detail: `all ${MI09_PRICING_SEED_KEY_VALUES.length} canonical pricing artifacts present but no composite pricing schedule snapshot exists` };
       }
       return { id, classification: "immutable_revision_seed", tables, outcome: "already_present", detail: `all ${MI09_PRICING_SEED_KEY_VALUES.length} canonical pricing artifact keys present; snapshot(s) exist` };
+    },
+    async () => {
+      const id = "mi09_pool_authority_decision";
+      const tables = ["system_settings"];
+      const decision = await getPoolAuthorityDecision();
+      if (!decision?.pool) {
+        return { id, classification: "schema_required_bootstrap", tables, outcome: "unexpected", detail: "mi09_pool_authority_decision is not set" };
+      }
+      return { id, classification: "schema_required_bootstrap", tables, outcome: "already_present", detail: `pool authority decided: ${decision.pool} (rev ${decision.revision}, by ${decision.decidedBy})` };
     },
   ];
   for (const check of checks) {
