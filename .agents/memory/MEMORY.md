@@ -156,3 +156,4 @@
 - [Contact enrichment backlog reconnect](contact-enrichment-backlog-reconnect.md) — recurring-tick backlog selection pitfalls: predicate drift, retry starvation, and a wrong gateway status column.
 - [Free-enrichment queue UNION ALL indexing](free-enrichment-queue-union-all-indexing.md) — split an OR eligibility predicate into UNION ALL branches so each gets its own partial index; boundary-test and bulk-cleanup gotchas.
 - [Drizzle array parameter bug](drizzle-array-param-bug.md) — `ANY(${arr}::type[])` silently mis-binds with drizzle-orm's node-postgres driver; build `ARRAY[...]::type[]` by hand instead.
+- [MI-09/CRO-08A schedule convergence](mi09-cro08a-schedule-convergence.md) — pool authority + schedule definitions reach prod via seed-convergence (read-only DB); cursorSemantics/sourceRecipePolicyVersions are currently inert.

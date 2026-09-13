@@ -43,6 +43,7 @@ import {
   MI09_PRICING_ACCOUNT_BALANCE_UNITS,
 } from "./cro03/mi09-pricing-seed-data";
 import { reuseOrCreatePricingArtifact, createPricingScheduleSnapshot, getPoolAuthorityDecision, setPoolAuthorityDecision } from "./mi09-pilot-authority";
+import { createCro08aScheduleDefinition } from "./cro08a/schedule-authority";
 
 const MI09_PRICING_SEED_KEY_VALUES: string[][] = MI09_PRICING_SEED_TABLE.map((r) => [r.providerKey, String(MI09_PRICING_ARTIFACT_VERSION)]);
 
@@ -656,6 +657,81 @@ async function convergePoolAuthorityDecision(): Promise<SeedTargetResult> {
   return { id, classification: "schema_required_bootstrap", tables, outcome: "inserted", detail: `recorded initial pool authority decision: ${decision.pool} (rev ${decision.revision})` };
 }
 
+// ── Target: mi09/CRO-08A schedule definitions (candidate_enrichment,
+// candidate_freshness_refresh) ───────────────────────────────────────────
+// Task per docs/cro03d-ceremony-runbook.md Step 9: operator-approved schedule
+// *definitions* (never activation — that stays behind the separate MI-09
+// pilot-ladder gate in schedule-authority.ts, untouched here). Per-provider
+// budgets are derived from the real seeded pricing artifacts (amount_micros),
+// doubled from the operator's initial conservative figures per their
+// instruction. createCro08aScheduleDefinition() is itself idempotent by
+// definitionHash — an unchanged input reuses the existing row; only a
+// genuinely different input mints a new definitionVersion — so this target
+// is safe to run on every boot.
+const CRO08A_SCHEDULE_RETRY_POLICY = { maxAttempts: 3 };
+const CRO08A_SCHEDULE_DEAD_LETTER_POLICY = { maxAttempts: 5 };
+const CRO08A_SCHEDULE_CREATED_BY = "system:seed-convergence";
+
+async function convergeCro08aCandidateEnrichmentSchedule(): Promise<SeedTargetResult> {
+  const id = "cro08a_candidate_enrichment_schedule";
+  const tables = ["cro08a_schedule_definitions"];
+  const result = await createCro08aScheduleDefinition({
+    logicalKey: "candidate_enrichment",
+    purpose: "Enrich master_leads candidates via governed CRO-03 provider waterfall (production continuous run)",
+    sourceRecipePolicyVersions: { master_leads: 1 },
+    cadenceCron: "0 */4 * * *",
+    timezone: "UTC",
+    windowSeconds: 14400,
+    overlapSeconds: 0,
+    batchSize: 50,
+    concurrencyLimit: 3,
+    cursorSemantics: { sourceSystem: "master_leads" },
+    budgets: {
+      serper: { maxUnitsPerOccurrence: 200 },
+      outscraper: { maxUnitsPerOccurrence: 100 },
+      apollo: { maxUnitsPerOccurrence: 40 },
+      openai: { maxUnitsPerOccurrence: 20000 },
+      zerobounce: { maxUnitsPerOccurrence: 200 },
+    },
+    timeoutMs: 120000,
+    leaseMs: 120000,
+    heartbeatMs: 30000,
+    retryPolicy: CRO08A_SCHEDULE_RETRY_POLICY,
+    deadLetterPolicy: CRO08A_SCHEDULE_DEAD_LETTER_POLICY,
+    downstreamOwner: "cro08a-enrichment",
+    createdBy: CRO08A_SCHEDULE_CREATED_BY,
+  });
+  return { id, classification: "immutable_revision_seed", tables, outcome: "already_present", detail: `definition present: id=${result.id} version=${result.definitionVersion} hash=${result.definitionHash}` };
+}
+
+async function convergeCro08aCandidateFreshnessRefreshSchedule(): Promise<SeedTargetResult> {
+  const id = "cro08a_candidate_freshness_refresh_schedule";
+  const tables = ["cro08a_schedule_definitions"];
+  const result = await createCro08aScheduleDefinition({
+    logicalKey: "candidate_freshness_refresh",
+    purpose: "Periodically re-validate freshness of already-enriched master_leads records (lightweight revalidation, no new discovery)",
+    sourceRecipePolicyVersions: { master_leads: 1 },
+    cadenceCron: "0 2 * * *",
+    timezone: "UTC",
+    windowSeconds: 86400,
+    overlapSeconds: 0,
+    batchSize: 25,
+    concurrencyLimit: 1,
+    cursorSemantics: { sourceSystem: "master_leads" },
+    budgets: {
+      zerobounce: { maxUnitsPerOccurrence: 50 },
+    },
+    timeoutMs: 180000,
+    leaseMs: 180000,
+    heartbeatMs: 30000,
+    retryPolicy: CRO08A_SCHEDULE_RETRY_POLICY,
+    deadLetterPolicy: CRO08A_SCHEDULE_DEAD_LETTER_POLICY,
+    downstreamOwner: "cro08a-freshness-refresh",
+    createdBy: CRO08A_SCHEDULE_CREATED_BY,
+  });
+  return { id, classification: "immutable_revision_seed", tables, outcome: "already_present", detail: `definition present: id=${result.id} version=${result.definitionVersion} hash=${result.definitionHash}` };
+}
+
 /**
  * Registry of every production-required seed/backfill target this module
  * owns. `write` performs the insert-only convergence (used at startup);
@@ -703,6 +779,16 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
     id: "mi09_pool_authority_decision", classification: "schema_required_bootstrap",
     tables: ["system_settings"], write: convergePoolAuthorityDecision,
     seedKeys: { columns: ["key"], values: [["mi09_pool_authority_decision"]] },
+  },
+  {
+    id: "cro08a_candidate_enrichment_schedule", classification: "immutable_revision_seed",
+    tables: ["cro08a_schedule_definitions"], write: convergeCro08aCandidateEnrichmentSchedule,
+    seedKeys: { columns: ["logical_key", "created_by"], values: [["candidate_enrichment", CRO08A_SCHEDULE_CREATED_BY]] },
+  },
+  {
+    id: "cro08a_candidate_freshness_refresh_schedule", classification: "immutable_revision_seed",
+    tables: ["cro08a_schedule_definitions"], write: convergeCro08aCandidateFreshnessRefreshSchedule,
+    seedKeys: { columns: ["logical_key", "created_by"], values: [["candidate_freshness_refresh", CRO08A_SCHEDULE_CREATED_BY]] },
   },
 ];
 
@@ -959,6 +1045,18 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
         return { id, classification: "schema_required_bootstrap", tables, outcome: "unexpected", detail: "mi09_pool_authority_decision is not set" };
       }
       return { id, classification: "schema_required_bootstrap", tables, outcome: "already_present", detail: `pool authority decided: ${decision.pool} (rev ${decision.revision}, by ${decision.decidedBy})` };
+    },
+    async () => {
+      const id = "cro08a_candidate_enrichment_schedule";
+      const tables = ["cro08a_schedule_definitions"];
+      const row = rows(await db.execute(sql`SELECT id, active, budgets FROM cro08a_schedule_definitions WHERE logical_key = 'candidate_enrichment' AND created_by = ${CRO08A_SCHEDULE_CREATED_BY} ORDER BY definition_version DESC LIMIT 1`))[0];
+      return { id, classification: "immutable_revision_seed", tables, outcome: row ? "already_present" : "unexpected", detail: row ? `definition present: id=${row.id} active=${row.active}` : "no canonical candidate_enrichment definition found" };
+    },
+    async () => {
+      const id = "cro08a_candidate_freshness_refresh_schedule";
+      const tables = ["cro08a_schedule_definitions"];
+      const row = rows(await db.execute(sql`SELECT id, active, budgets FROM cro08a_schedule_definitions WHERE logical_key = 'candidate_freshness_refresh' AND created_by = ${CRO08A_SCHEDULE_CREATED_BY} ORDER BY definition_version DESC LIMIT 1`))[0];
+      return { id, classification: "immutable_revision_seed", tables, outcome: row ? "already_present" : "unexpected", detail: row ? `definition present: id=${row.id} active=${row.active}` : "no canonical candidate_freshness_refresh definition found" };
     },
   ];
   for (const check of checks) {
