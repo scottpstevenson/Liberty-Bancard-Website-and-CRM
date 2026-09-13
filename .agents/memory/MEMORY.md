@@ -155,3 +155,4 @@
 - [CRO-08A source-scope & pilot-gate pitfalls](cro08a-source-scope-and-pilot-gate.md) — real source_system allowlist must come from the live cursor table, not table-name guesses; sourceRecipePolicyVersions keys aren't source systems; pilot-ladder gate residue relies on dev/prod DB separation.
 - [Contact enrichment backlog reconnect](contact-enrichment-backlog-reconnect.md) — recurring-tick backlog selection pitfalls: predicate drift, retry starvation, and a wrong gateway status column.
 - [Free-enrichment queue UNION ALL indexing](free-enrichment-queue-union-all-indexing.md) — split an OR eligibility predicate into UNION ALL branches so each gets its own partial index; boundary-test and bulk-cleanup gotchas.
+- [Drizzle array parameter bug](drizzle-array-param-bug.md) — `ANY(${arr}::type[])` silently mis-binds with drizzle-orm's node-postgres driver; build `ARRAY[...]::type[]` by hand instead.
