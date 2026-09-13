@@ -844,6 +844,7 @@ const FLAG_METADATA: Record<string, { label: string; impact: string }> = {
   RINGLESS_VM_ENABLED:        { label: "Ringless VM",       impact: "Enables ringless voicemail drops" },
   NIGHTLY_DISCOVERY_ENABLED:  { label: "Nightly Discovery", impact: "Enables nightly Sunbiz/Outscraper lead discovery" },
   SDR_ENABLED:                { label: "SDR",               impact: "Enables the AI SDR worker to process leads" },
+  FREE_ENRICHMENT_ENABLED:    { label: "Free Enrichment",   impact: "Enables the no-cost JSON-LD/RDAP/contact-page enrichment pipeline required before any paid provider pilot" },
 };
 
 function FlagRow({

@@ -12,6 +12,7 @@ const WIZARD_FLAGS = [
   "RINGLESS_VM_ENABLED",
   "NIGHTLY_DISCOVERY_ENABLED",
   "SUNBIZ_ENRICHMENT_ENABLED",
+  "FREE_ENRICHMENT_ENABLED",
   "CALL_ASSIST_ENABLED",
   "FIELD_SALES_ENABLED",
 ] as const;
@@ -27,6 +28,7 @@ const FLAG_DEFAULTS: Record<WizardFlagName, boolean> = {
   RINGLESS_VM_ENABLED: false,
   NIGHTLY_DISCOVERY_ENABLED: false,
   SUNBIZ_ENRICHMENT_ENABLED: false,
+  FREE_ENRICHMENT_ENABLED: false,
   CALL_ASSIST_ENABLED: false,
   FIELD_SALES_ENABLED: false,
 };
@@ -40,6 +42,7 @@ const FLAG_ENV_VARS: Record<WizardFlagName, string> = {
   RINGLESS_VM_ENABLED: "RINGLESS_VM_ENABLED",
   NIGHTLY_DISCOVERY_ENABLED: "NIGHTLY_DISCOVERY_ENABLED",
   SUNBIZ_ENRICHMENT_ENABLED: "SUNBIZ_ENRICHMENT_ENABLED",
+  FREE_ENRICHMENT_ENABLED: "FREE_ENRICHMENT_ENABLED",
   CALL_ASSIST_ENABLED: "CALL_ASSIST_ENABLED",
   FIELD_SALES_ENABLED: "FIELD_SALES_ENABLED",
 };
@@ -217,7 +220,7 @@ export function getCachedWizardFlagOverrideSync(flag: string): boolean | null {
 let _refreshInterval: ReturnType<typeof setInterval> | null = null;
 
 async function hydrateAllFlags(): Promise<void> {
-  // ONE query for all 8 flags instead of 8 parallel queries.
+  // ONE query for all flags instead of one parallel query per flag.
   // Previously each parallel query held a connection for 7-11 s in production,
   // saturating the pool every 5 minutes. inArray fetches all rows in one round trip.
   try {
