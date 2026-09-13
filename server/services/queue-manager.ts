@@ -3223,6 +3223,37 @@ async function runEnrichmentTick(): Promise<void> {
     await recordWorkerFailure(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR, e.message);
   }
 
+  // ── Existing-contact backlog enrichment (task #1943) ─────────────────────
+  // Reconnects the working Serper-backed contact enrichment path so the
+  // existing CRM backlog (contacts missing email/phone/website) gets worked
+  // through automatically instead of only via ad hoc admin batches. All
+  // budget and circuit-breaker enforcement lives in SerperGateway/serper.ts —
+  // this tick only needs to (a) skip cheaply when Serper is off so it doesn't
+  // spin through the same stuck rows every 10 minutes, and (b) avoid
+  // re-entering while a batch (admin-triggered or this tick) is already
+  // running, which enrichContactBatch's own contactEnrichRunning flag covers.
+  try {
+    const { isSerperConfigured } = await import("./serper");
+    const { serperGateway } = await import("./serper-gateway");
+    const { isContactEnrichRunning, getContactIdsNeedingEnrichment, enrichContactBatch } = await import("./enrichment");
+    if (isSerperConfigured() && !isContactEnrichRunning()) {
+      const control = await serperGateway.getControl();
+      // enabled alone is not enough — an open circuit blocks every provider
+      // call, so launching a batch here would just spend the whole tick
+      // discovering that (and enrichContactBatch's own per-contact gateway
+      // check would abort it anyway). half_open is allowed through since the
+      // gateway itself gates the actual probe request.
+      if (control?.enabled && control.state !== "open") {
+        const backlogIds = await getContactIdsNeedingEnrichment(25);
+        if (backlogIds.length > 0) {
+          await enrichContactBatch(backlogIds, { batchSize: 10 });
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[Queue:enrichment] Contact backlog enrichment error:", err);
+  }
+
   // Sunbiz enrichment queue + auto-convert run independently of LEGACY_OUTREACH_ENABLED.
   // Both are gated directly on SUNBIZ_ENRICHMENT_ENABLED so operators can activate
   // the full Sunbiz lead pipeline without enabling the outreach engine.

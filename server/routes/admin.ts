@@ -6345,11 +6345,11 @@ export function registerAdminRoutes(app: Express) {
       let serperGatewayStatus = "unknown";
       try {
         const sgRow = (await withActivationTimeout(db.execute(sql`
-          SELECT enabled, status FROM serper_control ORDER BY id DESC LIMIT 1
+          SELECT enabled, state FROM serper_control ORDER BY id DESC LIMIT 1
         `), null))?.rows[0] as any;
         if (sgRow) {
           serperGatewayEnabled = Boolean(sgRow.enabled);
-          serperGatewayStatus = sgRow.status ?? "unknown";
+          serperGatewayStatus = sgRow.state ?? "unknown";
         }
       } catch { /* no serper_control table yet */ }
 
@@ -6390,7 +6390,21 @@ export function registerAdminRoutes(app: Express) {
         classificationActive = productionClassifiedCount > 0;
       } catch { /* ignore */ }
 
-      // 10. Canary — check if a canary run has completed recently
+      // 10. Existing-contact backlog enrichment (task #1943) — active only when
+      // Serper is configured AND the gateway's own kill switch is on, since
+      // that is the actual gate the recurring queue-manager tick checks.
+      let contactBacklogRemaining = 0;
+      let contactBacklogActive = false;
+      try {
+        const { getEnrichmentBacklogCount } = await import("../services/enrichment");
+        contactBacklogRemaining = await withActivationTimeout(getEnrichmentBacklogCount(), 0);
+        // "Active" requires the gateway to be enabled AND its circuit not open —
+        // an open circuit blocks every provider call, so reporting active from
+        // enabled alone would mislead admins into thinking the backlog is draining.
+        contactBacklogActive = Boolean(process.env.SERPER_API_KEY) && serperGatewayEnabled && serperGatewayStatus !== "open";
+      } catch { /* ignore */ }
+
+      // 11. Canary — check if a canary run has completed recently
       let canaryCompleted = false;
       let lastCanaryAt: string | null = null;
       try {
@@ -6474,6 +6488,14 @@ export function registerAdminRoutes(app: Express) {
             label: "Production Classification",
             status: classificationActive ? "active" : "pending",
             detail: `${productionClassifiedCount} sunbiz-auto contacts classified as production`,
+          },
+          {
+            key: "contact_backlog_enrichment",
+            label: "Existing-Contact Backlog Enrichment",
+            status: contactBacklogActive ? "active" : "inactive",
+            detail: contactBacklogActive
+              ? `Recurring tick is live — ${contactBacklogRemaining} contacts still missing email/phone/website`
+              : `Recurring tick is idle (Serper key missing, gateway disabled, or circuit ${serperGatewayStatus}) — ${contactBacklogRemaining} contacts waiting`,
           },
         ],
         canary: {

@@ -96,10 +96,24 @@ export async function resetSerperUsage(): Promise<void> {
   await serperGateway.resetWindowCounters();
 }
 
-async function serperSearch(query: string, num: number = 10, callSite: string = "serper_search"): Promise<SerperSearchResponse | null> {
+/**
+ * `attempted` distinguishes a completed provider round-trip (ok:true — even a
+ * 200 with zero results is a genuine attempt) from every other outcome:
+ * missing key, gateway block (disabled/circuit open/budget exhausted/malformed
+ * control/half-open contention), timeout, or a non-2xx provider response.
+ * Callers that track per-contact retry cooldowns MUST only treat `attempted:
+ * true` as a real lookup — anything else means Serper was never actually
+ * asked, and cooling the contact down on that outcome would falsely suppress
+ * a real future attempt once the gateway recovers.
+ */
+async function serperSearch(
+  query: string,
+  num: number = 10,
+  callSite: string = "serper_search",
+): Promise<{ data: SerperSearchResponse | null; attempted: boolean }> {
   if (!isSerperConfigured()) {
     console.warn("[Serper] No API key configured. Set SERPER_API_KEY env variable.");
-    return null;
+    return { data: null, attempted: false };
   }
   const result = await serperGateway.executeSearch("/search", { q: query, num }, callSite);
   if (!result.ok) {
@@ -108,9 +122,9 @@ async function serperSearch(query: string, num: number = 10, callSite: string = 
     } else {
       console.error(`[Serper] Gateway error for ${callSite}: ${result.error ?? result.status}`);
     }
-    return null;
+    return { data: null, attempted: false };
   }
-  return result.data as SerperSearchResponse;
+  return { data: result.data as SerperSearchResponse, attempted: true };
 }
 
 const DIRECTORY_DOMAINS = [
@@ -177,6 +191,10 @@ export interface SerperBusinessResult {
   knowledgeGraphWebsite: string | null;
   organicUrls: string[];
   sources: string[];
+  /** True only when Serper actually returned a completed response (even a
+   * zero-result one). False means the call was never made or was blocked —
+   * see serperSearch()'s doc comment. */
+  providerAttempted: boolean;
 }
 
 export async function searchBusiness(
@@ -192,13 +210,15 @@ export async function searchBusiness(
     knowledgeGraphWebsite: null,
     organicUrls: [],
     sources: [],
+    providerAttempted: false,
   };
 
   const cleanName = cleanEntityName(name);
   const location = city ? `${city}, ${state}` : state === "FL" ? "Florida" : state;
   const query = `${cleanName} ${location}`;
 
-  const data = await serperSearch(query, 10, "search_business");
+  const { data, attempted } = await serperSearch(query, 10, "search_business");
+  result.providerAttempted = attempted;
   if (!data) return result;
 
   if (data.knowledgeGraph) {
@@ -262,7 +282,7 @@ export async function searchBusinessEmail(
   domain?: string,
   city?: string,
   state: string = "FL"
-): Promise<{ emails: string[]; phones: string[]; sources: string[] }> {
+): Promise<{ emails: string[]; phones: string[]; sources: string[]; providerAttempted: boolean }> {
   const cleanName = cleanEntityName(name);
   const emails: string[] = [];
   const phones: string[] = [];
@@ -274,8 +294,8 @@ export async function searchBusinessEmail(
       ? `"${cleanName}" "${city}" ${state} email "@"`
       : `"${cleanName}" Florida email "@"`;
 
-  const data = await serperSearch(query, 5, "search_business_email");
-  if (!data) return { emails, phones, sources };
+  const { data, attempted } = await serperSearch(query, 5, "search_business_email");
+  if (!data) return { emails, phones, sources, providerAttempted: attempted };
 
   for (const item of (data.organic || [])) {
     const contacts = extractContactFromText(item.snippet || "");
@@ -297,7 +317,7 @@ export async function searchBusinessEmail(
     phone: uniquePhones.length > 0,
   });
 
-  return { emails: uniqueEmails, phones: uniquePhones, sources: [...new Set(sources)] };
+  return { emails: uniqueEmails, phones: uniquePhones, sources: [...new Set(sources)], providerAttempted: attempted };
 }
 
 export async function searchBusinessContacts(
@@ -315,7 +335,7 @@ export async function searchBusinessContacts(
   const location = city ? `"${city}" ${state}` : "Florida";
   const query = `"${cleanName}" ${location} phone email`;
 
-  const data = await serperSearch(query, 10, "search_business_contacts");
+  const { data } = await serperSearch(query, 10, "search_business_contacts");
   if (!data) return { emails, phones, website, sources };
 
   if (data.knowledgeGraph) {

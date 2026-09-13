@@ -49,6 +49,22 @@ interface CanaryResponse {
   recommendation: string;
 }
 
+interface ContactEnrichProgress {
+  status: "idle" | "running" | "complete" | "blocked" | "failed";
+  total?: number;
+  processed?: number;
+  emailsFound?: number;
+  phonesFound?: number;
+  websitesFound?: number;
+  errors?: number;
+  backlogRemaining: number;
+  gatewayBlocked?: boolean;
+  startedAt?: string;
+  completedAt?: string;
+  lastUpdate?: string;
+  error?: string;
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const SUBSYSTEM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -103,6 +119,133 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemStatus }) {
         <p className="mt-0.5 text-xs text-muted-foreground">{subsystem.detail}</p>
       </div>
     </div>
+  );
+}
+
+// Existing-contact backlog enrichment card (task #1943) — surfaces the same
+// progress data enrichContactBatch() already writes to system_settings, plus
+// a manual "run now" trigger for admins who don't want to wait for the
+// recurring queue-manager tick.
+function ContactBacklogEnrichmentCard() {
+  const { toast } = useToast();
+
+  const { data: progress, refetch } = useQuery<ContactEnrichProgress>({
+    queryKey: ["/api/contacts/enrich-progress"],
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 5_000 : 30_000),
+  });
+
+  const runMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/contacts/enrich-batch", { limit: 100 });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts/enrich-progress"] });
+      toast({
+        title: data.total ? "Enrichment batch started" : "Nothing to enrich",
+        description: data.total
+          ? `Processing ${data.total} contacts in the background.`
+          : "No contacts are currently missing email, phone, or website.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not start enrichment batch",
+        description: err?.message ?? "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const status = progress?.status ?? "idle";
+  const isRunning = status === "running";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            Existing-Contact Backlog Enrichment
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Reconnected Serper-backed lookup for existing CRM contacts missing email, phone, or
+          website. A recurring background tick claims a small batch every 10 minutes; you can
+          also trigger a batch manually below. This path is independent of the CRO-03
+          candidate-factory pipeline and its certification gate.
+        </p>
+
+        {status === "running" && (
+          <Alert className="border-amber-200 bg-amber-50">
+            <Loader2 className="h-4 w-4 text-amber-600 animate-spin" />
+            <AlertDescription className="text-amber-800 text-sm">
+              Batch in progress — {progress?.processed ?? 0} of {progress?.total ?? 0} processed.
+            </AlertDescription>
+          </Alert>
+        )}
+        {status === "failed" && (
+          <Alert className="border-red-200 bg-red-50">
+            <XCircle className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-800 text-sm">
+              Last run failed: {progress?.error ?? "unknown error"}
+            </AlertDescription>
+          </Alert>
+        )}
+        {status === "blocked" && (
+          <Alert className="border-amber-200 bg-amber-50">
+            <XCircle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800 text-sm">
+              Last run stopped early — the Serper gateway was disabled or its circuit was open.
+              Untouched contacts were not attempted and remain in the backlog.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {[
+            { label: "Backlog remaining", value: progress?.backlogRemaining ?? 0 },
+            { label: "Processed (last run)", value: progress?.processed ?? 0 },
+            { label: "Emails found", value: progress?.emailsFound ?? 0 },
+            { label: "Phones found", value: progress?.phonesFound ?? 0 },
+            { label: "Websites found", value: progress?.websitesFound ?? 0 },
+          ].map(({ label, value }) => (
+            <div key={label} className="text-center">
+              <div className="text-2xl font-bold">{value}</div>
+              <div className="text-xs text-muted-foreground">{label}</div>
+            </div>
+          ))}
+        </div>
+        {typeof progress?.errors === "number" && progress.errors > 0 && (
+          <p className="text-xs text-red-600">{progress.errors} contacts errored on the last run.</p>
+        )}
+        {progress?.lastUpdate && (
+          <p className="text-xs text-muted-foreground">
+            Last update: {new Date(progress.lastUpdate).toLocaleString()}
+          </p>
+        )}
+
+        <Button onClick={() => runMutation.mutate()} disabled={isRunning || runMutation.isPending}>
+          {isRunning || runMutation.isPending ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              {isRunning ? "Batch running…" : "Starting…"}
+            </>
+          ) : (
+            <>
+              <Play className="h-4 w-4 mr-2" />
+              Run batch now (up to 100)
+            </>
+          )}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -194,6 +337,9 @@ export function EnrichmentActivationPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Existing-contact backlog enrichment */}
+      <ContactBacklogEnrichmentCard />
 
       {/* Phase 2 Canary */}
       <Card>

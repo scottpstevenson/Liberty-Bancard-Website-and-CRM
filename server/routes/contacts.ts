@@ -41,6 +41,7 @@ import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
 import { readPeople, readPeopleFacets } from "../services/revenue-read-authority";
 import { createCro03Batch } from "../services/cro03/enrichment-factory";
+import { enrichContactBatch, isContactEnrichRunning, getContactIdsNeedingEnrichment, getEnrichmentBacklogCount } from "../services/enrichment";
 import { claimInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
 
 // ── Canonical email-validation predicates (task #1540A) ─────────────────────
@@ -964,6 +965,72 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // Reconnects the working Serper-backed contact enrichment path (task #1943).
+  // This calls enrichContactBatch() directly — it performs real Serper lookups
+  // and writes email/phone/website straight onto the contact record. It does
+  // NOT forward into the CRO-03/MI candidate-factory pipeline, which is gated
+  // behind a separate, not-yet-issued production certification (task #1739);
+  // that pipeline and its gate are untouched by this route.
+  //
+  // Registered ahead of GET /api/contacts/:id — Express matches routes in
+  // registration order and "enrich-progress" would otherwise be swallowed by
+  // the :id param route.
+  app.post("/api/contacts/enrich-batch", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const schema = z.object({
+        contactIds: z.array(z.number().int().positive()).optional().default([]),
+        limit: z.number().int().min(1).max(1000).optional().default(100),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
+      }
+
+      let contactIds = parsed.data.contactIds;
+      const limit = parsed.data.limit;
+
+      if (contactIds.length === 0) {
+        contactIds = await getContactIdsNeedingEnrichment(limit);
+      }
+
+      if (contactIds.length === 0) {
+        return res.json({ message: "No contacts need enrichment", processed: 0 });
+      }
+
+      if (isContactEnrichRunning()) {
+        return res.status(409).json({
+          code: "ENRICHMENT_ALREADY_RUNNING",
+          message: "A contact enrichment batch is already running. Check /api/contacts/enrich-progress.",
+        });
+      }
+
+      // Runs in the background — a batch against real Serper lookups can take
+      // minutes; the client polls /api/contacts/enrich-progress for status.
+      enrichContactBatch(contactIds).catch(err =>
+        console.error("[ContactEnrich] Batch enrichment failed:", err)
+      );
+
+      res.status(202).json({
+        message: "Enrichment batch started",
+        total: contactIds.length,
+        statusUrl: "/api/contacts/enrich-progress",
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.get("/api/contacts/enrich-progress", isDashboardUser, async (req, res) => {
+    try {
+      const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
+      const backlogRemaining = await getEnrichmentBacklogCount();
+      res.json({ ...(progress as object || { status: "idle" }), backlogRemaining });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
@@ -1216,60 +1283,6 @@ export function registerContactsRoutes(app: Express) {
       });
 
       res.json({ success: true, enrolled: result.enrolled, method: result.method, reason: result.reason });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.post("/api/contacts/enrich-batch", requireRole("admin", "manager"), async (req, res) => {
-    try {
-      const schema = z.object({
-        contactIds: z.array(z.number().int().positive()).optional().default([]),
-        limit: z.number().int().min(1).max(1000).optional().default(100),
-        idempotencyKey: z.string().min(8).max(200).optional(),
-      });
-
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
-      }
-
-      let contactIds = parsed.data.contactIds;
-      const limit = parsed.data.limit;
-
-      if (contactIds.length === 0) {
-        const { data: allContacts } = await storage.getContacts({ limit: 500 });
-        contactIds = allContacts
-          .filter(c => !c.email || !c.phone)
-          .slice(0, limit)
-          .map(c => c.id);
-      }
-
-      if (contactIds.length === 0) {
-        return res.json({ message: "No contacts need enrichment", processed: 0 });
-      }
-
-      const idempotencyKey = parsed.data.idempotencyKey || req.header("idempotency-key");
-      if (!idempotencyKey) {
-        return res.status(400).json({ code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key is required" });
-      }
-      const command = await createCro03Batch({
-        idempotencyKey,
-        contactIds, actorType: "user", actorId: String((req.user as any)?.id ?? ""),
-      });
-      res.status(command.replayed ? 200 : 202).json({
-        message: "Enrichment command accepted", batchId: command.id,
-        statusUrl: `/api/cro03/batches/${command.id}`, total: command.totalCount,
-      });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  app.get("/api/contacts/enrich-progress", isDashboardUser, async (req, res) => {
-    try {
-      const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
-      res.json(progress || { status: "idle" });
     } catch (err: any) {
       serverError(res, err);
     }

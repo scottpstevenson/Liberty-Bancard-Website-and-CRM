@@ -2,9 +2,23 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { enrichmentRuns, businesses } from "@shared/schema";
 import type { Prospect } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
-import { isSerperConfigured, searchBusiness, searchBusinessEmail } from "./serper";
+import { isSerperConfigured, searchBusiness as realSearchBusiness, searchBusinessEmail as realSearchBusinessEmail } from "./serper";
+import { serperGateway } from "./serper-gateway";
+
+/**
+ * Test-only injection seam. Production code always resolves to the real
+ * Serper functions above; scripts/test-contact-backlog-enrichment.ts
+ * mutates this object's properties (not the import bindings, which ESM
+ * freezes) to deterministically simulate provider outcomes — a step that
+ * finds data followed by a later step that gets blocked — without
+ * depending on live, non-deterministic Serper responses.
+ */
+export const _serperDeps = {
+  searchBusiness: realSearchBusiness,
+  searchBusinessEmail: realSearchBusinessEmail,
+};
 import { ingestBusinessFromContact } from "./sdr/dedupe";
 import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
@@ -168,7 +182,7 @@ export async function enrichProspect(prospectId: number): Promise<Prospect | nul
   if (isSerperConfigured() && (!domain || !foundEmail || !foundPhone)) {
     const companyName = prospect.companyName || "";
     if (companyName) {
-      const serperResult = await searchBusiness(companyName, prospect.city || undefined, prospect.state || "FL");
+      const serperResult = await realSearchBusiness(companyName, prospect.city || undefined, prospect.state || "FL");
       if (serperResult.website && !domain) {
         domain = serperResult.website;
       }
@@ -180,7 +194,7 @@ export async function enrichProspect(prospectId: number): Promise<Prospect | nul
       }
 
       if (!foundEmail && domain) {
-        const emailResult = await searchBusinessEmail(companyName, domain, prospect.city || undefined);
+        const emailResult = await realSearchBusinessEmail(companyName, domain, prospect.city || undefined);
         if (emailResult.emails.length > 0) {
           foundEmail = emailResult.emails[0];
         }
@@ -300,13 +314,85 @@ export async function processEnrichmentQueue(): Promise<void> {
 let contactEnrichRunning = false;
 export function isContactEnrichRunning() { return contactEnrichRunning; }
 
+// Shared "field is missing" predicate for existing CRM contacts (task #1943).
+// email/phone are NOT NULL columns (default ''), so "missing" means blank or
+// a synthetic CSV-import placeholder, never SQL NULL for those two fields.
+// This SQL fragment and contactFieldsMissing() below MUST stay in sync — the
+// SQL selects candidates, the JS re-checks the same fields per-contact inside
+// enrichContactBatch so a placeholder email is actually treated as missing
+// (previously enrichContactBatch used a bare `!contact.email` check, which is
+// truthy for placeholders and silently skipped replacing them forever).
+const FIELD_MISSING_SQL = sql`(
+  TRIM(email) = ''
+  OR email ILIKE 'no-email-%'
+  OR email ILIKE '%.internal'
+  OR TRIM(phone) = ''
+  OR website IS NULL
+  OR TRIM(website) = ''
+)`;
+
+// Backlog contacts whose most recent Serper attempt (success or not) was within
+// this window are skipped for the *automatic* selection query. Without this,
+// a contact Serper can never fully resolve (e.g. business genuinely has no
+// findable phone) would sit in the oldest-first page forever, get re-picked
+// every recurring tick, burn quota, and permanently starve every contact
+// behind it in the backlog.
+const RECENT_ATTEMPT_COOLDOWN_SQL = sql`NOT EXISTS (
+  SELECT 1 FROM enrichment_runs er
+  WHERE er.contact_id = contacts.id
+    AND er.provider = 'serper'
+    AND er.job_type = 'email_lookup'
+    AND er.started_at > now() - interval '24 hours'
+)`;
+
+const CONTACT_NEEDS_ENRICHMENT_SQL = sql`
+  archived_at IS NULL
+  AND (COALESCE(TRIM(company_name), '') != '' OR COALESCE(TRIM(first_name), '') != '' OR COALESCE(TRIM(last_name), '') != '')
+  AND ${FIELD_MISSING_SQL}
+`;
+
+/** Re-checks the same "missing" definition as CONTACT_NEEDS_ENRICHMENT_SQL for one contact. */
+function contactFieldsMissing(contact: { email: string; phone: string; website: string | null }) {
+  const email = contact.email ?? "";
+  const emailMissing = email.trim() === "" || /^no-email-/i.test(email) || /\.internal$/i.test(email);
+  const phoneMissing = (contact.phone ?? "").trim() === "";
+  const websiteMissing = !contact.website || contact.website.trim() === "";
+  return { emailMissing, phoneMissing, websiteMissing, anyMissing: emailMissing || phoneMissing || websiteMissing };
+}
+
+/**
+ * Oldest-first page of existing contacts missing email, phone, or website,
+ * excluding contacts attempted in the last 24h so the automatic recurring
+ * tick keeps progressing through the backlog instead of retrying the same
+ * unresolvable contacts every cycle. Manual admin batches that pass explicit
+ * contactIds bypass this cooldown entirely (see POST /api/contacts/enrich-batch).
+ */
+export async function getContactIdsNeedingEnrichment(limit: number): Promise<number[]> {
+  const result = await db.execute(sql`
+    SELECT id FROM contacts
+    WHERE ${CONTACT_NEEDS_ENRICHMENT_SQL}
+      AND ${RECENT_ATTEMPT_COOLDOWN_SQL}
+    ORDER BY id ASC
+    LIMIT ${limit}
+  `);
+  return (result.rows as any[]).map(r => Number(r.id));
+}
+
+/** Total remaining backlog size for the Enrichment Activation Panel. */
+export async function getEnrichmentBacklogCount(): Promise<number> {
+  const result = await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM contacts WHERE ${CONTACT_NEEDS_ENRICHMENT_SQL}
+  `);
+  return Number((result.rows[0] as any)?.n ?? 0);
+}
+
 export async function enrichContactBatch(
   contactIds: number[],
   options?: { batchSize?: number }
-): Promise<{ processed: number; emailsFound: number; phonesFound: number; websitesFound: number; errors: number }> {
+): Promise<{ processed: number; emailsFound: number; phonesFound: number; websitesFound: number; errors: number; gatewayBlocked: boolean }> {
   if (contactEnrichRunning) {
     console.warn("[ContactEnrich] Already running, skipping.");
-    return { processed: 0, emailsFound: 0, phonesFound: 0, websitesFound: 0, errors: 0 };
+    return { processed: 0, emailsFound: 0, phonesFound: 0, websitesFound: 0, errors: 0, gatewayBlocked: false };
   }
   contactEnrichRunning = true;
   const batchSize = options?.batchSize || 10;
@@ -315,6 +401,7 @@ export async function enrichContactBatch(
   let phonesFound = 0;
   let websitesFound = 0;
   let errors = 0;
+  let gatewayBlocked = false;
 
   const progressKey = "contact_enrich_batch_progress";
 
@@ -339,6 +426,7 @@ export async function enrichContactBatch(
       enrichmentRunId: enrichRun.id,
     });
 
+    batchLoop:
     for (let i = 0; i < contactIds.length; i += batchSize) {
       const batch = contactIds.slice(i, i + batchSize);
 
@@ -350,12 +438,21 @@ export async function enrichContactBatch(
           const companyName = contact.companyName || `${contact.firstName || ""} ${contact.lastName || ""}`.trim();
           if (!companyName) { errors++; continue; }
 
-          const needsEmail = !contact.email;
-          const needsPhone = !contact.phone;
-          const needsWebsite = !contact.website;
-          const needsSerper = needsEmail || needsPhone || needsWebsite;
+          const missing = contactFieldsMissing(contact);
+          const needsEmail = missing.emailMissing;
+          const needsPhone = missing.phoneMissing;
+          const needsWebsite = missing.websiteMissing;
+          const needsSerper = missing.anyMissing;
 
           const updates: Record<string, any> = {};
+          let serperAttempted = false;
+          // Set when a call's own outcome (not the cheap pre-filter) proves
+          // the gateway blocked mid-batch. We still finish writing back
+          // whatever this contact's earlier, genuinely-completed call found
+          // (e.g. website resolved before the follow-up email lookup got
+          // blocked) — losing real data because a LATER call failed would be
+          // its own bug — but stop attempting any further contacts.
+          let stopBatchAfterThisContact = false;
 
           if (needsSerper) {
             if (!isSerperConfigured()) {
@@ -363,7 +460,36 @@ export async function enrichContactBatch(
               continue;
             }
 
-            const serperResult = await searchBusiness(companyName, contact.city || undefined, contact.state || "FL");
+            // Cheap pre-filter only — NOT the source of truth. Circuit state
+            // and enabled don't cover every way the gateway can block a call
+            // (budget exhaustion, malformed/unreadable control, rollover
+            // failure, half-open probe contention, or a trip that happens
+            // during the request itself). This just avoids a doomed attempt
+            // when we already know the answer.
+            const control = await serperGateway.getControl();
+            if (!control?.enabled || control.state === "open") {
+              console.warn(`[ContactEnrich] Gateway pre-filter blocked (enabled=${control?.enabled}, state=${control?.state}) — stopping batch early.`);
+              gatewayBlocked = true;
+              break batchLoop;
+            }
+
+            const serperResult = await _serperDeps.searchBusiness(companyName, contact.city || undefined, contact.state || "FL");
+
+            if (!serperResult.providerAttempted) {
+              // The gateway blocked/failed this specific call (budget just
+              // exhausted, circuit tripped mid-request, malformed control,
+              // etc). `serperResult` is empty here for the SAME reason a
+              // genuine no-match is empty, so this check is the only
+              // reliable signal — do NOT fall through to the no_match/
+              // cooldown path below on this outcome. Nothing was found for
+              // this contact, so stop the batch immediately; the contact
+              // stays fully eligible (no cooldown row) for the very next run.
+              console.warn(`[ContactEnrich] Serper call did not complete for contact ${contactId} — stopping batch early, no cooldown recorded.`);
+              gatewayBlocked = true;
+              break batchLoop;
+            }
+
+            serperAttempted = true;
 
             if (serperResult.website && needsWebsite) {
               updates.website = serperResult.website;
@@ -379,8 +505,11 @@ export async function enrichContactBatch(
             }
 
             if (needsEmail && !updates.email && serperResult.website) {
-              const emailResult = await searchBusinessEmail(companyName, serperResult.website, contact.city || undefined);
-              if (emailResult.emails.length > 0) {
+              const emailResult = await _serperDeps.searchBusinessEmail(companyName, serperResult.website, contact.city || undefined);
+              if (!emailResult.providerAttempted) {
+                console.warn(`[ContactEnrich] Serper email-lookup call did not complete for contact ${contactId} — finishing this contact with what was already found, then stopping batch.`);
+                stopBatchAfterThisContact = true;
+              } else if (emailResult.emails.length > 0) {
                 updates.email = emailResult.emails[0];
                 emailsFound++;
               }
@@ -396,7 +525,12 @@ export async function enrichContactBatch(
             });
           }
 
-          if (Object.keys(updates).length > 0) {
+          const foundSomething = Object.keys(updates).length > 0;
+
+          // Persist any real data found BEFORE the block happened regardless
+          // of stopBatchAfterThisContact — a later step being blocked must
+          // never cause us to discard an earlier step's genuine result.
+          if (foundSomething) {
             if (updates.email || updates.phone) {
               // Keep this in the canonical writer transaction so active
               // CRO-03B recipe contacts cannot be mutated by a legacy worker.
@@ -404,25 +538,60 @@ export async function enrichContactBatch(
             }
             await updateContactLocalFirst(contactId, updates);
             enqueueReadinessRecalculation(contactId).catch(() => {});
-          } else {
-            processed++;
-            continue;
           }
 
-          try {
-            await db.insert(enrichmentRuns).values({
-              provider: "serper",
-              jobType: "email_lookup",
-              status: "success",
-              contactId,
-              businessId: contact.businessId || null,
-              startedAt: new Date(),
-              completedAt: new Date(),
-              outputPayload: updates,
-            });
-          } catch (_) {}
+          // The enrichment_runs row is what getContactIdsNeedingEnrichment's
+          // cooldown keys off of — it must ONLY be written when every lookup
+          // this contact needed actually completed. If a later step (e.g.
+          // the email search after a website was already found) was blocked,
+          // the contact is still genuinely missing that field and must stay
+          // immediately eligible, even though we already wrote the website
+          // we did resolve. Writing a "success" row here just because SOME
+          // field was found would wrongly suppress retrying the missing one.
+          if (!stopBatchAfterThisContact) {
+            if (foundSomething) {
+              try {
+                await db.insert(enrichmentRuns).values({
+                  provider: "serper",
+                  jobType: "email_lookup",
+                  status: "success",
+                  contactId,
+                  businessId: contact.businessId || null,
+                  startedAt: new Date(),
+                  completedAt: new Date(),
+                  outputPayload: updates,
+                });
+              } catch (_) {}
+              processed++;
+            } else if (serperAttempted) {
+              // Serper completed every lookup it needed to and found nothing
+              // usable. Record the attempt so getContactIdsNeedingEnrichment's
+              // cooldown skips this contact for 24h instead of retrying it —
+              // and starving everything behind it in the backlog — every tick.
+              try {
+                await db.insert(enrichmentRuns).values({
+                  provider: "serper",
+                  jobType: "email_lookup",
+                  status: "no_match",
+                  contactId,
+                  businessId: contact.businessId || null,
+                  startedAt: new Date(),
+                  completedAt: new Date(),
+                  outputPayload: {},
+                });
+              } catch (_) {}
+              processed++;
+            }
+            // else: this contact didn't need Serper at all — nothing to record.
+          }
+          // else (stopBatchAfterThisContact): no enrichment_runs row is written
+          // here on purpose — the contact remains immediately eligible (no
+          // false cooldown) for its still-missing field(s) on the next run.
 
-          processed++;
+          if (stopBatchAfterThisContact) {
+            gatewayBlocked = true;
+            break batchLoop;
+          }
         } catch (err) {
           console.error(`[ContactEnrich] Error enriching contact ${contactId}:`, err);
           errors++;
@@ -440,12 +609,16 @@ export async function enrichContactBatch(
         websitesFound,
         errors,
         completed: processed + errors,
+        gatewayBlocked,
         lastUpdate: new Date().toISOString(),
       });
     }
 
     await storage.setSystemSetting(progressKey, {
-      status: "complete",
+      // "blocked" instead of "complete" when the gateway tripped mid-batch —
+      // the remaining contacts were never attempted and stay fully eligible
+      // for the next run, so this must read differently from a clean finish.
+      status: gatewayBlocked ? "blocked" : "complete",
       total: contactIds.length,
       processed,
       emailsFound,
@@ -453,14 +626,17 @@ export async function enrichContactBatch(
       websitesFound,
       errors,
       completed: processed + errors,
+      gatewayBlocked,
       completedAt: new Date().toISOString(),
     });
 
     await db.update(enrichmentRuns).set({
-      status: errors > 0 ? "partial" : "success",
+      status: gatewayBlocked ? "partial" : errors > 0 ? "partial" : "success",
       completedAt: new Date(),
-      outputPayload: { processed, errors, emailsFound, phonesFound, websitesFound },
-      errorMessage: errors > 0 ? `${errors} contacts failed enrichment` : null,
+      outputPayload: { processed, errors, emailsFound, phonesFound, websitesFound, gatewayBlocked },
+      errorMessage: gatewayBlocked
+        ? "Serper gateway blocked (disabled or circuit open) — batch stopped early"
+        : errors > 0 ? `${errors} contacts failed enrichment` : null,
     }).where(eq(enrichmentRuns.id, enrichRun.id));
 
     for (const cid of contactIds) {
@@ -483,5 +659,5 @@ export async function enrichContactBatch(
     contactEnrichRunning = false;
   }
 
-  return { processed, emailsFound, phonesFound, websitesFound, errors };
+  return { processed, emailsFound, phonesFound, websitesFound, errors, gatewayBlocked };
 }

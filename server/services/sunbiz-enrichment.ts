@@ -1633,7 +1633,7 @@ export async function deepEnrichEntity(entityId: number): Promise<{
   if (!website) {
     if (isSerperConfigured()) {
       try {
-        const sr = await withTimeout(() => searchBusiness(searchName, city), 10000, { website: null, emails: [], phones: [], knowledgeGraphPhone: null, knowledgeGraphWebsite: null, organicUrls: [], sources: [] });
+        const sr = await withTimeout(() => searchBusiness(searchName, city), 10000, { website: null, emails: [], phones: [], knowledgeGraphPhone: null, knowledgeGraphWebsite: null, organicUrls: [], sources: [], providerAttempted: false });
         if (sr.website) { website = sr.website; sources.push(...sr.sources); }
         if (sr.emails.length > 0) foundEmails.push(...sr.emails);
         if (sr.phones.length > 0) foundPhones.push(...sr.phones);
