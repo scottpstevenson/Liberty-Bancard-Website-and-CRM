@@ -1,8 +1,16 @@
 # CRO-03D Ceremony Runbook (MI-09)
 
-This runbook documents all operator steps required to run the CRO-03D signing ceremony,
-issue a CRO-08A certification receipt, and activate CRO-08A schedule definitions after
-a successful pilot. It supersedes any prior informal guidance.
+This runbook documents all operator steps required to run the CRO-03D signing ceremony
+and activate CRO-08A schedule definitions after a successful pilot. It supersedes any
+prior informal guidance.
+
+> **2026-09-13 update:** the CRO-08A certification-receipt requirement described in
+> earlier steps below has been removed. `activateCro08aScheduleDefinition()` no longer
+> checks for or issues a receipt — the only remaining pre-activation gates are the
+> MI-09 pilot ladder (Levels 1–3 completed) and the $50 aggregate spend cap enforced
+> per-command. Any step below that mentions "certification receipt" as a precondition
+> is stale; `cro08a_certification_receipts` and `issueCro08aCertificationReceipt()`
+> still exist in the codebase but are no longer load-bearing for activation.
 
 ---
 
@@ -104,7 +112,8 @@ The ceremony will:
 2. Sign and import deployment inventory → `cro03c_deployment_inventories`
 3. Create runtime attestation → `cro03c_runtime_attestations`
 4. Create activation policy → `cro03c_activation_policies`
-5. **Issue CRO-08A certification receipt** → `cro08a_certification_receipts`
+5. ~~Issue CRO-08A certification receipt~~ — **removed 2026-09-13.** This step is no
+   longer required or performed by the activation flow; skip it.
 
 > **IMPORTANT:** Runtime attestations expire in ~14 minutes. If the ceremony is
 > interrupted after Step 7 but before activation, you must re-run the full ceremony
@@ -122,9 +131,9 @@ psql $DATABASE_URL -c "SELECT id, dimension, issuer_id, created_at FROM cro03c_a
 # Verify activation policy
 psql $DATABASE_URL -c "SELECT id, release_sha, policy_key, created_at FROM cro03c_activation_policies ORDER BY created_at DESC LIMIT 1;"
 
-# Verify CRO-08A certification receipt
-psql $DATABASE_URL -c "SELECT id, release_sha, migration_head, expires_at FROM cro08a_certification_receipts ORDER BY issued_at DESC LIMIT 1;"
 ```
+
+(The former "verify CRO-08A certification receipt" check is no longer relevant — no receipt is issued or required by the current activation flow.)
 
 **Do NOT assert `cro03d_activation_snapshots` — that table does not exist in this codebase.**
 Verify only `cro03c_approval_receipts` and `cro03c_activation_policies`.
@@ -133,7 +142,7 @@ Verify only `cro03c_approval_receipts` and `cro03c_activation_policies`.
 
 ## Step 9 — Create Schedule Definitions
 
-With a live CRO-08A certification receipt, create operator-approved schedule definitions.
+Create operator-approved schedule definitions (no certification receipt required).
 Provider budgets MUST be derived from the operator pricing artifact — no hardcoded dollar amounts.
 
 ```bash
@@ -170,7 +179,7 @@ Create definitions for all four logical keys:
 ## Step 10 — Activate Schedule Definitions
 
 ```bash
-# Activate via admin API (requires fresh certification receipt from Step 7)
+# Activate via admin API (pilot ladder + $50 spend cap only — no certification receipt needed)
 curl -s -X POST https://libertybancard.com/api/admin/cro08a/schedule-definitions/<DEF_ID>/activate \
   -H "Content-Type: application/json" \
   -H "x-csrf-token: <CSRF_TOKEN>" \
