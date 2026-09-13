@@ -1076,7 +1076,7 @@ export async function createCro03cCommand(input: {
     // Business validation caps: caller-supplied for initial_batch.
     // Separate from contact validationMaxUnits — each path independently
     // enforces its own cap so neither path can consume the other's budget.
-    const bizValMaxUnits = (input.commandType === "initial_batch")
+    const bizValMaxUnits = (input.commandType === "initial_batch" || input.commandType === "pilot_phase")
       ? Math.max(0, Math.floor(input.businessValidationMaxUnits ?? 0))
       : 0;
     const bizValMaxAmountMicros = bizValMaxUnits * validationUnitAmountMicros;
@@ -1112,8 +1112,16 @@ export async function createCro03cCommand(input: {
           scheduleOccurrenceId: input.scheduleOccurrenceId, scheduleDefinitionHash: input.scheduleDefinitionHash,
         }
       : {
+          // pilot_phase: business-validation (ZeroBounce) caps are now real and
+          // caller-supplied (bounded upstream by the pilot's $50 aggregate cap in
+          // mi09-pilot-authority.ts), not hardcoded to zero. Without this, ZeroBounce
+          // business validation — and therefore master_leads creation — could never
+          // occur via the MI-09 pilot path no matter what the pilot definition allowed.
           provider: input.provider, maxUnits: input.maxUnits, maxAmountMicros: input.maxAmountMicros,
-          businessValidationMaxUnits: 0, businessValidationMaxAmountMicros: 0,
+          businessValidationMaxUnits: bizValMaxUnits,
+          businessValidationMaxAmountMicros: bizValMaxAmountMicros,
+          validationPriceScheduleVersion: Number(pricing.zerobounce.version),
+          validationPriceScheduleHash: stableCro03RecipeHash(pricing.zerobounce),
         };
     // The command key binds the server-derived caps into command identity; an
     // idempotency token can never silently identify a differently capped

@@ -2304,6 +2304,38 @@ function PilotStatusPanel() {
     staleTime: 30_000,
   });
 
+  const poolAuthorityQuery = useQuery<{ decision: { pool: string; decidedBy: string; decidedAt: string; revision: number } | null }>({
+    queryKey: ["/api/lead-ops/pilot/pool-authority"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/pool-authority", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const statusOverviewQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/pilot/status-overview"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/status-overview", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 20_000,
+    refetchInterval: 30_000,
+  });
+
+  const activationReadinessQuery = useQuery<{ readiness: { ready: boolean; gates: { key: string; passed: boolean; detail: string }[] }; authorization: any; scope: string }>({
+    queryKey: ["/api/lead-ops/pilot/activation-readiness"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/activation-readiness", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 20_000,
+  });
+  const [activationConfirmText, setActivationConfirmText] = useState("");
+
   const invalidatePilot = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/preflight"] });
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/runs"] });
@@ -2314,6 +2346,34 @@ function PilotStatusPanel() {
   const errToast = (err: unknown) => {
     toast({ title: "Action failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
   };
+
+  const setPoolAuthorityMutation = useMutation({
+    mutationFn: async (pool: "master_leads" | "prospects") => {
+      const res = await apiRequest("PUT", "/api/lead-ops/pilot/pool-authority", { pool });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Pool authority updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/pool-authority"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/preflight"] });
+    },
+    onError: errToast,
+  });
+
+  const authorizeActivationMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", "/api/lead-ops/pilot/activation-readiness", { typedConfirmation: activationConfirmText });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Selective activation authorized (record only — BACKGROUND_JOB_PROFILE unchanged)" });
+      setActivationConfirmText("");
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/activation-readiness"] });
+    },
+    onError: errToast,
+  });
 
   const createDefMutation = useMutation({
     mutationFn: async () => {
@@ -2505,6 +2565,181 @@ function PilotStatusPanel() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Pool authority — owner-only decision of which pool MI-09 treats as authoritative */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Pool Authority</h3>
+        <p className="text-xs text-muted-foreground">
+          Determines whether MI-09 pilots and free enrichment treat <code>master_leads</code> or <code>prospects</code> as the
+          authoritative pool for downstream sales handoff. Owner-only; every change is written to the audit log.
+        </p>
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-muted-foreground">Current:</span>
+          <span className="font-mono px-2 py-0.5 rounded bg-muted">
+            {poolAuthorityQuery.data?.decision?.pool ?? "not yet decided"}
+          </span>
+          {poolAuthorityQuery.data?.decision && (
+            <span className="text-muted-foreground">
+              (rev {poolAuthorityQuery.data.decision.revision}, by {poolAuthorityQuery.data.decision.decidedBy}, {new Date(poolAuthorityQuery.data.decision.decidedAt).toLocaleString()})
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant={poolAuthorityQuery.data?.decision?.pool === "master_leads" ? "default" : "outline"}
+            onClick={() => setPoolAuthorityMutation.mutate("master_leads")}
+            disabled={setPoolAuthorityMutation.isPending}
+            data-testid="button-pool-authority-master-leads"
+          >
+            Set master_leads authoritative
+          </Button>
+          <Button
+            size="sm"
+            variant={poolAuthorityQuery.data?.decision?.pool === "prospects" ? "default" : "outline"}
+            onClick={() => setPoolAuthorityMutation.mutate("prospects")}
+            disabled={setPoolAuthorityMutation.isPending}
+            data-testid="button-pool-authority-prospects"
+          >
+            Set prospects authoritative
+          </Button>
+        </div>
+      </div>
+
+      {/* Full telemetry snapshot */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <h3 className="font-semibold text-sm">System Telemetry</h3>
+        {statusOverviewQuery.isLoading && <p className="text-xs text-muted-foreground">Loading...</p>}
+        {statusOverviewQuery.data && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">RELEASE_SHA</div>
+              <div className="font-mono truncate">{statusOverviewQuery.data.releaseSha}</div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">Background job profile</div>
+              <div className={statusOverviewQuery.data.backgroundJobProfile === "off" ? "text-green-600" : "text-amber-600"}>
+                {statusOverviewQuery.data.backgroundJobProfile}
+              </div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">Canonical businesses</div>
+              <div>{statusOverviewQuery.data.eligibleCounts?.canonical_businesses ?? "—"}</div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">Canonical, non-DBPR</div>
+              <div>{statusOverviewQuery.data.eligibleCounts?.canonical_non_dbpr_businesses ?? "—"}</div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">Excluded businesses</div>
+              <div>{statusOverviewQuery.data.eligibleCounts?.excluded_businesses ?? "—"}</div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">Free enrichment complete</div>
+              <div>{statusOverviewQuery.data.eligibleCounts?.free_enrichment_complete ?? "—"}</div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">master_leads rows</div>
+              <div>{statusOverviewQuery.data.eligibleCounts?.master_leads_count ?? "—"}</div>
+            </div>
+            <div className="rounded border p-2">
+              <div className="text-muted-foreground">Aggregate spend</div>
+              <div>{usdFromMicros((statusOverviewQuery.data.aggregateBudget?.settledMicros ?? 0) + (statusOverviewQuery.data.aggregateBudget?.reservedMicros ?? 0))} / {usdFromMicros(statusOverviewQuery.data.aggregateBudget?.capMicros ?? 0)}</div>
+            </div>
+          </div>
+        )}
+        {statusOverviewQuery.data?.zbOutcomes?.length > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">ZeroBounce outcomes (contacts.email_status)</div>
+            <div className="flex flex-wrap gap-1">
+              {statusOverviewQuery.data.zbOutcomes.map((o: any) => (
+                <span key={o.email_status} className="text-xs px-2 py-0.5 rounded bg-muted font-mono">{o.email_status}: {o.cnt}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {statusOverviewQuery.data?.spendByProvider?.length > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Spend by provider</div>
+            <div className="flex flex-wrap gap-1">
+              {statusOverviewQuery.data.spendByProvider.map((p: any) => (
+                <span key={p.provider} className="text-xs px-2 py-0.5 rounded bg-muted font-mono">
+                  {p.provider}: {usdFromMicros(p.settledMicros + p.reservedMicros)} ({p.operationCount} ops)
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {statusOverviewQuery.data?.providerControls?.length > 0 && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Provider controls / circuits</div>
+            <div className="flex flex-wrap gap-1">
+              {statusOverviewQuery.data.providerControls.map((p: any) => (
+                <span key={p.provider} className={`text-xs px-2 py-0.5 rounded font-mono ${p.circuit_state === "open" ? "bg-red-100 text-red-800" : "bg-muted"}`}>
+                  {p.provider}: enabled={String(p.enabled)} circuit={p.circuit_state}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {statusOverviewQuery.data?.secretPresence && (
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Required secret presence (booleans only)</div>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(statusOverviewQuery.data.secretPresence).map(([k, present]) => (
+                <span key={k} className={`text-xs px-2 py-0.5 rounded font-mono ${present ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                  {k}: {String(present)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Final operator-gated activation step (corrective item 10) */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Selective Activation Readiness</h3>
+        <p className="text-xs text-muted-foreground">
+          Scope: <code className="font-mono">{activationReadinessQuery.data?.scope ?? "selective:enrichment,provider-live,email-validation,continuous-enrichment"}</code>.
+          Authorizing here only records your decision — it does not change <code>BACKGROUND_JOB_PROFILE</code> or start any worker.
+          To actually go live, set that secret to the scope above yourself after Publish, then restart.
+        </p>
+        {activationReadinessQuery.data && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            {activationReadinessQuery.data.readiness.gates.map((g) => (
+              <div key={g.key} className="rounded border p-2">
+                <div className="text-muted-foreground font-mono">{g.key}</div>
+                <div className={g.passed ? "text-green-600" : "text-red-500"}>{g.detail}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {activationReadinessQuery.data?.authorization ? (
+          <div className="text-xs text-green-700 dark:text-green-400">
+            Authorized by {activationReadinessQuery.data.authorization.authorizedBy} at{" "}
+            {new Date(activationReadinessQuery.data.authorization.authorizedAt).toLocaleString()}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Input
+              value={activationConfirmText}
+              onChange={(e) => setActivationConfirmText(e.target.value)}
+              placeholder="Type: AUTHORIZE SELECTIVE ACTIVATION"
+              className="text-xs h-8 max-w-xs"
+              data-testid="input-activation-confirm"
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={!activationReadinessQuery.data?.readiness.ready || authorizeActivationMutation.isPending || activationConfirmText !== "AUTHORIZE SELECTIVE ACTIVATION"}
+              onClick={() => authorizeActivationMutation.mutate()}
+              data-testid="button-authorize-activation"
+            >
+              Record activation authorization
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Preflight checklist */}

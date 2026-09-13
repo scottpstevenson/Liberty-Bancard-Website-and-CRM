@@ -1843,6 +1843,116 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // #corrective-build item 10 — final operator-gated activation step. This
+  // route ONLY reports readiness and (on PUT) records an auditable
+  // authorization decision. It never reads/writes BACKGROUND_JOB_PROFILE,
+  // never starts a worker, and never mutates outreach/GHL/discovery/Sunbiz/
+  // DBPR schedules. Real activation still requires the operator to change
+  // the BACKGROUND_JOB_PROFILE secret themselves, in their own session.
+  app.get("/api/lead-ops/pilot/activation-readiness", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getActivationReadiness, getSelectiveActivationAuthorization, MI09_ACTIVATION_SCOPE } = await import("../services/mi09-pilot-authority");
+      const [readiness, authorization] = await Promise.all([getActivationReadiness(), getSelectiveActivationAuthorization()]);
+      res.json({ readiness, authorization, scope: MI09_ACTIVATION_SCOPE });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.put("/api/lead-ops/pilot/activation-readiness", requireRole("admin"), async (req, res) => {
+    try {
+      const { typedConfirmation } = req.body as { typedConfirmation?: unknown };
+      const { authorizeSelectiveActivation } = await import("../services/mi09-pilot-authority");
+      const authorizedBy = (req.user as any)?.email || (req.user as any)?.id || "unknown";
+      const authorization = await authorizeSelectiveActivation({ authorizedBy, typedConfirmation: String(typedConfirmation ?? "") });
+      res.json({ authorization });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message });
+    }
+  });
+
+  // #corrective-build item 9 — one consolidated telemetry snapshot the Lead
+  // Ops panel renders: pool authority, eligible/exclusion counts,
+  // business/master-lead counts, ZeroBounce outcomes, spend by provider,
+  // worker profile, provider controls/circuits, required-secret PRESENCE
+  // (never values), and the exact deployed RELEASE_SHA.
+  app.get("/api/lead-ops/pilot/status-overview", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getPoolAuthorityDecision, getAggregatePilotSpend } = await import("../services/mi09-pilot-authority");
+      const { getBackgroundProfile } = await import("../services/background-profile");
+
+      const [poolAuthority, spend] = await Promise.all([
+        getPoolAuthorityDecision(),
+        getAggregatePilotSpend(),
+      ]);
+
+      const eligibleCounts = rows(await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical') AS canonical_businesses,
+          (SELECT COUNT(*)::int FROM businesses b JOIN canonical_source_links csl ON csl.business_id = b.id
+             WHERE b.record_class = 'canonical' AND csl.source_system !~* 'dbpr') AS canonical_non_dbpr_businesses,
+          (SELECT COUNT(*)::int FROM businesses WHERE record_class != 'canonical') AS excluded_businesses,
+          (SELECT COUNT(*)::int FROM businesses WHERE free_enrichment_status = 'complete') AS free_enrichment_complete,
+          (SELECT COUNT(*)::int FROM master_leads) AS master_leads_count
+      `))[0] ?? {};
+
+      const zbOutcomes = rows(await db.execute(sql`
+        SELECT email_status, COUNT(*)::int AS cnt FROM contacts
+        WHERE email_status IS NOT NULL GROUP BY email_status ORDER BY cnt DESC LIMIT 10
+      `));
+
+      const providerControls = rows(await db.execute(sql`
+        SELECT provider, enabled, circuit_state, local_budget_units, reserved_units, consumed_units
+        FROM provider_controls
+        WHERE provider IN ('serper', 'outscraper', 'openai', 'apollo', 'zerobounce')
+      `));
+
+      const requiredSecrets = ["SERPER_API_KEY", "OUTSCRAPER_API_KEY", "AI_INTEGRATIONS_OPENAI_API_KEY", "APOLLO_API_KEY", "ZEROBOUNCE_API_KEY"];
+      const secretPresence = Object.fromEntries(requiredSecrets.map((k) => [k, !!process.env[k]]));
+
+      res.json({
+        poolAuthority,
+        releaseSha: process.env.RELEASE_SHA ?? "unknown",
+        backgroundJobProfile: getBackgroundProfile(),
+        outboundEnrichmentPaused: getBackgroundProfile() === "off",
+        eligibleCounts,
+        zbOutcomes,
+        spendByProvider: spend.byProvider,
+        aggregateBudget: { capMicros: spend.capMicros, settledMicros: spend.settledMicros, reservedMicros: spend.reservedMicros, remainingMicros: spend.remainingMicros, overCap: spend.overCap },
+        providerControls,
+        secretPresence,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // #corrective-build item 5 — owner-only pool authority decision, settable
+  // from the app instead of requiring direct SQL.
+  app.get("/api/lead-ops/pilot/pool-authority", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getPoolAuthorityDecision } = await import("../services/mi09-pilot-authority");
+      res.json({ decision: await getPoolAuthorityDecision() });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.put("/api/lead-ops/pilot/pool-authority", requireRole("admin"), async (req, res) => {
+    try {
+      const { pool } = req.body as { pool?: unknown };
+      if (pool !== "master_leads" && pool !== "prospects") {
+        return res.status(400).json({ error: "pool must be 'master_leads' or 'prospects'" });
+      }
+      const { setPoolAuthorityDecision } = await import("../services/mi09-pilot-authority");
+      const decidedBy = (req.user as any)?.email || (req.user as any)?.id || "unknown";
+      const decision = await setPoolAuthorityDecision({ pool, decidedBy });
+      res.json({ decision });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message });
+    }
+  });
+
   app.post("/api/lead-ops/pilot/runs/:runId/transition", requireRole("admin"), async (req, res) => {
     try {
       const { transitionPilotRunState, evaluateStopConditions, getPilotRun, getPilotDefinitions, assertPaidBudgetAuthorized, assertAggregatePaidBudgetAvailable } = await import("../services/mi09-pilot-authority");

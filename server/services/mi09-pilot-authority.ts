@@ -461,6 +461,159 @@ async function assertPoolAuthorityDecision(): Promise<void> {
   }
 }
 
+/**
+ * Owner-only mutation for the pool authority decision. This is the ONLY
+ * sanctioned writer for system_settings.mi09_pool_authority_decision — no
+ * route or script should write that key directly. Records actor + timestamp
+ * in the persisted value itself (read back by assertPoolAuthorityDecision)
+ * and writes an audit_logs row so the decision is traceable.
+ */
+export async function setPoolAuthorityDecision(input: {
+  pool: "master_leads" | "prospects";
+  decidedBy: string;
+}): Promise<{ pool: string; decidedBy: string; decidedAt: string; revision: number }> {
+  if (input.pool !== "master_leads" && input.pool !== "prospects") {
+    throw new Error(`POOL_AUTHORITY_INVALID_POOL:${input.pool}`);
+  }
+  const prior = rows(await db.execute(sql`
+    SELECT value FROM system_settings WHERE key = 'mi09_pool_authority_decision' LIMIT 1
+  `))[0];
+  const priorDecision = prior?.value ? (typeof prior.value === "string" ? JSON.parse(prior.value) : prior.value) : null;
+  const revision = Number(priorDecision?.revision ?? 0) + 1;
+  const decision = {
+    pool: input.pool,
+    decidedBy: input.decidedBy,
+    decidedAt: new Date().toISOString(),
+    revision,
+  };
+  await db.execute(sql`
+    INSERT INTO system_settings (key, value, updated_at)
+    VALUES ('mi09_pool_authority_decision', ${JSON.stringify(decision)}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `);
+  await db.execute(sql`
+    INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+    VALUES (${input.decidedBy}, 'mi09_pool_authority_decision_updated', 'system', 'mi09_pool_authority_decision',
+            ${JSON.stringify({ pool: decision.pool, revision, priorPool: priorDecision?.pool ?? null })}::jsonb,
+            'user', ${input.decidedBy})
+  `);
+  return decision;
+}
+
+/** Read the current pool authority decision (or null if never set) for display. */
+export async function getPoolAuthorityDecision(): Promise<{ pool: string; decidedBy: string; decidedAt: string; revision: number } | null> {
+  const row = rows(await db.execute(sql`
+    SELECT value FROM system_settings WHERE key = 'mi09_pool_authority_decision' LIMIT 1
+  `))[0];
+  if (!row?.value) return null;
+  return typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+}
+
+// ── Corrective item 10: final operator-gated activation step ────────────────
+// This module NEVER reads or writes BACKGROUND_JOB_PROFILE and never starts a
+// worker. It only computes whether every precondition the audit required is
+// currently true, and — if the operator explicitly types the confirmation
+// phrase — records that authorization as an auditable decision. Turning the
+// lights on for real still requires the operator to set
+// BACKGROUND_JOB_PROFILE=selective:enrichment,provider-live,email-validation,continuous-enrichment
+// as an environment secret themselves and restart, in their own session,
+// after Publish. That step is intentionally outside this codebase's reach.
+export const MI09_ACTIVATION_SCOPE = "selective:enrichment,provider-live,email-validation,continuous-enrichment";
+const MI09_ACTIVATION_AUTH_KEY = "mi09_selective_activation_authorization";
+export const MI09_ACTIVATION_TYPED_CONFIRMATION = "AUTHORIZE SELECTIVE ACTIVATION";
+
+export interface ActivationReadinessGate { key: string; passed: boolean; detail: string }
+export interface ActivationReadiness { ready: boolean; gates: ActivationReadinessGate[] }
+
+/** Every precondition the audit required before the operator may even consider flipping BACKGROUND_JOB_PROFILE. */
+export async function getActivationReadiness(): Promise<ActivationReadiness> {
+  const gates: ActivationReadinessGate[] = [];
+
+  const runsByLevel = rows(await db.execute(sql`
+    SELECT pd.level, r.state, COUNT(*)::int AS cnt
+    FROM mi09_pilot_runs r
+    JOIN mi09_pilot_definitions pd ON pd.id = r.pilot_definition_id
+    GROUP BY pd.level, r.state
+  `));
+  for (const level of [1, 2, 3]) {
+    const completed = runsByLevel.some((r: any) => Number(r.level) === level && r.state === "completed" && Number(r.cnt) > 0);
+    gates.push({ key: `pilot_level_${level}_completed`, passed: completed, detail: completed ? "completed run found" : "no completed run for this level" });
+  }
+
+  const certRow = rows(await db.execute(sql`
+    SELECT id, revoked_at, expires_at FROM cro08a_certification_receipts
+    WHERE revoked_at IS NULL AND expires_at > NOW()
+    ORDER BY issued_at DESC LIMIT 1
+  `))[0];
+  gates.push({ key: "cro08a_certified", passed: !!certRow, detail: certRow ? `valid receipt ${String(certRow.id).slice(0, 8)}` : "no unexpired, non-revoked certification receipt found" });
+
+  const poolAuthority = await getPoolAuthorityDecision();
+  gates.push({ key: "pool_authority_decided", passed: !!poolAuthority, detail: poolAuthority ? `${poolAuthority.pool} (rev ${poolAuthority.revision})` : "not yet decided" });
+
+  const budget = await getAggregatePilotSpend();
+  gates.push({ key: "aggregate_budget_within_cap", passed: !budget.overCap, detail: `${budget.settledMicros + budget.reservedMicros} / ${budget.capMicros} micros` });
+
+  const requiredSecrets = ["SERPER_API_KEY", "OUTSCRAPER_API_KEY", "AI_INTEGRATIONS_OPENAI_API_KEY", "APOLLO_API_KEY", "ZEROBOUNCE_API_KEY"];
+  const missingSecrets = requiredSecrets.filter((k) => !process.env[k]);
+  gates.push({ key: "required_secrets_present", passed: missingSecrets.length === 0, detail: missingSecrets.length === 0 ? "all present" : `missing: ${missingSecrets.join(", ")}` });
+
+  return { ready: gates.every((g) => g.passed), gates };
+}
+
+export interface SelectiveActivationAuthorization {
+  authorizedBy: string;
+  authorizedAt: string;
+  scope: string;
+  typedConfirmation: string;
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
+export async function getSelectiveActivationAuthorization(): Promise<SelectiveActivationAuthorization | null> {
+  const row = rows(await db.execute(sql`
+    SELECT value FROM system_settings WHERE key = ${MI09_ACTIVATION_AUTH_KEY} LIMIT 1
+  `))[0];
+  if (!row?.value) return null;
+  return typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+}
+
+/**
+ * Owner-only: record that the operator has reviewed readiness and typed the
+ * exact confirmation phrase. This ONLY writes an auditable record — it never
+ * touches process.env, never starts a worker, and never mutates
+ * BACKGROUND_JOB_PROFILE. Fails closed unless every readiness gate passes.
+ */
+export async function authorizeSelectiveActivation(input: {
+  authorizedBy: string;
+  typedConfirmation: string;
+}): Promise<SelectiveActivationAuthorization> {
+  if (input.typedConfirmation !== MI09_ACTIVATION_TYPED_CONFIRMATION) {
+    throw new Error("MI09_ACTIVATION_CONFIRMATION_MISMATCH");
+  }
+  const readiness = await getActivationReadiness();
+  if (!readiness.ready) {
+    const failed = readiness.gates.filter((g) => !g.passed).map((g) => g.key).join(", ");
+    throw new Error(`MI09_ACTIVATION_NOT_READY:${failed}`);
+  }
+  const authorization: SelectiveActivationAuthorization = {
+    authorizedBy: input.authorizedBy,
+    authorizedAt: new Date().toISOString(),
+    scope: MI09_ACTIVATION_SCOPE,
+    typedConfirmation: input.typedConfirmation,
+  };
+  await db.execute(sql`
+    INSERT INTO system_settings (key, value, updated_at)
+    VALUES (${MI09_ACTIVATION_AUTH_KEY}, ${JSON.stringify(authorization)}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `);
+  await db.execute(sql`
+    INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
+    VALUES (${input.authorizedBy}, 'mi09_selective_activation_authorized', 'system', ${MI09_ACTIVATION_AUTH_KEY},
+            ${JSON.stringify({ scope: MI09_ACTIVATION_SCOPE })}::jsonb, 'user', ${input.authorizedBy})
+  `);
+  return authorization;
+}
+
 // Legal state transition matrix for pilot runs.
 const LEGAL_PILOT_TRANSITIONS: Record<string, string[]> = {
   draft:    ["running", "stopped"],
@@ -803,8 +956,9 @@ export async function getPilotCohortMembers(runId: string): Promise<any[]> {
 // definition's own immutable scope (county/vertical/source-adapter) plus a
 // fixed set of exclusions the operator asked to be enforced unconditionally:
 //
-//   - record_class must be 'production' (excludes 'test'/'demo'/'synthetic'
-//     rows seeded for development, see migration 0166).
+//   - record_class must be 'canonical' — the same class free enrichment and
+//     the field-eligibility gate require (excludes 'test'/'demo'/'synthetic'/
+//     'unknown' rows; see migration 0240's check constraint).
 //   - No canonical_source_links row with source_system = 'dbpr_hr'. DBPR-HR
 //     licensing data is used only as qualification/discovery evidence
 //     upstream (see cro03a_handoffs) — it must never itself become a pilot
@@ -909,7 +1063,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
       AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
-      AND b.record_class <> 'production'
+      AND b.record_class <> 'canonical'
   `))[0];
 
   const excludedLinked = rows(await db.execute(sql`
@@ -966,7 +1120,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
       AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
-      AND b.record_class = 'production'
+      AND b.record_class = 'canonical'
       AND (b.free_enrichment_status IS DISTINCT FROM 'suppressed')
       AND (b.email_discovery_status IS DISTINCT FROM 'suppressed')
       AND NOT EXISTS (SELECT 1 FROM canonical_source_links dbpr WHERE dbpr.business_id = b.id AND dbpr.source_system = 'dbpr_hr')
@@ -1064,19 +1218,16 @@ export async function executePilotCohortPhase(input: {
     throw new Error(`PILOT_EXECUTOR_RUN_NOT_RUNNING:state=${run.state}`);
   }
 
-  // Derive the paid provider for this phase from the definition's paid_providers_allowed map.
-  // Each phase uses a specific provider; no provider is used if the definition disallows it.
-  //   enrichment  → serper (business identity discovery)
-  //   validation  → zerobounce (email validation)
-  //   staging     → no external provider
-  const paidAllowed = run.paid_providers_allowed
+  // Which paid providers this run's definition allows at all. Level 1 has
+  // every key false (or absent) — genuinely free-only. Levels 2/3 allow a
+  // subset. Allowing a provider here is necessary but not sufficient: it
+  // still only fires for the specific businesses that actually have the gap
+  // that provider fills (see PROVIDER_GAP_SQL below) — never every record.
+  const paidAllowed: Record<string, boolean> = run.paid_providers_allowed
     ? (typeof run.paid_providers_allowed === "string"
         ? JSON.parse(run.paid_providers_allowed)
         : run.paid_providers_allowed)
     : {};
-  // Enrichment phase may use Serper when the definition allows it.
-  const phaseProvider: string | undefined =
-    input.phase === "enrichment" && paidAllowed.serper === true ? "serper" : undefined;
 
   // Verify outbound is still paused with the same epoch.
   const pause = await getPauseState();
@@ -1129,10 +1280,20 @@ export async function executePilotCohortPhase(input: {
   `));
 
   const handoffIds = handoffRows.map((r: any) => String(r.handoff_id));
+  // One business can have multiple un-authorized handoffs; group by business so
+  // gap-eligibility (computed per business below) maps to the right handoff set.
+  const handoffIdsByBusiness = new Map<number, string[]>();
+  for (const r of handoffRows) {
+    const bizId = Number(r.business_id);
+    const list = handoffIdsByBusiness.get(bizId) ?? [];
+    list.push(String(r.handoff_id));
+    handoffIdsByBusiness.set(bizId, list);
+  }
+
   let effectsRecorded = 0;
 
   if (handoffIds.length > 0) {
-    // Create a real CRO-03C command for the batch of handoffs, then record the
+    // Create real CRO-03C commands for the batch of handoffs, then record each
     // command ID as a mi09_pilot_effect_links row with entity_type='cro03c_command'.
     // This satisfies the CHECK constraint (entity_type IN ('cro03c_command','generation',
     // 'staging_receipt','master_lead')) and creates genuine execution evidence.
@@ -1171,60 +1332,131 @@ export async function executePilotCohortPhase(input: {
       );
     }
 
-    // Idempotent: key includes pilot run, phase, and checkpoint page.
-    const selectionHash = createHash("sha256")
-      .update(JSON.stringify({ pilotRunId: input.pilotRunId, phase: input.phase, handoffIds: [...handoffIds].sort() }))
-      .digest("hex");
-    const commandIdem = selectionHash.slice(0, 128);
+    // ── Gap-driven paid-provider routing (corrective item 6) ─────────────────
+    // Each paid provider only ever gets a command for the businesses that
+    // actually have the specific gap it fills — never every record in the
+    // batch. This mirrors the eligibility a provider's own recipe step
+    // declares in cro03/recipe-contract.ts (serper: "unresolved_gap" i.e.
+    // missing identity fields; outscraper: richer business-search data;
+    // openai: missing classification; apollo: missing decision-maker email).
+    const PROVIDER_GAP_SQL: Record<string, ReturnType<typeof sql>> = {
+      serper:     sql`(b.website_domain IS NULL OR b.main_phone IS NULL OR b.street_address IS NULL)`,
+      outscraper: sql`(b.review_count IS NULL OR b.rating IS NULL)`,
+      openai:     sql`(b.industry_primary IS NULL AND b.vertical IS NULL)`,
+      apollo:     sql`(b.main_email IS NULL)`,
+    };
+    const candidateProviders = (["serper", "outscraper", "openai", "apollo"] as const)
+      .filter((p) => input.phase === "enrichment" && paidAllowed[p] === true);
 
-    // Provider and caps are derived from the definition's paid_providers_allowed —
-    // not trusted from the caller. Pilot 1 sends no provider; Pilots 2/3 supply the
-    // phase-appropriate provider with zero caps (unit-capped by definition budget at
-    // runtime). When a provider is excluded in paid_providers_allowed the command is
-    // still created for audit evidence — it will plan all provider stages as skipped.
-    const { commandId } = await createCro03cCommand({
-      actorId:                    `mi09-pilot:${input.pilotRunId.slice(0, 8)}`,
-      idempotencyKey:             commandIdem,
-      commandType:                "pilot_phase",
-      pilotRunId:                 input.pilotRunId,
-      expectedActivationRevision: Number(policyRow.expected_revision),
-      runtimeAttestationId:       String(attestationRow.id),
-      handoffIds,
-      // Caps derived from the matching mi09_pricing_artifact for this provider.
-      // maxUnits = number of handoffs in the batch (one unit per subject).
-      // maxAmountMicros = amountMicros per unit × handoffIds.length.
-      // If no pricing artifact exists for this provider, the command is still
-      // created without provider (fail-closed: no un-priced paid work is issued).
-      ...(await (async () => {
-        if (!phaseProvider) return {};
-        const artifact = rows(await db.execute(sql`
-          SELECT amount_micros FROM mi09_pricing_artifacts
-          WHERE provider_key = ${phaseProvider}
-            AND captured_at > NOW() - INTERVAL '7 days'
-          ORDER BY captured_at DESC LIMIT 1
-        `))[0];
-        if (!artifact) {
-          // No current pricing artifact for this provider — skip paid provider for safety.
-          return {};
+    // Businesses actually gapped for each candidate provider — computed once
+    // per batch, not assumed. A provider allowed by the definition but with
+    // zero gapped businesses this batch issues no command at all.
+    const gapRows: Record<string, Set<number>> = {};
+    for (const provider of candidateProviders) {
+      const res = rows(await db.execute(sql`
+        SELECT b.id::int AS id FROM businesses b
+        WHERE b.id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}::int`), sql`, `)}])
+          AND ${PROVIDER_GAP_SQL[provider]}
+      `));
+      gapRows[provider] = new Set(res.map((r: any) => Number(r.id)));
+    }
+
+    async function issueCommand(
+      provider: string | undefined,
+      handoffIdsForProvider: string[],
+      extra: Record<string, unknown>,
+      label: string,
+    ): Promise<void> {
+      if (handoffIdsForProvider.length === 0) return;
+      const selectionHash = createHash("sha256")
+        .update(JSON.stringify({
+          pilotRunId: input.pilotRunId, phase: input.phase, provider: provider ?? "none",
+          handoffIds: [...handoffIdsForProvider].sort(),
+        }))
+        .digest("hex");
+      const commandIdem = selectionHash.slice(0, 128);
+      const { commandId } = await createCro03cCommand({
+        actorId:                    `mi09-pilot:${input.pilotRunId.slice(0, 8)}`,
+        idempotencyKey:             commandIdem,
+        commandType:                "pilot_phase",
+        pilotRunId:                 input.pilotRunId,
+        expectedActivationRevision: Number(policyRow.expected_revision),
+        runtimeAttestationId:       String(attestationRow.id),
+        handoffIds:                 handoffIdsForProvider,
+        ...extra,
+        reason:                     `MI-09 Pilot ${input.pilotRunId.slice(0, 8)} — ${input.phase} phase (${label})`,
+        expiresAt:                  new Date(Date.now() + 24 * 3600_000),
+      });
+      await db.execute(sql`
+        INSERT INTO mi09_pilot_effect_links (pilot_run_id, entity_type, entity_id)
+        VALUES (${input.pilotRunId}::uuid, 'cro03c_command', ${commandId})
+        ON CONFLICT DO NOTHING
+      `);
+      effectsRecorded++;
+    }
+
+    for (const provider of candidateProviders) {
+      const gappedBusinessIds = businessIds.filter((id) => gapRows[provider].has(id));
+      const handoffIdsForProvider = gappedBusinessIds.flatMap((id) => handoffIdsByBusiness.get(id) ?? []);
+      if (handoffIdsForProvider.length === 0) continue; // definition allows it, nothing in this batch needs it
+
+      const artifact = rows(await db.execute(sql`
+        SELECT amount_micros FROM mi09_pricing_artifacts
+        WHERE provider_key = ${provider}
+          AND captured_at > NOW() - INTERVAL '7 days'
+        ORDER BY captured_at DESC LIMIT 1
+      `))[0];
+      if (!artifact) continue; // fail-closed: no un-priced paid work is ever issued
+
+      // The $50 ladder-wide aggregate cap must include this command's spend
+      // atomically with every other settled + in-flight command before it is
+      // created — re-checked immediately before each command, not just once
+      // per batch, since earlier providers in this same loop may have just
+      // consumed budget.
+      const budget = await assertAggregatePaidBudgetAvailable();
+      const unitAmountMicros = Number(artifact.amount_micros);
+      const affordableUnits = unitAmountMicros > 0 ? Math.floor(budget.remainingMicros / unitAmountMicros) : 0;
+      const units = Math.min(handoffIdsForProvider.length, affordableUnits);
+      if (units <= 0) continue; // budget exhausted — skip this provider this batch, never overshoot the cap
+      const boundedHandoffIds = handoffIdsForProvider.slice(0, units);
+
+      await issueCommand(provider, boundedHandoffIds, {
+        provider,
+        maxUnits: units,
+        maxAmountMicros: unitAmountMicros * units,
+      }, `provider=${provider} gapped=${units}/${handoffIdsForProvider.length}`);
+    }
+
+    // ── ZeroBounce business-validation caps (corrective item 7) ──────────────
+    // Provider-less pilot_phase command carrying only businessValidationMaxUnits/
+    // MaxAmountMicros — authorizeCro03cBusinessValidation() checks these caps
+    // directly and does not require caps.provider to be set, so this is the
+    // correct vehicle to grant ZeroBounce business-validation authority
+    // independent of which (if any) paid discovery provider ran for a given
+    // business. Every business in the batch is eligible — ZeroBounce validates
+    // whatever candidate email discovery already produced, not a specific
+    // provider's output.
+    if (input.phase === "enrichment" && paidAllowed.zerobounce === true) {
+      const zbArtifact = rows(await db.execute(sql`
+        SELECT amount_micros FROM mi09_pricing_artifacts
+        WHERE provider_key = 'zerobounce'
+          AND captured_at > NOW() - INTERVAL '7 days'
+        ORDER BY captured_at DESC LIMIT 1
+      `))[0];
+      if (zbArtifact) {
+        const budget = await assertAggregatePaidBudgetAvailable();
+        const zbUnitAmountMicros = Number(zbArtifact.amount_micros);
+        const zbAffordableUnits = zbUnitAmountMicros > 0 ? Math.floor(budget.remainingMicros / zbUnitAmountMicros) : 0;
+        const zbUnits = Math.min(handoffIds.length, zbAffordableUnits);
+        if (zbUnits > 0) {
+          const boundedHandoffIds = handoffIds.slice(0, zbUnits);
+          await issueCommand(undefined, boundedHandoffIds, {
+            businessValidationMaxUnits: zbUnits,
+            businessValidationMaxAmountMicros: zbUnitAmountMicros * zbUnits,
+          }, `provider=zerobounce business_validation=${zbUnits}/${handoffIds.length}`);
         }
-        const unitAmountMicros = Number(artifact.amount_micros);
-        const batchUnits = handoffIds.length;
-        return {
-          provider: phaseProvider as any,
-          maxUnits: batchUnits,
-          maxAmountMicros: unitAmountMicros * batchUnits,
-        };
-      })()),
-      reason:                     `MI-09 Pilot ${input.pilotRunId.slice(0, 8)} — ${input.phase} phase (provider=${phaseProvider ?? "none"})`,
-      expiresAt:                  new Date(Date.now() + 24 * 3600_000),
-    });
-
-    await db.execute(sql`
-      INSERT INTO mi09_pilot_effect_links (pilot_run_id, entity_type, entity_id)
-      VALUES (${input.pilotRunId}::uuid, 'cro03c_command', ${commandId})
-      ON CONFLICT DO NOTHING
-    `);
-    effectsRecorded++;
+      }
+    }
   }
 
   // Update checkpoint.
@@ -1804,23 +2036,26 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
     checks.minTenBusinesses = { passed: false, detail: String(e?.message) };
   }
 
-  // 4. ≥100 cro03a_handoffs from DBPR-HR adapter (source_system='dbpr_hr'), verified
-  //    by joining source_import_runs through cro03a_qualification_runs.
-  //    cro03_source_subjects does NOT have source_import_run_id; use cro03a_handoffs
-  //    which records the source_system directly and links through run_id.
+  // 4. ≥100 canonical, non-DBPR businesses with a real (non-DBPR) source
+  //    lineage. This replaces an earlier check that required ≥100 DBPR-HR
+  //    handoffs — that requirement directly contradicted the standing
+  //    instruction to exclude DBPR restaurants/food-truck records from MI-09
+  //    pilots entirely. The census now proves readiness using the same
+  //    non-DBPR, canonical population MI-09's cohort selector itself draws
+  //    from (see selectDeterministicPilotCohort), not DBPR volume.
   try {
     const ss = rows(await db.execute(sql`
-      SELECT COUNT(h.id)::int AS cnt
-      FROM cro03a_handoffs h
-      JOIN cro03a_qualification_runs qr ON qr.id = h.run_id
-      WHERE h.source_system = 'dbpr_hr'
-        AND qr.status = 'completed'
+      SELECT COUNT(DISTINCT b.id)::int AS cnt
+      FROM businesses b
+      JOIN canonical_source_links csl ON csl.business_id = b.id
+      WHERE b.record_class = 'canonical'
+        AND csl.source_system !~* 'dbpr'
       LIMIT 1
     `))[0];
     const cnt = Number(ss?.cnt ?? 0);
-    checks.minHundredDbprSubjects = { passed: cnt >= 100, detail: `dbpr_hr_handoffs=${cnt}` };
+    checks.minHundredEligibleNonDbprBusinesses = { passed: cnt >= 100, detail: `canonical_non_dbpr_businesses=${cnt}` };
   } catch (e: any) {
-    checks.minHundredDbprSubjects = { passed: false, detail: String(e?.message) };
+    checks.minHundredEligibleNonDbprBusinesses = { passed: false, detail: String(e?.message) };
   }
 
   // 5. ≥1 completed cro03a_qualification_run with ≥10 qualified handoffs.

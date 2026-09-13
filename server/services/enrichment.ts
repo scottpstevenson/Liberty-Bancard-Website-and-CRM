@@ -345,8 +345,28 @@ const RECENT_ATTEMPT_COOLDOWN_SQL = sql`NOT EXISTS (
     AND er.started_at > now() - interval '24 hours'
 )`;
 
-const CONTACT_NEEDS_ENRICHMENT_SQL = sql`
+// Shared eligible-population predicate — the ONLY definition of "in scope for
+// enrichment" for contacts. Used verbatim by both the census/count query
+// (getEnrichmentBacklogCount) and the execution/selection query
+// (getContactIdsNeedingEnrichment) so the two can never drift. Excludes
+// existing customers/merchants, archived records, DNC/do-not-auto-contact,
+// lifecycle do-not-contact, test/demo/synthetic fixture rows, and DBPR
+// lineage — none of these should have their identity enriched or flow toward
+// paid providers / master_leads, even though enrichment itself never sends
+// outbound contact.
+export const CONTACT_ELIGIBLE_FOR_ENRICHMENT_SQL = sql`(
   archived_at IS NULL
+  AND COALESCE(existing_merchant_customer, false) = false
+  AND COALESCE(do_not_contact, false) = false
+  AND COALESCE(do_not_auto_contact, false) = false
+  AND COALESCE(lifecycle_stage, 'prospect') <> 'do_not_contact'
+  AND COALESCE(record_class, 'unknown') NOT IN ('test', 'demo', 'synthetic')
+  AND COALESCE(primary_source_type, '') NOT ILIKE '%dbpr%'
+  AND COALESCE(primary_source_category, '') NOT ILIKE '%dbpr%'
+)`;
+
+const CONTACT_NEEDS_ENRICHMENT_SQL = sql`
+  ${CONTACT_ELIGIBLE_FOR_ENRICHMENT_SQL}
   AND (COALESCE(TRIM(company_name), '') != '' OR COALESCE(TRIM(first_name), '') != '' OR COALESCE(TRIM(last_name), '') != '')
   AND ${FIELD_MISSING_SQL}
 `;
@@ -402,6 +422,11 @@ export async function enrichContactBatch(
   let websitesFound = 0;
   let errors = 0;
   let gatewayBlocked = false;
+  // Only contacts that were actually, successfully processed this batch are
+  // eligible for downstream business materialization — never contacts that
+  // were skipped (missing name), blocked mid-call, or never attempted
+  // because an earlier contact tripped the gateway.
+  const materializableContactIds: number[] = [];
 
   const progressKey = "contact_enrich_batch_progress";
 
@@ -563,6 +588,7 @@ export async function enrichContactBatch(
                 });
               } catch (_) {}
               processed++;
+              materializableContactIds.push(contactId);
             } else if (serperAttempted) {
               // Serper completed every lookup it needed to and found nothing
               // usable. Record the attempt so getContactIdsNeedingEnrichment's
@@ -581,6 +607,7 @@ export async function enrichContactBatch(
                 });
               } catch (_) {}
               processed++;
+              materializableContactIds.push(contactId);
             }
             // else: this contact didn't need Serper at all — nothing to record.
           }
@@ -639,8 +666,12 @@ export async function enrichContactBatch(
         : errors > 0 ? `${errors} contacts failed enrichment` : null,
     }).where(eq(enrichmentRuns.id, enrichRun.id));
 
-    for (const cid of contactIds) {
-      ingestBusinessFromContact(cid, "serper", `contact_enrich_batch`).catch(() => {});
+    for (const cid of materializableContactIds) {
+      try {
+        await ingestBusinessFromContact(cid, "serper", `contact_enrich_batch`);
+      } catch (err) {
+        console.error(`[ContactEnrich] Business materialization failed for contact ${cid}:`, err);
+      }
     }
   } catch (fatalErr) {
     console.error("[ContactEnrich] Fatal error in batch enrichment:", fatalErr);

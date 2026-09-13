@@ -21,7 +21,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
-import { assertCro08aSourceScope } from "../services/cro08a/source-scope";
+import { assertCro08aSourceScope, isDbprSourceSystem } from "../services/cro08a/source-scope";
 import {
   ensureCro08aScheduleOccurrence,
 } from "../services/cro08a/occurrence-service";
@@ -173,13 +173,34 @@ export async function processCro08aSchedulerTick(): Promise<{
         );
       }
 
-      // CRO-08A source-scope contract: reject (never silently skip) any DBPR or
-      // non-allowlisted source system before it can ever be frozen into an
-      // occurrence snapshot. See server/services/cro08a/source-scope.ts.
-      assertCro08aSourceScope(cursorRows.map((cr) => String(cr.source_system)));
+      // CRO-08A source-scope contract: DBPR cursors are permanently excluded
+      // from this factory, but the presence of an unrelated DBPR cursor row
+      // (e.g. written by CRO-03A for its own qualification pipeline) must
+      // never poison the entire tick — a shared cursor table can legitimately
+      // contain source systems this factory does not touch. Drop DBPR rows
+      // silently from THIS snapshot (they are simply never enumerated, never
+      // frozen, never scheduled), then fail-closed via assertCro08aSourceScope
+      // only on the remaining, non-DBPR rows — a genuinely unauthorized
+      // non-DBPR source system is still a hard error.
+      const dbprCursorRows = cursorRows.filter((cr) => isDbprSourceSystem(String(cr.source_system)));
+      const scopedCursorRows = cursorRows.filter((cr) => !isDbprSourceSystem(String(cr.source_system)));
+      if (dbprCursorRows.length > 0) {
+        console.warn(
+          `[CRO08A-Scheduler] Ignoring ${dbprCursorRows.length} DBPR census cursor(s) ` +
+          `(${dbprCursorRows.map((cr) => cr.source_system).join(", ")}) — permanently out of ` +
+          `scope for the CRO-08A continuous factory; not frozen into this occurrence.`,
+        );
+      }
+      if (scopedCursorRows.length === 0) {
+        throw new Error(
+          `CRO08A_SCHEDULER_NO_CENSUS_CURSORS:definition=${def.logical_key} — ` +
+          `only DBPR cursors are present; no in-scope census cursor exists yet`,
+        );
+      }
+      assertCro08aSourceScope(scopedCursorRows.map((cr) => String(cr.source_system)));
 
       const frozenCursorSnapshot: Record<string, unknown> = {};
-      for (const cr of cursorRows) {
+      for (const cr of scopedCursorRows) {
         frozenCursorSnapshot[String(cr.source_system)] = {
           cursorValue: String(cr.cursor_value ?? "0"),
           snapshotHighWater: String(cr.snapshot_high_water ?? "0"),

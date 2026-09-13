@@ -410,7 +410,17 @@ export async function projectBusinessOnly(input: {
   }
 
   // ── Step 2: Resolve or create the businesses row (resolveOrganization tx) ─
-  const organization = await resolveOrganization(input.organization);
+  // record_class defaults to 'unknown' on the businesses table; every canonical
+  // materialization path (this one, and ingestBusiness in sdr/dedupe.ts) must
+  // set 'canonical' explicitly or the row is invisible to both the free
+  // enrichment queue and MI-09 cohort selection, which both gate on it.
+  // DBPR-sourced businesses still get 'canonical' here — exclusion from paid
+  // pilots is enforced separately via canonical_source_links.source_system,
+  // not record_class.
+  const organization = await resolveOrganization({
+    ...input.organization,
+    create: { recordClass: "canonical" },
+  });
 
   // ── Step 3: Write source link + location + recipe item in one small tx ────
   return db.transaction(async (tx) => {

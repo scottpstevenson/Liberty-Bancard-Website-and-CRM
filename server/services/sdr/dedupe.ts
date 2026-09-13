@@ -304,6 +304,12 @@ export async function ingestBusiness(input: IngestBusinessInput): Promise<Ingest
       industrySecondary: input.industrySecondary || null,
       status: "new",
       lastSourceType: input.sourceType,
+      // Businesses materialized through this path (contact-first ingestion,
+      // discovery adapters) are real production candidates, not dev/test
+      // fixtures — they must land in the same record_class that free
+      // enrichment and MI-09 cohort selection both gate on, or they are
+      // stuck in 'unknown' forever and never reachable by either pipeline.
+      recordClass: "canonical",
     },
   });
   if (resolution.kind === "deferred") {
