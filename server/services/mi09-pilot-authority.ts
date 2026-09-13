@@ -189,8 +189,14 @@ export interface PricingScheduleSnapshotResult {
  * the two can never independently drift), hashes it with
  * `stableCro03RecipeHash` — the identical hash function the CRO-08A
  * certification gate recomputes and checks against this table — and writes
- * (or reuses, if an unexpired snapshot with the identical hash already
- * exists) a `mi09_pricing_schedule_snapshots` row.
+ * (or reuses, if a snapshot with the identical hash already exists) a
+ * `mi09_pricing_schedule_snapshots` row.
+ *
+ * 2026-09-13 solo-operator simplification: snapshots no longer expire in
+ * practice. `expires_at` is set far in the future by default and lookups no
+ * longer filter on it, so pricing the operator has already recorded persists
+ * indefinitely until they explicitly submit different pricing artifacts —
+ * no repeat submissions required.
  *
  * Does NOT set `linked_policy_id`: no `cro03c_activation_policies` row can
  * exist yet outside the ceremony's own authorized flow, so linking is
@@ -207,10 +213,13 @@ export async function createPricingScheduleSnapshot(
     .map((a) => String(a.id))
     .sort();
 
+  // Pricing snapshots persist indefinitely now — match on composite_hash alone
+  // regardless of expires_at, so the operator never has to re-submit pricing
+  // just because time has passed.
   const existing = rows(await db.execute(sql`
     SELECT id, artifact_ids, expires_at
       FROM mi09_pricing_schedule_snapshots
-     WHERE composite_hash = ${compositeHash} AND expires_at > NOW()
+     WHERE composite_hash = ${compositeHash}
      ORDER BY captured_at DESC
      LIMIT 1
   `))[0];
@@ -248,15 +257,13 @@ export async function createPricingScheduleSnapshot(
     };
   }
 
-  // No unexpired row exists for this hash, but composite_hash is UNIQUE, so a
-  // prior (now-expired) row with the identical hash may still exist — e.g. the
-  // documented 7-day expiry has elapsed and the operator re-runs the permanent
-  // seed command against an unchanged schedule. A plain INSERT would raise a
-  // uniqueness violation in that case. Use INSERT ... ON CONFLICT (composite_hash)
-  // DO UPDATE, gated to only fire when the existing row is actually expired
-  // (the unexpired case is already handled above), so renewal is atomic and
-  // never silently overwrites a still-valid row from a concurrent caller.
-  const expiresInDays = input.expiresInDays ?? 7;
+  // No row exists yet for this hash. composite_hash is UNIQUE, so a concurrent
+  // caller could race us between the lookup above and this insert — the
+  // ON CONFLICT DO UPDATE below only exists to resolve that race atomically,
+  // not to "renew" an expired row (nothing expires anymore).
+  // expiresInDays defaults to ~10 years — effectively indefinite — so an
+  // operator who has already submitted pricing never has to resubmit it.
+  const expiresInDays = input.expiresInDays ?? 3650;
   const upserted = rows(await db.execute(sql`
     INSERT INTO mi09_pricing_schedule_snapshots
       (composite_hash, artifact_ids, schedule_json, captured_by, expires_at, notes)
@@ -271,7 +278,6 @@ export async function createPricingScheduleSnapshot(
       captured_at = NOW(),
       expires_at = EXCLUDED.expires_at,
       notes = EXCLUDED.notes
-    WHERE mi09_pricing_schedule_snapshots.expires_at <= NOW()
     RETURNING id, expires_at, (xmax = 0) AS inserted
   `));
   if (upserted[0]) {
@@ -284,9 +290,8 @@ export async function createPricingScheduleSnapshot(
       expiresAt: String(upserted[0].expires_at),
     };
   }
-  // The ON CONFLICT WHERE clause matched no row (the conflicting row is no
-  // longer expired — a concurrent caller renewed it between our unexpired
-  // check and this statement). Fall back to reading the now-current row.
+  // Extremely unlikely fallback: a concurrent caller inserted/updated the same
+  // composite_hash between our lookup and this statement. Read the now-current row.
   const race = rows(await db.execute(sql`
     SELECT id, expires_at FROM mi09_pricing_schedule_snapshots WHERE composite_hash = ${compositeHash}
   `))[0];

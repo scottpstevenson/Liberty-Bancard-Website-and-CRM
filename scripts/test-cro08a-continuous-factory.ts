@@ -28,7 +28,7 @@ import {
   reserveCro03cProviderOperation, resolveCro03cGenerationMode,
 } from "../server/services/cro03/live-execution";
 import { stableCro03RecipeHash } from "../server/services/cro03/contracts";
-import { issueCro08aCertificationReceipt } from "../server/services/cro08a/certification-gate";
+import { issueCro08aCertificationReceipt, CRO08A_CERTIFICATION_TYPED_CONFIRMATION } from "../server/services/cro08a/certification-gate";
 import { getPauseState, invalidatePauseStateCache } from "../server/services/outbound-pause-authority";
 import { createCro03SourceBatch, hashCro03Evidence } from "../server/services/cro03/source-staging";
 import { createCro03aQualificationRun, processCro03aQualificationRunQueueSafe } from "../server/services/cro03a/qualification-service";
@@ -609,50 +609,14 @@ async function main() {
       ON CONFLICT (composite_hash) DO NOTHING
     `);
 
-    // Insert real cro03c_approval_receipts rows for all 4 required dimensions.
-    // All 4 receipts MUST share the same scope_hash AND it must equal the value
-    // the hardened certification gate computes from the certification inputs:
-    //   SHA-256(JSON.stringify({ migrationHead, releaseSha, providerSet (sorted), priceScheduleHash }))
-    // Using any other scope_hash triggers approval_receipt_scope_hash_mismatch.
-    // cro03c_approval_receipts is append-only (no cleanup needed — left as test-tagged residue).
+    // 2026-09-13 solo-operator simplification: issueCro08aCertificationReceipt()
+    // no longer requires cro03c_approval_receipts at all — a single typed
+    // confirmation from the operator replaces the prior 4-dimension requirement.
     const priceScheduleHash = hex64(`price:${RUN}`);
-    const expectedScopeHash = crypto.createHash("sha256").update(JSON.stringify({
-      migrationHead: CRO03C_MIGRATION_HEAD,
-      releaseSha:    process.env.RELEASE_SHA!,
-      providerSet:   Object.keys(CRO03C_PROVIDER_CONTRACTS).sort(),
-      priceScheduleHash,
-    })).digest("hex");
-    const sharedScopeHash = expectedScopeHash;
-    const sharedScope = {
-      migrationHead: CRO03C_MIGRATION_HEAD,
-      releaseSha:    process.env.RELEASE_SHA!,
-      providerSet:   Object.keys(CRO03C_PROVIDER_CONTRACTS).sort(),
-      priceScheduleHash,
-    };
-    const approvalReceiptIds: string[] = [];
-    for (const dimension of ["operator", "data", "finance", "legal"] as const) {
-      const receiptId = crypto.randomUUID();
-      await db.execute(sql`
-        INSERT INTO cro03c_approval_receipts
-          (id, idempotency_key, dimension, issuer_id, issuer_receipt_id, scope, scope_hash, issued_at, expires_at, signature, created_by)
-        VALUES (
-          ${receiptId}::uuid,
-          ${`cro08a-fullpath-aprec-${dimension}-${RUN}`},
-          ${dimension},
-          ${"cro08a-test-issuer"},
-          ${`cro08a-fullpath-ireceipt-${dimension}-${RUN}`},
-          ${JSON.stringify(sharedScope)}::jsonb,
-          ${sharedScopeHash},
-          NOW(), NOW() + INTERVAL '2 hours',
-          ${"stub-signature-cro08a-test"},
-          ${RUN}
-        )
-      `);
-      approvalReceiptIds.push(receiptId);
-    }
     const receipt = await issueCro08aCertificationReceipt({
       releaseSha: process.env.RELEASE_SHA!, migrationHead: CRO03C_MIGRATION_HEAD, providerSet: Object.keys(CRO03C_PROVIDER_CONTRACTS),
-      priceScheduleHash, approvalReceiptIds, runtimeAttestationId: attestationId,
+      priceScheduleHash, certifiedBy: RUN, typedConfirmation: CRO08A_CERTIFICATION_TYPED_CONFIRMATION,
+      runtimeAttestationId: attestationId,
       outboundPauseEpoch: pause.epoch, issuedBy: RUN, expiresAt: new Date(Date.now() + 3600_000),
     });
     assert.ok(receipt.id);

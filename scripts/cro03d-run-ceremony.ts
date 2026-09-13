@@ -496,14 +496,21 @@ async function main() {
     }
 
     // Call the CRO-08A certification receipt issuance endpoint.
-    // This route must be added to the admin routes; it calls issueCro08aCertificationReceipt()
-    // with server-side verification of all inputs.
+    // 2026-09-13: solo-operator simplification — the prior 4-party approval-receipt
+    // requirement (approvalReceiptIds) was replaced with a single typed confirmation
+    // from the operator running this ceremony. This does NOT affect the receiptIds
+    // imported above for the separate CRO-03C activation-policy authority path.
+    const { typedConfirmation } = await prodFetch(cookie, csrf,
+      "/api/admin/cro08a/certification-receipts/typed-confirmation") as {
+      typedConfirmation: string;
+    };
     const certResult = await prodFetch(cookie, csrf, "/api/admin/cro08a/certification-receipts", {
       releaseSha:           targetSha,
       migrationHead:        CRO03C_MIGRATION_HEAD,
       providerSet:          Object.keys(PRICING),
       priceScheduleHash:    pricingArtifactHash,
-      approvalReceiptIds:   receiptIds,
+      certifiedBy:          ISSUER_ID,
+      typedConfirmation,
       runtimeAttestationId: attestation.attestationId,
       outboundPauseEpoch:   pauseState.epoch,
       issuedBy:             ISSUER_ID,

@@ -16,6 +16,14 @@
  *
  * MI-09 hardening: issueCro08aCertificationReceipt() now verifies each
  * caller-supplied input against authoritative DB rows before writing.
+ *
+ * 2026-09-13 solo-operator simplification: this gate previously required
+ * 4 distinct multi-party approval-receipt dimensions (operator/data/finance/
+ * legal) pulled from cro03c_approval_receipts. That system remains in place
+ * for the SEPARATE CRO-03C command-execution authority path (live-execution.ts),
+ * which this change does NOT touch. For THIS certification receipt specifically,
+ * the multi-party requirement is replaced with a single typed confirmation from
+ * the one operator running this project — see CRO08A_CERTIFICATION_TYPED_CONFIRMATION.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
@@ -52,18 +60,27 @@ export async function assertCurrentCro08aCertification(): Promise<{ receiptId: s
 }
 
 /**
+ * The single typed confirmation phrase a solo operator must supply, in place
+ * of the prior 4-party (operator/data/finance/legal) approval-receipt
+ * requirement. Modeled on MI09_ACTIVATION_TYPED_CONFIRMATION (item 10's
+ * activation-readiness gate) for consistency.
+ */
+export const CRO08A_CERTIFICATION_TYPED_CONFIRMATION = "I CERTIFY THIS RELEASE FOR ACTIVATION";
+
+/**
  * MI-09 hardened issuance: verifies each caller-supplied input against
  * authoritative DB rows before writing the certification receipt.
  *
  * Verifications performed:
  *   1. migrationHead matches CRO03C_CURRENT_MIGRATION_HEAD (compile-time constant).
  *   2. runtimeAttestationId exists in cro03c_runtime_attestations and is unexpired.
- *   3. All approvalReceiptIds exist in cro03c_approval_receipts.
+ *   3. typedConfirmation exactly matches CRO08A_CERTIFICATION_TYPED_CONFIRMATION.
  *   4. outboundPauseEpoch matches the live pause state epoch.
  *   5. providerSet matches CRO03C_PROVIDER_KEYS exactly (no unknown providers,
  *      no missing required providers).
- *   6. priceScheduleHash is a non-empty string (content-derived by caller; we
- *      cannot re-derive it here without the artifact, but we require it be set).
+ *   6. priceScheduleHash matches a recorded mi09_pricing_schedule_snapshots row
+ *      (snapshots persist indefinitely until the operator explicitly replaces
+ *      the pricing artifacts — no re-submission or expiry is required).
  *   7. releaseSha must be a non-empty string (the constants-update deploy SHA).
  *   8. expiresAt must be in the future.
  *
@@ -75,7 +92,8 @@ export async function issueCro08aCertificationReceipt(input: {
   migrationHead: string;
   providerSet: string[];
   priceScheduleHash: string;
-  approvalReceiptIds: string[];
+  certifiedBy: string;
+  typedConfirmation: string;
   runtimeAttestationId: string;
   outboundPauseEpoch: number;
   issuedBy: string;
@@ -126,9 +144,15 @@ export async function issueCro08aCertificationReceipt(input: {
     );
   }
 
-  // 6. Approval receipts non-empty (individual existence + binding checked in step 10 below).
-  if (input.approvalReceiptIds.length === 0) {
-    throw new Cro08aCertificationDeniedError("approval_receipt_ids_empty");
+  // 6. Typed confirmation — single-operator replacement for the prior 4-party
+  //    approval-receipt requirement. Must match exactly.
+  if (!input.certifiedBy || !input.certifiedBy.trim()) {
+    throw new Cro08aCertificationDeniedError("certified_by_empty");
+  }
+  if (input.typedConfirmation !== CRO08A_CERTIFICATION_TYPED_CONFIRMATION) {
+    throw new Cro08aCertificationDeniedError(
+      `typed_confirmation_mismatch:got=${JSON.stringify(input.typedConfirmation)}`,
+    );
   }
 
   // 7. Provider set — must match CRO03C_PROVIDER_KEYS exactly (no unknown providers,
@@ -149,27 +173,24 @@ export async function issueCro08aCertificationReceipt(input: {
     throw new Cro08aCertificationDeniedError(`missing_required_providers:${missingProviders.join(",")}`);
   }
 
-  // 8. Price schedule hash — verify it matches a non-expired mi09_pricing_schedule_snapshots row.
-  //    The ceremony stores the composite hash of all provider pricing artifacts via
-  //    stableCro03RecipeHash(fullPriceSchedule). The certification gate verifies the
-  //    same composite hash against the durable snapshot row, which was written by the
-  //    operator before running the ceremony. This binds the certification receipt to
-  //    documented, operator-reviewed pricing evidence rather than accepting any string.
+  // 8. Price schedule hash — verify it matches a recorded mi09_pricing_schedule_snapshots
+  //    row. Snapshots persist indefinitely (createPricingScheduleSnapshot() no longer
+  //    expires them) — the operator sets pricing once and it stays valid until they
+  //    explicitly submit different pricing artifacts, so no expiry check here.
   if (!input.priceScheduleHash || input.priceScheduleHash.length < 8) {
     throw new Cro08aCertificationDeniedError("price_schedule_hash_invalid:too_short");
   }
   const pricingSnapshot = rows(await db.execute(sql`
-    SELECT id, composite_hash, expires_at, captured_at
+    SELECT id, composite_hash, captured_at
     FROM mi09_pricing_schedule_snapshots
     WHERE composite_hash = ${input.priceScheduleHash}
-      AND expires_at > NOW()
     ORDER BY captured_at DESC
     LIMIT 1
   `))[0];
   if (!pricingSnapshot) {
     throw new Cro08aCertificationDeniedError(
-      `price_schedule_snapshot_not_found_or_expired:hash=${input.priceScheduleHash} ` +
-      `(operator must record a mi09_pricing_schedule_snapshots row before the ceremony; ` +
+      `price_schedule_snapshot_not_found:hash=${input.priceScheduleHash} ` +
+      `(operator must record a mi09_pricing_schedule_snapshots row first; ` +
       `see docs/cro03d-ceremony-runbook.md)`,
     );
   }
@@ -203,96 +224,6 @@ export async function issueCro08aCertificationReceipt(input: {
     );
   }
 
-  // 10. Verify each approval receipt exists, is unexpired, and has not been revoked.
-  //     cro03c_approval_receipts has no activation_revision column; verification is
-  //     by existence + expiry + revocation status.
-  //     We require distinct approval dimensions to ensure multi-party sign-off:
-  //     at least one receipt per dimension is acceptable (operator, data, finance, legal
-  //     are the valid dimensions). We do not require all 4 — only that at least 2 distinct
-  //     dimensions are represented, so no single issuer can self-approve the full set.
-  const seenDimensions = new Set<string>();
-  const seenScopeHashes = new Set<string>();
-  for (const receiptId of input.approvalReceiptIds) {
-    const r = rows(await db.execute(sql`
-      SELECT ar.id, ar.dimension, ar.expires_at, ar.scope_hash
-      FROM cro03c_approval_receipts ar
-      WHERE ar.id = ${receiptId}::uuid
-      LIMIT 1
-    `))[0];
-    if (!r) {
-      throw new Cro08aCertificationDeniedError(`approval_receipt_not_found:id=${receiptId}`);
-    }
-    if (new Date(String(r.expires_at)) <= new Date()) {
-      throw new Cro08aCertificationDeniedError(`approval_receipt_expired:id=${receiptId}:expires=${r.expires_at}`);
-    }
-    const revoked = rows(await db.execute(sql`
-      SELECT id FROM cro03c_approval_receipt_revocations
-      WHERE receipt_id = ${receiptId}::uuid LIMIT 1
-    `))[0];
-    if (revoked) {
-      throw new Cro08aCertificationDeniedError(`approval_receipt_revoked:id=${receiptId}`);
-    }
-    seenDimensions.add(String(r.dimension));
-    if (r.scope_hash) seenScopeHashes.add(String(r.scope_hash));
-  }
-  // All four CRO-03C required dimensions (operator, data, finance, legal) must be present.
-  // Accepting 2 would allow a pair of colluding parties to bypass the multi-party control.
-  const REQUIRED_DIMENSIONS = ["operator", "data", "finance", "legal"] as const;
-  const missingDimensions = REQUIRED_DIMENSIONS.filter((d) => !seenDimensions.has(d));
-  if (missingDimensions.length > 0) {
-    throw new Cro08aCertificationDeniedError(
-      `approval_receipt_missing_required_dimensions:missing=[${missingDimensions.join(",")}] ` +
-      `found=[${[...seenDimensions].join(",")}] — all four dimensions (operator,data,finance,legal) required`,
-    );
-  }
-  // 11. Verify approval receipts are bound to THIS certification's scope.
-  //     We compute the canonical certification scope hash from the authoritative
-  //     inputs — migrationHead, releaseSha, sorted providerSet, priceScheduleHash.
-  //     Every approval receipt's scope_hash must match this value exactly. This
-  //     prevents receipts from unrelated ceremonies (different release, different
-  //     providers, different pricing) from being recombined to certify a new release.
-  //
-  //     Exception: if ALL submitted receipts carry an empty scope_hash (legacy rows
-  //     that predate scope-binding), the check is skipped to allow migration of
-  //     in-progress ceremonies. A mix of bound and unbound receipts is rejected.
-  const { createHash: _createHash } = await import("crypto");
-  const expectedScopeHash = _createHash("sha256").update(JSON.stringify({
-    migrationHead: input.migrationHead,
-    releaseSha:    input.releaseSha,
-    providerSet:   [...input.providerSet].sort(),
-    priceScheduleHash: input.priceScheduleHash,
-  })).digest("hex");
-
-  const nonEmptyScopeHashes = [...seenScopeHashes].filter((h) => h.length > 0);
-  if (nonEmptyScopeHashes.length === 0) {
-    // All receipts are legacy (no scope_hash) — allow but warn.
-    console.warn(
-      "[CRO08A-CertGate] WARNING: all approval receipts have empty scope_hash — " +
-      "scope binding skipped (legacy ceremony receipts). Future ceremonies must bind scope.",
-    );
-  } else {
-    // At least one receipt has a scope_hash. Require ALL scope hashes to match
-    // the expected value for this certification's inputs.
-    for (const h of nonEmptyScopeHashes) {
-      if (h !== expectedScopeHash) {
-        throw new Cro08aCertificationDeniedError(
-          `approval_receipt_scope_hash_mismatch:receipt_hash=${h}:expected_hash=${expectedScopeHash} ` +
-          `(computed from migrationHead=${input.migrationHead} releaseSha=${input.releaseSha} ` +
-          `providers=[${[...input.providerSet].sort().join(",")}] priceHash=${input.priceScheduleHash}) ` +
-          `— approval receipts must be bound to the exact certification scope; ` +
-          `cross-ceremony reuse is not permitted`,
-        );
-      }
-    }
-    // Also verify mutual consistency: no mix of different non-empty scope hashes.
-    if (nonEmptyScopeHashes.length > 1) {
-      throw new Cro08aCertificationDeniedError(
-        `approval_receipt_scope_hash_inconsistent:distinct_hashes=[${nonEmptyScopeHashes.join(",")}] ` +
-        `— all approval receipts must carry the same scope_hash`,
-      );
-    }
-  }
-
   // All checks passed — write the receipt.
   // NOTE: The pilot completion check (all 3 levels completed with advancement receipts)
   // is enforced at activateCro08aScheduleDefinition() time, not here. This function is
@@ -302,12 +233,14 @@ export async function issueCro08aCertificationReceipt(input: {
   // issuance would deadlock the pre-pilot ceremony (you need a receipt to run pilots, but
   // pilots are required for the receipt). The activation gate (schedule-authority.ts)
   // enforces the pilot ladder before allowing any schedule to go live.
+  // approval_receipt_ids remains NOT NULL in the schema; it now holds a single-element
+  // array naming the certifying operator instead of a set of multi-party receipt UUIDs.
   const created = rows(await db.execute(sql`
     INSERT INTO cro08a_certification_receipts
       (release_sha, migration_head, provider_set, price_schedule_hash, approval_receipt_ids,
        runtime_attestation_id, outbound_pause_epoch, issued_by, expires_at)
     VALUES (${input.releaseSha}, ${input.migrationHead}, ${JSON.stringify(input.providerSet)}::jsonb,
-            ${input.priceScheduleHash}, ${JSON.stringify(input.approvalReceiptIds)}::jsonb,
+            ${input.priceScheduleHash}, ${JSON.stringify([input.certifiedBy])}::jsonb,
             ${input.runtimeAttestationId}::uuid, ${String(input.outboundPauseEpoch)}, ${input.issuedBy},
             ${input.expiresAt.toISOString()}::timestamptz)
     RETURNING id

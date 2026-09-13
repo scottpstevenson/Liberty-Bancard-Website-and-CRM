@@ -6643,32 +6643,34 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ── MI-09: CRO-08A Certification Receipt (hardened) ──────────────────────
+  // ── MI-09: CRO-08A Certification Receipt (hardened, single-operator) ─────
   // Called from scripts/cro03d-run-ceremony.ts STEP 16 after the full ceremony.
   // issueCro08aCertificationReceipt() verifies all inputs against DB rows before
   // writing — this route is the single server-side write path for cert receipts.
+  // 2026-09-13: replaced the 4-party approval-receipt requirement with a single
+  // typed confirmation from the operator (solo-operator simplification).
   app.post("/api/admin/cro08a/certification-receipts", requireRole("admin"), async (req, res) => {
     try {
       const { issueCro08aCertificationReceipt } = await import("../services/cro08a/certification-gate");
       const {
         releaseSha, migrationHead, providerSet, priceScheduleHash,
-        approvalReceiptIds, runtimeAttestationId, outboundPauseEpoch,
+        certifiedBy, typedConfirmation, runtimeAttestationId, outboundPauseEpoch,
         issuedBy, expiresHours,
       } = req.body as {
         releaseSha: string; migrationHead: string; providerSet: string[];
-        priceScheduleHash: string; approvalReceiptIds: string[];
+        priceScheduleHash: string; certifiedBy: string; typedConfirmation: string;
         runtimeAttestationId: string; outboundPauseEpoch: number;
         issuedBy: string; expiresHours?: number;
       };
       if (!releaseSha || !migrationHead || !providerSet?.length ||
-          !priceScheduleHash || !approvalReceiptIds?.length ||
+          !priceScheduleHash || !certifiedBy || !typedConfirmation ||
           !runtimeAttestationId || outboundPauseEpoch === undefined || !issuedBy) {
         return res.status(400).json({ error: "CRO08A_CERT_MISSING_FIELDS" });
       }
       const expiresAt = new Date(Date.now() + (Number(expiresHours ?? 24)) * 3600_000);
       const result = await issueCro08aCertificationReceipt({
         releaseSha, migrationHead, providerSet, priceScheduleHash,
-        approvalReceiptIds, runtimeAttestationId,
+        certifiedBy, typedConfirmation, runtimeAttestationId,
         outboundPauseEpoch: Number(outboundPauseEpoch),
         issuedBy, expiresAt,
       });
@@ -6679,6 +6681,13 @@ export function registerAdminRoutes(app: Express) {
       }
       serverError(res, err);
     }
+  });
+
+  // GET the exact typed-confirmation phrase the operator must supply, so the
+  // UI/ceremony script never has to hardcode it independently of the server.
+  app.get("/api/admin/cro08a/certification-receipts/typed-confirmation", requireRole("admin"), async (_req, res) => {
+    const { CRO08A_CERTIFICATION_TYPED_CONFIRMATION } = await import("../services/cro08a/certification-gate");
+    res.json({ typedConfirmation: CRO08A_CERTIFICATION_TYPED_CONFIRMATION });
   });
 
   // GET /api/admin/cro08a/certification-receipts — list recent receipts.
