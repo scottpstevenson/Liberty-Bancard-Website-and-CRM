@@ -17,6 +17,7 @@
  */
 
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { db } from "../server/db";
 import { users } from "../shared/models/auth";
 import { contacts, deals } from "../shared/schema";
@@ -149,7 +150,12 @@ try {
     adminCookies = withCsrf;
     const cR = await fetch(`${BASE_URL}/api/contacts`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie: adminCookies, "x-csrf-token": csrf },
+      headers: {
+        "content-type": "application/json",
+        cookie: adminCookies,
+        "x-csrf-token": csrf,
+        "Idempotency-Key": crypto.randomUUID(),
+      },
       body: JSON.stringify({
         firstName: "GoLive",
         lastName: `Test-${RUN_ID}`,

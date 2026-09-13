@@ -32,6 +32,10 @@ const CSV_EXACT_ALLOWLIST = new Set([
   "fixtures/csv-import/outscraper_missing_emails.csv",
   "fixtures/csv-import/reconciliation_all_invalid.csv",
   "fixtures/csv-import/reconciliation_mixed.csv",
+  // Reviewed public registry fixture snapshots used by the source-registry
+  // import path; these are reference inputs, not runtime exports.
+  "scripts/fixtures/source-registry/dbpr-hr.csv",
+  "scripts/fixtures/source-registry/mdade-lbt.csv",
 ]);
 
 // SQL is only allowed inside the migrations tree

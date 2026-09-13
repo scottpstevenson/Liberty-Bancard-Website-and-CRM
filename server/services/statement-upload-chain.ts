@@ -12,6 +12,7 @@ import { db } from "../db";
 import { eq, sql } from "drizzle-orm";
 import { updateCheckpoint, updateCommandFKs, markSucceeded, markRecoverableFailed } from "./statement-upload-idempotency";
 import { advanceDealStage } from "./deal-stage-service";
+import { onStatementReceived } from "./statement-acquisition";
 
 export interface StatementUploadInput {
   contactId: number;
@@ -375,10 +376,21 @@ export async function runStatementUploadChain(
   // dashboard rep upload, merchant portal — reliably stop the chase without each
   // caller needing to remember to invoke it separately.
   // ────────────────────────────────────────────────────────────────────────────
-  steps.push(makeStep(5.5, "Statement chase update held", true, undefined, {
-    state: "held",
-    externalAttempted: false,
-  }));
+  // Stopping the chase and advancing the lifecycle are local DB authority
+  // writes; they must not be held behind provider readiness or the global
+  // outbound pause.  Only the external delivery/projection steps below are
+  // held.  This keeps every upload entry point from leaving a live chase
+  // enrollment behind after the statement has arrived.
+  try {
+    await onStatementReceived(input.contactId, dealId || undefined);
+    steps.push(makeStep(5.5, "Statement chase stopped", true, undefined, {
+      state: "completed",
+      externalAttempted: false,
+    }));
+  } catch (err: any) {
+    steps.push(makeStep(5.5, "Statement chase stopped", false, err.message));
+    await logStepFailure(dealId, 5.5, "Statement chase stopped", err.message);
+  }
 
   // ────────────────────────────────────────────────────────────────────────────
   // STEP 6 — Rep notified (in-app notification + email)

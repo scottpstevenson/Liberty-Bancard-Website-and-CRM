@@ -47,9 +47,12 @@ includes("server/services/revenue-read-authority.ts", "c.record_class = 'product
 includes("server/services/revenue-read-authority.ts", "qualifying_deal.archived_at IS NULL");
 includes("server/services/revenue-read-authority.ts", "qualifying_deal.record_class = 'production'");
 includes("server/services/revenue-read-authority.ts", "qualifying_deal.pipeline = 'sales'");
-includes("server/services/revenue-read-authority.ts", "(SELECT COUNT(*)::int FROM base) AS total");
+// The canonical reader intentionally counts the same predicate directly over
+// deals.  The old MATERIALIZED `base` CTE was removed to avoid scanning and
+// materializing the complete result set before pagination.
+includes("server/services/revenue-read-authority.ts", "SELECT COUNT(*)::int AS total, CURRENT_TIMESTAMP AS as_of");
 check(!/SELECT\s+c\.\*\s+FROM contacts c[\s\S]*?(?:LEFT\s+JOIN|JOIN)\s+deals(?![\s\S]*LATERAL)/i.test(revenue), "lead cardinality cannot use an unbounded deal join");
-includes("server/services/revenue-read-authority.ts", "ORDER BY primary_updated_at DESC NULLS LAST, primary_id DESC, contact_id DESC");
+includes("server/services/revenue-read-authority.ts", "ORDER BY primary_deal.updated_at DESC NULLS LAST, primary_deal.id DESC, c.id DESC");
 includes("server/services/revenue-read-authority.ts", 'bucketSemantics: "overlapping"');
 includes("server/services/revenue-read-authority.ts", "canonical_lead_contacts");
 includes("server/services/revenue-read-authority.ts", "activated_mid_contacts");

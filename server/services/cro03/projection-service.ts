@@ -10,6 +10,7 @@ import { enqueueReadinessRecalculation } from "../contact-readiness";
 import { requestContactLeadScoring } from "../contact-lead-scoring-trigger";
 import { candidateHash, stableCro03RecipeHash, type Cro03CandidateField } from "./contracts";
 import { randomUUID } from "crypto";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const CRO03_HOOK_POLICY: ContactWriterHookPolicy = {
@@ -436,7 +437,7 @@ export async function projectBusinessOnly(input: {
       await tx.execute(sql`
         INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
         VALUES ('system','canonical_conflict_evidence_written','canonical_conflict_evidence',${conflictEvidenceId},
-                ${JSON.stringify({ itemId: input.itemId, reasonCode: organization.reasonCode, candidateIds: organization.candidateIds })}::jsonb,
+                ${JSON.stringify(sanitizeAuditPayload({ itemId: input.itemId, reasonCode: organization.reasonCode, candidateIds: organization.candidateIds }))}::jsonb,
                 'system','cro03b')
       `);
       await tx.execute(sql`
@@ -485,7 +486,7 @@ export async function projectBusinessOnly(input: {
       await tx.execute(sql`
         INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
         VALUES ('system','canonical_conflict_evidence_written','canonical_conflict_evidence',${conflictEvidenceId},
-                ${JSON.stringify({ itemId: input.itemId, reasonCode: 'concurrent_projection_race', candidateIds: [storedBusinessId, resolvedBusinessId] })}::jsonb,
+                ${JSON.stringify(sanitizeAuditPayload({ itemId: input.itemId, reasonCode: 'concurrent_projection_race', candidateIds: [storedBusinessId, resolvedBusinessId] }))}::jsonb,
                 'system','cro03b')
       `);
       await tx.execute(sql`
@@ -537,14 +538,14 @@ export async function projectBusinessOnly(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
       VALUES ('system',${auditAction},'business',${String(storedBusinessId)},
-              ${JSON.stringify({
+              ${JSON.stringify(sanitizeAuditPayload({
                 itemId: input.itemId,
                 sourceSystem: input.sourceSystem,
                 sourceType: input.sourceType,
                 stableKey: input.stableKey,
                 sourceLinkId,
                 countyFips,
-              })}::jsonb,
+              }))}::jsonb,
               'system','cro03b')
     `);
 
@@ -697,7 +698,7 @@ export async function projectBusinessEnrichmentFields(input: {
       await tx.execute(sql`
         INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
         VALUES ('system', 'business_enrichment_field_projected', 'business', ${String(businessId)},
-                ${JSON.stringify({ field: candidate.field, generationId, stageKey: candidate.stageKey, confidence: candidate.confidence })}::jsonb,
+                ${JSON.stringify(sanitizeAuditPayload({ field: candidate.field, generationId, stageKey: candidate.stageKey, confidence: candidate.confidence }))}::jsonb,
                 'system', 'cro03c_projection')
       `);
 

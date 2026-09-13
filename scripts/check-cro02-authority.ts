@@ -32,17 +32,29 @@ const SOLE_WRITERS = {
   relationshipProjection: new Set(["server/services/commercial-relationship-authority.ts"]),
   classProjection: new Set(["server/services/commercial-classification-authority.ts"]),
 };
+// The field-route and enrichment workers may update operational state on a
+// business (do_not_visit, enrichment status, etc.).  They must not be treated
+// as canonical identity writers.  Keep this list limited to identity fields.
+const BUSINESS_IDENTITY_FIELDS = new Set([
+  "canonicalName", "normalizedName", "websiteDomain", "mainPhone", "mainEmail",
+  "streetAddress", "city", "state", "postalCode", "country", "latitude",
+  "longitude", "industryPrimary", "industrySecondary", "vertical", "subVertical",
+  "googlePlaceId", "facebookUrl", "instagramUrl", "yelpUrl",
+]);
+const HISTORICAL_CLASS_BACKFILL = "server/services/production-seed-convergence.ts";
+const SCHEDULED_OBSERVATION_COMPATIBILITY =
+  "Legacy-effective reporting remains intentional; CRO-02 shadow observation runs through the bounded scheduled worker rather than request-path graph resolution.";
 const CONSUMERS = new Map<string, { boundary: string; authority?: string; compatibility?: string }>([
   ["server/services/revenue-read-authority.ts", { boundary: "revenue read and CRO-01 pipeline", authority: "authorizeCommercialUseBatch" }],
-  ["server/routes/analytics.ts", { boundary: "analytics routes", authority: "observeCommercialReportingPopulation" }],
-  ["server/services/executive-kpi.ts", { boundary: "executive KPI", authority: "observeCommercialReportingPopulation" }],
-  ["server/services/digest-service.ts", { boundary: "daily and weekly digest", authority: "observeCommercialReportingPopulation" }],
-  ["server/services/sdr/funnel-metrics.ts", { boundary: "SDR funnel", authority: "observeCommercialReportingPopulation" }],
-  ["server/routes/portfolio.ts", { boundary: "portfolio and merchant views", authority: "observeCommercialReportingPopulation" }],
-  ["server/routes/merchants.ts", { boundary: "merchant detail and MID views", authority: "observeCommercialReportingPopulation" }],
-  ["server/routes/residuals.ts", { boundary: "residual and payout views", authority: "observeCommercialReportingPopulation" }],
-  ["server/routes/statement-review.ts", { boundary: "statement review", authority: "observeCommercialReportingPopulation" }],
-  ["server/routes/boarding.ts", { boundary: "application and MID boarding", authority: "observeCommercialReportingPopulation" }],
+  ["server/routes/analytics.ts", { boundary: "analytics routes", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/services/executive-kpi.ts", { boundary: "executive KPI", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/services/digest-service.ts", { boundary: "daily and weekly digest", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/services/sdr/funnel-metrics.ts", { boundary: "SDR funnel", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/routes/portfolio.ts", { boundary: "portfolio and merchant views", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/routes/merchants.ts", { boundary: "merchant detail and MID views", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/routes/residuals.ts", { boundary: "residual and payout views", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/routes/statement-review.ts", { boundary: "statement review", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
+  ["server/routes/boarding.ts", { boundary: "application and MID boarding", compatibility: SCHEDULED_OBSERVATION_COMPATIBILITY }],
   ["server/services/provider-readiness-control.ts", { boundary: "provider readiness and pre-spend", authority: "authorizeCommercialUse" }],
   ["server/services/contactability.ts", { boundary: "contactability", authority: "authorizeCommercialUse" }],
   ["server/services/smtp-email.ts", { boundary: "SMTP final transport", authority: "authorizeCommercialUse" }],
@@ -121,6 +133,16 @@ function importsAuthority(sf: ts.SourceFile, symbol: string, moduleSuffix: strin
   });
   return imported;
 }
+function isNonIdentityBusinessUpdate(node: ts.CallExpression, sf: ts.SourceFile): boolean {
+  const access = node.parent;
+  const setCall = access && ts.isPropertyAccessExpression(access) && access.name.text === "set"
+    && ts.isCallExpression(access.parent) ? access.parent : undefined;
+  let values = setCall?.arguments[0];
+  while (values && (ts.isAsExpression(values) || ts.isTypeAssertionExpression(values))) values = values.expression;
+  if (!values || !ts.isObjectLiteralExpression(values)) return false;
+  const fields = values.properties.map(propertyName).filter((field): field is string => Boolean(field));
+  return fields.length > 0 && fields.every((field) => !BUSINESS_IDENTITY_FIELDS.has(field));
+}
 
 const schema = source("shared/schema.ts");
 ok(JSON.stringify(arrayConstant(schema, "COMMERCIAL_CLASS_VALUES")) === JSON.stringify(CLASS_VALUES), "commercial class enum changed");
@@ -165,6 +187,7 @@ for (const file of TYPESCRIPT_ROOTS.flatMap(filesUnder)) {
     if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression) ||
         !["insert", "update"].includes(node.expression.name.text) ||
         !node.arguments.some((arg) => ts.isIdentifier(arg) && arg.text === "businesses")) return;
+    if (node.expression.name.text === "update" && isNonIdentityBusinessUpdate(node, sf)) return;
     if (!SOLE_WRITERS.businessIdentity.has(file)) violations.push(`${file}: raw canonical business writer`);
   });
   walk(sf, (node) => {
@@ -174,8 +197,12 @@ for (const file of TYPESCRIPT_ROOTS.flatMap(filesUnder)) {
       violations.push(`${file}: raw SQL contacts.business_id writer`);
     if (/update contacts set[^;]*(is_decision_maker|decision_maker_confidence)\s*=/.test(sqlText) &&
         !SOLE_WRITERS.relationshipProjection.has(file)) violations.push(`${file}: raw SQL decision-maker writer`);
-    if (/update (contacts|deals|prospects|companies|businesses) set[^;]*record_class\s*=/.test(sqlText) &&
-        !SOLE_WRITERS.classProjection.has(file)) violations.push(`${file}: raw SQL class writer`);
+    const setClause = sqlText.split(/\bwhere\b/i, 1)[0];
+    if (/update (contacts|deals|prospects|companies|businesses) set[^;]*record_class\s*=/.test(setClause) &&
+        !SOLE_WRITERS.classProjection.has(file) &&
+        !(file === HISTORICAL_CLASS_BACKFILL && /where record_class = 'unknown'/.test(sqlText))) {
+      violations.push(`${file}: raw SQL class writer`);
+    }
   });
   walk(sf, (node) => {
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return;

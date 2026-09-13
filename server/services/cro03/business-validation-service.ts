@@ -35,6 +35,8 @@ import {
 import { stableCro03RecipeHash } from "./contracts";
 import { assertProviderActivation } from "../provider-manifest";
 import { hashCro03Evidence } from "./source-staging";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
+import { validateEmailRaw, type ZeroBounceRawResponse } from "../sdr/zerobounce";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 
@@ -55,27 +57,6 @@ function mapZbStatus(zbStatus: string): string {
 }
 
 // ── ZeroBounce HTTP client ─────────────────────────────────────────────────────
-
-interface ZbValidateResponse {
-  status: string;
-  sub_status?: string;
-  error?: string;
-}
-
-async function callZeroBounce(email: string, apiKey: string): Promise<ZbValidateResponse> {
-  const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}&ip_address=`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error(`ZB_HTTP_${res.status}`);
-    return await res.json() as ZbValidateResponse;
-  } catch (err: any) {
-    clearTimeout(timer);
-    throw err;
-  }
-}
 
 // ── Execution context for authorization gate ───────────────────────────────────
 
@@ -320,9 +301,9 @@ export async function processBusinessValidationIntent(
   // Only reached after a committed authorization row, a durable claim, and
   // successful transport_started checkpoint. A transport failure here is "ambiguous"
   // since transport_may_have_been_invoked=TRUE is already durable.
-  let zbResponse: ZbValidateResponse;
+  let zbResponse: ZeroBounceRawResponse;
   try {
-    zbResponse = await callZeroBounce(email, apiKey);
+    zbResponse = await validateEmailRaw(email, apiKey);
   } catch {
     // Post-dispatch transport failure — leave claimed to prevent duplicate I/O.
     // The caller settles as "ambiguous" so the accounting record is quarantined.
@@ -448,13 +429,13 @@ async function writeBusinessValidationResult(input: WriteResultInput): Promise<v
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id, action, entity_type, entity_key, details, actor_type, actor_id)
       VALUES ('system', 'business_email_validation_completed', 'business', ${String(businessId)},
-              ${JSON.stringify({
+              ${JSON.stringify(sanitizeAuditPayload({
                 intentId,
                 businessId,
                 discoveryStatus,
                 zbStatus,
                 // No email field — kill line.
-              })}::jsonb,
+              }))}::jsonb,
               'system', 'cro03c_business_validation')
     `);
 

@@ -31,6 +31,7 @@ import type { Express } from "express";
 import { requireRole } from "../replit_integrations/auth";
 import { pool } from "../db";
 import { serverError } from "../utils/server-error";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import {
   createAndStartRun,
   getCensusPreview,
@@ -269,7 +270,7 @@ export function registerCensusRoutes(app: Express): void {
       await pool.query(
         `INSERT INTO audit_logs (action, entity_type, entity_id, performed_by, metadata, created_at)
          VALUES ('force_cancel_census_run', 'census_run', $1, $2, $3, now())`,
-        [runId, adminEmail, JSON.stringify({ runId })],
+        [runId, adminEmail, JSON.stringify(sanitizeAuditPayload({ runId }))],
       );
 
       res.json({ runId, status: "cancelled" });

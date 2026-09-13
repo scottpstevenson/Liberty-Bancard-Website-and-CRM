@@ -209,6 +209,9 @@ assert(
 
 const allowedRecordClassWriters = new Set([
   "server/services/commercial-classification-authority.ts",
+  // This startup-only migration convergence is the owner of the explicitly
+  // documented historical unknown→test/production backfill.
+  "server/services/production-seed-convergence.ts",
   "migrations/0150_commercial_classification.sql",
   "shared/schema.ts",
 ]);

@@ -28,6 +28,7 @@
 
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -691,7 +692,7 @@ async function writeAuditLog(
       'master_lead_staged',
       'master_lead',
       ${masterLeadId ?? String(canonicalBusinessId)},
-      ${JSON.stringify({ canonicalBusinessId, cro03GenerationId: generationId, disposition, readinessReason, masterLeadId })}::jsonb,
+      ${JSON.stringify(sanitizeAuditPayload({ canonicalBusinessId, cro03GenerationId: generationId, disposition, readinessReason, masterLeadId }))}::jsonb,
       'system',
       'master-lead-stager'
     )
@@ -738,14 +739,14 @@ export async function reconcileGenerationBatch(generationId: string): Promise<vo
         'master_lead_generation_reconciled',
         'generation',
         ${generationId},
-        ${JSON.stringify({
+        ${JSON.stringify(sanitizeAuditPayload({
           cro03GenerationId: generationId,
           totalSubmitted: Number(c.total_submitted),
           stagedCount: Number(c.staged_count),
           duplicateCount: Number(c.duplicate_count),
           suppressedCount: Number(c.suppressed_count),
           failedCount: Number(c.failed_count),
-        })}::jsonb,
+        }))}::jsonb,
         'system',
         'master-lead-stager'
       )

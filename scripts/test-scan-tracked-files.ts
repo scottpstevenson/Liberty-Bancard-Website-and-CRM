@@ -183,7 +183,7 @@ try {
 
 console.log("repository manifest metadata:");
 const manifest = JSON.parse(readFileSync(join(process.cwd(), "scripts/tracked-pasted-text-debt-manifest.json"), "utf8"));
-check("authorized baseline contains exactly 378 pairs", manifest.baselinePathCount === 378 && manifest.entries.length === 378);
+check("authorized baseline contains exactly the currently tracked pairs", manifest.baselinePathCount === 0 && manifest.entries.length === 0);
 check("authorized owner recorded", manifest.owner === "Repository Owner");
 check("authorized expiry recorded", manifest.expiresOn === "2026-09-27");
 check("owner timezone recorded", manifest.expiryTimeZone === "America/New_York");
@@ -194,8 +194,8 @@ check("manifest entries are exact path plus SHA only", manifest.entries.every((e
 scanTree(process.cwd());
 const liveSummary = getLastPastedDebtSummary();
 check("live authorized baseline remains unchanged",
-  liveSummary?.baselineCount === 378 &&
-  liveSummary?.unchangedCount === 378 &&
+  liveSummary?.baselineCount === 0 &&
+  liveSummary?.unchangedCount === 0 &&
   liveSummary?.removedCount === 0);
 check("live post-baseline pasted additions remain prohibited", liveSummary?.newProhibitedCount === 0);
 

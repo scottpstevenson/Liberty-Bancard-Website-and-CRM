@@ -4974,17 +4974,36 @@ export function registerAdminRoutes(app: Express) {
       checks.push({ name: "dbBackup", status: backupStatus, detail: backupDetail, critical: false });
 
       // 8. kpiQuery — contact/deal counts
+      // Use PostgreSQL's catalog estimates rather than COUNT(*) over the
+      // production-sized tables. This endpoint is itself a liveness probe;
+      // a full scan here can occupy a pool connection long enough for the
+      // probe to time out under normal worker load.
       let kpiOk = false;
       let kpiDetail = "Query failed";
       try {
-        const [contactResult, dealResult] = await Promise.all([
-          db.execute(drizzleSqlRaw.raw("SELECT COUNT(*) AS c FROM contacts")),
-          db.execute(drizzleSqlRaw.raw("SELECT COUNT(*) AS c FROM deals")),
-        ]);
-        const contactCount = parseInt(String((contactResult.rows[0] as any)?.c ?? "0"), 10) || 0;
-        const dealCount = parseInt(String((dealResult.rows[0] as any)?.c ?? "0"), 10) || 0;
-        kpiOk = true;
-        kpiDetail = `contacts: ${contactCount.toLocaleString()}  deals: ${dealCount.toLocaleString()}`;
+        const estimateResult = await db.execute(drizzleSqlRaw.raw(`
+          SELECT relname, reltuples::bigint AS estimate
+          FROM pg_class
+          WHERE relname IN ('contacts', 'deals')
+        `));
+        const estimates = estimateResult.rows as Array<{ relname: string; estimate: string | number }>;
+        const contactCount = Number(estimates.find((row) => row.relname === "contacts")?.estimate ?? 0);
+        const dealCount = Number(estimates.find((row) => row.relname === "deals")?.estimate ?? 0);
+        if (contactCount > 0 && dealCount > 0) {
+          kpiOk = true;
+          kpiDetail = `contacts≈${contactCount.toLocaleString()}  deals≈${dealCount.toLocaleString()} (approx)`;
+        } else {
+          // Newly-created tables may not have statistics yet. Confirm that
+          // both relations are queryable without scanning them.
+          const existenceResult = await db.execute(drizzleSqlRaw.raw(`
+            SELECT
+              EXISTS (SELECT 1 FROM contacts LIMIT 1) AS contacts,
+              EXISTS (SELECT 1 FROM deals LIMIT 1) AS deals
+          `));
+          const row = existenceResult.rows[0] as { contacts?: boolean; deals?: boolean } | undefined;
+          kpiOk = row?.contacts === true && row?.deals === true;
+          kpiDetail = kpiOk ? "contacts and deals queryable (statistics pending)" : "contacts or deals has no rows";
+        }
       } catch {}
       checks.push({ name: "kpiQuery", status: kpiOk ? "ok" : "error", detail: kpiDetail, critical: true });
 

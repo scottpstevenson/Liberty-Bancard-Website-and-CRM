@@ -21,6 +21,12 @@ const approvedShape = {
   prompt: "reviewed prompt",
   promptHash: digest("reviewed prompt"),
   maxCompletionTokens: 1,
+  // Cro03cOpenAiInput now requires the raw evidence a prompt claims to have
+  // been rendered from (see verifyCro03cOpenAiPromptRendering). This fixture
+  // is deliberately unapproved (arbitrary model/system/template hashes), so
+  // it is rejected at the allowlist check before the render-binding check
+  // ever runs — any evidence object satisfies the presence check here.
+  evidence: { businessName: "Test Business" },
 };
 
 assert.throws(

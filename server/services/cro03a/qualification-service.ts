@@ -4,6 +4,7 @@ import { prospects, sunbizEntities, sdrMerchants, leadDiscoveryResults, masterLe
 import { hashCro03Evidence } from "../cro03/source-staging";
 import { createCro03SourceBatch } from "../cro03/source-staging";
 import { stableCro03aSelectionHash } from "../cro03/contracts";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 import {
   CRO03A_FIT_V2_POLICY_IDENTITY,
   CRO03A_FIT_V2_POLICY_IDENTITY_HASH,
@@ -370,7 +371,7 @@ export async function createCro03aQualificationRun(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03a_qualification_run_queued','cro03a_qualification_run',
-               ${String(run.id)},${JSON.stringify({ total: occurrences.length, selectionHash, algorithmIdentityHash })}::jsonb,
+               ${String(run.id)},${JSON.stringify(sanitizeAuditPayload({ total: occurrences.length, selectionHash, algorithmIdentityHash }))}::jsonb,
               'user',${input.actorId})
     `);
     return { id: String(run.id), replayed: false, state: "queued", totalCount: occurrences.length, selectedCount: 0, reviewCount: 0, terminalCount: 0 };
@@ -575,8 +576,8 @@ async function completeClaimedCro03aItem(claim: ClaimedQualificationItem): Promi
     if (state === "completed") {
       await tx.execute(sql`
         INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
-        SELECT ${claim.actorId},'cro03a_qualification_run_completed','cro03a_qualification_run',
-               ${claim.runId},jsonb_build_object('reconciled',TRUE),'user',${claim.actorId}
+         SELECT ${claim.actorId},'cro03a_qualification_run_completed','cro03a_qualification_run',
+               ${claim.runId},${JSON.stringify(sanitizeAuditPayload({ reconciled: true }))}::jsonb,'user',${claim.actorId}
          WHERE NOT EXISTS (
            SELECT 1 FROM audit_logs
             WHERE action='cro03a_qualification_run_completed' AND entity_key=${claim.runId}
@@ -905,8 +906,8 @@ export async function processCro03aQualificationRunBatch(runId: string): Promise
     if (state === "completed") {
       await tx.execute(sql`
         INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
-        SELECT ${actorId},'cro03a_qualification_run_completed','cro03a_qualification_run',
-               ${runId},jsonb_build_object('reconciled',TRUE,'batchMode',TRUE),'user',${actorId}
+         SELECT ${actorId},'cro03a_qualification_run_completed','cro03a_qualification_run',
+               ${runId},${JSON.stringify(sanitizeAuditPayload({ reconciled: true, batchMode: true }))}::jsonb,'user',${actorId}
          WHERE NOT EXISTS (
            SELECT 1 FROM audit_logs
             WHERE action='cro03a_qualification_run_completed' AND entity_key=${runId}
@@ -1024,7 +1025,7 @@ export async function activateCro03aPolicy(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03a_policy_activated','cro03a_policy',${input.policyId},
-              ${JSON.stringify({ reason: input.reason.trim(), policyVersion: Number(policy.version), policyHash: String(policy.policy_hash), previousControlVersion: input.expectedVersion })}::jsonb,
+              ${JSON.stringify(sanitizeAuditPayload({ reason: input.reason.trim(), policyVersion: Number(policy.version), policyHash: String(policy.policy_hash), previousControlVersion: input.expectedVersion }))}::jsonb,
               'user',${input.actorId})
     `);
     return { policyId: input.policyId, controlVersion: Number(changed.expected_version), policyVersion: Number(policy.version), policyHash: String(policy.policy_hash) };
@@ -1475,13 +1476,13 @@ export async function watchdogCro03aStaleOccurrences(): Promise<{
           ${runId},
           'system',
           'cro03a-watchdog',
-          ${JSON.stringify({
+          ${JSON.stringify(sanitizeAuditPayload({
             adapterKey: String(staleRun.adapter_key),
             completedAt: String(staleRun.completed_at),
             undecidedCount,
             staleSummary,
             commandsByState,
-          })}::jsonb
+          }))}::jsonb
         )
       `);
       alertsWritten++;

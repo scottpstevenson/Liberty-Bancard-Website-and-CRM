@@ -11,7 +11,7 @@
  * Kill-line assertions:
  *  - Object.keys(metrics).length must NOT be used for Worker capacity
  *  - status === "safe" must NOT be returned when limit is unknown
- *  - QUEUE_CONFIGS must exactly match the certified 29-name roster
+ *  - QUEUE_CONFIGS must exactly match the certified roster
  *  - A same-count queue replacement must fail roster and digest assertions
  *
  * Exits 0 if all assertions pass, 1 if any fail.
@@ -46,15 +46,17 @@ async function testQueueConfigsBaseline() {
 
   const CERTIFIED_ROSTER = [
     "abandoned-statement", "activation-monitor", "chargeback-commands",
-    "cro03a-qualification", "cro03c-live", "db-backup", "deal-stage-effects",
+    "cro02-observation", "cro03a-qualification", "cro03c-live",
+    "cro08a-processor", "cro08a-scheduler",
+    "db-backup", "deal-stage-effects",
     "digests", "discovery", "enrichment", "enrollment-recovery",
     "executive-snapshot", "ghl-enrollment-recovery", "ghl-sync",
-    "health-monitor", "merchant-success", "mid-ingestion", "onboarding-reminder",
+    "health-monitor", "master-lead-stager", "merchant-success", "mid-ingestion", "onboarding-reminder",
     "partner-monthly-digest", "pipeline-silence-check", "post-enrichment",
-    "proposal-followup", "sequences", "sla-checks", "statement-upload",
-    "system-audit", "voicemail-sync", "winback-outreach", "zerobounce-batch-validate",
+    "proposal-followup", "sequences", "sla-checks", "source-registry-import",
+    "statement-upload", "system-audit", "voicemail-sync", "winback-outreach", "zerobounce-batch-validate",
   ] as const;
-  const CERTIFIED_ROSTER_DIGEST = "db4ca92c2144507d5f2ef97139eb7150f441a0f927396d730441db82494a8590";
+  const CERTIFIED_ROSTER_DIGEST = "8d587d6c596bcc64c27add502a7ad2d11580a88528ec221b6d515d12d4ed84ce";
   const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
   const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 

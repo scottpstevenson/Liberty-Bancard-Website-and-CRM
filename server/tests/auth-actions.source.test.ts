@@ -10,6 +10,7 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 assert.deepEqual(AUTH_ACTION_PURPOSES, [
   "user_password_reset", "user_email_verification", "merchant_activation",
   "partner_password_reset", "partner_invite", "partner_org_activation", "partner_org_password_reset",
+  "agent_rep_invite",
 ]);
 const authority = read("server/services/auth-actions.ts");
 assert.match(authority, /randomBytes\(32\)/);

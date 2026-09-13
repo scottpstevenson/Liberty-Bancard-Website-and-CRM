@@ -32,6 +32,7 @@ import {
   contactLifecycleHistory,
 } from "../shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
+import crypto from "node:crypto";
 import { storage } from "../server/storage";
 import {
   onStatementRequested,
@@ -45,6 +46,7 @@ import {
   isProductionStatementSequenceCandidate,
   type AcquisitionConfig,
 } from "../server/services/statement-acquisition";
+import { decideCr06SequenceLifecycle } from "../server/services/cr06-promotional-lifecycle-decision";
 
 // ─── Bookkeeping ──────────────────────────────────────────────────────────────
 
@@ -125,6 +127,7 @@ async function createIsolatedTestSequence(): Promise<number> {
     name: testSequenceName,
     description: "Pre-deploy statement acquisition enrollment fixture",
     triggerType: "test_harness",
+    triggerConfig: { communicationPurpose: "transactional" },
     totalSteps: 0,
     status: "active",
     sequenceFamily: "statement_acquisition_test",
@@ -208,11 +211,15 @@ async function runTests() {
     );
     if (seq) {
       seqId = seq.id;
-      assert(
-        '"Statement Chase (Auto)" remains paused by default',
-        seq.status === "paused",
-        `status="${seq.status}"`,
-      );
+       // CR-06 is the current execution authority. Even if an operator has
+       // activated the row in the dashboard, promotional sequence execution
+       // must remain fail-closed until an explicit non-promotional purpose is
+       // persisted and admitted by the CR-06 authority.
+       assert(
+         '"Statement Chase (Auto)" remains blocked by CR-06 execution authority',
+         !decideCr06SequenceLifecycle(seq).allowed,
+         `status="${seq.status}"`,
+       );
 
       const steps = await getChaseSteps(seq.id);
       assert(
@@ -753,13 +760,16 @@ async function runTests() {
       `no active enrollment found for contact ${chainContactId} before chain run`,
     );
 
-    // Run the upload chain without a file buffer (skips disk I/O and AI) —
-    // enough to exercise STEP 3 (deal creation) and STEP 5b (onStatementReceived)
+    // Use an opaque protected-object reference without a file buffer. This
+    // exercises STEP 3 (deal creation) and STEP 5b while respecting the
+    // production contract that raw file buffers are never accepted by the
+    // chain as the source of truth.
     const chainResult = await runStatementUploadChain({
       contactId: chainContactId,
       dealId: null,
       fileBuffer: null as any,
-      fileName: null as any,
+      fileName: "statement-certification.pdf",
+      protectedObjectRef: crypto.randomUUID(),
       source: "dashboard" as any,
       businessName: "Chain Test Corp",
     });
@@ -806,8 +816,8 @@ async function runTests() {
       await cleanupTestData();
       const canonicalSequence = await getChaseSequence();
       assert(
-        '"Statement Chase (Auto)" remained paused throughout certification',
-        canonicalSequence?.status === "paused",
+        '"Statement Chase (Auto)" remained blocked by CR-06 throughout certification',
+        canonicalSequence && !decideCr06SequenceLifecycle(canonicalSequence).allowed,
         `status="${canonicalSequence?.status}"`,
       );
       console.log("  ✓ Test data cleaned up");

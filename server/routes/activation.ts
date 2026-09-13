@@ -11,6 +11,7 @@ import { runStageProgressionSweep } from "../services/stage-progression";
 import { getGhlCircuitState } from "../services/ghl-sync";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { serverError, safeMessage, logOperationalDiagnostic } from "../utils/server-error";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 
 // Block-list patterns — no raw/test/demo/DNC records (matches pilot-preview policy)
 const BLOCKED_NAME_PATTERNS = [/test/i, /demo/i, /example/i, /liberty-test/i];
@@ -1858,7 +1859,7 @@ export function registerActivationRoutes(app: Express) {
           action: "pilot_rep_provisioned",
           entityType: "user",
           entityKey: u.id,
-          details: { newUserId: u.id, email: safeEmail, agentId: a.id, role: "agent" },
+          details: sanitizeAuditPayload({ newUserId: u.id, email: safeEmail, agentId: a.id, role: "agent" }) as any,
           actorType: "user",
           actorId: actorUserId,
         });
@@ -1868,7 +1869,7 @@ export function registerActivationRoutes(app: Express) {
           action: "pilot_agent_record_created",
           entityType: "agent",
           entityId: a.id,
-          details: { agentId: a.id, userId: u.id, email: safeEmail, status: "active" },
+          details: sanitizeAuditPayload({ agentId: a.id, userId: u.id, email: safeEmail, status: "active" }) as any,
           actorType: "user",
           actorId: actorUserId,
         });
@@ -2024,7 +2025,7 @@ export function registerActivationRoutes(app: Express) {
         action: "pilot_rep_invite_resent",
         entityType: "user",
         entityKey: userId,
-        details: { targetUserId: userId, email: targetUser.email, inviteDisposition },
+        details: sanitizeAuditPayload({ targetUserId: userId, email: targetUser.email, inviteDisposition }) as any,
         actorType: "user",
         actorId: actorUserId,
       });
@@ -2179,7 +2180,7 @@ export function registerActivationRoutes(app: Express) {
           action: "pilot_cohort_assigned",
           entityType: "user",
           entityKey: repUserId,
-          details: {
+          details: sanitizeAuditPayload({
             repUserId,
             agentEmail,
             assignedContactIds: accepted,
@@ -2187,7 +2188,7 @@ export function registerActivationRoutes(app: Express) {
             blockedLocationIds: blocked.filter(b => b.kind === "location").map(b => b.id),
             locationIds: safeLocationIds,
             blocked,
-          },
+          }) as any,
           actorType: "user",
           actorId: actorUserId,
         });
@@ -2234,6 +2235,7 @@ export function registerActivationRoutes(app: Express) {
   app.post("/api/auth/agent-invite/validate", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Pragma", "no-cache");
+    res.setHeader("Referrer-Policy", "no-referrer");
     try {
       const token = typeof req.body?.token === "string" ? req.body.token : "";
       const { isAuthActionValid } = await import("../services/auth-actions");
@@ -2247,6 +2249,7 @@ export function registerActivationRoutes(app: Express) {
   app.post("/api/auth/agent-invite/activate", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Pragma", "no-cache");
+    res.setHeader("Referrer-Policy", "no-referrer");
     try {
       const { token, password } = req.body ?? {};
       if (!token || typeof token !== "string") {
@@ -2293,7 +2296,7 @@ export function registerActivationRoutes(app: Express) {
         action: "pilot_rep_account_activated",
         entityType: "user",
         entityKey: user.id,
-        details: { role: user.role },
+        details: sanitizeAuditPayload({ role: user.role }) as any,
         actorType: "user",
         actorId: user.id,
       });

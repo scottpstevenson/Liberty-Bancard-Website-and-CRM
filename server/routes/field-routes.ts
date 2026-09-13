@@ -859,7 +859,7 @@ export function registerFieldRoutesRoutes(app: Express) {
             return v;
           });
 
-          const task = await storage.createTask({
+          const task = await storage.createAuthorityTask({
             title: "Field visit follow-up",
             subjectType: "contact",
             subjectId: stop.contactId,
@@ -868,7 +868,13 @@ export function registerFieldRoutesRoutes(app: Express) {
             status: "open",
             priority: "medium",
             contactId: stop.contactId,
-          } as any);
+          } as any, {
+            producer: "field_visit",
+            subjectType: "contact",
+            subjectId: stop.contactId,
+            issueKey: `follow_up:${visit.id}`,
+            commandKey: `field_visit_follow_up:${visit.id}`,
+          });
 
           await auditChange({
             action: "field_visit_recorded",

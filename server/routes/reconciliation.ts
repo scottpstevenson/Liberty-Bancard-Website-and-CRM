@@ -19,6 +19,7 @@ import type { Express } from "express";
 import { requireRole } from "../replit_integrations/auth";
 import { pool } from "../db";
 import { serverError } from "../utils/server-error";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import { deriveEnvironmentLabel } from "../services/contact-census-runner";
 import {
   createAndStartReconRun,
@@ -444,7 +445,7 @@ export function registerReconciliationRoutes(app: Express): void {
       await pool.query(
         `INSERT INTO audit_logs (action, entity_type, entity_id, performed_by, metadata, created_at)
          VALUES ('force_cancel_reconciliation_run', 'reconciliation_run', $1, $2, $3, now())`,
-        [runId, adminEmail, JSON.stringify({ runId })],
+        [runId, adminEmail, JSON.stringify(sanitizeAuditPayload({ runId }))],
       );
 
       res.json({ runId, status: "cancelled" });

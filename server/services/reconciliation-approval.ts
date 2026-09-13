@@ -13,6 +13,7 @@
 
 import pg from "pg";
 import { pool as defaultPool } from "../db";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
 // Fields we are allowed to write via reconciliation approval (new proposals).
 // email is explicitly excluded — it is high-risk PII and requires ZeroBounce re-validation.
@@ -165,13 +166,13 @@ export async function approveProposal(
       [
         proposal.contact_id,
         approvedBy,
-        JSON.stringify({
+        JSON.stringify(sanitizeAuditPayload({
           proposalId,
           fieldName,
           fromValue: currentValue,
           toValue: proposedValue,
           runId: proposal.run_id,
-        }),
+        })),
       ],
     );
 
@@ -332,7 +333,7 @@ export async function revertProposal(
       [
         p.contact_id,
         revertedBy,
-        JSON.stringify({ proposalId, fieldName, revertedTo: p.current_value, runId: p.run_id }),
+        JSON.stringify(sanitizeAuditPayload({ proposalId, fieldName, revertedTo: p.current_value, runId: p.run_id })),
       ],
     );
 

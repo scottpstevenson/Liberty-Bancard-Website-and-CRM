@@ -17,7 +17,7 @@ import {
 } from "./queue-connection";
 import { storage } from "../storage";
 import { decideCr06PromotionalLifecycle } from "./cr06-promotional-lifecycle-decision";
-import { sanitizeDeadLetterEvent } from "./audit-sanitizer";
+import { sanitizeAuditPayload, sanitizeDeadLetterEvent } from "./audit-sanitizer";
 import { QUEUE_NAMES, type QueueName } from "./queue-names";
 export { QUEUE_NAMES, type QueueName } from "./queue-names";
 import { setDbContext } from "../lib/db-context";
@@ -1432,12 +1432,12 @@ class QueueManager {
                 NULL,
                 'system',
                 'queue-manager',
-                ${JSON.stringify({
+                ${JSON.stringify(sanitizeAuditPayload({
                   queue: queueName,
                   jobId: _job.id ?? null,
                   jobName: _job.name,
                   reason: "kill_switch_enabled",
-                })}::jsonb,
+                }))}::jsonb,
                 NOW()
               )
             `);
@@ -1463,13 +1463,13 @@ class QueueManager {
               NULL,
               'system',
               'queue-manager',
-              ${JSON.stringify({
+              ${JSON.stringify(sanitizeAuditPayload({
                 queue: queueName,
                 jobId: _job.id ?? null,
                 jobName: _job.name,
                 reason: "kill_switch_check_failed",
                 error: (ksErr as Error).message?.slice(0, 200) ?? "unknown",
-              })}::jsonb,
+              }))}::jsonb,
               NOW()
             )
           `);
@@ -1528,14 +1528,14 @@ class QueueManager {
                 VALUES (
                   'job.selective_capability_suppressed',
                   'queue', NULL, 'system', 'queue-manager',
-                  ${JSON.stringify({
+                  ${JSON.stringify(sanitizeAuditPayload({
                     queue: queueName,
                     jobId: _job.id ?? null,
                     jobName: _job.name,
                     jobGroup: _jobGroup,
                     activeGroups: _activeGroups,
                     reason: "selective_capability_gate",
-                  })}::jsonb,
+                  }))}::jsonb,
                   NOW()
                 )
               `);
@@ -3012,13 +3012,23 @@ class QueueManager {
 
   async pauseQueue(name: string): Promise<void> {
     const queue = this.queues.get(name as QueueName);
-    if (!queue) throw new Error(`Queue not found: ${name}`);
+    // A capability profile may intentionally leave a certified queue
+    // uninstantiated (for example, the provider-denied/off profile).  Pausing
+    // that queue is already effective, so treat it as an idempotent no-op.
+    // Preserve the error for unknown names so operator typos remain visible.
+    if (!queue) {
+      if (QUEUE_CONFIGS.some((config) => config.name === name)) return;
+      throw new Error(`Queue not found: ${name}`);
+    }
     await queue.pause();
   }
 
   async resumeQueue(name: string): Promise<void> {
     const queue = this.queues.get(name as QueueName);
-    if (!queue) throw new Error(`Queue not found: ${name}`);
+    if (!queue) {
+      if (QUEUE_CONFIGS.some((config) => config.name === name)) return;
+      throw new Error(`Queue not found: ${name}`);
+    }
     await queue.resume();
   }
 

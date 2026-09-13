@@ -137,6 +137,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "BT-12 Revenue State Reconciliation Integration",
     script: "scripts/test-bt12-revenue-state-reconciliation-integration.ts",
     timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Canonical Identity Writer Guard (all production identity writers observed)",
@@ -157,12 +158,14 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Canonical Merge Manifest Guard (complete relationship disposition)",
     script: "scripts/check-contact-merge-manifest.ts",
     timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Canonical Identity Merge Contract",
     script: "scripts/test-canonical-identity-merge.ts",
     env: { GHL_TRANSPORT_FAILFAST: "true" },
     timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "CSRF Fetch Scanner (authenticated raw fetch() mutations must attach getCsrfToken())",
@@ -198,6 +201,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "RVR-03 Auth Action Concurrency",
     script: "server/tests/auth-actions.integration.test.ts",
     timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "RVR-03 OG Cache Hardening",
@@ -264,6 +268,7 @@ const MANDATORY_SUITES: Suite[] = [
     script: "scripts/test-sequence-compliance.ts",
     timeoutSecs: 120,
     requiresServer: true,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Sequence Terminalization Advisory-Lock Race",
@@ -274,17 +279,20 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Contactability Engine",
     script: "scripts/test-contactability.ts",
     timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Commercial Classification (unknown quarantine, approval, replay, evidence safety)",
     script: "scripts/test-commercial-classification.ts",
     timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "New-Lead Enrollment Policy",
     script: "scripts/test-new-lead-enrollment-policy.ts",
     timeoutSecs: 120,
     requiresServer: true,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Intake Provenance",
@@ -365,6 +373,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "CRO-01 Revenue Contract Integration (disposable PostgreSQL aggregate semantics)",
     script: "scripts/test-cro01-revenue-contract-integration.ts",
     timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "CRO-02 Classification Authority (shadow graph structural ownership)",
@@ -375,12 +384,14 @@ const MANDATORY_SUITES: Suite[] = [
     name: "CRO-02 Graph and Import Integration (disposable graph/vector/lease fencing)",
     script: "scripts/test-cro02-integration.ts",
     timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "CRO-02 HTTP Privacy and Provider Denial",
     script: "scripts/test-cro02-http.ts",
     timeoutSecs: 60,
     requiresServer: true,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "CRO-03 Durable Enrichment Factory (static transport, privacy, routing, and ownership gates)",
@@ -561,12 +572,14 @@ const MANDATORY_SUITES: Suite[] = [
     name: "CRO-03 Durable Enrichment Factory Concurrency and Recovery (disposable PostgreSQL/Redis certification)",
     script: "scripts/test-cro03-integration.ts",
     timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "CRO-03 HTTP Authorization and Ownership",
     script: "scripts/test-cro03-http-authorization.ts",
     timeoutSecs: 120,
     requiresServer: true,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Role Guards",
@@ -640,6 +653,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Outbound Pause Authority (#1531: fail-closed semantics, epoch, atomicity, no skipGlobalPauseCheck)",
     script: "scripts/test-outbound-pause-authority.ts",
     timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Outbound Boundary Denial (#1626: form-sync/delete/SMTP pause denial, drain fail-closed, epoch interleaving, audit sanitizer)",

@@ -351,7 +351,7 @@ export async function onStatementRequested(
 
     // Create a rep task as immediate action fallback (fires regardless of sequence)
     const companyName = contact.companyName || contact.firstName || `Contact #${contactId}`;
-    await (storage.createTask as Function)({
+    await storage.createAuthorityTask({
       contactId,
       dealId: dealId ?? undefined,
       title: `Send statement request to ${companyName}`,
@@ -361,6 +361,12 @@ export async function onStatementRequested(
       assignedTo: activeDeal?.owner ?? undefined,
       source: "statement_acquisition",
       automationKey: `statement-request-${contactId}`,
+    }, {
+      producer: "statement_acquisition",
+      subjectType: "contact",
+      subjectId: contactId,
+      issueKey: `statement-request:${contactId}`,
+      commandKey: `statement-request-${contactId}`,
     }).catch((err: Error) => console.warn(`[StatementAcquisition] Could not create rep task for contact ${contactId}:`, err.message));
 
   } catch (err) {
@@ -548,7 +554,7 @@ export async function checkStatementAcquisitionStalls(stallDaysOverride?: number
       const companyName = contact?.companyName || contact?.firstName || `Deal #${deal.id}`;
       const daysStuck = Math.round((Date.now() - new Date(deal.updatedAt!).getTime()) / 86400000);
 
-      await (storage.createTask as Function)({
+      await storage.createAuthorityTask({
         contactId: deal.contactId,
         dealId: deal.id,
         title: `Statement stalled ${daysStuck}d — follow up with ${companyName}`,
@@ -558,6 +564,12 @@ export async function checkStatementAcquisitionStalls(stallDaysOverride?: number
         assignedTo: deal.owner ?? undefined,
         source: "statement_acquisition",
         automationKey: `statement-stall-${deal.id}`,
+      }, {
+        producer: "statement_acquisition",
+        subjectType: "deal",
+        subjectId: deal.id,
+        issueKey: `statement-stall:${deal.id}`,
+        commandKey: `statement-stall-${deal.id}`,
       }).catch(() => {});
 
       await storage.createAuditLog({

@@ -11,6 +11,29 @@ export interface ZeroBounceResult {
 
 export type ZeroBounceFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
+/** Raw validation response used by the business-validation adapter. */
+export interface ZeroBounceRawResponse {
+  status: string;
+  sub_status?: string;
+  error?: string;
+}
+
+/**
+ * Shared low-level ZeroBounce transport. Keeping provider URL construction in
+ * this adapter prevents feature services from silently becoming alternate
+ * paid-provider clients.
+ */
+export async function validateEmailRaw(
+  email: string,
+  apiKey: string,
+  fetchImpl: ZeroBounceFetch = fetch,
+): Promise<ZeroBounceRawResponse> {
+  const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}&ip_address=`;
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) throw new Error(`ZB_HTTP_${res.status}`);
+  return await res.json() as ZeroBounceRawResponse;
+}
+
 export async function verifyEmail(
   email: string,
   opts: { fetchImpl?: ZeroBounceFetch; timeoutMs?: number } = {},

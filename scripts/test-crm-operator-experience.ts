@@ -33,7 +33,7 @@ requireText("server/routes/deals.ts", "parseStrictPagination");
 requireText("server/routes/crm-operations.ts", "db.select().from(tickets).where(eq(tickets.contactId, contactId))");
 requireText("server/routes/crm-operations.ts", "db.select().from(tasks).where(eq(tasks.contactId, contactId))");
 requireText("server/routes/inbox.ts", "authorizeInboxItemAccess");
-requireText("server/routes/inbox.ts", 'resultScope: "fetched_window"');
+requireText("server/routes/inbox.ts", 'resultScope: complete ? "all_sources_exhausted" : "partial_source_pages"');
 requireText("server/routes/inbox-ownership.ts", "authorizeInboxItemAccess");
 requireText("server/routes/notifications.ts", "authorizeContactAccess(req, res, Number(resolvedId))");
 requireText("server/routes/notifications.ts", "authorizeDealAccess(req, res, Number(resolvedId))");
@@ -46,8 +46,8 @@ requireText("server/routes/chargebacks.ts", "authorizeChargebackTarget(req, res,
 requireText("server/routes/live-chat.ts", "authorizeLiveChatAccess(req, res, chat, { exactAssignment: true })");
 requireText("server/routes/live-chat.ts", "const pattern = `%${q}%`");
 requireText("server/routes/live-chat.ts", "or(eq(contacts.assignedTo, agentEmail), isNull(contacts.assignedTo))");
-requireText("server/routes/outreach-queue.ts", "readyForOutreachPredicate");
-requireText("server/routes/daily-briefing.ts", "readyForOutreachPredicate");
+requireText("server/routes/outreach-queue.ts", "queryCr04ReadyProjection");
+requireText("server/routes/daily-briefing.ts", "queryCr04ReadyProjection");
 requireText("server/routes/queue-metrics.ts", "requireQueueManagerReady");
 requireText("server/routes/queue-metrics.ts", 'resultScope: "sampled_per_queue"');
 requireText("client/src/pages/dashboard/SystemHealthHub.tsx", "const isAdmin");
@@ -144,11 +144,12 @@ async function runtimeOwnershipProof() {
 
     const list = await get("/api/contacts?limit=100&offset=0", agentACookie);
     assert.equal(list.status, 200, "agent A contact list must load");
-    const listed = await list.json() as { data: Array<{ id: number }>; total: number };
+    const listed = await list.json() as { data: Array<{ id: number }>; limit: number; scope: string };
     assert.ok(listed.data.some((row) => row.id === aId), "agent A must see own contact");
     assert.ok(listed.data.some((row) => row.id === unassignedId), "agent A must see unassigned contact");
     assert.ok(!listed.data.some((row) => row.id === bId), "agent A must not enumerate agent B contact");
-    assert.ok(listed.total >= listed.data.length, "scoped list total must describe the scoped data window");
+    assert.equal(listed.limit, 100, "contact list must preserve the requested page size");
+    assert.equal(listed.scope, "owned_or_unassigned", "agent contact list must identify its ownership scope");
 
     assert.equal((await get(`/api/contacts/${bId}`, agentACookie)).status, 404, "agent A must receive non-leaking denial for agent B contact");
     assert.equal((await get(`/api/contacts/${aId}`, agentACookie)).status, 200, "agent A must read own contact");
@@ -156,11 +157,12 @@ async function runtimeOwnershipProof() {
     assert.equal((await get(`/api/contacts/${aId}`, agentBCookie)).status, 404, "agent B must not read agent A contact");
     const dealList = await get("/api/deals?limit=100&offset=0", agentACookie);
     assert.equal(dealList.status, 200, "agent A deal list must load");
-    const listedDeals = await dealList.json() as { data: Array<{ id: number }>; total: number };
+    const listedDeals = await dealList.json() as { data: Array<{ id: number }>; limit: number; scope: string };
     assert.ok(listedDeals.data.some((row) => row.id === aDealId), "agent A must see own deal");
     assert.ok(listedDeals.data.some((row) => row.id === unassignedDealId), "agent A must see unassigned deal");
     assert.ok(!listedDeals.data.some((row) => row.id === bDealId), "agent A must not enumerate agent B deal");
-    assert.ok(listedDeals.total >= listedDeals.data.length, "scoped deal total must describe the scoped data window");
+    assert.equal(listedDeals.limit, 100, "deal list must preserve the requested page size");
+    assert.equal(listedDeals.scope, "owned_or_unassigned", "agent deal list must identify its ownership scope");
     assert.equal((await get(`/api/deal-competitors/deal/${bDealId}`, agentACookie)).status, 404, "agent A must not read agent B deal subresources");
     assert.equal((await get(`/api/review-requests/deal/${bDealId}`, agentACookie)).status, 404, "agent A must not read agent B deal review requests");
     assert.equal((await get(`/api/audit-logs/entity/contact/${bId}`, agentACookie)).status, 404, "agent A must not read agent B contact audit history");

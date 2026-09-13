@@ -25,7 +25,10 @@ const organization = {
 const fetchMock: ApolloFetch = async (url, init) => {
   const body = JSON.parse(String(init.body));
   requests.push({ url, body });
-  if (url.endsWith("/organizations/search")) {
+  // Apollo's current organization endpoint is mixed_companies/search. The
+  // resolver deliberately uses the provider's canonical endpoint rather than
+  // the retired organizations/search path.
+  if (url.endsWith("/mixed_companies/search")) {
     // Deliberately reorder results on each query; selection cannot use order.
     return new Response(JSON.stringify({ organizations: [
       { ...organization, id: "org-other", name: "Other Co", dba_name: "Other", primary_domain: "other.test" },
@@ -59,7 +62,7 @@ assert.equal(requests.at(-1)?.body.organization_ids?.[0], "org-42");
 const ambiguous = await resolveApolloOrganizationForFrozenIdentity(
   { domain: "acmepay.test", city: "Miami", state: "FL" },
   async (url, init) => new Response(JSON.stringify({
-    organizations: url.endsWith("/organizations/search")
+    organizations: url.endsWith("/mixed_companies/search")
       ? [organization, { ...organization, id: "org-99" }].reverse()
       : [],
   }), { status: 200 }),

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { pool } from "../db";
 import { serverError } from "../utils/server-error";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 /**
  * Portfolio API — returns activated merchants with health signals.
  *
@@ -311,7 +312,7 @@ export function registerPortfolioRoutes(app: Express) {
           await client.query(`INSERT INTO audit_logs (user_id,action,entity_type,entity_id,actor_type,actor_id,details)
             VALUES ($1,$2,'deal',$3,'user',$1,$4::jsonb)`,
             [String(user?.id ?? email) || null, suppressed ? "vas_upsell_suppressed" : "vas_upsell_suppression_lifted",
-              dealId, JSON.stringify({ suppressed, reason: reason ?? null, actor: email, contactId: deal.contactId })]);
+              dealId, JSON.stringify(sanitizeAuditPayload({ suppressed, reason: reason ?? null, actor: email, contactId: deal.contactId }))]);
           await client.query("COMMIT");
           res.json({ ok: true, dealId, suppressed, vasUpsellSuppressedAt: at });
         } catch (error) {

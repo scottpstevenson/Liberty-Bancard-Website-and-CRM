@@ -2,6 +2,7 @@ import { createPublicKey, verify } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { stableCro03Json, stableCro03RecipeHash } from "./contracts";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 
 export const CRO03C_DEPLOYMENT_INVENTORY_VERSION = "cro03c-deployment-inventory-ed25519-v1" as const;
 export type Cro03cInventoryIdentityKind = "worker" | "ordinal";
@@ -131,7 +132,7 @@ export async function importCro03cDeploymentInventory(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.deployment_inventory.imported','cro03c_deployment_inventory',
-        ${payload.inventoryId},${JSON.stringify({ issuerId: payload.issuerId, payloadHash, reason: input.reason.trim() })}::jsonb,
+        ${payload.inventoryId},${JSON.stringify(sanitizeAuditPayload({ issuerId: payload.issuerId, payloadHash, reason: input.reason.trim() }))}::jsonb,
         'user',${input.actorId})
     `);
     return { inventoryId: payload.inventoryId, replayed: false };
@@ -164,7 +165,7 @@ export async function revokeCro03cDeploymentInventory(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.deployment_inventory.revoked','cro03c_deployment_inventory',
-        ${input.inventoryId},${JSON.stringify({ idempotencyKey: input.idempotencyKey, reason: input.reason.trim() })}::jsonb,
+        ${input.inventoryId},${JSON.stringify(sanitizeAuditPayload({ idempotencyKey: input.idempotencyKey, reason: input.reason.trim() }))}::jsonb,
         'user',${input.actorId})
     `);
     return { inventoryId: input.inventoryId, replayed: false };

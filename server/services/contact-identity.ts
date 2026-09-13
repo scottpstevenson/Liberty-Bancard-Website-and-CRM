@@ -21,7 +21,8 @@ export type IdentitySource =
   | "storage_update"
   | "ghl_inbound"
   | "csv_import"
-  | "public_form";
+  | "public_form"
+  | "pipeline_promotion";
 
 export type ContactIdentityInput = {
   id: number;

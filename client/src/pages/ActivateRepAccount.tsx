@@ -40,6 +40,7 @@ export default function ActivateRepAccount() {
       setPageState("invalid");
       return;
     }
+    // CSRF_EXEMPT: TOKEN_AUTH_FLOW — bearer invite token; route is CSRF-exempt.
     fetch("/api/auth/agent-invite/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -68,6 +69,7 @@ export default function ActivateRepAccount() {
 
     setSubmitting(true);
     try {
+      // CSRF_EXEMPT: TOKEN_AUTH_FLOW — bearer invite token; route is CSRF-exempt.
       const res = await fetch("/api/auth/agent-invite/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -138,7 +138,7 @@ export async function acknowledgeAlert(id: number, actor?: string, reason?: stri
         await tx.execute(sql`
           INSERT INTO audit_logs (action, entity_type, entity_id, actor_type, actor_id, details)
           VALUES ('system_alert_acknowledged', 'system_alert', ${id}, 'user', ${actor?.slice(0, 160) ?? "unknown"},
-            ${JSON.stringify({ reason: boundedReason || null })}::jsonb)
+            ${JSON.stringify(sanitizeAuditPayload({ reason: boundedReason || null }))}::jsonb)
         `);
       }
       return true;

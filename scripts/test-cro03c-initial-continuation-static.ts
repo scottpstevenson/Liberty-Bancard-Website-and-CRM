@@ -75,7 +75,7 @@ ordered(continuation, [
 // itself revalidates current authorization at claim/reservation/execution.
 assert.match(worker, /await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?await reserveCro03cProviderOperation\(/);
 assert.match(worker, /await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?await executeCro03cLiveProvider\(/);
-assert.match(executor, /case "zerobounce":[\s\S]*?await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?await processValidationIntent\(input\.intentId\)/);
+assert.match(executor, /case "zerobounce":[\s\S]*?await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?await processValidationIntent\(input\.intentId!?/);
 assert.ok(
   (readiness.match(/hasCurrentCro03cValidationAuthority\(/g) ?? []).length >= 4,
   "claim, reservation, execution, and immediate pre-I/O must remain authority checked",
@@ -94,7 +94,7 @@ ordered(continuation, [
   /UPDATE cro03c_initial_subjects SET state='completed'/,
 ], "readiness/scoring/completion order");
 ordered(worker, [
-  /const continuation = await continueCro03cInitialGeneration\(claim\)/,
+  /const continuation = await continueCro03cInitialGeneration\(claim(?: as unknown as Cro03cInitialContinuationClaim)?\)/,
   /if \(continuation === "waiting"\)[\s\S]*?return "waiting"/,
   /await finishClaim\(claim, false\)/,
 ], "run completion after terminal continuation");

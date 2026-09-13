@@ -23,6 +23,8 @@
 
 import { db } from "../../db";
 import { sql } from "drizzle-orm";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
+import { recordContactIdentityObservations } from "../contact-identity";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -393,6 +395,11 @@ export async function promoteMasterLead(options: PromoteOptions): Promise<Promot
 
       if (contactRows.length === 0) throw new Error("Contact insert returned no rows");
       const contactId = Number(contactRows[0].id);
+      await recordContactIdentityObservations(tx, {
+        id: contactId,
+        email,
+        phone: biz.main_phone ?? "",
+      }, "pipeline_promotion", masterLeadId);
 
       // ── GHL provider fence ────────────────────────────────────────────────
       // Insert a terminal contact_provider_projections row so the GHL sync worker
@@ -447,7 +454,7 @@ export async function promoteMasterLead(options: PromoteOptions): Promise<Promot
           'master_lead_promoted',
           'master_lead',
           ${masterLeadId},
-          ${JSON.stringify({ masterLeadId, contactId, canonicalBusinessId, promotedBy, idempotencyKey })}::jsonb,
+          ${JSON.stringify(sanitizeAuditPayload({ masterLeadId, contactId, canonicalBusinessId, promotedBy, idempotencyKey }))}::jsonb,
           'user',
           ${promotedBy}
         )

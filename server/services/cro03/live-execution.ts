@@ -30,6 +30,7 @@ import {
   verifyCro03cDeploymentInventory,
   type Cro03cSignedDeploymentInventory,
 } from "./deployment-inventory";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const SHA256 = /^[0-9a-f]{64}$/i;
@@ -597,10 +598,10 @@ export async function importCro03cApprovalArtifact(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.approval_artifact.imported','cro03c_approval_receipt',${String(inserted.id)},
-              ${JSON.stringify({
+              ${JSON.stringify(sanitizeAuditPayload({
                 idempotencyKey: payload.idempotencyKey, issuerId: payload.issuerId,
                 dimension: payload.dimension, scopeHash: payload.scopeHash, reason: input.reason.trim(),
-              })}::jsonb,'user',${input.actorId})
+              }))}::jsonb,'user',${input.actorId})
     `);
     return { receiptId: String(inserted.id), replayed: false };
   });
@@ -716,7 +717,7 @@ export async function createCro03cRuntimeAttestation(input: {
   await db.execute(sql`
     INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
     VALUES (${input.actorId},'cro03c.runtime_attestation.created','cro03c_runtime_attestation',${String(inserted.id)},
-            ${JSON.stringify({ idempotencyKey: input.idempotencyKey, attestationHash, expiresAt: new Date(inserted.expires_at).toISOString() })}::jsonb,
+            ${JSON.stringify(sanitizeAuditPayload({ idempotencyKey: input.idempotencyKey, attestationHash, expiresAt: new Date(inserted.expires_at).toISOString() }))}::jsonb,
             'user',${input.actorId})
   `);
   return { id: String(inserted.id), attestationHash, expiresAt: new Date(inserted.expires_at).toISOString(), replayed: false };
@@ -773,7 +774,7 @@ export async function createCro03cActivationPolicy(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.activation_policy.created','cro03c_activation_policy',${String(inserted.id)},
-              ${JSON.stringify({ idempotencyKey: input.idempotencyKey, revision, policyHash })}::jsonb,'user',${input.actorId})
+              ${JSON.stringify(sanitizeAuditPayload({ idempotencyKey: input.idempotencyKey, revision, policyHash }))}::jsonb,'user',${input.actorId})
     `);
     return { id: String(inserted.id), revision, policyHash, replayed: false };
   });
@@ -811,7 +812,7 @@ export async function revokeCro03cApprovalReceipt(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.approval_receipt.revoked','cro03c_approval_receipt',${input.receiptId},
-              ${JSON.stringify({ idempotencyKey: input.idempotencyKey, expectedRevision: input.expectedRevision, reason: input.reason.trim() })}::jsonb,'user',${input.actorId})
+              ${JSON.stringify(sanitizeAuditPayload({ idempotencyKey: input.idempotencyKey, expectedRevision: input.expectedRevision, reason: input.reason.trim() }))}::jsonb,'user',${input.actorId})
     `);
     return { receiptId: input.receiptId, replayed: false };
   });
@@ -1160,7 +1161,7 @@ export async function createCro03cCommand(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.command.created','cro03c_command',${commandId},
-              ${JSON.stringify({ idempotencyKey: input.idempotencyKey, commandType: input.commandType, activationRevision: Number(policy.expected_revision), runId })}::jsonb,
+              ${JSON.stringify(sanitizeAuditPayload({ idempotencyKey: input.idempotencyKey, commandType: input.commandType, activationRevision: Number(policy.expected_revision), runId }))}::jsonb,
               'user',${input.actorId})
     `);
     // This is observational only. CRO-03C must never mutate pause state to
@@ -2504,7 +2505,7 @@ export async function cancelCro03cCommand(input: {
     await tx.execute(sql`
       INSERT INTO audit_logs(user_id,action,entity_type,entity_key,details,actor_type,actor_id)
       VALUES (${input.actorId},'cro03c.command.cancelled','cro03c_command',${receiptKey},
-              ${JSON.stringify({ commandId: input.commandId, idempotencyKey: input.idempotencyKey, expectedRevision: input.expectedRevision, reason: input.reason.trim() })}::jsonb,
+              ${JSON.stringify(sanitizeAuditPayload({ commandId: input.commandId, idempotencyKey: input.idempotencyKey, expectedRevision: input.expectedRevision, reason: input.reason.trim() }))}::jsonb,
               'user',${input.actorId})
     `);
     return { revision: Number(command.activation_revision), replayed: false };

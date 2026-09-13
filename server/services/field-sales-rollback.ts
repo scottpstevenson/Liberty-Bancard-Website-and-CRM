@@ -14,12 +14,13 @@ import { serverError } from "../utils/server-error";
 import { storage } from "../storage";
 import { setWizardFlagOverride } from "./wizard-flag-overrides";
 import { setFieldSalesFrozen, isFieldSalesFrozen } from "../routes/field-territories";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
 async function writeRollbackAudit(action: string, actorUserId: string, detail: Record<string, unknown>) {
   try {
     await db.execute(sql`
       INSERT INTO audit_logs (action, entity_type, entity_id, actor_user_id, details)
-      VALUES (${action}, 'system', 0, ${actorUserId}, ${JSON.stringify(detail)}::jsonb)
+      VALUES (${action}, 'system', 0, ${actorUserId}, ${JSON.stringify(sanitizeAuditPayload(detail))}::jsonb)
     `);
   } catch (err: any) {
     console.error(`[FieldSalesRollback] Audit write failed for ${action}:`, err.message);

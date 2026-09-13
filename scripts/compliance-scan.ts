@@ -76,6 +76,14 @@ const CALL_SITE_ALLOWLIST: Array<{
   reviewDate: string;
 }> = [
   {
+    file: "server/routes/activation.ts",
+    lineContains: "sendSmtpEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Rep invitation delivery is an explicit admin provisioning action, not automated outreach; it contains a one-time activation link and is only sent to the newly provisioned rep.",
+    reviewDate: "2026-09-10",
+  },
+  {
     file: "server/services/merchant-welcome.ts",
     lineContains: "sendEmailReply",
     channel: "email",

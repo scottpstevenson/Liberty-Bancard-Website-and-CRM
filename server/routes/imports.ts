@@ -27,6 +27,7 @@ import {
   recordImportRowDisposition,
 } from "../services/import-execution";
 import { parse } from "csv-parse/sync";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
@@ -2978,7 +2979,7 @@ Guidelines:
         await tx.execute(sql`
           INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
           VALUES (${actorId}, 'master_lead_pipeline_suppressed', 'master_lead', ${masterLeadId},
-                  ${JSON.stringify({ reason })}::jsonb, 'user', ${actorId})
+                  ${JSON.stringify(sanitizeAuditPayload({ reason }))}::jsonb, 'user', ${actorId})
         `);
       });
 

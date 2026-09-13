@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import {
-  CRO03D_APPROVED_CANARY_CAP_PER_PROVIDER, CRO03D_APPROVED_COHORT_CAP, CRO03D_APPROVED_MAX_SPEND_MICROS,
+  CRO03D_APPROVED_CANARY_CAP_PER_PROVIDER, CRO03D_APPROVED_COHORT_CAP,
   buildUnsignedApprovalPayloads, cmdKeygen, deriveCro03dScope, disposeSigningKey, scopeHash, signApprovalPayload,
 } from "./cro03d-ceremony";
 import { CRO03C_APPROVAL_DIMENSIONS, verifyCro03cApprovalArtifact } from "../server/services/cro03/approval-artifact";
@@ -40,7 +40,10 @@ check("scope carries exactly the owner-approved commercial caps", () => {
   assert.equal(scope.cohortCap, CRO03D_APPROVED_COHORT_CAP);
   assert.equal(scope.cohortCap <= 100, true, "cohort cap must respect Section 19's 1-100 bound");
   assert.equal(scope.canaryCapPerProvider, CRO03D_APPROVED_CANARY_CAP_PER_PROVIDER);
-  assert.equal(scope.maxSpendMicros, CRO03D_APPROVED_MAX_SPEND_MICROS);
+  // MI-09 intentionally removed the former hard-coded spend ceiling. Spend
+  // limits are now read from the signed mi09_pricing_artifacts record during
+  // the live ceremony, so a static scope must not carry a stale dollar cap.
+  assert.equal("maxSpendMicros" in scope, false);
   assert.equal(scope.currency, "USD");
 });
 
@@ -52,7 +55,7 @@ check("scope output contains no secret-shaped or credential-shaped values", () =
   // Only the fixed, known-safe set of top-level keys — nothing extra sneaks in.
   assert.deepEqual(
     Object.keys(scope).sort(),
-    ["canaryCapPerProvider", "cohortCap", "currency", "derivedAt", "maxSpendMicros", "migrationHead",
+    ["canaryCapPerProvider", "cohortCap", "currency", "derivedAt", "migrationHead",
       "providersInScope", "recipeStagePlanHash", "releaseSha", "releaseTree", "rolloutKey"].sort(),
   );
 });

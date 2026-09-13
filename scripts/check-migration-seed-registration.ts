@@ -94,6 +94,13 @@ const KNOWN_EXEMPT_SEEDS: Record<string, { table: string; classification: "histo
   "0024_terminal_economics.sql": [{ table: "equipment_models", classification: "historical_one_time", reason: "initial equipment catalog seed from feature launch; equipment_models rows are operator-managed via the admin UI afterward, not re-seeded on every deploy." }],
   "0065_provenance_schema.sql": [{ table: "contacts", classification: "historical_one_time", reason: "one-time UPDATE defaulting primary_source_category/primary_source_type to legacy_unknown/historical_backfill for contacts that existed before the intake provenance system (.agents/memory/intake-provenance.md); new contacts get real provenance at write time via writeContact()." }],
   "0152_identity_observation_no_plaintext.sql": [{ table: "contact_identity_observations", classification: "not_config_seed", reason: "one-time privacy redaction of plaintext normalized_value on rows created during the initial migration window; not config any runtime path depends on being present." }],
+  "0229_fix_proposal_status_reverted.sql": [{ table: "contact_normalization_proposals", classification: "historical_one_time", reason: "one-time status-value correction from the historical misspelling 'reversed' to the current 'reverted' contract; new proposal rows use the corrected enum value." }],
+  "0237_rev06a_credential_authority_matrix.sql": [{ table: "audit_logs", classification: "not_config_seed", reason: "append-only audit record of the REV-06A credential probe; it is evidence of the probe, not configuration required by a runtime path." }],
+  "0238_rev06a_merchant_sandbox_snapshot.sql": [
+    { table: "processor_activation_snapshots", classification: "historical_one_time", reason: "operator-confirmed REV-06A sandbox probe evidence. Snapshot rows are immutable, append-only certification evidence; replaying this time-bound probe result would incorrectly authorize operations after credentials or provider capabilities change." },
+    { table: "audit_logs", classification: "not_config_seed", reason: "append-only audit record of the REV-06A sandbox probe; activation authority reads the immutable snapshot evidence, not this audit row." },
+  ],
+  "0244_source_registry.sql": [{ table: "source_registry_adapters", classification: "historical_one_time", reason: "initial source-registry catalog is a reviewed, schedule-disabled bootstrap snapshot. Adapter rows are operator-managed after creation; replaying the migration would not be an appropriate production convergence mechanism." }],
 };
 
 function stripFunctionBodies(sqlText: string): string {
