@@ -18,6 +18,17 @@
  *   cron cadence. The scheduler uses a simple "is any occurrence for this
  *   definition in [now-window_seconds, now] still pending?" guard to avoid
  *   creating duplicate windows.
+ *
+ * Source-system scoping (cursor_semantics):
+ *   A definition may declare which source system(s) it is actually meant to
+ *   process via cursor_semantics: {"sourceSystem": "x"} or
+ *   {"sourceSystems": ["x","y"]}. When declared, the frozen cursor snapshot
+ *   for that definition's occurrences is narrowed to exactly those source
+ *   systems — e.g. a freshness-refresh definition scoped to master_leads must
+ *   never freeze in sunbiz_entities/prospects/etc. discovery cursors too, or
+ *   it silently reprocesses the same broad population as full enrichment.
+ *   A definition with no declared source system keeps the prior behavior
+ *   (freeze every in-scope, non-DBPR cursor) for backward compatibility.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
@@ -33,6 +44,39 @@ const { parseExpression: parseCronExpression } = require("cron-parser") as {
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 export const CRO08A_SCHEDULER_JOB_NAME = "cro08a-scheduler-tick";
+
+/**
+ * Extract the explicit source-system scope a schedule definition declares via
+ * its cursor_semantics column, if any. Returns null when the definition does
+ * not narrow its scope (caller should keep the prior "all in-scope sources"
+ * behavior). Accepts either a single {"sourceSystem": "x"} or a
+ * {"sourceSystems": ["x","y"]} array; unrecognized/empty shapes return null
+ * rather than throwing, since cursor_semantics is caller-authored JSON, not a
+ * validated contract at write time.
+ */
+export function resolveDeclaredSourceSystems(cursorSemanticsRaw: unknown): string[] | null {
+  if (!cursorSemanticsRaw) return null;
+  let parsed: unknown = cursorSemanticsRaw;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.sourceSystem === "string" && obj.sourceSystem.trim() !== "") {
+    return [obj.sourceSystem.trim()];
+  }
+  if (Array.isArray(obj.sourceSystems)) {
+    const list = obj.sourceSystems
+      .filter((s): s is string => typeof s === "string" && s.trim() !== "")
+      .map((s) => s.trim());
+    if (list.length > 0) return list;
+  }
+  return null;
+}
 
 /**
  * Process one scheduler tick: read all active CRO-08A schedule definitions,
@@ -197,10 +241,37 @@ export async function processCro08aSchedulerTick(): Promise<{
           `only DBPR cursors are present; no in-scope census cursor exists yet`,
         );
       }
-      assertCro08aSourceScope(scopedCursorRows.map((cr) => String(cr.source_system)));
+
+      // Narrow to this definition's declared source-system scope, if any.
+      const declaredSourceSystems = resolveDeclaredSourceSystems(def.cursor_semantics);
+      let scopedForDefinition = scopedCursorRows;
+      if (declaredSourceSystems) {
+        // Fail-closed: a declared source system must itself be within
+        // CRO-08A's allowlist before we narrow the snapshot to it.
+        assertCro08aSourceScope(declaredSourceSystems);
+        const declaredSet = new Set(declaredSourceSystems);
+        scopedForDefinition = scopedCursorRows.filter((cr) => declaredSet.has(String(cr.source_system)));
+        const missing = declaredSourceSystems.filter(
+          (s) => !scopedCursorRows.some((cr) => String(cr.source_system) === s),
+        );
+        if (missing.length > 0) {
+          throw new Error(
+            `CRO08A_SCHEDULER_MISSING_DECLARED_SOURCE_CURSOR:definition=${def.logical_key} — ` +
+            `cursor_semantics declares source system(s) [${missing.join(", ")}] but no census ` +
+            `cursor row exists yet for them.`,
+          );
+        }
+        if (scopedForDefinition.length === 0) {
+          throw new Error(
+            `CRO08A_SCHEDULER_NO_CENSUS_CURSORS:definition=${def.logical_key} — ` +
+            `cursor_semantics declares [${declaredSourceSystems.join(", ")}] but none are in scope`,
+          );
+        }
+      }
+      assertCro08aSourceScope(scopedForDefinition.map((cr) => String(cr.source_system)));
 
       const frozenCursorSnapshot: Record<string, unknown> = {};
-      for (const cr of scopedCursorRows) {
+      for (const cr of scopedForDefinition) {
         frozenCursorSnapshot[String(cr.source_system)] = {
           cursorValue: String(cr.cursor_value ?? "0"),
           snapshotHighWater: String(cr.snapshot_high_water ?? "0"),
