@@ -161,6 +161,21 @@ export async function createCro08aScheduleDefinition(input: Cro08aScheduleDefini
  * all three levels ran with valid advancement receipts and terminal enrichment evidence.
  */
 export async function assertPilotLadderCompletion(): Promise<void> {
+  // NOTE (verified during enrichment activation preflight): scripts/test-cro08a-
+  // continuous-factory.ts intentionally leaves "test-tagged residue" rows behind
+  // in mi09_pilot_definitions/mi09_pilot_runs (pilot_definition_hash LIKE
+  // 'cro08a-test-pilot-def-%') so its own DB-level unit test can exercise
+  // activateCro08aScheduleDefinition()'s happy path without running a real MI-09
+  // pilot end-to-end. This table has no dedicated is_test discriminator column,
+  // so excluding that residue here by hash prefix would also blind this gate to
+  // its own test's legitimate fixture data (verified: doing so breaks the test's
+  // "full path setup" case, which relies on that exact residue to pass). The
+  // operative safeguard against this residue satisfying a REAL production
+  // activation is environment separation — dev and production use separate
+  // databases (see .agents/memory/publish-vs-dev-environment-drift.md) — so this
+  // script must never be run with DATABASE_URL pointed at production. If a
+  // dedicated is_test flag is ever added to mi09_pilot_definitions, this query
+  // should filter on it instead of relying solely on DB separation.
   const pilotCompletion = rows(await db.execute(sql`
     SELECT
       (SELECT COUNT(*)::int FROM mi09_pilot_runs pr

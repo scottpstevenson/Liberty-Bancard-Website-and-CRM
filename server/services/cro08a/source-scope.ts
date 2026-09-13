@@ -13,9 +13,17 @@
  * dependency in a purely-computational check.
  */
 
-/** The only source systems CRO-08A's continuous factory is authorized to enumerate. */
+/**
+ * The only source systems CRO-08A's continuous factory is authorized to
+ * enumerate. Must match the real `source_system` values ever written to
+ * `cro03a_census_cursors` — verified against the live table, not assumed
+ * from table names. Canonical `businesses`/`contacts` are NOT yet census
+ * sources (a separate, still-open gap — see master-prompt §3); do not add
+ * them here until CRO03A actually emits cursors for them.
+ */
 export const CRO08A_ALLOWED_SOURCE_SYSTEMS = [
-  "businesses",
+  "lead_discovery_results",
+  "master_leads",
   "prospects",
   "sdr_merchants",
   "sunbiz_entities",
