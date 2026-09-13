@@ -2207,8 +2207,42 @@ export default function LeadOpsCenter() {
   );
 }
 
-// ── MI-09: Pilot Status Panel ──────────────────────────────────────────────
+// ── MI-09: Pilot Status Panel — guided production operator workflow ────────
+//
+// This panel is a thin, ordered UI over the existing MI-09 pilot lifecycle
+// service (server/services/mi09-pilot-authority.ts) and its routes
+// (server/routes/lead-ops.ts). It never fabricates state on the client: every
+// number shown (release SHA, migration head, pause epoch, spend) is read
+// straight from the server. All mutating actions are gated by the run's
+// actual state so an operator cannot skip a step the server would reject
+// anyway — the server-side checks remain the real authority.
+const PAID_BUDGET_CONFIRMATION = "AUTHORIZE $50 PAID PILOT";
+
+function usdFromMicros(micros: number | undefined | null): string {
+  return `$${((Number(micros ?? 0)) / 1_000_000).toFixed(2)}`;
+}
+
+function StateBadge({ state }: { state: string }) {
+  const cls =
+    state === "completed" ? "bg-green-100 text-green-800" :
+    state === "running"   ? "bg-blue-100 text-blue-800" :
+    state === "stopped"   ? "bg-red-100 text-red-800" :
+    state === "paused"    ? "bg-yellow-100 text-yellow-800" :
+    "bg-gray-100 text-gray-800";
+  return <span className={`px-1.5 py-0.5 rounded-full font-medium text-xs ${cls}`}>{state}</span>;
+}
+
 function PilotStatusPanel() {
+  const { toast } = useToast();
+  const [executingRunId, setExecutingRunId] = useState<string | null>(null);
+  const [budgetConfirmText, setBudgetConfirmText] = useState("");
+  const [newDefLevel, setNewDefLevel] = useState<"1" | "2" | "3">("1");
+  const [newDefCounties, setNewDefCounties] = useState("");
+  const [newDefVerticals, setNewDefVerticals] = useState("");
+  const [newDefSourceAdapters, setNewDefSourceAdapters] = useState("");
+  const [newDefMaxCohort, setNewDefMaxCohort] = useState("25");
+  const [newRunDefId, setNewRunDefId] = useState<string>("");
+
   const preflightQuery = useQuery<{ passed: boolean; checks: Record<string, { passed: boolean; detail?: string }> }>({
     queryKey: ["/api/lead-ops/pilot/preflight"],
     queryFn: async () => {
@@ -2216,7 +2250,7 @@ function PilotStatusPanel() {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
 
   const runsQuery = useQuery<any[]>({
@@ -2226,7 +2260,7 @@ function PilotStatusPanel() {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    staleTime: 30_000,
+    staleTime: 15_000,
   });
 
   const defsQuery = useQuery<any[]>({
@@ -2236,18 +2270,243 @@ function PilotStatusPanel() {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
+
+  const budgetQuery = useQuery<{ summary: any; authorization: any }>({
+    queryKey: ["/api/lead-ops/pilot/budget-summary"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/budget-summary", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 15_000,
+    refetchInterval: 20_000,
+  });
+
+  const scheduleDefsQuery = useQuery<any[]>({
+    queryKey: ["/api/admin/cro08a/schedule-definitions"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/cro08a/schedule-definitions", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const certReceiptsQuery = useQuery<any[]>({
+    queryKey: ["/api/admin/cro08a/certification-receipts"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/cro08a/certification-receipts", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const invalidatePilot = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/preflight"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/runs"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/definitions"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] });
+  };
+
+  const errToast = (err: unknown) => {
+    toast({ title: "Action failed", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+  };
+
+  const createDefMutation = useMutation({
+    mutationFn: async () => {
+      const county = newDefCounties.split(",").map((s) => s.trim()).filter(Boolean);
+      const vertical = newDefVerticals.split(",").map((s) => s.trim()).filter(Boolean);
+      const sourceAdapters = newDefSourceAdapters.split(",").map((s) => s.trim()).filter(Boolean);
+      const level = Number(newDefLevel);
+      const res = await apiRequest("POST", "/api/lead-ops/pilot/definitions", {
+        level,
+        countyScope: county,
+        verticalScope: vertical,
+        sourceAdapterFilter: sourceAdapters,
+        maxCohortSize: Number(newDefMaxCohort),
+        enrichmentRecipeVersion: 1,
+        paidProvidersAllowed: level === 1 ? {} : { serper: true },
+        stopConditionThresholds: {
+          conflictPct: 5,
+          apolloYieldPct: 0,
+          zbUnknownPct: 20,
+          spendCapMicros: level === 1 ? 0 : 50_000_000,
+        },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Pilot definition created" }); invalidatePilot(); },
+    onError: errToast,
+  });
+
+  const createRunMutation = useMutation({
+    mutationFn: async () => {
+      if (!newRunDefId) throw new Error("Select a pilot definition first");
+      const def = (defsQuery.data ?? []).find((d: any) => String(d.id) === newRunDefId);
+      const preflight = preflightQuery.data as any;
+      if (!preflight?.releaseSha || preflight.releaseSha === "unknown") {
+        throw new Error("Cannot create a run: server did not report a release SHA (RELEASE_SHA env var missing)");
+      }
+      const res = await apiRequest("POST", "/api/lead-ops/pilot/runs", {
+        pilotDefinitionId: newRunDefId,
+        releaseSha: preflight.releaseSha,
+        cro03cSelectionPolicyVersion: 1,
+        cro03cRoutingPolicyVersion: 1,
+        cro03cRecipeVersion: def?.enrichment_recipe_version ?? 1,
+        outboundPauseEpoch: preflight.outboundPauseEpoch,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Pilot run created (draft)" }); invalidatePilot(); },
+    onError: errToast,
+  });
+
+  const selectCohortMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await apiRequest("POST", `/api/lead-ops/pilot/runs/${runId}/select-cohort`, {});
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: data.frozen ? "Cohort frozen" : "Cohort already frozen", description: `Selected ${data.selectedCount || ""} businesses from ${data.eligiblePoolSize ?? "?"} in scope.` });
+      invalidatePilot();
+    },
+    onError: errToast,
+  });
+
+  const transitionMutation = useMutation({
+    mutationFn: async ({ runId, toState, stopReason }: { runId: string; toState: string; stopReason?: string }) => {
+      const res = await apiRequest("POST", `/api/lead-ops/pilot/runs/${runId}/transition`, { toState, stopReason });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { invalidatePilot(); },
+    onError: errToast,
+  });
+
+  const advanceMutation = useMutation({
+    mutationFn: async ({ runId, fromLevel, toLevel }: { runId: string; fromLevel: number; toLevel: number }) => {
+      const res = await apiRequest("POST", `/api/lead-ops/pilot/runs/${runId}/advance`, {
+        fromLevel, toLevel, idempotencyKey: crypto.randomUUID(),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Advancement receipt issued" }); invalidatePilot(); },
+    onError: errToast,
+  });
+
+  const reconciliationMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await apiRequest("POST", "/api/lead-ops/pilot/reconciliation-reports", { pilotRunId: runId });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Reconciliation report saved" }); },
+    onError: errToast,
+  });
+
+  const authorizeBudgetMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/lead-ops/pilot/authorize-paid-budget", { typedConfirmation: budgetConfirmText });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Paid budget authorized ($50 aggregate cap)" }); setBudgetConfirmText(""); queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] }); },
+    onError: errToast,
+  });
+
+  const emergencyStopMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/lead-ops/pilot/emergency-stop-paid", { reason: "operator_emergency_stop" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data) => { toast({ title: "Paid enrichment stopped", description: `Deactivated ${data.deactivatedSchedules} schedule(s); budget authorization revoked.` }); queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] }); },
+    onError: errToast,
+  });
+
+  const activateScheduleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/cro08a/schedule-definitions/${id}/activate`, {});
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Schedule activated" }); queryClient.invalidateQueries({ queryKey: ["/api/admin/cro08a/schedule-definitions"] }); },
+    onError: errToast,
+  });
+
+  const deactivateScheduleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/admin/cro08a/schedule-definitions/${id}/deactivate`, {});
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => { toast({ title: "Schedule deactivated" }); queryClient.invalidateQueries({ queryKey: ["/api/admin/cro08a/schedule-definitions"] }); },
+    onError: errToast,
+  });
+
+  // Repeated execute-phase calls until the phase reports complete:true.
+  const runExecuteLoop = useCallback(async (runId: string) => {
+    setExecutingRunId(runId);
+    try {
+      let complete = false;
+      let totalProcessed = 0;
+      let guard = 0;
+      while (!complete && guard < 500) {
+        guard++;
+        const res = await apiRequest("POST", `/api/lead-ops/pilot/runs/${runId}/execute-phase`, { phase: "enrichment", batchSize: 50 }, { "Idempotency-Key": crypto.randomUUID() });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        totalProcessed += data.processed ?? 0;
+        complete = !!data.complete;
+      }
+      toast({ title: "Enrichment phase complete", description: `Processed ${totalProcessed} cohort member(s).` });
+    } catch (err) {
+      errToast(err);
+    } finally {
+      setExecutingRunId(null);
+      invalidatePilot();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const preflight = preflightQuery.data;
   const runs = runsQuery.data ?? [];
   const defs = defsQuery.data ?? [];
+  const budget = budgetQuery.data?.summary;
+  const budgetAuth = budgetQuery.data?.authorization;
+  const budgetAuthorized = !!budgetAuth && !budgetAuth.revokedAt;
 
   const checkEntries = preflight ? Object.entries(preflight.checks) : [];
   const passedCount = checkEntries.filter(([, c]) => c.passed).length;
 
   return (
     <div className="space-y-4">
+      {/* Production verification — server-resolved, never user-entered */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Production Verification</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+          {checkEntries.filter(([k]) => ["releaseSha", "migrationHead", "outboundPaused", "poolAuthorityDecided"].includes(k)).map(([key, check]) => (
+            <div key={key} className="rounded border p-2">
+              <div className="text-muted-foreground font-mono">{key}</div>
+              <div className={check.passed ? "text-green-600" : "text-red-500"}>{check.detail ?? (check.passed ? "OK" : "missing")}</div>
+            </div>
+          ))}
+          <div className="rounded border p-2">
+            <div className="text-muted-foreground font-mono">aggregatePaidBudget</div>
+            <div className={budget?.overCap ? "text-red-500" : "text-green-600"}>
+              {budget ? `${usdFromMicros(budget.settledMicros + budget.reservedMicros)} / ${usdFromMicros(budget.capMicros)}` : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Preflight checklist */}
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <div className="flex items-center justify-between">
@@ -2275,48 +2534,188 @@ function PilotStatusPanel() {
         )}
       </div>
 
+      {/* Aggregate paid budget & emergency stop */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Aggregate Paid Budget (Level 2–3, all providers combined)</h3>
+        {budget && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div className="rounded border p-2"><div className="text-muted-foreground">Settled</div><div className="font-mono">{usdFromMicros(budget.settledMicros)}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Reserved (in-flight)</div><div className="font-mono">{usdFromMicros(budget.reservedMicros)}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Remaining</div><div className="font-mono">{usdFromMicros(budget.remainingMicros)}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Cap</div><div className="font-mono">{usdFromMicros(budget.capMicros)}</div></div>
+            {budget.byProvider?.map((p: any) => (
+              <div key={p.provider} className="rounded border p-2 col-span-2">
+                <div className="text-muted-foreground">{p.provider}</div>
+                <div className="font-mono">settled {usdFromMicros(p.settledMicros)} · reserved {usdFromMicros(p.reservedMicros)} · {p.operationCount} ops</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="text-xs text-muted-foreground">
+          Status: {budgetAuthorized ? <span className="text-green-600 font-medium">Authorized by {budgetAuth.authorizedBy} at {new Date(budgetAuth.authorizedAt).toLocaleString()}</span> : <span className="text-red-500 font-medium">Not authorized — paid Level 2/3 phases are blocked</span>}
+        </div>
+        {!budgetAuthorized && (
+          <div className="flex items-center gap-2">
+            <Input
+              value={budgetConfirmText}
+              onChange={(e) => setBudgetConfirmText(e.target.value)}
+              placeholder={PAID_BUDGET_CONFIRMATION}
+              className="text-xs h-8 max-w-xs font-mono"
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={budgetConfirmText !== PAID_BUDGET_CONFIRMATION || authorizeBudgetMutation.isPending}
+              onClick={() => authorizeBudgetMutation.mutate()}
+            >
+              Authorize $50 Paid Pilot
+            </Button>
+          </div>
+        )}
+        {budgetAuthorized && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="destructive"><ShieldAlert className="h-3.5 w-3.5 mr-1" /> Emergency Stop Paid Enrichment</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Stop all paid pilot enrichment?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This revokes the paid-budget authorization and deactivates every active CRO-08A schedule.
+                  It does not change the global outbound-pause state.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => emergencyStopMutation.mutate()}>Stop paid enrichment</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
+
       {/* Pilot definitions */}
-      <div className="rounded-lg border bg-card p-4 space-y-2">
+      <div className="rounded-lg border bg-card p-4 space-y-3">
         <h3 className="font-semibold text-sm">Pilot Definitions ({defs.length})</h3>
-        {defs.length === 0 && <p className="text-xs text-muted-foreground">No pilot definitions created yet.</p>}
         {defs.map((d: any) => (
           <div key={d.id} className="rounded border p-2 text-xs font-mono space-y-0.5">
             <div className="font-semibold">Level {d.level} — {d.pilot_definition_hash?.slice(0, 12)}…</div>
             <div className="text-muted-foreground">Counties: {JSON.stringify(d.county_scope)}</div>
             <div className="text-muted-foreground">Verticals: {JSON.stringify(d.vertical_scope)}</div>
+            <div className="text-muted-foreground">Source adapters: {JSON.stringify(d.source_adapter_filter)}</div>
             <div className="text-muted-foreground">Max cohort: {d.max_cohort_size}</div>
             <div className="text-muted-foreground">Paid providers: {JSON.stringify(d.paid_providers_allowed)}</div>
           </div>
         ))}
+        <div className="rounded border border-dashed p-3 space-y-2">
+          <div className="text-xs font-semibold">Create pilot definition</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <Select value={newDefLevel} onValueChange={(v) => setNewDefLevel(v as any)}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Level 1 (free only)</SelectItem>
+                <SelectItem value="2">Level 2 (paid)</SelectItem>
+                <SelectItem value="3">Level 3 (paid)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input className="h-8 text-xs" placeholder="Counties (FIPS, comma-sep)" value={newDefCounties} onChange={(e) => setNewDefCounties(e.target.value)} />
+            <Input className="h-8 text-xs" placeholder="Verticals (comma-sep)" value={newDefVerticals} onChange={(e) => setNewDefVerticals(e.target.value)} />
+            <Input className="h-8 text-xs" placeholder="Source adapters (comma-sep)" value={newDefSourceAdapters} onChange={(e) => setNewDefSourceAdapters(e.target.value)} />
+            <Input className="h-8 text-xs" type="number" placeholder="Max cohort size" value={newDefMaxCohort} onChange={(e) => setNewDefMaxCohort(e.target.value)} />
+          </div>
+          <Button size="sm" disabled={createDefMutation.isPending || !newDefSourceAdapters.trim()} onClick={() => createDefMutation.mutate()}>Create Definition</Button>
+        </div>
       </div>
 
       {/* Active pilot runs */}
-      <div className="rounded-lg border bg-card p-4 space-y-2">
+      <div className="rounded-lg border bg-card p-4 space-y-3">
         <h3 className="font-semibold text-sm">Pilot Runs ({runs.length})</h3>
         {runs.length === 0 && <p className="text-xs text-muted-foreground">No pilot runs yet. Complete the preflight checklist first.</p>}
         {runs.map((r: any) => (
-          <div key={r.id} className="rounded border p-2 text-xs space-y-0.5">
+          <div key={r.id} className="rounded border p-3 text-xs space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-semibold font-mono">Level {r.level} — {r.id?.slice(0, 8)}…</span>
-              <span className={`px-1.5 py-0.5 rounded-full font-medium ${
-                r.state === "completed" ? "bg-green-100 text-green-800" :
-                r.state === "running"   ? "bg-blue-100 text-blue-800" :
-                r.state === "stopped"   ? "bg-red-100 text-red-800" :
-                r.state === "paused"    ? "bg-yellow-100 text-yellow-800" :
-                "bg-gray-100 text-gray-800"
-              }`}>{r.state}</span>
+              <StateBadge state={r.state} />
             </div>
             <div className="text-muted-foreground">Started: {r.started_at ? new Date(r.started_at).toLocaleString() : "—"}</div>
             <div className="text-muted-foreground">Release SHA: {r.release_sha?.slice(0, 12)}…</div>
-            {r.cohort_frozen_hash && <div className="text-muted-foreground">Cohort frozen: ✓</div>}
+            {r.cohort_frozen_hash && <div className="text-muted-foreground">Cohort frozen: ✓ {String(r.cohort_frozen_hash).slice(0, 12)}…</div>}
             {r.stop_reason && <div className="text-red-600">Stop reason: {r.stop_reason}</div>}
+            <div className="flex flex-wrap gap-2 pt-1">
+              {r.state === "draft" && !r.cohort_frozen_hash && (
+                <Button size="sm" variant="outline" disabled={selectCohortMutation.isPending} onClick={() => selectCohortMutation.mutate(r.id)}>Select &amp; Freeze Cohort</Button>
+              )}
+              {r.state === "draft" && r.cohort_frozen_hash && (
+                <Button size="sm" onClick={() => transitionMutation.mutate({ runId: r.id, toState: "running" })}>Start Run</Button>
+              )}
+              {r.state === "running" && (
+                <Button size="sm" disabled={executingRunId === r.id} onClick={() => runExecuteLoop(r.id)}>
+                  {executingRunId === r.id ? "Executing…" : "Run Enrichment Phase"}
+                </Button>
+              )}
+              {r.state === "running" && (
+                <Button size="sm" variant="outline" onClick={() => transitionMutation.mutate({ runId: r.id, toState: "paused" })}>Pause</Button>
+              )}
+              {r.state === "paused" && (
+                <Button size="sm" onClick={() => transitionMutation.mutate({ runId: r.id, toState: "running" })}>Resume</Button>
+              )}
+              {["running", "paused"].includes(r.state) && (
+                <Button size="sm" variant="outline" onClick={() => transitionMutation.mutate({ runId: r.id, toState: "completed" })}>Mark Completed</Button>
+              )}
+              {["draft", "running", "paused"].includes(r.state) && (
+                <Button size="sm" variant="destructive" onClick={() => transitionMutation.mutate({ runId: r.id, toState: "stopped", stopReason: "operator_stop" })}>Stop</Button>
+              )}
+              {r.level < 3 && ["running", "paused", "completed"].includes(r.state) && (
+                <Button size="sm" variant="outline" onClick={() => advanceMutation.mutate({ runId: r.id, fromLevel: r.level, toLevel: r.level + 1 })}>
+                  Advance to Level {r.level + 1}
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => reconciliationMutation.mutate(r.id)}>Save Reconciliation Report</Button>
+            </div>
           </div>
         ))}
+        <div className="rounded border border-dashed p-3 space-y-2">
+          <div className="text-xs font-semibold">Create pilot run</div>
+          <div className="flex gap-2">
+            <Select value={newRunDefId} onValueChange={setNewRunDefId}>
+              <SelectTrigger className="h-8 text-xs w-64"><SelectValue placeholder="Choose definition" /></SelectTrigger>
+              <SelectContent>
+                {defs.map((d: any) => (
+                  <SelectItem key={d.id} value={String(d.id)}>Level {d.level} — {String(d.pilot_definition_hash).slice(0, 10)}…</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" disabled={!newRunDefId || createRunMutation.isPending} onClick={() => createRunMutation.mutate()}>Create Run</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* CRO-08A schedules & certification */}
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <h3 className="font-semibold text-sm">CRO-08A Schedules &amp; Certification</h3>
+        <div className="text-xs text-muted-foreground">
+          Certification receipts ({(certReceiptsQuery.data ?? []).length}) — issued via the CRO-03D ceremony script; schedules cannot activate without a matching, unexpired receipt.
+        </div>
+        {(scheduleDefsQuery.data ?? []).map((s: any) => (
+          <div key={s.id} className="rounded border p-2 text-xs flex items-center justify-between">
+            <div>
+              <div className="font-mono font-semibold">{s.logical_key} v{s.definition_version}</div>
+              <div className="text-muted-foreground">{s.purpose}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-1.5 py-0.5 rounded-full text-xs ${s.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>{s.active ? "active" : "inactive"}</span>
+              {!s.active && <Button size="sm" variant="outline" onClick={() => activateScheduleMutation.mutate(s.id)}>Activate</Button>}
+              {s.active && <Button size="sm" variant="destructive" onClick={() => deactivateScheduleMutation.mutate(s.id)}>Deactivate</Button>}
+            </div>
+          </div>
+        ))}
+        {(scheduleDefsQuery.data ?? []).length === 0 && <p className="text-xs text-muted-foreground">No CRO-08A schedule definitions yet.</p>}
       </div>
 
       <p className="text-xs text-muted-foreground">
         Pilot lifecycle is controlled through the MI-09 authority service. See{" "}
         <code className="font-mono">docs/cro03d-ceremony-runbook.md</code> for the full ceremony workflow.
+        No secrets, credentials, or raw PII are displayed anywhere in this panel.
       </p>
     </div>
   );

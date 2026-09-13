@@ -8,6 +8,8 @@ import { featureFlags } from "../services/feature-flags";
 import { listInboundRequests } from "../services/inbound-request-authority";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 
+const rows = (r: any): any[] => r?.rows ?? r ?? [];
+
 function getOpenAI() {
   return new OpenAI({
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -1843,9 +1845,28 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
   app.post("/api/lead-ops/pilot/runs/:runId/transition", requireRole("admin"), async (req, res) => {
     try {
-      const { transitionPilotRunState, evaluateStopConditions } = await import("../services/mi09-pilot-authority");
+      const { transitionPilotRunState, evaluateStopConditions, getPilotRun, getPilotDefinitions, assertPaidBudgetAuthorized, assertAggregatePaidBudgetAvailable } = await import("../services/mi09-pilot-authority");
       const { toState, stopReason, advancedBy } = req.body as { toState: string; stopReason?: string; advancedBy?: string };
       if (!toState) return res.status(400).json({ error: "toState required" });
+
+      // Starting (or resuming) a run whose definition allows any paid provider
+      // requires the standing typed budget authorization and headroom under
+      // the $50 ladder-wide aggregate cap — checked BEFORE the state flips.
+      if (toState === "running") {
+        const run = await getPilotRun(String(req.params.runId));
+        if (!run) return res.status(404).json({ error: "PILOT_RUN_NOT_FOUND" });
+        const defs = await getPilotDefinitions();
+        const def = defs.find((d: any) => String(d.id) === String(run.pilot_definition_id));
+        const paidAllowed = def?.paid_providers_allowed
+          ? (typeof def.paid_providers_allowed === "string" ? JSON.parse(def.paid_providers_allowed) : def.paid_providers_allowed)
+          : {};
+        const anyPaidAllowed = Object.values(paidAllowed).some((v) => v === true);
+        if (anyPaidAllowed) {
+          await assertPaidBudgetAuthorized();
+          await assertAggregatePaidBudgetAvailable();
+        }
+      }
+
       // Always evaluate stop conditions before running/completing.
       const stopCheck = await evaluateStopConditions(String(req.params.runId));
       if (!stopCheck.passed && toState === "running") {
@@ -1854,7 +1875,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       await transitionPilotRunState(String(req.params.runId), toState as any, { stopReason, advancedBy });
       res.json({ ok: true, stopConditionsChecked: stopCheck });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message });
+      const status = err?.message?.includes("MI09_PAID_BUDGET_NOT_AUTHORIZED") ? 403
+        : err?.message?.includes("MI09_AGGREGATE_BUDGET_EXCEEDED") ? 409
+        : 500;
+      res.status(status).json({ error: err?.message });
     }
   });
 
@@ -1947,7 +1971,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.post("/api/lead-ops/pilot/definitions", requireRole("admin"), async (req, res) => {
     try {
       const { createPilotDefinition } = await import("../services/mi09-pilot-authority");
-      const result = await createPilotDefinition(req.body);
+      const createdBy = (req as any).user?.email ?? String((req as any).user?.id ?? "unknown-admin");
+      const result = await createPilotDefinition({ ...req.body, createdBy });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
@@ -1962,6 +1987,98 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       res.json(result);
     } catch (err: any) {
       res.status(err?.message?.includes("BLOCKED") ? 409 : 500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs/:runId/select-cohort — deterministic, server-side
+  // cohort selection. The operator UI calls this instead of assembling a member
+  // list by hand: it selects from the definition's own certified scope, applies
+  // fixed exclusions (DBPR lineage, test/demo data, already-linked identities,
+  // suppressed records, open conflicts), and freezes the result. Idempotent.
+  app.post("/api/lead-ops/pilot/runs/:runId/select-cohort", requireRole("admin"), async (req, res) => {
+    try {
+      const { selectDeterministicPilotCohort } = await import("../services/mi09-pilot-authority");
+      const result = await selectDeterministicPilotCohort(String(req.params.runId));
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("INSUFFICIENT") ? 409
+        : err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("MISSING_SOURCE_ADAPTER") ? 400
+        : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/pilot/budget-summary — ladder-wide aggregate paid spend
+  // (settled + in-flight reserved) across ALL pilot runs and providers, vs the
+  // single $50 cap. This is a separate, additional guardrail from each pilot
+  // definition's own per-run stopConditionThresholds.spendCapMicros.
+  app.get("/api/lead-ops/pilot/budget-summary", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getAggregatePilotSpend, getPaidBudgetAuthorization } = await import("../services/mi09-pilot-authority");
+      const [summary, authorization] = await Promise.all([getAggregatePilotSpend(), getPaidBudgetAuthorization()]);
+      res.json({ summary, authorization });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/authorize-paid-budget — one-time typed confirmation
+  // before any paid-provider pilot phase (Level 2+) may run. Requires the exact
+  // typed string "AUTHORIZE $50 PAID PILOT"; verified again server-side.
+  app.post("/api/lead-ops/pilot/authorize-paid-budget", requireRole("admin"), async (req, res) => {
+    try {
+      const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } = await import("../services/mi09-pilot-authority");
+      const typedConfirmation = String(req.body?.typedConfirmation ?? "");
+      if (typedConfirmation !== MI09_PAID_BUDGET_TYPED_CONFIRMATION) {
+        return res.status(400).json({ error: `MI09_PAID_BUDGET_AUTHORIZATION_DENIED:typed_confirmation_mismatch — must type exactly: ${MI09_PAID_BUDGET_TYPED_CONFIRMATION}` });
+      }
+      const authorizedBy = (req as any).user?.email ?? String((req as any).user?.id ?? "unknown-admin");
+      const result = await authorizePaidBudget({ authorizedBy, typedConfirmation });
+      await storage.createAuditLog({
+        action: "mi09_pilot_paid_budget_authorized",
+        entityType: "system",
+        entityId: 0,
+        details: { authorizedBy, capMicros: result.capMicros },
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.message?.includes("DENIED") ? 403 : 500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/emergency-stop-paid — revokes standing paid-budget
+  // authorization and deactivates every active CRO-08A schedule definition, so
+  // no further paid dispatch (batch or scheduled) can occur. Does NOT touch the
+  // global outbound-pause state, which governs sends, not this provider-spend gate.
+  app.post("/api/lead-ops/pilot/emergency-stop-paid", requireRole("admin"), async (req, res) => {
+    try {
+      const { revokePaidBudgetAuthorization } = await import("../services/mi09-pilot-authority");
+      const { deactivateCro08aScheduleDefinition } = await import("../services/cro08a/schedule-authority");
+      const revokedBy = (req as any).user?.email ?? String((req as any).user?.id ?? "unknown-admin");
+      const reason = String(req.body?.reason ?? "operator_emergency_stop");
+
+      await revokePaidBudgetAuthorization({ revokedBy, reason });
+
+      const activeDefs = rows(await db.execute(sql`
+        SELECT id FROM cro08a_schedule_definitions WHERE active = true
+      `));
+      let deactivatedCount = 0;
+      for (const d of activeDefs) {
+        await deactivateCro08aScheduleDefinition(String((d as any).id));
+        deactivatedCount++;
+      }
+
+      await storage.createAuditLog({
+        action: "mi09_pilot_emergency_stop_paid",
+        entityType: "system",
+        entityId: 0,
+        details: { revokedBy, reason, deactivatedSchedules: deactivatedCount },
+      });
+
+      res.json({ ok: true, budgetAuthorizationRevoked: true, deactivatedSchedules: deactivatedCount });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
     }
   });
 
@@ -2038,7 +2155,24 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!idempotencyKey) {
         return res.status(400).json({ error: "Idempotency-Key header is required" });
       }
-      const { executePilotCohortPhase } = await import("../services/mi09-pilot-authority");
+      const { executePilotCohortPhase, assertAggregatePaidBudgetAvailable, assertPaidBudgetAuthorized, getPilotRun, getPilotDefinitions } = await import("../services/mi09-pilot-authority");
+
+      // Paid-provider gate: if this run's definition allows ANY paid provider,
+      // require the standing typed authorization AND that the ladder-wide $50
+      // aggregate is not already exhausted, before dispatching more paid work.
+      const run = await getPilotRun(String(req.params.runId));
+      if (!run) return res.status(404).json({ error: "PILOT_RUN_NOT_FOUND" });
+      const defs = await getPilotDefinitions();
+      const def = defs.find((d: any) => String(d.id) === String(run.pilot_definition_id));
+      const paidAllowed = def?.paid_providers_allowed
+        ? (typeof def.paid_providers_allowed === "string" ? JSON.parse(def.paid_providers_allowed) : def.paid_providers_allowed)
+        : {};
+      const anyPaidAllowed = Object.values(paidAllowed).some((v) => v === true);
+      if (anyPaidAllowed) {
+        await assertPaidBudgetAuthorized();
+        await assertAggregatePaidBudgetAvailable();
+      }
+
       const result = await executePilotCohortPhase({
         pilotRunId: String(req.params.runId),
         phase: String(req.body?.phase ?? "enrichment") as any,
@@ -2046,7 +2180,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err?.message });
+      const status = err?.message?.includes("MI09_PAID_BUDGET_NOT_AUTHORIZED") ? 403
+        : err?.message?.includes("MI09_AGGREGATE_BUDGET_EXCEEDED") ? 409
+        : 500;
+      res.status(status).json({ error: err?.message });
     }
   });
 

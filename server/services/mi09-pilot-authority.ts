@@ -793,6 +793,224 @@ export async function getPilotCohortMembers(runId: string): Promise<any[]> {
   `));
 }
 
+// ── Deterministic Cohort Selection ──────────────────────────────────────────
+//
+// freezePilotCohort() above accepts a caller-supplied member list (built for
+// callers who already have a vetted list, e.g. scripted ceremonies). This
+// deterministic selector exists for the guided operator UI: the operator
+// should never have to hand-assemble or paste a business-id list in
+// production. It derives an eligible pool directly from the pilot
+// definition's own immutable scope (county/vertical/source-adapter) plus a
+// fixed set of exclusions the operator asked to be enforced unconditionally:
+//
+//   - record_class must be 'production' (excludes 'test'/'demo'/'synthetic'
+//     rows seeded for development, see migration 0166).
+//   - No canonical_source_links row with source_system = 'dbpr_hr'. DBPR-HR
+//     licensing data is used only as qualification/discovery evidence
+//     upstream (see cro03a_handoffs) — it must never itself become a pilot
+//     enrichment subject, even when it is also linked to a business that
+//     qualifies via another source adapter.
+//   - No open canonical_conflict_evidence row (same guard freezePilotCohort
+//     re-checks server-side).
+//   - No contact_business_link_decisions row with decision IN
+//     ('verified','conflicted') that is not superseded — 'verified' means
+//     the business is already linked to a real contact (an existing
+//     customer/merchant relationship the pilot must not touch); 'conflicted'
+//     means the identity is unresolved and must not be used as pilot
+//     evidence.
+//   - free_enrichment_status / email_discovery_status must not be
+//     'suppressed'.
+//
+// Selection is ordered by businesses.id ascending and capped at the
+// definition's max_cohort_size, so the same call is reproducible and the
+// resulting cohort hash is deterministic given a stable candidate pool.
+// The function is idempotent: if the run's cohort is already frozen it
+// returns the existing hash without re-querying or re-selecting.
+export async function selectDeterministicPilotCohort(pilotRunId: string): Promise<{
+  frozen: boolean;
+  cohortFrozenHash: string;
+  selectedCount: number;
+  eligiblePoolSize: number;
+  excluded: {
+    dbprLineage: number;
+    testOrDemoData: number;
+    linkedIdentity: number;
+    suppressed: number;
+    openConflict: number;
+  };
+}> {
+  const run = await getPilotRun(pilotRunId);
+  if (!run) throw new Error("PILOT_RUN_NOT_FOUND");
+
+  // Idempotent short-circuit — never re-select once frozen.
+  if (run.cohort_frozen_hash) {
+    return {
+      frozen: false,
+      cohortFrozenHash: String(run.cohort_frozen_hash),
+      selectedCount: 0,
+      eligiblePoolSize: 0,
+      excluded: { dbprLineage: 0, testOrDemoData: 0, linkedIdentity: 0, suppressed: 0, openConflict: 0 },
+    };
+  }
+
+  const def = rows(await db.execute(sql`
+    SELECT county_scope, vertical_scope, source_adapter_filter, max_cohort_size
+    FROM mi09_pilot_definitions WHERE id = ${String(run.pilot_definition_id)}::uuid
+  `))[0];
+  if (!def) throw new Error(`PILOT_DEFINITION_NOT_FOUND:${run.pilot_definition_id}`);
+
+  const countyScope: string[] = def.county_scope ? (typeof def.county_scope === "string" ? JSON.parse(def.county_scope) : def.county_scope) : [];
+  const verticalScope: string[] = def.vertical_scope ? (typeof def.vertical_scope === "string" ? JSON.parse(def.vertical_scope) : def.vertical_scope) : [];
+  const sourceAdapterFilter: string[] = def.source_adapter_filter ? (typeof def.source_adapter_filter === "string" ? JSON.parse(def.source_adapter_filter) : def.source_adapter_filter) : [];
+  if (sourceAdapterFilter.length === 0) {
+    throw new Error("PILOT_DEFINITION_MISSING_SOURCE_ADAPTER_FILTER — deterministic selection requires a non-empty source_adapter_filter");
+  }
+  const maxCohortSize = Number(def.max_cohort_size);
+
+  // drizzle-orm's node-postgres driver renders an interpolated JS array as a
+  // parenthesized tuple of scalar params (e.g. `($1, $2)`), not a Postgres
+  // array literal — `${arr}::text[]` is NOT a valid array parameterization
+  // here regardless of array length. Build a real `ARRAY[$1, $2, ...]::text[]`
+  // expression by hand instead.
+  const toTextArraySql = (arr: string[]) =>
+    arr.length === 0 ? sql`ARRAY[]::text[]` : sql`ARRAY[${sql.join(arr.map((v) => sql`${v}`), sql`, `)}]::text[]`;
+  const countyArraySql = toTextArraySql(countyScope);
+  const verticalArraySql = toTextArraySql(verticalScope);
+  const sourceAdapterArraySql = toTextArraySql(sourceAdapterFilter);
+
+  // Base scoped candidate pool (definition scope only — no exclusions yet),
+  // used to report how many candidates each exclusion category removed.
+  const baseCount = rows(await db.execute(sql`
+    SELECT COUNT(DISTINCT b.id)::int AS cnt
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+  `))[0];
+
+  const excludedDbpr = rows(await db.execute(sql`
+    SELECT COUNT(DISTINCT b.id)::int AS cnt
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND EXISTS (SELECT 1 FROM canonical_source_links dbpr WHERE dbpr.business_id = b.id AND dbpr.source_system = 'dbpr_hr')
+  `))[0];
+
+  const excludedTest = rows(await db.execute(sql`
+    SELECT COUNT(DISTINCT b.id)::int AS cnt
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND b.record_class <> 'production'
+  `))[0];
+
+  const excludedLinked = rows(await db.execute(sql`
+    SELECT COUNT(DISTINCT b.id)::int AS cnt
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND EXISTS (
+        SELECT 1 FROM contact_business_link_decisions cbd
+        WHERE cbd.business_id = b.id AND cbd.superseded_at IS NULL AND cbd.decision IN ('verified','conflicted')
+      )
+  `))[0];
+
+  const excludedSuppressed = rows(await db.execute(sql`
+    SELECT COUNT(DISTINCT b.id)::int AS cnt
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (b.free_enrichment_status = 'suppressed' OR b.email_discovery_status = 'suppressed')
+  `))[0];
+
+  const excludedConflict = rows(await db.execute(sql`
+    SELECT COUNT(DISTINCT b.id)::int AS cnt
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND EXISTS (
+        SELECT 1 FROM canonical_conflict_evidence cce
+        WHERE (cce.business_id_a = b.id OR cce.business_id_b = b.id) AND cce.status = 'open'
+      )
+  `))[0];
+
+  // Final eligible pool with every exclusion applied, deterministically
+  // ordered and capped. We select one representative (business_id, source
+  // adapter, county, vertical) row per business — MIN() on the adapter/type
+  // text columns keeps the choice stable across repeated calls.
+  const eligible = rows(await db.execute(sql`
+    SELECT b.id AS business_id,
+           MIN(csl.source_system) AS source_adapter_key,
+           MIN(bl.county_fips) AS county_fips,
+           MIN(csl.source_type) AS vertical
+    FROM businesses b
+    JOIN canonical_source_links csl ON csl.business_id = b.id
+    LEFT JOIN business_locations bl ON bl.business_id = b.id
+    WHERE csl.source_system = ANY(${sourceAdapterArraySql})
+      AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND b.record_class = 'production'
+      AND (b.free_enrichment_status IS DISTINCT FROM 'suppressed')
+      AND (b.email_discovery_status IS DISTINCT FROM 'suppressed')
+      AND NOT EXISTS (SELECT 1 FROM canonical_source_links dbpr WHERE dbpr.business_id = b.id AND dbpr.source_system = 'dbpr_hr')
+      AND NOT EXISTS (
+        SELECT 1 FROM contact_business_link_decisions cbd
+        WHERE cbd.business_id = b.id AND cbd.superseded_at IS NULL AND cbd.decision IN ('verified','conflicted')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM canonical_conflict_evidence cce
+        WHERE (cce.business_id_a = b.id OR cce.business_id_b = b.id) AND cce.status = 'open'
+      )
+    GROUP BY b.id
+    ORDER BY b.id ASC
+    LIMIT ${maxCohortSize}
+  `));
+
+  if (eligible.length === 0) {
+    throw new Error("COHORT_CENSUS_INSUFFICIENT:no_eligible_businesses_after_exclusions");
+  }
+
+  const members = eligible.map((r: any) => ({
+    canonicalBusinessId: Number(r.business_id),
+    sourceAdapterKey: String(r.source_adapter_key),
+    countyFips: r.county_fips ? String(r.county_fips) : undefined,
+    vertical: r.vertical ? String(r.vertical) : undefined,
+  }));
+
+  const result = await freezePilotCohort({ pilotRunId, members });
+
+  return {
+    frozen: result.frozen,
+    cohortFrozenHash: result.cohortFrozenHash,
+    selectedCount: members.length,
+    eligiblePoolSize: Number(baseCount?.cnt ?? 0),
+    excluded: {
+      dbprLineage: Number(excludedDbpr?.cnt ?? 0),
+      testOrDemoData: Number(excludedTest?.cnt ?? 0),
+      linkedIdentity: Number(excludedLinked?.cnt ?? 0),
+      suppressed: Number(excludedSuppressed?.cnt ?? 0),
+      openConflict: Number(excludedConflict?.cnt ?? 0),
+    },
+  };
+}
+
 /**
  * Execute a pilot cohort phase: iterate over frozen cohort members,
  * find their associated cro03a_handoffs via canonical_source_links,
@@ -1285,6 +1503,172 @@ export async function getPilotEffectLinks(
   `));
 }
 
+// ── Aggregate Paid Budget (ladder-wide, not per-provider) ───────────────────
+//
+// The pilot definition's own stopConditionThresholds.spendCapMicros is a
+// PER-RUN threshold checked by evaluateStopConditions(). The operator asked
+// for a second, independent guardrail: a single $50 ceiling that covers ALL
+// paid-provider spend across every pilot run in this ladder (Level 2 and
+// Level 3 combined — Level 1 must never carry a paid provider at all, see
+// createPilotDefinition), not $50 per provider and not $50 per run. This
+// section sums real settled + in-flight reserved spend across every pilot
+// run's recorded cro03c_command effect links, independent of which run or
+// provider produced it.
+export const MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS = 50_000_000; // $50.00 USD
+
+const MI09_PAID_BUDGET_AUTH_KEY = "mi09_pilot_paid_budget_authorization";
+export const MI09_PAID_BUDGET_TYPED_CONFIRMATION = "AUTHORIZE $50 PAID PILOT";
+
+export interface PilotBudgetSummary {
+  capMicros: number;
+  settledMicros: number;
+  reservedMicros: number;
+  failedOrCancelledMicros: number;
+  remainingMicros: number;
+  overCap: boolean;
+  operationCount: number;
+  byProvider: Array<{ provider: string; settledMicros: number; reservedMicros: number; operationCount: number }>;
+}
+
+/** Aggregate real spend across every pilot run's cro03c_command effect links. */
+export async function getAggregatePilotSpend(): Promise<PilotBudgetSummary> {
+  const opRows = rows(await db.execute(sql`
+    SELECT so.provider, so.state,
+           SUM(so.settled_amount_micros)::bigint AS settled_micros,
+           SUM(CASE WHEN so.state IN ('reserved','dispatched') THEN so.max_reserved_amount_micros ELSE 0 END)::bigint AS reserved_micros,
+           SUM(CASE WHEN so.state IN ('failed','cancelled') THEN so.max_reserved_amount_micros ELSE 0 END)::bigint AS failed_micros,
+           COUNT(*)::int AS cnt
+    FROM mi09_pilot_effect_links el
+    JOIN cro03c_stage_operations so ON so.command_id = el.entity_id
+    WHERE el.entity_type = 'cro03c_command'
+    GROUP BY so.provider, so.state
+  `));
+
+  let settledMicros = 0, reservedMicros = 0, failedOrCancelledMicros = 0, operationCount = 0;
+  const byProviderMap = new Map<string, { settledMicros: number; reservedMicros: number; operationCount: number }>();
+  for (const r of opRows) {
+    const provider = String(r.provider);
+    const settled = Number(r.settled_micros ?? 0);
+    const reserved = Number(r.reserved_micros ?? 0);
+    const failed = Number(r.failed_micros ?? 0);
+    const cnt = Number(r.cnt ?? 0);
+    settledMicros += settled;
+    reservedMicros += reserved;
+    failedOrCancelledMicros += failed;
+    operationCount += cnt;
+    const entry = byProviderMap.get(provider) ?? { settledMicros: 0, reservedMicros: 0, operationCount: 0 };
+    entry.settledMicros += settled;
+    entry.reservedMicros += reserved;
+    entry.operationCount += cnt;
+    byProviderMap.set(provider, entry);
+  }
+
+  const capMicros = MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS;
+  const committedMicros = settledMicros + reservedMicros;
+  return {
+    capMicros,
+    settledMicros,
+    reservedMicros,
+    failedOrCancelledMicros,
+    remainingMicros: Math.max(0, capMicros - committedMicros),
+    overCap: committedMicros > capMicros,
+    operationCount,
+    byProvider: Array.from(byProviderMap.entries()).map(([provider, v]) => ({ provider, ...v })),
+  };
+}
+
+/** Throws unless the ladder-wide aggregate spend (settled + in-flight reserved) is still under the $50 cap. */
+export async function assertAggregatePaidBudgetAvailable(): Promise<PilotBudgetSummary> {
+  const summary = await getAggregatePilotSpend();
+  if (summary.overCap) {
+    throw new Error(
+      `MI09_AGGREGATE_BUDGET_EXCEEDED:committed=${summary.settledMicros + summary.reservedMicros} cap=${summary.capMicros}`,
+    );
+  }
+  return summary;
+}
+
+export interface PaidBudgetAuthorization {
+  authorizedBy: string;
+  authorizedAt: string;
+  capMicros: number;
+  typedConfirmation: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedReason?: string;
+}
+
+/** Read the current typed paid-budget authorization, if any (system_settings-backed, single row). */
+export async function getPaidBudgetAuthorization(): Promise<PaidBudgetAuthorization | null> {
+  const row = rows(await db.execute(sql`
+    SELECT value FROM system_settings WHERE key = ${MI09_PAID_BUDGET_AUTH_KEY} LIMIT 1
+  `))[0];
+  if (!row) return null;
+  const value = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+  return value as PaidBudgetAuthorization;
+}
+
+/**
+ * Record the operator's explicit typed authorization to spend up to the
+ * fixed $50 aggregate cap on paid providers. The caller (route layer) must
+ * have already verified the exact typed confirmation string and admin role;
+ * this function re-verifies the string as a second, independent gate so a
+ * bug in the route can never silently authorize paid spend.
+ */
+export async function authorizePaidBudget(input: {
+  authorizedBy: string;
+  typedConfirmation: string;
+}): Promise<PaidBudgetAuthorization> {
+  if (input.typedConfirmation !== MI09_PAID_BUDGET_TYPED_CONFIRMATION) {
+    throw new Error("MI09_PAID_BUDGET_AUTHORIZATION_DENIED:typed_confirmation_mismatch");
+  }
+  const auth: PaidBudgetAuthorization = {
+    authorizedBy: input.authorizedBy,
+    authorizedAt: new Date().toISOString(),
+    capMicros: MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS,
+    typedConfirmation: input.typedConfirmation,
+  };
+  await db.execute(sql`
+    INSERT INTO system_settings (key, value, updated_at)
+    VALUES (${MI09_PAID_BUDGET_AUTH_KEY}, ${JSON.stringify(auth)}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `);
+  return auth;
+}
+
+/**
+ * Emergency stop: revoke the standing paid-budget authorization so no
+ * further paid-provider pilot phase can execute, without touching the
+ * global outbound-pause state (which governs sends, not this pilot's
+ * provider spend gate).
+ */
+export async function revokePaidBudgetAuthorization(input: {
+  revokedBy: string;
+  reason: string;
+}): Promise<void> {
+  const current = await getPaidBudgetAuthorization();
+  if (!current) return;
+  const revoked: PaidBudgetAuthorization = {
+    ...current,
+    revokedAt: new Date().toISOString(),
+    revokedBy: input.revokedBy,
+    revokedReason: input.reason,
+  };
+  await db.execute(sql`
+    UPDATE system_settings SET value = ${JSON.stringify(revoked)}::jsonb, updated_at = NOW()
+    WHERE key = ${MI09_PAID_BUDGET_AUTH_KEY}
+  `);
+}
+
+/** Throws unless a live (non-revoked) typed paid-budget authorization exists. */
+export async function assertPaidBudgetAuthorized(): Promise<PaidBudgetAuthorization> {
+  const auth = await getPaidBudgetAuthorization();
+  if (!auth || auth.revokedAt) {
+    throw new Error("MI09_PAID_BUDGET_NOT_AUTHORIZED — an admin must submit the typed confirmation before any paid-provider pilot phase can run");
+  }
+  return auth;
+}
+
 // ── Advancement ──────────────────────────────────────────────────────────────
 
 /** Issue an owner advancement receipt — idempotent by idempotency_key. */
@@ -1381,6 +1765,10 @@ export async function getPilotReconciliationReports(runId: string): Promise<any[
 export interface PreflightCheckResult {
   passed: boolean;
   checks: Record<string, { passed: boolean; detail?: string }>;
+  /** Current deployed release SHA — required verbatim by createPilotRun(). */
+  releaseSha: string;
+  /** Current outbound-pause epoch — required verbatim by createPilotRun(). */
+  outboundPauseEpoch: number;
 }
 
 /**
@@ -1480,17 +1868,6 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
     checks.migrationHeadUpdated = { passed: false, detail: String(e?.message) };
   }
 
-  // 11. Global outbound confirmed paused.
-  try {
-    const pause = await getPauseState();
-    checks.globalOutboundPaused = {
-      passed: pause.state === "paused",
-      detail: `paused=${pause.state === "paused"} epoch=${pause.epoch}`,
-    };
-  } catch (e: any) {
-    checks.globalOutboundPaused = { passed: false, detail: String(e?.message) };
-  }
-
   // 12. Zero open canonical_conflict_evidence rows.
   try {
     const conflicts = rows(await db.execute(sql`
@@ -1502,6 +1879,25 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
     checks.zeroOpenConflicts = { passed: false, detail: String(e?.message) };
   }
 
+  // Pool authority decision — surfaced as its own checklist item so the
+  // operator sees the blocker explicitly instead of only discovering it when
+  // createPilotRun() throws.
+  try {
+    await assertPoolAuthorityDecision();
+    checks.poolAuthorityDecided = { passed: true };
+  } catch (e: any) {
+    checks.poolAuthorityDecided = { passed: false, detail: String(e?.message) };
+  }
+
+  const pause = await getPauseState();
+  checks.outboundPaused = {
+    passed: pause.state === "paused",
+    detail: `paused=${pause.state === "paused"} epoch=${pause.epoch}`,
+  };
+
+  const releaseSha = process.env.RELEASE_SHA ?? "unknown";
+  checks.releaseSha = { passed: releaseSha !== "unknown", detail: releaseSha };
+
   const passed = Object.values(checks).every((c) => c.passed);
-  return { passed, checks };
+  return { passed, checks, releaseSha, outboundPauseEpoch: Number(pause.epoch) };
 }
