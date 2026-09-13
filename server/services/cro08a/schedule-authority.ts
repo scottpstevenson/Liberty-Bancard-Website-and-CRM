@@ -17,6 +17,7 @@ import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { assertCurrentCro08aCertification, Cro08aCertificationDeniedError } from "./certification-gate";
+import { assertCro08aSourceScope } from "./source-scope";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 

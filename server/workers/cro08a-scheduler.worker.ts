@@ -21,6 +21,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import { assertCro08aSourceScope } from "../services/cro08a/source-scope";
 import {
   ensureCro08aScheduleOccurrence,
 } from "../services/cro08a/occurrence-service";
@@ -171,6 +172,11 @@ export async function processCro08aSchedulerTick(): Promise<{
           `run at least one census pass before the CRO-08A scheduler can create occurrences`,
         );
       }
+
+      // CRO-08A source-scope contract: reject (never silently skip) any DBPR or
+      // non-allowlisted source system before it can ever be frozen into an
+      // occurrence snapshot. See server/services/cro08a/source-scope.ts.
+      assertCro08aSourceScope(cursorRows.map((cr) => String(cr.source_system)));
 
       const frozenCursorSnapshot: Record<string, unknown> = {};
       for (const cr of cursorRows) {

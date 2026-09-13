@@ -145,29 +145,9 @@ export function getDefaultProcessor(): IProcessorAdapter {
  */
 const QUALIFYING_SNAPSHOT_STATUSES = new Set(["owner_confirmed", "sandbox_verified", "production_authorized"]);
 
-/**
- * resolveOperationSnapshot — Pure resolver for per-operation snapshot precedence.
- *
- * Given a list of snapshots ordered newest-first, returns the newest row that
- * explicitly lists `requiredOperation` in its supportedOperations — regardless
- * of that row's status. The caller must then validate the returned row's status.
- *
- * Revocation semantics: a newer held/expired row that lists the operation
- * BLOCKS access to an older qualifying row for the same operation. Only a newer
- * snapshot that does NOT list the operation at all is invisible to this operation's
- * resolution — it neither grants nor revokes.
- *
- * Exported for deterministic unit testing (no DB dependency).
- */
-export function resolveOperationSnapshot<T extends { status: string; supportedOperations: unknown }>(
-  rowsNewestFirst: T[],
-  requiredOperation: string,
-): T | undefined {
-  return rowsNewestFirst.find(r =>
-    Array.isArray(r.supportedOperations) &&
-    (r.supportedOperations as string[]).includes(requiredOperation)
-  );
-}
+// resolveOperationSnapshot is defined in the dependency-free ./operation-snapshot
+// module (imported and re-exported above) so DB-less CI callers can use it
+// without transitively importing server/db.ts.
 
 export async function requireConfirmedActivationSnapshot(
   processorName: string,

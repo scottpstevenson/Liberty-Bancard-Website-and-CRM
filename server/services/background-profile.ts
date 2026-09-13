@@ -91,6 +91,17 @@ export const WORKER_CAPABILITY_GROUPS = {
     "db-backup",
     "system-audit",
   ],
+  /**
+   * CRO08A continuous enrichment factory: scheduler tick + processor tick.
+   * Deliberately separate from `enrichment` and `provider-live` — those groups
+   * cover the request-driven/live-dispatch queues, not CRO08A's recurring
+   * schedule-definition scheduler/processor. Without this group, no selective
+   * profile combination can start the CRO08A continuous factory.
+   */
+  "continuous-enrichment": [
+    "cro08a-scheduler",
+    "cro08a-processor",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 export type WorkerCapabilityGroup = keyof typeof WORKER_CAPABILITY_GROUPS;

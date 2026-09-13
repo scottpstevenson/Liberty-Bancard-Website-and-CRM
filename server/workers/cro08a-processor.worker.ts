@@ -22,6 +22,7 @@ import {
   tryCompleteCro08aReconciliation,
 } from "../services/cro08a/occurrence-service";
 import { createCro03cCommand } from "../services/cro03/live-execution";
+import { assertCro08aSourceScope } from "../services/cro08a/source-scope";
 import { createHash } from "crypto";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -417,6 +418,10 @@ export async function processCro08aOccurrence(opts?: {
       // Case 3: Enumerate from source tables using frozen cursor bounds.
       const adapterKeys = Object.keys(frozenCursorSnapshot);
       if (adapterKeys.length === 0) throw new Error("CRO08A_PROCESSOR_EMPTY_CURSOR_SNAPSHOT");
+      // CRO-08A source-scope contract: reject (never silently skip) any DBPR or
+      // non-allowlisted source system before it can ever be enumerated for
+      // handoffs. See server/services/cro08a/source-scope.ts.
+      assertCro08aSourceScope(adapterKeys);
 
       // Derive the schedule definition ID for looking up prior occurrence high-water marks.
       const scheduleDefRow = rows(await db.execute(sql`
