@@ -93,6 +93,11 @@ export function registerSdrRoutes(app: Express) {
       sha: BUILD_SHA,
       builtAt: BUILD_AT,
       env: BUILD_ENV,
+      // C-03 (#1626): lets pre-deploy test scripts (test-forms.ts,
+      // test-call-follow-ups.ts) confirm the GHL fail-fast fake transport is
+      // actually installed on the server they're hitting before running any
+      // test that could otherwise create real GHL contacts.
+      ghlTransportFailFast: process.env.GHL_TRANSPORT_FAILFAST === "true",
     });
   });
 

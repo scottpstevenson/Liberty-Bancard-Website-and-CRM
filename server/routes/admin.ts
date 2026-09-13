@@ -4880,6 +4880,12 @@ export function registerAdminRoutes(app: Express) {
       } catch {}
       checks.push({ name: "sequenceWorker", status: seqStatus, detail: seqDetail, critical: true });
 
+      // Names treated as critical for this live-health endpoint's own summary
+      // (kept in sync with the `critical: true` flags pushed above/below —
+      // sequenceWorker must stay listed here, or a stalled outbound worker
+      // would not surface as a critical live-health failure).
+      const CRITICAL_NAMES = ["sequenceWorker", "redis"];
+
       // 3. slaWorker
       let slaStatus: "ok" | "error" | "stale" = "error";
       let slaDetail = "Never (worker has not run)";
@@ -4903,10 +4909,23 @@ export function registerAdminRoutes(app: Express) {
       let ghlStatus: "ok" | "stale" | "warn" = "warn";
       let ghlDetail = "No sync recorded";
       try {
+        // Rewritten as a UNION of single-action subqueries: with a composite
+        // (action, created_at DESC) index, a multi-value IN + ORDER BY + LIMIT 1
+        // query can make Postgres pick a plan that scans the created_at index
+        // backward and filters by action instead — if none of the actions have
+        // a recent row, that degenerates into a full-table scan (confirmed via
+        // EXPLAIN ANALYZE: 149s on this table). Each subquery here has a single
+        // equality on `action`, which reliably drives an index-only scan on the
+        // composite index (sub-100ms even with zero matching rows).
         const rows = await db.execute(drizzleSqlRaw.raw(`
-          SELECT created_at FROM audit_logs
-          WHERE action IN ('ghl_sync_completed','GHL_SYNC_TICK_COMPLETE','ghl_sync_contacts')
-          ORDER BY created_at DESC LIMIT 1
+          SELECT created_at FROM (
+            (SELECT created_at FROM audit_logs WHERE action = 'ghl_sync_completed' ORDER BY created_at DESC LIMIT 1)
+            UNION ALL
+            (SELECT created_at FROM audit_logs WHERE action = 'GHL_SYNC_TICK_COMPLETE' ORDER BY created_at DESC LIMIT 1)
+            UNION ALL
+            (SELECT created_at FROM audit_logs WHERE action = 'ghl_sync_contacts' ORDER BY created_at DESC LIMIT 1)
+          ) t
+          ORDER BY created_at DESC NULLS LAST LIMIT 1
         `));
         const row = rows.rows[0] as any;
         if (row?.created_at) {
@@ -4957,10 +4976,14 @@ export function registerAdminRoutes(app: Express) {
       let backupStatus: "ok" | "warn" = "warn";
       let backupDetail = "No successful backup recorded";
       try {
+        // Same UNION-of-single-action-subqueries fix as the ghlSync check above —
+        // avoids the multi-value IN + full-table-scan plan on audit_logs.
         const backupResult = await db.execute(drizzleSqlRaw.raw(`
-          SELECT MAX(created_at) AS created_at
-          FROM audit_logs
-          WHERE action IN ('db_backup_completed', 'db_backup_success')
+          SELECT MAX(created_at) AS created_at FROM (
+            (SELECT created_at FROM audit_logs WHERE action = 'db_backup_completed' ORDER BY created_at DESC LIMIT 1)
+            UNION ALL
+            (SELECT created_at FROM audit_logs WHERE action = 'db_backup_success' ORDER BY created_at DESC LIMIT 1)
+          ) t
         `));
         const latestBackup = (backupResult.rows[0] as any)?.created_at;
         if (latestBackup) {

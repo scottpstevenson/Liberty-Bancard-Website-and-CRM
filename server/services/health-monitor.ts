@@ -42,6 +42,8 @@ export interface HealthReport {
     arbitrationErrors: CheckResult;
     slaHeartbeatWriteDegraded: CheckResult; // #1326 — heartbeat write failure counter
     productionSeedConvergence: CheckResult; // #1750 — required migration seed/backfill rows
+    emailTransport: CheckResult; // Wave 1A — ChannelOrchestrator email transport adapter
+    smsTransport: CheckResult; // Wave 1A — ChannelOrchestrator SMS transport adapter
   };
 }
 export const HEALTH_MONITOR_KEY = "health_monitor_last_result";
@@ -254,6 +256,49 @@ async function checkGhlSync(): Promise<CheckResult> {
     return { status: "error", message: `Last sync >60m ago`, latencyMs };
   } catch (err: any) {
     return { status: "error", message: err.message, latencyMs: Date.now() - t0 };
+  }
+}
+
+// Wave 1A — surfaces ChannelOrchestrator's own transport health checks
+// (GHL email/SMS adapters) in the generic health report, so a transport
+// outage is visible without a provider call from the health monitor itself
+// (ChannelOrchestrator's healthCheck() delegates to each adapter's own
+// lightweight healthCheck(), it does not send a real message).
+async function checkEmailTransport(): Promise<CheckResult> {
+  const t0 = Date.now();
+  try {
+    const { channelOrchestrator } = await import("./channel-orchestrator");
+    const result = await channelOrchestrator.healthCheck();
+    const latencyMs = Date.now() - t0;
+    if (result.email.healthy) {
+      return { status: "ok", message: `provider=${result.email.provider}`, latencyMs };
+    }
+    return {
+      status: "degraded",
+      message: `provider=${result.email.provider}${result.email.error ? ` error=${result.email.error}` : ""}`,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return { status: "error", message: `Email transport check threw: ${err.message}`, latencyMs: Date.now() - t0 };
+  }
+}
+
+async function checkSmsTransport(): Promise<CheckResult> {
+  const t0 = Date.now();
+  try {
+    const { channelOrchestrator } = await import("./channel-orchestrator");
+    const result = await channelOrchestrator.healthCheck();
+    const latencyMs = Date.now() - t0;
+    if (result.sms.healthy) {
+      return { status: "ok", message: `provider=${result.sms.provider}`, latencyMs };
+    }
+    return {
+      status: "degraded",
+      message: `provider=${result.sms.provider}${result.sms.error ? ` error=${result.sms.error}` : ""}`,
+      latencyMs,
+    };
+  } catch (err: any) {
+    return { status: "error", message: `SMS transport check threw: ${err.message}`, latencyMs: Date.now() - t0 };
   }
 }
 
@@ -486,6 +531,10 @@ export async function runHealthChecks(): Promise<HealthReport> {
     checkArbitrationErrors(),
     checkProductionSeedConvergence(),
   ]);
+  const [emailTransportRes, smsTransportRes] = await Promise.allSettled([
+    checkEmailTransport(),
+    checkSmsTransport(),
+  ]);
 
   function settle(r: PromiseSettledResult<CheckResult>, name: string): CheckResult {
     if (r.status === "fulfilled") return r.value;
@@ -504,6 +553,8 @@ export async function runHealthChecks(): Promise<HealthReport> {
     arbitrationErrors: settle(arbitrationErrorsRes, "arbitrationErrors"),
     slaHeartbeatWriteDegraded: settle(slaHeartbeatRes, "slaHeartbeatWriteDegraded"),
     productionSeedConvergence: settle(productionSeedConvergenceRes, "productionSeedConvergence"),
+    emailTransport: settle(emailTransportRes, "emailTransport"),
+    smsTransport: settle(smsTransportRes, "smsTransport"),
   };
 
   // Determine overall health (only critical checks matter)
