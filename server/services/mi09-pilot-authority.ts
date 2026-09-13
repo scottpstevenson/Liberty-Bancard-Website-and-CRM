@@ -545,12 +545,16 @@ export async function getActivationReadiness(): Promise<ActivationReadiness> {
     gates.push({ key: `pilot_level_${level}_completed`, passed: completed, detail: completed ? "completed run found" : "no completed run for this level" });
   }
 
-  const certRow = rows(await db.execute(sql`
-    SELECT id, revoked_at, expires_at FROM cro08a_certification_receipts
-    WHERE revoked_at IS NULL AND expires_at > NOW()
-    ORDER BY issued_at DESC LIMIT 1
+  // Certification receipts were removed from the CRO-08A activation flow on
+  // 2026-09-13 (activateCro08aScheduleDefinition() no longer issues or checks
+  // one). This gate now checks for the thing a receipt used to stand in for:
+  // at least one schedule definition has actually been activated through that
+  // flow (which itself requires the pilot ladder + spend cap to pass).
+  const activeDefRow = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS cnt FROM cro08a_schedule_definitions WHERE active = true
   `))[0];
-  gates.push({ key: "cro08a_certified", passed: !!certRow, detail: certRow ? `valid receipt ${String(certRow.id).slice(0, 8)}` : "no unexpired, non-revoked certification receipt found" });
+  const activeDefCount = Number(activeDefRow?.cnt ?? 0);
+  gates.push({ key: "cro08a_schedule_active", passed: activeDefCount > 0, detail: activeDefCount > 0 ? `${activeDefCount} active schedule definition(s)` : "no active CRO-08A schedule definitions found" });
 
   const poolAuthority = await getPoolAuthorityDecision();
   gates.push({ key: "pool_authority_decided", passed: !!poolAuthority, detail: poolAuthority ? `${poolAuthority.pool} (rev ${poolAuthority.revision})` : "not yet decided" });
