@@ -35,6 +35,16 @@ import { storage } from "../storage";
 import { initializeCro02PurposePolicies } from "./cro02-purpose-policy-initializer";
 import { initializeCro03aPolicy, CRO03A_SEED_POLICY_KEY, CRO03A_SEED_POLICY_VERSION, CRO03A_SEED_POLICY_HASH } from "./cro03a-policy-initializer";
 import { CRO02_POLICY_VERSION, CRO02_PURPOSE_POLICY_DOCUMENTS } from "./commercial-resolution";
+import {
+  MI09_PRICING_SEED_TABLE,
+  MI09_PRICING_CAPTURED_BY,
+  MI09_PRICING_ARTIFACT_VERSION,
+  MI09_PRICING_CURRENCY,
+  MI09_PRICING_ACCOUNT_BALANCE_UNITS,
+} from "./cro03/mi09-pricing-seed-data";
+import { reuseOrCreatePricingArtifact, createPricingScheduleSnapshot } from "./mi09-pilot-authority";
+
+const MI09_PRICING_SEED_KEY_VALUES: string[][] = MI09_PRICING_SEED_TABLE.map((r) => [r.providerKey, String(MI09_PRICING_ARTIFACT_VERSION)]);
 
 // The 8 canonical (purpose, policy_version) key pairs this module's
 // cro02_purpose_policies target is coded to converge — see
@@ -570,6 +580,61 @@ async function convergeInboundRequestEffects(): Promise<SeedTargetResult> {
   });
 }
 
+// ── Target: mi09_pricing_artifacts + mi09_pricing_schedule_snapshots ───────
+// Task #1940: the 9 canonical provider pricing rows and their composite
+// snapshot are defined in cro03/mi09-pricing-seed-data.ts (the operator's
+// real, already-provided pricing) and applied through
+// scripts/seed-mi09-pricing.ts for a human operator running it directly.
+// Neither that script nor any migration ever runs against production
+// (migrations are never replayed there — see production-schema-ownership.md,
+// and the operator script requires a human to invoke it with
+// --confirm-env=production from inside that environment). This target
+// converges the exact same canonical rows at production startup instead,
+// through the same governed, insert-only, no-provider-I/O service functions
+// (`reuseOrCreatePricingArtifact` / `createPricingScheduleSnapshot`) the
+// script itself calls — never raw SQL, never a blind overwrite of an
+// existing artifact.
+async function convergeMi09PricingArtifacts(): Promise<SeedTargetResult> {
+  const id = "mi09_pricing_artifacts";
+  const tables = ["mi09_pricing_artifacts", "mi09_pricing_schedule_snapshots"];
+  await assertColumns(db as unknown as Tx, "mi09_pricing_artifacts", {
+    provider_key: "text",
+    unit_type: "text",
+    amount_micros: "bigint",
+    artifact_version: "integer",
+  });
+  await assertColumns(db as unknown as Tx, "mi09_pricing_schedule_snapshots", {
+    composite_hash: "text",
+    artifact_ids: "jsonb",
+  });
+  let createdCount = 0;
+  const perProvider: string[] = [];
+  for (const row of MI09_PRICING_SEED_TABLE) {
+    const result = await reuseOrCreatePricingArtifact({
+      providerKey: row.providerKey,
+      unitType: row.unitType,
+      amountMicros: row.amountMicros,
+      currency: MI09_PRICING_CURRENCY,
+      billingSemantics: row.billingSemantics,
+      capturedBy: MI09_PRICING_CAPTURED_BY,
+      accountBalanceUnits: MI09_PRICING_ACCOUNT_BALANCE_UNITS ?? undefined,
+      sourceUrl: row.sourceUrl ?? undefined,
+      artifactVersion: MI09_PRICING_ARTIFACT_VERSION,
+    });
+    if (!result.reused) createdCount++;
+    perProvider.push(`${row.providerKey}=${result.reused ? "reused" : "created"}`);
+  }
+  const snapshot = await createPricingScheduleSnapshot({ capturedBy: MI09_PRICING_CAPTURED_BY });
+  const snapshotState = snapshot.reused ? "reused" : snapshot.renewed ? "renewed" : "created";
+  return {
+    id,
+    classification: "immutable_revision_seed",
+    tables,
+    outcome: createdCount > 0 ? "inserted" : "already_present",
+    detail: `${perProvider.join(", ")}; snapshot ${snapshotState} (id=${snapshot.id}, hash=${snapshot.compositeHash})`,
+  };
+}
+
 /**
  * Registry of every production-required seed/backfill target this module
  * owns. `write` performs the insert-only convergence (used at startup);
@@ -607,6 +672,12 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
   { id: "cro03_provider_ledger_lineage_repair", classification: "historical_backfill", tables: ["cro03_provider_ledger"], write: convergeCro03LedgerLineage },
   { id: "cr06_campaign_gate_revisions_backfill", classification: "historical_backfill", tables: ["cr06_campaign_gate_revisions"], write: convergeCr06CampaignGateRevisions },
   { id: "inbound_request_effects_backfill", classification: "historical_backfill", tables: ["inbound_request_effects"], write: convergeInboundRequestEffects },
+  {
+    id: "mi09_pricing_artifacts", classification: "immutable_revision_seed",
+    tables: ["mi09_pricing_artifacts", "mi09_pricing_schedule_snapshots"],
+    write: convergeMi09PricingArtifacts,
+    seedKeys: { columns: ["provider_key", "artifact_version"], values: MI09_PRICING_SEED_KEY_VALUES },
+  },
 ];
 
 /**
@@ -836,6 +907,23 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
       const row = rows(await db.execute(sql`SELECT count(*)::int AS n FROM contacts WHERE record_class = 'unknown'`))[0];
       const n = Number(row?.n ?? 0);
       return { id: "contact_record_class_backfill", classification: "historical_backfill", tables: ["contacts"], outcome: n === 0 ? "already_present" : "unexpected", detail: n === 0 ? "no unknown-class contacts remain" : `${n} contact(s) still have record_class='unknown'` };
+    },
+    async () => {
+      const id = "mi09_pricing_artifacts";
+      const tables = ["mi09_pricing_artifacts", "mi09_pricing_schedule_snapshots"];
+      const present = rows(await db.execute(sql`
+        SELECT DISTINCT provider_key, artifact_version FROM mi09_pricing_artifacts
+      `));
+      const presentKeys = new Set(present.map((r: any) => `${r.provider_key}::${r.artifact_version}`));
+      const missing = MI09_PRICING_SEED_KEY_VALUES.filter(([provider, version]) => !presentKeys.has(`${provider}::${version}`));
+      if (missing.length > 0) {
+        return { id, classification: "immutable_revision_seed", tables, outcome: "unexpected", detail: `missing canonical pricing artifact(s): ${missing.map((k) => k.join("/")).join(", ")}` };
+      }
+      const snapshotCount = rows(await db.execute(sql`SELECT count(*)::int AS n FROM mi09_pricing_schedule_snapshots`))[0];
+      if (Number(snapshotCount?.n ?? 0) === 0) {
+        return { id, classification: "immutable_revision_seed", tables, outcome: "unexpected", detail: `all ${MI09_PRICING_SEED_KEY_VALUES.length} canonical pricing artifacts present but no composite pricing schedule snapshot exists` };
+      }
+      return { id, classification: "immutable_revision_seed", tables, outcome: "already_present", detail: `all ${MI09_PRICING_SEED_KEY_VALUES.length} canonical pricing artifact keys present; snapshot(s) exist` };
     },
   ];
   for (const check of checks) {
