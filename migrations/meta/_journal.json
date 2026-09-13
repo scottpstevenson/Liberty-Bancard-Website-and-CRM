@@ -1876,6 +1876,13 @@
       "when": 1800000007200,
       "tag": "0263_audit_logs_action_created_at_idx",
       "breakpoints": false
+    },
+    {
+      "idx": 268,
+      "version": "7",
+      "when": 1800000007300,
+      "tag": "0264_free_enrichment_queue_indexes",
+      "breakpoints": false
     }
   ]
 }

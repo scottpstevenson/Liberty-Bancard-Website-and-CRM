@@ -3355,15 +3355,36 @@ async function runCanonicalBusinessEnrichmentTick(): Promise<void> {
   const { db: _db } = await import("../db");
   const { sql: _sql } = await import("drizzle-orm");
 
+  // Task #1906: rewritten as a UNION ALL of three disjoint branches (rather
+  // than a single OR predicate) so the planner can use each branch's own
+  // partial index (businesses_free_enrich_queue_idx / _retryable_failed_idx /
+  // _stale_idx, migrations 0250 + 0264) independently instead of falling
+  // back to a sequential scan of the full `businesses` table. The branches
+  // are mutually exclusive (free_enrichment_status is either null, 'failed',
+  // or 'enriched'), so UNION ALL cannot introduce duplicate ids.
   const businessRows = await _db.execute(_sql`
-    SELECT id FROM businesses
-    WHERE website_domain IS NOT NULL
-      AND record_class = 'canonical'
-      AND (
-        free_enrichment_status IS NULL
-        OR (free_enrichment_status = 'failed' AND free_enrichment_attempt_count < 3)
-        OR (free_enrichment_status = 'enriched' AND free_enrichment_completed_at < NOW() - INTERVAL '90 days')
-      )
+    SELECT id FROM (
+      SELECT id FROM businesses
+      WHERE website_domain IS NOT NULL
+        AND record_class = 'canonical'
+        AND free_enrichment_status IS NULL
+
+      UNION ALL
+
+      SELECT id FROM businesses
+      WHERE website_domain IS NOT NULL
+        AND record_class = 'canonical'
+        AND free_enrichment_status = 'failed'
+        AND free_enrichment_attempt_count < 3
+
+      UNION ALL
+
+      SELECT id FROM businesses
+      WHERE website_domain IS NOT NULL
+        AND record_class = 'canonical'
+        AND free_enrichment_status = 'enriched'
+        AND free_enrichment_completed_at < NOW() - INTERVAL '90 days'
+    ) eligible
     ORDER BY id
     LIMIT ${BATCH}
   `);

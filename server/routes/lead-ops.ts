@@ -463,15 +463,33 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       // Predicate must exactly match runCanonicalBusinessEnrichmentTick() so the UI
       // tile reflects the true backlog (null + retryable-failed + stale-enriched,
       // canonical-only). Also includes record_class guard and attempt count cap.
+      //
+      // Task #1906: rewritten as a UNION ALL of three per-branch counts (summed)
+      // instead of a single OR predicate, so each branch is served by its own
+      // partial index (migrations 0250 + 0264) rather than a full table scan.
       db.execute(sql`
-        SELECT COUNT(*)::int AS count FROM businesses
-        WHERE website_domain IS NOT NULL
-          AND record_class = 'canonical'
-          AND (
-            free_enrichment_status IS NULL
-            OR (free_enrichment_status = 'failed' AND free_enrichment_attempt_count < 3)
-            OR (free_enrichment_status = 'enriched' AND free_enrichment_completed_at < NOW() - INTERVAL '90 days')
-          )
+        SELECT COALESCE(SUM(cnt), 0)::int AS count FROM (
+          SELECT COUNT(*) AS cnt FROM businesses
+          WHERE website_domain IS NOT NULL
+            AND record_class = 'canonical'
+            AND free_enrichment_status IS NULL
+
+          UNION ALL
+
+          SELECT COUNT(*) AS cnt FROM businesses
+          WHERE website_domain IS NOT NULL
+            AND record_class = 'canonical'
+            AND free_enrichment_status = 'failed'
+            AND free_enrichment_attempt_count < 3
+
+          UNION ALL
+
+          SELECT COUNT(*) AS cnt FROM businesses
+          WHERE website_domain IS NOT NULL
+            AND record_class = 'canonical'
+            AND free_enrichment_status = 'enriched'
+            AND free_enrichment_completed_at < NOW() - INTERVAL '90 days'
+        ) branches
       `).catch(() => null),
       // Paid CRO-03C work is represented by reserved/pending/running stage
       // operations.  This is deliberately separate from the canonical free
