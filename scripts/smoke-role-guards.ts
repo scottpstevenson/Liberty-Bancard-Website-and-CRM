@@ -1215,7 +1215,6 @@ async function run(): Promise<void> {
       { path: "/api/lead-ops/pilot/runs",                               desc: "GET pilot runs list" },
       { path: "/api/lead-ops/pilot/preflight",                          desc: "GET pilot preflight" },
       { path: "/api/lead-ops/pilot/pricing-artifacts",                  desc: "GET pricing artifacts" },
-      { path: "/api/admin/cro08a/certification-receipts",               desc: "GET cro08a cert receipts" },
       { path: "/api/admin/cro08a/schedule-definitions",                 desc: "GET cro08a schedule defs" },
     ];
     let mi09Failures = 0;
@@ -1249,7 +1248,6 @@ async function run(): Promise<void> {
       { path: "/api/lead-ops/pilot/runs/test-run-id/effect-links",           desc: "POST pilot effect link" },
       { path: "/api/lead-ops/pilot/runs/test-run-id/execute-phase",         desc: "POST pilot execute-phase" },
       { path: "/api/lead-ops/pilot/reconciliation-reports",                  desc: "POST reconciliation report" },
-      { path: "/api/admin/cro08a/certification-receipts",                    desc: "POST cro08a cert receipt" },
       { path: "/api/admin/cro08a/schedule-definitions",                      desc: "POST cro08a schedule def" },
       { path: "/api/admin/cro08a/schedule-definitions/test-id/activate",     desc: "POST activate schedule def" },
       { path: "/api/admin/cro08a/schedule-definitions/test-id/deactivate",   desc: "POST deactivate schedule def" },

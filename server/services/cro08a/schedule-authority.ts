@@ -157,11 +157,12 @@ export async function createCro08aScheduleDefinition(input: Cro08aScheduleDefini
  * Verify that all three MI-09 pilot levels have completed with valid advancement
  * evidence before activating production schedules. Called by activateCro08aScheduleDefinition.
  *
- * This check belongs at activation time (not at issueCro08aCertificationReceipt time)
- * because: (1) the pre-pilot ceremony issues a receipt to gate the pilots themselves, so
- * requiring pilot completion at receipt issuance would deadlock the ceremony; (2) the
- * post-Pilot-3 ceremony issues a SECOND receipt; and (3) only final activation must prove
- * all three levels ran with valid advancement receipts and terminal enrichment evidence.
+ * Historical note: this check was originally kept separate from the now-removed
+ * certification-receipt issuance step (see certification-gate.ts) because that
+ * receipt was issued twice — once pre-pilot to gate the pilots themselves, and
+ * once post-Pilot-3 for final activation — and requiring pilot completion at
+ * issuance time would have deadlocked the pre-pilot ceremony. That receipt
+ * ceremony no longer exists; this function remains the sole activation gate.
  */
 export async function assertPilotLadderCompletion(): Promise<void> {
   // NOTE (verified during enrichment activation preflight): scripts/test-cro08a-

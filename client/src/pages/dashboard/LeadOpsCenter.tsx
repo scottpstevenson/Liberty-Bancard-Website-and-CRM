@@ -2294,16 +2294,6 @@ function PilotStatusPanel() {
     staleTime: 30_000,
   });
 
-  const certReceiptsQuery = useQuery<any[]>({
-    queryKey: ["/api/admin/cro08a/certification-receipts"],
-    queryFn: async () => {
-      const r = await fetch("/api/admin/cro08a/certification-receipts", { credentials: "include" });
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
-    },
-    staleTime: 30_000,
-  });
-
   const poolAuthorityQuery = useQuery<{ decision: { pool: string; decidedBy: string; decidedAt: string; revision: number } | null }>({
     queryKey: ["/api/lead-ops/pilot/pool-authority"],
     queryFn: async () => {
@@ -2925,11 +2915,11 @@ function PilotStatusPanel() {
         </div>
       </div>
 
-      {/* CRO-08A schedules & certification */}
+      {/* CRO-08A schedules */}
       <div className="rounded-lg border bg-card p-4 space-y-3">
-        <h3 className="font-semibold text-sm">CRO-08A Schedules &amp; Certification</h3>
+        <h3 className="font-semibold text-sm">CRO-08A Schedules</h3>
         <div className="text-xs text-muted-foreground">
-          Certification receipts ({(certReceiptsQuery.data ?? []).length}) — issued via the CRO-03D ceremony script; schedules cannot activate without a matching, unexpired receipt.
+          Activation requires the MI-09 pilot ladder (Levels 1-3) to be complete, plus the existing $50 aggregate spend cap enforced per command. The certification-receipt ceremony was removed on 2026-09-13.
         </div>
         {(scheduleDefsQuery.data ?? []).map((s: any) => (
           <div key={s.id} className="rounded border p-2 text-xs flex items-center justify-between">

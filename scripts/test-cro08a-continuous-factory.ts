@@ -28,7 +28,6 @@ import {
   reserveCro03cProviderOperation, resolveCro03cGenerationMode,
 } from "../server/services/cro03/live-execution";
 import { stableCro03RecipeHash } from "../server/services/cro03/contracts";
-import { issueCro08aCertificationReceipt, CRO08A_CERTIFICATION_TYPED_CONFIRMATION } from "../server/services/cro08a/certification-gate";
 import { getPauseState, invalidatePauseStateCache } from "../server/services/outbound-pause-authority";
 import { createCro03SourceBatch, hashCro03Evidence } from "../server/services/cro03/source-staging";
 import { createCro03aQualificationRun, processCro03aQualificationRunQueueSafe } from "../server/services/cro03a/qualification-service";
@@ -573,7 +572,7 @@ async function main() {
   // LIMIT 1` picks, even with other approved 'cro03c_live_activation' rows
   // left over (append-only) from earlier runs of this same script.
   const fullPathRevision = Math.floor(Date.now() / 1000);
-  await ok("full path setup: approved policy, runtime attestation, pause state, certification", async () => {
+  await ok("full path setup: approved policy, runtime attestation, pause state, pilot ladder", async () => {
     await db.execute(sql`
       INSERT INTO outbound_pause_control(state,reason,epoch,actor)
       SELECT 'paused','cro08a test',1,'cro08a-test'
@@ -598,34 +597,13 @@ async function main() {
       VALUES (${attestationId}::uuid,${`cro08a-fullpath-att:${RUN}`},${inventoryId}::uuid,'[]'::jsonb,${process.env.RELEASE_SHA},${CRO03C_MIGRATION_HEAD},'test-deploy','test-env','w','w',${hex64(`qth-fp:${RUN}`)},NOW(),TRUE,TRUE,NOW()+interval '1 hour',${hex64(`att-fp:${RUN}`)},${RUN})`);
     (globalThis as any).__cro08aFullPathAttestationId = attestationId;
 
-    // Insert a mi09_pricing_schedule_snapshots row matching the priceScheduleHash we will
-    // pass to issueCro08aCertificationReceipt(). The hardened gate verifies the composite_hash
-    // against this table. This row is append-only (no cleanup needed — left as test-tagged residue).
-    const testPriceScheduleHash = hex64(`price:${RUN}`);
-    await db.execute(sql`
-      INSERT INTO mi09_pricing_schedule_snapshots
-        (composite_hash, artifact_ids, schedule_json, captured_by, captured_at, expires_at)
-      VALUES (
-        ${testPriceScheduleHash},
-        ${JSON.stringify([])}::jsonb,
-        ${JSON.stringify({ test: true, run: RUN })}::jsonb,
-        ${RUN},
-        NOW(), NOW() + INTERVAL '2 hours'
-      )
-      ON CONFLICT (composite_hash) DO NOTHING
-    `);
-
-    // 2026-09-13 solo-operator simplification: issueCro08aCertificationReceipt()
-    // no longer requires cro03c_approval_receipts at all — a single typed
-    // confirmation from the operator replaces the prior 4-dimension requirement.
-    const priceScheduleHash = hex64(`price:${RUN}`);
-    const receipt = await issueCro08aCertificationReceipt({
-      releaseSha: process.env.RELEASE_SHA!, migrationHead: CRO03C_MIGRATION_HEAD, providerSet: Object.keys(CRO03C_PROVIDER_CONTRACTS),
-      priceScheduleHash, certifiedBy: RUN, typedConfirmation: CRO08A_CERTIFICATION_TYPED_CONFIRMATION,
-      runtimeAttestationId: attestationId,
-      outboundPauseEpoch: pause.epoch, issuedBy: RUN, expiresAt: new Date(Date.now() + 3600_000),
-    });
-    assert.ok(receipt.id);
+    // 2026-09-13: the certification-receipt ceremony (typed confirmation +
+    // pricing snapshot + runtime attestation record) was removed at the
+    // operator's request — activation is now gated solely by the MI-09
+    // pilot ladder and the aggregate spend cap, so this test no longer
+    // issues a certification receipt here. The runtime attestation created
+    // above is retained because it is still exercised by other assertions
+    // in this file (e.g. `(globalThis as any).__cro08aFullPathAttestationId`).
 
     // Seed the MI-09 pilot ladder so assertPilotLadderCompletion() passes at activation.
     // activateCro08aScheduleDefinition() requires all 3 levels completed + advancement receipts.
@@ -702,10 +680,7 @@ async function main() {
     // 2026-09-13: activation no longer requires or returns a certification
     // receipt (removed at the operator's request) — the pilot ladder check
     // above and the aggregate spend cap enforced in reserveCro03cProviderOperation
-    // are now the only activation gates. `receipt` above is kept only to prove
-    // issueCro08aCertificationReceipt() itself still works if anyone chooses
-    // to record one for their own bookkeeping; it is no longer load-bearing.
-    void receipt;
+    // are now the only activation gates.
   });
 
   await ok("createCro03cCommand's occurrence validation and server-derived caps clear every gate for a fully valid request", async () => {
@@ -1010,10 +985,10 @@ async function main() {
     await db.execute(sql`UPDATE cro08a_schedule_definitions SET active=false WHERE id=${fullPathDefinitionId}::uuid`);
     await db.execute(sql`DELETE FROM cro08a_schedule_definitions WHERE id=${fullPathDefinitionId}::uuid`);
   }
-  // The approved activation policy, runtime attestation/deployment
-  // inventory, and the certification receipt created for the full-path test
-  // are all append-only; left in place as test-tagged (RUN-suffixed)
-  // residue, matching the pattern used throughout this file. No
+  // The approved activation policy and runtime attestation/deployment
+  // inventory created for the full-path test are all append-only; left in
+  // place as test-tagged (RUN-suffixed) residue, matching the pattern used
+  // throughout this file. No
   // cro03c_commands/generations row exists to clean up here: the full-path
   // test's createCro03cCommand call always fails at the pre-existing
   // handoff-eligibility wall (see that test's comment) and its transaction

@@ -9,8 +9,11 @@ prior informal guidance.
 > checks for or issues a receipt — the only remaining pre-activation gates are the
 > MI-09 pilot ladder (Levels 1–3 completed) and the $50 aggregate spend cap enforced
 > per-command. Any step below that mentions "certification receipt" as a precondition
-> is stale; `cro08a_certification_receipts` and `issueCro08aCertificationReceipt()`
-> still exist in the codebase but are no longer load-bearing for activation.
+> is stale. The receipt-issuing function (`issueCro08aCertificationReceipt()`), its
+> admin routes, and its dedicated test script have all been deleted from the codebase.
+> Only the `cro08a_certification_receipts` table and the unused, nullable
+> `certification_receipt_id` column on `cro08a_schedule_definitions` remain, left in
+> place rather than dropped.
 
 ---
 
@@ -224,10 +227,9 @@ must be:
 2. Stored as versioned `mi09_pricing_artifacts` rows via `POST /api/lead-ops/pilot/pricing-artifacts`.
 3. **Stored as a composite pricing schedule snapshot** in `mi09_pricing_schedule_snapshots` before
    running the ceremony. The ceremony script computes `stableCro03RecipeHash(fullPriceSchedule)`
-   and this composite hash is what `issueCro08aCertificationReceipt()` verifies against the DB.
-   The operator must write the snapshot row (POST the composite hash + artifact_ids + expires_at)
-   before running `cro03d-run-ceremony.ts`. The certification gate will reject a hash that has no
-   matching unexpired snapshot row.
+   for logging purposes; this hash is no longer verified against the DB by a certification step
+   (that step was removed 2026-09-13), but the snapshot itself is still the source of truth for
+   the pricing values used to derive schedule-definition provider budgets.
 4. Linked to the active `cro03c_activation_policies` row before paid execution.
 
 Any attempt to run the ceremony with hardcoded dollar amounts is a configuration error.
@@ -269,7 +271,7 @@ VALUES
    NOW() + INTERVAL '7 days');
 ```
 
-The `expires_at` must be in the future at certification time (max 7 days recommended).
+The `expires_at` must be in the future when the snapshot is created (max 7 days recommended).
 
 ---
 
@@ -280,11 +282,11 @@ The `expires_at` must be in the future at certification time (max 7 days recomme
 | `cro03c_approval_receipts` | Four per-dimension approval artifacts |
 | `cro03c_runtime_attestations` | Live worker fleet attestation |
 | `cro03c_activation_policies` | Active policy pointer |
-| `cro08a_certification_receipts` | CRO-08A schedule activation gate |
+| `cro08a_certification_receipts` | Unused since 2026-09-13 — receipt ceremony removed; table left in place, not dropped |
 | `cro08a_schedule_definitions` | Immutable schedule definitions |
 | `cro08a_schedule_occurrences` | Per-window execution records |
 | `mi09_pricing_artifacts` | Operator-captured provider pricing (one row per provider) |
-| `mi09_pricing_schedule_snapshots` | Composite pricing hash verified by certification gate |
+| `mi09_pricing_schedule_snapshots` | Composite pricing hash used to derive schedule-definition provider budgets |
 | `mi09_pilot_runs` | Pilot run state |
 | `mi09_pilot_advancement_receipts` | Owner advancement approvals |
 | `mi09_pilot_reconciliation_reports` | Durable report storage |

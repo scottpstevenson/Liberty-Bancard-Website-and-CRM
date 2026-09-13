@@ -270,8 +270,7 @@ async function main() {
   // stagePlanHash, migrationHead, releaseSha, priceSchedules.
   // pricingArtifactHash is intentionally excluded from the signed scope to avoid
   // CRO03C_APPROVAL_SCOPE_MISMATCH when verifiedCro03cReceipts() recomputes
-  // the expected scope hash. The pricing hash is stored separately in the
-  // CRO-08A certification receipt (priceScheduleHash field).
+  // the expected scope hash.
   const scope = {
     policyKey:          "cro03c_live_activation",
     recipeVersion:      CRO03C_RECIPE_VERSION,
@@ -479,63 +478,13 @@ async function main() {
   }) as { policyId?: string; revision?: number; replayed?: boolean };
   console.log(`  ${policy.replayed ? "replayed" : "created"}: revision=${policy.revision} id=${policy.policyId}`);
 
-  // STEP 16: Issue CRO-08A certification receipt (MI-09)
-  // The ceremony now calls issueCro08aCertificationReceipt() with all inputs
-  // verified against authoritative DB rows inside the function.
-  console.log("\n── Issuing CRO-08A certification receipt ──");
-  let cro08aReceiptId: string | null = null;
-  try {
-    // Fetch the current outbound pause epoch from the production API.
-    const pauseState = await prodFetch(cookie, csrf, "/api/admin/pause-state") as {
-      paused: boolean; epoch: number;
-    };
-    if (!pauseState.paused) {
-      throw new Error(
-        "Global outbound is NOT paused. CRO-08A certification requires outbound to remain paused."
-      );
-    }
-
-    // Call the CRO-08A certification receipt issuance endpoint.
-    // 2026-09-13: solo-operator simplification — the prior 4-party approval-receipt
-    // requirement (approvalReceiptIds) was replaced with a single typed confirmation
-    // from the operator running this ceremony. This does NOT affect the receiptIds
-    // imported above for the separate CRO-03C activation-policy authority path.
-    const { typedConfirmation } = await prodFetch(cookie, csrf,
-      "/api/admin/cro08a/certification-receipts/typed-confirmation") as {
-      typedConfirmation: string;
-    };
-    const certResult = await prodFetch(cookie, csrf, "/api/admin/cro08a/certification-receipts", {
-      releaseSha:           targetSha,
-      migrationHead:        CRO03C_MIGRATION_HEAD,
-      providerSet:          Object.keys(PRICING),
-      priceScheduleHash:    pricingArtifactHash,
-      certifiedBy:          ISSUER_ID,
-      typedConfirmation,
-      runtimeAttestationId: attestation.attestationId,
-      outboundPauseEpoch:   pauseState.epoch,
-      issuedBy:             ISSUER_ID,
-      expiresHours:         24,
-    }) as { id?: string; receiptId?: string; error?: string };
-
-    cro08aReceiptId = certResult.id ?? certResult.receiptId ?? null;
-    if (!cro08aReceiptId) {
-      throw new Error(`CRO-08A receipt issuance failed: ${certResult.error ?? JSON.stringify(certResult)}`);
-    }
-    console.log(`  ✓ CRO-08A certification receipt issued: ${cro08aReceiptId}`);
-  } catch (cro08aErr: any) {
-    // CRO-08A receipt failure IS FATAL. Without a valid certification receipt,
-    // activateCro08aScheduleDefinition() will be blocked, which is the correct
-    // fail-closed behavior. The operator must resolve the error and re-run the
-    // ceremony. See docs/cro03d-ceremony-runbook.md for remediation steps.
-    console.error(`\n  ✗ FATAL: CRO-08A certification receipt issuance failed:`);
-    console.error(`    ${cro08aErr?.message}`);
-    console.error(`\n  The CRO-03D ceremony completed (policy + approval receipts written),`);
-    console.error(`  but CRO-08A schedule activation is BLOCKED until a valid cert receipt exists.`);
-    console.error(`  Re-run: npx tsx scripts/cro03d-run-ceremony.ts`);
-    console.error(`  Or manually issue: POST /api/admin/cro08a/certification-receipts`);
-    console.error(`  See docs/cro03d-ceremony-runbook.md Step 16 for details.`);
-    throw cro08aErr; // fatal — propagates to CLI exit code 1
-  }
+  // 2026-09-13: the CRO-08A certification-receipt step (formerly Step 16)
+  // was removed at the operator's request. Activating a CRO-08A schedule now
+  // only requires the MI-09 pilot ladder (Levels 1-3) plus the existing $50
+  // aggregate spend cap enforced per-command — see
+  // server/services/cro08a/schedule-authority.ts. This ceremony still
+  // produces the CRO-03C activation-policy artifacts above; it no longer
+  // issues a separate CRO-08A certification receipt.
 
   // Summary
   console.log("\n=== CRO-03D Ceremony Complete ===");
@@ -545,11 +494,6 @@ async function main() {
   console.log(`  Attestation ID:       ${attestation.attestationId}`);
   console.log(`  Policy:               revision=${policy.revision}, id=${policy.policyId}`);
   console.log(`  Receipts:             ${receiptIds.join(", ")}`);
-  if (cro08aReceiptId) {
-    console.log(`  CRO-08A Receipt:      ${cro08aReceiptId}`);
-  } else {
-    console.log(`  CRO-08A Receipt:      ⚠  NOT ISSUED — activate schedules manually`);
-  }
   console.log("\n  Outreach remains PAUSED. Enable from the dashboard when ready.");
 }
 

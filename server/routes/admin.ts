@@ -6643,68 +6643,10 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ── MI-09: CRO-08A Certification Receipt (hardened, single-operator) ─────
-  // Called from scripts/cro03d-run-ceremony.ts STEP 16 after the full ceremony.
-  // issueCro08aCertificationReceipt() verifies all inputs against DB rows before
-  // writing — this route is the single server-side write path for cert receipts.
-  // 2026-09-13: replaced the 4-party approval-receipt requirement with a single
-  // typed confirmation from the operator (solo-operator simplification).
-  app.post("/api/admin/cro08a/certification-receipts", requireRole("admin"), async (req, res) => {
-    try {
-      const { issueCro08aCertificationReceipt } = await import("../services/cro08a/certification-gate");
-      const {
-        releaseSha, migrationHead, providerSet, priceScheduleHash,
-        certifiedBy, typedConfirmation, runtimeAttestationId, outboundPauseEpoch,
-        issuedBy, expiresHours,
-      } = req.body as {
-        releaseSha: string; migrationHead: string; providerSet: string[];
-        priceScheduleHash: string; certifiedBy: string; typedConfirmation: string;
-        runtimeAttestationId: string; outboundPauseEpoch: number;
-        issuedBy: string; expiresHours?: number;
-      };
-      if (!releaseSha || !migrationHead || !providerSet?.length ||
-          !priceScheduleHash || !certifiedBy || !typedConfirmation ||
-          !runtimeAttestationId || outboundPauseEpoch === undefined || !issuedBy) {
-        return res.status(400).json({ error: "CRO08A_CERT_MISSING_FIELDS" });
-      }
-      const expiresAt = new Date(Date.now() + (Number(expiresHours ?? 24)) * 3600_000);
-      const result = await issueCro08aCertificationReceipt({
-        releaseSha, migrationHead, providerSet, priceScheduleHash,
-        certifiedBy, typedConfirmation, runtimeAttestationId,
-        outboundPauseEpoch: Number(outboundPauseEpoch),
-        issuedBy, expiresAt,
-      });
-      res.json({ id: result.id });
-    } catch (err: any) {
-      if (String(err?.message).startsWith("CRO08A_CERTIFICATION_DENIED:")) {
-        return res.status(403).json({ error: err.message });
-      }
-      serverError(res, err);
-    }
-  });
-
-  // GET the exact typed-confirmation phrase the operator must supply, so the
-  // UI/ceremony script never has to hardcode it independently of the server.
-  app.get("/api/admin/cro08a/certification-receipts/typed-confirmation", requireRole("admin"), async (_req, res) => {
-    const { CRO08A_CERTIFICATION_TYPED_CONFIRMATION } = await import("../services/cro08a/certification-gate");
-    res.json({ typedConfirmation: CRO08A_CERTIFICATION_TYPED_CONFIRMATION });
-  });
-
-  // GET /api/admin/cro08a/certification-receipts — list recent receipts.
-  app.get("/api/admin/cro08a/certification-receipts", requireRole("admin"), async (_req, res) => {
-    try {
-      const { db } = await import("../db");
-      const { sql } = await import("drizzle-orm");
-      const rows = (r: any) => r?.rows ?? r ?? [];
-      const receipts = rows(await db.execute(sql`
-        SELECT id, release_sha, migration_head, outbound_pause_epoch, issued_by, issued_at, expires_at, revoked_at
-        FROM cro08a_certification_receipts ORDER BY issued_at DESC LIMIT 20
-      `));
-      res.json(receipts);
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
+  // 2026-09-13: the CRO-08A certification-receipt routes (POST and GET
+  // .../typed-confirmation) were removed at the operator's request — schedule
+  // activation now only requires the MI-09 pilot ladder plus the existing $50
+  // aggregate spend cap. See server/services/cro08a/schedule-authority.ts.
 
   // GET /api/admin/cro08a/schedule-definitions — list schedule definitions.
   app.get("/api/admin/cro08a/schedule-definitions", requireRole("admin"), async (_req, res) => {
