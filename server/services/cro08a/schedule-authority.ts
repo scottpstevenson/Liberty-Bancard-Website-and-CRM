@@ -16,7 +16,7 @@
 import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
-import { assertCurrentCro08aCertification, Cro08aCertificationDeniedError } from "./certification-gate";
+import { Cro08aCertificationDeniedError } from "./certification-gate";
 import { assertCro08aSourceScope } from "./source-scope";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
@@ -142,13 +142,16 @@ export async function createCro08aScheduleDefinition(input: Cro08aScheduleDefini
 }
 
 /**
- * Flip a schedule definition's active pointer to true. Requires a durable,
- * current-release-matching CRO-03D certification receipt (Correction 4) —
- * this throws Cro08aCertificationDeniedError until that receipt exists, so
- * no production schedule can ever go live from this code path alone.
- * Deactivates any prior active definition for the same logical key in the
- * same transaction (CAS: partial unique index enforces at most one active
- * row per logical key even under a race).
+ * Flip a schedule definition's active pointer to true. Gated only by the
+ * MI-09 pilot ladder (assertPilotLadderCompletion) and the aggregate $50
+ * spend cap enforced per-command in live-execution.ts — the separate
+ * certification-receipt ceremony (typed confirmation + pricing snapshot +
+ * runtime attestation) was removed at the operator's request; a solo
+ * operator repeating that ceremony on every release added no additional
+ * protection beyond the pilot ladder and the spend cap. Deactivates any
+ * prior active definition for the same logical key in the same transaction
+ * (CAS: partial unique index enforces at most one active row per logical
+ * key even under a race).
  */
 /**
  * Verify that all three MI-09 pilot levels have completed with valid advancement
@@ -238,12 +241,10 @@ export async function activateCro08aScheduleDefinition(input: {
   activatedBy: string;
   reason: string;
   expiresAt?: Date;
-}): Promise<{ activated: true; certificationReceiptId: string }> {
+}): Promise<{ activated: true }> {
   // Require all three pilot levels to be complete before activating any production schedule.
   // This enforces the MI-09 pilot ladder: pilot 1 → pilot 2 → pilot 3 → activation.
-  // The certification receipt check below is an independent gate for the current-release cert.
   await assertPilotLadderCompletion();
-  const { receiptId } = await assertCurrentCro08aCertification();
   await db.transaction(async (tx) => {
     const def = rows(await tx.execute(sql`
       SELECT id, logical_key FROM cro08a_schedule_definitions WHERE id=${input.definitionId}::uuid FOR UPDATE
@@ -258,11 +259,11 @@ export async function activateCro08aScheduleDefinition(input: {
          SET active=true, active_version=active_version+1, activation_epoch=EXTRACT(EPOCH FROM NOW())::bigint,
              activated_by=${input.activatedBy}, activation_reason=${input.reason},
              activation_expires_at=${input.expiresAt ? input.expiresAt.toISOString() : null}::timestamptz,
-             certification_receipt_id=${receiptId}::uuid, updated_at=NOW()
+             updated_at=NOW()
        WHERE id=${input.definitionId}::uuid
     `);
   });
-  return { activated: true, certificationReceiptId: receiptId };
+  return { activated: true };
 }
 
 export async function deactivateCro08aScheduleDefinition(definitionId: string): Promise<void> {

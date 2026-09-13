@@ -124,7 +124,13 @@ async function main() {
   });
 
   // --- Correction 4: certification gate -----------------------------------
-  await ok("schedule activation is denied without a matching CRO-03D certification receipt", async () => {
+  // 2026-09-13: the certification-receipt gate was removed at the operator's
+  // request. The only remaining pre-activation gate is the MI-09 pilot
+  // ladder (assertPilotLadderCompletion), which this definition has not
+  // satisfied yet at this point in the test, so activation must still be
+  // denied — just for a different reason (pilot_ladder_not_complete instead
+  // of a missing certification receipt), via the same error class.
+  await ok("schedule activation is denied before the MI-09 pilot ladder is complete", async () => {
     await assert.rejects(
       activateCro08aScheduleDefinition({ definitionId, activatedBy: RUN, reason: "test" }),
       Cro08aCertificationDeniedError,
@@ -693,7 +699,13 @@ async function main() {
     fullPathDefinitionHash = def.definitionHash;
     const activation = await activateCro08aScheduleDefinition({ definitionId: fullPathDefinitionId, activatedBy: RUN, reason: "cro08a full-path test" });
     assert.equal(activation.activated, true);
-    assert.equal(activation.certificationReceiptId, receipt.id);
+    // 2026-09-13: activation no longer requires or returns a certification
+    // receipt (removed at the operator's request) — the pilot ladder check
+    // above and the aggregate spend cap enforced in reserveCro03cProviderOperation
+    // are now the only activation gates. `receipt` above is kept only to prove
+    // issueCro08aCertificationReceipt() itself still works if anyone chooses
+    // to record one for their own bookkeeping; it is no longer load-bearing.
+    void receipt;
   });
 
   await ok("createCro03cCommand's occurrence validation and server-derived caps clear every gate for a fully valid request", async () => {

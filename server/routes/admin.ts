@@ -6734,7 +6734,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // POST /api/admin/cro08a/schedule-definitions/:id/activate — activate (requires cert receipt).
+  // POST /api/admin/cro08a/schedule-definitions/:id/activate — activate (requires pilot ladder + spend cap only; no certification receipt).
   app.post("/api/admin/cro08a/schedule-definitions/:id/activate", requireRole("admin"), async (req, res) => {
     try {
       const { activateCro08aScheduleDefinition } = await import("../services/cro08a/schedule-authority");

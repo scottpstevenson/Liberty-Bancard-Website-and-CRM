@@ -944,7 +944,11 @@ export async function createCro03cCommand(input: {
       if (occurrence.enumeration_checkpoint !== "committed") throw new Error("CRO08A_OCCURRENCE_ENUMERATION_NOT_COMMITTED");
       if (occurrence.cro03c_command_id) throw new Error("CRO08A_OCCURRENCE_ALREADY_BOUND_TO_COMMAND");
       if (!occurrence.active) throw new Error("CRO08A_SCHEDULE_DEFINITION_NOT_ACTIVE");
-      if (!occurrence.certification_receipt_id) throw new Error("CRO08A_SCHEDULE_DEFINITION_UNCERTIFIED");
+      // Certification-receipt requirement removed 2026-09-13 at the operator's
+      // request — activateCro08aScheduleDefinition() no longer issues one, so
+      // this can never be satisfied. The pilot ladder (checked at activation)
+      // and the aggregate spend cap (checked below/at reservation time) are
+      // the remaining gates for continuous_occurrence command creation.
       const budgets = (occurrence.budgets ?? {}) as Record<string, { maxUnitsPerOccurrence?: number }>;
       const providerBudget = budgets[input.provider!];
       if (!providerBudget || !Number.isInteger(providerBudget.maxUnitsPerOccurrence) || providerBudget.maxUnitsPerOccurrence! < 0) {
