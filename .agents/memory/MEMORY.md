@@ -157,3 +157,4 @@
 - [Drizzle array parameter bug](drizzle-array-param-bug.md) — `ANY(${arr}::type[])` silently mis-binds with drizzle-orm's node-postgres driver; build `ARRAY[...]::type[]` by hand instead.
 - [MI-09/CRO-08A schedule convergence](mi09-cro08a-schedule-convergence.md) — pool authority + schedule definitions reach prod via seed-convergence (read-only DB); cursorSemantics/sourceRecipePolicyVersions are currently inert.
 - [Task #1955 BUILD verification findings](task-1955-build-findings.md) — two "confirmed" audit claims (a missing CHECK value, a 184-failure count) were already-fixed/stale when checked live; always re-verify before writing a fix migration or patch.
+- [contacts/businesses NOT NULL convergence](contacts-notnull-convergence.md) — decision rule for schema.ts-vs-live nullability drift: check live NULL count, tighten DB to match code's notNull() when safe; prod DDL flows through Publish diffing schema.ts, not dev's migration replay.

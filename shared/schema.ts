@@ -153,6 +153,10 @@ export const contacts = pgTable("contacts", {
   emailTokenHash: text("email_token_hash"),
   emailValidationUpdatedAt: timestamp("email_validation_updated_at"),
   bouncedAt: timestamp("bounced_at"),
+  // Set when an outbound send bounces for this contact; nullable — most
+  // contacts have never bounced. Live DB column predates this typed field
+  // (previously only reachable via raw SQL).
+  contactBouncedAt: timestamp("contact_bounced_at"),
   isDecisionMaker: boolean("is_decision_maker").notNull().default(false),
   decisionMakerConfidence: integer("decision_maker_confidence").notNull().default(0),
   managementType: text("management_type").notNull().default("unknown"),
@@ -4696,7 +4700,7 @@ export const businesses = pgTable("businesses", {
   doNotVisit: boolean("do_not_visit").notNull().default(false),
   // MI-05: free enrichment pipeline columns (in DB via migration 0250).
   freeEnrichmentStatus: text("free_enrichment_status"),
-  freeEnrichmentAttemptCount: integer("free_enrichment_attempt_count").default(0),
+  freeEnrichmentAttemptCount: integer("free_enrichment_attempt_count").notNull().default(0),
   freeEnrichmentLastAttemptAt: timestamp("free_enrichment_last_attempt_at"),
   freeEnrichmentCompletedAt: timestamp("free_enrichment_completed_at"),
   freeEnrichmentLastErrorCode: text("free_enrichment_last_error_code"),
