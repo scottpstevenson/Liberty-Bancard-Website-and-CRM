@@ -636,6 +636,11 @@ export const cro03SourceSubjects = pgTable("cro03_source_subjects", {
   tombstonedAt: timestamp("tombstoned_at", { withTimezone: true }),
 }, (table) => [
   uniqueIndex("cro03_source_subject_unique").on(table.subjectType, table.sourceSystem, table.subjectKey),
+  // Matches migration 0250: extends the original 0187 list with 'business'.
+  // Declared here (not just in the migration file) so Publish's schema diff
+  // can actually apply it to production — Publish diffs shared/schema.ts
+  // against live production, it does not execute migrations/*.sql directly.
+  check("cro03_source_subject_type_chk", sql`subject_type IN ('contact','prospect','sunbiz_entity','sdr_merchant','provider_csv_row','public_web','lead_discovery_result','master_lead','business')`),
 ]);
 
 export const cro03SourceObservations = pgTable("cro03_source_observations", {
@@ -4719,6 +4724,11 @@ export const businesses = pgTable("businesses", {
   index("businesses_website_domain_idx").on(table.websiteDomain),
   index("businesses_main_phone_idx").on(table.mainPhone),
   index("businesses_google_place_id_idx").on(table.googlePlaceId),
+  // Matches migration 0240. Declared here (not just in the migration file)
+  // so Publish's schema diff can actually apply it to production — Publish
+  // diffs shared/schema.ts against live production, it does not execute
+  // migrations/*.sql directly.
+  check("businesses_record_class_check", sql`record_class IN ('production', 'test', 'demo', 'synthetic', 'unknown', 'canonical')`),
 ]);
 
 export const insertBusinessSchema = createInsertSchema(businesses).omit({
