@@ -3576,6 +3576,7 @@ async function runFreeContactEnrichmentForMerchant(merchantId: number): Promise<
 async function runFreeBusinessEnrichmentForBusiness(businessId: number): Promise<void> {
   const { db: _db } = await import("../db");
   const { sql: _sql } = await import("drizzle-orm");
+  const { businessLacksDbprLineageSql } = await import("./dbpr");
 
   // Load business row
   const bizRows = ((await _db.execute(_sql`
@@ -3618,6 +3619,7 @@ async function runFreeBusinessEnrichmentForBusiness(businessId: number): Promise
     WHERE id = ${businessId}
       AND website_domain IS NOT NULL
       AND record_class = 'canonical'
+      AND ${businessLacksDbprLineageSql(_sql`id`)}
       AND (
         free_enrichment_status IS NULL
         OR (free_enrichment_status = 'failed'

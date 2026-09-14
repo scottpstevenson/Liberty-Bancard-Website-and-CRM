@@ -22,6 +22,7 @@ import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { getPauseState } from "./outbound-pause-authority";
+import { businessHasDbprLineageSql, businessLacksDbprLineageSql } from "./dbpr";
 import {
   buildCro03PriceScheduleFromArtifacts,
   stableCro03RecipeHash,
@@ -1061,7 +1062,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
       AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
-      AND EXISTS (SELECT 1 FROM canonical_source_links dbpr WHERE dbpr.business_id = b.id AND dbpr.source_system = 'dbpr_hr')
+      AND ${businessHasDbprLineageSql(sql`b.id`)}
   `))[0];
 
   const excludedTest = rows(await db.execute(sql`
@@ -1132,7 +1133,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
       AND b.record_class = 'canonical'
       AND (b.free_enrichment_status IS DISTINCT FROM 'suppressed')
       AND (b.email_discovery_status IS DISTINCT FROM 'suppressed')
-      AND NOT EXISTS (SELECT 1 FROM canonical_source_links dbpr WHERE dbpr.business_id = b.id AND dbpr.source_system = 'dbpr_hr')
+      AND ${businessLacksDbprLineageSql(sql`b.id`)}
       AND NOT EXISTS (
         SELECT 1 FROM contact_business_link_decisions cbd
         WHERE cbd.business_id = b.id AND cbd.superseded_at IS NULL AND cbd.decision IN ('verified','conflicted')

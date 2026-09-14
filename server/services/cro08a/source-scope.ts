@@ -11,7 +11,12 @@
  * scheduler worker, the processor worker, and the schedule-authority
  * creation-time validator without creating an import cycle or a hidden DB
  * dependency in a purely-computational check.
+ *
+ * `isDbprSourceSystem` re-exports the canonical predicate from
+ * `server/services/dbpr.ts` (also pure/no-DB-import) so CRO-08A and every
+ * other DBPR enforcement boundary share exactly one definition.
  */
+import { isDbprSourceSystem as canonicalIsDbprSourceSystem } from "../dbpr";
 
 /**
  * The only source systems CRO-08A's continuous factory is authorized to
@@ -35,7 +40,7 @@ const ALLOWED_SET = new Set<string>(CRO08A_ALLOWED_SOURCE_SYSTEMS);
 
 /** True if `sourceSystem` resolves to DBPR lineage by name (direct or aliased). */
 export function isDbprSourceSystem(sourceSystem: string): boolean {
-  return /dbpr/i.test(sourceSystem);
+  return canonicalIsDbprSourceSystem(sourceSystem);
 }
 
 /**

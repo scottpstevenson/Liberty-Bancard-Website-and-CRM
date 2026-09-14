@@ -25,6 +25,7 @@ import { db } from "../../db";
 import { sql } from "drizzle-orm";
 import { sanitizeAuditPayload } from "../audit-sanitizer";
 import { recordContactIdentityObservations } from "../contact-identity";
+import { businessHasDbprLineageSql } from "../dbpr";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,7 +45,8 @@ export type PromotionBlockerCode =
   | "EMAIL_NOT_VALID"
   | "OPEN_CANONICAL_CONFLICT"
   | "DUPLICATE_CONTACT"
-  | "ALREADY_PROMOTED";
+  | "ALREADY_PROMOTED"
+  | "DBPR_LINEAGE_EXCLUDED";
 
 export interface PromotionPreviewRow {
   masterLeadId: string;
@@ -131,6 +133,15 @@ export async function checkPromotionPreconditions(
 
   if (!lead.canonical_business_id) {
     return { blocker: "CANONICAL_BUSINESS_MISSING", message: "canonical_business_id is NULL" };
+  }
+
+  // DBPR-family lineage is permanently excluded from promotion/outreach —
+  // ingestion/storage/materialization stay allowed, this is the promotion boundary.
+  const dbprLineage = rows<any>(await db.execute(sql`
+    SELECT ${businessHasDbprLineageSql(sql`${Number(lead.canonical_business_id)}`)} AS has_dbpr
+  `));
+  if (dbprLineage[0]?.has_dbpr) {
+    return { blocker: "DBPR_LINEAGE_EXCLUDED", message: "Canonical business has DBPR-family source lineage — permanently excluded from promotion" };
   }
 
   // Re-verify email_discovery_status from businesses (not from master_leads)
@@ -276,6 +287,16 @@ export async function promoteMasterLead(options: PromoteOptions): Promise<Promot
       const canonicalBusinessId = Number(lockedRow.canonical_business_id);
       if (!canonicalBusinessId) {
         throw Object.assign(new Error("canonical_business_id is NULL"), { code: "CANONICAL_BUSINESS_MISSING" });
+      }
+
+      const dbprLineageTx = rows<any>(await tx.execute(sql`
+        SELECT ${businessHasDbprLineageSql(sql`${canonicalBusinessId}`)} AS has_dbpr
+      `));
+      if (dbprLineageTx[0]?.has_dbpr) {
+        throw Object.assign(
+          new Error("Canonical business has DBPR-family source lineage — permanently excluded from promotion"),
+          { code: "DBPR_LINEAGE_EXCLUDED" },
+        );
       }
 
       const bizResult = rows<any>(await tx.execute(sql`
