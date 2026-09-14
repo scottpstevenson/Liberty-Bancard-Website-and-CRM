@@ -1,0 +1,12 @@
+---
+name: Sunbiz bootstrap claim-based idempotency (task #1956, Step 2)
+description: How the Sunbiz→canonical-business bootstrap gets exactly-once materialization, plus two gotchas hit while building/testing it.
+---
+
+`server/services/sunbiz-bootstrap.ts` materializes `businesses` rows from hot/warm `sunbiz_entities` through a bounded batch. Idempotency is a durable claim row in `sunbiz_bootstrap_claims`, unique on `filing_number`, inserted via `INSERT ... ON CONFLICT (filing_number) DO NOTHING` BEFORE calling `organization-resolver.ts`'s `resolveOrganization()`. A retried/resumed batch that re-selects the same entity gets zero rows back from the claim insert and skips — this works even when name/domain/phone evidence would NOT have caught the duplicate on its own (organization-resolver's own dedup is a secondary defense, not the primary one here).
+
+A companion `peekOrganizationResolution()` was added to `organization-resolver.ts` — a lock-free, write-free version of the same candidate-matching read used by `resolveOrganization()` — so a dry-run preview's predicted create-count is guaranteed to match the real run's insert count on an unchanged corpus (this is required by the task's test bar). It is a genuine peek: a concurrent writer between preview and run can turn a predicted `would_create` into an actual `matched`, but never the reverse.
+
+**Gotcha 1 — `canonical_source_links.registry_id` has a hard FK to `source_registry_adapters`.** That table only has rows for DBPR/county license registries (dbpr-hr, dbpr-abt, dbpr-cos, dbpr-bar, mdade-lbt, etc.) — Sunbiz has no adapter row there. Writing the filing number (or anything) into `registry_id` for a `source_system='sunbiz'` link throws a foreign-key violation; it must stay `NULL` for sources without a registry adapter.
+
+**Gotcha 2 — `ORDER BY id ASC LIMIT n` candidate-selection queries never reach freshly-inserted fixture rows in a table with a huge existing corpus** (sunbiz_entities has ~1.9M rows, ~190K hot/warm). New rows get the highest ids, so they always sort last and are invisible at any small LIMIT. Any bounded-batch selector over a huge table needs either an optional narrowing filter (used here: `filingNumberLike`) for targeted preview/testing, or the test must seed data and consume the whole corpus, which is far too slow. The same LIMIT/ORDER BY design also needs a partial index (`WHERE score IN ('hot','warm') AND filing_number IS NOT NULL`) or the anti-join against the huge table times out (~9s+ query without it).

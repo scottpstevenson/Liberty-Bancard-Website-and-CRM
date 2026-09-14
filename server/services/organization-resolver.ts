@@ -7,6 +7,11 @@ export type OrganizationResolution =
   | { kind: "matched"; business: typeof businesses.$inferSelect }
   | { kind: "deferred"; reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE" | "AMBIGUOUS_ORGANIZATION_MATCH"; candidateIds: number[] };
 
+export type OrganizationPeekResult =
+  | { kind: "would_create" }
+  | { kind: "matched"; business: typeof businesses.$inferSelect }
+  | { kind: "deferred"; reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE" | "AMBIGUOUS_ORGANIZATION_MATCH"; candidateIds: number[] };
+
 function normal(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized || null;
@@ -101,4 +106,65 @@ export async function resolveOrganization(input: {
     }).returning();
     return { kind: "created", business };
   });
+}
+
+/**
+ * Read-only peek: reports what resolveOrganization() would decide for this
+ * input WITHOUT taking the advisory lock or writing anything. Used by preview
+ * flows (e.g. the Sunbiz bootstrap dry-run) that must report an exact count
+ * of businesses that would be newly materialized before any side effect runs.
+ *
+ * Because no lock is held, a peek result can theoretically go stale before the
+ * real resolveOrganization() call runs (a concurrent writer could insert a
+ * matching business in between). That race only ever produces an extra
+ * "matched" instead of a missed duplicate — resolveOrganization's own
+ * transactional lock + re-read is still the sole source of truth for what
+ * actually gets written.
+ */
+export async function peekOrganizationResolution(input: {
+  canonicalName: string;
+  websiteDomain?: string | null;
+  googlePlaceId?: string | null;
+  mainPhone?: string | null;
+  city?: string | null;
+  state?: string | null;
+}): Promise<OrganizationPeekResult> {
+  const domain = normal(input.websiteDomain);
+  const placeId = input.googlePlaceId?.trim() || null;
+  const phone = input.mainPhone?.replace(/\D/g, "") || null;
+  const name = normalizedName(input.canonicalName);
+  const city = normal(input.city);
+  const state = normal(input.state);
+
+  if (!placeId && !domain && !phone && !(city && state && name)) {
+    return { kind: "deferred", reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE", candidateIds: [] };
+  }
+
+  const candidateRows = await db.execute(sql`
+    SELECT *
+    FROM businesses
+    WHERE (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
+       OR (${domain}::text IS NOT NULL AND lower(website_domain) = ${domain}::text)
+       OR (${phone}::text IS NOT NULL AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${phone}::text)
+       OR (${placeId}::text IS NULL AND ${domain}::text IS NULL AND ${phone}::text IS NULL
+           AND normalized_name = ${name} AND lower(coalesce(city, '')) = ${city ?? ""}
+           AND lower(coalesce(state, '')) = ${state ?? ""})
+  `);
+  const candidates = ((candidateRows as any).rows ?? []) as Array<typeof businesses.$inferSelect>;
+
+  if (candidates.length === 1) {
+    const candidate = candidates[0];
+    const conflicts =
+      (placeId && candidate.googlePlaceId && candidate.googlePlaceId !== placeId) ||
+      (domain && candidate.websiteDomain && normal(candidate.websiteDomain) !== domain) ||
+      (phone && candidate.mainPhone && candidate.mainPhone.replace(/\D/g, "") !== phone);
+    if (conflicts) {
+      return { kind: "deferred", reasonCode: "AMBIGUOUS_ORGANIZATION_MATCH", candidateIds: [candidate.id] };
+    }
+    return { kind: "matched", business: candidate };
+  }
+  if (candidates.length > 1) {
+    return { kind: "deferred", reasonCode: "AMBIGUOUS_ORGANIZATION_MATCH", candidateIds: candidates.map((row) => row.id) };
+  }
+  return { kind: "would_create" };
 }

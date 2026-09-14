@@ -4878,6 +4878,30 @@ export const canonicalSourceLinks = pgTable("canonical_source_links", {
 export type CanonicalSourceLink = typeof canonicalSourceLinks.$inferSelect;
 export type InsertCanonicalSourceLink = typeof canonicalSourceLinks.$inferInsert;
 
+// ── #1956 Step 2: Sunbiz→canonical-business bootstrap idempotency claims ──────
+// A durable claim keyed on the stable Sunbiz source identity (filing_number).
+// Exactly one claim row can ever exist per filing_number (DB-enforced unique
+// index), so retried/resumed bootstrap batches can never double-materialize a
+// business for the same Sunbiz entity even if name/domain/phone evidence would
+// have missed the collision. The claim is inserted BEFORE any organization
+// resolution/creation is attempted, and updated afterward with the outcome.
+export const sunbizBootstrapClaims = pgTable("sunbiz_bootstrap_claims", {
+  id: serial("id").primaryKey(),
+  filingNumber: text("filing_number").notNull(),
+  sunbizEntityId: integer("sunbiz_entity_id").references(() => sunbizEntities.id),
+  status: text("status").notNull().default("claimed"), // claimed | created | matched_existing | deferred_collision | failed
+  businessId: integer("business_id").references(() => businesses.id),
+  deferredReasonCode: text("deferred_reason_code"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("sunbiz_bootstrap_claims_filing_number_unique").on(table.filingNumber),
+  index("sunbiz_bootstrap_claims_status_idx").on(table.status),
+]);
+
+export type SunbizBootstrapClaim = typeof sunbizBootstrapClaims.$inferSelect;
+export type InsertSunbizBootstrapClaim = typeof sunbizBootstrapClaims.$inferInsert;
+
 // ── MI-03: canonical_conflict_evidence ────────────────────────────────────────
 // Append-only conflict log written by projectBusinessOnly() when resolveOrganization()
 // returns AMBIGUOUS_ORGANIZATION_MATCH. Admin resolution UI belongs to MI-07.
