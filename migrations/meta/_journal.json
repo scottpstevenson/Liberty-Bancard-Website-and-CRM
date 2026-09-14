@@ -1890,6 +1890,13 @@
       "when": 1800000007400,
       "tag": "0265_contacts_notnull_convergence",
       "breakpoints": false
+    },
+    {
+      "idx": 270,
+      "version": "7",
+      "when": 1800000007500,
+      "tag": "0266_repair_record_class_subject_type_constraints",
+      "breakpoints": false
     }
   ]
 }

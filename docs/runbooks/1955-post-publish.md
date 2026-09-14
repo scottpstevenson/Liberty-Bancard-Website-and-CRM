@@ -9,7 +9,7 @@ This runbook only ever activates the isolated `db-backup` worker lane and applie
 - Clear `global_paused` or touch any GHL sync state.
 - Enable `system-audit`, `health-monitor`, `operations`, `critical-commands`, `ghl-integration`, or `outreach`.
 - Retry or replay any of the GHL sync backlog.
-- Run any migration — the two originally-targeted constraints (`businesses_record_class_check` including `'canonical'`, `cro03_source_subjects` subject_type check including `'business'`) were confirmed already live in production during BUILD (migrations 0240/0250); this runbook has no migration step for them.
+- Hand-write or manually execute any SQL against production. The two originally-targeted constraints (`businesses_record_class_check` missing `'canonical'`, `cro03_source_subjects` subject_type check missing `'business'`) are genuinely still missing from production as of this writing — an earlier BUILD note wrongly claimed they were already fixed based on a `psql` check that connected to the **development** database, not production. Migration `0266_repair_record_class_subject_type_constraints.sql` (new, append-only, state-aware, does not edit 0240/0250) exists to close this gap and must reach production through the normal Publish/migration deploy path — **never** via a manually run SQL statement.
 
 ## Sequence
 
@@ -27,12 +27,14 @@ This runbook only ever activates the isolated `db-backup` worker lane and applie
    `RELEASE_SHA=<sha> npx tsx scripts/check-release-identity.ts`
    against the same commit, from a checkout with the real `origin` remote, to confirm it resolves in GitHub history.
 
-5. **Verify whether the standard Publish/migration mechanism applied any migration.**
-   Since BUILD confirmed no new migration exists for the two originally-targeted constraints, this step is a no-op confirmation only: run
+5. **Verify that the standard Publish/migration mechanism applied migration 0266.**
+   Query the actual production constraint definitions (via the platform's production-scoped query path — **not** ad-hoc `psql`/`DATABASE_URL`, which resolves to development on this project):
+   `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conname IN ('businesses_record_class_check', 'cro03_source_subject_type_chk');`
+   Confirm the first result's definition includes `'canonical'` and the second's includes `'business'`. Then run
    `npx tsx scripts/check-bounded-schema-drift.ts`
    against the production database connection to confirm `contacts`, `cro03_source_subjects`, `deals`, `businesses` still match `shared/schema.ts` at the level this task cares about. Expect the pre-existing unrelated findings noted in the task file (contacts nullability, `contact_bounced_at`, `businesses.free_enrichment_attempt_count`) to still be present — those are known, out of scope, and not this runbook's concern.
 
-6. **Stop if schema state does not match.** Do not improvise direct SQL against production. Escalate to a human with the exact diff output from step 5.
+6. **Stop if either constraint is still missing its value, or if any other schema state does not match.** Do not hand-write or manually execute SQL against production to force it — that defeats the point of routing schema change through Publish. If the migration did not apply, escalate to a human with the exact query output from step 5 and treat it as a deploy-mechanism problem to diagnose, not something to patch around with direct DDL.
 
 7. **Run the production record-class preview.**
    `npx tsx scripts/record-class-preview.ts --json > /tmp/deals-preview.json`
