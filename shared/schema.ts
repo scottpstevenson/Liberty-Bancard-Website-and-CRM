@@ -7822,7 +7822,7 @@ export const outboundPauseControl = pgTable("outbound_pause_control", {
   id:              serial("id").primaryKey(),
   state:           text("state").notNull(),       // 'paused' | 'activating' | 'unpaused'
   reason:          text("reason"),
-  epoch:           bigint("epoch", { mode: "bigint" }).notNull().default(1n),
+  epoch:           bigint("epoch", { mode: "bigint" }).notNull().default(sql`1`),
   actor:           text("actor"),
   idempotencyKey:  text("idempotency_key"),
   committedAt:     timestamp("committed_at", { withTimezone: true }).defaultNow(),
