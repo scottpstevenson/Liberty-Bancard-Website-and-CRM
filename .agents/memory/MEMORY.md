@@ -21,8 +21,7 @@
 - [Redis BullMQ smoke-test pattern](redis-bullmq-smoketest.md) — probe Redis with ioredis ping before handing ConnectionOptions to BullMQ; WRONGPASS loops forever otherwise; setInterval fallback only triggers on throw.
 - [BullMQ commandTimeout removal](bullmq-commandtimeout-removal.md) — commandTimeout MUST be absent; use singleton IORedis (1+N connections); commandTimeout + maxRetriesPerRequest:null → "Command timed out" storm when Upstash cap exceeded.
 - [GHL token ops](ghl-token-ops.md) — GHL Private Integration Token 401 on all endpoints when expired; authTest in ActivationPanel shows N/A; user must regenerate in GHL Settings → Private Integrations.
-- [GHL circuit state machine](ghl-circuit-state-machine.md) — persisted closed/open/half-open enum; classifyGhlSyncError() is the only counting path; never reset state at tick start.
-- [GHL circuit breaker false-trip](ghl-circuit-false-trip.md) — deals sync returns "No GHL contact linked" (data skip, not API failure); was counted as consecutiveGhlFailures, tripping circuit every tick; fix: treat those 3 error strings as skips, not failures.
+- [GHL circuit breaker](ghl-circuit-state-machine.md) — persisted closed/open/half-open enum via classifyGhlSyncError(); false-trip fix treats "No GHL contact linked" (data skip) as a skip not a failure (see ghl-circuit-false-trip.md).
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first; both 0020 and 0023 had the same multi_location_fk name.
 - [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — when a page section has multiple sibling Cards, the ternary else-branch fragment must close BEFORE the first Card's </CardContent>, not inside a later sibling Card.
 - [Master audit + 12-wave plan](master-audit-2026.md) — Full compliance/conversion audit completed June 25 2026; 6 kill lines found; 12 build wave tasks #571–582; audit report at docs/audit-report-2026-06-25.md.
@@ -157,3 +156,4 @@
 - [Free-enrichment queue UNION ALL indexing](free-enrichment-queue-union-all-indexing.md) — split an OR eligibility predicate into UNION ALL branches so each gets its own partial index; boundary-test and bulk-cleanup gotchas.
 - [Drizzle array parameter bug](drizzle-array-param-bug.md) — `ANY(${arr}::type[])` silently mis-binds with drizzle-orm's node-postgres driver; build `ARRAY[...]::type[]` by hand instead.
 - [MI-09/CRO-08A schedule convergence](mi09-cro08a-schedule-convergence.md) — pool authority + schedule definitions reach prod via seed-convergence (read-only DB); cursorSemantics/sourceRecipePolicyVersions are currently inert.
+- [Task #1955 BUILD verification findings](task-1955-build-findings.md) — two "confirmed" audit claims (a missing CHECK value, a 184-failure count) were already-fixed/stale when checked live; always re-verify before writing a fix migration or patch.

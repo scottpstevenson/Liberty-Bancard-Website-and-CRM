@@ -22,8 +22,23 @@
  *                         abandoned-statement, proposal-followup
  *   operations          — sla-checks, digests, mid-ingestion, onboarding-reminder,
  *                         activation-monitor, merchant-success, executive-snapshot,
- *                         health-monitor, pipeline-silence-check, partner-monthly-digest
- *   heavy-maintenance   — db-backup, system-audit
+ *                         pipeline-silence-check, partner-monthly-digest
+ *   health-monitor      — health-monitor (split out from `operations`: this job only
+ *                         computes internal health signals, but ALSO sends email/Slack
+ *                         alerts on critical status — kept isolated so it can be
+ *                         reasoned about and approved separately from the other 9
+ *                         `operations` jobs, not because it is side-effect-free)
+ *   db-backup           — db-backup (split out from `heavy-maintenance`: no external
+ *                         side effects beyond writing/uploading a backup artifact)
+ *   system-audit        — system-audit (split out from `heavy-maintenance`: sends a
+ *                         Slack narrative on every run — a real external side effect)
+ *
+ * `heavy-maintenance` and the old 10-job `operations` group names no longer exist.
+ * This is a deliberate breaking rename (Task #1955): the prior groupings let an
+ * operator turn on `db-backup` only by also turning on `system-audit` (Slack), or
+ * turn on `health-monitor`'s internal computation only by also turning on 9 other
+ * jobs that send email/Slack/reports. No known selective-profile configuration
+ * (dev or prod) currently references the old names, so this rename is safe.
  *
  * Unknown group names are logged and ignored (fail-closed on ALL invalid).
  * Consumer enablement, recurring scheduling, and send authority are independent.
@@ -73,7 +88,12 @@ export const WORKER_CAPABILITY_GROUPS = {
     "abandoned-statement",
     "proposal-followup",
   ],
-  /** Operational health and reporting workers */
+  /**
+   * Operational health and reporting workers, EXCLUDING health-monitor.
+   * Every job here sends email, Slack, or a report to a human — none are
+   * internal-computation-only. `health-monitor` is deliberately isolated
+   * into its own group below so it can be evaluated independently.
+   */
   "operations": [
     "sla-checks",
     "digests",
@@ -82,13 +102,32 @@ export const WORKER_CAPABILITY_GROUPS = {
     "activation-monitor",
     "merchant-success",
     "executive-snapshot",
-    "health-monitor",
     "pipeline-silence-check",
     "partner-monthly-digest",
   ],
-  /** Heavy maintenance jobs: DB backup, system audit */
-  "heavy-maintenance": [
+  /**
+   * Isolated from `operations` (Task #1955): computes internal health
+   * signals AND sends email/Slack alerts on critical status. Kept separate
+   * so an operator can reason about and approve it on its own, not lumped
+   * in with the other 9 `operations` jobs.
+   */
+  "health-monitor": [
+    "health-monitor",
+  ],
+  /**
+   * Isolated from the old `heavy-maintenance` group (Task #1955): writes/
+   * uploads a database backup artifact. No external notification side
+   * effect of its own.
+   */
+  "db-backup": [
     "db-backup",
+  ],
+  /**
+   * Isolated from the old `heavy-maintenance` group (Task #1955): runs the
+   * weekly subsystem probe and posts a generated narrative to Slack — a
+   * real external side effect, kept separate from `db-backup`.
+   */
+  "system-audit": [
     "system-audit",
   ],
   /**

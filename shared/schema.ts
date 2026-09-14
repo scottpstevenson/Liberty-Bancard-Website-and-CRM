@@ -623,6 +623,13 @@ export const cro03SourceSubjects = pgTable("cro03_source_subjects", {
   subjectKey: text("subject_key").notNull(),
   sourceSystem: text("source_system").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // NOTE: this column is already live in production (added outside a tracked
+  // Drizzle migration) and is actively read/written via raw SQL in
+  // source-registry/import-runner.ts, routes/source-registry.ts, and
+  // routes/lead-ops.ts for soft-delete/reclaim of source subjects. It must
+  // never be dropped. This entry only adds the missing typed representation;
+  // it does not change the live column.
+  tombstonedAt: timestamp("tombstoned_at", { withTimezone: true }),
 }, (table) => [
   uniqueIndex("cro03_source_subject_unique").on(table.subjectType, table.sourceSystem, table.subjectKey),
 ]);

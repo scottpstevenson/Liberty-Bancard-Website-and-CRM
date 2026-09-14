@@ -46,8 +46,12 @@ full                         — all 29 queues
 | `provider-live` | cro03c-live |
 | `email-validation` | zerobounce-batch-validate |
 | `outreach` | sequences, enrollment-recovery, winback-outreach, abandoned-statement, proposal-followup |
-| `operations` | sla-checks, digests, mid-ingestion, onboarding-reminder, activation-monitor, merchant-success, executive-snapshot, health-monitor, pipeline-silence-check, partner-monthly-digest |
-| `heavy-maintenance` | db-backup, system-audit |
+| `operations` | sla-checks, digests, mid-ingestion, onboarding-reminder, activation-monitor, merchant-success, executive-snapshot, pipeline-silence-check, partner-monthly-digest |
+| `health-monitor` | health-monitor (isolated from `operations` — Task #1955: computes internal health signals but also sends email/Slack alerts) |
+| `db-backup` | db-backup (isolated from the old `heavy-maintenance` group — Task #1955: no external notification side effect) |
+| `system-audit` | system-audit (isolated from the old `heavy-maintenance` group — Task #1955: posts a Slack narrative every run) |
+
+> **Task #1955 rename (2026-09-14):** `heavy-maintenance` and the prior 10-job `operations` group no longer exist. They were split so `db-backup` could be selected without `system-audit` (Slack), and `health-monitor` without the other 9 `operations` jobs (which all send email/Slack/reports). No known selective-profile configuration referenced the old names.
 
 ### Manual canary example (enrichment only)
 
