@@ -228,6 +228,20 @@ export async function emergencyStopPaidProviders(input: {
        RETURNING id
     `));
 
+    // Corrective item 8: an emergency stop must also revoke the recurring
+    // paid-budget authorization (not just deactivate schedules), so a future
+    // re-activation can never silently ride on a stale operator confirmation
+    // — the operator must explicitly re-type the recurring confirmation.
+    await tx.execute(sql`
+      UPDATE system_settings
+         SET value = jsonb_set(jsonb_set(jsonb_set(value,
+               '{revokedAt}', to_jsonb(NOW()::text)),
+               '{revokedBy}', to_jsonb(${input.stoppedBy}::text)),
+               '{revokedReason}', to_jsonb(${input.reason}::text))
+       WHERE key = 'cro08a_recurring_paid_budget_authorization'
+         AND value->>'revokedAt' IS NULL
+    `);
+
     if (inflight.length > 0) {
       await tx.execute(sql`
         UPDATE provider_operations

@@ -31,6 +31,8 @@ import {
   type Cro03cSignedDeploymentInventory,
 } from "./deployment-inventory";
 import { sanitizeAuditPayload } from "../audit-sanitizer";
+import { PAID_PROVIDER_KEYS } from "../paid-provider-control";
+import { assertAggregateRecurringPaidBudgetAvailable } from "../cro08a/schedule-authority";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const SHA256 = /^[0-9a-f]{64}$/i;
@@ -1002,6 +1004,16 @@ export async function createCro03cCommand(input: {
       const providerBudget = budgets[input.provider!];
       if (!providerBudget || !Number.isInteger(providerBudget.maxUnitsPerOccurrence) || providerBudget.maxUnitsPerOccurrence! < 0) {
         throw new Error("CRO08A_PROVIDER_BUDGET_UNDEFINED");
+      }
+      // Corrective item 8: re-check the recurring aggregate spend cap
+      // immediately before every continuous_occurrence command is created —
+      // mirroring the pilot's own per-command re-check pattern
+      // (assertAggregatePaidBudgetAvailable in mi09-pilot-authority.ts).
+      // The per-occurrence maxUnitsPerOccurrence budget above bounds volume
+      // for a single occurrence; this is the separate, independently-tracked
+      // dollar ceiling for ALL recurring paid spend combined.
+      if ((PAID_PROVIDER_KEYS as readonly string[]).includes(input.provider!)) {
+        await assertAggregateRecurringPaidBudgetAvailable();
       }
       continuousDerivedMaxUnits = Math.min(Number(occurrence.selected_count), providerBudget.maxUnitsPerOccurrence!);
       // Derive business email validation cap from 'zerobounce_business' budget key.

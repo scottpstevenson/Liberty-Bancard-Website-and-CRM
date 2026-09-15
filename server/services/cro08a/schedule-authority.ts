@@ -18,6 +18,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { Cro08aCertificationDeniedError } from "./certification-gate";
 import { assertCro08aSourceScope } from "./source-scope";
+import { PAID_PROVIDER_KEYS, type PaidProviderKey } from "../paid-provider-control";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 
@@ -248,9 +249,15 @@ export async function activateCro08aScheduleDefinition(input: {
   await assertPilotLadderCompletion();
   await db.transaction(async (tx) => {
     const def = rows(await tx.execute(sql`
-      SELECT id, logical_key FROM cro08a_schedule_definitions WHERE id=${input.definitionId}::uuid FOR UPDATE
+      SELECT id, logical_key, budgets FROM cro08a_schedule_definitions WHERE id=${input.definitionId}::uuid FOR UPDATE
     `))[0];
     if (!def) throw new Error("CRO08A_SCHEDULE_DEFINITION_NOT_FOUND");
+    // Corrective item 8: pilot-ladder completion is a historical fact about
+    // the pilot, not an operator authorization to spend on paid providers
+    // forever via recurrence. Any definition naming a paid provider in its
+    // budgets requires its own, separately typed, revocable authorization.
+    const budgets = typeof def.budgets === "string" ? JSON.parse(def.budgets) : (def.budgets ?? {});
+    await assertRecurringPaidAuthorityForActivation(budgets);
     await tx.execute(sql`
       UPDATE cro08a_schedule_definitions SET active=false, updated_at=NOW()
        WHERE logical_key=${def.logical_key} AND active=true AND id<>${input.definitionId}::uuid
@@ -271,6 +278,169 @@ export async function deactivateCro08aScheduleDefinition(definitionId: string): 
   await db.execute(sql`
     UPDATE cro08a_schedule_definitions SET active=false, updated_at=NOW() WHERE id=${definitionId}::uuid
   `);
+}
+
+// ── Corrective item 8 (Task #1971 continuation): split pilot vs recurrence
+// authorization scopes ────────────────────────────────────────────────────
+//
+// Before this, activateCro08aScheduleDefinition() was gated ONLY by
+// assertPilotLadderCompletion() — a one-time historical fact (the MI-09
+// pilot ladder completed at some point in the past) — plus each schedule's
+// own per-occurrence unit budgets (maxUnitsPerOccurrence, which bound
+// volume per run but not total dollar spend). Once a schedule activated,
+// its continuous_occurrence commands could spend on paid providers
+// indefinitely: they never checked getPaidBudgetAuthorization() (the
+// operator's one-time typed "AUTHORIZE $50 PAID PILOT" confirmation) or
+// assertAggregatePaidBudgetAvailable() (the pilot's $50 aggregate cap) —
+// both of those are pilot-run-scoped (mi09-pilot-authority.ts, tracked via
+// mi09_pilot_effect_links) and were never wired into the recurring
+// execution path at all.
+//
+// This gives recurrence its OWN explicit, revocable operator authorization
+// and its OWN aggregate spend cap, tracked independently from the pilot's:
+// a completed pilot ladder authorizes recurring schedules to be created and
+// activated, but never implicitly authorizes them to spend on paid
+// providers, and a pilot's typed confirmation never carries over to
+// recurring spend either. An admin must explicitly type a distinct
+// confirmation string before ANY schedule definition naming a paid
+// provider in its budgets may activate, and every continuous_occurrence
+// command re-checks the recurring aggregate cap immediately before
+// creation (mirroring the pilot's own per-command re-check pattern).
+export const CRO08A_RECURRING_PAID_BUDGET_MICROS = 50_000_000; // $50.00 USD — mirrors the pilot's own starting ceiling; a separate, independently-tracked pool.
+const CRO08A_RECURRING_BUDGET_AUTH_KEY = "cro08a_recurring_paid_budget_authorization";
+export const CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION = "AUTHORIZE RECURRING PAID ENRICHMENT";
+
+export interface Cro08aRecurringBudgetAuthorization {
+  authorizedBy: string;
+  authorizedAt: string;
+  capMicros: number;
+  typedConfirmation: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedReason?: string;
+}
+
+function paidProviderKeysIn(budgets: Record<string, unknown>): PaidProviderKey[] {
+  return Object.keys(budgets).filter((key): key is PaidProviderKey =>
+    (PAID_PROVIDER_KEYS as readonly string[]).includes(key));
+}
+
+/** Read the current typed recurring-paid-budget authorization, if any. Revoked authorizations are returned (with revokedAt set) so callers can distinguish "never authorized" from "authorized then revoked". */
+export async function getRecurringPaidBudgetAuthorization(): Promise<Cro08aRecurringBudgetAuthorization | null> {
+  const row = rows(await db.execute(sql`
+    SELECT value FROM system_settings WHERE key = ${CRO08A_RECURRING_BUDGET_AUTH_KEY} LIMIT 1
+  `))[0];
+  if (!row) return null;
+  const value = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+  return value as Cro08aRecurringBudgetAuthorization;
+}
+
+/** Throws unless a live (unrevoked) recurring-paid-budget authorization exists. */
+async function assertRecurringPaidBudgetAuthorized(): Promise<void> {
+  const auth = await getRecurringPaidBudgetAuthorization();
+  if (!auth || auth.revokedAt) throw new Error("CRO08A_RECURRING_PAID_AUTHORIZATION_REQUIRED");
+}
+
+/**
+ * Record the operator's explicit typed authorization for recurring paid
+ * spend. The caller (route layer) must have already verified the exact
+ * typed confirmation string and admin role; this function re-verifies the
+ * string as a second, independent gate so a bug in the route can never
+ * silently authorize recurring paid spend.
+ */
+export async function authorizeRecurringPaidBudget(input: {
+  authorizedBy: string;
+  typedConfirmation: string;
+}): Promise<Cro08aRecurringBudgetAuthorization> {
+  if (input.typedConfirmation !== CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION) {
+    throw new Error("CRO08A_RECURRING_PAID_AUTHORIZATION_DENIED:typed_confirmation_mismatch");
+  }
+  const auth: Cro08aRecurringBudgetAuthorization = {
+    authorizedBy: input.authorizedBy,
+    authorizedAt: new Date().toISOString(),
+    capMicros: CRO08A_RECURRING_PAID_BUDGET_MICROS,
+    typedConfirmation: input.typedConfirmation,
+  };
+  await db.execute(sql`
+    INSERT INTO system_settings (key, value, updated_at)
+    VALUES (${CRO08A_RECURRING_BUDGET_AUTH_KEY}, ${JSON.stringify(auth)}::jsonb, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `);
+  return auth;
+}
+
+/** Emergency stop: revoke the standing recurring-paid-budget authorization so no further continuous_occurrence command may spend on a paid provider until an admin re-authorizes. */
+export async function revokeRecurringPaidBudgetAuthorization(input: {
+  revokedBy: string;
+  reason: string;
+}): Promise<void> {
+  const current = await getRecurringPaidBudgetAuthorization();
+  if (!current || current.revokedAt) return;
+  const revoked: Cro08aRecurringBudgetAuthorization = {
+    ...current,
+    revokedAt: new Date().toISOString(),
+    revokedBy: input.revokedBy,
+    revokedReason: input.reason,
+  };
+  await db.execute(sql`
+    UPDATE system_settings SET value = ${JSON.stringify(revoked)}::jsonb, updated_at = NOW()
+     WHERE key = ${CRO08A_RECURRING_BUDGET_AUTH_KEY}
+  `);
+}
+
+export interface Cro08aRecurringBudgetSummary {
+  capMicros: number;
+  settledMicros: number;
+  reservedMicros: number;
+  remainingMicros: number;
+  overCap: boolean;
+  operationCount: number;
+}
+
+/** Aggregate real spend across every continuous_occurrence command's cro03c_stage_operations — tracked separately from the pilot's own aggregate (which counts only mi09_pilot_effect_links-linked commands). */
+export async function getAggregateRecurringPaidSpend(): Promise<Cro08aRecurringBudgetSummary> {
+  const row = rows(await db.execute(sql`
+    SELECT
+      COALESCE(SUM(so.settled_amount_micros), 0)::bigint AS settled_micros,
+      COALESCE(SUM(CASE WHEN so.state IN ('reserved','dispatched') THEN so.max_reserved_amount_micros ELSE 0 END), 0)::bigint AS reserved_micros,
+      COUNT(*)::int AS cnt
+    FROM cro03c_stage_operations so
+    JOIN cro03c_commands c ON c.id = so.command_id
+    WHERE c.command_type = 'continuous_occurrence'
+  `))[0];
+  const settledMicros = Number(row?.settled_micros ?? 0);
+  const reservedMicros = Number(row?.reserved_micros ?? 0);
+  const capMicros = CRO08A_RECURRING_PAID_BUDGET_MICROS;
+  const committedMicros = settledMicros + reservedMicros;
+  return {
+    capMicros,
+    settledMicros,
+    reservedMicros,
+    remainingMicros: Math.max(0, capMicros - committedMicros),
+    overCap: committedMicros > capMicros,
+    operationCount: Number(row?.cnt ?? 0),
+  };
+}
+
+/** Throws unless the recurring aggregate spend (settled + in-flight reserved) is still under its own cap. Independent of the pilot's assertAggregatePaidBudgetAvailable(). */
+export async function assertAggregateRecurringPaidBudgetAvailable(): Promise<Cro08aRecurringBudgetSummary> {
+  const summary = await getAggregateRecurringPaidSpend();
+  if (summary.overCap) {
+    throw new Error(`CRO08A_RECURRING_BUDGET_EXCEEDED:committed=${summary.settledMicros + summary.reservedMicros} cap=${summary.capMicros}`);
+  }
+  return summary;
+}
+
+/**
+ * Combined pre-activation gate for a definition naming any paid provider in
+ * its budgets: requires a live typed recurring-paid-budget authorization.
+ * Definitions with no paid provider keys (budgets is empty or only names
+ * free/internal sources) are unaffected — this only gates the introduction
+ * of real paid spend into recurring execution.
+ */
+export async function assertRecurringPaidAuthorityForActivation(budgets: Record<string, unknown>): Promise<void> {
+  if (paidProviderKeysIn(budgets).length === 0) return;
+  await assertRecurringPaidBudgetAuthorized();
 }
 
 export { Cro08aCertificationDeniedError };

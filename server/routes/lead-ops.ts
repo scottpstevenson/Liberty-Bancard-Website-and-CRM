@@ -2338,6 +2338,45 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // GET /api/lead-ops/recurrence/budget-summary — corrective item 8: the
+  // recurring-execution aggregate paid spend cap and typed authorization,
+  // tracked independently from the pilot's own $50 aggregate/authorization.
+  app.get("/api/lead-ops/recurrence/budget-summary", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getAggregateRecurringPaidSpend, getRecurringPaidBudgetAuthorization } = await import("../services/cro08a/schedule-authority");
+      const [summary, authorization] = await Promise.all([getAggregateRecurringPaidSpend(), getRecurringPaidBudgetAuthorization()]);
+      res.json({ summary, authorization });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/recurrence/authorize-paid-budget — corrective item 8:
+  // one-time typed confirmation before any CRO-08A recurring schedule naming
+  // a paid provider in its budgets may activate. Distinct from the pilot's
+  // "AUTHORIZE $50 PAID PILOT" confirmation — a completed pilot ladder never
+  // implicitly authorizes recurring paid spend.
+  app.post("/api/lead-ops/recurrence/authorize-paid-budget", requireRole("admin"), async (req, res) => {
+    try {
+      const { authorizeRecurringPaidBudget, CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION } = await import("../services/cro08a/schedule-authority");
+      const typedConfirmation = String(req.body?.typedConfirmation ?? "");
+      if (typedConfirmation !== CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION) {
+        return res.status(400).json({ error: `CRO08A_RECURRING_PAID_AUTHORIZATION_DENIED:typed_confirmation_mismatch — must type exactly: ${CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION}` });
+      }
+      const authorizedBy = (req as any).user?.email ?? String((req as any).user?.id ?? "unknown-admin");
+      const result = await authorizeRecurringPaidBudget({ authorizedBy, typedConfirmation });
+      await storage.createAuditLog({
+        action: "cro08a_recurring_paid_budget_authorized",
+        entityType: "system",
+        entityId: 0,
+        details: { authorizedBy, capMicros: result.capMicros },
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.message?.includes("DENIED") ? 403 : 500).json({ error: err?.message });
+    }
+  });
+
   // POST /api/lead-ops/pilot/emergency-stop-paid — real paid-provider stop.
   // It disables every paid control row (including the legacy Serper singleton),
   // turns off automatic ZeroBounce and recurring CRO08A execution, and returns
