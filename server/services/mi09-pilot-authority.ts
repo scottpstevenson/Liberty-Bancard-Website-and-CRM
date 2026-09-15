@@ -792,6 +792,57 @@ export async function assertPilotEvidenceComplete(runId: string): Promise<void> 
       throw new Error(`PILOT_EVIDENCE_INCOMPLETE:silent_skip_business=${missing.canonical_business_id}`);
     }
   }
+
+  // Corrective item 3: Level 2/3 runs carry paid-provider spend, but until now
+  // nothing checked that every dollar authorized under this run actually
+  // reached a terminal disposition before the run could be marked
+  // 'completed'. A run could complete with paid operations still sitting in
+  // 'reserved'/'dispatched' — money committed with no durable proof of what
+  // happened to it, and no record blocking a later run from re-authorizing
+  // the same spend. This closes that gap: for every provider the run's
+  // definition marks paid_providers_allowed=true, every cro03c_stage_operation
+  // recorded against this run (via mi09_pilot_effect_links, the same join
+  // evaluateStopConditions()/getAggregatePilotSpend() already use) must have
+  // reached a terminal state, and at least one operation must exist — an
+  // allowed-but-silent provider (zero operations) is itself a fail-closed
+  // evidence gap, not a pass, mirroring the existing apollo/zerobounce
+  // "no_data" stop conditions in evaluateStopConditions().
+  if (Number(run.level) === 2 || Number(run.level) === 3) {
+    const defRow = rows(await db.execute(sql`
+      SELECT paid_providers_allowed FROM mi09_pilot_definitions
+      WHERE id = (SELECT pilot_definition_id FROM mi09_pilot_runs WHERE id = ${runId}::uuid)
+    `))[0];
+    const paidAllowed: Record<string, boolean> = defRow?.paid_providers_allowed
+      ? (typeof defRow.paid_providers_allowed === "string"
+          ? JSON.parse(defRow.paid_providers_allowed)
+          : defRow.paid_providers_allowed)
+      : {};
+    const requiredProviders = Object.keys(paidAllowed).filter((p) => paidAllowed[p] === true);
+    for (const provider of requiredProviders) {
+      const opRow = rows(await db.execute(sql`
+        SELECT COUNT(*)::int AS total,
+               COUNT(*) FILTER (
+                 WHERE so.state IN ('reserved', 'dispatched')
+                    OR (so.state = 'completed' AND so.terminal_disposition IS NULL)
+               )::int AS non_terminal
+        FROM mi09_pilot_effect_links el
+        JOIN cro03c_stage_operations so ON so.command_id = el.entity_id
+        WHERE el.entity_type = 'cro03c_command'
+          AND el.pilot_run_id = ${runId}::uuid
+          AND so.provider = ${provider}
+      `))[0];
+      const total = Number(opRow?.total ?? 0);
+      const nonTerminal = Number(opRow?.non_terminal ?? 0);
+      if (total === 0) {
+        throw new Error(`PILOT_EVIDENCE_MISSING:paid_provider_no_operations:${provider}`);
+      }
+      if (nonTerminal > 0) {
+        throw new Error(
+          `PILOT_EVIDENCE_INCOMPLETE:paid_provider_non_terminal:${provider}=${nonTerminal}/${total}`,
+        );
+      }
+    }
+  }
 }
 
 export async function transitionPilotRunState(
