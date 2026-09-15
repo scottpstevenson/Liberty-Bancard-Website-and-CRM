@@ -1910,7 +1910,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           (SELECT COUNT(*)::int FROM businesses b JOIN canonical_source_links csl ON csl.business_id = b.id
              WHERE b.record_class = 'canonical' AND csl.source_system !~* 'dbpr') AS canonical_non_dbpr_businesses,
           (SELECT COUNT(*)::int FROM businesses WHERE record_class != 'canonical') AS excluded_businesses,
-          (SELECT COUNT(*)::int FROM businesses WHERE free_enrichment_status = 'complete') AS free_enrichment_complete,
+          (SELECT COUNT(*)::int FROM businesses WHERE free_enrichment_status = 'enriched') AS free_enrichment_complete,
           (SELECT COUNT(*)::int FROM master_leads) AS master_leads_count
       `))[0] ?? {};
 

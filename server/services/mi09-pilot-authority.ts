@@ -889,8 +889,10 @@ export async function freezePilotCohort(input: {
   //      county_fips matching the definition's county_scope (if filter is non-empty).
   //   2. Source-adapter filter: at least one canonical_source_links row must have
   //      source_system matching the definition's source_adapter_filter (if non-empty).
-  //   3. Vertical filter: checked against canonical_source_links.source_type (vertical
-  //      is encoded in source_type for DBPR-HR adapters, e.g. "Restaurant", "Auto").
+  //   3. Vertical filter: checked against businesses.vertical, the single canonical
+  //      vertical taxonomy column — not canonical_source_links.source_type, which is
+  //      adapter-specific metadata (e.g. a DBPR-HR license category) and is not a
+  //      reliable vertical classification across every source adapter.
   if (businessIds.length > 0) {
     const businessIdSql = sql.join(businessIds.map((id) => sql`${id}::int`), sql`, `);
 
@@ -933,20 +935,21 @@ export async function freezePilotCohort(input: {
     }
 
     if (verticalScope.length > 0) {
-      // Vertical is encoded in canonical_source_links.source_type for DBPR-HR and similar adapters.
+      // Vertical is the canonical businesses.vertical column, not
+      // canonical_source_links.source_type (source_type is adapter-specific
+      // metadata, e.g. DBPR-HR license category, and is not a reliable
+      // vertical taxonomy across all source adapters).
       const outOfVertical = rows(await db.execute(sql`
-        SELECT b.id::int AS business_id FROM (VALUES ${sql.join(businessIds.map((id) => sql`(${id}::int)`), sql`, `)}) AS b(id)
-        WHERE NOT EXISTS (
-          SELECT 1 FROM canonical_source_links csl
-          WHERE csl.business_id = b.id
-            AND csl.source_type = ANY(ARRAY[${sql.join(verticalScope.map((v) => sql`${v}`), sql`, `)}])
-        )
+        SELECT b.id::int AS business_id FROM (VALUES ${sql.join(businessIds.map((id) => sql`(${id}::int)`), sql`, `)}) AS bv(id)
+        JOIN businesses b ON b.id = bv.id
+        WHERE b.vertical IS NULL
+           OR NOT (b.vertical = ANY(ARRAY[${sql.join(verticalScope.map((v) => sql`${v}`), sql`, `)}]))
       `));
       if (outOfVertical.length > 0) {
         const ids = outOfVertical.map((r: any) => Number(r.business_id));
         throw new Error(
-          `PILOT_COHORT_FREEZE_BLOCKED:members_out_of_vertical_scope:${ids.length} businesses have no ` +
-          `canonical_source_links row with source_type in [${verticalScope.join(",")}]: [${ids.slice(0, 5).join(",")}]`,
+          `PILOT_COHORT_FREEZE_BLOCKED:members_out_of_vertical_scope:${ids.length} businesses do not have ` +
+          `businesses.vertical in [${verticalScope.join(",")}]: [${ids.slice(0, 5).join(",")}]`,
         );
       }
     }
@@ -1098,7 +1101,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
   `))[0];
 
   const excludedDbpr = rows(await db.execute(sql`
@@ -1108,7 +1111,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
       AND ${businessHasDbprLineageSql(sql`b.id`)}
   `))[0];
 
@@ -1119,7 +1122,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
       AND b.record_class <> 'canonical'
   `))[0];
 
@@ -1130,7 +1133,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
       AND EXISTS (
         SELECT 1 FROM contact_business_link_decisions cbd
         WHERE cbd.business_id = b.id AND cbd.superseded_at IS NULL AND cbd.decision IN ('verified','conflicted')
@@ -1144,7 +1147,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
       AND (b.free_enrichment_status = 'suppressed' OR b.email_discovery_status = 'suppressed')
   `))[0];
 
@@ -1155,7 +1158,7 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
       AND EXISTS (
         SELECT 1 FROM canonical_conflict_evidence cce
         WHERE (cce.business_id_a = b.id OR cce.business_id_b = b.id) AND cce.status = 'open'
@@ -1170,13 +1173,13 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     SELECT b.id AS business_id,
            MIN(csl.source_system) AS source_adapter_key,
            MIN(bl.county_fips) AS county_fips,
-           MIN(csl.source_type) AS vertical
+           MIN(b.vertical) AS vertical
     FROM businesses b
     JOIN canonical_source_links csl ON csl.business_id = b.id
     LEFT JOIN business_locations bl ON bl.business_id = b.id
     WHERE csl.source_system = ANY(${sourceAdapterArraySql})
       AND (${countyScope.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
-      AND (${verticalScope.length === 0} OR csl.source_type = ANY(${verticalArraySql}))
+      AND (${verticalScope.length === 0} OR b.vertical = ANY(${verticalArraySql}))
       AND b.record_class = 'canonical'
       AND (b.free_enrichment_status IS DISTINCT FROM 'suppressed')
       AND (b.email_discovery_status IS DISTINCT FROM 'suppressed')
@@ -2121,7 +2124,7 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
       FROM businesses b
       JOIN canonical_source_links csl ON csl.business_id = b.id
       WHERE b.record_class = 'canonical'
-        AND csl.source_system !~* 'dbpr'
+        AND ${businessLacksDbprLineageSql(sql`b.id`)}
       LIMIT 1
     `))[0];
     const cnt = Number(ss?.cnt ?? 0);
@@ -2154,7 +2157,7 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
   try {
     const fe = rows(await db.execute(sql`
       SELECT COUNT(*)::int AS cnt FROM businesses
-       WHERE free_enrichment_status = 'complete'
+       WHERE free_enrichment_status = 'enriched'
       LIMIT 1
     `))[0];
     const cnt = Number(fe?.cnt ?? 0);

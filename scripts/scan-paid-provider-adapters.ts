@@ -8,6 +8,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import * as ts from "typescript";
 import { PROVIDER_SOURCE_MANIFEST, type ProviderSourceId } from "../server/services/provider-manifest";
 
 const ROOT = resolve(process.cwd());
@@ -44,11 +45,69 @@ function normalizePath(path: string): string {
   return relative(ROOT, path).replaceAll("\\", "/");
 }
 
+/**
+ * Blanks out block and line comments before URL-marker matching, so a
+ * comment that merely mentions a provider host (e.g. documenting which file
+ * owns real network I/O) never counts as an unguarded reference.
+ *
+ * This must never blank text inside string or template literals — a real
+ * unguarded provider URL can legitimately start with a protocol-relative
+ * double slash inside a string, and a naive line-comment regex would mistake
+ * that for a comment and silently defeat the guard. Using the TypeScript
+ * scanner's own tokenizer (the same lexer the compiler uses) to walk real
+ * tokens is the only reliable way to tell a comment slash from a string
+ * slash — a regex can approximate it but not guarantee it across every
+ * string, template, and regex-literal edge case.
+ */
+function stripComments(text: string): string {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ false, ts.LanguageVariant.Standard, text);
+  const chars = text.split("");
+  scanner.setOnError(() => {}); // tolerate malformed fragments; still tokenizes best-effort
+
+  // Template literals need explicit rescanning: after a `${` interpolation,
+  // scan() alone cannot tell "the `}` that closes this interpolation" from
+  // "an ordinary closing brace of a nested block/object inside it", and it
+  // cannot resume lexing the template *tail* text as a string instead of
+  // as fresh source (which is exactly how a real URL sitting after `${...}`
+  // in a template tail, e.g. `` `${host}//api.example.com` ``, would get
+  // misread as a `//` line comment and blanked). Track the brace depth each
+  // TemplateHead was opened at; when a CloseBraceToken appears back at that
+  // exact depth, call reScanTemplateToken() instead of scan() so the lexer
+  // correctly resumes inside the template as TemplateMiddle/TemplateTail.
+  const templateHeadBraceDepths: number[] = [];
+  let braceDepth = 0;
+
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (token === ts.SyntaxKind.TemplateHead) {
+      templateHeadBraceDepths.push(braceDepth);
+    } else if (token === ts.SyntaxKind.OpenBraceToken) {
+      braceDepth++;
+    } else if (token === ts.SyntaxKind.CloseBraceToken) {
+      const top = templateHeadBraceDepths[templateHeadBraceDepths.length - 1];
+      if (top !== undefined && braceDepth === top) {
+        token = scanner.reScanTemplateToken(false);
+        if (token === ts.SyntaxKind.TemplateTail) templateHeadBraceDepths.pop();
+        continue; // already have the next real token; skip the trailing scan() below
+      }
+      braceDepth--;
+    } else if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
+      const start = scanner.getTokenStart();
+      const end = scanner.getTokenEnd();
+      for (let i = start; i < end; i++) {
+        if (chars[i] !== "\n") chars[i] = " ";
+      }
+    }
+    token = scanner.scan();
+  }
+  return chars.join("");
+}
+
 const errors: string[] = [];
 for (const file of sourceFiles(SCAN_ROOT)) {
   const filePath = normalizePath(file);
   if (filePath === THIS_FILE) continue;
-  const text = readFileSync(file, "utf8");
+  const text = stripComments(readFileSync(file, "utf8"));
   for (const [sourceId, markers] of Object.entries(URL_MARKERS) as [ProviderSourceId, readonly string[]][]) {
     const hasProviderReference =
       markers.some((marker) => text.includes(marker)) ||

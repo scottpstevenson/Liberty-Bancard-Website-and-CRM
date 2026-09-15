@@ -267,7 +267,7 @@ async function checkGhlSync(): Promise<CheckResult> {
 async function checkEmailTransport(): Promise<CheckResult> {
   const t0 = Date.now();
   try {
-    const { channelOrchestrator } = await import("./channel-orchestrator");
+    const { channelOrchestrator } = await import("./transports");
     const result = await channelOrchestrator.healthCheck();
     const latencyMs = Date.now() - t0;
     if (result.email.healthy) {
@@ -286,7 +286,7 @@ async function checkEmailTransport(): Promise<CheckResult> {
 async function checkSmsTransport(): Promise<CheckResult> {
   const t0 = Date.now();
   try {
-    const { channelOrchestrator } = await import("./channel-orchestrator");
+    const { channelOrchestrator } = await import("./transports");
     const result = await channelOrchestrator.healthCheck();
     const latencyMs = Date.now() - t0;
     if (result.sms.healthy) {
