@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,16 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Zap, RefreshCw, Mail, Phone, Target, TrendingUp, Users, Building2,
-  Play, Square, Loader2, CheckCircle, Send, BarChart3, Pen, Settings,
-  Download, Upload, ArrowRightLeft, AlertTriangle, Clock, Briefcase, Database, Layers
+  Mail, Target, TrendingUp, Users, Building2,
+  CheckCircle, Send, BarChart3, Pen, Settings,
+  ArrowRightLeft, Upload, Briefcase, Layers, ExternalLink,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { isEnrichmentRunning } from "@/lib/enrichment-utils";
 
 import type { OutreachStatus } from "@/types/outreach-status";
 export type { OutreachStatus } from "@/types/outreach-status";
@@ -27,12 +26,22 @@ interface SignatureData {
   html: string;
 }
 
+/**
+ * Outreach Command — narrowed to read-only pipeline visibility.
+ *
+ * Task #1963: import/Cordata import, enrichment/classification, GHL sync
+ * (both directions), worker start/stop, daily-outreach execution, and
+ * hot-lead bulk enrollment all moved out of this page. Each capability now
+ * lives with its real owner:
+ *   - Imports              → Lead Ops (Imports tab)
+ *   - Enrichment/Promotion → Lead Ops (Businesses tab)
+ *   - GHL sync             → GHL Integration
+ * Signatures are kept here because campaign-engine.ts reads them on the
+ * live "sales" send path.
+ */
 export default function OutreachCommand() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
-  const [enrichLimit, setEnrichLimit] = useState("50");
-  const [importLimit, setImportLimit] = useState("");
-  const [workerInterval, setWorkerInterval] = useState("60");
   const [editingSig, setEditingSig] = useState<string | null>(null);
   const [sigForm, setSigForm] = useState({ name: "", title: "", phone: "", email: "", calendlyLink: "" });
 
@@ -43,89 +52,6 @@ export default function OutreachCommand() {
 
   const { data: signatures } = useQuery<Record<string, SignatureData>>({
     queryKey: ["/api/email-signatures"],
-  });
-
-  const importMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/sunbiz/import-corevt-full", {
-      maxRecords: importLimit ? Number(importLimit) : undefined,
-      onlyActive: true,
-    }),
-    onSuccess: () => toast({ title: "Full import started", description: "Streaming 9.5GB corevt file. This will take a while." }),
-    onError: () => toast({ title: "Error", description: "Failed to start import", variant: "destructive" }),
-  });
-
-  const cordataImportMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/sunbiz/import-cordata", {
-      download: true,
-    }),
-    onSuccess: () => toast({ title: "Cordata import started", description: "Downloading 1.7GB cordata.zip from FL Sunbiz SFTP. This adds officers, registered agents, FEI/EIN numbers, and annual reports." }),
-    onError: () => toast({ title: "Error", description: "Failed to start cordata import", variant: "destructive" }),
-  });
-
-  const reEnrichMutation = useMutation({
-    mutationFn: async () => {
-      throw new Error("Legacy re-enrichment is retired; use CRO-03 staging review while provider transport is disabled.");
-    },
-    onSuccess: () => toast({ title: "Re-enrichment started", description: `Processing up to ${enrichLimit} entities with AI` }),
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const promoteMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/sunbiz/promote-qualified"),
-    onSuccess: async (res) => {
-      const data = await res.json();
-      toast({ title: "Promotion complete", description: `${data.promoted} promoted, ${data.dealsCreated} deals created` });
-      queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] });
-    },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const runDailyMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/outreach/run-daily"),
-    onSuccess: () => toast({ title: "Daily outreach started" }),
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const startWorkerMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/outreach/start-worker", { intervalMinutes: Number(workerInterval) }),
-    onSuccess: () => { toast({ title: "Outreach worker started" }); queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] }); },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const stopWorkerMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/outreach/stop-worker"),
-    onSuccess: () => { toast({ title: "Worker stopped" }); queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] }); },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const syncToGhlMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/ghl/sync-all-to-ghl"),
-    onSuccess: () => toast({ title: "GHL sync started", description: "Pushing all unsynced contacts to GoHighLevel" }),
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const syncFromGhlMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/ghl/sync-all-from-ghl"),
-    onSuccess: () => toast({ title: "GHL pull started", description: "Pulling contacts from GoHighLevel" }),
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const enrollHotLeadsMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/outreach/enroll-hot-leads", { limit: 100 }),
-    onSuccess: () => {
-      toast({ title: "Enrollment started", description: "Enrolling up to 100 hot leads into drip sequences" });
-      queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] });
-    },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
-  });
-
-  const syncHotLeadsMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/ghl/sync-hot-leads", { limit: 100 }),
-    onSuccess: () => {
-      toast({ title: "Hot lead sync started", description: "Syncing up to 100 hot lead contacts to GHL" });
-      queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] });
-    },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
   const saveSignatureMutation = useMutation({
@@ -157,62 +83,41 @@ export default function OutreachCommand() {
   }
 
   const s = status;
-  const imp = s.importProgress;
-  const cord = s.cordataProgress || { status: "idle" };
-  const enr = s.enrichmentProgress;
 
   return (
     <div className="space-y-6" data-testid="outreach-command-center">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Outreach Command Center</h1>
-          <p className="text-muted-foreground text-sm">Full pipeline: Import → Enrich → Classify → Promote → Outreach → Close</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {s.workerRunning ? (
-            <Button variant="outline" onClick={() => stopWorkerMutation.mutate()} disabled={stopWorkerMutation.isPending} className="gap-2" data-testid="button-stop-worker">
-              <Square className="w-4 h-4" /> Stop Worker
-            </Button>
-          ) : (
-            <Button onClick={() => startWorkerMutation.mutate()} disabled={startWorkerMutation.isPending} className="gap-2" data-testid="button-start-worker">
-              <Play className="w-4 h-4" /> Start Worker
-            </Button>
-          )}
-          <Button onClick={() => runDailyMutation.mutate()} disabled={runDailyMutation.isPending} variant="secondary" className="gap-2" data-testid="button-run-daily">
-            {runDailyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            Run Now
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold" data-testid="text-page-title">Outreach Command</h1>
+        <p className="text-muted-foreground text-sm">Read-only pipeline visibility. Import, enrichment, promotion, and GHL sync are managed on their owning pages.</p>
       </div>
 
-      {s.workerRunning && (
-        <Alert data-testid="alert-worker-running">
-          <Play className="h-4 w-4" />
-          <AlertDescription>
-            Automation worker is <strong>running</strong>. Enriching entities every 30 min, outreach every {s.workerStatus?.intervalMinutes || 60} min.
-            {s.lastOutreachRun && <span className="text-muted-foreground"> Last run: {new Date(s.lastOutreachRun.timestamp).toLocaleString()} ({s.lastOutreachRun.sent || 0} sent)</span>}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {(imp.status === "running") && (
-        <Alert data-testid="alert-import-running">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <AlertDescription>
-            Import running: <strong>{(imp.totalImported || 0).toLocaleString()}</strong> imported, {(imp.totalDuplicates || 0).toLocaleString()} duplicates, {(imp.totalSkipped || 0).toLocaleString()} skipped
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {(enr.status === "running") && (
-        <Alert data-testid="alert-enrichment-running">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <AlertDescription>
-            Enrichment: <strong>{enr.processed || 0}/{enr.total || 0}</strong> processed, {enr.emailsFound || 0} emails, {enr.phonesFound || 0} phones, {enr.classified || 0} classified
-            {enr.total ? <Progress value={((enr.processed || 0) / enr.total) * 100} className="mt-2 h-2" /> : null}
-          </AlertDescription>
-        </Alert>
-      )}
+      <Card data-testid="card-pipeline-owners">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Where to manage the pipeline</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Link href="/dashboard/lead-ops?tab=imports" data-testid="link-owner-imports">
+              <div className="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm hover-elevate cursor-pointer">
+                <span className="flex items-center gap-2"><Upload className="w-4 h-4 text-muted-foreground" /> Imports</span>
+                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+              </div>
+            </Link>
+            <Link href="/dashboard/lead-ops?tab=businesses" data-testid="link-owner-enrichment">
+              <div className="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm hover-elevate cursor-pointer">
+                <span className="flex items-center gap-2"><Target className="w-4 h-4 text-muted-foreground" /> Enrichment & Promotion</span>
+                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+              </div>
+            </Link>
+            <Link href="/dashboard/ghl-integration" data-testid="link-owner-ghl">
+              <div className="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm hover-elevate cursor-pointer">
+                <span className="flex items-center gap-2"><ArrowRightLeft className="w-4 h-4 text-muted-foreground" /> GHL Sync</span>
+                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+              </div>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <StatCard icon={Building2} color="blue" value={s.entities.total.toLocaleString()} label="FL Entities" testId="card-total-entities" />
@@ -235,10 +140,6 @@ export default function OutreachCommand() {
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" data-testid="tab-overview">Pipeline</TabsTrigger>
           <TabsTrigger value="outreach-sources" data-testid="tab-outreach-sources">Outreach Sources</TabsTrigger>
-          <TabsTrigger value="import" data-testid="tab-import">Import</TabsTrigger>
-          <TabsTrigger value="enrichment" data-testid="tab-enrichment">Enrich & Classify</TabsTrigger>
-          <TabsTrigger value="ghl" data-testid="tab-ghl">GHL Sync</TabsTrigger>
-          <TabsTrigger value="automation" data-testid="tab-automation">Automation</TabsTrigger>
           <TabsTrigger value="signatures" data-testid="tab-signatures">Signatures</TabsTrigger>
         </TabsList>
 
@@ -406,420 +307,13 @@ export default function OutreachCommand() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="import" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Upload className="w-5 h-5" /> Full Florida Sunbiz Import</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Import from the 9.5 GB corevt.zip file containing the entire Florida Sunbiz corporate database. Currently <strong>{s.entities.total.toLocaleString()}</strong> entities in database.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-end gap-4">
-                <div className="space-y-1">
-                  <Label htmlFor="import-limit">Max Records (leave blank for all)</Label>
-                  <Input id="import-limit" type="number" placeholder="Unlimited" value={importLimit} onChange={(e) => setImportLimit(e.target.value)} className="w-48" data-testid="input-import-limit" />
-                </div>
-                <Button onClick={() => importMutation.mutate()} disabled={importMutation.isPending || imp.status === "running"} className="gap-2" data-testid="button-start-import">
-                  {importMutation.isPending || imp.status === "running" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                  {imp.status === "running" ? "Import Running..." : "Start Full Import"}
-                </Button>
-              </div>
-
-              {imp.status === "running" && (
-                <div className="rounded-lg border p-4 bg-muted/50 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Processed: <strong>{(imp.totalProcessed || 0).toLocaleString()}</strong></span>
-                    <span>Imported: <strong className="text-green-600">{(imp.totalImported || 0).toLocaleString()}</strong></span>
-                    <span>Duplicates: <strong>{(imp.totalDuplicates || 0).toLocaleString()}</strong></span>
-                    <span>Skipped: <strong>{(imp.totalSkipped || 0).toLocaleString()}</strong></span>
-                  </div>
-                </div>
-              )}
-
-              {imp.status === "complete" && (
-                <Alert>
-                  <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Import complete: <strong>{(imp.totalImported || 0).toLocaleString()}</strong> imported, {(imp.totalDuplicates || 0).toLocaleString()} duplicates skipped
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {imp.status === "error" && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>Import error: {imp.error}</AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Database className="w-5 h-5" /> Sunbiz Cordata Import (Officers, Agents, EIN)</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Download the 1.7 GB quarterly corporate data file directly from FL Sunbiz SFTP. This adds <strong>officer names</strong>, <strong>registered agents</strong>, <strong>FEI/EIN numbers</strong>, and <strong>annual report dates</strong> to all existing entities. Up to 6 officers per entity with titles, names, and addresses.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button
-                onClick={() => cordataImportMutation.mutate()}
-                disabled={cordataImportMutation.isPending || cord.status === "downloading" || cord.status === "processing"}
-                className="gap-2"
-                data-testid="button-start-cordata-import"
-              >
-                {cordataImportMutation.isPending || cord.status === "downloading" || cord.status === "processing"
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <Download className="w-4 h-4" />}
-                {cord.status === "downloading" ? "Downloading from SFTP..." :
-                 cord.status === "processing" ? "Processing Records..." :
-                 "Download & Import Cordata"}
-              </Button>
-
-              {(cord.status === "downloading" || cord.status === "processing") && (
-                <div className="rounded-lg border p-4 bg-muted/50 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Status: <strong className="capitalize">{cord.status}</strong></span>
-                    {cord.totalProcessed !== undefined && <span>Processed: <strong>{(cord.totalProcessed).toLocaleString()}</strong></span>}
-                    {cord.totalUpdated !== undefined && <span>Updated: <strong className="text-blue-600">{(cord.totalUpdated).toLocaleString()}</strong></span>}
-                    {cord.totalNew !== undefined && <span>New: <strong className="text-green-600">{(cord.totalNew).toLocaleString()}</strong></span>}
-                  </div>
-                </div>
-              )}
-
-              {cord.status === "complete" && (
-                <Alert>
-                  <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Cordata import complete: <strong>{(cord.totalUpdated || 0).toLocaleString()}</strong> entities updated with officer/agent/EIN data, <strong>{(cord.totalNew || 0).toLocaleString()}</strong> new entities added
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {cord.status === "error" && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>Cordata import error: {cord.error}</AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="enrichment" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><RefreshCw className="w-5 h-5" /> AI Enrichment & Classification</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Re-process entities: discover websites, scrape contact/about pages, extract emails and phones, AI-classify industry vertical, and score lead quality.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-end gap-4">
-                <div className="space-y-1">
-                  <Label>Batch Size</Label>
-                  <Input type="number" value={enrichLimit} onChange={(e) => setEnrichLimit(e.target.value)} className="w-32" data-testid="input-enrich-limit" />
-                </div>
-                <Button onClick={() => reEnrichMutation.mutate()} disabled={reEnrichMutation.isPending || isEnrichmentRunning(enr.status)} className="gap-2" data-testid="button-re-enrich">
-                  {reEnrichMutation.isPending || isEnrichmentRunning(enr.status) ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  {isEnrichmentRunning(enr.status) ? "Enriching..." : "Re-Classify Entities"}
-                </Button>
-              </div>
-
-              {isEnrichmentRunning(enr.status) && enr.total && (
-                <div className="space-y-2">
-                  <Progress value={((enr.processed || 0) / enr.total) * 100} className="h-2" />
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>{enr.processed}/{enr.total} processed</span>
-                    <span>{enr.classified} classified</span>
-                    <span>{enr.emailsFound} emails</span>
-                    <span>{enr.phonesFound} phones</span>
-                  </div>
-                </div>
-              )}
-
-              {enr.status === "interrupted" && (
-                <Alert data-testid="alert-enrichment-interrupted">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    <span className="font-medium">Enrichment was interrupted (server restart).</span>{" "}
-                    {enr.processed ?? 0}/{enr.total ?? 0} processed before interruption.
-                    {enr.interruptedAt && (
-                      <span className="block text-xs text-muted-foreground mt-1">
-                        Interrupted at {new Date(enr.interruptedAt).toLocaleString()}
-                      </span>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {enr.status === "failed" && (
-                <Alert variant="destructive" data-testid="alert-enrichment-failed">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    <span className="font-medium">Enrichment failed.</span>{" "}
-                    {enr.processed ?? 0}/{enr.total ?? 0} processed.{enr.error ? ` ${enr.error}` : ""}
-                    {enr.failedAt && (
-                      <span className="block text-xs mt-1">
-                        Failed at {new Date(enr.failedAt).toLocaleString()}
-                      </span>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {enr.status === "complete" && (
-                <Alert data-testid="alert-enrichment-complete">
-                  <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <span className="font-medium">Last run complete:</span>{" "}
-                    {enr.processed} processed, {enr.classified} classified, {enr.emailsFound} emails found.
-                    {enr.completedAt && (
-                      <span className="block text-xs text-muted-foreground mt-1">
-                        Completed at {new Date(enr.completedAt).toLocaleString()}
-                      </span>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="rounded-lg border p-3 bg-muted/50 text-sm flex flex-wrap gap-4">
-                <span>
-                  <span className="font-medium">Serper:</span>{" "}
-                  {s.serper?.configured
-                    ? <span className="text-green-600" data-testid="text-serper-configured">Configured</span>
-                    : <span className="text-muted-foreground" data-testid="text-serper-not-configured">Not configured</span>}
-                </span>
-                <span>
-                  <span className="font-medium">OpenAI:</span>{" "}
-                  {s.openAiConfigured
-                    ? <span className="text-green-600" data-testid="text-openai-configured">Configured</span>
-                    : <span className="text-muted-foreground" data-testid="text-openai-not-configured">Not configured</span>}
-                </span>
-              </div>
-
-              <div className="rounded-lg border p-4 bg-muted/50 text-sm space-y-2">
-                <p className="font-medium">Enhanced Enrichment Pipeline:</p>
-                <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
-                  <li>Guesses and verifies websites using 10+ domain patterns per company</li>
-                  <li>Scrapes homepage + /contact, /about, /team pages for deeper contact extraction</li>
-                  <li>AI classifies each business by industry vertical (Restaurant, Retail, Healthcare, etc.)</li>
-                  <li>Scores leads as Hot, Warm, Cold, or Unqualified for merchant processing potential</li>
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Target className="w-5 h-5" /> Serper API (Search Engine)</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Serper.dev replaces raw Google scraping for website discovery and contact search. {s.serper?.configured ? "Connected and active." : "Not configured — set SERPER_API_KEY to enable."}
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {s.serper?.configured ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div className="rounded-lg border p-3 text-center">
-                    <div className="text-2xl font-bold" data-testid="text-serper-total-calls">{s.serper.usage.totalCalls.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground">API Calls Used</div>
-                  </div>
-                  <div className="rounded-lg border p-3 text-center">
-                    <div className="text-2xl font-bold text-green-600" data-testid="text-serper-success">{s.serper.usage.successfulCalls.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground">Successful</div>
-                  </div>
-                  <div className="rounded-lg border p-3 text-center">
-                    <div className="text-2xl font-bold text-red-600" data-testid="text-serper-failed">{s.serper.usage.failedCalls}</div>
-                    <div className="text-xs text-muted-foreground">Failed</div>
-                  </div>
-                  <div className="rounded-lg border p-3 text-center">
-                    <div className="text-2xl font-bold text-blue-600" data-testid="text-serper-websites">{s.serper.usage.websitesFound.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground">Websites Found</div>
-                  </div>
-                  <div className="rounded-lg border p-3 text-center">
-                    <div className="text-2xl font-bold text-purple-600" data-testid="text-serper-emails">{s.serper.usage.emailsFound.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground">Emails Found</div>
-                  </div>
-                  <div className="rounded-lg border p-3 text-center">
-                    <div className="text-2xl font-bold text-amber-600" data-testid="text-serper-phones">{s.serper.usage.phonesFound.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground">Phones Found</div>
-                  </div>
-                </div>
-              ) : (
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    Serper API not configured. Add <code className="bg-muted px-1 rounded">SERPER_API_KEY</code> to enable search-powered enrichment. Without it, the pipeline falls back to raw Google scraping (gets CAPTCHA'd).
-                  </AlertDescription>
-                </Alert>
-              )}
-              {s.serper?.configured && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Budget: <strong data-testid="text-serper-remaining">{s.serper.usage.remainingCalls?.toLocaleString() || s.serper.usage.monthlyQuota?.toLocaleString()}</strong> / {(s.serper.usage.monthlyQuota || 50000).toLocaleString()} remaining</span>
-                  </div>
-                  <Progress value={s.serper.usage.monthlyQuota ? ((s.serper.usage.totalCalls / s.serper.usage.monthlyQuota) * 100) : 0} className="h-2" />
-                </div>
-              )}
-              {s.serper?.usage.lastCallAt && (
-                <p className="text-xs text-muted-foreground">Last API call: {new Date(s.serper.usage.lastCallAt).toLocaleString()} | Tracking since: {new Date(s.serper.usage.resetAt).toLocaleDateString()}</p>
-              )}
-              {s.serper?.usage.totalCalls ? (
-                <p className="text-xs text-muted-foreground">
-                  Hit rates: {s.serper.usage.totalCalls > 0 ? Math.round((s.serper.usage.websitesFound / s.serper.usage.totalCalls) * 100) : 0}% websites, {s.serper.usage.totalCalls > 0 ? Math.round((s.serper.usage.emailsFound / s.serper.usage.totalCalls) * 100) : 0}% emails, {s.serper.usage.totalCalls > 0 ? Math.round((s.serper.usage.phonesFound / s.serper.usage.totalCalls) * 100) : 0}% phones
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5" /> Promote to CRM Contacts</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Convert Hot and Warm entities with contact info into CRM Contacts and auto-create deals. {s.entities.pendingPromotion} ready.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => promoteMutation.mutate()} disabled={promoteMutation.isPending || s.entities.pendingPromotion === 0} className="gap-2" data-testid="button-promote">
-                {promoteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                Promote {s.entities.pendingPromotion} Leads → Contacts + Deals
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="ghl" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><ArrowRightLeft className="w-5 h-5" /> GoHighLevel 2-Way Sync</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Sync contacts and deals bidirectionally with GoHighLevel for email/SMS outreach, calendar booking, and document e-signatures.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-lg border p-4 space-y-3">
-                  <h3 className="font-medium text-sm">Sync Status</h3>
-                  <div className="space-y-1 text-sm">
-                    <Row label="GHL Connected" value={s.ghlSync.configured ? "Yes" : "No"} color={s.ghlSync.configured ? "green" : "red"} />
-                    <Row label="Total Contacts" value={s.ghlSync.totalContacts} />
-                    <Row label="Synced to GHL" value={s.ghlSync.syncedToGhl} color="green" />
-                    <Row label="Not Yet Synced" value={s.ghlSync.unsyncedToGhl} highlight />
-                  </div>
-                  {s.ghlSync.lastSyncTo && (
-                    <p className="text-xs text-muted-foreground">Last push: {new Date(s.ghlSync.lastSyncTo.timestamp).toLocaleString()}</p>
-                  )}
-                  {s.ghlSync.lastSyncFrom && (
-                    <p className="text-xs text-muted-foreground">Last pull: {new Date(s.ghlSync.lastSyncFrom.timestamp).toLocaleString()}</p>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  <Button onClick={() => syncHotLeadsMutation.mutate()} disabled={syncHotLeadsMutation.isPending || !s.ghlSync.configured} className="w-full gap-2" data-testid="button-sync-hot-leads">
-                    {syncHotLeadsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
-                    Sync 100 Hot Leads → GHL
-                  </Button>
-                  <Button onClick={() => enrollHotLeadsMutation.mutate()} disabled={enrollHotLeadsMutation.isPending} variant="secondary" className="w-full gap-2" data-testid="button-enroll-hot-leads">
-                    {enrollHotLeadsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                    Enroll Hot Leads in Sequences
-                  </Button>
-                  <Button onClick={() => syncToGhlMutation.mutate()} disabled={syncToGhlMutation.isPending || !s.ghlSync.configured} variant="outline" className="w-full gap-2" data-testid="button-sync-to-ghl">
-                    {syncToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    Push All {s.ghlSync.unsyncedToGhl} Contacts → GHL
-                  </Button>
-                  <Button onClick={() => syncFromGhlMutation.mutate()} disabled={syncFromGhlMutation.isPending || !s.ghlSync.configured} variant="outline" className="w-full gap-2" data-testid="button-sync-from-ghl">
-                    {syncFromGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    Pull Contacts from GHL
-                  </Button>
-                  {!s.ghlSync.configured && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">Set GHL_API_KEY and GHL_LOCATION_ID to enable sync</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="automation" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Zap className="w-5 h-5" /> Automated Outreach Pipeline</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Full autopilot: enrich entities → promote qualified → queue campaign emails → send 100/day via GHL → auto-create deals → auto-enroll in sequences.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <Label>Outreach Interval (minutes)</Label>
-                    <Input type="number" value={workerInterval} onChange={(e) => setWorkerInterval(e.target.value)} className="w-32" data-testid="input-worker-interval" />
-                  </div>
-                  <div className="flex gap-2">
-                    {s.workerRunning ? (
-                      <Button variant="outline" onClick={() => stopWorkerMutation.mutate()} disabled={stopWorkerMutation.isPending} className="gap-2" data-testid="button-stop-worker-tab">
-                        <Square className="w-4 h-4" /> Stop
-                      </Button>
-                    ) : (
-                      <Button onClick={() => startWorkerMutation.mutate()} disabled={startWorkerMutation.isPending} className="gap-2" data-testid="button-start-worker-tab">
-                        <Play className="w-4 h-4" /> Start Worker
-                      </Button>
-                    )}
-                    <Button variant="secondary" onClick={() => runDailyMutation.mutate()} disabled={runDailyMutation.isPending} className="gap-2" data-testid="button-run-daily-tab">
-                      {runDailyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                      Run Once
-                    </Button>
-                  </div>
-                  {s.workerRunning && (
-                    <Badge variant="secondary" className="no-default-hover-elevate gap-1">
-                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Running
-                    </Badge>
-                  )}
-                </div>
-                <div className="rounded-lg border p-4 bg-muted/50 text-sm space-y-2">
-                  <p className="font-medium">Full Lifecycle Pipeline:</p>
-                  <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
-                    <li>Enrich 50 unclassified entities per cycle (websites, emails, AI classification)</li>
-                    <li>Promote hot/warm leads with contact info → CRM Contacts + Deals</li>
-                    <li>Auto-sync new contacts to GoHighLevel</li>
-                    <li>Queue campaign messages (100/day limit)</li>
-                    <li>Send via GHL with email signatures</li>
-                    <li>Auto-score, auto-route, auto-enroll in follow-up sequences</li>
-                    <li>Track opens/replies, trigger stage changes</li>
-                  </ol>
-                </div>
-              </div>
-
-              {s.lastOutreachRun && (
-                <div className="rounded-lg border p-4 space-y-1 text-sm">
-                  <h3 className="font-medium flex items-center gap-2"><Clock className="w-4 h-4" /> Last Run: {new Date(s.lastOutreachRun.timestamp).toLocaleString()}</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2">
-                    <div><span className="text-muted-foreground">Enriched:</span> <strong>{s.lastOutreachRun.enriched || 0}</strong></div>
-                    <div><span className="text-muted-foreground">Promoted:</span> <strong>{s.lastOutreachRun.promoted || 0}</strong></div>
-                    <div><span className="text-muted-foreground">Deals:</span> <strong>{s.lastOutreachRun.dealsCreated || 0}</strong></div>
-                    <div><span className="text-muted-foreground">Queued:</span> <strong>{s.lastOutreachRun.queued || 0}</strong></div>
-                    <div><span className="text-muted-foreground">Sent:</span> <strong>{s.lastOutreachRun.sent || 0}</strong></div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Active Campaigns: {s.activeCampaigns}</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {s.activeCampaigns === 0 ? (
-                <p>No active campaigns. Create a campaign in the Campaigns page to start sending outreach.</p>
-              ) : (
-                <p>{s.activeCampaigns} campaign(s) actively queuing and sending messages.</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="signatures" className="space-y-4">
+          <Alert data-testid="alert-signatures-live">
+            <Mail className="h-4 w-4" />
+            <AlertDescription>
+              These signatures are appended to live campaign emails sent via the "sales" sender profile — edits take effect on the next send.
+            </AlertDescription>
+          </Alert>
           {signatures && Object.entries(signatures).map(([type, data]) => (
             <Card key={type}>
               <CardHeader className="pb-2">
@@ -850,7 +344,7 @@ export default function OutreachCommand() {
                     </div>
                   ))}
                   <Button onClick={() => saveSignatureMutation.mutate({ type: editingSig, data: sigForm })} disabled={saveSignatureMutation.isPending} className="w-full gap-2" data-testid="button-save-signature">
-                    {saveSignatureMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                    {saveSignatureMutation.isPending ? <CheckCircle className="w-4 h-4 animate-pulse" /> : <CheckCircle className="w-4 h-4" />}
                     Save
                   </Button>
                 </div>

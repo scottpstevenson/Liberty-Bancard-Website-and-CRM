@@ -20,6 +20,8 @@ Before this, DBPR exclusion, existing-customer exclusion, and do-not-contact che
 ## Known consumers (as of introduction)
 `master-leads/pipeline-promotion.ts`, `mi09-pilot-authority.ts`, `campaign-engine.ts`, `bulk-enrollment-job.ts`, `ghl-workflow-enrollment.ts`, `cr04-cohort-ready-authority.ts`. Deliberately NOT wired into `ghl-crm-sync-guard.ts` — that gate is inbound-direction (GHL → app), not a contactability decision.
 
+Added later: both sequence-enrollment surfaces in `server/routes/campaigns.ts` — `POST /api/sequence-enrollments` (single-contact) and `POST /api/sequences/:id/enroll-vertical` (bulk cohort) — now call `evaluateContactDecisions().promotion` before creating an enrollment. These are two independently-coded routes with their own inline eligibility loops (not a shared helper), so a new enrollment-creating route must wire the check in itself rather than assume an existing one covers it.
+
 A census script (`scripts/scan-contactability-authority-bypass.ts`) checks each known consumer still calls the authority and flags any *new* direct DBPR-predicate caller outside an explicit allowlist (which covers pre-existing direct callers from before this authority existed, e.g. `queue-manager.ts`, `provider-readiness-control.ts`, `cro08a-scheduler.worker.ts`, `cro08a/source-scope.ts`). Re-run it after adding any new consumer of contact/business eligibility.
 
 ## Gotcha

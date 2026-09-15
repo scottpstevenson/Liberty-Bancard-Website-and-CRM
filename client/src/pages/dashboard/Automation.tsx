@@ -312,10 +312,13 @@ function AICommandCenter() {
         </div>
       )}
       <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5" />
-          AI Command Center
-        </CardTitle>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5" />
+            AI Command Center
+          </CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">Run or pause AI-driven actions (task generation, deal auto-progress, prospect routing) and control the daily AI spend cap.</p>
+        </div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-workflow-stats">
             <Badge variant="secondary">{workflowStats.totalRuns} total runs</Badge>
@@ -916,10 +919,13 @@ function RecentWorkflowRuns() {
   return (
     <Card data-testid="card-recent-runs">
       <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
-        <CardTitle className="flex items-center gap-2">
-          <Activity className="w-5 h-5" />
-          Recent Workflow Runs
-        </CardTitle>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            Run History
+          </CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">Execution log for the workflows below — every trigger, step, and outcome.</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           {statusCounts.completed > 0 && <Badge variant="secondary" data-testid="badge-runs-completed">{statusCounts.completed} completed</Badge>}
           {statusCounts.running > 0 && <Badge variant="default" data-testid="badge-runs-running">{statusCounts.running} running</Badge>}
@@ -1012,8 +1018,9 @@ function ProposalSettings() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <FileSearch className="w-4 h-4" />
-          Statement Proposal Engine
+          Proposal Settings
         </CardTitle>
+        <p className="text-sm text-muted-foreground mt-1">Controls whether statement-analysis proposals email themselves to the merchant automatically, or wait for rep review.</p>
       </CardHeader>
       <CardContent>
         <div className="flex items-center justify-between gap-4">
@@ -1078,21 +1085,41 @@ export default function Automation() {
       <div>
         <div className="flex items-center gap-3">
           <Zap className="w-5 h-5 text-muted-foreground" />
-          <h2 className="text-xl font-semibold" data-testid="text-automation-title">Automation Dashboard</h2>
+          <h2 className="text-xl font-semibold" data-testid="text-automation-title">Automation</h2>
         </div>
-        <p className="text-sm text-muted-foreground mt-1">View your workflows, message templates, and collateral packets</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          AI actions, workflow execution history, workflow definitions, message templates, proposal settings, and sales collateral — each section below is independently owned and scoped.
+        </p>
       </div>
 
-      <ProposalSettings />
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <DollarSign className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Proposal Settings</h3>
+        </div>
+        <ProposalSettings />
+      </div>
 
-      <AICommandCenter />
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">AI Command Center</h3>
+        </div>
+        <AICommandCenter />
+      </div>
 
-      <RecentWorkflowRuns />
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Run History</h3>
+        </div>
+        <RecentWorkflowRuns />
+      </div>
 
       <div>
         <div className="flex items-center gap-2 mb-4">
           <Workflow className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-base font-semibold">Workflows ({workflows?.length || 0})</h3>
+          <h3 className="text-base font-semibold">Workflow Definitions ({workflows?.length || 0})</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">Automated sequences that run when triggers fire. Click any workflow to see every step and the exact messages sent to merchants.</p>
         <div className="space-y-3" data-testid="workflow-list">
@@ -1109,7 +1136,7 @@ export default function Automation() {
           <Mail className="w-4 h-4 text-muted-foreground" />
           <h3 className="text-base font-semibold">Message Templates ({templates?.length || 0})</h3>
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Pre-written email and SMS templates used by workflows and manual sends. Click to preview the full message.</p>
+        <p className="text-sm text-muted-foreground mb-4">Note: these are the pre-written email and SMS bodies workflows and manual sends pull from — not a workflow or campaign themselves. Click to preview the full message.</p>
         <div className="space-y-3" data-testid="template-list">
           {templates && templates.length > 0 ? (
             templates.map((t) => <TemplateCard key={t.id} template={t} />)
@@ -1122,9 +1149,9 @@ export default function Automation() {
       <div>
         <div className="flex items-center gap-2 mb-4">
           <Package className="w-4 h-4 text-muted-foreground" />
-          <h3 className="text-base font-semibold">Collateral Packets ({packets?.length || 0})</h3>
+          <h3 className="text-base font-semibold">Sales Collateral ({packets?.length || 0})</h3>
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Sales packets auto-matched and sent to merchants based on their offer path or industry vertical. Click to see what each packet contains.</p>
+        <p className="text-sm text-muted-foreground mb-4">Sales enablement packets auto-matched and sent to merchants based on their offer path or industry vertical. Click to see what each packet contains.</p>
         <div className="space-y-3" data-testid="packet-list">
           {packets && packets.length > 0 ? (
             packets.map((p) => <PacketCard key={p.id} packet={p} />)

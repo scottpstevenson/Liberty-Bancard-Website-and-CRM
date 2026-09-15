@@ -481,28 +481,10 @@ export default function LeadCommandCenter() {
     onError: (err: any) => { toast({ title: "Routing Error", description: err.message, variant: "destructive" }); },
   });
 
-  const enrollSequenceMutation = useMutation({
-    mutationFn: async (sequenceId: number) => {
-      const promises = selectedProspectsWithContact.map((p) =>
-        apiRequest("POST", "/api/sequence-enrollments", { sequenceId, contactId: p.contactId, status: "active" })
-      );
-      return Promise.all(promises);
-    },
-    onSuccess: () => { toast({ title: "Enrolled", description: "Selected prospects enrolled in sequence." }); setSelectedIds(new Set()); },
-    onError: (err: any) => { toast({ title: "Enrollment Error", description: err.message, variant: "destructive" }); },
-  });
-
-  const addToWorkflowMutation = useMutation({
-    mutationFn: async (workflowId: number) => {
-      const selected = allRows.filter((r) => selectedIds.has(r.id));
-      const promises = selected.map((r) =>
-        apiRequest("POST", `/api/workflows/${workflowId}/run`, { entityType: r.source === "sunbiz" ? "sunbiz_entity" : "prospect", entityId: r.rawId })
-      );
-      return Promise.all(promises);
-    },
-    onSuccess: () => { toast({ title: "Workflow Started", description: "Selected items added to workflow." }); setSelectedIds(new Set()); },
-    onError: (err: any) => { toast({ title: "Workflow Error", description: err.message, variant: "destructive" }); },
-  });
+  // Direct sequence-enrollment and arbitrary workflow-run loops were retired
+  // for this legacy fallback page (#1963) — this component only renders for
+  // non-admin/manager roles via LegacyLeadCommandCenterRedirect in App.tsx.
+  // Use the governed bulk-enrollment flow on Lead Ops / Sequences instead.
 
   const handleFileUpload = useCallback((files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -767,9 +749,15 @@ export default function LeadCommandCenter() {
         {selectedProspectsWithContact.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" disabled={enrollSequenceMutation.isPending} data-testid="button-enroll-sequence">
-                {enrollSequenceMutation.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <PlayCircle className="h-4 w-4 mr-1.5" />}
-                Enroll in Sequence
+              <Button
+                size="sm"
+                variant="outline"
+                disabled
+                title="Direct sequence enrollment is retired on this legacy page — use the governed bulk-enrollment flow on Lead Ops or Sequences."
+                data-testid="button-enroll-sequence"
+              >
+                <PlayCircle className="h-4 w-4 mr-1.5" />
+                Enroll in Sequence (retired)
                 <ChevronDown className="h-3.5 w-3.5 ml-1" />
               </Button>
             </DropdownMenuTrigger>
@@ -778,7 +766,7 @@ export default function LeadCommandCenter() {
                 <DropdownMenuItem disabled>No sequences available</DropdownMenuItem>
               ) : (
                 sequences.map((seq: any) => (
-                  <DropdownMenuItem key={seq.id} onClick={() => enrollSequenceMutation.mutate(seq.id)} data-testid={`menu-sequence-${seq.id}`}>
+                  <DropdownMenuItem key={seq.id} disabled data-testid={`menu-sequence-${seq.id}`}>
                     {seq.name}
                   </DropdownMenuItem>
                 ))
@@ -788,9 +776,15 @@ export default function LeadCommandCenter() {
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="outline" disabled={addToWorkflowMutation.isPending} data-testid="button-add-workflow">
-              {addToWorkflowMutation.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <LayoutList className="h-4 w-4 mr-1.5" />}
-              Add to Workflow
+            <Button
+              size="sm"
+              variant="outline"
+              disabled
+              title="Arbitrary workflow execution is retired on this legacy page — workflows now run only from their own triggers."
+              data-testid="button-add-workflow"
+            >
+              <LayoutList className="h-4 w-4 mr-1.5" />
+              Add to Workflow (retired)
               <ChevronDown className="h-3.5 w-3.5 ml-1" />
             </Button>
           </DropdownMenuTrigger>
@@ -799,7 +793,7 @@ export default function LeadCommandCenter() {
               <DropdownMenuItem disabled>No workflows available</DropdownMenuItem>
             ) : (
               workflows.map((wf: any) => (
-                <DropdownMenuItem key={wf.id} onClick={() => addToWorkflowMutation.mutate(wf.id)} data-testid={`menu-workflow-${wf.id}`}>
+                <DropdownMenuItem key={wf.id} disabled data-testid={`menu-workflow-${wf.id}`}>
                   {wf.name}
                 </DropdownMenuItem>
               ))

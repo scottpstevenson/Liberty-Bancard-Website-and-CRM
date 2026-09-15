@@ -13,10 +13,12 @@ import Cr06Governance from "./Cr06Governance";
  * Outbound Command Center — unified tabbed shell
  * Merges: Campaigns, Sequences, OutreachCommand, ColdLeads, OutreachAnalytics
  *
- * Tab "command"   → Outreach Command (pipeline, import, enrich)
+ * Tab "command"   → Outreach Command (read-only pipeline visibility;
+ *                    import/enrichment/GHL-sync live in Lead Ops / GHL Integration)
  * Tab "campaigns" → Email campaigns
  * Tab "sequences" → Drip sequences
- * Tab "prospects" → Cold leads dormant-contact list
+ * Tab "prospects" → Re-engagement (dormant-contact list; URL param kept as
+ *                    "prospects" for legacy bookmark compatibility, see #1963)
  * Tab "analytics" → Outreach analytics
  *
  * URL: /dashboard/outbound-center?tab=command|campaigns|sequences|prospects|analytics
@@ -69,9 +71,9 @@ export default function OutboundCenter() {
             <ShieldCheck className="w-4 h-4" />
             Governance
           </TabsTrigger>
-          <TabsTrigger value="prospects" className="gap-2" data-testid="tab-outbound-prospects">
+          <TabsTrigger value="prospects" className="gap-2" data-testid="tab-outbound-reengagement">
             <Users className="w-4 h-4" />
-            Prospects
+            Re-engagement
           </TabsTrigger>
           <TabsTrigger value="analytics" className="gap-2" data-testid="tab-outbound-analytics">
             <LineChart className="w-4 h-4" />

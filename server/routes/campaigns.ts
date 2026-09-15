@@ -1246,6 +1246,32 @@ export function registerCampaignsRoutes(app: Express) {
       if (resolvedContactId) {
         const { canEnrollContactInSequence, sequenceHasEmailSteps } = await import("../services/sequence-eligibility");
 
+        // DBPR-lineage / existing-customer gate — the canonical promotion
+        // dimension from evaluateContactDecisions() (server/services/contactability.ts).
+        // Every enumerated consumer of that authority (incl. sequence
+        // enrollment) must call it rather than re-deriving DBPR/existing-
+        // customer logic locally (see #1963).
+        const { evaluateContactDecisions } = await import("../services/contactability");
+        const { promotion } = await evaluateContactDecisions({ contactId: resolvedContactId });
+        if (promotion.status === "blocked") {
+          await storage.createAuditLog({
+            action: "sequence_enrollment_blocked_promotion",
+            entityType: "contact",
+            entityId: resolvedContactId,
+            actorType: "system",
+            details: {
+              sequenceId: seq.id,
+              sequenceName: seq.name,
+              reasonCodes: promotion.reasonCodes,
+              reason: promotion.reason,
+            },
+          });
+          return res.status(400).json({
+            message: promotion.reason || "Contact is not eligible for sequence enrollment.",
+            code: promotion.reasonCodes.includes("EXISTING_CUSTOMER") ? "ENROLLMENT_BLOCKED_EXISTING_CUSTOMER" : "ENROLLMENT_BLOCKED_DBPR",
+          });
+        }
+
         // DNC / consent-tier gate
         const eligibility = await canEnrollContactInSequence(resolvedContactId, seq);
         if (!eligibility.allowed) {
@@ -1776,6 +1802,19 @@ export function registerCampaignsRoutes(app: Express) {
             if (!c.email && !c.phone) {
               skippedMissingInfo++;
               skippedBreakdown["missing_contact_info"] = (skippedBreakdown["missing_contact_info"] ?? 0) + 1;
+              continue;
+            }
+            // DBPR-lineage / existing-customer gate — same canonical promotion
+            // dimension enforced on the single-contact /api/sequence-enrollments
+            // route (see #1963). This bulk path has its own inline eligibility
+            // loop rather than delegating to that route, so it needs the same
+            // check applied directly.
+            const { evaluateContactDecisions } = await import("../services/contactability");
+            const { promotion } = await evaluateContactDecisions({ contactId: c.id });
+            if (promotion.status === "blocked") {
+              skippedIneligible++;
+              const reason = promotion.reasonCodes[0] ?? "promotion_blocked";
+              skippedBreakdown[reason] = (skippedBreakdown[reason] ?? 0) + 1;
               continue;
             }
             const eligibility = await canEnrollContactInSequence(c.id, seq);
