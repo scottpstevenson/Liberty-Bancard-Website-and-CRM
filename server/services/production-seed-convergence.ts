@@ -163,6 +163,72 @@ async function convergeCommercialShadowControls(): Promise<SeedTargetResult> {
   });
 }
 
+// ── Target: paid provider control rows (Task #1971 corrective item 6) ──────
+// migrations/0269_paid_provider_controls_all.sql inserts one explicit,
+// disabled (enabled=FALSE, circuit_state='closed') provider_controls row per
+// paid caller (serper, outscraper, openai, apollo, zerobounce) so every paid
+// provider has a fail-closed control row from day one instead of relying on
+// "no row found" being treated as disabled by every caller. Like every other
+// migration-embedded seed, Replit Publish's schema-only sync never executes
+// this INSERT in production, so without a convergence target production is
+// silently missing all 5 rows. Insert-only, ON CONFLICT DO NOTHING on the
+// existing (provider) unique key — never touches a row that already exists
+// (e.g. one an operator has since enabled).
+const PAID_PROVIDER_CONTROL_SEED_ROWS: { provider: string; capability: string }[] = [
+  { provider: "serper", capability: "business_discovery" },
+  { provider: "outscraper", capability: "business_discovery" },
+  { provider: "openai", capability: "cro03_classification" },
+  { provider: "apollo", capability: "contact_enrichment" },
+  { provider: "zerobounce", capability: "email_validation" },
+];
+
+// Parameterized so scripts/test-paid-provider-controls-convergence.ts can
+// exercise the exact same insert/verify logic against synthetic, FK-safe
+// provider names — the 5 real providers below have live provider_observations
+// (and other) FK dependents in every environment that has ever run a
+// discovery/enrichment cycle, so a test cannot safely delete-and-restore
+// them in a shared dev DB.
+export async function convergeProviderControlRows(
+  id: string,
+  seedRows: { provider: string; capability: string }[],
+): Promise<SeedTargetResult> {
+  const tables = ["provider_controls"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "provider_controls", { provider: "text", capability: "text", enabled: "boolean", circuit_state: "text" });
+    const before = rows(await tx.execute(sql`
+      SELECT provider FROM provider_controls
+      WHERE provider = ANY(ARRAY[${sql.join(seedRows.map((r) => sql`${r.provider}`), sql`, `)}])
+    `));
+    const beforeSet = new Set(before.map((r: any) => String(r.provider)));
+    const missing = seedRows.filter((r) => !beforeSet.has(r.provider));
+    if (missing.length === 0) {
+      return { id, classification: "schema_required_bootstrap", tables, outcome: "already_present", detail: `all ${seedRows.length} paid-provider control row(s) already exist` };
+    }
+    for (const row of missing) {
+      await tx.execute(sql`
+        INSERT INTO provider_controls
+          (provider, capability, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version)
+        VALUES (${row.provider}, ${row.capability}, FALSE, 'closed', NULL, 0, 0, 0)
+        ON CONFLICT (provider) DO NOTHING
+      `);
+    }
+    const after = rows(await tx.execute(sql`
+      SELECT provider FROM provider_controls
+      WHERE provider = ANY(ARRAY[${sql.join(seedRows.map((r) => sql`${r.provider}`), sql`, `)}])
+    `));
+    const afterSet = new Set(after.map((r: any) => String(r.provider)));
+    const stillMissing = seedRows.filter((r) => !afterSet.has(r.provider));
+    if (stillMissing.length > 0) {
+      throw new Error(`SEED_CONVERGENCE_VERIFY_FAILED:${id}:${stillMissing.map((r) => r.provider).join(",")}`);
+    }
+    return { id, classification: "schema_required_bootstrap", tables, outcome: "inserted", detail: `inserted ${missing.length} missing disabled control row(s): ${missing.map((r) => r.provider).join(", ")}` };
+  });
+}
+
+async function convergePaidProviderControls(): Promise<SeedTargetResult> {
+  return convergeProviderControlRows("paid_provider_controls", PAID_PROVIDER_CONTROL_SEED_ROWS);
+}
+
 // ── Target: commercial graph revision backfill ──────────────────────────────
 // commercial_subject_revisions / commercial_membership_revisions are
 // otherwise maintained forward-only by the cro02_bump_graph_membership()
@@ -741,6 +807,7 @@ async function convergeCro08aCandidateFreshnessRefreshSchedule(): Promise<SeedTa
  */
 export const SEED_TARGETS: Array<{ id: string; classification: SeedClassification; tables: string[]; write: () => Promise<SeedTargetResult>; seedKeys?: SeedKeyRegistration }> = [
   { id: "commercial_shadow_controls", classification: "schema_required_bootstrap", tables: ["commercial_shadow_controls"], write: convergeCommercialShadowControls },
+  { id: "paid_provider_controls", classification: "schema_required_bootstrap", tables: ["provider_controls"], write: convergePaidProviderControls },
   { id: "commercial_graph_revisions_backfill", classification: "historical_backfill", tables: ["commercial_subject_revisions", "commercial_membership_revisions"], write: convergeCommercialGraphRevisions },
   {
     id: "cro02_purpose_policies", classification: "immutable_revision_seed", tables: ["commercial_purpose_policies"],
