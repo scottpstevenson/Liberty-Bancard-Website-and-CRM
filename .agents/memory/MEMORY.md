@@ -150,3 +150,4 @@
 - [Master Lead import/backfill DBPR & quarantine](master-lead-import-backfill-dbpr-quarantine.md) — DBPR-lineage exclusion + insufficient-identifier quarantine added to manual-import paths; found/fixed a real duplicate-email unique-index bug.
 - [CRO-03C master-lead E2E certification](cro03c-master-lead-certification.md) — disposable-DB + fake-transport DI recipe; found/fixed 4 real bugs (array-param, hash constraint, wrong join, ESM require).
 - [Live dev DB delta assertion flakiness](live-dev-db-delta-assertion-flakiness.md) — global before/after count assertions flap against this project's shared dev DB; scope to uniquely-prefixed fixture rows instead.
+- [Pilot evidence-completeness chain](pilot-evidence-completeness-chain.md) — terminal state alone isn't proof; walk receipt→resolution→final-outcome; missing checkpoint rows must count as unresolved, not pass by default.
