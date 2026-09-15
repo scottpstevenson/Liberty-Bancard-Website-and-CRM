@@ -16,6 +16,7 @@
  *   critical-commands   — deal-stage-effects, chargeback-commands, statement-upload
  *   ghl-integration     — ghl-sync, ghl-enrollment-recovery, voicemail-sync
  *   enrichment          — enrichment, post-enrichment, cro03a-qualification, discovery
+ *   free-enrichment-lane — isolated RDAP/JSON-LD/contact-page/HTML-only enrichment
  *   provider-live       — cro03c-live
  *   email-validation    — zerobounce-batch-validate
  *   outreach            — sequences, enrollment-recovery, winback-outreach,
@@ -70,6 +71,21 @@ export const WORKER_CAPABILITY_GROUPS = {
     "post-enrichment",
     "cro03a-qualification",
   ],
+  /**
+   * MI-09 Level 1 free-only lane. This is deliberately a distinct capability
+   * from `enrichment`: selecting it must never imply paid discovery, AI, GHL,
+   * or outreach capability.
+   */
+  "free-enrichment-lane": [
+    "free-enrichment-lane",
+  ],
+  /**
+   * Explicit free-only activation alias. It contains no paid, GHL, sequence,
+   * outreach, or recurring schedule queue.
+   */
+  "free-only-workers": [
+    "free-enrichment-lane",
+  ],
   /** Live provider execution gate: CRO03C dispatch and recovery */
   "provider-live": [
     "cro03c-live",
@@ -77,6 +93,15 @@ export const WORKER_CAPABILITY_GROUPS = {
   ],
   /** Email validation via ZeroBounce */
   "email-validation": [
+    "zerobounce-batch-validate",
+  ],
+  /**
+   * Bounded paid-pilot lane. Selecting this group never implies GHL,
+   * sequences, outreach, or recurring CRO08A schedules.
+   */
+  "bounded-pilot-workers": [
+    "cro03c-live",
+    "master-lead-stager",
     "zerobounce-batch-validate",
   ],
   /** Outreach pipelines: sequences, discovery (daily outreach), enrollment recovery, win-back, abandoned statement, proposal follow-up */
@@ -138,6 +163,11 @@ export const WORKER_CAPABILITY_GROUPS = {
    * profile combination can start the CRO08A continuous factory.
    */
   "continuous-enrichment": [
+    "cro08a-scheduler",
+    "cro08a-processor",
+  ],
+  /** CRO08A recurring enrichment activation, kept distinct from pilot work. */
+  "cro08a-recurring-enrichment": [
     "cro08a-scheduler",
     "cro08a-processor",
   ],

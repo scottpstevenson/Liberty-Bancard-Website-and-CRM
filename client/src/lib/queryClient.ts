@@ -14,6 +14,27 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/**
+ * apiRequest() throws `Error(\`${status}: ${text}\`)` on a non-OK response,
+ * where `text` is the raw response body — usually a JSON error object like
+ * `{"error":"typed_confirmation_required","reason":"..."}`. Callers that
+ * need to branch on the server's structured error code (not just show the
+ * message) should catch the thrown error and pass its `.message` through
+ * this helper rather than re-deriving JSON parsing inline. Returns an empty
+ * object (no `code`/`reason`) for non-JSON bodies (e.g. an HTML error page)
+ * instead of throwing.
+ */
+export function parseApiRequestError(message: string): { code?: string; reason?: string } {
+  const jsonStart = message.indexOf("{");
+  if (jsonStart < 0) return {};
+  try {
+    const body = JSON.parse(message.slice(jsonStart));
+    return { code: body?.error, reason: body?.reason };
+  } catch {
+    return {};
+  }
+}
+
 export async function apiRequest(
   method: string,
   url: string,

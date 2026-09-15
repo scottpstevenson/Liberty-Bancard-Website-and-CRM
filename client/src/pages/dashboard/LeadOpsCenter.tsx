@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, parseApiRequestError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -797,6 +797,8 @@ function BusinessesTab({ userRole }: { userRole: string }) {
   const [emailStatusFilter, setEmailStatusFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessListItem | null>(null);
+  const [bootstrapConfirmation, setBootstrapConfirmation] = useState("");
+  const [bootstrapLimit, setBootstrapLimit] = useState("10");
   const LIMIT = 50;
   // Source vertical options from canonical businesses table, not legacy sunbiz_entities.
   const verticalsQuery = useQuery<{ verticals: Array<{ vertical: string; count: number }> }>({
@@ -809,6 +811,80 @@ function BusinessesTab({ userRole }: { userRole: string }) {
     staleTime: 60_000,
   });
   const verticals = verticalsQuery.data?.verticals ?? [];
+
+  const bootstrapPreviewQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/sunbiz-bootstrap/preview", bootstrapLimit],
+    queryFn: async () => {
+      const r = await fetch(`/api/lead-ops/sunbiz-bootstrap/preview?limit=${encodeURIComponent(bootstrapLimit)}`, { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: userRole === "admin",
+    staleTime: 10_000,
+  });
+  const bootstrapStatusQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/sunbiz-bootstrap/status"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/sunbiz-bootstrap/status", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: userRole === "admin",
+    refetchInterval: 15_000,
+  });
+  const bootstrapRunMutation = useMutation({
+    mutationFn: async () => {
+      // previewToken binds this run to the exact preview response the admin
+      // is looking at (candidateCount + confirmationPhrase). It's single-use
+      // and short-lived — if it's missing (preview hasn't loaded, or a prior
+      // attempt already consumed it), re-fetch preview instead of running.
+      const previewToken = bootstrapPreviewQuery.data?.previewToken;
+      if (!previewToken) {
+        const err: Error & { code?: string } = new Error("No active preview token — re-checking preview before you can run.");
+        err.code = "no_active_preview_token";
+        throw err;
+      }
+      try {
+        const r = await apiRequest("POST", "/api/lead-ops/sunbiz-bootstrap/run", {
+          limit: Number(bootstrapLimit),
+          confirmation: bootstrapConfirmation,
+          previewToken,
+        });
+        return await r.json();
+      } catch (e) {
+        // apiRequest() itself throws `Error(\`${status}: ${text}\`)` on any
+        // non-OK response — it never returns the Response for us to inspect,
+        // so the server's structured error code has to be recovered from the
+        // thrown message via parseApiRequestError. The server only DELETES
+        // the previewToken once limit+confirmation both validate (see
+        // peekSunbizBootstrapPreviewToken in sunbiz-bootstrap.ts), so a
+        // typed_confirmation_required rejection means the token is still
+        // alive and reusable — onError uses this code to tell that apart
+        // from a rejection that means the token is actually dead.
+        const { code, reason } = parseApiRequestError(e instanceof Error ? e.message : String(e));
+        const err: Error & { code?: string } = new Error(reason || (e instanceof Error ? e.message : String(e)));
+        err.code = code;
+        throw err;
+      }
+    },
+    onSuccess: () => {
+      setBootstrapConfirmation("");
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/preview"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/status"] });
+    },
+    onError: (err: Error & { code?: string }) => {
+      // Only force a fresh preview/token when THIS token is actually dead
+      // (missing, expired, already consumed/reused, or minted for a
+      // different limit) — never on typed_confirmation_required. A
+      // confirmation typo leaves the server-side token untouched, so
+      // refetching here would throw away a still-valid token and risk
+      // showing the operator a changed candidate count just for correcting
+      // a typo.
+      if (err?.code && err.code !== "typed_confirmation_required") {
+        queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/preview"] });
+      }
+    },
+  });
 
   const params = new URLSearchParams({
     limit: String(LIMIT),
@@ -838,6 +914,59 @@ function BusinessesTab({ userRole }: { userRole: string }) {
 
   return (
     <div className="space-y-4">
+      {userRole === "admin" && (
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Sunbiz Bootstrap — bounded admin run</CardTitle>
+            <CardDescription className="text-xs">
+              Manual only. Preview is read-only; execution is capped at 25 and idempotent by filing number.
+              This action is not scheduled.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs">Batch size
+                <Input className="h-8 w-20 mt-1" type="number" min={1} max={25} value={bootstrapLimit}
+                  onChange={(e) => setBootstrapLimit(String(Math.min(25, Math.max(1, Math.floor(Number(e.target.value) || 1)))))} />
+              </label>
+              <div className="text-xs text-muted-foreground">
+                Would pull <strong>{bootstrapPreviewQuery.data?.candidateCount ?? "—"}</strong>;
+                create {bootstrapPreviewQuery.data?.wouldCreate ?? "—"}, match {bootstrapPreviewQuery.data?.wouldMatchExisting ?? "—"},
+                defer {bootstrapPreviewQuery.data?.wouldDefer ?? "—"}.
+              </div>
+            </div>
+            {bootstrapPreviewQuery.data?.candidates?.length > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                Sample: {bootstrapPreviewQuery.data.candidates.slice(0, 5).map((c: any) => `${c.entityName} (${c.outcome})`).join(" · ")}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 items-end">
+              <label className="text-xs flex-1 min-w-[240px]">Type confirmation
+                <Input className="h-8 mt-1 font-mono" placeholder={`RUN SUNBIZ BOOTSTRAP ${bootstrapPreviewQuery.data?.candidateCount ?? "N"}`}
+                  value={bootstrapConfirmation} onChange={(e) => setBootstrapConfirmation(e.target.value)} />
+              </label>
+              <Button size="sm" variant="outline"
+                disabled={bootstrapRunMutation.isPending || !bootstrapPreviewQuery.data?.candidateCount || !bootstrapPreviewQuery.data?.previewToken}
+                onClick={() => bootstrapRunMutation.mutate()}>
+                {bootstrapRunMutation.isPending ? "Running…" : "Run bounded batch"}
+              </Button>
+            </div>
+            {bootstrapRunMutation.error && <p className="text-xs text-red-600">{(bootstrapRunMutation.error as Error).message}</p>}
+            {bootstrapStatusQuery.data && (
+              <>
+                <div className="text-[11px] text-muted-foreground">
+                  Cursor entity #{bootstrapStatusQuery.data.cursor ?? "—"} · claimed {bootstrapStatusQuery.data.claimed ?? 0} ·
+                  created {bootstrapStatusQuery.data.created ?? 0} · failed {bootstrapStatusQuery.data.failed ?? 0} ·
+                  last completed {bootstrapStatusQuery.data.last_completed_at ? new Date(bootstrapStatusQuery.data.last_completed_at).toLocaleString() : "—"}.
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  Recovery: failed claims are eligible for a later bounded rerun; successful claims are never duplicated.
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
       {/* Slide-over detail panel */}
       {selectedBusiness && (
         <BusinessDetailPanel
@@ -1136,6 +1265,16 @@ export default function LeadOpsCenter() {
     refetchInterval: 120000,
   });
 
+  const freeLaneHealthQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/enrichment-program-health"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/enrichment-program-health", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
   const configQuery = useQuery<LeadOpsConfig>({
     queryKey: ["/api/lead-ops/config"],
     queryFn: async () => {
@@ -1187,6 +1326,16 @@ export default function LeadOpsCenter() {
     placeholderData: (previous) => previous,
   });
   const inboundRequests = inboundRequestsQuery.data || [];
+
+  const stagingCountsQuery = useQuery<Record<string, number>>({
+    queryKey: ["/api/lead-ops/staging-counts"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/staging-counts", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30000,
+  });
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   // NOTE: legacy bulk/single-row enrichment mutation removed — CRO-03 provider
@@ -1424,6 +1573,34 @@ export default function LeadOpsCenter() {
         {/* ── Staging & Promotion tab: Master Leads (all-origin inventory) vs
              Promotion Review (MI-07 controlled-cohort pipeline), split per #1957 ── */}
         <TabsContent value="staging" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Pipeline staging inventory</CardTitle>
+              <CardDescription className="text-xs">
+                Server-derived counts. Promotion remains a separate, explicit admin action.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                {[
+                  ["Pending", "pending"],
+                  ["Staged", "staged"],
+                  ["Duplicate", "duplicate"],
+                  ["Suppressed", "suppressed"],
+                  ["Failed", "failed"],
+                  ["Promoted", "promoted"],
+                ].map(([label, key]) => (
+                  <div key={key} className="rounded border px-3 py-2">
+                    <div className="text-xs text-muted-foreground">{label}</div>
+                    <div className="text-lg font-semibold">{stagingCountsQuery.data?.[key] ?? "—"}</div>
+                  </div>
+                ))}
+              </div>
+              {stagingCountsQuery.isError && (
+                <div className="text-xs text-red-600 mt-2">Unable to load staging counts: {(stagingCountsQuery.error as Error).message}</div>
+              )}
+            </CardContent>
+          </Card>
           <Tabs
             value={user?.role === "admin" ? stagingTab : "promotion-review"}
             onValueChange={handleStagingTabChange}
@@ -1812,6 +1989,21 @@ export default function LeadOpsCenter() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+          {freeLaneHealthQuery.data && (
+            <div className="mt-3 rounded-md border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 px-3 py-2 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">Free-only enrichment lane</span>
+                <Badge variant="outline" className="text-[10px]">{freeLaneHealthQuery.data.status}</Badge>
+              </div>
+              <div className="text-muted-foreground mt-1">
+                Capability: {freeLaneHealthQuery.data.capabilityGroup} · configured: {String(freeLaneHealthQuery.data.configured)} ·
+                running: {String(freeLaneHealthQuery.data.running)} · examined: {freeLaneHealthQuery.data.examined} ·
+                enriched: {freeLaneHealthQuery.data.enriched} · skipped: {freeLaneHealthQuery.data.skipped} ·
+                failed: {freeLaneHealthQuery.data.failed} · pending: {freeLaneHealthQuery.data.pending}
+              </div>
+              <div className="text-muted-foreground">Last run: {freeLaneHealthQuery.data.lastRunAt ? new Date(freeLaneHealthQuery.data.lastRunAt).toLocaleString() : "—"} · next run: manual/pilot only</div>
             </div>
           )}
           {health && !health.workerActive && health.minutesSinceLastJob !== null && health.minutesSinceLastJob >= 15 && (
@@ -2348,6 +2540,7 @@ function StateBadge({ state }: { state: string }) {
 function PilotStatusPanel() {
   const { toast } = useToast();
   const [executingRunId, setExecutingRunId] = useState<string | null>(null);
+  const [reconciliationReport, setReconciliationReport] = useState<any>(null);
   const [budgetConfirmText, setBudgetConfirmText] = useState("");
   const [newDefLevel, setNewDefLevel] = useState<"1" | "2" | "3">("1");
   const [newDefCounties, setNewDefCounties] = useState("");
@@ -2442,7 +2635,11 @@ function PilotStatusPanel() {
   });
   const [activationConfirmText, setActivationConfirmText] = useState("");
 
-  const pricingScheduleQuery = useQuery<{ priceSchedules: Record<string, { unitType: string; currency: string; amountMicros: number; billingSemantics: string }> }>({
+  const pricingScheduleQuery = useQuery<{
+    source: string; snapshotId: string; currentVersion: number; capturedBy: string; capturedAt: string; expiresAt: string;
+    compositeHash: string;
+    priceSchedules: Record<string, { version: number; unitType: string; currency: string; amountMicros: number; billingSemantics: string }>;
+  }>({
     queryKey: ["/api/lead-ops/pilot/pricing-schedule"],
     queryFn: async () => {
       const r = await fetch("/api/lead-ops/pilot/pricing-schedule", { credentials: "include" });
@@ -2588,7 +2785,10 @@ function PilotStatusPanel() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: () => { toast({ title: "Reconciliation report saved" }); },
+    onSuccess: (data) => {
+      setReconciliationReport(data);
+      toast({ title: "Reconciliation report generated and saved" });
+    },
     onError: errToast,
   });
 
@@ -2608,7 +2808,14 @@ function PilotStatusPanel() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: (data) => { toast({ title: "Paid enrichment stopped", description: `Deactivated ${data.deactivatedSchedules} schedule(s); budget authorization revoked.` }); queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] }); },
+    onSuccess: (data) => {
+      toast({
+        title: "All paid providers stopped",
+        description: `Disabled ${data.providersDisabled ?? 0} provider control(s); ${data.inFlightCount ?? 0} in-flight operation(s) require reconciliation.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/status-overview"] });
+    },
     onError: errToast,
   });
 
@@ -2794,28 +3001,58 @@ function PilotStatusPanel() {
         )}
         {statusOverviewQuery.data?.providerControls?.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Provider controls / circuits</div>
-            <div className="flex flex-wrap gap-1">
+            <div className="text-xs text-muted-foreground mb-2">Paid Provider Controls</div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
               {statusOverviewQuery.data.providerControls.map((p: any) => (
-                <span key={p.provider} className={`text-xs px-2 py-0.5 rounded font-mono ${p.circuit_state === "open" ? "bg-red-100 text-red-800" : "bg-muted"}`}>
-                  {p.provider}: enabled={String(p.enabled)} circuit={p.circuit_state}
-                </span>
+                <div key={p.provider} className={`rounded border p-2 text-xs ${p.circuitState !== "closed" || !p.enabled ? "border-red-200 bg-red-50/50" : "bg-muted/30"}`}>
+                  <div className="flex items-center justify-between font-semibold">
+                    <span className="capitalize">{p.provider}</span>
+                    <span className={p.enabled && p.circuitState === "closed" ? "text-green-700" : "text-red-700"}>
+                      {p.enabled ? "enabled" : "disabled"} · {p.circuitState}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 mt-1 font-mono text-[11px]">
+                    <span>credential: {String(p.credentialPresent)}</span>
+                    <span>cap: {p.budgetCapUnits ?? "—"}</span>
+                    <span>reserved: {p.reservedUnits ?? 0}</span>
+                    <span>consumed: {p.consumedUnits ?? 0}</span>
+                    <span className="col-span-2 truncate">price: {p.currentPriceArtifactReference ?? "unavailable"}</span>
+                    <span className="col-span-2">last: {p.lastCallAt ? `${p.lastOutcome ?? "unknown"} @ ${new Date(p.lastCallAt).toLocaleString()}` : "none"}</span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    purposes: {(p.authorizedPurposes ?? []).join(", ") || "none"}
+                  </div>
+                  <div className="truncate text-muted-foreground" title={(p.authorizedCallers ?? []).join(", ")}>
+                    callers: {(p.authorizedCallers ?? []).join(", ") || "none"}
+                  </div>
+                </div>
               ))}
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              Credentials are presence booleans only. In-flight operations requiring reconciliation:{" "}
+              <span className="font-semibold">{statusOverviewQuery.data.paidInFlightCount ?? 0}</span>
             </div>
           </div>
         )}
-        {statusOverviewQuery.data?.secretPresence && (
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Required secret presence (booleans only)</div>
-            <div className="flex flex-wrap gap-1">
-              {Object.entries(statusOverviewQuery.data.secretPresence).map(([k, present]) => (
-                <span key={k} className={`text-xs px-2 py-0.5 rounded font-mono ${present ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-                  {k}: {String(present)}
-                </span>
-              ))}
+        {statusOverviewQuery.data?.zeroBounceSafety && (
+          <div className="rounded border p-2 text-xs">
+            <div className="font-semibold">ZeroBounce automatic lane</div>
+            <div className="font-mono mt-1">
+              {statusOverviewQuery.data.zeroBounceSafety.autoRunEnabled ? "enabled" : "disabled"} · next run{" "}
+              {new Date(statusOverviewQuery.data.zeroBounceSafety.nextAutomaticRunAt).toLocaleString()}
             </div>
           </div>
         )}
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={emergencyStopMutation.isPending}
+          onClick={() => emergencyStopMutation.mutate()}
+          data-testid="button-paid-provider-emergency-stop"
+        >
+          <ShieldAlert className="h-3.5 w-3.5 mr-1" />
+          Emergency stop all paid providers
+        </Button>
       </div>
 
       {/* Final operator-gated activation step (corrective item 10) */}
@@ -2931,13 +3168,14 @@ function PilotStatusPanel() {
         {budgetAuthorized && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button size="sm" variant="destructive"><ShieldAlert className="h-3.5 w-3.5 mr-1" /> Emergency Stop Paid Enrichment</Button>
+              <Button size="sm" variant="destructive"><ShieldAlert className="h-3.5 w-3.5 mr-1" /> Emergency Stop All Paid Providers</Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Stop all paid pilot enrichment?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This revokes the paid-budget authorization and deactivates every active CRO-08A schedule.
+                  This disables Serper, Outscraper, OpenAI, Apollo, and ZeroBounce, turns off automatic ZeroBounce,
+                  deactivates recurring CRO-08A schedules, and leaves in-flight operations visible for reconciliation.
                   It does not change the global outbound-pause state.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -2981,6 +3219,21 @@ function PilotStatusPanel() {
           </div>
           {newDefLevel !== "1" && (
             <div className="space-y-1">
+              <div className="rounded border bg-muted/20 p-2 text-xs">
+                <div className="font-semibold">Pricing authority</div>
+                {pricingScheduleQuery.data ? (
+                  <div className="text-muted-foreground">
+                    DB snapshot v{pricingScheduleQuery.data.currentVersion ?? "—"} ·
+                    captured by {pricingScheduleQuery.data.capturedBy} ·
+                    {new Date(pricingScheduleQuery.data.capturedAt).toLocaleString()} ·
+                    source: {pricingScheduleQuery.data.source} · expires {new Date(pricingScheduleQuery.data.expiresAt).toLocaleString()}
+                  </div>
+                ) : pricingScheduleQuery.isLoading ? (
+                  <div className="text-muted-foreground">Loading reviewed pricing schedule…</div>
+                ) : (
+                  <div className="text-destructive">Pricing unavailable — provider selection is blocked.</div>
+                )}
+              </div>
               <div className="text-xs text-muted-foreground">
                 Paid providers to allow (selecting a provider here only proposes it — the server independently rejects any provider missing its API secret or a recorded pricing artifact):
               </div>
@@ -3073,6 +3326,29 @@ function PilotStatusPanel() {
           </div>
         </div>
       </div>
+
+      {reconciliationReport?.reportData && (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm">Reconciliation report</h3>
+            <span className="text-xs text-muted-foreground font-mono">
+              {reconciliationReport.reportData.pilotRun?.id} · {new Date(reconciliationReport.reportData.generatedAt).toLocaleString()}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+            <div className="rounded border p-2"><div className="text-muted-foreground">Cohort</div><div className="font-semibold">{reconciliationReport.reportData.cohortComposition?.total ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Commands</div><div className="font-semibold">{reconciliationReport.reportData.issuedCommands?.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Operations</div><div className="font-semibold">{reconciliationReport.reportData.resultingOperations?.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Receipts</div><div className="font-semibold">{reconciliationReport.reportData.receipts?.length ?? 0}</div></div>
+            <div className="rounded border p-2"><div className="text-muted-foreground">Settled spend</div><div className="font-semibold">{usdFromMicros(reconciliationReport.reportData.spend?.totalSettledMicros)}</div></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+            <div><div className="font-medium mb-1">Outcomes</div>{(reconciliationReport.reportData.outcomes ?? []).map((row: any) => <div key={row.outcome} className="flex justify-between border-b py-1"><span>{row.outcome}</span><span>{row.count}</span></div>)}</div>
+            <div><div className="font-medium mb-1">Staging results</div>{(reconciliationReport.reportData.stagingResults ?? []).map((row: any) => <div key={row.disposition} className="flex justify-between border-b py-1"><span>{row.disposition}</span><span>{row.count}</span></div>)}</div>
+            <div><div className="font-medium mb-1">Forbidden-effect check</div><div className={reconciliationReport.reportData.forbiddenEffectChecks?.passed ? "text-green-600" : "text-red-600"}>{reconciliationReport.reportData.forbiddenEffectChecks?.passed ? "Passed" : "Failed"}</div><div className="text-muted-foreground mt-1">{reconciliationReport.reportData.forbiddenEffectChecks?.note}</div></div>
+          </div>
+        </div>
+      )}
 
       {/* CRO-08A schedules */}
       <div className="rounded-lg border bg-card p-4 space-y-3">

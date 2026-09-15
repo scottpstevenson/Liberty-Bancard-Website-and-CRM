@@ -26,10 +26,10 @@ import { businessHasDbprLineageSql, businessLacksDbprLineageSql } from "./dbpr";
 import { evaluateBusinessEnrichmentEligibility } from "./contactability";
 import {
   buildCro03PriceScheduleFromArtifacts,
+  CRO03C_PROVIDER_KEYS,
   stableCro03RecipeHash,
   type Cro03PricingArtifactRow,
 } from "./cro03/contracts";
-import { readSignedProviderPricing, type SignedPricingSchedules } from "./signed-pricing-reader";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -182,6 +182,48 @@ export interface PricingScheduleSnapshotResult {
    * schedule reproducible again after the prior snapshot's expiry. */
   renewed: boolean;
   expiresAt: string;
+}
+
+export interface CurrentPricingSchedule {
+  source: "mi09_pricing_schedule_snapshots";
+  snapshotId: string;
+  compositeHash: string;
+  capturedBy: string;
+  capturedAt: string;
+  expiresAt: string;
+  currentVersion: number;
+  priceSchedules: Record<string, unknown>;
+}
+
+/**
+ * Read the one operator-reviewed pricing schedule used by runtime controls.
+ * The JSON file is deliberately not consulted here: a missing or expired
+ * database snapshot is an operator-visible hard failure, never a fallback.
+ */
+export async function getCurrentPricingSchedule(): Promise<CurrentPricingSchedule> {
+  const row = rows(await db.execute(sql`
+    SELECT id, composite_hash, schedule_json, captured_by, captured_at, expires_at
+      FROM mi09_pricing_schedule_snapshots
+     WHERE expires_at > NOW()
+     ORDER BY captured_at DESC
+     LIMIT 1
+  `))[0];
+  if (!row) throw new Error("CRO03_PRICING_SCHEDULE_UNAVAILABLE: no unexpired operator-reviewed database schedule");
+  const schedule = typeof row.schedule_json === "string" ? JSON.parse(row.schedule_json) : row.schedule_json;
+  if (!schedule || typeof schedule !== "object" || Array.isArray(schedule) || Object.keys(schedule).length === 0) {
+    throw new Error("CRO03_PRICING_SCHEDULE_INVALID: database schedule is empty or malformed");
+  }
+  return {
+    source: "mi09_pricing_schedule_snapshots",
+    snapshotId: String(row.id),
+    compositeHash: String(row.composite_hash),
+    capturedBy: String(row.captured_by),
+    capturedAt: new Date(row.captured_at).toISOString(),
+    expiresAt: new Date(row.expires_at).toISOString(),
+    currentVersion: Object.values(schedule as Record<string, any>)
+      .reduce((max, entry: any) => Math.max(max, Number(entry?.version ?? 0)), 0),
+    priceSchedules: schedule as Record<string, unknown>,
+  };
 }
 
 /**
@@ -372,18 +414,25 @@ export async function createPilotDefinition(
         `PILOT_DEFINITION_INVALID:provider_secret_missing:${missingSecret.join(",")}`,
       );
     }
-    // Pricing must be readable live from signed-pricing.json right now — a
-    // provider is never allowed based on a cached/DB copy of a price that
-    // may have since been revoked or gone unsigned.
-    let livePricing: SignedPricingSchedules;
+    // Pricing is allowed only from the current operator-reviewed database
+    // schedule. signed-pricing.json is retained as a historical/dev artifact
+    // and is never runtime authority.
+    let livePricing: CurrentPricingSchedule;
     try {
-      livePricing = readSignedProviderPricing();
+      livePricing = await getCurrentPricingSchedule();
     } catch (err) {
       throw new Error(
-        `PILOT_DEFINITION_INVALID:signed_pricing_unavailable:${err instanceof Error ? err.message : String(err)}`,
+        `PILOT_DEFINITION_INVALID:pricing_schedule_unavailable:${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    const missingPricing = selectedProviders.filter((p) => !livePricing[p]);
+    const missingPricing = selectedProviders.filter((p) => {
+      const schedule = livePricing.priceSchedules[p] as any;
+      return !schedule || typeof schedule.unitType !== "string" ||
+        typeof schedule.currency !== "string" ||
+        !Number.isSafeInteger(Number(schedule.amountMicros)) ||
+        Number(schedule.amountMicros) < 0 ||
+        typeof schedule.billingSemantics !== "string";
+    });
     if (missingPricing.length > 0) {
       throw new Error(
         `PILOT_DEFINITION_INVALID:provider_pricing_artifact_missing:${missingPricing.join(",")}`,
@@ -680,11 +729,72 @@ const LEGAL_PILOT_TRANSITIONS: Record<string, string[]> = {
   stopped:   [],   // terminal
 };
 
+/**
+ * Re-derive execution evidence from the frozen cohort. Client-supplied
+ * checkpoint/stop-condition values are never accepted as proof.
+ */
+export async function assertPilotEvidenceComplete(runId: string): Promise<void> {
+  const run = rows(await db.execute(sql`
+    SELECT r.cohort_frozen_hash, pd.level
+    FROM mi09_pilot_runs r
+    JOIN mi09_pilot_definitions pd ON pd.id = r.pilot_definition_id
+    WHERE r.id = ${runId}::uuid
+  `))[0];
+  if (!run?.cohort_frozen_hash) {
+    throw new Error("PILOT_EVIDENCE_MISSING:cohort_not_frozen");
+  }
+  const cohort = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM mi09_pilot_cohort_members
+    WHERE pilot_run_id = ${runId}::uuid
+  `))[0];
+  const expected = Number(cohort?.count ?? 0);
+  if (expected === 0) throw new Error("PILOT_EVIDENCE_MISSING:empty_frozen_cohort");
+
+  const checkpoint = rows(await db.execute(sql`
+    SELECT COALESCE(MAX(processed_count), 0)::int AS count
+    FROM mi09_pilot_checkpoints
+    WHERE pilot_run_id = ${runId}::uuid AND phase = 'enrichment'
+  `))[0];
+  if (Number(checkpoint?.count ?? 0) !== expected) {
+    throw new Error(
+      `PILOT_EVIDENCE_INCOMPLETE:cohort_processed=${checkpoint?.count ?? 0}/${expected}`,
+    );
+  }
+
+  if (Number(run.level) === 1) {
+    const outcomes = rows(await db.execute(sql`
+      SELECT COUNT(*)::int AS count,
+             COUNT(*) FILTER (WHERE outcome IN ('enriched','failed','skipped'))::int AS terminal
+      FROM mi09_pilot_enrichment_outcomes
+      WHERE pilot_run_id = ${runId}::uuid
+    `))[0];
+    if (Number(outcomes?.count ?? 0) !== expected || Number(outcomes?.terminal ?? 0) !== expected) {
+      throw new Error(
+        `PILOT_EVIDENCE_INCOMPLETE:level1_terminal_outcomes=${outcomes?.terminal ?? 0}/${expected}`,
+      );
+    }
+    const missing = rows(await db.execute(sql`
+      SELECT m.canonical_business_id
+      FROM mi09_pilot_cohort_members m
+      LEFT JOIN mi09_pilot_enrichment_outcomes o
+        ON o.pilot_run_id = m.pilot_run_id AND o.business_id = m.canonical_business_id
+      WHERE m.pilot_run_id = ${runId}::uuid AND o.id IS NULL
+      LIMIT 1
+    `))[0];
+    if (missing) {
+      throw new Error(`PILOT_EVIDENCE_INCOMPLETE:silent_skip_business=${missing.canonical_business_id}`);
+    }
+  }
+}
+
 export async function transitionPilotRunState(
   runId: string,
   toState: "running" | "paused" | "completed" | "stopped",
   opts?: { stopReason?: string; advancedBy?: string },
 ): Promise<void> {
+  if (toState === "completed") {
+    await assertPilotEvidenceComplete(runId);
+  }
   // Read current state inside a transaction to enforce legal transitions atomically.
   await db.transaction(async (tx) => {
     const current = rows(await tx.execute(sql`
@@ -1277,12 +1387,14 @@ export async function executePilotCohortPhase(input: {
   handoffsLinked: number;
   effectsRecorded: number;
   complete: boolean;
+  terminalOutcomes?: Array<{ businessId: number; outcome: "enriched" | "failed" | "skipped"; error?: string }>;
 }> {
   const batchSize = Math.max(1, input.batchSize ?? 50);
 
   // Verify run state and load definition for paid-provider gating.
   const run = rows(await db.execute(sql`
     SELECT pr.id, pr.state, pr.outbound_pause_epoch, pr.pilot_definition_id,
+           pd.level,
            pd.paid_providers_allowed
     FROM mi09_pilot_runs pr
     JOIN mi09_pilot_definitions pd ON pd.id = pr.pilot_definition_id
@@ -1340,6 +1452,55 @@ export async function executePilotCohortPhase(input: {
 
   const businessIds = cohortBatch.map((m: any) => Number(m.canonical_business_id));
   const maxBusinessId = Math.max(...businessIds);
+
+  // Level 1 is a real free-only pilot, not a checkpoint simulation. Execute
+  // the isolated lane synchronously and persist one terminal outcome per
+  // frozen member before the checkpoint can move forward.
+  if (Number(run.level) === 1) {
+    const { runFreeEnrichmentLane } = await import("./free-enrichment-lane");
+    const terminalOutcomes = await runFreeEnrichmentLane(businessIds);
+    for (const outcome of terminalOutcomes) {
+      await db.execute(sql`
+        INSERT INTO mi09_pilot_enrichment_outcomes
+          (pilot_run_id, business_id, outcome, error_code)
+        VALUES (${input.pilotRunId}::uuid, ${outcome.businessId},
+                ${outcome.outcome}, ${outcome.error ?? null})
+        ON CONFLICT (pilot_run_id, business_id)
+        DO UPDATE SET outcome = EXCLUDED.outcome,
+                      error_code = EXCLUDED.error_code,
+                      recorded_at = NOW()
+      `);
+    }
+    if (terminalOutcomes.length !== businessIds.length) {
+      throw new Error(
+        `PILOT_LEVEL1_EVIDENCE_INCOMPLETE:expected=${businessIds.length} recorded=${terminalOutcomes.length}`,
+      );
+    }
+    await db.execute(sql`
+      INSERT INTO mi09_pilot_checkpoints
+        (pilot_run_id, phase, last_processed_business_id, processed_count)
+      VALUES (${input.pilotRunId}::uuid, ${input.phase}, ${maxBusinessId},
+              ${(Number(checkpoint?.processed_count ?? 0)) + cohortBatch.length})
+      ON CONFLICT (pilot_run_id, phase)
+      DO UPDATE SET
+        last_processed_business_id = EXCLUDED.last_processed_business_id,
+        processed_count = EXCLUDED.processed_count,
+        updated_at = NOW()
+    `);
+    const remaining = rows(await db.execute(sql`
+      SELECT COUNT(*)::int AS cnt
+      FROM mi09_pilot_cohort_members
+      WHERE pilot_run_id = ${input.pilotRunId}::uuid
+        AND canonical_business_id > ${maxBusinessId}
+    `))[0];
+    return {
+      processed: cohortBatch.length,
+      handoffsLinked: 0,
+      effectsRecorded: 0,
+      complete: Number(remaining?.cnt ?? 0) === 0,
+      terminalOutcomes,
+    };
+  }
 
   // Find handoffs associated with these businesses via canonical_source_links.
   // canonical_source_links.stable_key matches cro03a_handoffs.source_key.
@@ -1988,6 +2149,10 @@ export async function issuePilotAdvancementReceipt(
   `))[0];
   if (existing) return { id: String(existing.id), alreadyExisted: true };
 
+  // Advancement is independently evidence-gated; never trust the UI's
+  // stopConditionsChecked or claimed phase completion.
+  await assertPilotEvidenceComplete(input.pilotRunId);
+
   // Verify pause epoch unchanged.
   const pause = await getPauseState();
   if (pause.state !== "paused") throw new Error("PILOT_ADVANCEMENT_BLOCKED:outbound_not_paused");
@@ -2036,6 +2201,178 @@ export async function issuePilotAdvancementReceipt(
 }
 
 // ── Reconciliation Reports ────────────────────────────────────────────────────
+
+/**
+ * Build a complete reconciliation from durable pilot evidence. This is kept
+ * server-side so an operator cannot submit a partial/stub report from the UI.
+ * Every section is scoped through the pilot run's effect links (and the
+ * explicit provenance columns where available).
+ */
+export async function buildPilotReconciliationReport(runId: string): Promise<Record<string, unknown>> {
+  const run = await getPilotRun(runId);
+  if (!run) throw new Error(`PILOT_RUN_NOT_FOUND:${runId}`);
+  const [
+    cohortComposition,
+    commands,
+    operations,
+    receipts,
+    spend,
+    outcomes,
+    staging,
+    failures,
+    forbiddenEffects,
+    noOutboundChecks,
+  ] = await Promise.all([
+    db.execute(sql`
+      SELECT COALESCE(source_adapter_key, 'unknown') AS source_adapter_key,
+             COALESCE(vertical, 'unknown') AS vertical,
+             COALESCE(county_fips, 'unknown') AS county_fips,
+             COUNT(*)::int AS count
+        FROM mi09_pilot_cohort_members
+       WHERE pilot_run_id = ${runId}::uuid
+       GROUP BY source_adapter_key, vertical, county_fips
+       ORDER BY count DESC
+    `),
+    db.execute(sql`
+      SELECT c.id, c.command_type, c.state, c.caps, c.created_at, c.completed_at
+        FROM mi09_pilot_effect_links pel
+        JOIN cro03c_commands c ON c.id = pel.entity_id
+       WHERE pel.pilot_run_id = ${runId}::uuid AND pel.entity_type = 'cro03c_command'
+       ORDER BY c.created_at
+    `),
+    db.execute(sql`
+      SELECT so.id, so.generation_id, so.provider, so.operation_type, so.state,
+             so.dispatch_state, so.max_reserved_units, so.max_reserved_amount_micros,
+             so.settled_units, so.settled_amount_micros, so.billing_certainty,
+             so.terminal_disposition, so.reconciliation_required
+        FROM cro03c_stage_operations so
+        JOIN cro03c_generations g ON g.id = so.generation_id
+        JOIN mi09_pilot_effect_links pel ON pel.entity_id = g.command_id
+       WHERE pel.pilot_run_id = ${runId}::uuid
+         AND pel.entity_type = 'cro03c_command'
+       ORDER BY so.created_at
+    `),
+    db.execute(sql`
+      SELECT r.id, r.generation_id, r.stage_operation_id, r.receipt_type,
+             r.normalized_outcome, r.settled_units, r.settled_amount_micros,
+             r.created_at
+        FROM cro03c_receipts r
+        JOIN cro03c_generations g ON g.id = r.generation_id
+        JOIN mi09_pilot_effect_links pel ON pel.entity_id = g.command_id
+       WHERE pel.pilot_run_id = ${runId}::uuid
+         AND pel.entity_type = 'cro03c_command'
+       ORDER BY r.created_at
+    `),
+    db.execute(sql`
+      SELECT COALESCE(so.provider, 'unknown') AS provider,
+             COALESCE(SUM(so.settled_amount_micros), 0)::bigint AS settled_micros,
+             COALESCE(SUM(CASE WHEN so.state IN ('reserved','dispatched')
+                               THEN so.max_reserved_amount_micros ELSE 0 END), 0)::bigint AS reserved_micros,
+             COALESCE(SUM(so.max_reserved_amount_micros), 0)::bigint AS authorized_micros
+        FROM cro03c_stage_operations so
+        JOIN cro03c_generations g ON g.id = so.generation_id
+        JOIN mi09_pilot_effect_links pel ON pel.entity_id = g.command_id
+       WHERE pel.pilot_run_id = ${runId}::uuid
+         AND pel.entity_type = 'cro03c_command'
+       GROUP BY so.provider
+       ORDER BY so.provider
+    `),
+    db.execute(sql`
+      SELECT COALESCE(r.normalized_outcome, 'missing') AS outcome, COUNT(*)::int AS count
+        FROM cro03c_receipts r
+        JOIN cro03c_generations g ON g.id = r.generation_id
+        JOIN mi09_pilot_effect_links pel ON pel.entity_id = g.command_id
+       WHERE pel.pilot_run_id = ${runId}::uuid
+         AND pel.entity_type = 'cro03c_command'
+       GROUP BY r.normalized_outcome
+       ORDER BY count DESC
+    `),
+    db.execute(sql`
+      SELECT COALESCE(sr.disposition, 'unknown') AS disposition, COUNT(*)::int AS count
+        FROM master_lead_staging_receipts sr
+        LEFT JOIN cro03c_generations g ON g.id = sr.cro03_generation_id
+       WHERE sr.pilot_run_id = ${runId}::uuid OR g.pilot_run_id = ${runId}::uuid
+       GROUP BY sr.disposition
+       ORDER BY count DESC
+    `),
+    db.execute(sql`
+      SELECT COALESCE(so.provider, 'unknown') AS provider,
+             COUNT(*) FILTER (WHERE so.state IN ('failed','cancelled','quarantined'))::int AS failed_operations,
+             COUNT(*) FILTER (WHERE so.reconciliation_required = true)::int AS reconciliation_required
+        FROM cro03c_stage_operations so
+        JOIN cro03c_generations g ON g.id = so.generation_id
+        JOIN mi09_pilot_effect_links pel ON pel.entity_id = g.command_id
+       WHERE pel.pilot_run_id = ${runId}::uuid
+         AND pel.entity_type = 'cro03c_command'
+       GROUP BY so.provider
+    `),
+    db.execute(sql`
+      SELECT entity_type, COUNT(*)::int AS count
+        FROM mi09_pilot_effect_links
+       WHERE pilot_run_id = ${runId}::uuid
+         AND entity_type NOT IN ('cro03c_command','generation','staging_receipt','master_lead')
+       GROUP BY entity_type
+    `),
+    db.execute(sql`
+      SELECT s.phase, s.counters, s.created_at
+        FROM cro03c_no_outbound_snapshots s
+        JOIN mi09_pilot_effect_links pel ON pel.entity_id = s.command_id
+       WHERE pel.pilot_run_id = ${runId}::uuid
+         AND pel.entity_type = 'cro03c_command'
+       ORDER BY s.created_at
+    `),
+  ]);
+  const asRows = (result: any): any[] => result?.rows ?? result ?? [];
+  const commandRows = asRows(commands);
+  const operationRows = asRows(operations);
+  const receiptRows = asRows(receipts);
+  const spendRows = asRows(spend);
+  const outcomeRows = asRows(outcomes);
+  const stagingRows = asRows(staging);
+  const failureRows = asRows(failures);
+  const forbiddenRows = asRows(forbiddenEffects);
+  const outboundRows = asRows(noOutboundChecks);
+  const cohortRows = asRows(cohortComposition);
+  const totalSpendMicros = spendRows.reduce((sum, row) => sum + Number(row.settled_micros ?? 0), 0);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    pilotRun: {
+      id: String(run.id),
+      state: run.state,
+      level: Number(run.level),
+      releaseSha: run.release_sha,
+      outboundPauseEpoch: String(run.outbound_pause_epoch),
+      cohortFrozenHash: run.cohort_frozen_hash,
+    },
+    cohortComposition: {
+      total: cohortRows.reduce((sum, row) => sum + Number(row.count ?? 0), 0),
+      bySourceVerticalCounty: cohortRows,
+    },
+    providerApplicability: (CRO03C_PROVIDER_KEYS as readonly string[]).map((provider) => ({
+      provider,
+      operationCount: operationRows.filter((operation) => operation.provider === provider).length,
+      issuedCommandCount: commandRows.filter((command) => command.caps?.provider === provider).length,
+      settledUnits: operationRows.filter((operation) => operation.provider === provider)
+        .reduce((sum, operation) => sum + Number(operation.settled_units ?? 0), 0),
+    })),
+    issuedCommands: commandRows,
+    resultingOperations: operationRows,
+    receipts: receiptRows,
+    spend: { totalSettledMicros: totalSpendMicros, byProvider: spendRows },
+    outcomes: outcomeRows,
+    stagingResults: stagingRows,
+    failures: failureRows,
+    forbiddenEffectChecks: {
+      forbiddenEffectLinks: forbiddenRows,
+      noOutboundSnapshots: outboundRows,
+      passed: forbiddenRows.length === 0 && outboundRows.length > 0,
+      note: outboundRows.length === 0
+        ? "No CRO-03C no-outbound snapshots were recorded for this run"
+        : "Pilot command no-outbound snapshots were present; no forbidden effect links found",
+    },
+  };
+}
 
 export async function savePilotReconciliationReport(input: {
   pilotRunId: string;

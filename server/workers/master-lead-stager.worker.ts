@@ -474,6 +474,7 @@ export async function processMasterLeadStagingIntent(intentId: string, opts?: { 
           pipeline_origin,
           canonical_business_id,
           cro03_generation_id,
+          pilot_run_id,
           status,
           company,
           normalized_company,
@@ -497,6 +498,7 @@ export async function processMasterLeadStagingIntent(intentId: string, opts?: { 
           'cro03_pipeline',
           ${canonicalBusinessId},
           ${generationId}::uuid,
+          (SELECT pilot_run_id FROM cro03c_generations WHERE id=${generationId}::uuid),
           'staged',
           ${biz.canonicalName},
           ${biz.normalizedName},
@@ -526,9 +528,9 @@ export async function processMasterLeadStagingIntent(intentId: string, opts?: { 
         // Write duplicate receipt and consume intent atomically.
         await tx.execute(sql`
           INSERT INTO master_lead_staging_receipts
-            (cro03_generation_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
+            (cro03_generation_id, pilot_run_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
           VALUES
-            (${generationId}::uuid, ${canonicalBusinessId}, NULL, 'duplicate', 'existing_pipeline_master_lead_active')
+            (${generationId}::uuid, (SELECT pilot_run_id FROM cro03c_generations WHERE id=${generationId}::uuid), ${canonicalBusinessId}, NULL, 'duplicate', 'existing_pipeline_master_lead_active')
           ON CONFLICT (cro03_generation_id, canonical_business_id) DO NOTHING
         `);
         await tx.execute(sql`
@@ -544,9 +546,9 @@ export async function processMasterLeadStagingIntent(intentId: string, opts?: { 
       // 5b: Write staging receipt in same transaction
       await tx.execute(sql`
         INSERT INTO master_lead_staging_receipts
-          (cro03_generation_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
+          (cro03_generation_id, pilot_run_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
         VALUES
-          (${generationId}::uuid, ${canonicalBusinessId}, ${masterLeadId}::uuid, 'staged', NULL)
+          (${generationId}::uuid, (SELECT pilot_run_id FROM cro03c_generations WHERE id=${generationId}::uuid), ${canonicalBusinessId}, ${masterLeadId}::uuid, 'staged', NULL)
         ON CONFLICT (cro03_generation_id, canonical_business_id) DO NOTHING
       `);
 
@@ -653,9 +655,9 @@ async function markIntentFailed(
     if (stateTransitionSucceeded && receipt) {
       await tx.execute(sql`
         INSERT INTO master_lead_staging_receipts
-          (cro03_generation_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
+          (cro03_generation_id, pilot_run_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
         VALUES
-          (${receipt.generationId}::uuid, ${receipt.canonicalBusinessId}, NULL, 'failed', ${reason.slice(0, 500)})
+          (${receipt.generationId}::uuid, (SELECT pilot_run_id FROM cro03c_generations WHERE id=${receipt.generationId}::uuid), ${receipt.canonicalBusinessId}, NULL, 'failed', ${reason.slice(0, 500)})
         ON CONFLICT (cro03_generation_id, canonical_business_id) DO NOTHING
       `);
     }
@@ -675,9 +677,9 @@ async function writeReceipt(
 ): Promise<void> {
   await db.execute(sql`
     INSERT INTO master_lead_staging_receipts
-      (cro03_generation_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
+      (cro03_generation_id, pilot_run_id, canonical_business_id, master_lead_id, disposition, suppression_reason)
     VALUES
-      (${generationId}::uuid, ${canonicalBusinessId}, ${masterLeadId ?? null}::uuid, ${disposition}, ${suppressionReason ?? null})
+      (${generationId}::uuid, (SELECT pilot_run_id FROM cro03c_generations WHERE id=${generationId}::uuid), ${canonicalBusinessId}, ${masterLeadId ?? null}::uuid, ${disposition}, ${suppressionReason ?? null})
     ON CONFLICT (cro03_generation_id, canonical_business_id) DO NOTHING
   `);
 }

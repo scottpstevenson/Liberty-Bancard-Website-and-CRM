@@ -174,12 +174,14 @@ export async function runMasterLeadBackfill(): Promise<{
           await db.execute(sql`
             INSERT INTO master_leads (
               id, import_batch_id, status,
+              pipeline_origin,
               company, normalized_company, domain, email, phone, normalized_phone,
               contact_name, vertical, source, address, city, state, website,
               email_valid, phone_valid, sms_eligible,
               suppression_reason, canonical_business_id, created_at
             ) VALUES (
               ${id}, ${batchId}, ${status},
+              'manual_import',
               ${c.company_name ?? null},
               ${(c.company_name ?? "").toLowerCase().trim() || null},
               ${domain},

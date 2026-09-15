@@ -995,6 +995,24 @@ function ZeroBounceDailyCapTab() {
   const { data, isLoading, refetch } = useQuery<{ dailyCap: number; usedToday: number }>({
     queryKey: ["/api/admin/settings/zerobounce-daily-cap"],
   });
+  const safetyQuery = useQuery<{
+    enabled: boolean;
+    circuitState: string;
+    dailyCap: number | null;
+    autoRunEnabled: boolean;
+    nextAutomaticRunAt: string;
+    authorizedPurposes: string[];
+    authorizedCallers: string[];
+  }>({ queryKey: ["/api/admin/settings/zerobounce-safety"] });
+
+  const autoRunMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest("PUT", "/api/admin/settings/zerobounce-auto-run", { enabled }),
+    onSuccess: () => {
+      toast({ title: "ZeroBounce automatic lane updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/zerobounce-safety"] });
+    },
+    onError: (err: any) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
 
   // Sync server → local once loaded (only if not dirty)
   useState(() => {
@@ -1040,6 +1058,38 @@ function ZeroBounceDailyCapTab() {
 
   return (
     <div className="space-y-6">
+      {/* MI-09 safety controls are independent from the legacy/manual batch lane. */}
+      <div className="rounded-md border border-violet-200 dark:border-violet-800 p-4 bg-violet-50/50 dark:bg-violet-900/10 space-y-3" data-testid="panel-zerobounce-safety">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold">ZeroBounce safety controls</h3>
+            <p className="text-xs text-muted-foreground">MI-09 automatic validation is off by default and does not enable legacy bulk validation.</p>
+          </div>
+          <Badge variant={safetyQuery.data?.enabled && safetyQuery.data?.circuitState === "closed" ? "default" : "destructive"}>
+            {safetyQuery.data?.enabled ? "enabled" : "disabled"} · {safetyQuery.data?.circuitState ?? "unavailable"}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+          <div className="rounded border p-2"><div className="text-muted-foreground">Daily cap</div><div className="font-mono">{(safetyQuery.data?.dailyCap ?? cap).toLocaleString()}</div></div>
+          <div className="rounded border p-2"><div className="text-muted-foreground">Used today</div><div className="font-mono">{used.toLocaleString()}</div></div>
+          <div className="rounded border p-2"><div className="text-muted-foreground">MI-09 auto-run</div><div className="font-mono">{safetyQuery.data?.autoRunEnabled ? "ON" : "OFF"}</div></div>
+          <div className="rounded border p-2"><div className="text-muted-foreground">Next scheduled</div><div className="font-mono">{safetyQuery.data?.nextAutomaticRunAt ? new Date(safetyQuery.data.nextAutomaticRunAt).toLocaleString() : "—"}</div></div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={safetyQuery.data?.autoRunEnabled ? "destructive" : "default"}
+            disabled={autoRunMutation.isPending || !safetyQuery.data}
+            onClick={() => autoRunMutation.mutate(!safetyQuery.data?.autoRunEnabled)}
+            data-testid="button-toggle-zerobounce-auto-run"
+          >
+            {safetyQuery.data?.autoRunEnabled ? "Disable MI-09 auto-run" : "Enable MI-09 auto-run"}
+          </Button>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Purposes: {(safetyQuery.data?.authorizedPurposes ?? []).join(", ") || "none"} · Callers: {(safetyQuery.data?.authorizedCallers ?? []).join(", ") || "none"}
+        </div>
+      </div>
       {/* Usage banner */}
       <div className="rounded-md border p-4 bg-muted/40 space-y-2">
         <div className="flex items-center justify-between text-sm">

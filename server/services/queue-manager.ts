@@ -3576,7 +3576,7 @@ async function runFreeContactEnrichmentForMerchant(merchantId: number): Promise<
  * - Re-run on already-enriched businesses (within 90 days) is a no-op
  * - CRO-03 evidence written via createCro03SourceBatch() only
  */
-async function runFreeBusinessEnrichmentForBusiness(businessId: number): Promise<void> {
+export async function runFreeBusinessEnrichmentForBusiness(businessId: number): Promise<void> {
   const { db: _db } = await import("../db");
   const { sql: _sql } = await import("drizzle-orm");
   const { businessLacksDbprLineageSql } = await import("./dbpr");

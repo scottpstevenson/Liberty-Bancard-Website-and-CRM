@@ -1,10 +1,9 @@
 /**
- * Live reader for signed-pricing.json (task #1956, Step 4).
+ * Development/forensics reader for signed-pricing.json.
  *
- * MI-09's provider-selector UI and its server-side gate must never hardcode
- * or restate a provider's price — they read it live from this file, every
- * time, so an updated signed-pricing.json takes effect without a code
- * change or restart. This module does no caching on purpose.
+ * This file is retained as a historical ceremony artifact and optional
+ * development fixture. It is NOT runtime authority: MI-09 reads only the
+ * operator-reviewed database pricing schedule snapshot.
  *
  * signed-pricing.json holds one CRO-03C multi-dimension approval ceremony
  * (operator/data/finance/legal), each dimension carrying its own signed copy
@@ -32,10 +31,8 @@ const DIMENSIONS = ["operator", "data", "finance", "legal"] as const;
 export class SignedPricingUnavailableError extends Error {}
 
 /**
- * Reads and returns the current live price schedule map from
- * signed-pricing.json. Throws SignedPricingUnavailableError (never returns a
- * partial/fallback map) if the file is missing, malformed, or the four
- * signed dimensions disagree on price schedules.
+ * Reads a signed-pricing development fixture. Runtime callers must not use
+ * this helper; use getCurrentPricingSchedule() from mi09-pilot-authority.
  */
 export function readSignedProviderPricing(): SignedPricingSchedules {
   if (!existsSync(SIGNED_PRICING_PATH)) {

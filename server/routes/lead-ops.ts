@@ -420,6 +420,164 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     });
   });
 
+  // ── Governed Sunbiz bootstrap (manual, bounded, never scheduled) ─────────
+  app.get("/api/lead-ops/sunbiz-bootstrap/preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewSunbizBootstrap, sunbizBootstrapConfirmationPhrase, issueSunbizBootstrapPreviewToken } = await import("../services/sunbiz-bootstrap");
+      const limit = Math.min(25, Math.max(1, Math.floor(Number(req.query.limit) || 25)));
+      // filingNumberLike is an optional admin-side narrowing filter (e.g. to
+      // inspect/rerun a specific filing number or prefix) — selectSunbizBootstrapCandidates
+      // already routes it through a sargable filing_number range scan rather
+      // than a full hot/warm table scan, so exposing it here doesn't
+      // reintroduce a perf regression.
+      const filingNumberLike = typeof req.query.filingNumberLike === "string" ? req.query.filingNumberLike : undefined;
+      const preview = await previewSunbizBootstrap(limit, { filingNumberLike });
+      // The confirmation phrase is derived from the actual candidateCount
+      // (never the requested limit). It's also minted into a short-lived,
+      // single-use previewToken that /run validates against directly — so a
+      // claim landing between this preview and the run call (another admin's
+      // batch, or this module's own stale-claim recovery) can never silently
+      // invalidate the exact phrase this response just displayed. The token
+      // also carries the exact filing_number set behind candidateCount (and
+      // the same filingNumberLike filter), so /run can reject execution
+      // outright if that set drifts before the batch actually runs, rather
+      // than silently running a different set.
+      const confirmationPhrase = sunbizBootstrapConfirmationPhrase(preview.candidateCount);
+      const previewToken = issueSunbizBootstrapPreviewToken(
+        confirmationPhrase,
+        limit,
+        preview.candidates.map((c) => c.filingNumber),
+        filingNumberLike,
+      );
+      res.json({ limit, confirmationPhrase, previewToken, ...preview });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to preview Sunbiz bootstrap" });
+    }
+  });
+
+  app.get("/api/lead-ops/sunbiz-bootstrap/status", requireRole("admin"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total_claims,
+          COUNT(*) FILTER (WHERE status = 'claimed')::int AS claimed,
+          COUNT(*) FILTER (WHERE status = 'created')::int AS created,
+          COUNT(*) FILTER (WHERE status = 'matched_existing')::int AS matched_existing,
+          COUNT(*) FILTER (WHERE status = 'deferred_collision')::int AS deferred,
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+          MAX(completed_at) AS last_completed_at
+        FROM sunbiz_bootstrap_claims
+      `);
+      const candidate = await db.execute(sql`
+        SELECT MIN(se.id)::int AS next_entity_id
+        FROM sunbiz_entities se
+        WHERE se.score IN ('hot','warm')
+          AND NOT EXISTS (
+            SELECT 1 FROM sunbiz_bootstrap_claims c WHERE c.filing_number = se.filing_number
+          )
+      `);
+      res.json({
+        ...(rows(result)[0] ?? {}),
+        cursor: rows(candidate)[0]?.next_entity_id ?? null,
+        recovery: "Failed claims remain durable and can be inspected; successful claims are idempotently excluded from retries.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load bootstrap status" });
+    }
+  });
+
+  app.post("/api/lead-ops/sunbiz-bootstrap/run", requireRole("admin"), async (req, res) => {
+    try {
+      const limit = Math.min(25, Math.max(1, Math.floor(Number(req.body?.limit) || 25)));
+      const confirmation = String(req.body?.confirmation ?? "");
+      const previewToken = String(req.body?.previewToken ?? "");
+      const { runSunbizBootstrapBatch, peekSunbizBootstrapPreviewToken, consumeSunbizBootstrapPreviewToken, SunbizBootstrapSnapshotDriftError } = await import("../services/sunbiz-bootstrap");
+
+      // Validation is bound to the token minted by /preview, NOT to a freshly
+      // recomputed candidateCount. A recompute here would reintroduce the
+      // exact race the token exists to close: candidates can change between
+      // preview and run (another admin's batch, or this module's own
+      // stale-claim recovery), which would otherwise reject the very phrase
+      // the caller was just shown.
+      //
+      // Validation PEEKS the token first (does not delete it) so a typo'd
+      // confirmation doesn't burn a still-valid preview — the caller can
+      // correct the phrase and resubmit with the same token. The token is
+      // only consumed (single-use) once limit + confirmation both check out,
+      // immediately before executing the batch.
+      const tokenRecord = previewToken ? peekSunbizBootstrapPreviewToken(previewToken) : null;
+      if (!tokenRecord) {
+        return res.status(400).json({
+          error: "preview_token_required",
+          reason: "Call GET .../sunbiz-bootstrap/preview first and submit its previewToken with this request; it is single-use and expires after 5 minutes.",
+        });
+      }
+      if (tokenRecord.limit !== limit) {
+        return res.status(400).json({
+          error: "preview_token_limit_mismatch",
+          reason: "The previewToken was minted for a different limit than this request. Re-preview with the desired limit.",
+        });
+      }
+      if (confirmation !== tokenRecord.confirmationPhrase) {
+        return res.status(400).json({
+          error: "typed_confirmation_required",
+          reason: `Type exactly '${tokenRecord.confirmationPhrase}' to run this bounded batch.`,
+        });
+      }
+      if (tokenRecord.candidateFilingNumbers.length === 0) {
+        return res.status(409).json({
+          error: "no_candidates",
+          reason: "No unclaimed hot/warm Sunbiz candidates were eligible when this preview was taken.",
+        });
+      }
+      // Consume (single-use) only now that validation passed, immediately
+      // before the batch runs — prevents this same token being replayed for
+      // a second, separate run.
+      consumeSunbizBootstrapPreviewToken(previewToken);
+      let outcomes: Awaited<ReturnType<typeof runSunbizBootstrapBatch>>;
+      try {
+        // Passing the token's candidateFilingNumbers makes runSunbizBootstrapBatch
+        // verify its fresh selection is IDENTICAL to what the admin previewed
+        // before it claims or writes anything — not just that the count still
+        // matches. A claim landing between preview and this call (another
+        // admin's batch, or this module's own stale-claim recovery) throws
+        // SunbizBootstrapSnapshotDriftError instead of silently executing a
+        // different set of entities than the reviewed/confirmed one.
+        outcomes = await runSunbizBootstrapBatch(limit, { filingNumberLike: tokenRecord.filingNumberLike }, tokenRecord.candidateFilingNumbers);
+      } catch (err) {
+        if (err instanceof SunbizBootstrapSnapshotDriftError) {
+          return res.status(409).json({
+            error: err.code,
+            reason: "The eligible candidate set changed since this preview was taken (another run or claim recovery altered it). Re-preview and confirm again.",
+          });
+        }
+        throw err;
+      }
+      await storage.createAuditLog({
+        action: "sunbiz_bootstrap_admin_batch",
+        entityType: "system",
+        entityId: 0,
+        details: {
+          limit,
+          candidateCount: tokenRecord.candidateFilingNumbers.length,
+          outcomes,
+        },
+      });
+      res.json({ limit, candidateCount: tokenRecord.candidateFilingNumbers.length, outcomes });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Sunbiz bootstrap failed; rerun is safe" });
+    }
+  });
+
+  app.get("/api/lead-ops/enrichment-program-health", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getFreeEnrichmentLaneStatus } = await import("../services/free-enrichment-lane");
+      res.json(await getFreeEnrichmentLaneStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load free-enrichment lane status" });
+    }
+  });
+
   // ── GET /api/lead-ops/health ───────────────────────────────────────────────
   // Pipeline health stats — enrichment throughput, queue depth, success rate,
   // plus worker-authority truth fields (intake path, enrichment_progress
@@ -1600,28 +1758,15 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   });
 
   // ── GET /api/lead-ops/budget-preview ────────────────────────────────────────
-  // CRO-03C price schedules are stored as immutable JSONB authority artifacts
-  // on the active activation policy (there is no standalone price-schedules
-  // table in this schema). Never turn a missing/invalid schedule into a
-  // fabricated estimate.
+  // Pricing comes only from the current operator-reviewed database snapshot.
   app.get("/api/lead-ops/budget-preview", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const result = await db.execute(sql`
-        SELECT version, price_schedules
-        FROM cro03c_activation_policies
-        WHERE status = 'approved'
-          AND policy_key = 'cro03c_live_activation'
-        ORDER BY version DESC, created_at DESC
-        LIMIT 1
-      `);
-      const row = ((result as any).rows ?? result)[0];
-      const schedules = row?.price_schedules;
-      if (!schedules || typeof schedules !== "object" || Array.isArray(schedules) || Object.keys(schedules).length === 0) {
-        return res.json({ available: false });
-      }
+      const { getCurrentPricingSchedule } = await import("../services/mi09-pilot-authority");
+      const current = await getCurrentPricingSchedule();
+      const schedules = current.priceSchedules as Record<string, any>;
       const prices = Object.entries(schedules).map(([provider, value]: [string, any]) => ({
         provider,
-        version: Number(value?.version ?? row.version ?? 0),
+        version: Number(value?.version ?? 0),
         unitType: value?.unitType ?? null,
         currency: value?.currency ?? null,
         amountMicros: typeof value?.amountMicros === "number" ? value.amountMicros : null,
@@ -1629,10 +1774,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       }));
       const validPrices = prices.filter((p) => p.amountMicros !== null);
       return res.json(validPrices.length > 0
-        ? { available: true, prices: validPrices }
-        : { available: false });
-    } catch {
-      return res.json({ available: false });
+        ? { available: true, prices: validPrices, source: current.source, snapshotId: current.snapshotId, capturedBy: current.capturedBy, capturedAt: current.capturedAt, expiresAt: current.expiresAt }
+        : { available: false, error: "CRO03_PRICING_SCHEDULE_INVALID" });
+    } catch (err: any) {
+      return res.status(503).json({ available: false, error: err?.message ?? "pricing_schedule_unavailable" });
     }
   });
 
@@ -1667,35 +1812,26 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         needsContactEnrichment,
         needsEmailValidation,
       });
-      let pricing: { available: boolean; prices?: Array<Record<string, unknown>> } = { available: false };
+      let pricing: { available: boolean; prices?: Array<Record<string, unknown>>; source?: string; snapshotId?: string; capturedBy?: string; capturedAt?: string; expiresAt?: string } = { available: false };
       try {
-        // Must constrain on policy_key='cro03c_live_activation' so only the
-        // canonical live activation policy is used, not any other approved policy.
-        const pricingResult = await db.execute(sql`
-          SELECT version, price_schedules
-          FROM cro03c_activation_policies
-          WHERE status = 'approved'
-            AND policy_key = 'cro03c_live_activation'
-          ORDER BY version DESC, created_at DESC
-          LIMIT 1
-        `);
-        const pricingRow = ((pricingResult as any).rows ?? pricingResult)[0];
-        const schedules = pricingRow?.price_schedules;
+        const { getCurrentPricingSchedule } = await import("../services/mi09-pilot-authority");
+        const current = await getCurrentPricingSchedule();
+        const schedules = current.priceSchedules as Record<string, any>;
         if (schedules && typeof schedules === "object" && !Array.isArray(schedules)) {
           const prices = Object.entries(schedules)
             .map(([provider, value]: [string, any]) => ({
               provider,
-              version: Number(value?.version ?? pricingRow.version ?? 0),
+              version: Number(value?.version ?? 0),
               unitType: value?.unitType ?? null,
               currency: value?.currency ?? null,
               amountMicros: typeof value?.amountMicros === "number" ? value.amountMicros : null,
               billingSemantics: value?.billingSemantics ?? null,
             }))
             .filter((price) => price.amountMicros !== null);
-          if (prices.length) pricing = { available: true, prices };
+          if (prices.length) pricing = { available: true, prices, source: current.source, snapshotId: current.snapshotId, capturedBy: current.capturedBy, capturedAt: current.capturedAt, expiresAt: current.expiresAt };
         }
-      } catch {
-        pricing = { available: false };
+      } catch (err: any) {
+        pricing = { available: false, source: err?.message ?? "pricing_schedule_unavailable" };
       }
 
       res.json({
@@ -1840,15 +1976,36 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // Live provider pricing straight from signed-pricing.json — never a
-  // hardcoded/restated copy. Used by the provider-selector UI so the
-  // operator sees the exact price the server's own gate will check.
+  // MI-09/MI-07: one server-owned staging inventory for the Lead Ops staging
+  // tab. Counts are deliberately sourced from intents/receipts/master_leads,
+  // not client-side approximations.
+  app.get("/api/lead-ops/staging-counts", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::int FROM master_lead_staging_intents WHERE status IN ('pending','processing')) AS pending,
+          (SELECT COUNT(*)::int FROM master_leads WHERE pipeline_origin = 'cro03_pipeline' AND status = 'staged') AS staged,
+          (SELECT COUNT(*)::int FROM master_lead_staging_receipts WHERE disposition = 'duplicate') AS duplicate,
+          (SELECT COUNT(*)::int FROM master_lead_staging_receipts WHERE disposition = 'suppressed') AS suppressed,
+          (SELECT COUNT(*)::int FROM master_lead_staging_receipts WHERE disposition = 'failed') AS failed,
+          (SELECT COUNT(*)::int FROM master_leads WHERE pipeline_origin = 'cro03_pipeline' AND status = 'promoted') AS promoted
+      `);
+      const row = ((result as any).rows ?? result)[0] ?? {};
+      res.json(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value ?? 0)])));
+    } catch (err: any) {
+      res.status(503).json({ error: err?.message ?? "staging_counts_unavailable" });
+    }
+  });
+
+  // Current operator-reviewed database pricing schedule used by both the
+  // provider-selector UI and the server-side pilot gate. signed-pricing.json
+  // is historical/dev-seed-only and is never consulted at runtime.
   app.get("/api/lead-ops/pilot/pricing-schedule", requireRole("admin"), async (_req, res) => {
     try {
-      const { readSignedProviderPricing } = await import("../services/signed-pricing-reader");
-      res.json({ priceSchedules: readSignedProviderPricing() });
+      const { getCurrentPricingSchedule } = await import("../services/mi09-pilot-authority");
+      res.json(await getCurrentPricingSchedule());
     } catch (err: any) {
-      res.status(503).json({ error: err?.message ?? "signed_pricing_unavailable" });
+      res.status(503).json({ error: err?.message ?? "pricing_schedule_unavailable" });
     }
   });
 
@@ -1898,11 +2055,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     try {
       const { getPoolAuthorityDecision, getAggregatePilotSpend } = await import("../services/mi09-pilot-authority");
       const { getBackgroundProfile } = await import("../services/background-profile");
+      const { getPaidProviderControls } = await import("../services/paid-provider-control");
 
       const [poolAuthority, spend] = await Promise.all([
         getPoolAuthorityDecision(),
         getAggregatePilotSpend(),
       ]);
+      const paidProviderControls = await getPaidProviderControls();
 
       const eligibleCounts = rows(await db.execute(sql`
         SELECT
@@ -1919,15 +2078,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         WHERE email_status IS NOT NULL GROUP BY email_status ORDER BY cnt DESC LIMIT 10
       `));
 
-      const providerControls = rows(await db.execute(sql`
-        SELECT provider, enabled, circuit_state, local_budget_units, reserved_units, consumed_units
-        FROM provider_controls
-        WHERE provider IN ('serper', 'outscraper', 'openai', 'apollo', 'zerobounce')
-      `));
-
-      const requiredSecrets = ["SERPER_API_KEY", "OUTSCRAPER_API_KEY", "AI_INTEGRATIONS_OPENAI_API_KEY", "APOLLO_API_KEY", "ZEROBOUNCE_API_KEY"];
-      const secretPresence = Object.fromEntries(requiredSecrets.map((k) => [k, !!process.env[k]]));
-
       res.json({
         poolAuthority,
         releaseSha: process.env.RELEASE_SHA ?? "unknown",
@@ -1937,8 +2087,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         zbOutcomes,
         spendByProvider: spend.byProvider,
         aggregateBudget: { capMicros: spend.capMicros, settledMicros: spend.settledMicros, reservedMicros: spend.reservedMicros, remainingMicros: spend.remainingMicros, overCap: spend.overCap },
-        providerControls,
-        secretPresence,
+        providerControls: paidProviderControls.providers,
+        zeroBounceSafety: paidProviderControls.zeroBounce,
+        paidInFlightCount: paidProviderControls.inFlightCount,
+        paidInFlightOperations: paidProviderControls.inFlightOperations,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
@@ -2005,6 +2157,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     } catch (err: any) {
       const status = err?.message?.includes("MI09_PAID_BUDGET_NOT_AUTHORIZED") ? 403
         : err?.message?.includes("MI09_AGGREGATE_BUDGET_EXCEEDED") ? 409
+        : err?.message?.includes("PILOT_EVIDENCE") ? 409
         : 500;
       res.status(status).json({ error: err?.message });
     }
@@ -2049,7 +2202,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       });
       res.json(receipt);
     } catch (err: any) {
-      res.status(500).json({ error: err?.message });
+      res.status(err?.message?.includes("PILOT_EVIDENCE") ? 409 : 500).json({ error: err?.message });
     }
   });
 
@@ -2175,36 +2328,27 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/pilot/emergency-stop-paid — revokes standing paid-budget
-  // authorization and deactivates every active CRO-08A schedule definition, so
-  // no further paid dispatch (batch or scheduled) can occur. Does NOT touch the
-  // global outbound-pause state, which governs sends, not this provider-spend gate.
+  // POST /api/lead-ops/pilot/emergency-stop-paid — real paid-provider stop.
+  // It disables every paid control row (including the legacy Serper singleton),
+  // turns off automatic ZeroBounce and recurring CRO08A execution, and returns
+  // already-dispatched operations that still require reconciliation.
   app.post("/api/lead-ops/pilot/emergency-stop-paid", requireRole("admin"), async (req, res) => {
     try {
       const { revokePaidBudgetAuthorization } = await import("../services/mi09-pilot-authority");
-      const { deactivateCro08aScheduleDefinition } = await import("../services/cro08a/schedule-authority");
+      const { emergencyStopPaidProviders } = await import("../services/paid-provider-control");
       const revokedBy = (req as any).user?.email ?? String((req as any).user?.id ?? "unknown-admin");
       const reason = String(req.body?.reason ?? "operator_emergency_stop");
 
       await revokePaidBudgetAuthorization({ revokedBy, reason });
-
-      const activeDefs = rows(await db.execute(sql`
-        SELECT id FROM cro08a_schedule_definitions WHERE active = true
-      `));
-      let deactivatedCount = 0;
-      for (const d of activeDefs) {
-        await deactivateCro08aScheduleDefinition(String((d as any).id));
-        deactivatedCount++;
-      }
-
-      await storage.createAuditLog({
-        action: "mi09_pilot_emergency_stop_paid",
-        entityType: "system",
-        entityId: 0,
-        details: { revokedBy, reason, deactivatedSchedules: deactivatedCount },
+      const result = await emergencyStopPaidProviders({ stoppedBy: revokedBy, reason });
+      res.json({
+        ok: true,
+        budgetAuthorizationRevoked: true,
+        providersDisabled: result.providersDisabled,
+        deactivatedSchedules: result.schedulesDeactivated,
+        inFlightCount: result.inFlightCount,
+        inFlightOperations: result.inFlightOperations,
       });
-
-      res.json({ ok: true, budgetAuthorizationRevoked: true, deactivatedSchedules: deactivatedCount });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
@@ -2315,14 +2459,19 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/pilot/reconciliation-reports — save reconciliation report
+  // POST /api/lead-ops/pilot/reconciliation-reports — generate and save the
+  // complete report from durable server data. The client supplies only run id.
   app.post("/api/lead-ops/pilot/reconciliation-reports", requireRole("admin"), async (req, res) => {
     try {
-      const { savePilotReconciliationReport } = await import("../services/mi09-pilot-authority");
-      const result = await savePilotReconciliationReport(req.body);
-      res.json(result);
+      const pilotRunId = String(req.body?.pilotRunId ?? "");
+      if (!pilotRunId) return res.status(400).json({ error: "pilotRunId required" });
+      const { buildPilotReconciliationReport, savePilotReconciliationReport } = await import("../services/mi09-pilot-authority");
+      const reportData = await buildPilotReconciliationReport(pilotRunId);
+      const saved = await savePilotReconciliationReport({ pilotRunId, reportData });
+      res.json({ ...saved, pilotRunId, reportData });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message });
+      const status = err?.message?.includes("PILOT_RUN_NOT_FOUND") ? 404 : 500;
+      res.status(status).json({ error: err?.message });
     }
   });
 

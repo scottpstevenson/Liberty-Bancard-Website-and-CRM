@@ -131,11 +131,11 @@ export const CRO03C_PROVIDER_CONTRACTS: Readonly<Record<string, {
 
 // Providers that must clear the shared provider_controls (enabled + closed
 // circuit) gate before a CRO03C stage operation reserves against them — the
-// same durable, admin-toggleable table zerobounce already uses. This does
-// not touch apollo/serper/free providers, which are out of this step's
-// scope; extending them later is a matter of adding to this set, never a
-// parallel control system.
-export const CRO03C_SHARED_CONTROL_GATED_PROVIDERS: ReadonlySet<string> = new Set(["outscraper", "openai"]);
+// same durable, admin-toggleable table zerobounce already uses. All paid
+// callers use this one fail-closed authority; free providers are intentionally
+// not in the set.
+export const CRO03C_SHARED_CONTROL_GATED_PROVIDERS: ReadonlySet<string> =
+  new Set(["serper", "outscraper", "openai", "apollo", "zerobounce"]);
 
 /**
  * Standalone, independently testable gate for CRO03C_SHARED_CONTROL_GATED_PROVIDERS.
@@ -939,6 +939,25 @@ export async function createCro03cCommand(input: {
     assertCro03cApprovalEvidence(policy.required_approvals ?? {});
     const pricing = policy.price_schedules ?? {};
     assertCro03cPriceSchedules(pricing);
+    // The approved policy is executable only while it is bound to the current
+    // operator-reviewed database snapshot. This prevents a stale ceremony
+    // policy (or a missing schedule) from becoming reservation authority.
+    const currentPricingSnapshot = rows(await tx.execute(sql`
+      SELECT schedule_json
+        FROM mi09_pricing_schedule_snapshots
+       WHERE expires_at > NOW()
+       ORDER BY captured_at DESC
+       LIMIT 1
+    `))[0];
+    if (!currentPricingSnapshot) {
+      throw new Error("CRO03C_PRICING_SCHEDULE_UNAVAILABLE: no unexpired operator-reviewed database schedule");
+    }
+    const currentSchedule = typeof currentPricingSnapshot.schedule_json === "string"
+      ? JSON.parse(currentPricingSnapshot.schedule_json)
+      : currentPricingSnapshot.schedule_json;
+    if (stableCro03RecipeHash(currentSchedule) !== stableCro03RecipeHash(pricing)) {
+      throw new Error("CRO03C_PRICING_SNAPSHOT_POLICY_MISMATCH: approved policy is not bound to current database schedule");
+    }
     const validationMaxUnits = input.commandType === "initial_batch" ? distinctHandoffs.length : 0;
     const validationUnitAmountMicros = Number(pricing.zerobounce.amountMicros);
     const validationMaxAmountMicros = validationMaxUnits * validationUnitAmountMicros;
@@ -1239,13 +1258,20 @@ export async function createCro03cCommand(input: {
       });
       const generation = rows(await tx.execute(sql`
         INSERT INTO cro03c_generations
-          (handoff_id,recipe_version,recipe_hash,mode,activation_revision,command_id,run_id,
+          (handoff_id,recipe_version,recipe_hash,mode,activation_revision,command_id,run_id,pilot_run_id,
            frozen_handoff_hash,stage_plan_hash,cohort_hash,runtime_attestation_id)
         VALUES (${handoffId}::uuid,${CRO03C_RECIPE_VERSION},${CRO03C_RECIPE_HASH},${resolveCro03cGenerationMode(input.commandType)},
-                ${policy.expected_revision},${commandId}::uuid,${runId}::uuid,${frozenHandoffHash},
+                ${policy.expected_revision},${commandId}::uuid,${runId}::uuid,${input.pilotRunId ?? null}::uuid,${frozenHandoffHash},
                  ${stagePlanHash},${cohortHash},${input.runtimeAttestationId}::uuid)
         RETURNING id
       `))[0];
+      if (input.pilotRunId) {
+        await tx.execute(sql`
+          INSERT INTO mi09_pilot_effect_links (pilot_run_id, entity_type, entity_id)
+          VALUES (${input.pilotRunId}::uuid, 'generation', ${generation.id}::uuid)
+          ON CONFLICT (pilot_run_id, entity_type, entity_id) DO NOTHING
+        `);
+      }
       const stagePlans = planCro03cEvidenceStages({
         payload: sourceEvidence.payload ?? {},
         commandType: input.commandType,
@@ -1986,9 +2012,9 @@ export async function settleCro03cProviderOperation(input: {
   const receiptKey = `cro03c:${input.operationId}:terminal`;
   const inserted = rows(await db.execute(sql`
     INSERT INTO cro03c_receipts
-      (generation_id,stage_operation_id,receipt_key,receipt_type,normalized_outcome,evidence_hash,
+      (generation_id,pilot_run_id,stage_operation_id,receipt_key,receipt_type,normalized_outcome,evidence_hash,
        provider_receipt_reference,redacted_metadata,settled_units,settled_amount_micros)
-    VALUES (${op.generation_id}::uuid,${input.operationId}::uuid,${receiptKey},'terminal',${input.outcome},
+    VALUES (${op.generation_id}::uuid,(SELECT pilot_run_id FROM cro03c_generations WHERE id=${op.generation_id}::uuid),${input.operationId}::uuid,${receiptKey},'terminal',${input.outcome},
             ${input.evidenceHash},${input.providerReceiptReference ?? null},
             ${JSON.stringify(input.metadata ?? {})}::jsonb,${input.settledUnits},${input.settledAmountMicros})
     ON CONFLICT (receipt_key) DO NOTHING
@@ -2545,10 +2571,10 @@ export async function cancelCro03cCommand(input: {
       const evidenceHash = hashCro03Evidence({ provider: "zerobounce", outcome: "ambiguous", cause: "command_cancelled", operationId: String(op.id) });
       await tx.execute(sql`
         INSERT INTO cro03c_receipts
-          (generation_id, stage_operation_id, receipt_key, receipt_type, normalized_outcome,
+          (generation_id, pilot_run_id, stage_operation_id, receipt_key, receipt_type, normalized_outcome,
            evidence_hash, redacted_metadata, settled_units, settled_amount_micros)
         VALUES
-          (${String(op.generation_id)}::uuid, ${String(op.id)}::uuid, ${receiptKey},
+          (${String(op.generation_id)}::uuid, (SELECT pilot_run_id FROM cro03c_generations WHERE id=${String(op.generation_id)}::uuid), ${String(op.id)}::uuid, ${receiptKey},
            'terminal', 'ambiguous', ${evidenceHash},
            ${JSON.stringify({ cause: "command_cancelled", commandId: input.commandId })}::jsonb,
            0, 0)

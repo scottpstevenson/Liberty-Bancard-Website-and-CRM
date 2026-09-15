@@ -2349,6 +2349,19 @@ export function registerAdminRoutes(app: Express) {
     } catch (err: any) { serverError(res, err); }
   });
 
+  // Consolidated ZeroBounce safety view for Settings → Integrations. The
+  // automatic MI-09 lane is intentionally independent from operator-triggered
+  // legacy batch validation and defaults to off when no setting exists.
+  app.get("/api/admin/settings/zerobounce-safety", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getPaidProviderControls } = await import("../services/paid-provider-control");
+      const snapshot = await getPaidProviderControls();
+      res.json(snapshot.zeroBounce);
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
   // PUT /api/admin/settings/zerobounce-daily-cap
   // Body: { dailyCap: number } — must be a positive integer ≤ 100 000
   app.put("/api/admin/settings/zerobounce-daily-cap", requireRole("admin"), async (req, res) => {

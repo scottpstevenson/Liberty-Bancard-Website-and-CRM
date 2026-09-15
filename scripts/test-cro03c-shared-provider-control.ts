@@ -1,21 +1,17 @@
 #!/usr/bin/env tsx
 /**
- * Task #1956, Step 5 test: confirmed hardening gap closed for
- * outscraper/openai via the SHARED provider_controls authority (the same
- * table/columns zerobounce already uses) — not a parallel control system.
+ * Paid-provider emergency-stop test: every paid caller uses the SHARED
+ * provider_controls authority.
  *
  * Exercises assertCro03cSharedProviderControlOpen() directly — the exact
  * predicate reserveCro03cProviderOperation runs inside its authority
- * transaction for every stage operation — against real provider_controls
+ * transaction for every stage operation — against disposable provider_controls
  * fixture rows:
- *  1. No provider_controls row for outscraper/openai -> blocked (fail
- *     closed), mirroring zerobounce's existing behavior.
+ *  1. No provider_controls row for every paid provider -> blocked (fail closed).
  *  2. enabled=false -> blocked ("emergency stop").
  *  3. circuit_state='open' -> blocked ("circuit breaker").
  *  4. enabled=true + circuit_state='closed' -> gate passes.
- *  5. A provider NOT in CRO03C_SHARED_CONTROL_GATED_PROVIDERS (e.g. apollo)
- *     passes even with no control row at all — this step's gate is scoped
- *     to outscraper/openai only, per the task's explicit boundary.
+ *  5. Free/internal providers are not in the paid-provider gate.
  *
  * Run with: npx tsx scripts/test-cro03c-shared-provider-control.ts
  */
@@ -76,24 +72,27 @@ async function cleanup() {
   // trigger) — its rows are immutable authority artifacts, not test residue to
   // reclaim. Leaving a handful of clearly-prefixed, inert test rows behind is
   // the correct behavior, not a leak.
-  await db.execute(sql`DELETE FROM provider_controls WHERE provider IN ('outscraper','openai') AND capability = ${`t1956-test-${RUN_ID}`}`);
+  await db.execute(sql`DELETE FROM provider_controls WHERE provider IN ('serper','outscraper','openai','apollo') AND capability = ${`t1956-test-${RUN_ID}`}`);
+  await db.execute(sql`UPDATE provider_controls SET enabled=FALSE, circuit_state='closed' WHERE provider='zerobounce'`);
 }
 
 async function main() {
   console.log(`[test-cro03c-shared-provider-control] run id ${RUN_ID}`);
 
-  assert("outscraper is in the gated set", CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has("outscraper"));
-  assert("openai is in the gated set", CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has("openai"));
-  assert("apollo is NOT in the gated set (out of this step's scope)", !CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has("apollo"));
-  assert("serper is NOT in the gated set (has its own dedicated gateway)", !CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has("serper"));
+  for (const provider of ["serper", "outscraper", "openai", "apollo", "zerobounce"]) {
+    assert(`${provider} is in the paid-provider gated set`, CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has(provider));
+  }
+  assert("internal_source is not in the paid-provider gated set", !CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has("internal_source"));
 
   try {
-    for (const provider of ["outscraper", "openai"] as const) {
+    for (const provider of ["serper", "outscraper", "openai", "apollo", "zerobounce"] as const) {
       const gate = (label: string) => assertCro03cSharedProviderControlOpen(provider, { execute: (q) => db.execute(q) as any });
 
-      // 1. No control row at all -> blocked
-      await db.execute(sql`DELETE FROM provider_controls WHERE provider = ${provider}`);
-      {
+      // 1. No control row at all -> blocked. The seeded ZeroBounce row is
+      // referenced by durable observation fixtures, so its equivalent
+      // fail-closed assertion is covered by the disabled-row case below.
+      if (provider !== "zerobounce") {
+        await db.execute(sql`DELETE FROM provider_controls WHERE provider = ${provider}`);
         let threw = false, message = "";
         try { await gate("no-row"); } catch (e) { threw = true; message = e instanceof Error ? e.message : String(e); }
         assert(`${provider}: blocked with no provider_controls row (fail closed)`, threw && message.includes("CRO03C_PROVIDER_CONTROL_BLOCKED"), message);

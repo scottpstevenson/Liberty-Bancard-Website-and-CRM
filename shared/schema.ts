@@ -1192,6 +1192,7 @@ export const cro03cGenerations = pgTable("cro03c_generations", {
   mode: text("mode").notNull().default("cro03c_live_v1"),
   activationRevision: integer("activation_revision").notNull(),
   commandId: uuid("command_id").notNull().references(() => cro03cCommands.id, { onDelete: "restrict" }),
+  pilotRunId: uuid("pilot_run_id"),
   runId: uuid("run_id").notNull().references(() => cro03cRuns.id, { onDelete: "restrict" }),
   frozenHandoffHash: text("frozen_handoff_hash").notNull(),
   stagePlanHash: text("stage_plan_hash").notNull(),
@@ -1291,6 +1292,7 @@ export const cro03cDispatchCheckpoints = pgTable("cro03c_dispatch_checkpoints", 
 export const cro03cReceipts = pgTable("cro03c_receipts", {
   id: uuid("id").primaryKey().defaultRandom(),
   generationId: uuid("generation_id").notNull().references(() => cro03cGenerations.id, { onDelete: "restrict" }),
+  pilotRunId: uuid("pilot_run_id"),
   stageOperationId: uuid("stage_operation_id").references(() => cro03cStageOperations.id, { onDelete: "restrict" }),
   receiptKey: text("receipt_key").notNull().unique(),
   receiptType: text("receipt_type").notNull(),
@@ -7328,6 +7330,9 @@ export const masterLeads = pgTable("master_leads", {
   canonicalBusinessId: integer("canonical_business_id"),
   // FK to cro03c_generations.id (UUID) — set only for cro03_pipeline rows
   cro03GenerationId: uuid("cro03_generation_id"),
+  // MI-09: originating pilot run for governed pipeline rows. Manual imports and
+  // backfills intentionally leave this NULL.
+  pilotRunId: uuid("pilot_run_id"),
   // SHA-256 hex hash of normalised email — used for dedup; never plaintext
   emailTokenHash: text("email_token_hash"),
   // County FIPS from business_locations
@@ -7351,6 +7356,7 @@ export const masterLeads = pgTable("master_leads", {
   index("master_leads_promoted_at_idx").on(table.promotedAt),
   index("master_leads_pipeline_origin_idx").on(table.pipelineOrigin),
   index("master_leads_canonical_business_id_idx").on(table.canonicalBusinessId),
+  index("master_leads_pilot_run_id_idx").on(table.pilotRunId),
 ]);
 
 export type MasterLead = typeof masterLeads.$inferSelect;
@@ -7385,6 +7391,8 @@ export const masterLeadStagingReceipts = pgTable("master_lead_staging_receipts",
   cro03GenerationId: uuid("cro03_generation_id").notNull(),
   canonicalBusinessId: integer("canonical_business_id").references(() => businesses.id).notNull(),
   masterLeadId: uuid("master_lead_id"), // NULL for duplicate/suppressed
+  // MI-09: originating pilot run, resolved from the CRO-03C generation.
+  pilotRunId: uuid("pilot_run_id"),
   disposition: text("disposition").notNull(), // staged | duplicate | suppressed | failed
   suppressionReason: text("suppression_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -7392,6 +7400,7 @@ export const masterLeadStagingReceipts = pgTable("master_lead_staging_receipts",
   uniqueIndex("master_lead_staging_receipts_gen_biz_uidx").on(table.cro03GenerationId, table.canonicalBusinessId),
   index("master_lead_staging_receipts_generation_idx").on(table.cro03GenerationId),
   index("master_lead_staging_receipts_master_lead_idx").on(table.masterLeadId),
+  index("master_lead_staging_receipts_pilot_run_idx").on(table.pilotRunId),
 ]);
 
 export type MasterLeadStagingReceipt = typeof masterLeadStagingReceipts.$inferSelect;

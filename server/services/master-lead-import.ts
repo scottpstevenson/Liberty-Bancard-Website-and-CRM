@@ -276,6 +276,7 @@ export async function processMasterLeadBatch(
         inserts.push({
           id: randomUUID(),
           importBatchId: batchId,
+          pipelineOrigin: "manual_import",
           status: suppressedStatus,
           suppressionReason,
           ...lead,
@@ -306,6 +307,7 @@ export async function processMasterLeadBatch(
         inserts.push({
           id: randomUUID(),
           importBatchId: batchId,
+          pipelineOrigin: "manual_import",
           status: "duplicate",
           duplicateOfId,
           canonicalLeadId: duplicateOfId,
@@ -337,6 +339,7 @@ export async function processMasterLeadBatch(
       inserts.push({
         id: newId,
         importBatchId: batchId,
+        pipelineOrigin: "manual_import",
         status: "staged",
         ...lead,
         email: email || undefined,
