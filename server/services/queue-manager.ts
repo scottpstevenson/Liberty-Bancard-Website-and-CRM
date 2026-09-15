@@ -196,6 +196,24 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     jobName: "run",
   },
   {
+    // MI-09 corrective item 1: genuine isolated recurring consumer for the
+    // `free-enrichment-lane` capability group. This queue is physically
+    // separate from QUEUE_NAMES.ENRICHMENT — selecting only the
+    // `free-enrichment-lane` capability group must never start the broad
+    // `enrichment` queue (which also runs Sunbiz auto-convert, lead-scoring
+    // recovery, statement blueprints, contact_lead_scoring, etc). The handler
+    // below imports only ./free-enrichment-lane, which itself imports only
+    // the free RDAP/JSON-LD/contact-page executor — no paid provider,
+    // ZeroBounce, GHL, sequence, campaign, or outreach import is reachable
+    // from this queue's case block.
+    name: QUEUE_NAMES.FREE_ENRICHMENT_LANE,
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 15000,
+    repeatEveryMs: 15 * 60 * 1000,
+    jobName: "run",
+  },
+  {
     name: QUEUE_NAMES.DISCOVERY,
     // concurrency=1: runs once daily; a single sequential pass is sufficient.
     concurrency: 1,
@@ -2006,6 +2024,68 @@ class QueueManager {
             await recoverCampaignQueueRuns();
             const { recoverDeferredPromotionalEnrollments } = await import("./promotional-enrollment-eligibility");
             await recoverDeferredPromotionalEnrollments();
+          }
+          break;
+        }
+        case QUEUE_NAMES.FREE_ENRICHMENT_LANE: {
+          // MI-09 corrective item 1: this is the ONLY handler for the physical
+          // `free-enrichment-lane` queue. It must never import a paid-provider,
+          // ZeroBounce, GHL, sequence, campaign, or outreach module — directly
+          // or transitively through ./free-enrichment-lane.ts (enforced by
+          // scripts/scan-capability-consumer-registry.ts).
+          const { featureFlags: _feFlags } = await import("./feature-flags");
+          if (!_feFlags.FREE_ENRICHMENT_ENABLED) {
+            break;
+          }
+          const { db: _feDb } = await import("../db");
+          const { sql: _feSql } = await import("drizzle-orm");
+          const { businessLacksDbprLineageSql } = await import("./dbpr");
+          const FREE_LANE_BATCH = 20;
+          const eligibleRows = await _feDb.execute(_feSql`
+            SELECT id FROM (
+              SELECT id FROM businesses b
+              WHERE b.website_domain IS NOT NULL
+                AND b.record_class = 'canonical'
+                AND b.free_enrichment_status IS NULL
+                AND ${businessLacksDbprLineageSql(_feSql`b.id`)}
+
+              UNION ALL
+
+              SELECT id FROM businesses b
+              WHERE b.website_domain IS NOT NULL
+                AND b.record_class = 'canonical'
+                AND b.free_enrichment_status = 'failed'
+                AND b.free_enrichment_attempt_count < 3
+                AND ${businessLacksDbprLineageSql(_feSql`b.id`)}
+
+              UNION ALL
+
+              SELECT id FROM businesses b
+              WHERE b.website_domain IS NOT NULL
+                AND b.record_class = 'canonical'
+                AND b.free_enrichment_status = 'enriched'
+                AND b.free_enrichment_completed_at < NOW() - INTERVAL '90 days'
+                AND ${businessLacksDbprLineageSql(_feSql`b.id`)}
+            ) eligible
+            ORDER BY id
+            LIMIT ${FREE_LANE_BATCH}
+          `);
+          const businessIds: number[] = (((eligibleRows as any).rows ?? eligibleRows) as any[]).map((r) => Number(r.id));
+          if (businessIds.length === 0) {
+            console.debug("[Queue:free-enrichment-lane] no eligible businesses");
+            break;
+          }
+          const { runFreeEnrichmentLane } = await import("./free-enrichment-lane");
+          try {
+            const results = await runFreeEnrichmentLane(businessIds);
+            const counts = results.reduce((acc, r) => { acc[r.outcome] = (acc[r.outcome] ?? 0) + 1; return acc; }, {} as Record<string, number>);
+            console.log(`[Queue:free-enrichment-lane] processed ${results.length}: ${JSON.stringify(counts)}`);
+          } catch (laneErr: any) {
+            if (String(laneErr?.message) === "FREE_ENRICHMENT_LANE_BUSY") {
+              console.debug("[Queue:free-enrichment-lane] lane busy, skipping this tick");
+              break;
+            }
+            throw laneErr;
           }
           break;
         }

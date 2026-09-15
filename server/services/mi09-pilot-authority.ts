@@ -620,7 +620,14 @@ export async function getPoolAuthorityDecision(): Promise<{ pool: string; decide
 // BACKGROUND_JOB_PROFILE=selective:enrichment,provider-live,email-validation,continuous-enrichment
 // as an environment secret themselves and restart, in their own session,
 // after Publish. That step is intentionally outside this codebase's reach.
-export const MI09_ACTIVATION_SCOPE = "selective:enrichment,provider-live,email-validation,continuous-enrichment";
+//
+// Corrective item 1: `free-enrichment-lane` is now its own physical queue and
+// consumer (server/services/queue-manager.ts, QUEUE_NAMES.FREE_ENRICHMENT_LANE).
+// It is listed here explicitly. `enrichment` remains in scope for the
+// paid-adjacent qualification/post-enrichment queues it also covers
+// (cro03a-qualification, post-enrichment, statement-blueprint,
+// contact_lead_scoring) — the free lane no longer relies on that broad group.
+export const MI09_ACTIVATION_SCOPE = "selective:enrichment,free-enrichment-lane,provider-live,email-validation,continuous-enrichment";
 const MI09_ACTIVATION_AUTH_KEY = "mi09_selective_activation_authorization";
 export const MI09_ACTIVATION_TYPED_CONFIRMATION = "AUTHORIZE SELECTIVE ACTIVATION";
 
@@ -904,18 +911,27 @@ export async function checkCohortCensus(input: {
   // produced each business) → business_locations (for county_fips filtering).
   // businesses.vertical is the canonical vertical column.
   // canonical_conflict_evidence references businesses.id (INTEGER).
-  const countyParam = JSON.stringify(input.countyFipsFilter);
-  const vertParam   = JSON.stringify(input.verticalFilter);
-  const srcParam    = JSON.stringify(input.sourceAdapterFilter);
+  //
+  // drizzle-orm's node-postgres driver renders an interpolated JS array as a
+  // parenthesized tuple of scalar params, not a Postgres array literal —
+  // `${jsonString}::text[]` silently mis-binds (see
+  // .agents/memory/drizzle-array-param-bug.md). Build a real
+  // `ARRAY[$1, $2, ...]::text[]` expression by hand instead, matching the
+  // proven-safe pattern used by selectDeterministicPilotCohort() in this file.
+  const toTextArraySql = (arr: string[]) =>
+    arr.length === 0 ? sql`ARRAY[]::text[]` : sql`ARRAY[${sql.join(arr.map((v) => sql`${v}`), sql`, `)}]::text[]`;
+  const countyArraySql = toTextArraySql(input.countyFipsFilter);
+  const vertArraySql   = toTextArraySql(input.verticalFilter);
+  const srcArraySql    = toTextArraySql(input.sourceAdapterFilter);
 
   const eligible = rows(await db.execute(sql`
     SELECT COUNT(DISTINCT b.id)::int AS cnt
     FROM businesses b
     JOIN canonical_source_links csl ON csl.business_id = b.id
     LEFT JOIN business_locations bl ON bl.business_id = b.id
-    WHERE csl.source_system = ANY(${srcParam}::text[])
-      AND (${input.countyFipsFilter.length === 0} OR bl.county_fips = ANY(${countyParam}::text[]))
-      AND (${input.verticalFilter.length === 0}   OR b.vertical = ANY(${vertParam}::text[]))
+    WHERE csl.source_system = ANY(${srcArraySql})
+      AND (${input.countyFipsFilter.length === 0} OR bl.county_fips = ANY(${countyArraySql}))
+      AND (${input.verticalFilter.length === 0}   OR b.vertical = ANY(${vertArraySql}))
       AND NOT EXISTS (
         SELECT 1 FROM canonical_conflict_evidence cce
         WHERE (cce.business_id_a = b.id OR cce.business_id_b = b.id)
@@ -2427,7 +2443,12 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
     const interrupted = rows(await db.execute(sql`
       SELECT value FROM system_settings WHERE key = 'enrichment_progress' LIMIT 1
     `))[0];
-    const val = interrupted?.value ? JSON.parse(interrupted.value) : null;
+    // system_settings.value is jsonb — node-postgres/drizzle returns it already
+    // parsed as a JS object in the common case, but some write paths store a
+    // JSON-encoded string (double-encoded). Handle both, matching the dual-form
+    // pattern used elsewhere in this file (e.g. def.county_scope parsing).
+    const rawVal = interrupted?.value;
+    const val = rawVal == null ? null : (typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal);
     const isInterrupted = val?.status === "interrupted";
     checks.noInterruptedEnrichment = {
       passed: !isInterrupted,
@@ -2437,13 +2458,22 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
     checks.noInterruptedEnrichment = { passed: false, detail: String(e?.message) };
   }
 
-  // 3. ≥10 real canonical businesses.
+  // 3. ≥10 real, eligible canonical, non-DBPR businesses. Previously this
+  //    counted ALL rows in `businesses` regardless of record_class or DBPR
+  //    lineage — a table full of raw/uncanonicalized or DBPR-tainted rows
+  //    could pass this gate while the actual cohort-eligible population was
+  //    empty. Now uses the same eligibility predicate (canonical + non-DBPR
+  //    lineage) as check #4 below, just at a lower threshold.
   try {
     const biz = rows(await db.execute(sql`
-      SELECT COUNT(*)::int AS cnt FROM businesses LIMIT 1
+      SELECT COUNT(*)::int AS cnt
+      FROM businesses b
+      WHERE b.record_class = 'canonical'
+        AND ${businessLacksDbprLineageSql(sql`b.id`)}
+      LIMIT 1
     `))[0];
     const cnt = Number(biz?.cnt ?? 0);
-    checks.minTenBusinesses = { passed: cnt >= 10, detail: `count=${cnt}` };
+    checks.minTenBusinesses = { passed: cnt >= 10, detail: `eligible_canonical_non_dbpr_count=${cnt}` };
   } catch (e: any) {
     checks.minTenBusinesses = { passed: false, detail: String(e?.message) };
   }

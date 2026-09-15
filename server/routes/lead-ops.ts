@@ -6,6 +6,7 @@ import { requireRole } from "../replit_integrations/auth";
 import OpenAI from "openai";
 import { featureFlags } from "../services/feature-flags";
 import { listInboundRequests } from "../services/inbound-request-authority";
+import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -2063,11 +2064,20 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       ]);
       const paidProviderControls = await getPaidProviderControls();
 
+      // Corrective item 9: `canonical_non_dbpr_businesses` previously used a
+      // JOIN + single-row `source_system !~* 'dbpr'` filter, which counts a
+      // business as "non-DBPR" as long as ANY of its linked source rows is
+      // non-DBPR — a business with BOTH a DBPR link and a non-DBPR link was
+      // wrongly included. The eligibility authority (businessLacksDbprLineageSql)
+      // excludes a business if it has ANY DBPR-family lineage at all ("full-family"
+      // exclusion). This telemetry must use the identical predicate so the
+      // operator-facing count matches what the cohort/eligibility authority
+      // actually admits — not a narrower, more permissive approximation.
       const eligibleCounts = rows(await db.execute(sql`
         SELECT
           (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical') AS canonical_businesses,
-          (SELECT COUNT(*)::int FROM businesses b JOIN canonical_source_links csl ON csl.business_id = b.id
-             WHERE b.record_class = 'canonical' AND csl.source_system !~* 'dbpr') AS canonical_non_dbpr_businesses,
+          (SELECT COUNT(*)::int FROM businesses b
+             WHERE b.record_class = 'canonical' AND ${businessLacksDbprLineageSql(sql`b.id`)}) AS canonical_non_dbpr_businesses,
           (SELECT COUNT(*)::int FROM businesses WHERE record_class != 'canonical') AS excluded_businesses,
           (SELECT COUNT(*)::int FROM businesses WHERE free_enrichment_status = 'enriched') AS free_enrichment_complete,
           (SELECT COUNT(*)::int FROM master_leads) AS master_leads_count

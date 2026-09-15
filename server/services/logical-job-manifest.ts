@@ -345,6 +345,19 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     releaseController: "OutboundQueueCoordinator",
   },
 
+  // ── FREE_ENRICHMENT_LANE — run (MI-09 corrective item 1) ─────────────────
+  {
+    logicalKey: "free-enrichment-lane-run",
+    physicalQueue: QUEUE_NAMES.FREE_ENRICHMENT_LANE,
+    jobNamePattern: "run",
+    handler: "Isolated free-only enrichment lane tick (RDAP/JSON-LD/contact-page/HTML only; no paid provider, ZeroBounce, GHL, sequence, campaign, or outreach call is reachable)",
+    owner: "free-enrichment-lane",
+    effect: "external_data_sync",
+    canRunWhileGlobalOutboundPaused: true,
+    backlogSource: "bullmq",
+    releaseController: null,
+  },
+
   // ── ENRICHMENT — default (runEnrichmentTick) ─────────────────────────────
   {
     logicalKey: "enrichment-default",

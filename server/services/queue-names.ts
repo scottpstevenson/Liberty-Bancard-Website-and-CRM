@@ -4,6 +4,7 @@ export const QUEUE_NAMES = {
   SLA_CHECKS: "sla-checks",
   SEQUENCES: "sequences",
   ENRICHMENT: "enrichment",
+  FREE_ENRICHMENT_LANE: "free-enrichment-lane",
   DISCOVERY: "discovery",
   DIGESTS: "digests",
   MID_INGESTION: "mid-ingestion",
