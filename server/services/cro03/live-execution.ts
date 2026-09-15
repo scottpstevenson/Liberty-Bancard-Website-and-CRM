@@ -1444,6 +1444,21 @@ export async function assertCro03cAuthorityBeforeIo(context: Cro03cLiveProviderC
   });
   const pause = await getPauseState();
   if (pause.state !== "paused" || pause.source === "safe_default") throw new Error("CRO03C_OUTBOUND_STATE_UNVERIFIED");
+
+  // Corrective item 7 (Task #1971 continuation): reserveCro03ProviderOperation
+  // (server/services/cro03/provider-context.ts) only checks provider_controls
+  // (enabled + circuit_state) once, at reservation time. This function is the
+  // single, real last checkpoint executed immediately before every paid-provider
+  // fetch across every call site (live-provider-executors.ts, live-worker.ts,
+  // live-safe-egress.ts). Without re-checking here, an operator emergency stop
+  // issued after a unit was reserved but before the queued work actually
+  // dispatches would not stop the real network call — the stale reservation
+  // would still fire. Re-check the exact same fail-closed gate right here so
+  // an emergency stop always takes effect before the next real I/O it can
+  // still reach, regardless of how long ago the reservation was made.
+  if (CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has(context.provider)) {
+    await assertCro03cSharedProviderControlOpen(context.provider, { execute: (q) => db.execute(q) });
+  }
 }
 
 /**
