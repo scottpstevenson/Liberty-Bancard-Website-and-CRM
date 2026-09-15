@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -144,6 +145,11 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const [editBodyTab, setEditBodyTab] = useState<"write" | "preview">("write");
   const [previewStep, setPreviewStep] = useState<CampaignStep | null>(null);
   const [showQueueConfirm, setShowQueueConfirm] = useState(false);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [showApproveDialog, setShowApproveDialog] = useState(false);
+  const [approveConfirmText, setApproveConfirmText] = useState("");
+  const REQUIRED_APPROVE_CONFIRM = "APPROVE CAMPAIGN LAUNCH";
 
   useEffect(() => {
     if (!editingStep) return;
@@ -156,6 +162,33 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
       const res = await fetch(`/api/campaigns/${campaign.id}/steps`, { credentials: "include" });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
       return res.json();
+    },
+  });
+
+  const { data: approvalStatus } = useQuery<{ approved: boolean; contentRevision: number; approvedRevision: number | null }>({
+    queryKey: ["/api/campaigns", campaign.id, "approval"],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaign.id}/approval`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    enabled: campaign.status === "draft" || campaign.status === "paused",
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/campaigns/${campaign.id}/approve`, { confirm: approveConfirmText });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "approval"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setShowApproveDialog(false);
+      setApproveConfirmText("");
+      toast({ title: "Campaign approved for launch" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Approval failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -177,6 +210,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "steps"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "approval"] });
       toast({ title: "Step added", description: "Campaign step has been created." });
       setShowStepForm(false);
       stepForm.reset({ stepOrder: (steps?.length || 0) + 2, stepType: "initial_outreach", delayDays: 0, subject: "", bodyTemplate: "", channel: "email" });
@@ -192,6 +226,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "steps"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "approval"] });
       toast({ title: "Step deleted" });
     },
     onError: (err: Error) => {
@@ -205,6 +240,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "steps"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "approval"] });
       toast({ title: "Step updated", description: "Campaign step has been saved." });
       setEditingStep(null);
     },
@@ -279,8 +315,8 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
 
   const toggleStatusMutation = useMutation({
     mutationFn: async () => {
-      const newStatus = campaign.status === "active" ? "paused" : "active";
-      await apiRequest("PUT", `/api/campaigns/${campaign.id}`, { status: newStatus });
+      const res = await apiRequest("PUT", `/api/campaigns/${campaign.id}/toggle-status`, {});
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
@@ -425,21 +461,36 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* Status toggle is disabled: PUT /api/campaigns/:id rejects a bare
-            {status} body (its update schema doesn't allow that field, and
-            non-draft campaigns 409 regardless), so this control always
-            errored. Disabled with a truthful label until it's rewired. */}
+        {(campaign.status === "draft" || campaign.status === "paused") && isAdmin && !approvalStatus?.approved && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowApproveDialog(true)}
+            data-testid={`button-approve-launch-${campaign.id}`}
+          >
+            Approve for Launch
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
-          disabled
-          title="Activate/Pause is temporarily unavailable — this control is disabled rather than left erroring."
+          onClick={() => toggleStatusMutation.mutate()}
+          disabled={
+            toggleStatusMutation.isPending ||
+            (campaign.status !== "active" && campaign.status !== "paused" && campaign.status !== "draft") ||
+            ((campaign.status === "draft" || campaign.status === "paused") && !approvalStatus?.approved)
+          }
+          title={
+            campaign.status === "active" ? "Pause this campaign" :
+            (campaign.status === "draft" || campaign.status === "paused") && !approvalStatus?.approved ? "An admin must approve this campaign for launch before it can be activated" :
+            "Activate this campaign"
+          }
           data-testid={`button-toggle-status-${campaign.id}`}
         >
           {campaign.status === "active" ? (
-            <><Pause className="w-4 h-4 mr-1" /> Pause (unavailable)</>
+            <><Pause className="w-4 h-4 mr-1" /> Pause</>
           ) : (
-            <><Play className="w-4 h-4 mr-1" /> Activate (unavailable)</>
+            <><Play className="w-4 h-4 mr-1" /> Activate</>
           )}
         </Button>
         <Button
@@ -529,6 +580,43 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showApproveDialog} onOpenChange={(open) => { setShowApproveDialog(open); if (!open) setApproveConfirmText(""); }}>
+        <DialogContent data-testid={`dialog-approve-launch-${campaign.id}`}>
+          <DialogHeader>
+            <DialogTitle>Approve "{campaign.name}" for Launch</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This records an admin launch approval scoped to the campaign's current content. Any further
+              edit to the campaign or its steps invalidates this approval and requires re-approval.
+            </p>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">
+                Type <strong>{REQUIRED_APPROVE_CONFIRM}</strong> to confirm
+              </label>
+              <Input
+                value={approveConfirmText}
+                onChange={(e) => setApproveConfirmText(e.target.value)}
+                placeholder={REQUIRED_APPROVE_CONFIRM}
+                data-testid={`input-approve-confirm-${campaign.id}`}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowApproveDialog(false)} data-testid={`button-approve-cancel-${campaign.id}`}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => approveMutation.mutate()}
+                disabled={approveConfirmText !== REQUIRED_APPROVE_CONFIRM || approveMutation.isPending}
+                data-testid={`button-approve-confirm-${campaign.id}`}
+              >
+                {approveMutation.isPending ? "Approving…" : "Approve for Launch"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">

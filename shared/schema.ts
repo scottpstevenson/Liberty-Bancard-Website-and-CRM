@@ -2575,6 +2575,11 @@ export const campaigns = pgTable("campaigns", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   readinessThreshold: integer("readiness_threshold"),
+  // Bumped on every material edit (content, audience, sender, caps).
+  // Approval is only valid when approvedRevision = contentRevision.
+  contentRevision: integer("content_revision").notNull().default(1),
+  // The contentRevision that was approved. NULL = unapproved.
+  approvedRevision: integer("approved_revision"),
 });
 
 // ---------------------------------------------------------------------------

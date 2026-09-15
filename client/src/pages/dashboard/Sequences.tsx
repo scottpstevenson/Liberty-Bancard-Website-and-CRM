@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,6 +23,7 @@ import {
   Radio, Filter, Link2, Link2Off, HelpCircle, Eye,
 } from "lucide-react";
 import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
+import { isGovernedSequence } from "@/lib/sequence-activation";
 
 interface ABTestConfig {
   splitRatio: number;
@@ -157,6 +159,12 @@ export default function Sequences() {
   const [bulkPreviewLoading, setBulkPreviewLoading] = useState(false);
   const [bulkConfirmText, setBulkConfirmText] = useState("");
   const [bodyPreviewTab, setBodyPreviewTab] = useState<Record<number, "write" | "preview">>({});
+  const [activatingSeq, setActivatingSeq] = useState<any | null>(null);
+  const [activateChecks, setActivateChecks] = useState<boolean[]>([false, false, false]);
+
+  useEffect(() => {
+    if (activatingSeq !== null) setActivateChecks([false, false, false]);
+  }, [activatingSeq]);
 
   const [form, setForm] = useState({
     name: "",
@@ -251,9 +259,39 @@ export default function Sequences() {
     },
   });
 
-  // NOTE: the pause/activate toggle mutation was removed — PUT /api/sequences/:id's
-  // strict update schema rejects a bare {status} body, so this always 400'd. The
-  // toggle button in the list below is now unconditionally disabled instead (#1957).
+  const toggleMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PUT", `/api/sequences/${id}/toggle-status`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
+      setActivatingSeq(null);
+      setActivateChecks([false, false, false]);
+      toast({ title: "Sequence updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Wave 6 sequences (carrying sequenceFamily or eligibleConsentTiers) begin
+  // enrolling contacts immediately on activation, so activating one requires
+  // a guided acknowledgement checklist rather than a single click. Pausing,
+  // and toggling legacy sequences with no Wave 6 metadata, still fire the
+  // mutation directly. See client/src/lib/sequence-activation.ts.
+  const handleToggleClick = (seq: any) => {
+    if (seq.status !== "active" && isGovernedSequence(seq)) {
+      setActivatingSeq(seq);
+    } else {
+      toggleMutation.mutate(seq.id);
+    }
+  };
+
+  const handleConfirmActivate = () => {
+    if (!activatingSeq) return;
+    toggleMutation.mutate(activatingSeq.id);
+  };
 
   const enrollMutation = useMutation({
     mutationFn: async () => {
@@ -772,17 +810,13 @@ export default function Sequences() {
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      {/* Pause/activate is disabled everywhere: the direct PUT /api/sequences/:id
-                          {status} path 400s (the update schema strictly omits "status"), and the
-                          confirm-dialog activation path hits the same status-transition gating.
-                          Disabled unconditionally with a truthful label rather than left as a
-                          dead end that opens a dialog whose only button can't work (#1957). */}
                       <Button
                         size="icon"
                         variant="ghost"
-                        aria-label={seq.status === "active" ? "Pause sequence (unavailable)" : "Resume sequence (unavailable)"}
-                        disabled
-                        title="This toggle is temporarily unavailable — disabled rather than left erroring."
+                        aria-label={seq.status === "active" ? "Pause sequence" : "Activate sequence"}
+                        onClick={() => handleToggleClick(seq)}
+                        disabled={toggleMutation.isPending || (seq.status !== "active" && seq.status !== "paused" && seq.status !== "draft")}
+                        title={seq.status === "active" ? "Pause this sequence" : "Activate this sequence"}
                         data-testid={`button-toggle-${seq.id}`}
                       >
                         {seq.status === "active" ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -1398,6 +1432,98 @@ export default function Sequences() {
               </div>
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={activatingSeq !== null} onOpenChange={(open) => { if (!open) { setActivatingSeq(null); setActivateChecks([false, false, false]); } }}>
+        <DialogContent data-testid="dialog-activate-confirm">
+          <DialogHeader>
+            <DialogTitle>Activate "{activatingSeq?.name}"</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2 text-sm rounded-md border p-3">
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Family</span>
+                <span data-testid="activate-family">
+                  {activatingSeq?.sequenceFamily || <span className="text-muted-foreground italic">—</span>}
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Consent Tiers</span>
+                <div className="flex flex-wrap gap-1" data-testid="activate-consent-tiers">
+                  {activatingSeq?.eligibleConsentTiers?.length > 0
+                    ? activatingSeq.eligibleConsentTiers.map((tier: string) => (
+                        <Badge key={tier} variant="outline" className="text-xs">
+                          {tier === "cold_no_consent" ? "cold" : tier === "warm_no_pewc" ? "warm" : tier === "pewc_full_automation" ? "PEWC" : tier}
+                        </Badge>
+                      ))
+                    : <span className="text-muted-foreground italic">none</span>
+                  }
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Channels</span>
+                <div className="flex flex-wrap gap-1" data-testid="activate-channels">
+                  {activatingSeq?.channelsAllowed?.length > 0
+                    ? activatingSeq.channelsAllowed.map((ch: string) => (
+                        <Badge key={ch} variant="secondary" className="text-xs">
+                          {ch}
+                        </Badge>
+                      ))
+                    : <span className="text-muted-foreground italic">none</span>
+                  }
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Steps</span>
+                <span data-testid="activate-steps">
+                  {activatingSeq?.totalSteps != null ? activatingSeq.totalSteps : "unknown"}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3" data-testid="activate-checklist">
+              {[
+                "I have reviewed all step copy and delay timing.",
+                "The eligible consent tiers above are correct for this campaign.",
+                "I understand this sequence will begin enrolling contacts immediately.",
+              ].map((label, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <Checkbox
+                    id={`activate-ack-${i}`}
+                    checked={activateChecks[i]}
+                    onCheckedChange={(checked) =>
+                      setActivateChecks((prev) => prev.map((v, j) => (j === i ? !!checked : v)))
+                    }
+                    data-testid={`checkbox-activate-ack-${i}`}
+                  />
+                  <Label htmlFor={`activate-ack-${i}`} className="text-sm leading-snug cursor-pointer">
+                    {label}
+                  </Label>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="outline"
+                data-testid="button-cancel-activate"
+                onClick={() => {
+                  setActivatingSeq(null);
+                  setActivateChecks([false, false, false]);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={!activateChecks.every(Boolean) || toggleMutation.isPending}
+                data-testid="button-confirm-activate"
+                onClick={handleConfirmActivate}
+              >
+                {toggleMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Activating…</> : "Confirm"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

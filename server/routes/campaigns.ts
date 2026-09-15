@@ -11,7 +11,8 @@ import { validateGhlWebhookSignature } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
 import { pool, db } from "../db";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, sql } from "drizzle-orm";
+import { campaigns, campaignSteps, campaignApprovals } from "@shared/schema";
 import { serverError } from "../utils/server-error";
 import { applyConsentCommand, recordReachabilityObservation } from "../services/consent-authority";
 import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
@@ -29,6 +30,45 @@ interface AbTestResultRow {
 }
 
 const HUMAN_SEQUENCE_DISPATCH_DISABLED: boolean = true;
+
+type CampaignTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type LockedCampaignRow = {
+  id: number; status: string; createdBy: string | null; contentRevision: number; approvedRevision: number | null;
+  name: string; targetVerticals: string[] | null; filterCriteria: unknown; dailySendLimit: number | null; readinessThreshold: number | null;
+};
+
+// Runs `fn` inside a single drizzle transaction holding a row lock
+// (SELECT ... FOR UPDATE) on the campaign, so a concurrent request touching
+// the same campaign (a step edit, an approval, an activation) is serialized
+// behind this one rather than interleaving reads/writes across separate
+// connections/transactions. `fn` receives the transaction handle (use it, not
+// `db`/`pool`, for every statement in this operation, or you'll deadlock
+// against your own lock) and the campaign row as it exists under the lock.
+// Returns `fn`'s result, or `undefined` if the campaign doesn't exist.
+async function withLockedCampaign<T>(
+  campaignId: number,
+  fn: (tx: CampaignTx, campaign: LockedCampaignRow) => Promise<T>
+): Promise<T | undefined> {
+  return db.transaction(async (tx) => {
+    const { rows } = await tx.execute(sql`
+      SELECT id, status, created_by AS "createdBy",
+             COALESCE(content_revision, 1) AS "contentRevision", approved_revision AS "approvedRevision",
+             name, target_verticals AS "targetVerticals", filter_criteria AS "filterCriteria",
+             daily_send_limit AS "dailySendLimit", readiness_threshold AS "readinessThreshold"
+      FROM campaigns WHERE id = ${campaignId} FOR UPDATE
+    `);
+    if (rows.length === 0) return undefined;
+    return fn(tx, rows[0] as LockedCampaignRow);
+  });
+}
+
+// Bumps content_revision and clears approved_revision on the locked campaign
+// row. Must be called with the same tx that holds the row lock.
+async function invalidateApprovalTx(tx: CampaignTx, campaignId: number): Promise<void> {
+  await tx.execute(sql`
+    UPDATE campaigns SET content_revision = COALESCE(content_revision, 1) + 1, approved_revision = NULL WHERE id = ${campaignId}
+  `);
+}
 
 function canMutateOwnedCampaignObject(req: Request, createdBy: string | null | undefined): boolean {
   const user = req.user as { role?: unknown; email?: unknown; id?: unknown } | undefined;
@@ -125,25 +165,79 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.put("/api/campaigns/:id", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const existing = await storage.getCampaign(Number(req.params.id));
+      const campaignId = Number(req.params.id);
+      const existing = await storage.getCampaign(campaignId);
       if (!existing) return res.status(404).json({ message: "Campaign not found" });
       if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
-      if (existing.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
       const updates = campaignUpdateSchema.parse(req.body);
+      // Status re-checked under the row lock (not just here) so a concurrent
+      // activation can't slip through between this pre-check and the write.
       // Material edit: bump content_revision and clear approved_revision so any
-      // prior launch approval is automatically invalidated.
-      await pool.query(
-        `UPDATE campaigns
-         SET content_revision  = COALESCE(content_revision, 1) + 1,
-             approved_revision = NULL
-         WHERE id = $1`,
-        [Number(req.params.id)]
-      );
-      const updated = await storage.updateCampaign(Number(req.params.id), updates);
+      // prior launch approval is automatically invalidated, atomically with the
+      // edit itself.
+      const updated = await withLockedCampaign(campaignId, async (tx, campaign) => {
+        if (campaign.status !== "draft") {
+          throw Object.assign(new Error("Only draft campaigns may be edited"), { httpStatus: 409 });
+        }
+        const [updatedCampaign] = await tx.update(campaigns).set({ ...updates, updatedAt: new Date() }).where(eq(campaigns.id, campaignId)).returning();
+        await invalidateApprovalTx(tx, campaignId);
+        return updatedCampaign;
+      });
       if (!updated) return res.status(404).json({ message: "Campaign not found" });
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err?.httpStatus) return res.status(err.httpStatus).json({ message: err.message });
+      serverError(res, err);
+    }
+  });
+
+  // PUT /api/campaigns/:id/toggle-status — activate/pause a campaign.
+  // Separate from the generic edit route: that route requires draft status
+  // and a `.strict()` schema with no `status` field, so a bare {status} body
+  // always failed. This is a dedicated, narrowly-scoped status transition:
+  // draft/paused -> active, active -> paused. No other fields may change here.
+  // Activation fails closed unless the campaign's current content_revision has
+  // been approved (POST /api/campaigns/:id/approve, admin-only) — otherwise a
+  // manager could flip a campaign live without ever going through admin launch
+  // approval, defeating the whole campaign_approvals model.
+  app.put("/api/campaigns/:id/toggle-status", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const preCheck = await storage.getCampaign(id);
+      if (!preCheck) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, preCheck.createdBy)) return denyManagerOwnership(res);
+
+      // Everything below runs under the same row lock: status is re-read here
+      // (not trusted from the pre-check above), and for activation the
+      // approved_revision = content_revision check happens against that same
+      // locked read, so a concurrent step edit or approval can never be
+      // interleaved between the check and the write.
+      const outcome = await withLockedCampaign(id, async (tx, campaign) => {
+        if (campaign.status === "active") {
+          const [updated] = await tx.update(campaigns).set({ status: "paused" }).where(eq(campaigns.id, id)).returning();
+          return { updated, auditAction: "campaign_paused" as const, previousStatus: campaign.status };
+        }
+        if (campaign.status === "paused" || campaign.status === "draft") {
+          if (campaign.approvedRevision == null || campaign.approvedRevision !== campaign.contentRevision) {
+            throw Object.assign(
+              new Error("Campaign must be approved (POST /api/campaigns/:id/approve) at its current revision before it can be activated"),
+              { httpStatus: 409 }
+            );
+          }
+          const [updated] = await tx.update(campaigns).set({ status: "active" }).where(eq(campaigns.id, id)).returning();
+          return { updated, auditAction: "campaign_activated" as const, previousStatus: campaign.status, approvedRevision: campaign.approvedRevision };
+        }
+        throw Object.assign(new Error(`Campaign is ${campaign.status} and cannot be toggled`), { httpStatus: 409 });
+      });
+      if (!outcome) return res.status(404).json({ message: "Campaign not found" });
+      await storage.createAuditLog({
+        action: outcome.auditAction, entityType: "campaign", entityId: id,
+        details: { name: outcome.updated.name, previousStatus: outcome.previousStatus, approvedRevision: (outcome as any).approvedRevision },
+      });
+      res.json(outcome.updated);
+    } catch (err: any) {
+      if (err?.httpStatus) return res.status(err.httpStatus).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -155,9 +249,8 @@ export function registerCampaignsRoutes(app: Express) {
   app.post("/api/campaigns/:id/approve", isAuthenticated, requireRole("admin"), async (req, res) => {
     try {
       const campaignId = Number(req.params.id);
-      const campaign = await storage.getCampaign(campaignId);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
-      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be approved" });
+      const preCheck = await storage.getCampaign(campaignId);
+      if (!preCheck) return res.status(404).json({ message: "Campaign not found" });
 
       const approveSchema = z.object({
         confirm: z.string().min(1),
@@ -172,52 +265,59 @@ export function registerCampaignsRoutes(app: Express) {
       }
 
       const approvedBy = (req as any).user?.email ?? (req as any).user?.id?.toString();
-      // Compute a lightweight scope hash from current targeting + caps.
-      const scopeSource = JSON.stringify({
-        targetVerticals: campaign.targetVerticals,
-        filterCriteria: campaign.filterCriteria,
-        dailySendLimit: campaign.dailySendLimit,
-        readinessThreshold: campaign.readinessThreshold,
-        name: campaign.name,
+
+      // The content_revision read, the campaign_approvals write, and the
+      // approved_revision write all happen under the same row lock as any
+      // concurrent step/campaign edit, so an edit racing this approval can
+      // never be approved-around: either it commits first (and this approval
+      // then targets its bumped revision, which is correct) or it waits for
+      // this transaction to finish (and then bumps past whatever we just
+      // approved, which is also correct).
+      const result = await withLockedCampaign(campaignId, async (tx, campaign) => {
+        // Paused campaigns must be re-approvable too: a campaign that has
+        // gone live and been paused (or a pre-existing campaign that predates
+        // this approval system and has approvedRevision = NULL) otherwise has
+        // no route back to "active", since editing content requires "draft".
+        if (campaign.status !== "draft" && campaign.status !== "paused") {
+          throw Object.assign(new Error("Only draft or paused campaigns may be approved"), { httpStatus: 409 });
+        }
+        // Compute the scope hash from the row read under this same lock, not
+        // an earlier unlocked read — otherwise a concurrent edit that commits
+        // between the unlocked read and this transaction's approval write
+        // would record an approval fingerprinted against stale content.
+        const scopeSource = JSON.stringify({
+          targetVerticals: campaign.targetVerticals,
+          filterCriteria: campaign.filterCriteria,
+          dailySendLimit: campaign.dailySendLimit,
+          readinessThreshold: campaign.readinessThreshold,
+          name: campaign.name,
+        });
+        const crypto = await import("crypto");
+        const scopeHash = crypto.createHash("sha256").update(scopeSource).digest("hex").slice(0, 16);
+        const contentRevision = campaign.contentRevision;
+
+        await tx.insert(campaignApprovals).values({
+          campaignId, revision: contentRevision, approvedBy, scopeHash, confirmToken: confirm, notes: notes ?? null,
+        }).onConflictDoUpdate({
+          target: [campaignApprovals.campaignId, campaignApprovals.revision],
+          set: { approvedBy, scopeHash, confirmToken: confirm, notes: notes ?? null, approvedAt: new Date() },
+        });
+        await tx.update(campaigns).set({ approvedRevision: contentRevision }).where(eq(campaigns.id, campaignId));
+
+        return { contentRevision, scopeHash };
       });
-      const crypto = await import("crypto");
-      const scopeHash = crypto.createHash("sha256").update(scopeSource).digest("hex").slice(0, 16);
-
-      // Fetch current content_revision (may not exist if migration not yet applied).
-      const revRow = await pool.query(
-        `SELECT COALESCE(content_revision, 1) AS content_revision FROM campaigns WHERE id = $1`,
-        [campaignId]
-      );
-      const contentRevision: number = revRow.rows[0]?.content_revision ?? 1;
-
-      // Upsert the approval record (idempotent per campaign+revision).
-      await pool.query(
-        `INSERT INTO campaign_approvals
-           (campaign_id, revision, approved_by, scope_hash, confirm_token, notes)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (campaign_id, revision) DO UPDATE
-           SET approved_by   = EXCLUDED.approved_by,
-               scope_hash    = EXCLUDED.scope_hash,
-               confirm_token = EXCLUDED.confirm_token,
-               notes         = EXCLUDED.notes,
-               approved_at   = NOW()`,
-        [campaignId, contentRevision, approvedBy, scopeHash, confirm, notes ?? null]
-      );
-      // Persist approved_revision on the campaign so reads are cheap.
-      await pool.query(
-        `UPDATE campaigns SET approved_revision = $1 WHERE id = $2`,
-        [contentRevision, campaignId]
-      );
+      if (!result) return res.status(404).json({ message: "Campaign not found" });
 
       res.json({
         message: "Campaign approved for launch",
         campaignId,
-        revision: contentRevision,
+        revision: result.contentRevision,
         approvedBy,
-        scopeHash,
+        scopeHash: result.scopeHash,
       });
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err?.httpStatus) return res.status(err.httpStatus).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -292,15 +392,28 @@ export function registerCampaignsRoutes(app: Express) {
   app.post("/api/campaigns/:id/steps", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const campaignId = Number(req.params.id);
-      const campaign = await storage.getCampaign(campaignId);
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
-      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
-      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
+      const campaignPreCheck = await storage.getCampaign(campaignId);
+      if (!campaignPreCheck) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaignPreCheck.createdBy)) return denyManagerOwnership(res);
       const input = campaignStepCreateSchema.parse(req.body);
-      const step = await storage.createCampaignStep({ ...input, campaignId });
+
+      // Step insert + approval invalidation happen under the same row lock as
+      // activation/approval, and re-check status inside the lock (not just at
+      // the top of the handler) so a concurrent activation can't slip through
+      // between our pre-check and this write.
+      const step = await withLockedCampaign(campaignId, async (tx, campaign) => {
+        if (campaign.status !== "draft") {
+          throw Object.assign(new Error("Only draft campaigns may be edited"), { httpStatus: 409 });
+        }
+        const [created] = await tx.insert(campaignSteps).values({ ...input, campaignId }).returning();
+        await invalidateApprovalTx(tx, campaignId);
+        return created;
+      });
+      if (!step) return res.status(404).json({ message: "Campaign not found" });
       res.status(201).json(step);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err?.httpStatus) return res.status(err.httpStatus).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -311,16 +424,28 @@ export function registerCampaignsRoutes(app: Express) {
     try {
       const existing = await storage.getCampaignStep(Number(req.params.id));
       if (!existing) return res.status(404).json({ message: "Step not found" });
-      const campaign = existing.campaignId ? await storage.getCampaign(existing.campaignId) : null;
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
-      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
-      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
+      if (!existing.campaignId) return res.status(404).json({ message: "Campaign not found" });
+      const campaignPreCheck = await storage.getCampaign(existing.campaignId);
+      if (!campaignPreCheck) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaignPreCheck.createdBy)) return denyManagerOwnership(res);
       const parsed = updateCampaignStepSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
-      const updated = await storage.updateCampaignStep(Number(req.params.id), parsed.data);
-      if (!updated) return res.status(404).json({ message: "Step not found" });
+      if (Object.keys(parsed.data).length === 0) return res.status(400).json({ message: "No fields to update" });
+
+      const stepId = Number(req.params.id);
+      const campaignId = existing.campaignId;
+      const updated = await withLockedCampaign(campaignId, async (tx, campaign) => {
+        if (campaign.status !== "draft") {
+          throw Object.assign(new Error("Only draft campaigns may be edited"), { httpStatus: 409 });
+        }
+        const [updatedStep] = await tx.update(campaignSteps).set(parsed.data).where(eq(campaignSteps.id, stepId)).returning();
+        await invalidateApprovalTx(tx, campaignId);
+        return updatedStep;
+      });
+      if (!updated) return res.status(404).json({ message: "Campaign or step not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err?.httpStatus) return res.status(err.httpStatus).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -329,13 +454,25 @@ export function registerCampaignsRoutes(app: Express) {
     try {
       const existing = await storage.getCampaignStep(Number(req.params.id));
       if (!existing) return res.status(404).json({ message: "Step not found" });
-      const campaign = existing.campaignId ? await storage.getCampaign(existing.campaignId) : null;
-      if (!campaign) return res.status(404).json({ message: "Campaign not found" });
-      if (!canMutateOwnedCampaignObject(req, campaign.createdBy)) return denyManagerOwnership(res);
-      if (campaign.status !== "draft") return res.status(409).json({ message: "Only draft campaigns may be edited" });
-      await storage.deleteCampaignStep(existing.id);
+      if (!existing.campaignId) return res.status(404).json({ message: "Campaign not found" });
+      const campaignPreCheck = await storage.getCampaign(existing.campaignId);
+      if (!campaignPreCheck) return res.status(404).json({ message: "Campaign not found" });
+      if (!canMutateOwnedCampaignObject(req, campaignPreCheck.createdBy)) return denyManagerOwnership(res);
+
+      const stepId = existing.id;
+      const campaignId = existing.campaignId;
+      const result = await withLockedCampaign(campaignId, async (tx, campaign) => {
+        if (campaign.status !== "draft") {
+          throw Object.assign(new Error("Only draft campaigns may be edited"), { httpStatus: 409 });
+        }
+        await tx.delete(campaignSteps).where(eq(campaignSteps.id, stepId));
+        await invalidateApprovalTx(tx, campaignId);
+        return true;
+      });
+      if (!result) return res.status(404).json({ message: "Campaign not found" });
       res.json({ message: "Step deleted" });
     } catch (err: any) {
+      if (err?.httpStatus) return res.status(err.httpStatus).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -666,18 +803,29 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // PUT /api/sequences/:id/toggle-status — activate/pause a sequence.
+  // Separate from the generic edit route: that route only allows edits while
+  // paused/draft, so it can never itself flip a sequence to active, and it
+  // 409s outright on an active sequence. This is a dedicated, narrowly-scoped
+  // status transition: draft/paused -> active, active -> paused. No other
+  // fields may change here.
   app.put("/api/sequences/:id/toggle-status", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const id = Number(req.params.id);
       const seq = await storage.getFollowUpSequence(id);
       if (!seq) return res.status(404).json({ message: "Sequence not found" });
       if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
-      if (seq.status !== "active") {
-        return res.status(403).json({ message: "Sequence activation is not available via HTTP" });
+      if (seq.status === "active") {
+        const updated = await storage.updateFollowUpSequence(id, { status: "paused" });
+        await storage.createAuditLog({ action: "sequence_paused", entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
+        return res.json(updated);
       }
-      const updated = await storage.updateFollowUpSequence(id, { status: "paused" });
-      await storage.createAuditLog({ action: "sequence_paused", entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
-      res.json(updated);
+      if (seq.status === "paused" || seq.status === "draft") {
+        const updated = await storage.updateFollowUpSequence(id, { status: "active" });
+        await storage.createAuditLog({ action: "sequence_activated", entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
+        return res.json(updated);
+      }
+      return res.status(409).json({ message: `Sequence is ${seq.status} and cannot be toggled` });
     } catch (err: any) {
       serverError(res, err);
     }
