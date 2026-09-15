@@ -448,30 +448,6 @@ export default function LeadCommandCenter() {
     onError: (err: any) => { toast({ title: "Import Failed", description: err.message, variant: "destructive" }); },
   });
 
-  const enrichBatchMutation = useMutation({
-    mutationFn: async () => {
-      const promises: Promise<any>[] = [];
-      if (selectedEntities.length > 0) {
-        promises.push(apiRequest("POST", "/api/sunbiz/enrich-batch", { entityIds: selectedEntities, idempotencyKey: crypto.randomUUID() }).then((r) => r.json()));
-      }
-      for (const pid of selectedProspects) {
-        promises.push(apiRequest("POST", "/api/enrichment-jobs", { prospectId: pid, idempotencyKey: crypto.randomUUID() }));
-      }
-      return Promise.all(promises);
-    },
-    onSuccess: (results: any[]) => {
-      const batchResult = results?.find((r) => r?.summary);
-      const s = batchResult?.summary;
-      const description = s
-        ? `${s.success} succeeded, ${s.partial_success} partial, ${s.skipped} skipped, ${s.failed} failed (of ${s.total}).`
-        : "Selected leads are being enriched.";
-      toast({ title: "Enrichment Started", description });
-      invalidateAll();
-      setSelectedIds(new Set());
-    },
-    onError: (err: any) => { toast({ title: "Enrichment Error", description: err.message, variant: "destructive" }); },
-  });
-
   const convertToProspectsMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/sunbiz/convert-batch", { entityIds: selectedEntities });
@@ -740,15 +716,17 @@ export default function LeadCommandCenter() {
     return (
       <div className="sticky top-0 z-50 flex flex-wrap items-center gap-2 p-3 border rounded-md bg-background shadow-sm" data-testid="mass-action-bar">
         <span className="text-sm font-medium mr-2">{selectedIds.size} selected</span>
+        {/* Bulk enrichment always throws (CRO-03 provider transport disabled);
+            disabled here instead of left clickable-but-broken (matches Lead Ops). */}
         <Button
           size="sm"
           variant="outline"
-          onClick={() => enrichBatchMutation.mutate()}
-          disabled={enrichBatchMutation.isPending}
+          disabled
+          title="Bulk enrichment is retired — CRO-03 provider transport is disabled."
           data-testid="button-enrich-selected"
         >
-          {enrichBatchMutation.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1.5" />}
-          Enrich Selected
+          <Sparkles className="h-4 w-4 mr-1.5" />
+          Enrich Selected (retired)
         </Button>
         {selectedEntities.length > 0 && (
           <Button
@@ -1004,7 +982,7 @@ export default function LeadCommandCenter() {
 
       <div className="text-xs text-muted-foreground flex items-center gap-1.5 px-1">
         <Sparkles className="h-3.5 w-3.5" />
-        <span>Auto-enrichment runs every 5 minutes. New imports are automatically queued for AI enrichment, scoring, and qualification.</span>
+        <span>Automated enrichment is currently retired — CRO-03 provider transport is disabled. Use CRO-03 staging review for enrichment instead.</span>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setExpandedRows(new Set()); }} className="space-y-3">
