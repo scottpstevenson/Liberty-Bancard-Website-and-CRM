@@ -2419,10 +2419,20 @@ export function registerAdminRoutes(app: Express) {
   // Task #1956 step 5: same shared provider_controls authority extended to
   // outscraper/openai's CRO03C circuit breaker + emergency stop, closing the
   // confirmed hardening gap without creating a parallel control system.
-  const CRO03C_SHARED_CONTROL_PROVIDERS = new Set(["outscraper", "openai"]);
+  //
+  // Corrective item 5 (Task #1971 continuation): apollo previously had NO
+  // individual admin control route at all — serper has its own dedicated
+  // /api/admin/serper/* set, zerobounce and outscraper/openai had this shared
+  // route, but an admin could only ever touch apollo via the blanket
+  // "emergency stop ALL paid providers" button. Added here for parity; the
+  // real fail-closed enforcement (assertCro03cSharedProviderControlOpen /
+  // provider-context.ts's reservation gate) already covered apollo — only
+  // the admin control surface was missing.
+  const CRO03C_SHARED_CONTROL_PROVIDERS = new Set(["outscraper", "openai", "apollo"]);
   const CRO03C_SHARED_CONTROL_CAPABILITY: Record<string, string> = {
     outscraper: "cro03_enrichment",
     openai: "cro03_classification",
+    apollo: "contact_enrichment",
   };
   app.get("/api/admin/provider-controls/:provider", requireRole("admin", "manager"), async (req, res) => {
     const provider = String(req.params.provider);
