@@ -13,9 +13,14 @@
  * import graph, which would be defeated by dynamic `await import(...)`),
  * that the `free-enrichment-lane` queue's case block in queue-manager.ts does
  * not reference any paid-provider, ZeroBounce, GHL, sequence, campaign, or
- * outreach module — and that MI09_ACTIVATION_SCOPE no longer omits the
+ * outreach module — and that MI09_PILOT_ACTIVATION_SCOPE no longer omits the
  * `free-enrichment-lane` capability group in favor of the broad `enrichment`
  * group alone.
+ *
+ * Corrective item 8 addendum: also asserts MI09_PILOT_ACTIVATION_SCOPE never
+ * includes `continuous-enrichment` — a bounded pilot authorization must never
+ * silently imply unbounded recurring enrichment — and that the distinct
+ * MI09_RECURRENCE_ACTIVATION_SCOPE exists specifically to carry that group.
  *
  * Read-only. No DB connection required. Safe to run in CI.
  */
@@ -26,7 +31,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { WORKER_CAPABILITY_GROUPS } from "../server/services/background-profile";
 import { QUEUE_CONFIGS } from "../server/services/queue-manager";
-import { MI09_ACTIVATION_SCOPE } from "../server/services/mi09-pilot-authority";
+import { MI09_PILOT_ACTIVATION_SCOPE, MI09_RECURRENCE_ACTIVATION_SCOPE } from "../server/services/mi09-pilot-authority";
 
 let failures = 0;
 const fail = (msg: string) => { failures++; console.error(`FAIL: ${msg}`); };
@@ -59,12 +64,36 @@ if ((WORKER_CAPABILITY_GROUPS["enrichment"] as readonly string[]).includes("free
   ok('WORKER_CAPABILITY_GROUPS["enrichment"] does not include "free-enrichment-lane"');
 }
 
-// 3. MI09_ACTIVATION_SCOPE must explicitly list free-enrichment-lane, not rely
-//    on the broad "enrichment" group alone to cover it.
-if (!MI09_ACTIVATION_SCOPE.split(":")[1]?.split(",").includes("free-enrichment-lane")) {
-  fail(`MI09_ACTIVATION_SCOPE does not explicitly include "free-enrichment-lane": ${MI09_ACTIVATION_SCOPE}`);
+// 3. MI09_PILOT_ACTIVATION_SCOPE must explicitly list free-enrichment-lane,
+//    not rely on the broad "enrichment" group alone to cover it.
+if (!MI09_PILOT_ACTIVATION_SCOPE.split(":")[1]?.split(",").includes("free-enrichment-lane")) {
+  fail(`MI09_PILOT_ACTIVATION_SCOPE does not explicitly include "free-enrichment-lane": ${MI09_PILOT_ACTIVATION_SCOPE}`);
 } else {
-  ok("MI09_ACTIVATION_SCOPE explicitly includes free-enrichment-lane");
+  ok("MI09_PILOT_ACTIVATION_SCOPE explicitly includes free-enrichment-lane");
+}
+
+// 3b. Corrective item 8: a bounded pilot authorization must never silently
+//     carry recurring enrichment. MI09_PILOT_ACTIVATION_SCOPE must NOT
+//     include continuous-enrichment; only the distinct
+//     MI09_RECURRENCE_ACTIVATION_SCOPE may, and it must otherwise be a
+//     superset of the pilot scope (same worker lanes, plus recurrence).
+if (MI09_PILOT_ACTIVATION_SCOPE.split(":")[1]?.split(",").includes("continuous-enrichment")) {
+  fail(`MI09_PILOT_ACTIVATION_SCOPE must not include "continuous-enrichment" (a pilot authorization must never imply recurrence): ${MI09_PILOT_ACTIVATION_SCOPE}`);
+} else {
+  ok('MI09_PILOT_ACTIVATION_SCOPE does not include "continuous-enrichment"');
+}
+if (!MI09_RECURRENCE_ACTIVATION_SCOPE.split(":")[1]?.split(",").includes("continuous-enrichment")) {
+  fail(`MI09_RECURRENCE_ACTIVATION_SCOPE must include "continuous-enrichment": ${MI09_RECURRENCE_ACTIVATION_SCOPE}`);
+} else {
+  ok('MI09_RECURRENCE_ACTIVATION_SCOPE explicitly includes "continuous-enrichment"');
+}
+const pilotGroups = new Set(MI09_PILOT_ACTIVATION_SCOPE.split(":")[1]?.split(",") ?? []);
+const recurrenceGroups = new Set(MI09_RECURRENCE_ACTIVATION_SCOPE.split(":")[1]?.split(",") ?? []);
+const missingFromRecurrence = [...pilotGroups].filter((g) => !recurrenceGroups.has(g));
+if (missingFromRecurrence.length > 0) {
+  fail(`MI09_RECURRENCE_ACTIVATION_SCOPE is missing pilot groups it should still include: ${missingFromRecurrence.join(",")}`);
+} else {
+  ok("MI09_RECURRENCE_ACTIVATION_SCOPE is a strict superset of MI09_PILOT_ACTIVATION_SCOPE plus continuous-enrichment");
 }
 
 // 4. Static source-text scan of the free-enrichment-lane case block: it must

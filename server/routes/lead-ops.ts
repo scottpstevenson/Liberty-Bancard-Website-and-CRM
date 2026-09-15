@@ -2027,9 +2027,20 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // the BACKGROUND_JOB_PROFILE secret themselves, in their own session.
   app.get("/api/lead-ops/pilot/activation-readiness", requireRole("admin"), async (_req, res) => {
     try {
-      const { getActivationReadiness, getSelectiveActivationAuthorization, MI09_ACTIVATION_SCOPE } = await import("../services/mi09-pilot-authority");
+      const { getActivationReadiness, getSelectiveActivationAuthorization, MI09_PILOT_ACTIVATION_SCOPE, MI09_RECURRENCE_ACTIVATION_SCOPE } = await import("../services/mi09-pilot-authority");
       const [readiness, authorization] = await Promise.all([getActivationReadiness(), getSelectiveActivationAuthorization()]);
-      res.json({ readiness, authorization, scope: MI09_ACTIVATION_SCOPE });
+      // Corrective item 8: a pilot authorization must never imply recurrence.
+      // `scope` (and `pilotScope`) is the bounded profile this authorization
+      // actually covers; `recurrenceScope` is surfaced separately, clearly
+      // labeled, for operators who are deliberately turning on ongoing
+      // recurring enrichment on top of — not instead of — a completed pilot.
+      res.json({
+        readiness,
+        authorization,
+        scope: MI09_PILOT_ACTIVATION_SCOPE,
+        pilotScope: MI09_PILOT_ACTIVATION_SCOPE,
+        recurrenceScope: MI09_RECURRENCE_ACTIVATION_SCOPE,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }

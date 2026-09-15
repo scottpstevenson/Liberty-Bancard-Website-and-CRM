@@ -2624,7 +2624,7 @@ function PilotStatusPanel() {
     refetchInterval: 30_000,
   });
 
-  const activationReadinessQuery = useQuery<{ readiness: { ready: boolean; gates: { key: string; passed: boolean; detail: string }[] }; authorization: any; scope: string }>({
+  const activationReadinessQuery = useQuery<{ readiness: { ready: boolean; gates: { key: string; passed: boolean; detail: string }[] }; authorization: any; scope: string; pilotScope: string; recurrenceScope: string }>({
     queryKey: ["/api/lead-ops/pilot/activation-readiness"],
     queryFn: async () => {
       const r = await fetch("/api/lead-ops/pilot/activation-readiness", { credentials: "include" });
@@ -3059,9 +3059,15 @@ function PilotStatusPanel() {
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <h3 className="font-semibold text-sm">Selective Activation Readiness</h3>
         <p className="text-xs text-muted-foreground">
-          Scope: <code className="font-mono">{activationReadinessQuery.data?.scope ?? "selective:enrichment,provider-live,email-validation,continuous-enrichment"}</code>.
+          Pilot scope (use this to authorize the bounded pilot run — no recurring enrichment):{" "}
+          <code className="font-mono">{activationReadinessQuery.data?.pilotScope ?? "selective:enrichment,free-enrichment-lane,provider-live,email-validation"}</code>.
           Authorizing here only records your decision — it does not change <code>BACKGROUND_JOB_PROFILE</code> or start any worker.
-          To actually go live, set that secret to the scope above yourself after Publish, then restart.
+          To actually go live for the pilot, set that secret to the pilot scope above yourself after Publish, then restart.
+        </p>
+        <p className="text-xs text-muted-foreground border-t pt-2">
+          Recurrence scope (separate decision — adds <code className="font-mono">continuous-enrichment</code>; do not use this for a pilot):{" "}
+          <code className="font-mono">{activationReadinessQuery.data?.recurrenceScope ?? "selective:enrichment,free-enrichment-lane,provider-live,email-validation,continuous-enrichment"}</code>.
+          Only apply this profile if you are deliberately turning on ongoing recurring enrichment on top of a completed, reviewed pilot — never as part of authorizing the pilot itself.
         </p>
         {activationReadinessQuery.data && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">

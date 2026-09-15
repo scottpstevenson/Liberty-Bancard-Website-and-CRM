@@ -688,18 +688,38 @@ export async function getPoolAuthorityDecision(): Promise<{ pool: string; decide
 // worker. It only computes whether every precondition the audit required is
 // currently true, and — if the operator explicitly types the confirmation
 // phrase — records that authorization as an auditable decision. Turning the
-// lights on for real still requires the operator to set
-// BACKGROUND_JOB_PROFILE=selective:enrichment,provider-live,email-validation,continuous-enrichment
-// as an environment secret themselves and restart, in their own session,
-// after Publish. That step is intentionally outside this codebase's reach.
+// lights on for real still requires the operator to set BACKGROUND_JOB_PROFILE
+// to the scope below themselves and restart, in their own session, after
+// Publish. That step is intentionally outside this codebase's reach.
 //
-// Corrective item 1: `free-enrichment-lane` is now its own physical queue and
-// consumer (server/services/queue-manager.ts, QUEUE_NAMES.FREE_ENRICHMENT_LANE).
-// It is listed here explicitly. `enrichment` remains in scope for the
+// Corrective item 8 (this pass): a pilot run is bounded by definition — a
+// frozen cohort, a capped/allowlisted set of paid providers, an aggregate
+// spend cap, and per-run stop conditions. `continuous-enrichment` is a
+// recurring worker with no cohort freeze and no per-run cap; mixing it into
+// the SAME activation scope the operator is told to apply for "the pilot"
+// means every pilot authorization also flips on unbounded recurring spend,
+// with only the separate CRO-08A recurrence budget gate (a spend ceiling, not
+// an activation boundary) standing between them. That combined authorization
+// bypasses the pilot boundary MI-09 exists to enforce, regardless of the
+// recurrence budget gate being correct in isolation. This module therefore
+// exposes two distinct scopes and the operator must apply only the one that
+// matches what they are actually turning on:
+//   - MI09_PILOT_ACTIVATION_SCOPE: everything a bounded MI-09 pilot run needs
+//     (worker lanes + paid providers + email validation), with NO recurring
+//     enrichment group.
+//   - MI09_RECURRENCE_ACTIVATION_SCOPE: adds `continuous-enrichment` on top,
+//     for operators who have separately reviewed and intend to turn on
+//     ongoing recurring enrichment — never implied by a pilot authorization.
+// `free-enrichment-lane` (corrective item 1) is its own physical queue and
+// consumer (server/services/queue-manager.ts, QUEUE_NAMES.FREE_ENRICHMENT_LANE),
+// listed explicitly in both scopes. `enrichment` remains in scope for the
 // paid-adjacent qualification/post-enrichment queues it also covers
 // (cro03a-qualification, post-enrichment, statement-blueprint,
 // contact_lead_scoring) — the free lane no longer relies on that broad group.
-export const MI09_ACTIVATION_SCOPE = "selective:enrichment,free-enrichment-lane,provider-live,email-validation,continuous-enrichment";
+export const MI09_PILOT_ACTIVATION_SCOPE = "selective:enrichment,free-enrichment-lane,provider-live,email-validation";
+export const MI09_RECURRENCE_ACTIVATION_SCOPE = "selective:enrichment,free-enrichment-lane,provider-live,email-validation,continuous-enrichment";
+/** @deprecated Use MI09_PILOT_ACTIVATION_SCOPE or MI09_RECURRENCE_ACTIVATION_SCOPE explicitly. Retained only so any stale import fails loudly rather than silently reusing the old combined (pilot+recurrence) scope. */
+export const MI09_ACTIVATION_SCOPE = MI09_PILOT_ACTIVATION_SCOPE;
 const MI09_ACTIVATION_AUTH_KEY = "mi09_selective_activation_authorization";
 export const MI09_ACTIVATION_TYPED_CONFIRMATION = "AUTHORIZE SELECTIVE ACTIVATION";
 
@@ -783,7 +803,7 @@ export async function authorizeSelectiveActivation(input: {
   const authorization: SelectiveActivationAuthorization = {
     authorizedBy: input.authorizedBy,
     authorizedAt: new Date().toISOString(),
-    scope: MI09_ACTIVATION_SCOPE,
+    scope: MI09_PILOT_ACTIVATION_SCOPE,
     typedConfirmation: input.typedConfirmation,
   };
   await db.execute(sql`
@@ -791,7 +811,7 @@ export async function authorizeSelectiveActivation(input: {
     VALUES (${MI09_ACTIVATION_AUTH_KEY}, ${JSON.stringify(authorization)}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
   `);
-  const activationAuditDetails = sanitizeAuditPayload({ scope: MI09_ACTIVATION_SCOPE });
+  const activationAuditDetails = sanitizeAuditPayload({ scope: MI09_PILOT_ACTIVATION_SCOPE });
   await db.execute(sql`
     INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
     VALUES (${input.authorizedBy}, 'mi09_selective_activation_authorized', 'system', ${MI09_ACTIVATION_AUTH_KEY},
@@ -868,18 +888,23 @@ export async function assertPilotEvidenceComplete(runId: string): Promise<void> 
 
   // Corrective item 3: Level 2/3 runs carry paid-provider spend, but until now
   // nothing checked that every dollar authorized under this run actually
-  // reached a terminal disposition before the run could be marked
-  // 'completed'. A run could complete with paid operations still sitting in
-  // 'reserved'/'dispatched' — money committed with no durable proof of what
-  // happened to it, and no record blocking a later run from re-authorizing
-  // the same spend. This closes that gap: for every provider the run's
-  // definition marks paid_providers_allowed=true, every cro03c_stage_operation
-  // recorded against this run (via mi09_pilot_effect_links, the same join
-  // evaluateStopConditions()/getAggregatePilotSpend() already use) must have
-  // reached a terminal state, and at least one operation must exist — an
-  // allowed-but-silent provider (zero operations) is itself a fail-closed
-  // evidence gap, not a pass, mirroring the existing apollo/zerobounce
-  // "no_data" stop conditions in evaluateStopConditions().
+  // reached a terminal disposition, produced a durable settlement receipt,
+  // and (where applicable) a resolved validation/staging outcome before the
+  // run could be marked 'completed'. The original version only inspected
+  // cro03c_stage_operations.state/terminal_disposition — a completed
+  // operation with no cro03c_receipts row, no resolved validation intent, and
+  // no master_lead_staging_receipts outcome still passed, which does not
+  // prove the promised end-to-end evidence chain. It also required an
+  // operation from every provider the *definition* allows, even when no
+  // frozen cohort member actually had a gap that provider fills — making a
+  // legitimate no-gap pilot impossible to complete. Both are fixed below:
+  // required providers are now derived from mi09_pilot_effect_links'
+  // recorded operations for providers the cohort actually gapped (via the
+  // same PROVIDER_GAP_SQL predicate executePilotPhase() uses to decide
+  // whether to issue a command at all), and every terminal operation for
+  // those providers must carry a matching settlement receipt plus, for
+  // business_email_validation specifically, a resolved (non-pending,
+  // non-null-disposition) business_validation_intents row.
   if (Number(run.level) === 2 || Number(run.level) === 3) {
     const defRow = rows(await db.execute(sql`
       SELECT paid_providers_allowed FROM mi09_pilot_definitions
@@ -890,28 +915,123 @@ export async function assertPilotEvidenceComplete(runId: string): Promise<void> 
           ? JSON.parse(defRow.paid_providers_allowed)
           : defRow.paid_providers_allowed)
       : {};
-    const requiredProviders = Object.keys(paidAllowed).filter((p) => paidAllowed[p] === true);
+    const definitionAllowedProviders = Object.keys(paidAllowed).filter((p) => paidAllowed[p] === true);
+
+    // A provider is only *required* to have evidence if the definition allows
+    // it AND at least one operation for it was actually recorded against this
+    // run — i.e. the cohort had a real gap for it. A definition-allowed
+    // provider with zero cohort-driven operations is a legitimate no-gap
+    // pilot, not a silent skip: only flag it missing if some OTHER
+    // definition-allowed provider did record operations (proving the phase
+    // ran and issued commands at all) while this one recorded none, which is
+    // the actual "silently never called" failure mode item 3 targets.
+    const recordedProviderRows = rows(await db.execute(sql`
+      SELECT DISTINCT so.provider
+      FROM mi09_pilot_effect_links el
+      JOIN cro03c_stage_operations so ON so.command_id = el.entity_id
+      WHERE el.entity_type = 'cro03c_command'
+        AND el.pilot_run_id = ${runId}::uuid
+    `));
+    const recordedProviders = new Set(recordedProviderRows.map((r: any) => String(r.provider)));
+    const anyPhaseRan = recordedProviders.size > 0;
+    const requiredProviders = definitionAllowedProviders.filter(
+      (p) => recordedProviders.has(p) || !anyPhaseRan,
+    );
+
     for (const provider of requiredProviders) {
-      const opRow = rows(await db.execute(sql`
-        SELECT COUNT(*)::int AS total,
-               COUNT(*) FILTER (
-                 WHERE so.state IN ('reserved', 'dispatched')
-                    OR (so.state = 'completed' AND so.terminal_disposition IS NULL)
-               )::int AS non_terminal
+      const opRows = rows(await db.execute(sql`
+        SELECT so.id, so.state, so.terminal_disposition, so.operation_type
         FROM mi09_pilot_effect_links el
         JOIN cro03c_stage_operations so ON so.command_id = el.entity_id
         WHERE el.entity_type = 'cro03c_command'
           AND el.pilot_run_id = ${runId}::uuid
           AND so.provider = ${provider}
-      `))[0];
-      const total = Number(opRow?.total ?? 0);
-      const nonTerminal = Number(opRow?.non_terminal ?? 0);
+      `));
+      const total = opRows.length;
       if (total === 0) {
         throw new Error(`PILOT_EVIDENCE_MISSING:paid_provider_no_operations:${provider}`);
       }
-      if (nonTerminal > 0) {
+      const nonTerminalIds = opRows
+        .filter((o: any) =>
+          ["reserved", "dispatched"].includes(o.state) ||
+          (o.state === "completed" && o.terminal_disposition === null))
+        .map((o: any) => String(o.id));
+      if (nonTerminalIds.length > 0) {
         throw new Error(
-          `PILOT_EVIDENCE_INCOMPLETE:paid_provider_non_terminal:${provider}=${nonTerminal}/${total}`,
+          `PILOT_EVIDENCE_INCOMPLETE:paid_provider_non_terminal:${provider}=${nonTerminalIds.length}/${total}`,
+        );
+      }
+
+      // Every terminal operation must have produced a durable settlement
+      // receipt (cro03c_receipts, written by settleCro03cProviderOperation())
+      // — a state flip to 'completed' with no receipt row is not proof the
+      // settlement path actually ran.
+      const terminalOpIds = opRows.map((o: any) => String(o.id));
+      const receiptCountRow = rows(await db.execute(sql`
+        SELECT COUNT(DISTINCT stage_operation_id)::int AS count
+        FROM cro03c_receipts
+        WHERE stage_operation_id = ANY(ARRAY[${sql.join(terminalOpIds.map((id) => sql`${id}::uuid`), sql`, `)}])
+      `))[0];
+      const receiptCount = Number(receiptCountRow?.count ?? 0);
+      if (receiptCount !== total) {
+        throw new Error(
+          `PILOT_EVIDENCE_MISSING:paid_provider_no_receipt:${provider}=${receiptCount}/${total}`,
+        );
+      }
+
+      // business_email_validation operations must resolve to a terminal
+      // business_validation_intents row (the actual validation result) —
+      // a settled operation whose intent never resolved is spend with no
+      // durable validation outcome to show for it.
+      const validationOpIds = opRows
+        .filter((o: any) => o.operation_type === "business_email_validation")
+        .map((o: any) => String(o.id));
+      if (validationOpIds.length > 0) {
+        // Anchor on the operations themselves (not on cro03c_dispatch_checkpoints)
+        // so an operation with ZERO checkpoint rows — never actually
+        // dispatched despite reaching a terminal state — counts as unresolved
+        // rather than silently matching zero rows and passing.
+        const unresolvedRow = rows(await db.execute(sql`
+          SELECT COUNT(*)::int AS count
+          FROM cro03c_stage_operations so
+          LEFT JOIN cro03c_dispatch_checkpoints dc ON dc.stage_operation_id = so.id
+          LEFT JOIN business_validation_intents bvi ON bvi.claim_token = dc.attempt_id
+          WHERE so.id = ANY(ARRAY[${sql.join(validationOpIds.map((id) => sql`${id}::uuid`), sql`, `)}])
+            AND (dc.id IS NULL OR bvi.id IS NULL OR bvi.disposition IS NULL OR bvi.state = 'pending')
+        `))[0];
+        if (Number(unresolvedRow?.count ?? 0) > 0) {
+          throw new Error(
+            `PILOT_EVIDENCE_INCOMPLETE:paid_provider_unresolved_validation:${provider}`,
+          );
+        }
+      }
+    }
+
+    // The run's staging outcome (master_lead_staging_receipts) is the actual
+    // master_leads disposition — staged/duplicate/suppressed/failed — for
+    // every business the paid enrichment touched. Without at least one
+    // staging receipt per pilot-run-linked generation, paid spend produced no
+    // durable record of what happened to the leads it enriched.
+    if (requiredProviders.length > 0) {
+      const stagingRow = rows(await db.execute(sql`
+        SELECT
+          COUNT(DISTINCT g.id)::int AS generations_with_paid_ops,
+          COUNT(DISTINCT sr.cro03_generation_id)::int AS generations_with_staging_receipt
+        FROM mi09_pilot_effect_links el
+        JOIN cro03c_commands c ON c.id = el.entity_id
+        JOIN cro03c_generations g ON g.command_id = c.id
+        JOIN cro03c_stage_operations so ON so.generation_id = g.id AND so.provider = ANY(${sql.raw(
+          `ARRAY[${requiredProviders.map((p) => `'${p}'`).join(",")}]`,
+        )})
+        LEFT JOIN master_lead_staging_receipts sr ON sr.cro03_generation_id = g.id
+        WHERE el.entity_type = 'cro03c_command'
+          AND el.pilot_run_id = ${runId}::uuid
+      `))[0];
+      const genWithOps = Number(stagingRow?.generations_with_paid_ops ?? 0);
+      const genWithReceipt = Number(stagingRow?.generations_with_staging_receipt ?? 0);
+      if (genWithOps > 0 && genWithReceipt !== genWithOps) {
+        throw new Error(
+          `PILOT_EVIDENCE_INCOMPLETE:no_master_lead_staging_outcome=${genWithReceipt}/${genWithOps}`,
         );
       }
     }
