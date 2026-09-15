@@ -22,6 +22,7 @@ import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { getPauseState } from "./outbound-pause-authority";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 import { businessHasDbprLineageSql, businessLacksDbprLineageSql } from "./dbpr";
 import { evaluateBusinessEnrichmentEligibility } from "./contactability";
 import {
@@ -663,10 +664,11 @@ export async function setPoolAuthorityDecision(input: {
     VALUES ('mi09_pool_authority_decision', ${JSON.stringify(decision)}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
   `);
+  const auditDetails = sanitizeAuditPayload({ pool: decision.pool, revision, priorPool: priorDecision?.pool ?? null });
   await db.execute(sql`
     INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
     VALUES (${input.decidedBy}, 'mi09_pool_authority_decision_updated', 'system', 'mi09_pool_authority_decision',
-            ${JSON.stringify({ pool: decision.pool, revision, priorPool: priorDecision?.pool ?? null })}::jsonb,
+            ${JSON.stringify(auditDetails)}::jsonb,
             'user', ${input.decidedBy})
   `);
   return decision;
@@ -789,10 +791,11 @@ export async function authorizeSelectiveActivation(input: {
     VALUES (${MI09_ACTIVATION_AUTH_KEY}, ${JSON.stringify(authorization)}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
   `);
+  const activationAuditDetails = sanitizeAuditPayload({ scope: MI09_ACTIVATION_SCOPE });
   await db.execute(sql`
     INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
     VALUES (${input.authorizedBy}, 'mi09_selective_activation_authorized', 'system', ${MI09_ACTIVATION_AUTH_KEY},
-            ${JSON.stringify({ scope: MI09_ACTIVATION_SCOPE })}::jsonb, 'user', ${input.authorizedBy})
+            ${JSON.stringify(activationAuditDetails)}::jsonb, 'user', ${input.authorizedBy})
   `);
   return authorization;
 }

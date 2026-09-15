@@ -10,6 +10,7 @@ import { db } from "../db";
 import { storage } from "../storage";
 import { auditLogs } from "@shared/schema";
 import { PROVIDER_SOURCE_MANIFEST } from "./provider-manifest";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
 export const PAID_PROVIDER_KEYS = ["serper", "outscraper", "openai", "apollo", "zerobounce"] as const;
 export type PaidProviderKey = (typeof PAID_PROVIDER_KEYS)[number];
@@ -258,12 +259,12 @@ export async function emergencyStopPaidProviders(input: {
       actorType: "user",
       actorId: input.stoppedBy,
       userId: input.stoppedBy,
-      details: {
+      details: sanitizeAuditPayload({
         reason: input.reason,
         providers: PAID_PROVIDER_KEYS,
         inFlightCount: inflight.length,
         schedulesDeactivated: deactivated.length,
-      },
+      }) as Record<string, unknown>,
     });
 
     return {

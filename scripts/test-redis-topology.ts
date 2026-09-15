@@ -50,13 +50,15 @@ async function testQueueConfigsBaseline() {
     "cro08a-processor", "cro08a-scheduler",
     "db-backup", "deal-stage-effects",
     "digests", "discovery", "enrichment", "enrollment-recovery",
-    "executive-snapshot", "ghl-enrollment-recovery", "ghl-sync",
+    "executive-snapshot", "free-enrichment-lane", "ghl-enrollment-recovery", "ghl-sync",
     "health-monitor", "master-lead-stager", "merchant-success", "mid-ingestion", "onboarding-reminder",
     "partner-monthly-digest", "pipeline-silence-check", "post-enrichment",
     "proposal-followup", "sequences", "sla-checks", "source-registry-import",
     "statement-upload", "system-audit", "voicemail-sync", "winback-outreach", "zerobounce-batch-validate",
   ] as const;
-  const CERTIFIED_ROSTER_DIGEST = "8d587d6c596bcc64c27add502a7ad2d11580a88528ec221b6d515d12d4ed84ce";
+  // Roster updated for Task #1971 continuation item 1: free-enrichment worker
+  // lane isolation added the "free-enrichment-lane" queue (35 queues total).
+  const CERTIFIED_ROSTER_DIGEST = "5972bf9db99aaec1c9634c86528fe7ed6af8545ee565a53845f4c246ff7729c5";
   const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
   const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 
