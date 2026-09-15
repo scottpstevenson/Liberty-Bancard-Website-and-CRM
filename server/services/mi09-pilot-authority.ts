@@ -76,6 +76,13 @@ export interface PilotRunInput {
   outboundPauseEpoch: number;
 }
 
+/** Per-provider frozen pricing snapshot captured at createPilotRun() time. */
+interface FrozenPricingArtifactEntry {
+  artifactId: string;
+  amountMicros: number;
+  capturedAt: string;
+}
+
 export interface AdvancementInput {
   pilotRunId: string;
   fromLevel: number;
@@ -481,6 +488,30 @@ export async function getPilotDefinitions(): Promise<any[]> {
 
 // ── Pilot Run ────────────────────────────────────────────────────────────────
 
+/**
+ * The exact "latest artifact within 7 days" selection executePilotCohortPhase
+ * used to make live, per-batch, per-provider. Extracted so createPilotRun can
+ * freeze the same selection once, at run creation, instead of the executor
+ * re-selecting (and potentially picking a *different* artifact) on every
+ * later batch.
+ */
+async function selectCurrentPricingArtifact(
+  providerKey: string,
+): Promise<{ id: string; amountMicros: number; capturedAt: string } | null> {
+  const artifact = rows(await db.execute(sql`
+    SELECT id, amount_micros, captured_at FROM mi09_pricing_artifacts
+    WHERE provider_key = ${providerKey}
+      AND captured_at > NOW() - INTERVAL '7 days'
+    ORDER BY captured_at DESC LIMIT 1
+  `))[0];
+  if (!artifact) return null;
+  return {
+    id: String(artifact.id),
+    amountMicros: Number(artifact.amount_micros),
+    capturedAt: new Date(artifact.captured_at).toISOString(),
+  };
+}
+
 /** Create a new pilot run in 'draft' state. Verifies outbound remains paused. */
 export async function createPilotRun(
   input: PilotRunInput,
@@ -493,16 +524,55 @@ export async function createPilotRun(
   if (Number(pause.epoch) !== input.outboundPauseEpoch) {
     throw new Error("PILOT_RUN_BLOCKED:pause_epoch_mismatch");
   }
+
+  // ── Corrective item 4: frozen pricing authority at run creation ──────────
+  // For every paid provider this run's definition allows (Level 1 has none),
+  // pin the exact pricing artifact the run will use for its entire lifetime.
+  // Fail-closed: a run is never created if an allowed paid provider has no
+  // current artifact — the same guard createPilotDefinition() already applies
+  // at definition time, re-verified here because pricing can lapse (artifacts
+  // expire after 7 days) between definition creation and run creation.
+  const definition = rows(await db.execute(sql`
+    SELECT paid_providers_allowed FROM mi09_pilot_definitions WHERE id = ${input.pilotDefinitionId}::uuid
+  `))[0];
+  if (!definition) throw new Error(`PILOT_RUN_BLOCKED:pilot_definition_not_found:${input.pilotDefinitionId}`);
+  const paidProvidersAllowed: Record<string, boolean> = definition.paid_providers_allowed
+    ? (typeof definition.paid_providers_allowed === "string"
+        ? JSON.parse(definition.paid_providers_allowed)
+        : definition.paid_providers_allowed)
+    : {};
+  const selectedProviders = Object.entries(paidProvidersAllowed)
+    .filter(([, enabled]) => !!enabled)
+    .map(([provider]) => provider);
+
+  const frozenPricingArtifacts: Record<string, FrozenPricingArtifactEntry> = {};
+  const missingArtifacts: string[] = [];
+  for (const provider of selectedProviders) {
+    const artifact = await selectCurrentPricingArtifact(provider);
+    if (!artifact) {
+      missingArtifacts.push(provider);
+      continue;
+    }
+    frozenPricingArtifacts[provider] = {
+      artifactId: artifact.id,
+      amountMicros: artifact.amountMicros,
+      capturedAt: artifact.capturedAt,
+    };
+  }
+  if (missingArtifacts.length > 0) {
+    throw new Error(`PILOT_RUN_BLOCKED:pricing_artifact_missing:${missingArtifacts.join(",")}`);
+  }
+
   const created = rows(await db.execute(sql`
     INSERT INTO mi09_pilot_runs
       (pilot_definition_id, release_sha,
        cro03c_selection_policy_version, cro03c_routing_policy_version,
-       cro03c_recipe_version, outbound_pause_epoch, state)
+       cro03c_recipe_version, outbound_pause_epoch, state, frozen_pricing_artifacts)
     VALUES (${input.pilotDefinitionId}::uuid, ${input.releaseSha},
             ${input.cro03cSelectionPolicyVersion},
             ${input.cro03cRoutingPolicyVersion},
             ${input.cro03cRecipeVersion},
-            ${String(input.outboundPauseEpoch)}, 'draft')
+            ${String(input.outboundPauseEpoch)}, 'draft', ${JSON.stringify(frozenPricingArtifacts)}::jsonb)
     RETURNING id
   `));
   return { id: String(created[0].id) };
@@ -1461,6 +1531,7 @@ export async function executePilotCohortPhase(input: {
   // Verify run state and load definition for paid-provider gating.
   const run = rows(await db.execute(sql`
     SELECT pr.id, pr.state, pr.outbound_pause_epoch, pr.pilot_definition_id,
+           pr.frozen_pricing_artifacts,
            pd.level,
            pd.paid_providers_allowed
     FROM mi09_pilot_runs pr
@@ -1471,6 +1542,16 @@ export async function executePilotCohortPhase(input: {
   if (String(run.state) !== "running") {
     throw new Error(`PILOT_EXECUTOR_RUN_NOT_RUNNING:state=${run.state}`);
   }
+
+  // Corrective item 4: use the pricing frozen at createPilotRun() time, never
+  // a fresh live lookup — otherwise different batches of the same run could
+  // price against different mi09_pricing_artifacts rows if pricing was
+  // resubmitted mid-run.
+  const frozenPricingArtifacts: Record<string, FrozenPricingArtifactEntry> = run.frozen_pricing_artifacts
+    ? (typeof run.frozen_pricing_artifacts === "string"
+        ? JSON.parse(run.frozen_pricing_artifacts)
+        : run.frozen_pricing_artifacts)
+    : {};
 
   // Which paid providers this run's definition allows at all. Level 1 has
   // every key false (or absent) — genuinely free-only. Levels 2/3 allow a
@@ -1703,13 +1784,8 @@ export async function executePilotCohortPhase(input: {
       const handoffIdsForProvider = gappedBusinessIds.flatMap((id) => handoffIdsByBusiness.get(id) ?? []);
       if (handoffIdsForProvider.length === 0) continue; // definition allows it, nothing in this batch needs it
 
-      const artifact = rows(await db.execute(sql`
-        SELECT amount_micros FROM mi09_pricing_artifacts
-        WHERE provider_key = ${provider}
-          AND captured_at > NOW() - INTERVAL '7 days'
-        ORDER BY captured_at DESC LIMIT 1
-      `))[0];
-      if (!artifact) continue; // fail-closed: no un-priced paid work is ever issued
+      const artifact = frozenPricingArtifacts[provider];
+      if (!artifact) continue; // fail-closed: no un-priced paid work is ever issued (frozen at run creation)
 
       // The $50 ladder-wide aggregate cap must include this command's spend
       // atomically with every other settled + in-flight command before it is
@@ -1717,7 +1793,7 @@ export async function executePilotCohortPhase(input: {
       // per batch, since earlier providers in this same loop may have just
       // consumed budget.
       const budget = await assertAggregatePaidBudgetAvailable();
-      const unitAmountMicros = Number(artifact.amount_micros);
+      const unitAmountMicros = Number(artifact.amountMicros);
       const affordableUnits = unitAmountMicros > 0 ? Math.floor(budget.remainingMicros / unitAmountMicros) : 0;
       const units = Math.min(handoffIdsForProvider.length, affordableUnits);
       if (units <= 0) continue; // budget exhausted — skip this provider this batch, never overshoot the cap
@@ -1740,15 +1816,10 @@ export async function executePilotCohortPhase(input: {
     // whatever candidate email discovery already produced, not a specific
     // provider's output.
     if (input.phase === "enrichment" && paidAllowed.zerobounce === true) {
-      const zbArtifact = rows(await db.execute(sql`
-        SELECT amount_micros FROM mi09_pricing_artifacts
-        WHERE provider_key = 'zerobounce'
-          AND captured_at > NOW() - INTERVAL '7 days'
-        ORDER BY captured_at DESC LIMIT 1
-      `))[0];
+      const zbArtifact = frozenPricingArtifacts.zerobounce;
       if (zbArtifact) {
         const budget = await assertAggregatePaidBudgetAvailable();
-        const zbUnitAmountMicros = Number(zbArtifact.amount_micros);
+        const zbUnitAmountMicros = Number(zbArtifact.amountMicros);
         const zbAffordableUnits = zbUnitAmountMicros > 0 ? Math.floor(budget.remainingMicros / zbUnitAmountMicros) : 0;
         const zbUnits = Math.min(handoffIds.length, zbAffordableUnits);
         if (zbUnits > 0) {

@@ -1918,6 +1918,13 @@
       "when": 1800000007800,
       "tag": "0269_paid_provider_controls_all",
       "breakpoints": false
+    },
+    {
+      "idx": 274,
+      "version": "7",
+      "when": 1800000007900,
+      "tag": "0270_mi09_pilot_run_frozen_pricing",
+      "breakpoints": false
     }
   ]
 }
