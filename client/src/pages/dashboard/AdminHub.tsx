@@ -2,6 +2,9 @@ import { lazy, Suspense } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Link } from "wouter";
+import { ExternalLink } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import UserManagement from "./UserManagement";
 import Permissions from "./Permissions";
 import AuditLogs from "./AuditLogs";
@@ -13,7 +16,6 @@ const InformationFlow = lazy(() => import("./InformationFlow"));
 const PreDeployGateResult = lazy(() => import("./PreDeployGateResult"));
 const AutomationRegistry = lazy(() => import("./AutomationRegistry"));
 const SettingsIntegrations = lazy(() => import("./SettingsIntegrations"));
-const GhlIntegrationHub = lazy(() => import("./GhlIntegrationHub"));
 
 export default function AdminHub() {
   const { user } = useAuth();
@@ -25,6 +27,9 @@ export default function AdminHub() {
     : isPrivileged
     ? ["consent", "pci", "agents", "integrations", "ghl"]
     : ["consent", "pci"];
+  // "ghl" tab used to mount a second copy of GhlIntegrationHub; it now just
+  // links out to the single canonical /dashboard/ghl-integration route so the
+  // integration only has one mount point in the app.
 
   const search = useSearch();
   const raw = new URLSearchParams(search).get("tab") ?? "";
@@ -64,9 +69,14 @@ export default function AdminHub() {
       )}
       {isPrivileged && (
         <TabsContent value="ghl">
-          <Suspense fallback={<div className="py-12 text-center text-muted-foreground animate-pulse">Loading…</div>}>
-            <GhlIntegrationHub />
-          </Suspense>
+          <div className="flex flex-col items-start gap-3 py-8 text-sm text-muted-foreground">
+            <p>GHL Integration settings now live on their own page.</p>
+            <Link href="/dashboard/ghl-integration">
+              <Button variant="outline" className="gap-2" data-testid="link-admin-ghl-integration">
+                Open GHL Integration <ExternalLink className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </TabsContent>
       )}
       {isAdmin && (

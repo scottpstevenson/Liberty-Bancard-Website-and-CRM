@@ -24,7 +24,7 @@ import {
 import {
   Database, Shield, CheckCircle2, AlertCircle, Loader2, RefreshCw,
   TrendingUp, Users, BarChart3, Filter, ChevronLeft, ChevronRight,
-  MessageSquareOff, ArrowUpCircle, Download, Zap, XCircle, GitMerge,
+  MessageSquareOff, ArrowUpCircle, Download, XCircle, GitMerge,
   Eye,
 } from "lucide-react";
 
@@ -645,8 +645,6 @@ export default function MasterLeadDatabase() {
   const PAGE_SIZE = 50;
 
   // Promotion dialog
-  const [promotingId, setPromotingId] = useState<string | null>(null);
-  const [promotingName, setPromotingName] = useState<string>("");
 
   // Stats
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<MasterLeadStats>({
@@ -699,34 +697,6 @@ export default function MasterLeadDatabase() {
       return r.json();
     },
     refetchInterval: (q) => q.state.data?.status === "running" ? 3000 : false,
-  });
-
-  // Promote mutation
-  const promoteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const csrf = getCsrfToken();
-      const r = await fetch(`/api/master-leads/leads/${id}/promote`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify({ confirmed: true }),
-      });
-      if (!r.ok) throw new Error((await r.json()).message);
-      return r.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Lead promoted to Controlled Cohort" });
-      setPromotingId(null);
-      refetchLeads();
-      refetchStats();
-    },
-    onError: (err: Error) => {
-      toast({ title: "Promotion failed", description: err.message, variant: "destructive" });
-      setPromotingId(null);
-    },
   });
 
   // Backfill trigger
@@ -1024,25 +994,16 @@ export default function MasterLeadDatabase() {
         </Card>
       )}
 
-      {/* Tabs: Manual Import | Pipeline Review */}
+      {/* Manual Import (Pipeline Review moved out to Lead Ops' Promotion Review
+          subtab — this default export is now Master Leads only, per #1957). */}
       <Tabs defaultValue="manual-import">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="manual-import" className="flex items-center gap-1.5">
             <Download className="h-3.5 w-3.5" />
             Manual Import
           </TabsTrigger>
-          <TabsTrigger value="pipeline-review" className="flex items-center gap-1.5">
-            <GitMerge className="h-3.5 w-3.5" />
-            Pipeline Review
-          </TabsTrigger>
         </TabsList>
 
-        {/* ── Pipeline Review tab (MI-07) ── */}
-        <TabsContent value="pipeline-review" className="mt-4">
-          <PipelineReviewTab />
-        </TabsContent>
-
-        {/* ── Manual Import tab (existing content) ── */}
         <TabsContent value="manual-import">
 
       {/* Lead table with filters */}
@@ -1214,18 +1175,9 @@ export default function MasterLeadDatabase() {
                       </TableCell>
                       <TableCell className="text-right">
                         {lead.status === "ready_for_internal_test" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs border-green-300 text-green-700 hover:bg-green-50"
-                            onClick={() => {
-                              setPromotingId(lead.id);
-                              setPromotingName(lead.company || lead.domain || lead.email || lead.id);
-                            }}
-                          >
-                            <ArrowUpCircle className="h-3 w-3 mr-1" />
-                            Promote
-                          </Button>
+                          <span className="text-xs text-muted-foreground italic" title="Promotion now happens from the Promotion Review tab.">
+                            Ready
+                          </span>
                         )}
                         {lead.status === "ready_for_controlled_cohort" && (
                           <span className="text-xs text-green-600 flex items-center gap-1 justify-end">
@@ -1260,39 +1212,6 @@ export default function MasterLeadDatabase() {
           )}
         </CardContent>
       </Card>
-
-      {/* Promotion confirmation dialog */}
-      <AlertDialog open={!!promotingId} onOpenChange={(open) => { if (!open) setPromotingId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-green-600" />
-              Promote to Controlled Cohort?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              <strong>{promotingName}</strong> will move from{" "}
-              <span className="font-mono text-xs bg-muted px-1 rounded">ready_for_internal_test</span>{" "}
-              to{" "}
-              <span className="font-mono text-xs bg-muted px-1 rounded">ready_for_controlled_cohort</span>.
-              <br /><br />
-              This action is logged and cannot be undone automatically. The sequence engine may
-              enroll this lead once enrollment is triggered separately.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => { if (promotingId) promoteMutation.mutate(promotingId); }}
-              disabled={promoteMutation.isPending}
-            >
-              {promoteMutation.isPending
-                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Promoting…</>
-                : "Yes, Promote"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
         </TabsContent>{/* end manual-import TabsContent */}
       </Tabs>

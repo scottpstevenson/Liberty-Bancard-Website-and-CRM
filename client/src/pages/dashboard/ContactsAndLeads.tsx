@@ -1,35 +1,36 @@
 import { useState, useEffect } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation, useSearch, Redirect } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Target, Database } from "lucide-react";
+import { Users, Target } from "lucide-react";
 import ContactsPage from "./Contacts";
-import ProspectsPage from "./Prospects";
 import LeadsPage from "./Leads";
-import { useAuth } from "@/hooks/use-auth";
 
 /**
  * Contacts & Leads — unified tabbed view
  * Tab "people"  → existing Contacts page
  * Tab "leads"   → revenue leads
- * Tab "prospect-staging" → imported prospects (manager/admin only)
  *
- * URL: /dashboard/contacts-leads?tab=people|leads|prospect-staging
- * Both /dashboard/contacts and /dashboard/prospects redirect here with the
- * correct tab pre-selected.
+ * URL: /dashboard/contacts-leads?tab=people|leads
+ * /dashboard/contacts redirects here with the correct tab pre-selected.
+ * Prospect staging/import now lives under Lead Ops → Source Prospects
+ * (/dashboard/lead-ops?tab=prospects); any deep link to the old
+ * "prospect-staging" tab here is redirected there (see App.tsx).
  */
 export default function ContactsAndLeads() {
   const search = useSearch();
   const [, navigate] = useLocation();
-  const { user } = useAuth();
-  const canManageStaging = user?.role === "admin" || user?.role === "manager";
 
   const params = new URLSearchParams(search);
   const requestedTab = params.get("tab");
-  const tabFromSearch = requestedTab === "leads" || (requestedTab === "prospect-staging" && canManageStaging)
-    ? requestedTab
-    : "people";
-  const initialTab = tabFromSearch;
-  const [tab, setTab] = useState(initialTab);
+
+  // The old "prospect-staging" deep link now lives under Lead Ops → Source
+  // Prospects; redirect explicitly instead of silently falling back to People (#1957).
+  if (requestedTab === "prospect-staging") {
+    return <Redirect to="/dashboard/lead-ops?tab=prospects" />;
+  }
+
+  const tabFromSearch = requestedTab === "leads" ? requestedTab : "people";
+  const [tab, setTab] = useState(tabFromSearch);
 
   // Keep URL in sync when tab changes
   const handleTabChange = (value: string) => {
@@ -42,11 +43,8 @@ export default function ContactsAndLeads() {
   // Sync if URL changes externally (e.g. back-button)
   useEffect(() => {
     const requested = params.get("tab");
-    const t = requested === "leads" || (requested === "prospect-staging" && canManageStaging)
-      ? requested
-      : "people";
-    setTab(t);
-  }, [search, canManageStaging]);
+    setTab(requested === "leads" ? requested : "people");
+  }, [search]);
 
   return (
     <div className="space-y-4">
@@ -60,12 +58,6 @@ export default function ContactsAndLeads() {
             <Target className="w-4 h-4" />
             Leads
           </TabsTrigger>
-          {canManageStaging && (
-            <TabsTrigger value="prospect-staging" className="gap-2" data-testid="tab-contacts-prospect-staging">
-              <Database className="w-4 h-4" />
-              Prospect Staging
-            </TabsTrigger>
-          )}
         </TabsList>
 
         <TabsContent value="people" data-testid="tab-content-people">
@@ -75,11 +67,6 @@ export default function ContactsAndLeads() {
         <TabsContent value="leads" data-testid="tab-content-leads">
           <LeadsPage />
         </TabsContent>
-        {canManageStaging && (
-          <TabsContent value="prospect-staging" data-testid="tab-content-prospect-staging">
-            <ProspectsPage />
-          </TabsContent>
-        )}
       </Tabs>
     </div>
   );

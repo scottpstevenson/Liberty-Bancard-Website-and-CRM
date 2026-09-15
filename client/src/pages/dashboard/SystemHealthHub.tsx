@@ -7,6 +7,7 @@ import IncidentsDashboard from "./IncidentsDashboard";
 import { useAuth } from "@/hooks/use-auth";
 
 const VALID_TABS = ["monitor", "readiness", "seo", "incidents"] as const;
+const ADMIN_ONLY_TABS = ["monitor", "incidents"] as const;
 type Tab = typeof VALID_TABS[number];
 
 export default function SystemHealthHub() {
@@ -14,7 +15,10 @@ export default function SystemHealthHub() {
   const isAdmin = user?.role === "admin";
   const search = useSearch();
   const raw = new URLSearchParams(search).get("tab") ?? "";
-  const tab: Tab = isAdmin && (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "readiness";
+  // Non-admin-only tabs (readiness/seo) must stay reachable via deep link even
+  // when the user isn't an admin; only admin-only tabs fall back to "readiness".
+  const requestedTab = (VALID_TABS as readonly string[]).includes(raw) ? (raw as Tab) : "readiness";
+  const tab: Tab = (ADMIN_ONLY_TABS as readonly string[]).includes(requestedTab) && !isAdmin ? "readiness" : requestedTab;
   const [, navigate] = useLocation();
   const goTab = (v: string) => navigate(`/dashboard/system-health?tab=${v}`);
 

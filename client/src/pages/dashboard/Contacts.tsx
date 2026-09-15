@@ -1264,8 +1264,8 @@ export default function Contacts() {
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Contacted")} disabled={bulkUpdating} data-testid="bulk-mark-contacted">Mark Contacted</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Won")} disabled={bulkUpdating} data-testid="bulk-mark-won">Mark Won</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Lost")} disabled={bulkUpdating} data-testid="bulk-mark-lost">Mark Lost</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleBulkLinkedInEnrich} disabled={bulkUpdating} data-testid="bulk-linkedin-enrich">
-                  Enrich from LinkedIn
+                <DropdownMenuItem disabled data-testid="bulk-linkedin-enrich">
+                  Enrich from LinkedIn (retired — CRO-03 provider transport disabled)
                 </DropdownMenuItem>
                 {/* #1784 — Permanent hard delete (admin only, test/demo/synthetic) */}
                 {user?.role === "admin" && (

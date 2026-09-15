@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,11 @@ import { ProgramHealthPanel } from "@/pages/dashboard/LeadOps/ProgramHealthPanel
 import { BusinessDetailPanel } from "@/pages/dashboard/LeadOps/BusinessDetailPanel";
 import { MobileBusinessCard, type BusinessListItem } from "@/pages/dashboard/LeadOps/MobileBusinessCard";
 import { BudgetPreviewModal, useBudgetPreview } from "@/pages/dashboard/LeadOps/BudgetPreviewModal";
-import { PipelineReviewTab } from "@/pages/dashboard/MasterLeadDatabase";
+import MasterLeadDatabase, { PipelineReviewTab } from "@/pages/dashboard/MasterLeadDatabase";
+import Prospects from "@/pages/dashboard/Prospects";
+import LeadImports from "@/pages/dashboard/LeadImports";
+import LeadIntelligence from "@/pages/dashboard/LeadIntelligence";
+import DataQuality from "@/pages/dashboard/DataQuality";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LeadOpsStats {
@@ -1046,8 +1051,43 @@ export default function LeadOpsCenter() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // ── Tab state (MI-08) ──────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState("businesses");
+  // ── Tab state (MI-08 + #1957 consolidation) ─────────────────────────────────
+  const urlSearch = useSearch();
+  const [, navigate] = useLocation();
+  const VALID_TABS = ["businesses", "prospects", "imports", "staging", "sources", "census", "intelligence", "quality", "pipeline", "pilot", "health"] as const;
+  const STAGING_SUBTABS = ["master-leads", "promotion-review"] as const;
+  const tabFromUrl = (() => {
+    const t = new URLSearchParams(urlSearch).get("tab");
+    return t && (VALID_TABS as readonly string[]).includes(t) ? t : "businesses";
+  })();
+  const [activeTab, setActiveTabState] = useState(tabFromUrl);
+  const stagingTabFromUrl = (() => {
+    const t = new URLSearchParams(urlSearch).get("stagingTab");
+    return t && (STAGING_SUBTABS as readonly string[]).includes(t) ? t : "master-leads";
+  })();
+  const [stagingTab, setStagingTab] = useState(stagingTabFromUrl);
+
+  useEffect(() => {
+    setActiveTabState(tabFromUrl);
+    setStagingTab(stagingTabFromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSearch]);
+
+  const setActiveTab = (value: string) => {
+    setActiveTabState(value);
+    const params = new URLSearchParams(urlSearch);
+    params.set("tab", value);
+    if (value !== "staging") params.delete("stagingTab");
+    navigate(`/dashboard/lead-ops?${params.toString()}`, { replace: true });
+  };
+
+  const handleStagingTabChange = (value: string) => {
+    setStagingTab(value);
+    const params = new URLSearchParams(urlSearch);
+    params.set("tab", "staging");
+    params.set("stagingTab", value);
+    navigate(`/dashboard/lead-ops?${params.toString()}`, { replace: true });
+  };
 
   // ── Filter / pagination state ──────────────────────────────────────────────
   const [page, setPage] = useState(0);
@@ -1146,18 +1186,10 @@ export default function LeadOpsCenter() {
   const inboundRequests = inboundRequestsQuery.data || [];
 
   // ── Mutations ──────────────────────────────────────────────────────────────
-  const bulkEnrichMutation = useMutation({
-    mutationFn: async (_ids: number[] | "all") => {
-      throw new Error("Legacy bulk enrichment is retired; CRO-03 provider transport is disabled.");
-    },
-    onSuccess: (data: any) => {
-      toast({ title: "Enrichment queued", description: data.message });
-      setSelectedIds(new Set());
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/entities"] });
-    },
-    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
-  });
+  // NOTE: legacy bulk/single-row enrichment mutation removed — CRO-03 provider
+  // transport is disabled, so it always threw. Both entry points (the bulk
+  // "Enrich Selected" action and the per-row re-enrich button) are now
+  // unconditionally disabled instead (#1957).
 
   const aiSegmentMutation = useMutation({
     mutationFn: async () => {
@@ -1327,8 +1359,14 @@ export default function LeadOpsCenter() {
           <TabsTrigger value="businesses" className="gap-1.5 min-h-[44px] text-sm">
             <Building2 className="h-4 w-4" aria-hidden /> Businesses
           </TabsTrigger>
+          <TabsTrigger value="prospects" className="gap-1.5 min-h-[44px] text-sm">
+            <Layers className="h-4 w-4" aria-hidden /> Source Prospects
+          </TabsTrigger>
+          <TabsTrigger value="imports" className="gap-1.5 min-h-[44px] text-sm">
+            <GitBranch className="h-4 w-4" aria-hidden /> Imports
+          </TabsTrigger>
           <TabsTrigger value="staging" className="gap-1.5 min-h-[44px] text-sm">
-            <GitBranch className="h-4 w-4" aria-hidden /> Staging
+            <GitBranch className="h-4 w-4" aria-hidden /> Staging &amp; Promotion
           </TabsTrigger>
           <TabsTrigger value="sources" className="gap-1.5 min-h-[44px] text-sm">
             <Layers className="h-4 w-4" aria-hidden /> Sources
@@ -1336,32 +1374,63 @@ export default function LeadOpsCenter() {
           <TabsTrigger value="census" className="gap-1.5 min-h-[44px] text-sm">
             <BarChart3 className="h-4 w-4" aria-hidden /> Census
           </TabsTrigger>
+          <TabsTrigger value="intelligence" className="gap-1.5 min-h-[44px] text-sm">
+            <BarChart3 className="h-4 w-4" aria-hidden /> Intelligence
+          </TabsTrigger>
+          <TabsTrigger value="quality" className="gap-1.5 min-h-[44px] text-sm">
+            <HeartPulse className="h-4 w-4" aria-hidden /> Data Quality
+          </TabsTrigger>
           <TabsTrigger value="pipeline" className="gap-1.5 min-h-[44px] text-sm">
-            <TrendingUp className="h-4 w-4" aria-hidden /> Pipeline
+            <TrendingUp className="h-4 w-4" aria-hidden /> Inbound Operations
           </TabsTrigger>
           <TabsTrigger value="pilot" className="gap-1.5 min-h-[44px] text-sm">
-            🧪 Pilot
+            🧪 Paid Pilot
           </TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5 min-h-[44px] text-sm">
-            <HeartPulse className="h-4 w-4" aria-hidden /> Health
+            <HeartPulse className="h-4 w-4" aria-hidden /> Enrichment Program Health
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="prospects" className="space-y-4">
+          <Prospects />
+        </TabsContent>
+
+        <TabsContent value="imports" className="space-y-4">
+          <LeadImports />
+        </TabsContent>
 
         {/* ── Businesses tab ─────────────────────────────────────────────── */}
         <TabsContent value="businesses" className="space-y-4">
           <BusinessesTab userRole={user?.role ?? "agent"} />
         </TabsContent>
 
-        {/* ── Staging tab (MI-07 Pipeline Review) ───────────────────────── */}
+        {/* ── Staging & Promotion tab: Master Leads (all-origin inventory) vs
+             Promotion Review (MI-07 controlled-cohort pipeline), split per #1957 ── */}
         <TabsContent value="staging" className="space-y-4">
-          <div className="text-sm text-muted-foreground mb-2">
-            Staging pipeline from MI-07. Deep link:{" "}
-            <a href="/dashboard/master-lead-database" className="text-blue-600 underline hover:no-underline">
-              /dashboard/master-lead-database
-            </a>{" "}
-            is preserved.
-          </div>
-          <PipelineReviewTab />
+          <Tabs
+            value={user?.role === "admin" ? stagingTab : "promotion-review"}
+            onValueChange={handleStagingTabChange}
+          >
+            <TabsList>
+              {/* Master Leads (the raw master_leads inventory, including CSV export and
+                  Backfill Existing Contacts) was admin-only at its old standalone route
+                  (/dashboard/master-lead-database). Lead Ops itself is reachable by
+                  managers too, so this subtab stays admin-only here to avoid handing
+                  managers a client UI for admin-gated server routes (#1957). */}
+              {user?.role === "admin" && (
+                <TabsTrigger value="master-leads" data-testid="tab-master-leads">Master Leads</TabsTrigger>
+              )}
+              <TabsTrigger value="promotion-review" data-testid="tab-promotion-review">Promotion Review</TabsTrigger>
+            </TabsList>
+            {user?.role === "admin" && (
+              <TabsContent value="master-leads" className="space-y-4 mt-4">
+                <MasterLeadDatabase />
+              </TabsContent>
+            )}
+            <TabsContent value="promotion-review" className="space-y-4 mt-4">
+              <PipelineReviewTab />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         {/* ── Sources tab ────────────────────────────────────────────────── */}
@@ -1412,8 +1481,16 @@ export default function LeadOpsCenter() {
         {/* ── Census tab ─────────────────────────────────────────────────── */}
         <TabsContent value="census" className="space-y-4">
           <SouthFloridaQualificationPanel />
-          {/* ── Inbound request operations ─────────────────────────────────── */}
-          {/* NOTE: This section continues below after the tab close for Census */}
+        </TabsContent>
+
+        {/* ── Intelligence tab ──────────────────────────────────────────── */}
+        <TabsContent value="intelligence" className="space-y-4">
+          <LeadIntelligence />
+        </TabsContent>
+
+        {/* ── Data Quality tab ──────────────────────────────────────────── */}
+        <TabsContent value="quality" className="space-y-4">
+          <DataQuality />
         </TabsContent>
 
         {/* ── Pipeline tab (enrichment queue + AI + entity table) ─────────── */}
@@ -2009,13 +2086,15 @@ export default function LeadOpsCenter() {
             <span className="text-sm font-medium text-muted-foreground">
               {selectedIds.size} selected
             </span>
+            {/* Legacy bulk enrichment always throws (CRO-03 provider transport disabled);
+                disabled here instead of left clickable-but-broken. */}
             <Button
               size="sm" className="h-9 gap-1.5"
-              onClick={() => bulkEnrichMutation.mutate([...selectedIds])}
-              disabled={bulkEnrichMutation.isPending}
+              disabled
+              title="Legacy bulk enrichment is retired — CRO-03 provider transport is disabled."
             >
-              {bulkEnrichMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Enrich Selected
+              <Sparkles className="h-3.5 w-3.5" />
+              Enrich Selected (retired)
             </Button>
             <Button variant="ghost" size="sm" className="h-9" onClick={() => setSelectedIds(new Set())}>
               Clear
@@ -2152,9 +2231,8 @@ export default function LeadOpsCenter() {
                           <TableCell>
                             <Button
                               variant="ghost" size="icon" className="h-7 w-7"
-                              title="Re-enrich this lead"
-                              onClick={() => bulkEnrichMutation.mutate([entity.id])}
-                              disabled={bulkEnrichMutation.isPending || entity.enrichment_status === "processing"}
+                              title="Re-enrich this lead (retired — CRO-03 provider transport disabled)"
+                              disabled
                             >
                               <RefreshCw className="h-3.5 w-3.5" />
                             </Button>

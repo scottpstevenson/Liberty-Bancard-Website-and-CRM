@@ -10,6 +10,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import {
   RefreshCw, CheckCircle2, AlertTriangle, XCircle, Database,
@@ -109,6 +110,8 @@ function MetricRow({
 
 export default function DataHealth() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const qc = useQueryClient();
   const [dealsOpen, setDealsOpen] = useState(false);
   const [enrollmentsOpen, setEnrollmentsOpen] = useState(false);
@@ -395,7 +398,8 @@ export default function DataHealth() {
           </Collapsible>
         ) : null}
 
-        {/* Reconcile action */}
+        {/* Reconcile action — server route is admin-only, so gate the control the same way */}
+        {isAdmin && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Auto-Reconcile Orphans</CardTitle>
@@ -421,6 +425,7 @@ export default function DataHealth() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
     </>
   );

@@ -425,17 +425,21 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
+        {/* Status toggle is disabled: PUT /api/campaigns/:id rejects a bare
+            {status} body (its update schema doesn't allow that field, and
+            non-draft campaigns 409 regardless), so this control always
+            errored. Disabled with a truthful label until it's rewired. */}
         <Button
           variant="outline"
           size="sm"
-          onClick={() => toggleStatusMutation.mutate()}
-          disabled={toggleStatusMutation.isPending}
+          disabled
+          title="Activate/Pause is temporarily unavailable — this control is disabled rather than left erroring."
           data-testid={`button-toggle-status-${campaign.id}`}
         >
           {campaign.status === "active" ? (
-            <><Pause className="w-4 h-4 mr-1" /> Pause</>
+            <><Pause className="w-4 h-4 mr-1" /> Pause (unavailable)</>
           ) : (
-            <><Play className="w-4 h-4 mr-1" /> Activate</>
+            <><Play className="w-4 h-4 mr-1" /> Activate (unavailable)</>
           )}
         </Button>
         <Button

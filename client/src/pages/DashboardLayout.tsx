@@ -230,7 +230,7 @@ const devModeAutomationItems: MenuItem[] = [
   { icon: ArrowRightLeft, label: "Round-Robin",         href: "/dashboard/round-robin",        roles: ["admin", "manager"] },
   { icon: Database,       label: "Data Requests",       href: "/dashboard/data-requests",      roles: ["admin", "manager"] },
   { icon: Activity,       label: "System Audit",        href: "/dashboard/system-audit",       roles: ["admin", "manager"] },
-  { icon: Monitor,        label: "Queue Health",        href: "/dashboard/system-health",      roles: ["admin", "manager"] },
+  { icon: Monitor,        label: "System Operations",   href: "/dashboard/system-health",      roles: ["admin", "manager"] },
 ];
 
 const devModeGrowthItems: MenuItem[] = [

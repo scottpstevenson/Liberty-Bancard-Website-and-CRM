@@ -350,8 +350,56 @@ function LegacyOperatorRedirect() {
 function LegacyProspectsRedirect() {
   const search = useSearch();
   const params = new URLSearchParams(search);
-  params.set("tab", "prospect-staging");
-  return <Redirect to={`/dashboard/contacts-leads?${params.toString()}`} />;
+  params.delete("tab");
+  params.set("tab", "prospects");
+  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+}
+
+function LegacyLeadImportsRedirect() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  params.set("tab", "imports");
+  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+}
+
+function LegacyMasterLeadDatabaseRedirect() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  params.set("tab", "staging");
+  params.set("stagingTab", "master-leads");
+  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+}
+
+function LegacyLeadIntelligenceRedirect() {
+  const { user } = useAuth();
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  params.set("tab", "intelligence");
+  // Lead Ops is admin/manager-only, but Lead Intelligence was previously open to
+  // any authenticated dashboard user. Preserve that access for other roles
+  // (e.g. agent) instead of bouncing them off the gated Lead Ops route (#1957).
+  if (user && !["admin", "manager"].includes(user.role as string)) {
+    return <LeadIntelligence />;
+  }
+  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
+}
+
+function LegacyLeadCommandCenterRedirect() {
+  const { user } = useAuth();
+  // Lead Command Center previously had no role restriction. Lead Ops (its
+  // consolidated replacement) is admin/manager-only, so preserve prior access
+  // for other roles instead of bouncing them off the gated route (#1957).
+  if (user && !["admin", "manager"].includes(user.role as string)) {
+    return <LeadCommandCenter />;
+  }
+  return <Redirect to="/dashboard/lead-ops" />;
+}
+
+function LegacyDataQualityRedirect() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  params.set("tab", "quality");
+  return <Redirect to={`/dashboard/lead-ops?${params.toString()}`} />;
 }
 
 function Router() {
@@ -587,10 +635,10 @@ function Router() {
           <ProtectedRoute component={ProspectImport} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/lead-imports">
-          <ProtectedRoute component={LeadImports} allowedRoles={["admin", "manager"]} />
+          <ProtectedRoute component={LegacyLeadImportsRedirect} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/master-lead-database">
-          <ProtectedRoute component={MasterLeadDatabase} allowedRoles={["admin"]} />
+          <ProtectedRoute component={LegacyMasterLeadDatabaseRedirect} allowedRoles={["admin"]} />
         </Route>
         <Route path="/dashboard/campaigns">
           <Redirect to="/dashboard/outbound-center?tab=campaigns" />
@@ -617,7 +665,7 @@ function Router() {
           <ProtectedRoute component={LeadGenCleaner} />
         </Route>
         <Route path="/dashboard/lead-intelligence">
-          <ProtectedRoute component={LeadIntelligence} />
+          <ProtectedRoute component={LegacyLeadIntelligenceRedirect} />
         </Route>
         <Route path="/dashboard/statement-review">
           <ProtectedRoute component={StatementReview} />
@@ -629,10 +677,13 @@ function Router() {
           <Redirect to="/dashboard/outbound-center?tab=command" />
         </Route>
         <Route path="/dashboard/lead-engine">
-          <Redirect to="/dashboard/lead-intelligence" />
+          {/* lead-engine previously pointed at the unrestricted lead-intelligence
+              route; preserve that role compatibility via the same role-aware
+              redirect instead of bouncing non-admin/manager roles off Lead Ops (#1957). */}
+          <ProtectedRoute component={LegacyLeadIntelligenceRedirect} />
         </Route>
         <Route path="/dashboard/lead-command-center">
-          <ProtectedRoute component={LeadCommandCenter} />
+          <ProtectedRoute component={LegacyLeadCommandCenterRedirect} />
         </Route>
         <Route path="/dashboard/blaze">
           <Redirect to="/dashboard/content-hub?tab=blaze" />
@@ -880,7 +931,7 @@ function Router() {
           <ProtectedRoute component={DataHealth} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/data-quality">
-          <ProtectedRoute component={DataQuality} allowedRoles={["admin", "manager"]} />
+          <ProtectedRoute component={LegacyDataQualityRedirect} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/blocked-contacts">
           <ProtectedRoute component={BlockedContacts} allowedRoles={["admin", "manager"]} />

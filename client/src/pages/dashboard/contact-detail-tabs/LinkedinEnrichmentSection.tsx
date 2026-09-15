@@ -102,15 +102,17 @@ export function LinkedinEnrichmentSection({
               </Tooltip>
             </TooltipProvider>
           )}
+          {/* Direct LinkedIn enrichment is retired (CRO-03 provider transport disabled)
+              and always throws; disabled here instead of left clickable-but-broken. */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => enrichLinkedInMutation.mutate()}
-            disabled={enrichLinkedInMutation.isPending}
+            disabled
+            title="LinkedIn enrichment is retired — CRO-03 provider transport is disabled."
             data-testid="button-enrich-linkedin"
           >
-            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${enrichLinkedInMutation.isPending ? "animate-spin" : ""}`} />
-            {enrichLinkedInMutation.isPending ? "Enriching..." : "Enrich from LinkedIn"}
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            Enrich from LinkedIn (retired)
           </Button>
         </div>
       </div>
