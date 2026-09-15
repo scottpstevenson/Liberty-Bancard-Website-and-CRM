@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, Sparkles, Loader2, UserPlus, Users, MoreVertical, RefreshCw, ChevronDown } from "lucide-react";
+import { Search, Sparkles, Loader2, UserPlus, Users, MoreVertical, RefreshCw, ChevronDown, PlayCircle, LayoutList } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import type { Prospect, ProspectList } from "@shared/schema";
@@ -85,6 +85,8 @@ export default function Prospects() {
   const prospects = prospectsResult?.data;
 
   const { data: prospectLists } = useQuery<ProspectList[]>({ queryKey: ["/api/prospect-lists"] });
+  const { data: sequences = [] } = useQuery<any[]>({ queryKey: ["/api/sequences"] });
+  const { data: workflows = [] } = useQuery<any[]>({ queryKey: ["/api/workflows"] });
 
   // Collect unique verticals for filter dropdown
   const verticals = [...new Set((prospects || []).map(p => p.vertical).filter(Boolean))].sort() as string[];
@@ -205,6 +207,37 @@ export default function Prospects() {
   const hotCount     = filteredProspects?.filter((p) => p.score === "hot").length || 0;
   const warmCount    = filteredProspects?.filter((p) => p.score === "warm").length || 0;
   const coldCount    = filteredProspects?.filter((p) => p.score === "cold").length || 0;
+
+  const selectedProspectsWithContact = (prospects || []).filter(p => selectedIds.has(p.id) && p.contactId);
+
+  const enrollSequenceMutation = useMutation({
+    mutationFn: async (sequenceId: number) => {
+      const promises = selectedProspectsWithContact.map((p) =>
+        apiRequest("POST", "/api/sequence-enrollments", { sequenceId, contactId: p.contactId, status: "active" })
+      );
+      return Promise.all(promises);
+    },
+    onSuccess: () => {
+      toast({ title: "Enrolled", description: "Selected prospects enrolled in sequence." });
+      setSelectedIds(new Set());
+    },
+    onError: (err: Error) => toast({ title: "Enrollment failed", description: err.message, variant: "destructive" }),
+  });
+
+  const addToWorkflowMutation = useMutation({
+    mutationFn: async (workflowId: number) => {
+      const selected = (prospects || []).filter(p => selectedIds.has(p.id));
+      const promises = selected.map((p) =>
+        apiRequest("POST", `/api/workflows/${workflowId}/run`, { entityType: "prospect", entityId: p.id })
+      );
+      return Promise.all(promises);
+    },
+    onSuccess: () => {
+      toast({ title: "Workflow started", description: "Selected prospects added to workflow." });
+      setSelectedIds(new Set());
+    },
+    onError: (err: Error) => toast({ title: "Workflow error", description: err.message, variant: "destructive" }),
+  });
 
   // ── Bulk selection helpers ─────────────────────────────────────────────────
   const allPageSelected = (filteredProspects?.length || 0) > 0 && (filteredProspects || []).every(p => selectedIds.has(p.id));
@@ -367,6 +400,48 @@ export default function Prospects() {
             {bulkEnrichMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Enrich Selected ({selectedIds.size})
           </Button>
+          {selectedProspectsWithContact.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="gap-1.5 h-8" disabled={enrollSequenceMutation.isPending} data-testid="button-enroll-sequence">
+                  {enrollSequenceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
+                  Enroll in Sequence
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {sequences.length === 0 ? (
+                  <DropdownMenuItem disabled>No sequences available</DropdownMenuItem>
+                ) : (
+                  sequences.map((seq: any) => (
+                    <DropdownMenuItem key={seq.id} onClick={() => enrollSequenceMutation.mutate(seq.id)} data-testid={`menu-sequence-${seq.id}`}>
+                      {seq.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8" disabled={addToWorkflowMutation.isPending} data-testid="button-add-workflow">
+                {addToWorkflowMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LayoutList className="h-3.5 w-3.5" />}
+                Add to Workflow
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {workflows.length === 0 ? (
+                <DropdownMenuItem disabled>No workflows available</DropdownMenuItem>
+              ) : (
+                workflows.map((wf: any) => (
+                  <DropdownMenuItem key={wf.id} onClick={() => addToWorkflowMutation.mutate(wf.id)} data-testid={`menu-workflow-${wf.id}`}>
+                    {wf.name}
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             size="sm" variant="ghost" className="h-8 text-muted-foreground"
             onClick={() => setSelectedIds(new Set())}

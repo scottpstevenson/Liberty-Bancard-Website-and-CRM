@@ -1,3 +1,4 @@
+- [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — App.tsx `Legacy*Redirect` wrappers can still render a "retired" page for non-admin/manager roles; check every branch before deleting.
 - [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService side-effect wiring; backfill not yet run on prod.
 - [NBA Engine & ChannelOrchestrator](wave1-nba-channel-orchestrator.md) — ChannelOrchestrator compliance fence, transport adapters, NBA tables/routes/UI at /dashboard/nba.
 - [Automation Registry & Collision Fixes](automation-registry.md) — automation_registry table; kill-switch pattern; global-pause gaps fixed in 2 workers.

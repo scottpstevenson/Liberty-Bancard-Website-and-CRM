@@ -26,6 +26,7 @@ import {
   TrendingUp, Brain, Target, ArrowRight, Download, Activity,
   X, ShieldAlert, Cpu, RotateCcw, ListTodo, XCircle, RotateCw,
   Building2, GitBranch, BarChart3, Layers, HeartPulse, MapPin,
+  ArrowRightLeft, Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -100,7 +101,7 @@ interface LeadEntity {
   enriched_at: string | null; owner_name: string | null;
   owner_email: string | null; owner_phone: string | null;
   email: string | null; phone: string | null; website: string | null;
-  prospect_id: number | null; ai_summary: string | null;
+  prospect_id: number | null; ai_summary: string | null; tags: string[] | null;
 }
 
 interface AiSegment {
@@ -1097,6 +1098,7 @@ export default function LeadOpsCenter() {
   const [filterVertical,  setFilterVertical]  = useState("all");
   const [filterContactable, setFilterContactable] = useState(false);
   const [filterNoContact,   setFilterNoContact]   = useState(false);
+  const [filterTag,         setFilterTag]         = useState("all");
   const LIMIT = 100;
   const [inboundPage, setInboundPage] = useState(0);
   const [inboundSourceClass, setInboundSourceClass] = useState("all");
@@ -1151,11 +1153,12 @@ export default function LeadOpsCenter() {
     ...(filterVertical !== "all" ? { vertical: filterVertical } : {}),
     ...(filterContactable ? { contactable: "true" } : {}),
     ...(filterNoContact   ? { noContact:   "true" } : {}),
+    ...(filterTag !== "all" ? { tag: filterTag } : {}),
     ...(search ? { search } : {}),
   });
 
   const entitiesQuery = useQuery<{ data: LeadEntity[]; total: number; page: number; limit: number }>({
-    queryKey: ["/api/lead-ops/entities", page, filterStatus, filterScore, filterVertical, filterContactable, filterNoContact, search],
+    queryKey: ["/api/lead-ops/entities", page, filterStatus, filterScore, filterVertical, filterContactable, filterNoContact, filterTag, search],
     queryFn: async () => {
       const r = await fetch(`/api/lead-ops/entities?${entitiesParams}`, { credentials: "include" });
       if (!r.ok) throw new Error(await r.text());
@@ -1236,6 +1239,20 @@ export default function LeadOpsCenter() {
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/health"] });
     },
     onError: (e: Error) => toast({ title: "Reset failed", description: e.message, variant: "destructive" }),
+  });
+
+  const convertToProspectsMutation = useMutation({
+    mutationFn: async (entityIds: number[]) => {
+      const r = await apiRequest("POST", "/api/sunbiz/convert-batch", { entityIds });
+      return r.json();
+    },
+    onSuccess: (data: { converted: number }) => {
+      toast({ title: "Converted", description: `${data.converted} entities pushed to Source Prospects.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/entities"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      setSelectedIds(new Set());
+    },
+    onError: (e: Error) => toast({ title: "Conversion failed", description: e.message, variant: "destructive" }),
   });
 
   // ── Selection helpers ──────────────────────────────────────────────────────
@@ -2080,6 +2097,16 @@ export default function LeadOpsCenter() {
           No Contact Info
         </Button>
 
+        <Select value={filterTag} onValueChange={(v) => { setFilterTag(v); setPage(0); }}>
+          <SelectTrigger className="w-36 h-9">
+            <SelectValue placeholder="All leads" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All leads</SelectItem>
+            <SelectItem value="quiz_lead">Quiz Leads</SelectItem>
+          </SelectContent>
+        </Select>
+
         {/* Bulk action buttons */}
         {someSelected && (
           <div className="flex items-center gap-2 ml-2 pl-2 border-l">
@@ -2095,6 +2122,14 @@ export default function LeadOpsCenter() {
             >
               <Sparkles className="h-3.5 w-3.5" />
               Enrich Selected (retired)
+            </Button>
+            <Button
+              size="sm" variant="outline" className="h-9 gap-1.5"
+              onClick={() => convertToProspectsMutation.mutate(Array.from(selectedIds))}
+              disabled={convertToProspectsMutation.isPending}
+            >
+              {convertToProspectsMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
+              Convert to Prospects
             </Button>
             <Button variant="ghost" size="sm" className="h-9" onClick={() => setSelectedIds(new Set())}>
               Clear

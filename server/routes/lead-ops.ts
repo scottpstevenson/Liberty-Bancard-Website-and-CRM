@@ -150,6 +150,7 @@ export function registerLeadOpsRoutes(app: Express) {
       const contactable = req.query.contactable === "true";
       const noContact   = req.query.noContact === "true";
       const search      = req.query.search as string | undefined;
+      const tagFilter   = req.query.tag as string | undefined;
 
       // Build WHERE clause dynamically using Drizzle sql tag (safe parameterization)
       let whereClause = sql`WHERE 1=1`;
@@ -169,6 +170,11 @@ export function registerLeadOpsRoutes(app: Express) {
         const sterm = `%${search}%`;
         whereClause = sql`${whereClause} AND (entity_name ILIKE ${sterm} OR owner_name ILIKE ${sterm} OR owner_email ILIKE ${sterm} OR email ILIKE ${sterm})`;
       }
+      // Quiz-lead tag filter: matches entities linked from the free-analysis quiz funnel
+      // (tagged by server/routes/imports.ts and server/services/daily-outreach.ts).
+      if (tagFilter === "quiz_lead") {
+        whereClause = sql`${whereClause} AND tags && ARRAY['quiz_lead_linked','lead_free_analysis','src_quiz']::text[]`;
+      }
 
       const countResult = await db.execute(
         sql`SELECT COUNT(*)::int AS total FROM sunbiz_entities ${whereClause}`
@@ -178,7 +184,7 @@ export function registerLeadOpsRoutes(app: Express) {
       const rowsResult = await db.execute(sql`
         SELECT id, entity_name, principal_city, principal_state, vertical, score,
                enrichment_status, enriched_at, owner_name, owner_email, owner_phone,
-               email, phone, website, prospect_id, ai_summary, created_at, updated_at
+               email, phone, website, prospect_id, ai_summary, tags, created_at, updated_at
         FROM sunbiz_entities
         ${whereClause}
         ORDER BY
