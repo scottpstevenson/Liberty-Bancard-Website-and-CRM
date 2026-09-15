@@ -9,7 +9,29 @@
  * #1533 changed contacts.email_status default from 'active' to 'unvalidated'.
  * Every filter that selects contacts needing validation MUST use these
  * constants — do not hand-write the predicate anywhere else.
+ *
+ * Task #1956 step 6: this is the legacy campaign-engine ZeroBounce path's
+ * eligibility gate — the one confirmed live-spend gap with no DBPR
+ * exclusion. DBPR_LINEAGE_EXCLUSION_CLAUSE uses the canonical predicate from
+ * server/services/dbpr.ts (never a hand-rolled `%dbpr%` check).
+ *
+ * IMPORTANT SQL scoping note: the fragment below is embedded inside a
+ * correlated NOT EXISTS subquery against canonical_source_links, which has
+ * its OWN `business_id` column. A bare, unqualified `business_id` reference
+ * here would be resolved by Postgres against the innermost FROM-list (the
+ * subquery's own table), silently shadowing the outer contacts row and
+ * making the exclusion match/no-match every contact identically regardless
+ * of its actual lineage. Every call site embedding this clause MUST alias
+ * the outer contacts table as `c` (i.e. `FROM contacts c WHERE ...`) — the
+ * fragment is hardcoded to reference `c.business_id`, not a bare column.
  */
+import { businessLacksDbprLineageWhereFragment } from "./dbpr";
+
+/**
+ * Excludes contacts linked to a canonical business with any DBPR-family
+ * source lineage. Requires the outer query to alias contacts as `c`.
+ */
+export const DBPR_LINEAGE_EXCLUSION_CLAUSE = `(c.business_id IS NULL OR ${businessLacksDbprLineageWhereFragment("c.business_id")})`;
 
 export const UNVALIDATED_EMAIL_PREDICATE =
   `(email_status IS NULL OR email_status IN ('active', 'unvalidated'))`;
@@ -70,9 +92,9 @@ export function buildZbEligibilityWhere(filter: ZbCampaignFilter): string {
   if (filter.contactIds && filter.contactIds.length > 0) {
     const ids = filter.contactIds.filter((n) => Number.isInteger(n) && n > 0);
     if (ids.length === 0) return "FALSE";
-    return `${VALID_EMAIL_ELIGIBILITY} AND id IN (${ids.join(",")})`;
+    return `${VALID_EMAIL_ELIGIBILITY} AND ${DBPR_LINEAGE_EXCLUSION_CLAUSE} AND id IN (${ids.join(",")})`;
   }
   const issueClause = ZB_ISSUE_FILTERS[filter.issue] ?? UNVALIDATED_EMAIL_PREDICATE;
   const minScore = Number.isFinite(filter.minLeadScore) ? Math.max(0, Math.floor(filter.minLeadScore)) : 0;
-  return `${VALID_EMAIL_ELIGIBILITY} AND COALESCE(lead_score, 0) >= ${minScore} AND (${issueClause})`;
+  return `${VALID_EMAIL_ELIGIBILITY} AND ${DBPR_LINEAGE_EXCLUSION_CLAUSE} AND COALESCE(lead_score, 0) >= ${minScore} AND (${issueClause})`;
 }

@@ -23,11 +23,13 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { getPauseState } from "./outbound-pause-authority";
 import { businessHasDbprLineageSql, businessLacksDbprLineageSql } from "./dbpr";
+import { evaluateBusinessEnrichmentEligibility } from "./contactability";
 import {
   buildCro03PriceScheduleFromArtifacts,
   stableCro03RecipeHash,
   type Cro03PricingArtifactRow,
 } from "./cro03/contracts";
+import { readSignedProviderPricing, type SignedPricingSchedules } from "./signed-pricing-reader";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -331,6 +333,15 @@ export async function linkPricingArtifactsToPolicy(
 
 // ── Pilot Definition ─────────────────────────────────────────────────────────
 
+/** Secret env var required for each paid provider MI-09 can select. */
+const PAID_PROVIDER_REQUIRED_SECRET: Record<string, string> = {
+  serper: "SERPER_API_KEY",
+  outscraper: "OUTSCRAPER_API_KEY",
+  openai: "AI_INTEGRATIONS_OPENAI_API_KEY",
+  apollo: "APOLLO_API_KEY",
+  zerobounce: "ZEROBOUNCE_API_KEY",
+};
+
 export async function createPilotDefinition(
   input: PilotDefinitionInput,
 ): Promise<{ id: string; pilotDefinitionHash: string }> {
@@ -340,6 +351,42 @@ export async function createPilotDefinition(
     if (anyPaid) {
       throw new Error(
         "PILOT_DEFINITION_INVALID:pilot_1_must_exclude_all_paid_providers",
+      );
+    }
+  }
+
+  // Independent server-side gate: a provider toggled on in the UI is never
+  // itself authorization. Any provider set to `true` here must (a) have its
+  // required secret actually present in this environment, and (b) already
+  // have at least one pricing artifact on record (mi09_pricing_artifacts),
+  // so cost accounting for it is possible before any command can be issued.
+  // This runs regardless of which client sent the request — a definition
+  // created via curl/API cannot bypass it either.
+  const selectedProviders = Object.entries(input.paidProvidersAllowed)
+    .filter(([, enabled]) => !!enabled)
+    .map(([provider]) => provider);
+  if (selectedProviders.length > 0) {
+    const missingSecret = selectedProviders.filter((p) => !process.env[PAID_PROVIDER_REQUIRED_SECRET[p]]);
+    if (missingSecret.length > 0) {
+      throw new Error(
+        `PILOT_DEFINITION_INVALID:provider_secret_missing:${missingSecret.join(",")}`,
+      );
+    }
+    // Pricing must be readable live from signed-pricing.json right now — a
+    // provider is never allowed based on a cached/DB copy of a price that
+    // may have since been revoked or gone unsigned.
+    let livePricing: SignedPricingSchedules;
+    try {
+      livePricing = readSignedProviderPricing();
+    } catch (err) {
+      throw new Error(
+        `PILOT_DEFINITION_INVALID:signed_pricing_unavailable:${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const missingPricing = selectedProviders.filter((p) => !livePricing[p]);
+    if (missingPricing.length > 0) {
+      throw new Error(
+        `PILOT_DEFINITION_INVALID:provider_pricing_artifact_missing:${missingPricing.join(",")}`,
       );
     }
   }
@@ -1151,12 +1198,27 @@ export async function selectDeterministicPilotCohort(pilotRunId: string): Promis
     throw new Error("COHORT_CENSUS_INSUFFICIENT:no_eligible_businesses_after_exclusions");
   }
 
-  const members = eligible.map((r: any) => ({
+  // Task #1956 Step 8 defense-in-depth: re-verify enrichment eligibility through
+  // the shared contactability authority for each SQL-selected candidate, on top
+  // of the canonical-predicate exclusion already applied in the query above.
+  // Any business the authority blocks (e.g. lineage attached after the query
+  // ran) is dropped from the cohort rather than frozen.
+  const eligibilityChecks = await Promise.all(
+    eligible.map((r: any) => evaluateBusinessEnrichmentEligibility(Number(r.business_id)))
+  );
+  const authorityFiltered = eligible.filter((_: any, i: number) => eligibilityChecks[i].status === "eligible");
+  const authorityExcludedCount = eligible.length - authorityFiltered.length;
+
+  const members = authorityFiltered.map((r: any) => ({
     canonicalBusinessId: Number(r.business_id),
     sourceAdapterKey: String(r.source_adapter_key),
     countyFips: r.county_fips ? String(r.county_fips) : undefined,
     vertical: r.vertical ? String(r.vertical) : undefined,
   }));
+
+  if (members.length === 0) {
+    throw new Error("COHORT_CENSUS_INSUFFICIENT:no_eligible_businesses_after_exclusions");
+  }
 
   const result = await freezePilotCohort({ pilotRunId, members });
 

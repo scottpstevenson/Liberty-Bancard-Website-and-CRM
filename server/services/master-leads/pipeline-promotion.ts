@@ -23,9 +23,10 @@
 
 import { db } from "../../db";
 import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { sanitizeAuditPayload } from "../audit-sanitizer";
 import { recordContactIdentityObservations } from "../contact-identity";
-import { businessHasDbprLineageSql } from "../dbpr";
+import { evaluateBusinessPromotionEligibility } from "../contactability";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,8 @@ export type PromotionBlockerCode =
   | "OPEN_CANONICAL_CONFLICT"
   | "DUPLICATE_CONTACT"
   | "ALREADY_PROMOTED"
-  | "DBPR_LINEAGE_EXCLUDED";
+  | "DBPR_LINEAGE_EXCLUDED"
+  | "EXISTING_CUSTOMER_EXCLUDED";
 
 export interface PromotionPreviewRow {
   masterLeadId: string;
@@ -62,7 +64,8 @@ function rows<T>(result: { rows: T[] }): T[] {
 }
 
 function computeEmailTokenHash(email: string): string {
-  const { createHash } = require("crypto");
+  // `require` doesn't exist in this ESM module — this threw ReferenceError on
+  // every call. Use the top-of-file `createHash` import instead.
   return createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
 }
 
@@ -135,13 +138,16 @@ export async function checkPromotionPreconditions(
     return { blocker: "CANONICAL_BUSINESS_MISSING", message: "canonical_business_id is NULL" };
   }
 
-  // DBPR-family lineage is permanently excluded from promotion/outreach —
-  // ingestion/storage/materialization stay allowed, this is the promotion boundary.
-  const dbprLineage = rows<any>(await db.execute(sql`
-    SELECT ${businessHasDbprLineageSql(sql`${Number(lead.canonical_business_id)}`)} AS has_dbpr
-  `));
-  if (dbprLineage[0]?.has_dbpr) {
-    return { blocker: "DBPR_LINEAGE_EXCLUDED", message: "Canonical business has DBPR-family source lineage — permanently excluded from promotion" };
+  // Task #1956 Step 8: DBPR-family lineage and existing-customer relationship
+  // are both permanently excluded from promotion — routed through the shared
+  // contactability promotion-eligibility dimension rather than a local check
+  // (ingestion/storage/materialization stay allowed; this is the promotion boundary).
+  const promotionEligibility = await evaluateBusinessPromotionEligibility(Number(lead.canonical_business_id));
+  if (promotionEligibility.status === "blocked") {
+    const code = promotionEligibility.reasonCodes.includes("EXISTING_CUSTOMER")
+      ? "EXISTING_CUSTOMER_EXCLUDED"
+      : "DBPR_LINEAGE_EXCLUDED";
+    return { blocker: code as PromotionBlockerCode, message: promotionEligibility.reason ?? "Blocked by promotion eligibility authority" };
   }
 
   // Re-verify email_discovery_status from businesses (not from master_leads)
@@ -289,13 +295,14 @@ export async function promoteMasterLead(options: PromoteOptions): Promise<Promot
         throw Object.assign(new Error("canonical_business_id is NULL"), { code: "CANONICAL_BUSINESS_MISSING" });
       }
 
-      const dbprLineageTx = rows<any>(await tx.execute(sql`
-        SELECT ${businessHasDbprLineageSql(sql`${canonicalBusinessId}`)} AS has_dbpr
-      `));
-      if (dbprLineageTx[0]?.has_dbpr) {
+      const promotionEligibilityTx = await evaluateBusinessPromotionEligibility(canonicalBusinessId);
+      if (promotionEligibilityTx.status === "blocked") {
+        const code = promotionEligibilityTx.reasonCodes.includes("EXISTING_CUSTOMER")
+          ? "EXISTING_CUSTOMER_EXCLUDED"
+          : "DBPR_LINEAGE_EXCLUDED";
         throw Object.assign(
-          new Error("Canonical business has DBPR-family source lineage — permanently excluded from promotion"),
-          { code: "DBPR_LINEAGE_EXCLUDED" },
+          new Error(promotionEligibilityTx.reason ?? "Blocked by promotion eligibility authority"),
+          { code },
         );
       }
 

@@ -22,7 +22,7 @@ import { contacts, sequenceEnrollments, sequenceSteps } from "@shared/schema";
 import { isNull, eq, and, gte, sql, inArray } from "drizzle-orm";
 import { storage } from "../storage";
 import { canEnrollContactInSequence } from "./sequence-eligibility";
-import { evaluateContactability } from "./contactability";
+import { evaluateContactability, evaluateContactDecisions } from "./contactability";
 import { decideCr06SequenceLifecycle } from "./cr06-promotional-lifecycle-decision";
 
 const BULK_ENROLL_PROGRESS_KEY = "bulk_enroll_job_progress";
@@ -59,6 +59,7 @@ export interface BulkEnrollPreviewResult {
   dncBlocked: number;
   optOutBlocked: number;
   contactabilityBlocked: number;
+  dataHygieneBlocked: number;
   pewcBlocked: number;
   missingContactMethod: number;
   eligibilityBlocked: number;
@@ -149,6 +150,7 @@ export async function previewBulkEnroll(params: {
   let dncBlocked = 0;
   let optOutBlocked = 0;
   let contactabilityBlocked = 0;
+  let dataHygieneBlocked = 0;
   let pewcBlocked = 0;
   let missingContactMethod = 0;
   let eligibilityBlocked = 0;
@@ -177,6 +179,10 @@ export async function previewBulkEnroll(params: {
     });
     if (!contactResult.allowed) { contactabilityBlocked++; continue; }
 
+    // Task #1956 Step 8: DBPR-family lineage exclusion for bulk enrollment.
+    const hygiene = await evaluateContactDecisions({ contactId: row.id, businessId: (row as any).businessId ?? null });
+    if (hygiene.dataHygiene.status === "blocked") { dataHygieneBlocked++; continue; }
+
     eligible++;
   }
 
@@ -187,6 +193,7 @@ export async function previewBulkEnroll(params: {
     dncBlocked,
     optOutBlocked,
     contactabilityBlocked,
+    dataHygieneBlocked,
     pewcBlocked,
     missingContactMethod,
     eligibilityBlocked,

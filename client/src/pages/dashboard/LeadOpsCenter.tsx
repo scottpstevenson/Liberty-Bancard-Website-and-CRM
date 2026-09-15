@@ -2241,6 +2241,9 @@ function PilotStatusPanel() {
   const [newDefVerticals, setNewDefVerticals] = useState("");
   const [newDefSourceAdapters, setNewDefSourceAdapters] = useState("");
   const [newDefMaxCohort, setNewDefMaxCohort] = useState("25");
+  const [newDefProviders, setNewDefProviders] = useState<Record<string, boolean>>({
+    serper: false, outscraper: false, openai: false, apollo: false, zerobounce: false,
+  });
   const [newRunDefId, setNewRunDefId] = useState<string>("");
 
   const preflightQuery = useQuery<{ passed: boolean; checks: Record<string, { passed: boolean; detail?: string }> }>({
@@ -2326,6 +2329,16 @@ function PilotStatusPanel() {
   });
   const [activationConfirmText, setActivationConfirmText] = useState("");
 
+  const pricingScheduleQuery = useQuery<{ priceSchedules: Record<string, { unitType: string; currency: string; amountMicros: number; billingSemantics: string }> }>({
+    queryKey: ["/api/lead-ops/pilot/pricing-schedule"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/pricing-schedule", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
   const invalidatePilot = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/preflight"] });
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/runs"] });
@@ -2378,7 +2391,12 @@ function PilotStatusPanel() {
         sourceAdapterFilter: sourceAdapters,
         maxCohortSize: Number(newDefMaxCohort),
         enrichmentRecipeVersion: 1,
-        paidProvidersAllowed: level === 1 ? {} : { serper: true },
+        // Selecting a provider here is only a proposal — the server
+        // independently rejects any provider missing its secret or pricing
+        // artifact, or (for level 1) any paid provider at all.
+        paidProvidersAllowed: level === 1
+          ? {}
+          : Object.fromEntries(Object.entries(newDefProviders).filter(([, v]) => v)),
         stopConditionThresholds: {
           conflictPct: 5,
           apolloYieldPct: 0,
@@ -2848,6 +2866,34 @@ function PilotStatusPanel() {
             <Input className="h-8 text-xs" placeholder="Source adapters (comma-sep)" value={newDefSourceAdapters} onChange={(e) => setNewDefSourceAdapters(e.target.value)} />
             <Input className="h-8 text-xs" type="number" placeholder="Max cohort size" value={newDefMaxCohort} onChange={(e) => setNewDefMaxCohort(e.target.value)} />
           </div>
+          {newDefLevel !== "1" && (
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">
+                Paid providers to allow (selecting a provider here only proposes it — the server independently rejects any provider missing its API secret or a recorded pricing artifact):
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {(["serper", "outscraper", "openai", "apollo", "zerobounce"] as const).map((p) => {
+                  const price = pricingScheduleQuery.data?.priceSchedules?.[p];
+                  return (
+                    <label key={p} className="flex items-center gap-1.5 text-xs">
+                      <Checkbox
+                        checked={!!newDefProviders[p]}
+                        onCheckedChange={(checked) => setNewDefProviders((prev) => ({ ...prev, [p]: !!checked }))}
+                      />
+                      {p}
+                      {price ? (
+                        <span className="text-muted-foreground">
+                          (${(price.amountMicros / 1_000_000).toFixed(4)}/{price.unitType})
+                        </span>
+                      ) : pricingScheduleQuery.isError ? (
+                        <span className="text-destructive">(pricing unavailable)</span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Button size="sm" disabled={createDefMutation.isPending || !newDefSourceAdapters.trim()} onClick={() => createDefMutation.mutate()}>Create Definition</Button>
         </div>
       </div>

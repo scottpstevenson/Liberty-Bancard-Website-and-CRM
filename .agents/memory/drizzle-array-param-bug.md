@@ -30,6 +30,14 @@ against a real 2+-element array during this investigation and may have the
 same latent bug (see follow-up task: find and fix other silent array-filter
 failures caused by the Postgres array parameter bug).
 
+**Confirmed live occurrence:** `server/services/cro03/candidate-selector.ts`
+had three `ANY(${jsArray}::uuid[])` call sites hit this exact bug in
+production code (found while building a certification script that exercised
+a real multi-row candidate-selection path). Fixed with a local
+`toUuidArraySql()` helper identical in shape to `toTextArraySql`. Treat any
+new `ANY(${arr}::...[])` sighting in this codebase as a bug until proven
+otherwise — grep for the literal pattern `ANY(${` when auditing a file.
+
 ## How to apply
 
 Never write `ANY(${jsArray}::type[])` directly. Build a real

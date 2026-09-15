@@ -76,3 +76,14 @@ export function businessLacksDbprLineageSql(businessIdExpr: SQLWrapper | SQL): S
       AND csl.source_system ~* ${DBPR_SQL_REGEX}
   )`;
 }
+
+/**
+ * Raw-string (non-parameterized identifier) form of businessLacksDbprLineageSql,
+ * for the handful of call sites that build WHERE clauses as plain strings
+ * (e.g. zerobounce-eligibility.ts, consumed via node-postgres `pool.query`
+ * rather than drizzle's `sql` tag). `businessIdColumnSql` must be a trusted,
+ * hardcoded column reference (e.g. "c.business_id") — never user input.
+ */
+export function businessLacksDbprLineageWhereFragment(businessIdColumnSql: string): string {
+  return `NOT EXISTS (SELECT 1 FROM canonical_source_links csl WHERE csl.business_id = ${businessIdColumnSql} AND csl.source_system ~* '${DBPR_SQL_REGEX}')`;
+}

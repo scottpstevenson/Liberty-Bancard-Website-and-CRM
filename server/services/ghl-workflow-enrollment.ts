@@ -378,6 +378,21 @@ export async function enrollContactInGhlWorkflow(params: {
     return { enrolled: false, method: "skipped", reason: "Contact is on do-not-contact list" };
   }
 
+  // Task #1956 Step 8: DBPR-family lineage exclusion for GHL workflow/sync eligibility.
+  {
+    const { evaluateContactDecisions } = await import("./contactability");
+    const hygiene = await evaluateContactDecisions({ contactId, businessId: (contact as any).businessId ?? null });
+    if (hygiene.dataHygiene.status === "blocked") {
+      await storage.createAuditLog({
+        action: "ghl_enrollment_blocked_data_hygiene",
+        entityType: "contact",
+        entityId: contactId,
+        details: { sequenceName, sequenceId, reasonCodes: hygiene.dataHygiene.reasonCodes },
+      }).catch(() => {});
+      return { enrolled: false, method: "skipped", reason: hygiene.dataHygiene.reason ?? "Blocked by data-hygiene authority" };
+    }
+  }
+
   // Shared contactability gate — enforces doNotAutoContact, consentTier, PEWC,
   // Florida rule, quiet hours, and channel-specific opt-outs.
   // Evaluates ALL channels that this workflow may trigger (provided by the caller

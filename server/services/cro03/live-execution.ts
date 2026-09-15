@@ -129,6 +129,36 @@ export const CRO03C_PROVIDER_CONTRACTS: Readonly<Record<string, {
   zerobounce: { unitType: "request", currency: "USD", maxCanaryUnits: 10, legitimateNoResult: true, noResultBillable: true, minimumSample: 10, maxConsecutiveFailures: 2, maxMalformed: 1, maxConflicts: 1, billingSemantics: "per_unit_no_result_billable" },
 });
 
+// Providers that must clear the shared provider_controls (enabled + closed
+// circuit) gate before a CRO03C stage operation reserves against them — the
+// same durable, admin-toggleable table zerobounce already uses. This does
+// not touch apollo/serper/free providers, which are out of this step's
+// scope; extending them later is a matter of adding to this set, never a
+// parallel control system.
+export const CRO03C_SHARED_CONTROL_GATED_PROVIDERS: ReadonlySet<string> = new Set(["outscraper", "openai"]);
+
+/**
+ * Standalone, independently testable gate for CRO03C_SHARED_CONTROL_GATED_PROVIDERS.
+ * Extracted so a fixture test can exercise the exact provider_controls
+ * predicate without reconstructing the full command/run/generation/
+ * attestation authority chain that reserveCro03cProviderOperation also
+ * requires.
+ */
+export async function assertCro03cSharedProviderControlOpen(
+  provider: string,
+  executor: { execute: (q: any) => Promise<any> },
+): Promise<void> {
+  if (!CRO03C_SHARED_CONTROL_GATED_PROVIDERS.has(provider)) return;
+  const control = rows(await executor.execute(sql`
+    SELECT enabled, circuit_state FROM provider_controls
+     WHERE provider = ${provider}
+     FOR UPDATE
+  `))[0];
+  if (!control || control.enabled !== true || control.circuit_state !== "closed") {
+    throw new Error("CRO03C_PROVIDER_CONTROL_BLOCKED");
+  }
+}
+
 // Guard against silent drift between this contract object and the
 // dependency-free CRO03C_PROVIDER_KEYS list in contracts.ts (which
 // dependency-free callers, e.g. operator discovery tooling, rely on instead
@@ -1870,6 +1900,17 @@ export async function reserveCro03cProviderOperation(input: {
         input.maxAmountMicros !== input.requestedUnits * schedule.amountMicros) {
       throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
     }
+    // Confirmed hardening gap (task #1956 step 5): unlike zerobounce, the
+    // outscraper/openai stages had no durable, admin-toggleable per-provider
+    // circuit breaker / emergency stop — only the blanket
+    // CRO03_PROVIDER_TRANSPORT_ENABLED kill switch, which cannot pause one
+    // provider without pausing all of them. Reuse the existing shared
+    // provider_controls table/columns (already used for zerobounce) instead
+    // of building a parallel Outscraper/OpenAI-specific control system.
+    // Budget (command-level caps above) and idempotency (operation_key
+    // uniqueness) were already confirmed present for every CRO03C provider
+    // via this same function, so only this gate is new.
+    await assertCro03cSharedProviderControlOpen(input.provider, tx);
     if (authority.command_type === "continuous_occurrence") {
       // Aggregate cap: sum every reservation already made under this command
       // (across all its generations/stages, excluding ones that were fully

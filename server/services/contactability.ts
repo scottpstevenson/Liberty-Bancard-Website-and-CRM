@@ -13,6 +13,7 @@ import { eq, and, desc, count, gte, sql, not, isNull, inArray } from "drizzle-or
 import { featureFlags } from "./feature-flags";
 import { normalizeConsentPhone } from "./consent-authority";
 import { isContactMergeEffectHoldState } from "./contact-identity";
+import { isDbprSourceSystem, businessHasDbprLineageSql } from "./dbpr";
 import {
   isWithinBusinessHours,
   getTimezoneFromState,
@@ -1059,6 +1060,253 @@ export async function evaluateAllChannels(
       },
     },
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task #1956 Step 8 — Extended eligibility authority.
+//
+// Four distinct structured decisions, all built on top of this same engine
+// (never a parallel authority):
+//   - dataHygiene: is the record clean/identified enough to act on at all
+//     (DBPR-family lineage, do-not-contact, no usable identifier)?
+//   - enrichment: may we spend a free/paid provider call enriching this
+//     record (DBPR-family lineage, do-not-contact)?
+//   - promotion: may this record be promoted from staging/pipeline into a
+//     production contact (DBPR-family lineage, already an existing customer,
+//     do-not-contact)?
+//   - send: may we actually dispatch on `channel` right now? Delegates to
+//     evaluateContactability(), the only dimension outbound pause affects.
+//
+// Every consumer enumerated in the task (MI-09 cohort selection, master-lead
+// promotion, Ready for Outreach, sequence enrollment incl. bulk, campaign
+// audience selection + execution, GHL eligibility/sync, final email/SMS send)
+// must obtain its decision from here rather than re-deriving DBPR/existing-
+// customer/promotion logic locally. See scripts/scan-contactability-authority-bypass.ts
+// for the guard census.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DimensionStatus = "eligible" | "blocked";
+
+export interface DimensionDecision {
+  status: DimensionStatus;
+  reasonCodes: string[];
+  reason: string | null;
+}
+
+export interface ContactDecisionsInput {
+  contactId: number;
+  /** Canonical business, when known — required for DBPR-lineage/existing-customer checks. */
+  businessId?: number | null;
+  /** Only required when a send decision is needed. */
+  channel?: ContactabilityChannel;
+  mode?: "enforcement" | "dryRun";
+  currentTime?: Date;
+  sdrMerchantId?: number;
+  campaignType?: string;
+  commercialPurpose?: "marketing_outreach" | "transactional_response";
+}
+
+export interface ContactDecisions {
+  dataHygiene: DimensionDecision;
+  enrichment: DimensionDecision;
+  promotion: DimensionDecision;
+  /** null when no `channel` was supplied — send eligibility is channel-specific. */
+  send: DimensionDecision | null;
+}
+
+function eligible(): DimensionDecision {
+  return { status: "eligible", reasonCodes: [], reason: null };
+}
+
+function blockedDimension(reasonCode: string, reason: string): DimensionDecision {
+  return { status: "blocked", reasonCodes: [reasonCode], reason };
+}
+
+/**
+ * True when this contact/business carries DBPR-family lineage, via either the
+ * contact's own leadSource/sourceCategory fields or (when a businessId is
+ * known) `canonical_source_links`. Uses the Step 1 canonical predicate — never
+ * a local ad hoc `%dbpr%` check.
+ */
+async function hasDbprLineage(
+  contact: Pick<typeof contacts.$inferSelect, "leadSource" | "sourceCategory">,
+  businessId: number | null | undefined
+): Promise<boolean> {
+  if (isDbprSourceSystem(contact.leadSource) || isDbprSourceSystem(contact.sourceCategory)) {
+    return true;
+  }
+  if (businessId == null) return false;
+  const rows = (await db.execute(sql`
+    SELECT ${businessHasDbprLineageSql(sql`${businessId}::integer`)} AS has_dbpr
+  `) as any).rows ?? [];
+  return Boolean(rows[0]?.has_dbpr);
+}
+
+/**
+ * True when the linked canonical business is already a known customer
+ * (businesses.status = 'customer'). Master-lead promotion must not re-promote
+ * an existing customer as a fresh cold lead.
+ */
+async function isExistingCustomerBusiness(businessId: number | null | undefined): Promise<boolean> {
+  if (businessId == null) return false;
+  const rows = (await db.execute(sql`
+    SELECT 1 FROM businesses WHERE id = ${businessId}::integer AND status = 'customer' LIMIT 1
+  `) as any).rows ?? [];
+  return rows.length > 0;
+}
+
+/**
+ * Data-hygiene eligibility: is this record clean/identified enough to be
+ * acted on by ANY downstream system (enrichment, promotion, or outreach)?
+ */
+function evaluateDataHygieneDecision(
+  contact: Pick<typeof contacts.$inferSelect, "email" | "phone" | "doNotContact" | "leadSource" | "sourceCategory">,
+  dbprLineage: boolean
+): DimensionDecision {
+  if (dbprLineage) {
+    return blockedDimension("DBPR_LINEAGE", "Record carries DBPR-family source lineage");
+  }
+  if (contact.doNotContact) {
+    return blockedDimension("DO_NOT_CONTACT", "Contact is marked Do Not Contact");
+  }
+  const hasEmail = Boolean(contact.email && contact.email.trim().length > 0);
+  const hasPhone = Boolean(contact.phone && contact.phone.trim().length >= 7);
+  if (!hasEmail && !hasPhone) {
+    return blockedDimension("NO_IDENTIFIER", "No usable email or phone identifier on file");
+  }
+  return eligible();
+}
+
+/**
+ * Enrichment/provider eligibility: may a free or paid provider call be spent
+ * enriching this record? DBPR-family lineage is always excluded per Step 1.
+ */
+function evaluateEnrichmentDecision(
+  contact: Pick<typeof contacts.$inferSelect, "doNotContact">,
+  dbprLineage: boolean
+): DimensionDecision {
+  if (dbprLineage) {
+    return blockedDimension("DBPR_LINEAGE", "DBPR-family records are excluded from enrichment/provider spend");
+  }
+  if (contact.doNotContact) {
+    return blockedDimension("DO_NOT_CONTACT", "Contact is marked Do Not Contact");
+  }
+  return eligible();
+}
+
+/**
+ * Promotion eligibility: may this staged/pipeline record be promoted into a
+ * production contact? DBPR-family lineage and an already-existing customer
+ * relationship both permanently block promotion.
+ */
+function evaluatePromotionDecision(
+  contact: Pick<typeof contacts.$inferSelect, "doNotContact">,
+  dbprLineage: boolean,
+  existingCustomer: boolean
+): DimensionDecision {
+  if (dbprLineage) {
+    return blockedDimension("DBPR_LINEAGE", "DBPR-family records are permanently excluded from promotion");
+  }
+  if (existingCustomer) {
+    return blockedDimension("EXISTING_CUSTOMER", "Linked business is already a known customer — not eligible for cold promotion");
+  }
+  if (contact.doNotContact) {
+    return blockedDimension("DO_NOT_CONTACT", "Contact is marked Do Not Contact");
+  }
+  return eligible();
+}
+
+/**
+ * Business-level enrichment eligibility — for consumers (e.g. MI-09 cohort
+ * selection, free-enrichment queueing) that act on a canonical business
+ * BEFORE any contact exists. Defense-in-depth alongside the Step 1 SQL-level
+ * DBPR exclusion already applied in the cohort query itself.
+ */
+export async function evaluateBusinessEnrichmentEligibility(
+  businessId: number
+): Promise<DimensionDecision> {
+  const dbprLineage = await hasDbprLineage({ leadSource: null, sourceCategory: null }, businessId);
+  if (dbprLineage) {
+    return blockedDimension("DBPR_LINEAGE", "DBPR-family records are excluded from enrichment/provider spend");
+  }
+  return eligible();
+}
+
+/**
+ * Business-level promotion eligibility — for master-lead promotion, which
+ * creates the contact as part of promotion (no contactId exists yet to
+ * evaluate against). DBPR-family lineage and an already-existing customer
+ * relationship both permanently block promotion.
+ */
+export async function evaluateBusinessPromotionEligibility(
+  businessId: number
+): Promise<DimensionDecision> {
+  const [dbprLineage, existingCustomer] = await Promise.all([
+    hasDbprLineage({ leadSource: null, sourceCategory: null }, businessId),
+    isExistingCustomerBusiness(businessId),
+  ]);
+  if (dbprLineage) {
+    return blockedDimension("DBPR_LINEAGE", "DBPR-family records are permanently excluded from promotion");
+  }
+  if (existingCustomer) {
+    return blockedDimension("EXISTING_CUSTOMER", "Linked business is already a known customer — not eligible for cold promotion");
+  }
+  return eligible();
+}
+
+/**
+ * evaluateContactDecisions — the single entry point every enumerated consumer
+ * (MI-09 cohort selection, master-lead promotion, Ready for Outreach, sequence
+ * enrollment incl. bulk, campaign audience selection + execution, GHL
+ * eligibility/sync, final email/SMS send) must call for its relevant
+ * dimension(s) rather than re-deriving DBPR/existing-customer/promotion logic
+ * locally.
+ */
+export async function evaluateContactDecisions(
+  input: ContactDecisionsInput
+): Promise<ContactDecisions> {
+  const [contact] = await db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.id, input.contactId))
+    .limit(1);
+
+  if (!contact) {
+    const notFound = blockedDimension("CONTACT_NOT_FOUND", "Contact not found");
+    return { dataHygiene: notFound, enrichment: notFound, promotion: notFound, send: input.channel ? notFound : null };
+  }
+
+  const businessId = input.businessId ?? contact.businessId ?? null;
+  const [dbprLineage, existingCustomer] = await Promise.all([
+    hasDbprLineage(contact, businessId),
+    isExistingCustomerBusiness(businessId),
+  ]);
+
+  const dataHygiene = evaluateDataHygieneDecision(contact, dbprLineage);
+  const enrichment = evaluateEnrichmentDecision(contact, dbprLineage);
+  const promotion = evaluatePromotionDecision(contact, dbprLineage, existingCustomer);
+
+  let send: DimensionDecision | null = null;
+  if (input.channel) {
+    // Outbound pause is enforced by OutboundPauseAuthority at the provider
+    // transport boundary, not here — send eligibility as computed by this
+    // authority reflects consent/compliance/hygiene readiness only, and is
+    // the ONE dimension of the four that a pause additionally gates downstream.
+    const result = await evaluateContactability({
+      contactId: input.contactId,
+      channel: input.channel,
+      campaignType: input.campaignType,
+      mode: input.mode ?? "dryRun",
+      currentTime: input.currentTime,
+      sdrMerchantId: input.sdrMerchantId,
+      commercialPurpose: input.commercialPurpose,
+    });
+    send = result.allowed
+      ? eligible()
+      : blockedDimension("SEND_BLOCKED", result.reason);
+  }
+
+  return { dataHygiene, enrichment, promotion, send };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

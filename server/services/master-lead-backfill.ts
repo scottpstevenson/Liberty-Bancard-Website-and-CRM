@@ -15,6 +15,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { randomUUID } from "crypto";
+import { isDbprSourceSystem } from "./dbpr";
 
 export async function runMasterLeadBackfill(): Promise<{
   total: number;
@@ -72,20 +73,30 @@ export async function runMasterLeadBackfill(): Promise<{
     // ── Pull candidate contacts ────────────────────────────────────────────
     const contactsResult = await db.execute(sql`
       SELECT
-        id, first_name, last_name, email, phone, company_name,
-        website, address, city, state,
-        vertical, lead_source, source_category, import_batch_id,
-        opt_out_status, unsubscribe_status, bounce_status,
-        do_not_contact, existing_merchant_customer, lifecycle_stage,
-        created_at
-      FROM contacts
-      WHERE archived_at IS NULL
+        c.id, c.first_name, c.last_name, c.email, c.phone, c.company_name,
+        c.website, c.address, c.city, c.state,
+        c.vertical, c.lead_source, c.source_category, c.import_batch_id,
+        c.opt_out_status, c.unsubscribe_status, c.bounce_status,
+        c.do_not_contact, c.existing_merchant_customer, c.lifecycle_stage,
+        c.business_id, c.created_at,
+        -- Task #1956 step 9: Step 1's canonical DBPR-family predicate,
+        -- evaluated once here so a DBPR-lineage business is quarantined at
+        -- backfill time (these rows have no canonical_business_id set on
+        -- the resulting master_leads row, so Step 8's business-level
+        -- authority has nothing to check later — the exclusion has to
+        -- happen here, not just downstream).
+        (c.business_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM canonical_source_links csl
+          WHERE csl.business_id = c.business_id AND csl.source_system ~* 'dbpr'
+        )) AS has_dbpr_lineage
+      FROM contacts c
+      WHERE c.archived_at IS NULL
         AND (
-          import_batch_id IS NOT NULL
-          OR lead_source IS NOT NULL
-          OR source_category IN ('csv_import','sunbiz','google_ads','referral','outbound','imported_list')
+          c.import_batch_id IS NOT NULL
+          OR c.lead_source IS NOT NULL
+          OR c.source_category IN ('csv_import','sunbiz','google_ads','referral','outbound','imported_list')
         )
-      ORDER BY created_at ASC
+      ORDER BY c.created_at ASC
     `);
 
     const contacts = contactsResult.rows as any[];
@@ -107,10 +118,23 @@ export async function runMasterLeadBackfill(): Promise<{
         if (domain && existingDomainSet.has(domain)) { skipped++; continue; }
 
         // ── Determine lifecycle status based on suppression flags ───────
+        // Pre-existing DNC/opt-out/unsubscribe/hard-bounce/existing-customer
+        // checks below are unchanged from before task #1956 step 9 — only
+        // the DBPR-lineage check and the insufficient-identifier quarantine
+        // are new.
         let status = "imported";
         let suppressionReason: string | null = null;
 
-        if (c.do_not_contact) {
+        if (c.has_dbpr_lineage) {
+          // Step 1's canonical DBPR-family predicate. A DBPR-lineage
+          // business must never land in a promotable/outreach-ready state —
+          // since this row won't carry a canonical_business_id (that FK is
+          // reserved for cro03_pipeline-origin rows), the exclusion has to
+          // be applied here rather than relying on Step 8's business-level
+          // authority to catch it downstream.
+          status = "suppressed";
+          suppressionReason = "dbpr_lineage";
+        } else if (c.do_not_contact) {
           status = "suppressed";
           suppressionReason = "do_not_contact";
         } else if (c.existing_merchant_customer) {
@@ -135,6 +159,16 @@ export async function runMasterLeadBackfill(): Promise<{
         const emailValid  = email  ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) : null;
         const phoneValid  = normalizedPhone ? normalizedPhone.length >= 10 : null;
 
+        // ── Insufficiently-identified row quarantine ──────────────────────
+        // A row with neither a usable email nor a usable phone can never be
+        // promoted to outreach regardless of any other signal — quarantine
+        // it distinctly from ordinary suppression so it can be triaged
+        // separately rather than silently sitting as "imported".
+        if (!suppressionReason && !(emailValid || phoneValid)) {
+          status = "quarantined";
+          suppressionReason = "insufficient_identifiers";
+        }
+
         const id = randomUUID();
         try {
           await db.execute(sql`
@@ -143,7 +177,7 @@ export async function runMasterLeadBackfill(): Promise<{
               company, normalized_company, domain, email, phone, normalized_phone,
               contact_name, vertical, source, address, city, state, website,
               email_valid, phone_valid, sms_eligible,
-              suppression_reason, created_at
+              suppression_reason, canonical_business_id, created_at
             ) VALUES (
               ${id}, ${batchId}, ${status},
               ${c.company_name ?? null},
@@ -163,6 +197,7 @@ export async function runMasterLeadBackfill(): Promise<{
               ${phoneValid},
               ${false},
               ${suppressionReason},
+              ${c.business_id ?? null},
               ${c.created_at ? new Date(c.created_at) : new Date()}
             )
             ON CONFLICT DO NOTHING

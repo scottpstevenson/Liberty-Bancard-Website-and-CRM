@@ -1727,10 +1727,7 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.ENRICHMENT: {
-          if (_job.name === "validation-intent" && typeof _job.data?.intentId === "string") {
-            const { processValidationIntent } = await import("./provider-readiness-control");
-            await processValidationIntent(_job.data.intentId);
-          } else if (_job.name === "campaign-queue-run" && typeof _job.data?.runId === "string") {
+          if (_job.name === "campaign-queue-run" && typeof _job.data?.runId === "string") {
             if (decideCr06PromotionalLifecycle({ boundary: "queue_runner", purpose: "promotional" }).allowed) {
               const { processCampaignQueueRun } = await import("./campaign-engine");
               await processCampaignQueueRun(_job.data.runId);
@@ -2170,7 +2167,13 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.ZEROBOUNCE_BATCH: {
-          if (_job.name === "zerobounce-auto-run") {
+          if (_job.name === "validation-intent" && typeof _job.data?.intentId === "string") {
+            // Task #1956 step 6: re-homed here (was QUEUE_NAMES.ENRICHMENT) so
+            // this real-spend path is governed by the "email-validation"
+            // capability group, matching the legacy campaign-engine path.
+            const { processValidationIntent } = await import("./provider-readiness-control");
+            await processValidationIntent(_job.data.intentId);
+          } else if (_job.name === "zerobounce-auto-run") {
             // Scheduled daily auto-run (#1616): checks system_settings gate before
             // creating a campaign/run; safe to no-op if disabled or budget exhausted.
             const { runZeroBounceAutoRun } = await import("./zerobounce-campaign-worker");

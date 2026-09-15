@@ -62,7 +62,11 @@ export type Cr04ReasonCode =
   | "EMAIL_EVIDENCE_NOT_CURRENT"
   | "PHONE_MISSING"
   | "CONTACTABILITY_BLOCKED"
-  | "DEPENDENCY_UNAVAILABLE";
+  | "DEPENDENCY_UNAVAILABLE"
+  // Task #1956 Step 8 — data-hygiene dimension reason codes (must match the
+  // literal reasonCodes emitted by evaluateContactDecisions().dataHygiene).
+  | "DBPR_LINEAGE"
+  | "NO_IDENTIFIER";
 
 export interface Cr04ActorScope {
   role: "admin" | "manager" | "agent";
@@ -312,6 +316,14 @@ export async function evaluateCr04ChannelQualification(
       });
       if (!permission.allowed) reasons.push(normalizeContactabilityReason(permission.reason));
       evidenceRefs.push({ authority: "contactability", ref: fingerprint(permission.auditLogPayload), version: 1 });
+
+      // Task #1956 Step 8: data-hygiene dimension (DBPR-family lineage etc.) —
+      // "Ready for Outreach" must never mark a DBPR-lineage record ready.
+      const { evaluateContactDecisions } = await import("./contactability");
+      const hygiene = await evaluateContactDecisions({ contactId: contact.id, businessId: (contact as any).businessId ?? null });
+      if (hygiene.dataHygiene.status === "blocked") {
+        reasons.push(...(hygiene.dataHygiene.reasonCodes as Cr04ReasonCode[]));
+      }
     } catch {
       reasons.push("DEPENDENCY_UNAVAILABLE");
       decision = "unavailable";

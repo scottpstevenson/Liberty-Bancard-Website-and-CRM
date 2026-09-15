@@ -8,6 +8,7 @@ import { ReplitConnectors } from "@replit/connectors-sdk";
 import { db, pool } from "../db";
 import { masterLeads, masterLeadBatches } from "@shared/schema";
 import { eq, inArray, sql } from "drizzle-orm";
+import { DBPR_SQL_REGEX } from "./dbpr";
 
 // Column header mapping from sheet to DB fields
 const SHEET_COLUMN_MAP: Record<string, keyof LeadRow> = {
@@ -168,8 +169,12 @@ export async function processMasterLeadBatch(
   const totalRows = rows.length;
 
   // ── Suppression sets ────────────────────────────────────────────────────────
-  // Pull all DNC, bounced, opted-out, and existing customer emails/phones
-  const [suppressedEmails, suppressedPhones, existingDomains] = await Promise.all([
+  // Task #1956 step 9: Step 1's canonical DBPR-family predicate. A sheet-import
+  // row has no canonical_business_id of its own, so the exclusion is applied
+  // here by domain — any business whose website_domain matches an import row
+  // AND carries DBPR lineage is quarantined rather than staged, since
+  // Step 8's business-level authority has no FK to check downstream.
+  const [suppressedEmails, suppressedPhones, existingDomains, dbprDomains] = await Promise.all([
     pool.query<{ email: string }>(
       `SELECT LOWER(TRIM(email)) as email FROM contacts
        WHERE do_not_contact = true
@@ -192,6 +197,18 @@ export async function processMasterLeadBatch(
        FROM contacts WHERE website IS NOT NULL AND website <> '' AND archived_at IS NULL`
     ).then(r => new Set(
       r.rows.map(x => x.website?.replace(/^www\./, "").split("/")[0]).filter(Boolean)
+    )),
+
+    pool.query<{ website_domain: string }>(
+      `SELECT LOWER(TRIM(REPLACE(REPLACE(b.website_domain,'https://',''),'http://',''))) AS website_domain
+       FROM businesses b
+       WHERE b.website_domain IS NOT NULL AND b.website_domain <> ''
+         AND EXISTS (
+           SELECT 1 FROM canonical_source_links csl
+           WHERE csl.business_id = b.id AND csl.source_system ~* '${DBPR_SQL_REGEX}'
+         )`
+    ).then(r => new Set(
+      r.rows.map(x => x.website_domain?.replace(/^www\./, "").split("/")[0]).filter(Boolean)
     )),
   ]);
 
@@ -232,12 +249,26 @@ export async function processMasterLeadBatch(
 
       // ── Suppression check ─────────────────────────────────────────────────
       let suppressionReason: string | undefined;
-      if (email && suppressedEmails.has(email)) {
+      let suppressedStatus: "suppressed" | "quarantined" = "suppressed";
+      if (domain && dbprDomains.has(domain)) {
+        // Step 1's canonical DBPR-family predicate — quarantined, not merely
+        // suppressed, since this is a lineage exclusion rather than a
+        // contactability suppression, and the row carries no
+        // canonical_business_id for Step 8's authority to catch later.
+        suppressionReason = "dbpr_lineage";
+        suppressedStatus = "quarantined";
+      } else if (email && suppressedEmails.has(email)) {
         suppressionReason = "email_suppressed";
       } else if (phone && phone.length >= 10 && suppressedPhones.has(phone)) {
         suppressionReason = "phone_dnc";
       } else if (domain && existingDomains.has(domain)) {
         suppressionReason = "domain_existing_contact";
+      } else if (!email && !(phone && phone.length >= 10)) {
+        // Insufficiently-identified row: domain and/or company name alone
+        // can never be promoted to outreach — quarantine distinctly from
+        // ordinary suppression so it can be triaged separately.
+        suppressionReason = "insufficient_identifiers";
+        suppressedStatus = "quarantined";
       }
 
       if (suppressionReason) {
@@ -245,7 +276,7 @@ export async function processMasterLeadBatch(
         inserts.push({
           id: randomUUID(),
           importBatchId: batchId,
-          status: "suppressed",
+          status: suppressedStatus,
           suppressionReason,
           ...lead,
           email: email || undefined,
@@ -279,7 +310,13 @@ export async function processMasterLeadBatch(
           duplicateOfId,
           canonicalLeadId: duplicateOfId,
           ...lead,
-          email: email || undefined,
+          // Task #1956 step 9: master_leads_email_unique_idx is a
+          // partial-unique index on lower(trim(email)) that is NOT scoped by
+          // status, so a "duplicate" row carrying the same email as its
+          // canonical row would violate it and crash the whole batch insert.
+          // The canonical row already holds the email; duplicateOfId is the
+          // link back to it, so the duplicate row itself doesn't need it.
+          email: undefined,
           normalizedPhone: phone || undefined,
           sheetId: provenance.sheetId,
           sheetName: provenance.sheetName,

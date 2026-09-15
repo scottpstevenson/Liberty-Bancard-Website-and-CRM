@@ -352,6 +352,50 @@ export async function releaseClaimWithError(
 }
 
 // ---------------------------------------------------------------------------
+// finalizeLegacyProspectContactLink
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomic, race-safe prospect→contact link for call sites that resolve
+ * contactId outside the full claim/deal transaction (e.g. sunbiz-cron.ts's
+ * auto-convert/auto-promote paths, which create the contact — and sometimes
+ * a deal — themselves before linking).
+ *
+ * This is the fix for the "prospect→contact conversion linkage broken" gap:
+ * those call sites used to do a bare `storage.updateProspect(id, {contactId,
+ * status:'converted'})`, which (a) never set conversion_contact_id, leaving
+ * no durable trace for a legacy-divergence audit if the process crashed
+ * between contact/deal creation and this update, and (b) had no protection
+ * against two concurrent ticks linking the same prospect to two different
+ * contacts.
+ *
+ * The conditional `WHERE contact_id IS NULL` makes this safe to call from
+ * concurrent workers: only the first caller wins. Returns false (and logs a
+ * warning) if the prospect was already linked by someone else — the caller
+ * must NOT treat that as an error, just as a race it lost.
+ */
+export async function finalizeLegacyProspectContactLink(
+  prospectId: number,
+  contactId: number,
+): Promise<boolean> {
+  const result = await db.execute(sql`
+    UPDATE prospects
+    SET
+      contact_id = ${contactId},
+      conversion_contact_id = ${contactId},
+      status = 'converted',
+      updated_at = NOW()
+    WHERE id = ${prospectId} AND contact_id IS NULL
+    RETURNING id
+  `);
+  if (result.rows.length === 0) {
+    console.warn(`[finalizeLegacyProspectContactLink] prospect ${prospectId} was already linked by a concurrent process; not overwriting`);
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // resolveConflictingContact — duplicate-email reconciliation
 // ---------------------------------------------------------------------------
 

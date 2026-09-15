@@ -1270,7 +1270,7 @@ export function registerReconciliationRoutes(app: Express): void {
                 // No active campaign — create one with the exact passing contact IDs.
                 const filter = { issue: "unvalidated_email", minLeadScore: 0, contactIds: passingIds };
                 const countR = await pool.query(
-                  `SELECT COUNT(*)::int AS n FROM contacts WHERE ${buildZbEligibilityWhere(filter)}`,
+                  `SELECT COUNT(*)::int AS n FROM contacts c WHERE ${buildZbEligibilityWhere(filter)}`,
                 );
                 const initialTotal = countR.rows[0]?.n ?? 0;
                 const ins = await pool.query(

@@ -21,6 +21,18 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { unseal, type CandidateEvidenceEnvelope } from "./candidate-evidence-service";
 
+// Drizzle-orm's node-postgres driver does not serialize an interpolated JS
+// array as a Postgres array literal inside `ANY(${arr}::uuid[])` — it renders
+// a parenthesized tuple of scalar bound params, which throws "malformed array
+// literal" for 2+ elements and silently mis-binds a single element. Build a
+// real ARRAY[...]::uuid[] expression by hand instead (see memory:
+// drizzle-array-param-bug).
+function toUuidArraySql(ids: readonly string[]) {
+  return ids.length === 0
+    ? sql`ARRAY[]::uuid[]`
+    : sql`ARRAY[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]::uuid[]`;
+}
+
 // ── Synthetic/invalid addresses — rejected for ALL subject types ───────────────
 
 // Invalid technical addresses (not placeholders — these are real system roles
@@ -202,11 +214,20 @@ export interface SelectEmailWinnerResult {
  * @param generationId The CRO-03C generation scoping the candidate evidence.
  * @returns Selection outcome and the written record IDs.
  */
+export interface SelectEmailWinnerDeps {
+  /** Test-only override for the real DNS MX lookup (see BusinessValidationWorkerDeps
+   *  for the same convention on the ZeroBounce side). Production default is the real
+   *  `checkMxRecord`, which performs a live `dns.resolveMx` call. */
+  checkMx?: (domain: string) => Promise<MxCheckResult>;
+}
+
 export async function selectEmailWinner(
   businessId: number,
   generationId: string,
+  deps: SelectEmailWinnerDeps = {},
 ): Promise<SelectEmailWinnerResult> {
   const rows = (result: any): any[] => result?.rows ?? result ?? [];
+  const checkMx = deps.checkMx ?? checkMxRecord;
 
   return await db.transaction(async (tx) => {
     // Step 1: Lock the businesses row (prevents concurrent winner writes).
@@ -337,7 +358,7 @@ export async function selectEmailWinner(
 
       // MX check (3s timeout).
       const domain = email.split("@")[1]?.toLowerCase() ?? "";
-      const mxResult = await checkMxRecord(domain);
+      const mxResult = await checkMx(domain);
       if (mxResult === "no_mx") {
         rejectionReasons.push("no_mx");
         continue; // Hard reject for this candidate.
@@ -395,7 +416,7 @@ export async function selectEmailWinner(
         await tx.execute(sql`
           UPDATE cro03c_candidate_evidence
              SET disposition = 'rejected'
-           WHERE id = ANY(${rejectedIds}::uuid[])
+           WHERE id = ANY(${toUuidArraySql(rejectedIds)})
              AND disposition IN ('staged', 'quarantined')
         `);
       }
@@ -472,7 +493,7 @@ export async function selectEmailWinner(
       await tx.execute(sql`
         UPDATE business_validation_intents
            SET state = 'superseded', updated_at = NOW()
-         WHERE winner_selection_id = ANY(${priorSelectionIds}::uuid[])
+         WHERE winner_selection_id = ANY(${toUuidArraySql(priorSelectionIds)})
            AND state != 'revoked'
       `);
     }
@@ -514,7 +535,7 @@ export async function selectEmailWinner(
       await tx.execute(sql`
         UPDATE cro03c_candidate_evidence
            SET disposition = 'superseded'
-         WHERE id = ANY(${loserIds}::uuid[])
+         WHERE id = ANY(${toUuidArraySql(loserIds)})
       `);
     }
 

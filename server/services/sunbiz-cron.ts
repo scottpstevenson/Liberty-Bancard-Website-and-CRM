@@ -8,6 +8,7 @@ import { applyClassification } from "./commercial-classification-authority";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import type { SunbizEntity, Prospect, Contact, Deal } from "@shared/schema";
+import { finalizeLegacyProspectContactLink } from "./prospect-conversion";
 
 // Re-export so queue-manager can import both conversion steps from a single module.
 export const processSunbizEnrichmentQueue = _processSunbizEnrichmentQueue;
@@ -207,7 +208,7 @@ async function autoPromoteProspects(): Promise<number> {
       const existingContact = existingByEmail || existingByCompany;
 
       if (existingContact) {
-        await storage.updateProspect(prospect.id, { contactId: existingContact.id, status: "converted" });
+        await finalizeLegacyProspectContactLink(prospect.id, existingContact.id);
         continue;
       }
 
@@ -599,7 +600,7 @@ export async function runSunbizCanaryForEntityIds(
         : undefined;
       const existingContact = existingByEmail || existingByCompany;
       if (existingContact) {
-        await storage.updateProspect(prospectId, { contactId: existingContact.id, status: "converted" });
+        await finalizeLegacyProspectContactLink(prospectId, existingContact.id);
         // Existing contact: only count as success if it already meets strict criteria
         results.push({
           entityId, entityName: String(entity.entityName ?? ""),
@@ -682,7 +683,7 @@ export async function runSunbizCanaryForEntityIds(
         notes: `[Canary] Auto-promoted from Sunbiz prospect. ${prospect.aiPitchAngle || ""}`.trim(),
       });
 
-      await storage.updateProspect(prospectId, { contactId: contact.id, status: "converted" });
+      await finalizeLegacyProspectContactLink(prospectId, contact.id);
 
       // Step 5: AWAIT classification — must verify before reporting success
       let classificationOutcome: "promoted" | "classification_failed" = "promoted";

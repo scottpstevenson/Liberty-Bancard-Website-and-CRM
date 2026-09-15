@@ -91,6 +91,11 @@ function deriveReadinessReason(
 // Also reads cro03a_qualification_decisions.score via the handoff's decision_id.
 
 async function resolveProvenance(generationId: string, intentId?: string): Promise<HandoffResolution | null> {
+  // cro03a_handoffs carries (source_system, source_type, source_key) directly —
+  // that triple IS the canonical_source_links natural key (stable_key ==
+  // source_key). There is no source_observation_id column on cro03a_handoffs;
+  // joining through cro03_source_observations (which has no source_system/
+  // source_type/stable_key columns either) was never a valid path.
   const result = rows<{
     canonical_business_id: number;
     cro03_generation_id: string;
@@ -102,11 +107,10 @@ async function resolveProvenance(generationId: string, intentId?: string): Promi
       qd.score                               AS quality_score
     FROM cro03c_generations g
     JOIN cro03a_handoffs h      ON h.id = g.handoff_id
-    JOIN cro03_source_observations so ON so.id = h.source_observation_id
     JOIN canonical_source_links csl
-      ON csl.source_system = so.source_system
-     AND csl.source_type   = so.source_type
-     AND csl.stable_key    = so.stable_key
+      ON csl.source_system = h.source_system
+     AND csl.source_type   = h.source_type
+     AND csl.stable_key    = h.source_key
     JOIN businesses b ON b.id = csl.business_id
     LEFT JOIN cro03a_qualification_decisions qd
       ON qd.id = h.decision_id

@@ -7,7 +7,7 @@ import { sanitizeFirstName } from "./contact-name-utils";
 import { getEmailSignatureHtml, type EmailSignature } from "./email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { logAiCall } from "./ai-audit-logger";
-import { evaluateContactability } from "./contactability";
+import { evaluateContactability, evaluateContactDecisions } from "./contactability";
 import { READINESS_MODEL_VERSION } from "./contact-readiness";
 import { hashEmailToken } from "./provider-readiness-control";
 import { db } from "../db";
@@ -442,6 +442,19 @@ export async function queueContactCampaignMessages(campaignId: number, maxToQueu
         subjectType: "contact", subjectId: contact.id, effect: "marketing_outreach",
       });
       if (!commercial.effectiveDecision.allowed) continue;
+      // Task #1956 Step 8: data-hygiene dimension catches DBPR-family lineage
+      // and identifier gaps the consent-tier gate below does not check.
+      const hygiene = await evaluateContactDecisions({ contactId: contact.id, businessId: (contact as any).businessId ?? null });
+      if (hygiene.dataHygiene.status === "blocked") {
+        await storage.createAuditLog({
+          actorType: "system",
+          action: "campaign_queue_blocked_data_hygiene",
+          entityType: "contact",
+          entityId: contact.id,
+          details: { reasonCodes: hygiene.dataHygiene.reasonCodes, campaignId },
+        });
+        continue;
+      }
       const gate = await evaluateContactability({
         contactId: contact.id,
         channel: "email",

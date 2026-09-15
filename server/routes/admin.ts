@@ -2403,6 +2403,50 @@ export function registerAdminRoutes(app: Express) {
     } catch (err: any) { serverError(res, err); }
   });
 
+  // Task #1956 step 5: same shared provider_controls authority extended to
+  // outscraper/openai's CRO03C circuit breaker + emergency stop, closing the
+  // confirmed hardening gap without creating a parallel control system.
+  const CRO03C_SHARED_CONTROL_PROVIDERS = new Set(["outscraper", "openai"]);
+  const CRO03C_SHARED_CONTROL_CAPABILITY: Record<string, string> = {
+    outscraper: "cro03_enrichment",
+    openai: "cro03_classification",
+  };
+  app.get("/api/admin/provider-controls/:provider", requireRole("admin", "manager"), async (req, res) => {
+    const provider = String(req.params.provider);
+    if (!CRO03C_SHARED_CONTROL_PROVIDERS.has(provider)) return res.status(404).json({ message: "unknown_provider" });
+    const result = await db.execute(sql`
+      SELECT provider, enabled, circuit_state, local_budget_units, reserved_units,
+             consumed_units, last_completed_at, last_outcome, updated_at
+        FROM provider_controls WHERE provider = ${provider}
+    `);
+    res.json({ control: (result as any).rows?.[0] ?? null });
+  });
+  app.put("/api/admin/provider-controls/:provider", requireRole("admin"), async (req, res) => {
+    try {
+      const provider = String(req.params.provider);
+      if (!CRO03C_SHARED_CONTROL_PROVIDERS.has(provider)) return res.status(404).json({ message: "unknown_provider" });
+      const { enabled, circuitState, budgetUnits } = req.body as { enabled?: unknown; circuitState?: unknown; budgetUnits?: unknown };
+      if (typeof enabled !== "boolean" || !Number.isInteger(budgetUnits) || Number(budgetUnits) < 0 || Number(budgetUnits) > 1_000_000) {
+        return res.status(400).json({ message: "enabled must be boolean and budgetUnits must be an integer from 0 to 1000000" });
+      }
+      const resolvedCircuitState = circuitState === "open" || circuitState === "half_open" ? circuitState : "closed";
+      const result = await db.execute(sql`
+        INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version, updated_at)
+        VALUES (${provider}, ${CRO03C_SHARED_CONTROL_CAPABILITY[provider]}, ${enabled}, ${resolvedCircuitState}, ${Number(budgetUnits)}, 0, 0, 1, NOW())
+        ON CONFLICT (provider) DO UPDATE
+          SET enabled=EXCLUDED.enabled, circuit_state=EXCLUDED.circuit_state, local_budget_units=EXCLUDED.local_budget_units,
+              version=provider_controls.version+1, updated_at=NOW()
+        RETURNING provider, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version
+      `);
+      await storage.createAuditLog({
+        action: "provider_control_updated", entityType: "provider_control",
+        userId: (req.user as any)?.id ?? null,
+        details: { provider, enabled, circuitState: resolvedCircuitState, budgetUnits: Number(budgetUnits) },
+      });
+      res.json({ control: (result as any).rows?.[0] });
+    } catch (err: any) { serverError(res, err); }
+  });
+
   // === WORKER INTERVAL CONTROLS (Step 1 — #1444) ===
 
   // GET /api/admin/settings/worker-intervals

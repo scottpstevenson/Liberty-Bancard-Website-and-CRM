@@ -2471,7 +2471,7 @@ export function registerContactsRoutes(app: Express) {
         };
         const { buildZbEligibilityWhere } = await import("../services/zerobounce-eligibility");
         const totalRow = await pool.query(
-          `SELECT COUNT(*)::int AS n FROM contacts WHERE ${buildZbEligibilityWhere(filter)}`,
+          `SELECT COUNT(*)::int AS n FROM contacts c WHERE ${buildZbEligibilityWhere(filter)}`,
         );
         const initialTotal = totalRow.rows[0]?.n ?? 0;
         // Partial unique index zb_campaigns_one_active_idx makes concurrent

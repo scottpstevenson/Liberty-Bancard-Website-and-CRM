@@ -170,7 +170,12 @@ export async function enqueueValidationIntent(intentId: string): Promise<boolean
     if (((denied as any).rows ?? []).length > 0) return false;
     const { getQueueManagerProducers, QUEUE_NAMES } = await import("./queue-manager");
     const manager = getQueueManagerProducers();
-    const queue = manager?.getQueue(QUEUE_NAMES.ENRICHMENT);
+    // Task #1956 step 6: re-homed from QUEUE_NAMES.ENRICHMENT to
+    // QUEUE_NAMES.ZEROBOUNCE_BATCH so validation-intent processing is
+    // governed by the "email-validation" capability group, not "enrichment" —
+    // an operator disabling enrichment should not also disable ZeroBounce
+    // spend, and vice versa.
+    const queue = manager?.getQueue(QUEUE_NAMES.ZEROBOUNCE_BATCH);
     if (!queue) {
       await db.update(validationIntents).set({ enqueueState: "unavailable", updatedAt: new Date() })
         .where(eq(validationIntents.id, intentId));
@@ -343,7 +348,7 @@ export async function processValidationIntent(
   }
 
   const contactResult = await db.execute(sql`
-    SELECT id, email, email_mutation_generation
+    SELECT id, email, email_mutation_generation, business_id
       FROM contacts WHERE id = ${intent.contact_id} LIMIT 1
   `);
   const contact = (contactResult as any).rows?.[0];
@@ -355,6 +360,21 @@ export async function processValidationIntent(
        WHERE id = ${intentId}::uuid AND claim_token = ${claimToken}::uuid
     `);
     return "failed";
+  }
+  // Task #1956 step 6: real ZeroBounce spend must never occur for DBPR-family
+  // lineage, on either path. Canonical predicate from server/services/dbpr.ts.
+  if (contact.business_id != null) {
+    const { businessHasDbprLineageSql } = await import("./dbpr");
+    const dbprCheck = await db.execute(sql`SELECT ${businessHasDbprLineageSql(sql`${Number(contact.business_id)}`)} AS has_dbpr`);
+    if ((dbprCheck as any).rows?.[0]?.has_dbpr) {
+      await db.execute(sql`
+        UPDATE validation_intents
+           SET state = 'blocked', terminal_code = 'dbpr_lineage_excluded',
+               lease_expires_at = NULL, claim_token = NULL, completed_at = NOW(), updated_at = NOW()
+         WHERE id = ${intentId}::uuid AND claim_token = ${claimToken}::uuid
+      `);
+      return "failed";
+    }
   }
   const tokenHash = hashEmailToken(contact.email);
   if (

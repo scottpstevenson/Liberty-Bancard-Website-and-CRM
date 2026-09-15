@@ -69,6 +69,18 @@ export interface BusinessValidationContext {
   expiresAt: Date | string;
 }
 
+/**
+ * Test-only transport injection point, mirroring the same pattern already
+ * used by the contact-bound sibling (`processValidationIntent`'s
+ * `ValidationIntentWorkerDeps`). Production callers never pass this — the
+ * real `validateEmailRaw` HTTP client (hardcoded to api.zerobounce.net) is
+ * used by default. Disposable certification uses it to prove the full
+ * command→receipt→master_leads chain without any real network call.
+ */
+export type BusinessValidationWorkerDeps = {
+  validateEmail?: typeof validateEmailRaw;
+};
+
 // ── processBusinessValidationIntent ───────────────────────────────────────────
 
 /**
@@ -86,7 +98,9 @@ export async function processBusinessValidationIntent(
   ctx: BusinessValidationContext,
   /** operationId from reserveCro03cBusinessValidationOperation — used to write dispatch checkpoints. */
   operationId?: string,
+  deps: BusinessValidationWorkerDeps = {},
 ): Promise<"completed" | "deferred" | "ambiguous" | "superseded" | "failed" | "not_found"> {
+  const validateEmail = deps.validateEmail ?? validateEmailRaw;
   // ── Transport kill switch (mirrors assertCro03cAuthorityBeforeIo) ────────
   // Must check before any DB claim or I/O, matching the global CRO03 transport gate.
   if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
@@ -303,7 +317,7 @@ export async function processBusinessValidationIntent(
   // since transport_may_have_been_invoked=TRUE is already durable.
   let zbResponse: ZeroBounceRawResponse;
   try {
-    zbResponse = await validateEmailRaw(email, apiKey);
+    zbResponse = await validateEmail(email, apiKey);
   } catch {
     // Post-dispatch transport failure — leave claimed to prevent duplicate I/O.
     // The caller settles as "ambiguous" so the accounting record is quarantined.
@@ -321,15 +335,25 @@ export async function processBusinessValidationIntent(
   // dispatch_state='dispatched' (transport may still be unresolved), which undermines
   // accounting/reconciliation evidence for successful calls.
   if (operationId) {
-    await db.execute(sql`
-      INSERT INTO cro03c_dispatch_checkpoints
-        (stage_operation_id, attempt_id, checkpoint, authority_hash)
-      SELECT id, attempt_id, 'transport_returned',
-             md5(id::text || attempt_id::text || 'transport_returned')
-        FROM cro03c_stage_operations
-       WHERE id = ${operationId}::uuid
-      ON CONFLICT (stage_operation_id, attempt_id, checkpoint) DO NOTHING
-    `);
+    // authority_hash must be a 64-hex-char sha256 (cro03c_dispatch_checkpoint_hash_chk);
+    // md5() only produces 32 hex chars and violates that constraint. Postgres's
+    // digest() also isn't guaranteed available (requires the pgcrypto extension),
+    // so hash in JS with the same node:crypto helper the transport_started
+    // checkpoint above uses, rather than depending on a DB extension.
+    const stageOp = rows(await db.execute(sql`
+      SELECT attempt_id FROM cro03c_stage_operations WHERE id = ${operationId}::uuid
+    `))[0];
+    if (stageOp?.attempt_id) {
+      const returnedHash = hashCro03Evidence({
+        stageOperationId: operationId, attemptId: String(stageOp.attempt_id), checkpoint: "transport_returned",
+      });
+      await db.execute(sql`
+        INSERT INTO cro03c_dispatch_checkpoints
+          (stage_operation_id, attempt_id, checkpoint, authority_hash)
+        VALUES (${operationId}::uuid, ${String(stageOp.attempt_id)}::uuid, 'transport_returned', ${returnedHash})
+        ON CONFLICT (stage_operation_id, attempt_id, checkpoint) DO NOTHING
+      `);
+    }
     await db.execute(sql`
       UPDATE cro03c_stage_operations
          SET dispatch_state = 'reconciled'

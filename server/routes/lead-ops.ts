@@ -1834,6 +1834,18 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // Live provider pricing straight from signed-pricing.json — never a
+  // hardcoded/restated copy. Used by the provider-selector UI so the
+  // operator sees the exact price the server's own gate will check.
+  app.get("/api/lead-ops/pilot/pricing-schedule", requireRole("admin"), async (_req, res) => {
+    try {
+      const { readSignedProviderPricing } = await import("../services/signed-pricing-reader");
+      res.json({ priceSchedules: readSignedProviderPricing() });
+    } catch (err: any) {
+      res.status(503).json({ error: err?.message ?? "signed_pricing_unavailable" });
+    }
+  });
+
   app.get("/api/lead-ops/pilot/preflight", requireRole("admin"), async (_req, res) => {
     try {
       const { runPreflightChecklist } = await import("../services/mi09-pilot-authority");

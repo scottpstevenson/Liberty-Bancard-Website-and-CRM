@@ -1,0 +1,8 @@
+---
+name: Prospect conversion relink FK invariant (task #1956, Step 3)
+description: Why prospects.conversion_contact_id can never dangle, and the race-safe pattern for legacy (non-claim) conversion write sites.
+---
+
+`prospects.conversion_contact_id` and `prospects.contact_id` both carry a hard FK to `contacts.id`. `contact-deletion-service.ts` always nulls `conversion_contact_id` before deleting a contact. Consequence: a "leftover claim points at a now-deleted contact" state is impossible by construction in this schema — code that defensively handles it (e.g. a relink-preview classifier) is exercising unreachable dead code, not a real gap, and a test cannot construct that fixture (the DB will reject the delete with a foreign-key violation instead of silently orphaning the reference).
+
+Legacy call sites that resolve a contact outside the full claim/deal transaction (e.g. cron jobs that create-or-match a contact themselves, then want to link a prospect to it) should link with a single conditional `UPDATE prospects SET contact_id=$, conversion_contact_id=$, status='converted' WHERE id=$ AND contact_id IS NULL RETURNING id` and treat zero rows returned as "another process already linked it" (log and move on), never as an error. This is race-safe across concurrent workers without needing the full claim-acquisition machinery, and it also stops leaving `conversion_contact_id` NULL forever on legacy-path conversions (previously the only durable trace of *how* a conversion happened was the claim path; legacy direct writes left no such trace, making later audits and relink-preview logic unable to distinguish "never converted" from "converted via a side channel").

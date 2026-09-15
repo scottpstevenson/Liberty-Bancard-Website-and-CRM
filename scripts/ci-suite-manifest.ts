@@ -649,6 +649,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "loads the DB-bound live provider executor graph against disposable PostgreSQL; no provider client method is invoked",
   },
   {
+    name: "CRO-03C Master Lead E2E Certification",
+    script: "scripts/test-cro03c-master-lead-e2e-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL and suite-isolated Redis; ZeroBounce transport is a fake test double, real credentials are scrubbed by the certification provider-deny boundary",
+  },
+  {
     name: "MI-09 Pricing Artifact & Snapshot Seed Certification",
     script: "scripts/test-mi09-pricing-seed-integration.ts",
     capability: "deterministic-integration",
