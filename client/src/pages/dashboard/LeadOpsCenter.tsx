@@ -799,6 +799,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessListItem | null>(null);
   const [bootstrapConfirmation, setBootstrapConfirmation] = useState("");
   const [bootstrapLimit, setBootstrapLimit] = useState("10");
+  const [recordClassRepairConfirmation, setRecordClassRepairConfirmation] = useState("");
   const LIMIT = 50;
   // Source vertical options from canonical businesses table, not legacy sunbiz_entities.
   const verticalsQuery = useQuery<{ verticals: Array<{ vertical: string; count: number }> }>({
@@ -831,6 +832,60 @@ function BusinessesTab({ userRole }: { userRole: string }) {
     },
     enabled: userRole === "admin",
     refetchInterval: 15_000,
+  });
+
+  // One-time correction: businesses the Sunbiz bootstrap created before the
+  // create.recordClass fix was published landed with record_class='unknown'
+  // instead of 'canonical', making them invisible to this page, the
+  // free-enrichment cohort, and MI-09 eligibility. Preview is read-only;
+  // execution is guarded by a typed confirmation phrase bound to a
+  // short-lived, single-use preview token, mirroring the bootstrap pattern
+  // above. Safe to leave running indefinitely — once the cohort is empty,
+  // preview always reports 0 and there is nothing left to run.
+  const recordClassRepairPreviewQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/sunbiz-bootstrap/record-class-repair/preview"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/sunbiz-bootstrap/record-class-repair/preview", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: userRole === "admin",
+    staleTime: 10_000,
+  });
+  const recordClassRepairRunMutation = useMutation({
+    mutationFn: async () => {
+      const previewToken = recordClassRepairPreviewQuery.data?.previewToken;
+      if (!previewToken) {
+        const err: Error & { code?: string } = new Error("No active preview token — re-checking preview before you can run.");
+        err.code = "no_active_preview_token";
+        throw err;
+      }
+      try {
+        const r = await apiRequest("POST", "/api/lead-ops/sunbiz-bootstrap/record-class-repair/run", {
+          confirmation: recordClassRepairConfirmation,
+          previewToken,
+        });
+        return await r.json();
+      } catch (e) {
+        const { code, reason } = parseApiRequestError(e instanceof Error ? e.message : String(e));
+        const err: Error & { code?: string } = new Error(reason || (e instanceof Error ? e.message : String(e)));
+        err.code = code;
+        throw err;
+      }
+    },
+    onSuccess: () => {
+      setRecordClassRepairConfirmation("");
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/record-class-repair/preview"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/businesses"] });
+    },
+    onError: (err: Error & { code?: string }) => {
+      // Same rationale as the bootstrap mutation above: only force a fresh
+      // preview/token when this one is actually dead, never on a typed
+      // confirmation typo (which leaves the server-side token untouched).
+      if (err?.code && err.code !== "typed_confirmation_required") {
+        queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/record-class-repair/preview"] });
+      }
+    },
   });
   const bootstrapRunMutation = useMutation({
     mutationFn: async () => {
