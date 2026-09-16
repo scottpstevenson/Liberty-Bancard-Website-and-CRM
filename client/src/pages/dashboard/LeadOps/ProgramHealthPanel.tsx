@@ -45,6 +45,19 @@ interface FreeEnrichQueueDepth {
   paid: number;
 }
 
+interface CandidateFunnel {
+  staged: number;
+  validationAdmitted: number;
+  suppressed: number;
+  stalled: number;
+}
+
+interface SchedulerStatus {
+  singleProducer: string;
+  legacyFenceRemoved: boolean;
+  schedulerEnabled: boolean;
+}
+
 interface LeadOpsHealth {
   // Existing fields
   enrichedToday: MetricCell;
@@ -68,6 +81,10 @@ interface LeadOpsHealth {
   apolloDailySpend?: MetricCell;
   outscraperDailySpend?: MetricCell;
   serperDailySpend?: MetricCell;
+  // Correction #7: scheduler status + stuck count + candidate funnel
+  freeEnrichmentSchedulerStatus?: SchedulerStatus;
+  businessStuckProcessingCount?: { value: number | null; available: boolean; error?: string };
+  candidateFunnel?: CandidateFunnel | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -405,6 +422,98 @@ export function ProgramHealthPanel() {
                </div>
              ))}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Scheduler status (Correction #3) ────────────────────────────── */}
+      {h?.freeEnrichmentSchedulerStatus && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Free Enrichment Scheduler</CardTitle>
+            <CardDescription className="text-xs">
+              Single-producer design — only the BullMQ repeatable lane enqueues businesses.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-xs text-muted-foreground mb-0.5">Producer</div>
+                <div className="text-xs font-mono font-medium truncate">
+                  {h.freeEnrichmentSchedulerStatus.singleProducer}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-xs text-muted-foreground mb-0.5">Legacy fence</div>
+                <span className={`inline-flex items-center gap-1 text-xs ${h.freeEnrichmentSchedulerStatus.legacyFenceRemoved ? "text-green-700" : "text-amber-700"}`}>
+                  {h.freeEnrichmentSchedulerStatus.legacyFenceRemoved
+                    ? <><CheckCircle className="h-3 w-3 text-green-500" /> Removed</>
+                    : <><AlertTriangle className="h-3 w-3 text-amber-500" /> Active (dual-producer risk)</>
+                  }
+                </span>
+              </div>
+              <div className="rounded-md border bg-muted/10 px-3 py-2">
+                <div className="text-xs text-muted-foreground mb-0.5">Scheduler</div>
+                <span className={`inline-flex items-center gap-1 text-xs ${h.freeEnrichmentSchedulerStatus.schedulerEnabled ? "text-green-700" : "text-muted-foreground"}`}>
+                  {h.freeEnrichmentSchedulerStatus.schedulerEnabled
+                    ? <><CheckCircle className="h-3 w-3 text-green-500" /> Enabled</>
+                    : "Disabled"
+                  }
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Stuck-processing + candidate funnel ─────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Candidate Pipeline</CardTitle>
+          <CardDescription className="text-xs">
+            Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Stuck processing count */}
+          <div className="flex items-center gap-3">
+            <div className="rounded-md border bg-muted/10 px-3 py-2 flex-1">
+              <div className="text-xs text-muted-foreground mb-0.5">Stuck in processing</div>
+              {h?.businessStuckProcessingCount?.available
+                ? (
+                  <div className={`text-sm font-medium ${(h.businessStuckProcessingCount.value ?? 0) > 0 ? "text-amber-700" : "text-green-700"}`}>
+                    {h.businessStuckProcessingCount.value?.toLocaleString() ?? "0"}
+                    {(h.businessStuckProcessingCount.value ?? 0) === 0 && (
+                      <span className="text-xs font-normal text-muted-foreground ml-1">(reaper healthy)</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">—</div>
+                )
+              }
+            </div>
+          </div>
+
+          {/* Candidate funnel */}
+          {h?.candidateFunnel ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Staged", value: h.candidateFunnel.staged, color: "text-blue-700", note: "unvalidated" },
+                { label: "Admitted", value: h.candidateFunnel.validationAdmitted, color: "text-indigo-700", note: "pending ZB" },
+                { label: "Suppressed", value: h.candidateFunnel.suppressed, color: "text-red-700", note: "" },
+                { label: "Stalled", value: h.candidateFunnel.stalled, color: "text-amber-700", note: "crashed gen" },
+              ].map(({ label, value, color, note }) => (
+                <div key={label} className="rounded-md border bg-muted/10 px-3 py-2">
+                  <div className="text-xs text-muted-foreground mb-0.5">
+                    {label}
+                    {note && <span className="ml-1 text-[9px] text-muted-foreground/70">({note})</span>}
+                  </div>
+                  <div className={`text-lg font-bold ${color}`}>{value.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Candidate funnel data unavailable.</p>
+          )}
         </CardContent>
       </Card>
     </div>

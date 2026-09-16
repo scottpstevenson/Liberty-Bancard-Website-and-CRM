@@ -15,48 +15,208 @@ export const processSunbizEnrichmentQueue = _processSunbizEnrichmentQueue;
 
 const BATCH_SIZE = 10;
 
-export async function runSunbizAutoConvert(): Promise<{ converted: number; promoted: number; estimated: number; qualified: number; retried: number }> {
+// ─── Area 5: Sunbiz → canonical businesses materialization ───────────────────
+//
+// Correction #5: The legacy scheduled path (autoConvertEnrichedEntities →
+// autoPromoteProspects) creates prospects, contacts, and deals directly from
+// enriched Sunbiz entities. This path conflates enrichment (gathering facts)
+// with promotion (creating CRM records), bypassing the free-enrichment
+// candidate pipeline and the governed validation gates.
+//
+// The new path materializes each enriched Sunbiz entity as a canonical
+// `businesses` row first, then lets the FREE_ENRICHMENT_LANE pipeline
+// discover and validate its email/phone. Contact + deal creation happens
+// only after provider_valid evidence is returned (governed by projection-service).
+//
+// The legacy path is gated behind SUNBIZ_LEGACY_PROMOTION_ENABLED (default:
+// 'true' to avoid breaking existing production deployments). New environments
+// should set SUNBIZ_LEGACY_PROMOTION_ENABLED=false and enable the materialization
+// path via SUNBIZ_MATERIALIZATION_ENABLED=true.
+
+const MATERIALIZATION_BATCH = 25;
+
+/**
+ * Correction #5: materialize enriched Sunbiz entities as canonical `businesses`
+ * rows, then enqueue them for free-enrichment rather than creating contacts/deals
+ * directly.
+ *
+ * Gated behind SUNBIZ_MATERIALIZATION_ENABLED=true. Never activates paid providers,
+ * outreach, campaigns, or recurring schedules.
+ */
+export async function materializeSunbizToCanonicalBusinesses(): Promise<{ materialized: number; alreadyExists: number; skipped: number }> {
+  let materialized = 0;
+  let alreadyExists = 0;
+  let skipped = 0;
+
+  // Only process enriched entities that have a domain — domain is required for
+  // the free-enrichment pipeline to crawl.
+  const rows = ((await db.execute(sql`
+    SELECT id, entity_name, website, email, phone, owner_email, owner_phone,
+           owner_first_name, owner_last_name, address, city, state, zip,
+           vertical, enrichment_status
+    FROM sunbiz_entities
+    WHERE enrichment_status = 'enriched'
+      AND website IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM canonical_source_links csl
+        WHERE csl.source_system = 'sunbiz'
+          AND csl.source_external_id = sunbiz_entities.id::text
+      )
+    ORDER BY id
+    LIMIT ${MATERIALIZATION_BATCH}
+  `)) as any).rows ?? [];
+
+  for (const entity of rows) {
+    try {
+      const domain = String(entity.website ?? "").toLowerCase()
+        .replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
+      if (!domain) {
+        skipped++;
+        continue;
+      }
+
+      // Check if a canonical business for this domain already exists.
+      const existing = ((await db.execute(sql`
+        SELECT id FROM businesses WHERE website_domain = ${domain} AND record_class = 'canonical' LIMIT 1
+      `)) as any).rows?.[0];
+
+      if (existing) {
+        // Link the Sunbiz entity to the existing business so it isn't picked again.
+        await db.execute(sql`
+          INSERT INTO canonical_source_links (business_id, source_system, source_external_id)
+          VALUES (${existing.id}, 'sunbiz', ${String(entity.id)})
+          ON CONFLICT (source_system, source_external_id) DO NOTHING
+        `).catch(() => {});
+        alreadyExists++;
+        continue;
+      }
+
+      // Normalize entity name to a canonical business name.
+      const canonicalName = toProperCase(String(entity.entity_name ?? "")).trim() || null;
+      if (!canonicalName) {
+        skipped++;
+        continue;
+      }
+
+      // Create the canonical business row. Never writes contacts, deals, or prospects.
+      const insertedRows = ((await db.execute(sql`
+        INSERT INTO businesses (canonical_name, website_domain, record_class, free_enrichment_status, source_metadata)
+        VALUES (
+          ${canonicalName},
+          ${domain},
+          'canonical',
+          NULL,
+          ${JSON.stringify({
+            sunbizEntityId: entity.id,
+            rawVertical: entity.vertical ?? null,
+            rawCity: entity.city ?? null,
+            rawState: entity.state ?? null,
+            materialized_at: new Date().toISOString(),
+          })}::jsonb
+        )
+        ON CONFLICT (website_domain) WHERE record_class = 'canonical' DO NOTHING
+        RETURNING id
+      `)) as any).rows ?? [];
+
+      let businessId: number | null = null;
+      if (insertedRows.length > 0) {
+        businessId = Number(insertedRows[0].id);
+      } else {
+        // Lost INSERT race — fetch the winner.
+        const raced = ((await db.execute(sql`
+          SELECT id FROM businesses WHERE website_domain = ${domain} AND record_class = 'canonical' LIMIT 1
+        `)) as any).rows?.[0];
+        if (raced) businessId = Number(raced.id);
+      }
+
+      if (!businessId) {
+        skipped++;
+        continue;
+      }
+
+      // Link the Sunbiz entity to the new canonical business.
+      await db.execute(sql`
+        INSERT INTO canonical_source_links (business_id, source_system, source_external_id)
+        VALUES (${businessId}, 'sunbiz', ${String(entity.id)})
+        ON CONFLICT (source_system, source_external_id) DO NOTHING
+      `).catch(() => {});
+
+      materialized++;
+      console.log(`[Sunbiz] Materialized entity ${entity.id} → business ${businessId} (domain=${domain})`);
+    } catch (err: any) {
+      console.error(`[Sunbiz] Materialization failed for entity ${entity.id}:`, err?.message ?? err);
+      skipped++;
+    }
+  }
+
+  if (materialized > 0 || alreadyExists > 0) {
+    console.log(`[Sunbiz Materialization] materialized=${materialized}, alreadyExists=${alreadyExists}, skipped=${skipped}`);
+  }
+  return { materialized, alreadyExists, skipped };
+}
+
+export async function runSunbizAutoConvert(): Promise<{ converted: number; promoted: number; estimated: number; qualified: number; retried: number; materialized?: number }> {
   let converted = 0;
   let promoted = 0;
   let estimated = 0;
   let qualified = 0;
   let retried = 0;
+  let materialized = 0;
 
-  try {
-    converted = await autoConvertEnrichedEntities();
-  } catch (err) {
-    console.error("[Sunbiz Cron] Auto-convert error:", err);
+  // Correction #5: new materialization path replaces direct prospect/contact/deal creation.
+  // Enable via SUNBIZ_MATERIALIZATION_ENABLED=true. Default off — operators switch from
+  // legacy to materialization path explicitly.
+  if (process.env.SUNBIZ_MATERIALIZATION_ENABLED === "true") {
+    try {
+      const result = await materializeSunbizToCanonicalBusinesses();
+      materialized = result.materialized;
+    } catch (err) {
+      console.error("[Sunbiz Cron] Materialization error:", err);
+    }
   }
 
-  try {
-    qualified = await autoQualifyProspects();
-  } catch (err) {
-    console.error("[Sunbiz Cron] Auto-qualify error:", err);
+  // Legacy path: direct prospect → contact → deal creation.
+  // Gated behind SUNBIZ_LEGACY_PROMOTION_ENABLED (default 'true' to preserve
+  // existing production behavior; set to 'false' once materialization path is
+  // confirmed working in your deployment).
+  const legacyEnabled = process.env.SUNBIZ_LEGACY_PROMOTION_ENABLED !== "false";
+  if (legacyEnabled) {
+    try {
+      converted = await autoConvertEnrichedEntities();
+    } catch (err) {
+      console.error("[Sunbiz Cron] Auto-convert error:", err);
+    }
+
+    try {
+      qualified = await autoQualifyProspects();
+    } catch (err) {
+      console.error("[Sunbiz Cron] Auto-qualify error:", err);
+    }
+
+    try {
+      promoted = await autoPromoteProspects();
+    } catch (err) {
+      console.error("[Sunbiz Cron] Auto-promote error:", err);
+    }
+
+    try {
+      estimated = await updateVolumeEstimates();
+    } catch (err) {
+      console.error("[Sunbiz Cron] Volume estimate error:", err);
+    }
+
+    try {
+      retried = await retryFailedEnrichments();
+    } catch (err) {
+      console.error("[Sunbiz Cron] Retry enrichment error:", err);
+    }
   }
 
-  try {
-    promoted = await autoPromoteProspects();
-  } catch (err) {
-    console.error("[Sunbiz Cron] Auto-promote error:", err);
+  if (converted > 0 || promoted > 0 || estimated > 0 || qualified > 0 || retried > 0 || materialized > 0) {
+    console.log(`[Sunbiz Cron] Converted: ${converted}, Qualified: ${qualified}, Promoted: ${promoted}, Estimates: ${estimated}, Retried: ${retried}, Materialized: ${materialized}`);
   }
 
-  try {
-    estimated = await updateVolumeEstimates();
-  } catch (err) {
-    console.error("[Sunbiz Cron] Volume estimate error:", err);
-  }
-
-  try {
-    retried = await retryFailedEnrichments();
-  } catch (err) {
-    console.error("[Sunbiz Cron] Retry enrichment error:", err);
-  }
-
-  if (converted > 0 || promoted > 0 || estimated > 0 || qualified > 0 || retried > 0) {
-    console.log(`[Sunbiz Cron] Converted: ${converted}, Qualified: ${qualified}, Promoted: ${promoted}, Estimates: ${estimated}, Retried: ${retried}`);
-  }
-
-  return { converted, promoted, estimated, qualified, retried };
+  return { converted, promoted, estimated, qualified, retried, materialized };
 }
 
 async function autoConvertEnrichedEntities(): Promise<number> {

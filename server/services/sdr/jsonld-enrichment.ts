@@ -163,10 +163,17 @@ export async function runJsonLdEnrichmentBatch(limit = 50): Promise<{ processed:
  *
  * Accepts a businessId + domain. Writes evidence to businesses columns only.
  * Never writes sdr_merchant_contacts rows.
+ *
+ * Correction #1: returns the actual email address(es) found in addition to the
+ * count, so callers can persist them as encrypted free_discovery_candidates.
+ * emailCount and emailFound are retained for backwards-compat; emails[] is the
+ * source of truth for the candidate-persistence path.
  */
 export interface JsonLdBusinessResult {
   emailFound: boolean;
   emailCount: number;
+  /** Actual normalized email addresses extracted from JSON-LD schema markup. */
+  emails: string[];
   /** true when the fetch round-trip completed (even if no data); false on transport/SSRF failure */
   fetchCompleted: boolean;
 }
@@ -184,24 +191,25 @@ export async function runJsonLdBusinessEnrichment(
   if (!safe) {
     console.warn(`[JSON-LD-Business] SSRF blocked domain for business ${businessId}: ${domain}`);
     // SSRF block is a valid skip — not a transient transport failure.
-    return { emailFound: false, emailCount: 0, fetchCompleted: true };
+    return { emailFound: false, emailCount: 0, emails: [], fetchCompleted: true };
   }
 
   // safeFetch returns null on SSRF block, timeout, or DNS failure — transport failure.
   const resp = await safeFetch(websiteUrl, { timeoutMs: 10000 });
   if (!resp) {
     console.warn(`[JSON-LD-Business] safeFetch transport failure for business ${businessId}: ${domain}`);
-    return { emailFound: false, emailCount: 0, fetchCompleted: false };
+    return { emailFound: false, emailCount: 0, emails: [], fetchCompleted: false };
   }
   // Non-OK HTTP response (e.g. 404, 503) — fetch completed, site returned an error.
-  if (!resp.ok) return { emailFound: false, emailCount: 0, fetchCompleted: true };
+  if (!resp.ok) return { emailFound: false, emailCount: 0, emails: [], fetchCompleted: true };
 
   // body is eagerly read by safeFetch — no separate async read needed
   const html = resp.body ?? "";
   const result = extractJsonLdFromHtml(html);
-  const emailFound = !!result.email;
-  const emailCount = emailFound ? 1 : 0;
+  const emails: string[] = result.email ? [result.email] : [];
+  const emailFound = emails.length > 0;
+  const emailCount = emails.length;
 
   console.log(`[JSON-LD-Business] Business ${businessId}: emailFound=${emailFound}`);
-  return { emailFound, emailCount, fetchCompleted: true };
+  return { emailFound, emailCount, emails, fetchCompleted: true };
 }

@@ -152,12 +152,19 @@ export async function getOwnerEmailCoverage(): Promise<{
 /**
  * Business-scoped contact-page enrichment — MI-04 free enrichment path.
  *
- * Accepts a businessId + domain. Returns email count evidence only.
- * Never writes sdr_merchant_contacts rows.
+ * Accepts a businessId + domain. Returns actual discovered email addresses
+ * (not just a count) so callers can persist them as encrypted
+ * free_discovery_candidates. Never writes sdr_merchant_contacts rows.
+ *
+ * Correction #1: emails[] is the source of truth; emailCount and enriched are
+ * retained for backwards-compat. The caller (runFreeBusinessEnrichmentForBusiness)
+ * is responsible for domain-cache integration and candidate persistence.
  */
 export interface ContactPageBusinessResult {
   emailCount: number;
   enriched: boolean;
+  /** Actual email addresses found — each entry is a candidate for the business. */
+  emails: string[];
   /** true when at least one page fetch completed (even with no emails); false if root domain fetch failed */
   fetchCompleted: boolean;
 }
@@ -173,14 +180,14 @@ export async function runContactPageBusinessEnrichment(
   const baseUrlObj = (() => {
     try { return new URL(baseUrl); } catch { return null; }
   })();
-  if (!baseUrlObj) return { emailCount: 0, enriched: false, fetchCompleted: false };
+  if (!baseUrlObj) return { emailCount: 0, enriched: false, emails: [], fetchCompleted: false };
 
   // SSRF check on the root domain before attempting any page
   const safe = await isSafeFetchTarget(baseUrl);
   if (!safe) {
     console.warn(`[ContactPage-Business] SSRF blocked domain for business ${businessId}: ${domain}`);
     // SSRF block is a valid skip — not a transient transport failure.
-    return { emailCount: 0, enriched: false, fetchCompleted: true };
+    return { emailCount: 0, enriched: false, emails: [], fetchCompleted: true };
   }
 
   const emailSet = new Set<string>();
@@ -215,9 +222,10 @@ export async function runContactPageBusinessEnrichment(
     }
   }
 
-  const emailCount = emailSet.size;
+  const emails = Array.from(emailSet);
+  const emailCount = emails.length;
   console.log(`[ContactPage-Business] Business ${businessId}: emailCount=${emailCount}, rootFetchCompleted=${rootFetchCompleted}`);
-  return { emailCount, enriched: emailCount > 0, fetchCompleted: rootFetchCompleted };
+  return { emailCount, enriched: emailCount > 0, emails, fetchCompleted: rootFetchCompleted };
 }
 
 /**

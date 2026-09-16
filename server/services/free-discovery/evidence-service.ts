@@ -318,42 +318,124 @@ export async function markDomainCrawled(domain: string, generationId: string): P
 
 export type PromotionResult =
   | { status: "PENDING_OPERATOR_ACTIVATION"; reason: string }
-  | { status: "PROMOTED"; candidateEvidenceId: string };
+  | { status: "PROMOTED"; candidateEvidenceId: string; admittedDisposition: string };
 
 /**
  * The ONLY path by which a free-discovery candidate may enter the ZeroBounce
- * validation pipeline (correction: "ZeroBounce only under explicit
- * authorization"). Off by default; requires:
- *   1. FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true (explicit operator opt-in), AND
- *   2. a currently-approved cro03c_activation_policies row, AND
- *   3. a currently-live (non-expired) cro03c_runtime_attestations row
- *      (which itself requires a running, heartbeating CRO-03C worker fleet).
+ * validation pipeline. Correction #2: FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true
+ * now has a real effect — it advances the candidate's disposition to
+ * 'validation_admitted' and writes a durable audit entry. Previously this
+ * function returned a stub result for all callers regardless of gate outcomes;
+ * that stub has been replaced with full gate evaluation + real state transition.
  *
- * Per correction #1, real production evidence must report
- * PENDING_OPERATOR_ACTIVATION — not a fabricated success — until an operator
- * has manually turned the worker fleet on post-Publish. This function never
- * throws for "not ready yet"; it returns that status. Wiring the CRO-03A
- * admission chain (admitCro03bHandoffs) for ad hoc free-discovered business
- * subjects is a distinct, not-yet-built piece of infrastructure — until it
- * exists, this always defers with a distinct, honest reason so it is never
- * confused with "worker fleet not running".
+ * Gate chain (all must pass; any failure returns PENDING_OPERATOR_ACTIVATION):
+ *   1. FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true
+ *   2. Candidate is in 'staged' disposition (idempotent — already-admitted is re-returned)
+ *   3. Subject business has no DBPR lineage (fail-closed)
+ *   4. Candidate email is not on the ZeroBounce suppression list
+ *   5. An approved cro03c_activation_policies row (MI-09 ZeroBounce authorization)
+ *   6. A live (non-expired) cro03c_runtime_attestations row (worker fleet active)
+ *
+ * When all gates pass:
+ *   - Candidate disposition advances to 'validation_admitted'
+ *   - One audit_logs row is written (action='free_discovery_candidate_admitted')
+ *   - The caller (or a downstream queue job) is responsible for submitting the
+ *     admitted candidate to ZeroBounce. Only provider_valid results may produce a
+ *     master_leads staging intent — that step is governed by the projection-service.
+ *   - Does NOT write to contacts, GHL, campaigns, or outreach.
  */
 export async function promoteCandidateForValidation(candidateId: string): Promise<PromotionResult> {
+  // Gate 1: operator opt-in
   if (process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
     return { status: "PENDING_OPERATOR_ACTIVATION", reason: "FREE_DISCOVERY_VALIDATION_PROMOTION_DISABLED" };
   }
+
+  // Load candidate record to check eligibility and state.
+  const candidate = rows(await db.execute(sql`
+    SELECT id, disposition, business_id, contact_id, domain, normalized_value_hash
+    FROM free_discovery_candidates WHERE id = ${candidateId}::uuid
+  `))[0];
+  if (!candidate) {
+    return { status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_NOT_FOUND" };
+  }
+
+  // Gate 2: only 'staged' candidates may be admitted. Already-admitted is idempotent.
+  if (candidate.disposition === "validation_admitted") {
+    return { status: "PROMOTED", candidateEvidenceId: candidateId, admittedDisposition: "validation_admitted" };
+  }
+  if (candidate.disposition !== "staged") {
+    return { status: "PENDING_OPERATOR_ACTIVATION", reason: `CANDIDATE_DISPOSITION_INELIGIBLE:${candidate.disposition}` };
+  }
+
+  // Gate 3: DBPR exclusion — fail-closed if the subject business carries DBPR lineage.
+  if (candidate.business_id) {
+    const { businessLacksDbprLineageSql } = await import("../dbpr");
+    const dbprCheck = rows(await db.execute(sql`
+      SELECT id FROM businesses WHERE id = ${candidate.business_id} AND ${businessLacksDbprLineageSql(sql`id`)}
+    `))[0];
+    if (!dbprCheck) {
+      return { status: "PENDING_OPERATOR_ACTIVATION", reason: "DBPR_LINEAGE_EXCLUSION" };
+    }
+  }
+
+  // Gate 4: ZeroBounce suppression — candidate hash must not appear on the suppression list.
+  // The suppression list guards against re-validating emails already known invalid/blocked.
+  const suppressed = rows(await db.execute(sql`
+    SELECT 1 FROM zerobounce_suppressions WHERE normalized_value_hash = ${candidate.normalized_value_hash} LIMIT 1
+  `))[0];
+  if (suppressed) {
+    // Mark the candidate as suppressed so UI and downstream queries can see why.
+    await db.execute(sql`
+      UPDATE free_discovery_candidates SET disposition = 'suppressed', updated_at = NOW()
+      WHERE id = ${candidateId}::uuid AND disposition = 'staged'
+    `).catch(() => {});
+    return { status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_SUPPRESSED" };
+  }
+
+  // Gate 5: MI-09 ZeroBounce authorization — a currently-approved activation policy must exist.
   const policy = rows(await db.execute(sql`
     SELECT id FROM cro03c_activation_policies WHERE status = 'approved' ORDER BY expected_revision DESC LIMIT 1
   `))[0];
   if (!policy) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_APPROVED_ACTIVATION_POLICY" };
+
+  // Gate 6: live runtime attestation — worker fleet must be active (non-expired attestation).
   const attestation = rows(await db.execute(sql`
     SELECT id FROM cro03c_runtime_attestations WHERE expires_at > NOW() ORDER BY created_at DESC LIMIT 1
   `))[0];
   if (!attestation) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_LIVE_RUNTIME_ATTESTATION" };
-  // CRO-03A admission for ad hoc business subjects is not wired yet — never
-  // fabricate a handoff/command chain to fake a promotion.
-  void candidateId;
-  return { status: "PENDING_OPERATOR_ACTIVATION", reason: "HANDOFF_ADMISSION_NOT_WIRED" };
+
+  // All gates passed — advance disposition to 'validation_admitted' and write audit row.
+  // This is a single-column UPDATE; use raw db.execute to avoid Drizzle's silent-drop
+  // behaviour on cast-type SET objects (see drizzle-set-silent-drop memory note).
+  const updated = rows(await db.execute(sql`
+    UPDATE free_discovery_candidates
+       SET disposition = 'validation_admitted', updated_at = NOW()
+     WHERE id = ${candidateId}::uuid AND disposition = 'staged'
+     RETURNING id
+  `))[0];
+  if (!updated) {
+    // Another concurrent caller already advanced the state — idempotent.
+    return { status: "PROMOTED", candidateEvidenceId: candidateId, admittedDisposition: "validation_admitted" };
+  }
+
+  const { auditLogs } = await import("@shared/schema");
+  await db.insert(auditLogs).values({
+    action: "free_discovery_candidate_admitted",
+    entityType: "free_discovery_candidate",
+    entityKey: candidateId,
+    details: {
+      candidateId,
+      businessId: candidate.business_id ?? null,
+      contactId: candidate.contact_id ?? null,
+      domain: candidate.domain,
+      policyId: String(policy.id),
+      attestationId: String(attestation.id),
+    },
+    actorType: "system",
+    actorId: "free-discovery-promotion",
+  }).catch((err) => console.error("[FreeDiscovery] Failed to write admission audit log for candidate", candidateId, err));
+
+  return { status: "PROMOTED", candidateEvidenceId: candidateId, admittedDisposition: "validation_admitted" };
 }
 
 export function newFreeDiscoveryRunKey(prefix: string): string {

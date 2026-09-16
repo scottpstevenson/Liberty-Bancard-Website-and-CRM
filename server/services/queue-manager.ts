@@ -2039,6 +2039,41 @@ class QueueManager {
           }
           const { db: _feDb } = await import("../db");
           const { sql: _feSql } = await import("drizzle-orm");
+
+          // ── Correction #4: stuck-business-crawl reaper ──────────────────
+          // Businesses left in free_enrichment_status='processing' well past
+          // any realistic enrichment duration are the result of a hard process
+          // crash (kill/OOM/deploy restart). Nothing in the in-process
+          // try/finally can observe those exits, so without this reaper the
+          // row permanently blocks re-eligibility. Reset to 'failed' so the
+          // normal retry logic can re-claim them, and write one audit_logs row
+          // per reclaimed business so the auto-recovery is inspectable.
+          try {
+            const BUSINESS_STALE_MS = 2 * 60 * 60 * 1000; // 2 hours
+            const bizStaleThreshold = new Date(Date.now() - BUSINESS_STALE_MS);
+            const reclaimedBizRows = (((await _feDb.execute(_feSql`
+              UPDATE businesses
+              SET free_enrichment_status = 'failed',
+                  free_enrichment_last_error_code = 'PROCESSING_TIMEOUT_AUTO_RECLAIMED'
+              WHERE free_enrichment_status = 'processing'
+                AND free_enrichment_last_attempt_at < ${bizStaleThreshold}
+              RETURNING id
+            `)) as any).rows ?? []) as { id: unknown }[];
+            if (reclaimedBizRows.length > 0) {
+              console.log(`[FreeEnrich] Reclaimed ${reclaimedBizRows.length} stuck-processing business(es)`);
+              for (const bizRow of reclaimedBizRows) {
+                await _feDb.execute(_feSql`
+                  INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+                  VALUES ('free_enrichment_processing_auto_reclaimed', 'business', ${String(bizRow.id)},
+                          'system', 'free-enrichment-lane-reaper',
+                          ${JSON.stringify({ staleAfterMs: BUSINESS_STALE_MS })}::jsonb)
+                `).catch((auditErr: any) => console.error('[FreeEnrich] Audit log error:', auditErr?.message));
+              }
+            }
+          } catch (reaperErr: any) {
+            // Reaper failure is non-fatal to the main enrichment tick.
+            console.error('[FreeEnrich] Stuck-business reaper error (non-fatal):', reaperErr?.message);
+          }
           const { businessLacksDbprLineageSql } = await import("./dbpr");
           const FREE_LANE_BATCH = 20;
           const eligibleRows = await _feDb.execute(_feSql`
@@ -3372,73 +3407,11 @@ async function runEnrichmentTick(): Promise<void> {
   const { runLeadScoringDeferredRecovery } = await import("./contact-lead-scoring-trigger");
   await runLeadScoringDeferredRecovery().catch(err => console.error("[Queue:enrichment] Lead scoring deferred recovery error (best-effort):", err));
 
-  // ── Free enrichment pipeline (MI-04) — durable 4-hour cadence fence ──────
-  // The ENRICHMENT queue fires every 10 minutes, giving 144 possible calls per
-  // day. The fence uses an atomic advisory-locked transaction to check+claim the
-  // cycle in one DB round-trip, preventing concurrent workers from both firing.
-  try {
-    const { featureFlags: _freeEnrichFlags } = await import("./feature-flags");
-    if (_freeEnrichFlags.FREE_ENRICHMENT_ENABLED) {
-      const { db: _cadenceDb } = await import("../db");
-      const { sql: _cadenceSql } = await import("drizzle-orm");
-      const CADENCE_HOURS = 4;
-
-      // Atomic claim: advisory-locked transaction reads the current timestamp and
-      // conditionally upserts the new one. Returns the claimed timestamp (or null
-      // if the fence was not yet elapsed). Because pg_advisory_xact_lock is
-      // session-scoped to the transaction, concurrent workers serialize here.
-      const claimResult = await _cadenceDb.transaction(async (tx) => {
-        // Exclusive transaction-level lock keyed to "free_enrichment_cadence"
-        await tx.execute(_cadenceSql`SELECT pg_advisory_xact_lock(hashtext('free_enrichment_cadence'))`);
-
-        const rows = ((await tx.execute(_cadenceSql`
-          SELECT value FROM system_settings WHERE key = 'free_enrichment_last_started_at'
-        `)) as any).rows ?? [];
-
-        const lastVal = rows[0]?.value;
-        const lastAt = lastVal ? new Date(String(lastVal)) : null;
-        const nowMs = Date.now();
-        const elapsedMs = lastAt && !Number.isNaN(lastAt.getTime()) ? nowMs - lastAt.getTime() : Infinity;
-
-        if (elapsedMs < CADENCE_HOURS * 60 * 60 * 1000) {
-          return { claimed: false, elapsedMs };
-        }
-
-        // Store as JSONB — the value column requires valid JSON, so the ISO string
-        // must be JSON-encoded (quoted) before insertion.
-        const nowIso = new Date(nowMs).toISOString();
-        const nowJsonb = JSON.stringify(nowIso); // produces '"2026-..."' — valid JSON string
-        await tx.execute(_cadenceSql`
-          INSERT INTO system_settings (key, value, updated_at)
-          VALUES ('free_enrichment_last_started_at', ${nowJsonb}::jsonb, NOW())
-          ON CONFLICT (key) DO UPDATE SET value = ${nowJsonb}::jsonb, updated_at = NOW()
-        `);
-        return { claimed: true, elapsedMs };
-      });
-
-      if (claimResult.claimed) {
-        console.log(`[FreeEnrich] Cadence fence claimed (${Math.round(claimResult.elapsedMs / 60000)} min since last run) — starting tick`);
-        try {
-          await runCanonicalBusinessEnrichmentTick();
-          // Record the last successful tick completion (separate key, non-atomic)
-          const { storage: _freeStorage } = await import("../storage");
-          await _freeStorage.setSystemSetting("free_enrichment_last_tick", new Date().toISOString()).catch(() => {});
-        } catch (tickErr: any) {
-          // Tick failure: clear the claimed timestamp so the fence can retry sooner
-          const { db: _resetDb } = await import("../db");
-          const { sql: _resetSql } = await import("drizzle-orm");
-          await _resetDb.execute(_resetSql`
-            DELETE FROM system_settings WHERE key = 'free_enrichment_last_started_at'
-          `).catch(() => {});
-          console.error("[FreeEnrich] Tick failed; cadence lease cleared for retry:", tickErr?.message);
-        }
-      } else {
-        console.debug(`[FreeEnrich] Cadence fence: skipping (${Math.round(claimResult.elapsedMs / 60000)} min elapsed, fence=${CADENCE_HOURS * 60} min)`);
-      }
-    }
-  } catch (freeEnrichErr: any) {
-    console.error("[FreeEnrich] Cadence fence error (non-fatal):", freeEnrichErr?.message);
-  }
+  // Correction #3: the 4-hour advisory-fence producer has been removed.
+  // FREE_ENRICHMENT_LANE (15-min BullMQ repeatable) is now the sole scheduler
+  // and canonical producer for per-business free enrichment. Having two competing
+  // producers racing the same eligibility predicate violated the single-producer
+  // contract and caused duplicate work during overlapping windows.
 }
 
 /**
@@ -3772,30 +3745,120 @@ export async function runFreeBusinessEnrichmentForBusiness(businessId: number): 
       // fetchCompleted stays uncounted — thrown = transport failure
     }
 
-    // 2. JSON-LD — business schema data
+    // 2. JSON-LD — business schema data + candidate emails (Correction #1)
     let jsonldEmailCount = 0;
+    let jsonldEmails: string[] = [];
     try {
       const { runJsonLdBusinessEnrichment } = await import("./sdr/jsonld-enrichment");
       const jldResult = await runJsonLdBusinessEnrichment(businessId, activeDomain);
       if (jldResult.fetchCompleted) completedFetchCount++;
       jsonldEmailCount = jldResult.emailCount;
+      jsonldEmails = jldResult.emails;
       evidencePayload.jsonld = { emailCount: jldResult.emailCount };
     } catch (jldErr: any) {
       console.error(`[FreeEnrich-Business] JSON-LD error for business ${businessId}:`, jldErr?.message);
       evidencePayload.jsonldError = jldErr?.message;
     }
 
-    // 3. Contact-page — email count evidence (not raw emails)
+    // 3. Contact-page — email candidate discovery (Correction #1: now returns actual emails)
     let contactPageEmailCount = 0;
+    let contactPageEmails: string[] = [];
     try {
       const { runContactPageBusinessEnrichment } = await import("./sdr/contactpage-enrichment");
       const cpResult = await runContactPageBusinessEnrichment(businessId, activeDomain);
       if (cpResult.fetchCompleted) completedFetchCount++;
       contactPageEmailCount = cpResult.emailCount;
+      contactPageEmails = cpResult.emails;
       evidencePayload.contactPage = { emailCount: cpResult.emailCount };
     } catch (cpErr: any) {
       console.error(`[FreeEnrich-Business] ContactPage error for business ${businessId}:`, cpErr?.message);
       evidencePayload.contactPageError = cpErr?.message;
+    }
+
+    // 3a. Persist discovered email addresses as encrypted free_discovery_candidates
+    //     (Correction #1: business enrichment must store actual addresses, not only counts).
+    //     Uses the domain cache to avoid recording candidates that were already crawled
+    //     within the TTL. Every candidate is ranked and deduplicated by normalized hash.
+    try {
+      const {
+        createFreeDiscoveryGeneration, completeFreeDiscoveryGeneration,
+        recordFreeDiscoveryCandidate, getDomainCache, markDomainCrawled,
+        newFreeDiscoveryRunKey,
+      } = await import("./free-discovery/evidence-service");
+
+      // Merge all discovered emails. JSON-LD schema markup = high confidence (85);
+      // contact-page crawl = lower confidence (60). Dedup by normalized address.
+      const emailsBySource = new Map<string, { source: string; confidence: number }>();
+      for (const e of jsonldEmails) {
+        if (!emailsBySource.has(e)) emailsBySource.set(e, { source: "jsonld", confidence: 85 });
+      }
+      for (const e of contactPageEmails) {
+        if (!emailsBySource.has(e)) emailsBySource.set(e, { source: "contact_page", confidence: 60 });
+      }
+
+      if (emailsBySource.size > 0) {
+        // Check domain cache — if a fresh cache hit exists, those addresses are already
+        // staged for this domain; only record truly new ones discovered this run.
+        const cacheState = await getDomainCache(activeDomain);
+        const cachedEmails = new Set(cacheState.emails.map(c => c.email));
+
+        // Create a generation to group this business's candidates together.
+        const runKey = newFreeDiscoveryRunKey(`biz-enrich-${businessId}`);
+        const { id: generationId } = await createFreeDiscoveryGeneration({
+          runKey,
+          actorId: "free-enrichment-pipeline",
+          reason: "business_free_enrichment",
+          purpose: "email_discovery",
+        });
+
+        let candidatesWritten = 0;
+        for (const [email, { source, confidence }] of emailsBySource) {
+          const isNewCrawl = !cachedEmails.has(email);
+          try {
+            await recordFreeDiscoveryCandidate({
+              generationId,
+              subjectType: "business",
+              businessId,
+              domain: activeDomain,
+              email,
+              source,
+              attributionScope: "role",
+              confidence,
+              // Only refresh the domain cache for emails found by an outbound crawl,
+              // not for addresses already known from a previous generation's cache.
+              refreshDomainCache: isNewCrawl,
+            });
+            candidatesWritten++;
+          } catch (candidateErr: any) {
+            console.warn(`[FreeEnrich-Business] Candidate write skipped for business ${businessId} (${email}):`, candidateErr?.message);
+          }
+        }
+
+        // If no emails were found at all, mark the domain as crawled-with-no-results
+        // so it isn't recrawled every batch within the cache TTL.
+        if (emailsBySource.size === 0 && contactPageEmailCount === 0) {
+          await markDomainCrawled(activeDomain, generationId).catch(() => {});
+        }
+
+        await completeFreeDiscoveryGeneration(generationId);
+        evidencePayload.candidatesWritten = candidatesWritten;
+        console.log(`[FreeEnrich-Business] Business ${businessId}: ${candidatesWritten} candidate(s) staged`);
+      } else if (contactPageEmailCount === 0 && jsonldEmailCount === 0) {
+        // Record a negative-result crawl on the domain cache so the next batch
+        // tick skips recrawling this domain within the TTL window.
+        const runKey = newFreeDiscoveryRunKey(`biz-enrich-${businessId}-neg`);
+        const { id: negGenId } = await createFreeDiscoveryGeneration({
+          runKey, actorId: "free-enrichment-pipeline",
+          reason: "business_free_enrichment_negative", purpose: "email_discovery",
+        });
+        await markDomainCrawled(activeDomain, negGenId).catch(() => {});
+        await completeFreeDiscoveryGeneration(negGenId);
+      }
+    } catch (candidatePersistErr: any) {
+      // Candidate persistence failure does not prevent CRO-03 evidence from being written —
+      // the count-based evidence is still correct and complete. Log prominently so it is
+      // visible but don't propagate: a retry would re-discover the same emails.
+      console.error(`[FreeEnrich-Business] Candidate persistence error for business ${businessId}:`, candidatePersistErr?.message);
     }
 
     // 4. HTML-only processor detection (MI-04 kill-line: NO Serper fallback)

@@ -1048,6 +1048,53 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       pipelineCounts = { value: null, available: false, stale: false, error: String(err?.message ?? "query_failed") };
     }
 
+    // ── Correction #7: stuck-processing count + scheduler status ─────────────
+    // Correction #3 removed the competing 4-hour fence producer. Expose the
+    // canonical scheduler state (FREE_ENRICHMENT_LANE BullMQ queue) alongside
+    // a count of businesses currently stuck in 'processing' so admins can see
+    // the reaper is keeping the queue healthy.
+    let businessStuckProcessingCount: { value: number | null; available: boolean; error?: string } = { value: null, available: false };
+    let candidateFunnel: { staged: number; validationAdmitted: number; suppressed: number; stalled: number } | null = null;
+    let candidateFunnelAvailable = false;
+    try {
+      const [stuckResult, funnelResult] = await Promise.all([
+        db.execute(sql`
+          SELECT COUNT(*)::int AS cnt FROM businesses
+          WHERE free_enrichment_status = 'processing'
+        `),
+        db.execute(sql`
+          SELECT disposition, COUNT(*)::int AS cnt
+          FROM free_discovery_candidates
+          GROUP BY disposition
+        `),
+      ]);
+      businessStuckProcessingCount = {
+        value: Number(((stuckResult as any).rows ?? stuckResult)[0]?.cnt ?? 0),
+        available: true,
+      };
+      const funnelRows: any[] = (funnelResult as any).rows ?? funnelResult ?? [];
+      const funnelByDisp: Record<string, number> = {};
+      for (const r of funnelRows) funnelByDisp[r.disposition] = Number(r.cnt ?? 0);
+      candidateFunnel = {
+        staged:            funnelByDisp["staged"]             ?? 0,
+        validationAdmitted: funnelByDisp["validation_admitted"] ?? 0,
+        suppressed:        funnelByDisp["suppressed"]          ?? 0,
+        stalled:           funnelByDisp["stalled"]             ?? 0,
+      };
+      candidateFunnelAvailable = true;
+    } catch {
+      businessStuckProcessingCount = { value: null, available: false, error: "query_failed" };
+    }
+
+    // Canonical scheduler info: after Correction #3, FREE_ENRICHMENT_LANE is the
+    // only producer. Reflect the flag state so UI can show "single producer active"
+    // vs "scheduler disabled" without guessing from queue depth alone.
+    const freeEnrichmentSchedulerStatus = {
+      singleProducer: "FREE_ENRICHMENT_LANE",
+      legacyFenceRemoved: true,
+      schedulerEnabled: !!(featureFlags as any).FREE_ENRICHMENT_ENABLED,
+    };
+
     return {
       enrichedToday:        metric(Number(row.enriched_today ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
       emailsToday:          metric(Number(row.emails_today ?? 0), throughputAvailable, throughputAvailable ? undefined : "query_failed"),
@@ -1094,6 +1141,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           ? { value: paidQueueDepth, available: true }
           : { value: null, available: false, error: "query_failed" },
       },
+      // ── Correction #7: scheduler status + stuck processing count ────────
+      freeEnrichmentSchedulerStatus,
+      businessStuckProcessingCount,
+      candidateFunnel: candidateFunnelAvailable ? candidateFunnel : null,
     };
   }
 
