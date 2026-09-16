@@ -3285,6 +3285,22 @@ async function runEnrichmentTick(): Promise<void> {
     console.error("[Queue:enrichment] enrichment_progress reset error (non-fatal):", resetErr?.message);
   }
 
+  // Reclaim free-discovery generations left in state='running' by a batch
+  // that crashed hard (kill/OOM/deploy restart) instead of throwing a
+  // catchable error — no in-process try/finally can observe that case, so
+  // without this periodic sweep the generation (and the telemetry counters
+  // keyed off it) would report "in progress" forever. Cheap no-op when
+  // nothing is stale; safe to run every tick.
+  try {
+    const { reclaimStaleFreeDiscoveryGenerations } = await import("./free-discovery/evidence-service");
+    const reclaim = await reclaimStaleFreeDiscoveryGenerations();
+    if (reclaim.reclaimed > 0) {
+      console.log(`[Queue:enrichment] Reclaimed ${reclaim.reclaimed} stale free-discovery generation(s): ${reclaim.ids.join(", ")}`);
+    }
+  } catch (reclaimErr: any) {
+    console.error("[Queue:enrichment] free-discovery generation reclaim error (non-fatal):", reclaimErr?.message);
+  }
+
   const { processNextCro03Item, processNextCro03Mutation } = await import("./cro03/enrichment-factory");
   const { processNextCro03bRecipeItem } = await import("./cro03/admission-service");
   try {

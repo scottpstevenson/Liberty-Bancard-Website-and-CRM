@@ -1169,6 +1169,77 @@ async function main() {
     await cleanupContact(c20.id);
   }
 
+  console.log("\n── Test 28: a generation abandoned by a hard crash (state='running' forever) is auto-reclaimed, not left stuck (code-review regression) ──");
+  const { reclaimStaleFreeDiscoveryGenerations } = await import("../server/services/free-discovery/evidence-service");
+  const c28domain = `crash-abandoned-gen-${runId}.com`;
+  const c28StaleRunKey = `test-crash-abandoned-${runId}`;
+  const c28FreshRunKey = `test-still-in-flight-${runId}`;
+  let c28StaleId: string | null = null;
+  let c28FreshId: string | null = null;
+  try {
+    // Simulate a batch that crashed hard mid-run: its generation row is stuck
+    // in state='running' with a started_at far in the past — nothing in
+    // enrichContactBatch's try/finally can ever revisit it, since the process
+    // never got back there. A second, genuinely still-running generation
+    // (started_at now) must NOT be touched by the same sweep.
+    const [staleRow] = await db.execute(sql`
+      INSERT INTO free_discovery_generations (run_key, actor_id, reason, state, started_at)
+      VALUES (${c28StaleRunKey}, 'system:test', 'crash simulation', 'running', NOW() - interval '6 hours')
+      RETURNING id
+    `).then((r: any) => r.rows ?? r);
+    c28StaleId = String(staleRow.id);
+    const [freshRow] = await db.execute(sql`
+      INSERT INTO free_discovery_generations (run_key, actor_id, reason, state, started_at)
+      VALUES (${c28FreshRunKey}, 'system:test', 'still in flight', 'running', NOW())
+      RETURNING id
+    `).then((r: any) => r.rows ?? r);
+    c28FreshId = String(freshRow.id);
+    // Give the stale generation one candidate so the reclaim's recomputed
+    // counters can be checked, not just the state transition. Needs a real
+    // business_id — the subject-scope CHECK constraint requires business_id
+    // OR contact_id to be populated.
+    const [c28biz] = await db.insert(businesses).values({
+      canonicalName: `Crash Abandoned Gen Task1978 ${runId}`,
+      normalizedName: `crash abandoned gen task1978 ${runId}`,
+      websiteDomain: c28domain,
+    }).returning();
+    await db.execute(sql`
+      INSERT INTO free_discovery_candidates
+        (generation_id, subject_type, business_id, domain, source, attribution_scope, disposition, confidence,
+         envelope_ciphertext, envelope_nonce, envelope_tag, normalized_value_hash, masked_value)
+      VALUES
+        (${c28StaleId}::uuid, 'business', ${c28biz.id}, ${c28domain}, 'contact_page', 'role', 'staged', 60,
+         'ct', 'nonce', 'tag', ${`hash-${runId}`}, 'i***@' || ${c28domain})
+    `);
+
+    const reclaim = await reclaimStaleFreeDiscoveryGenerations(60 * 60 * 1000); // stale after 1h
+    assert(reclaim.ids.includes(c28StaleId), "the crash-abandoned generation (started 6h ago) is reclaimed by the sweep");
+    assert(!reclaim.ids.includes(c28FreshId), "a genuinely still-running generation (started just now) is left untouched");
+
+    const [staleAfter] = await db.select().from(freeDiscoveryGenerations).where(eq(freeDiscoveryGenerations.id, c28StaleId));
+    assert(staleAfter?.state === "stalled", "the reclaimed generation is marked 'stalled', not silently 'completed' as if it finished normally");
+    assert(staleAfter?.candidateCount === 1, "the reclaimed generation's candidate_count reflects whatever it actually persisted before crashing");
+    assert(!!staleAfter?.completedAt, "the reclaimed generation gets a completedAt so it stops reading as perpetually in-progress");
+
+    const [freshAfter] = await db.select().from(freeDiscoveryGenerations).where(eq(freeDiscoveryGenerations.id, c28FreshId));
+    assert(freshAfter?.state === "running", "the still-in-flight generation's state is untouched by the sweep");
+
+    const auditRows = await db.execute(sql`
+      SELECT * FROM audit_logs WHERE action = 'free_discovery_generation_auto_reclaimed' AND entity_key = ${c28StaleId}
+    `).then((r: any) => r.rows ?? r);
+    assert(auditRows.length === 1, "the auto-reclaim writes exactly one auditable record for the operator to inspect");
+
+    // Idempotency: calling the sweep again must not re-reclaim (already
+    // terminal) or write a second audit row for the same generation.
+    const reclaimAgain = await reclaimStaleFreeDiscoveryGenerations(60 * 60 * 1000);
+    assert(!reclaimAgain.ids.includes(c28StaleId), "an already-reclaimed (terminal) generation is never touched by a later sweep");
+  } finally {
+    await db.execute(sql`DELETE FROM free_discovery_candidates WHERE generation_id = ${c28StaleId}::uuid`).catch(() => {});
+    if (c28StaleId) await db.execute(sql`DELETE FROM audit_logs WHERE entity_key = ${c28StaleId} AND action = 'free_discovery_generation_auto_reclaimed'`).catch(() => {});
+    if (c28StaleId) await db.execute(sql`DELETE FROM free_discovery_generations WHERE id = ${c28StaleId}::uuid`).catch(() => {});
+    if (c28FreshId) await db.execute(sql`DELETE FROM free_discovery_generations WHERE id = ${c28FreshId}::uuid`).catch(() => {});
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 }

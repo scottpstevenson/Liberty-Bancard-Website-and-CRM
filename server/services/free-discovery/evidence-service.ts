@@ -90,6 +90,61 @@ export async function createFreeDiscoveryGeneration(input: {
   return { id: String(inserted.id), replayed: false };
 }
 
+/**
+ * Reclaim generations left in state='running' well past any realistic batch
+ * duration — the outcome of a hard process crash (kill/OOM/deploy restart)
+ * mid-batch, which no in-process try/finally can ever observe. Without this,
+ * a crashed batch's generation row (and the telemetry/UI counters that key
+ * off it) would report "in progress" forever. Marks each as 'stalled' (never
+ * silently as 'completed' — a stalled run's true final counts are unknown
+ * beyond whatever candidates it managed to persist before crashing) and
+ * writes one audit_logs row per reclaimed generation so the auto-recovery is
+ * inspectable, per the task's "auditable manual reconcile control" mandate.
+ * Idempotent and safe to call from any periodic tick — an already-terminal
+ * generation is never touched twice.
+ */
+export async function reclaimStaleFreeDiscoveryGenerations(
+  staleAfterMs: number = 2 * 60 * 60 * 1000,
+): Promise<{ reclaimed: number; ids: string[] }> {
+  const { db: _db } = await import("../../db");
+  const { auditLogs } = await import("@shared/schema");
+  const threshold = new Date(Date.now() - staleAfterMs);
+  const stale = rows(await db.execute(sql`
+    UPDATE free_discovery_generations
+       SET state = 'stalled', completed_at = NOW(),
+           subject_count = (
+             SELECT COUNT(DISTINCT
+               CASE WHEN business_id IS NOT NULL THEN 'business_id:' || business_id::text
+                    ELSE 'contact_id:' || contact_id::text END
+             )
+             FROM free_discovery_candidates WHERE generation_id = free_discovery_generations.id
+           ),
+           candidate_count = (SELECT COUNT(*) FROM free_discovery_candidates WHERE generation_id = free_discovery_generations.id)
+     WHERE state = 'running' AND started_at < ${threshold}
+     RETURNING id, run_key, actor_id, reason, started_at, subject_count, candidate_count
+  `));
+  if (stale.length === 0) return { reclaimed: 0, ids: [] };
+  for (const row of stale) {
+    await _db.insert(auditLogs).values({
+      action: "free_discovery_generation_auto_reclaimed",
+      entityType: "free_discovery_generation",
+      entityKey: String(row.id),
+      details: {
+        runKey: row.run_key,
+        actorId: row.actor_id,
+        reason: row.reason,
+        startedAt: row.started_at,
+        staleAfterMs,
+        recoveredSubjectCount: row.subject_count,
+        recoveredCandidateCount: row.candidate_count,
+      },
+      actorType: "system",
+      actorId: "free_discovery_generation_reaper",
+    }).catch((err) => console.error("[FreeDiscoveryReaper] Failed to write audit log for reclaimed generation", row.id, err));
+  }
+  return { reclaimed: stale.length, ids: stale.map((r) => String(r.id)) };
+}
+
 export async function completeFreeDiscoveryGeneration(generationId: string): Promise<void> {
   await db.execute(sql`
     UPDATE free_discovery_generations
