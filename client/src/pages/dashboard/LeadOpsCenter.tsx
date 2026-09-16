@@ -1022,6 +1022,64 @@ function BusinessesTab({ userRole }: { userRole: string }) {
           </CardContent>
         </Card>
       )}
+      {userRole === "admin" && (
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Sunbiz Record-Class Repair — one-time correction</CardTitle>
+            <CardDescription className="text-xs">
+              Fixes businesses created by the Sunbiz bootstrap before a defect was patched: they were left as
+              "unknown" instead of "canonical", hiding them from Lead Ops, free enrichment, and MI-09. Preview
+              is read-only. Safe to rerun — once the cohort is empty, this always reports 0 and there's nothing
+              left to fix.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0">
+            <div className="text-xs text-muted-foreground">
+              Affected businesses found: <strong>{recordClassRepairPreviewQuery.data?.cohortCount ?? "—"}</strong>
+              {recordClassRepairPreviewQuery.isFetching && " (checking…)"}
+            </div>
+            {recordClassRepairPreviewQuery.data?.rows?.length > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                Sample: {recordClassRepairPreviewQuery.data.rows.slice(0, 5).map((r: any) => r.canonicalName).join(" · ")}
+              </div>
+            )}
+            {recordClassRepairPreviewQuery.data?.cohortCount === 0 && (
+              <div className="text-[11px] text-muted-foreground">Nothing to repair right now.</div>
+            )}
+            <div className="flex flex-wrap gap-2 items-end">
+              <label className="text-xs flex-1 min-w-[240px]">Type confirmation
+                <Input
+                  className="h-8 mt-1 font-mono"
+                  placeholder={recordClassRepairPreviewQuery.data?.confirmationPhrase ?? "REPAIR SUNBIZ RECORD CLASS N"}
+                  value={recordClassRepairConfirmation}
+                  onChange={(e) => setRecordClassRepairConfirmation(e.target.value)}
+                />
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  recordClassRepairRunMutation.isPending ||
+                  !recordClassRepairPreviewQuery.data?.cohortCount ||
+                  !recordClassRepairPreviewQuery.data?.previewToken
+                }
+                onClick={() => recordClassRepairRunMutation.mutate()}
+              >
+                {recordClassRepairRunMutation.isPending ? "Running…" : "Run repair"}
+              </Button>
+            </div>
+            {recordClassRepairRunMutation.error && (
+              <p className="text-xs text-red-600">{(recordClassRepairRunMutation.error as Error).message}</p>
+            )}
+            {recordClassRepairRunMutation.data && (
+              <div className="text-[11px] text-muted-foreground">
+                Repaired {recordClassRepairRunMutation.data.repairedCount} of{" "}
+                {recordClassRepairRunMutation.data.attemptedCount} attempted.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
       {/* Slide-over detail panel */}
       {selectedBusiness && (
         <BusinessDetailPanel
