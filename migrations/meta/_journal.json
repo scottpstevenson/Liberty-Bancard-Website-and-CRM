@@ -1925,6 +1925,27 @@
       "when": 1800000007900,
       "tag": "0270_mi09_pilot_run_frozen_pricing",
       "breakpoints": false
+    },
+    {
+      "idx": 275,
+      "version": "7",
+      "when": 1800000008000,
+      "tag": "0271_free_discovery_evidence",
+      "breakpoints": false
+    },
+    {
+      "idx": 276,
+      "version": "7",
+      "when": 1800000008100,
+      "tag": "0272_free_discovery_candidate_subject_scope",
+      "breakpoints": false
+    },
+    {
+      "idx": 277,
+      "version": "7",
+      "when": 1800000008200,
+      "tag": "0273_free_discovery_candidate_subject_type_consistency",
+      "breakpoints": false
     }
   ]
 }

@@ -20,7 +20,7 @@
  */
 
 import { db } from "../server/db";
-import { contacts, enrichmentRuns, serperControl, businesses } from "@shared/schema";
+import { contacts, enrichmentRuns, serperControl, businesses, freeDiscoveryCandidates, freeDiscoveryGenerations } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import {
   getContactIdsNeedingEnrichment,
@@ -32,8 +32,10 @@ import {
 import {
   selectContactDiscoveryEmail,
   crawlFirstPartyContactEmails,
+  isRoleInboxEmail,
   type ContactPageCrawlCandidate,
 } from "../server/services/sdr/contactpage-enrichment";
+import { getCachedRoleEmails } from "../server/services/free-discovery/evidence-service";
 
 /** Swap enrichContactBatch's Serper calls for the duration of `fn`, then
  * restore the originals — lets us deterministically simulate provider
@@ -514,7 +516,7 @@ async function main() {
     await cleanupContact(c14.id);
   }
 
-  console.log("\n── Test 15: crawler finds an email after both Serper steps complete with nothing — write path, telemetry, discovery-source tag ──");
+  console.log("\n── Test 15: crawler finds a role-inbox email after both Serper steps complete with nothing — staged as candidate evidence, NEVER written to contacts.email (Task #1978 correction #3) ──");
   const c15domain = `crawler-finds-email-${runId}.com`;
   const c15 = await makeTestContact({
     companyName: "Crawler Finds Email Task1977",
@@ -522,6 +524,7 @@ async function main() {
     website: c15domain,
   });
   try {
+    assert(isRoleInboxEmail(`info@${c15domain}`), "sanity check: info@ is classified as a role inbox");
     const result = await withMockedSerper(
       {
         searchBusiness: serperWebsiteOnlyNoEmail(c15domain),
@@ -540,15 +543,30 @@ async function main() {
     );
     assert(result.crawlerDomainsAttempted === 1, "crawler was attempted for exactly one domain");
     assert(result.crawlerPagesAttempted === 2, "crawler page-attempt count is threaded through to the batch return");
-    assert(result.crawlerEmailsFound === 1, "batch reports the crawler-sourced email");
-    assert(result.serperEmailsFound === 0, "no Serper email was found on this contact — only the crawler found one");
+    assert(result.crawlerEmailsFound === 1, "batch reports one candidate staged from the crawler");
+    assert(result.emailsFound === 0 && result.totalEmailsFound === 0, "crawlerEmailsFound never rolls into emailsFound/totalEmailsFound — no contact write happened");
+    assert(result.serperEmailsFound === 0, "no Serper email was found on this contact");
 
     const [after] = await db.select().from(contacts).where(eq(contacts.id, c15.id));
-    assert(after.email === `info@${c15domain}`, "the crawler-discovered email was actually written to the contact via the canonical writer");
+    assert(!after.email, "the crawler-discovered address is NEVER written directly to contacts.email — it's staged as candidate evidence instead");
+
+    const [staged] = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c15domain}`);
+    assert(!!staged, "a free_discovery_candidates row was staged for the crawler-found address");
+    assert(staged?.attributionScope === "role", "a role-inbox address (info@) is staged with role attribution");
+    assert(staged?.subjectType === "business", "role attribution always carries subjectType='business' — never eligible for person-only projection");
+    // Business-scoping (contactId left null) only applies when the contact
+    // actually has a linked businessId; otherwise it correctly falls back to
+    // contactId ownership (see Test 24) rather than being orphaned.
+    assert(
+      staged?.businessId !== null ? staged?.contactId === null : staged?.contactId === c15.id,
+      "role attribution is business-scoped when a business link exists, else falls back to this contact — never orphaned",
+    );
 
     const [run] = await db.select().from(enrichmentRuns).where(eq(enrichmentRuns.contactId, c15.id));
+    assert(run?.status === "candidate_staged", "the enrichment_runs audit row honestly reports candidate_staged, not a misleading no_match or success");
     assert((run?.outputPayload as any)?.emailDiscoverySource === "first_party_contact_page", "the enrichment_runs row tags this contact's discovery source as first_party_contact_page");
   } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c15domain}`).catch(() => {});
     await cleanupContact(c15.id);
   }
 
@@ -587,6 +605,7 @@ async function main() {
 
     const runs = await db.select().from(enrichmentRuns).where(eq(enrichmentRuns.contactId, c16.id));
     assert(runs.length === 1, "a genuine no-match cooldown row is still recorded — both Serper steps and the crawler all genuinely completed");
+    assert(runs[0]?.status === "no_match", "an ambiguous tie (no candidate staged) is honestly reported as no_match, not candidate_staged");
   } finally {
     await cleanupContact(c16.id);
   }
@@ -686,7 +705,7 @@ async function main() {
       ),
     );
     assert(!result.gatewayBlocked, "batch is not reported as gateway-blocked just because one contact's own domain failed to crawl");
-    assert(result.crawlerEmailsFound === 1, "the second contact's crawler-sourced email is still found in the same batch run");
+    assert(result.crawlerEmailsFound === 1, "the second contact's crawler-sourced candidate is still staged in the same batch run");
 
     const [failAfter] = await db.select().from(contacts).where(eq(contacts.id, c19bFail.id));
     assert(!failAfter.email, "the failed-crawl contact's email remains unset");
@@ -694,10 +713,432 @@ async function main() {
     assert(failRuns.length === 0, "the failed-crawl contact gets no cooldown row and stays eligible for retry");
 
     const [okAfter] = await db.select().from(contacts).where(eq(contacts.id, c19bOk.id));
-    assert(okAfter.email === `info@crawler-ok-second-${runId}.com`, "the second, unrelated contact was still fully processed and its email written despite the first contact's crawl failure");
+    assert(!okAfter.email, "the second, unrelated contact was still fully processed, and its crawler-found address was staged as evidence, never written to contacts.email");
+
+    const [okStaged] = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${`crawler-ok-second-${runId}.com`}`);
+    assert(!!okStaged, "the second contact's crawler-found role address was staged as free-discovery candidate evidence");
   } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${`crawler-ok-second-${runId}.com`}`).catch(() => {});
     await cleanupContact(c19bFail.id);
     await cleanupContact(c19bOk.id);
+  }
+
+  console.log("\n── Test 21: a named (non-role) crawler address is staged contact-scoped, never cached, and never reused for another contact on the same domain (Task #1978 correction #4) ──");
+  const c21domain = `named-address-isolation-${runId}.com`;
+  const c21a = await makeTestContact({ companyName: "Named Address A Task1978", email: "", website: c21domain });
+  const c21b = await makeTestContact({ companyName: "Named Address B Task1978", email: "", website: c21domain });
+  try {
+    assert(!isRoleInboxEmail(`jane@${c21domain}`), "sanity check: jane@ is NOT classified as a role inbox");
+
+    let crawlCallCount = 0;
+    const result = await withMockedSerper(
+      {
+        searchBusiness: serperWebsiteOnlyNoEmail(c21domain),
+        searchBusinessEmail: serperEmailSearchNoMatch,
+      },
+      () => withMockedCrawler(
+        {
+          crawlFirstPartyContactEmails: async () => {
+            crawlCallCount++;
+            // Only the first contact's crawl (shared per-batch crawlCache)
+            // yields a candidate; a second, unrelated batch run for c21b
+            // below gets a fresh crawl with nothing, proving the named
+            // address from c21a's crawl was never served to c21b from cache.
+            return { candidates: [{ email: `jane@${c21domain}`, sourceUrl: `https://${c21domain}/team`, evidenceType: "visible_text" as const }], fetchCompleted: true, pagesAttempted: 1 };
+          },
+        },
+        () => enrichContactBatch([c21a.id], { batchSize: 1 }),
+      ),
+    );
+    assert(result.crawlerEmailsFound === 1, "the named address is still staged as a candidate");
+
+    const [after] = await db.select().from(contacts).where(eq(contacts.id, c21a.id));
+    assert(!after.email, "the named address is never written to contacts.email");
+
+    const [staged] = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c21domain}`);
+    assert(staged?.attributionScope === "named", "a non-role address is staged with named attribution");
+    assert(staged?.subjectType === "person", "named attribution always carries subjectType='person' — never eligible for business-email projection");
+    assert(staged?.contactId === c21a.id, "named attribution is scoped to the exact contact it was found for");
+    assert(staged?.businessId === null, "named attribution never carries a business-level scope (would make it reusable)");
+
+    const cachedAfterNamed = await getCachedRoleEmails(c21domain);
+    assert(cachedAfterNamed === null, "a named (non-role) address is never written into the reusable domain cache");
+
+    // A second, independent batch run for a different contact at the same
+    // domain must NOT receive c21a's named address from any cache — it has
+    // to genuinely crawl again (proving no cross-contact leak per correction #4).
+    const result2 = await withMockedSerper(
+      {
+        searchBusiness: serperWebsiteOnlyNoEmail(c21domain),
+        searchBusinessEmail: serperEmailSearchNoMatch,
+      },
+      () => withMockedCrawler(
+        { crawlFirstPartyContactEmails: async () => { crawlCallCount++; return { candidates: [], fetchCompleted: true, pagesAttempted: 1 }; } },
+        () => enrichContactBatch([c21b.id], { batchSize: 1 }),
+      ),
+    );
+    assert(crawlCallCount === 2, "the second contact's domain lookup triggered its own real crawl, not a cache hit off the first contact's named address");
+    assert(result2.crawlerEmailsFound === 0, "the second contact gets no candidate — c21a's named address was never reused for c21b");
+    const [after2] = await db.select().from(contacts).where(eq(contacts.id, c21b.id));
+    assert(!after2.email, "the second contact's email remains unset — no cross-contact leak of the named address");
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c21domain}`).catch(() => {});
+    await db.execute(sql`DELETE FROM email_discovery_domain_cache WHERE domain = ${c21domain}`).catch(() => {});
+    await cleanupContact(c21a.id);
+    await cleanupContact(c21b.id);
+  }
+
+  console.log("\n── Test 22: SAME-BATCH two contacts sharing a domain — a named address the crawl surfaces for contact A must NOT also be attributed to contact B reading the cached in-flight crawl result (code-review regression) ──");
+  const c22domain = `same-batch-named-leak-${runId}.com`;
+  const c22a = await makeTestContact({ companyName: "Same Batch A Task1978", email: "", website: c22domain });
+  const c22b = await makeTestContact({ companyName: "Same Batch B Task1978", email: "", website: c22domain });
+  try {
+    let c22CrawlCalls = 0;
+    const result = await withMockedSerper(
+      {
+        searchBusiness: serperWebsiteOnlyNoEmail(c22domain),
+        searchBusinessEmail: serperEmailSearchNoMatch,
+      },
+      () => withMockedCrawler(
+        {
+          crawlFirstPartyContactEmails: async () => {
+            c22CrawlCalls++;
+            return { candidates: [{ email: `jane@${c22domain}`, sourceUrl: `https://${c22domain}/team`, evidenceType: "visible_text" as const }], fetchCompleted: true, pagesAttempted: 1 };
+          },
+        },
+        // Both contacts processed in ONE batch call — this is the actual
+        // in-batch crawlCache reuse path the earlier fix-round's test missed
+        // by using two separate batch calls.
+        () => enrichContactBatch([c22a.id, c22b.id], { batchSize: 2 }),
+      ),
+    );
+    assert(c22CrawlCalls === 1, "the domain is only physically crawled once for the whole batch (shared crawlCache)");
+    assert(result.crawlerEmailsFound === 1, "exactly ONE candidate is staged across the whole batch, not one per contact sharing the domain");
+
+    const staged = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c22domain}`);
+    assert(staged.length === 1, "only a single free_discovery_candidates row exists for this domain after the batch");
+    assert(staged[0]?.attributionScope === "named", "the sole staged row is the named address");
+    assert(staged[0]?.subjectType === "person", "the named address carries subjectType='person'");
+    const namedOwner = staged[0]?.contactId;
+    assert(namedOwner === c22a.id || namedOwner === c22b.id, "the named address is attributed to exactly one of the two contacts");
+
+    const [afterA] = await db.select().from(contacts).where(eq(contacts.id, c22a.id));
+    const [afterB] = await db.select().from(contacts).where(eq(contacts.id, c22b.id));
+    assert(!afterA.email && !afterB.email, "neither contact's email column was written");
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c22domain}`).catch(() => {});
+    await db.execute(sql`DELETE FROM email_discovery_domain_cache WHERE domain = ${c22domain}`).catch(() => {});
+    await cleanupContact(c22a.id);
+    await cleanupContact(c22b.id);
+  }
+
+  console.log("\n── Test 23: a fresh NEGATIVE domain-cache entry (crawled recently, found nothing) skips recrawling for a second contact — and a subsequent authoritative empty recrawl clears any stale positive entry (code-review regression) ──");
+  const c23domain = `negative-cache-skip-recrawl-${runId}.com`;
+  const c23a = await makeTestContact({ companyName: "Negative Cache A Task1978", email: "", website: c23domain });
+  const c23b = await makeTestContact({ companyName: "Negative Cache B Task1978", email: "", website: c23domain });
+  try {
+    let c23CrawlCalls = 0;
+    // First, separate batch: crawl genuinely completes with nothing —
+    // markDomainCrawled should cache the negative result.
+    await withMockedSerper(
+      { searchBusiness: serperWebsiteOnlyNoEmail(c23domain), searchBusinessEmail: serperEmailSearchNoMatch },
+      () => withMockedCrawler(
+        { crawlFirstPartyContactEmails: async () => { c23CrawlCalls++; return { candidates: [], fetchCompleted: true, pagesAttempted: 1 }; } },
+        () => enrichContactBatch([c23a.id], { batchSize: 1 }),
+      ),
+    );
+    assert(c23CrawlCalls === 1, "first contact's lookup triggers a real crawl");
+
+    const cacheRow = (await db.execute(sql`SELECT role_emails FROM email_discovery_domain_cache WHERE domain = ${c23domain}`)).rows?.[0];
+    assert(!!cacheRow && Array.isArray(cacheRow.role_emails) && cacheRow.role_emails.length === 0, "an empty-but-fresh cache row was written for the domain");
+
+    // Second, independent batch for a different contact at the same domain:
+    // must NOT trigger a second crawl — the fresh negative cache entry alone
+    // is enough to skip it.
+    const result2 = await withMockedSerper(
+      { searchBusiness: serperWebsiteOnlyNoEmail(c23domain), searchBusinessEmail: serperEmailSearchNoMatch },
+      () => withMockedCrawler(
+        { crawlFirstPartyContactEmails: async () => { c23CrawlCalls++; return { candidates: [], fetchCompleted: true, pagesAttempted: 1 }; } },
+        () => enrichContactBatch([c23b.id], { batchSize: 1 }),
+      ),
+    );
+    assert(c23CrawlCalls === 1, "a fresh (even empty) cache entry prevents a second, redundant crawl for a different contact at the same domain");
+    assert(result2.crawlerDomainsAttempted === 0, "batch reports zero crawler domain attempts when the domain cache is served instead");
+    assert(result2.crawlerEmailsFound === 0, "no candidate is staged from a cached negative result");
+
+    // Now simulate the cache entry going stale (past its 30-day TTL) by
+    // directly backdating last_crawled_at, then prove a subsequent
+    // authoritative crawl that finds a role address, followed by one that
+    // finds nothing, actually CLEARS the previously-cached positive entry
+    // rather than reviving it under a freshly-bumped timestamp.
+    const c23c = await makeTestContact({ companyName: "Negative Cache C Task1978", email: "", website: c23domain });
+    try {
+      await db.execute(sql`UPDATE email_discovery_domain_cache SET last_crawled_at = now() - interval '31 days' WHERE domain = ${c23domain}`);
+      const resultRole = await withMockedSerper(
+        { searchBusiness: serperWebsiteOnlyNoEmail(c23domain), searchBusinessEmail: serperEmailSearchNoMatch },
+        () => withMockedCrawler(
+          { crawlFirstPartyContactEmails: async () => { c23CrawlCalls++; return { candidates: [{ email: `info@${c23domain}`, sourceUrl: `https://${c23domain}/contact`, evidenceType: "mailto" as const }], fetchCompleted: true, pagesAttempted: 1 }; } },
+          () => enrichContactBatch([c23c.id], { batchSize: 1 }),
+        ),
+      );
+      assert(c23CrawlCalls === 2, "the stale cache entry no longer prevents a recrawl");
+      assert(resultRole.crawlerEmailsFound === 1, "the recrawl finds and stages the role address");
+      const cacheAfterRole = (await db.execute(sql`SELECT role_emails FROM email_discovery_domain_cache WHERE domain = ${c23domain}`)).rows?.[0];
+      assert(Array.isArray(cacheAfterRole?.role_emails) && cacheAfterRole.role_emails.length === 1, "the domain cache now holds the freshly-found role address");
+
+      // Age it out again, then run an authoritative empty recrawl.
+      await db.execute(sql`UPDATE email_discovery_domain_cache SET last_crawled_at = now() - interval '31 days' WHERE domain = ${c23domain}`);
+      const c23d = await makeTestContact({ companyName: "Negative Cache D Task1978", email: "", website: c23domain });
+      try {
+        await withMockedSerper(
+          { searchBusiness: serperWebsiteOnlyNoEmail(c23domain), searchBusinessEmail: serperEmailSearchNoMatch },
+          () => withMockedCrawler(
+            { crawlFirstPartyContactEmails: async () => { c23CrawlCalls++; return { candidates: [], fetchCompleted: true, pagesAttempted: 1 }; } },
+            () => enrichContactBatch([c23d.id], { batchSize: 1 }),
+          ),
+        );
+        const cacheAfterEmpty = (await db.execute(sql`SELECT role_emails FROM email_discovery_domain_cache WHERE domain = ${c23domain}`)).rows?.[0];
+        assert(Array.isArray(cacheAfterEmpty?.role_emails) && cacheAfterEmpty.role_emails.length === 0, "an authoritative empty recrawl CLEARS the previously-cached role address instead of leaving it to be served fresh again");
+      } finally {
+        await cleanupContact(c23d.id);
+      }
+    } finally {
+      await cleanupContact(c23c.id);
+    }
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c23domain}`).catch(() => {});
+    await db.execute(sql`DELETE FROM email_discovery_domain_cache WHERE domain = ${c23domain}`).catch(() => {});
+    await cleanupContact(c23a.id);
+    await cleanupContact(c23b.id);
+  }
+
+  console.log("\n── Test 24: a role-inbox candidate for a contact with NO linked business still gets an owning subject (falls back to contactId) instead of an orphaned business_id=null/contact_id=null row (code-review regression + DB constraint) ──");
+  const c24domain = `role-no-business-link-${runId}.com`;
+  const c24 = await makeTestContact({ companyName: "Role No Business Task1978", email: "", website: c24domain, businessId: null as any });
+  try {
+    const result = await withMockedSerper(
+      { searchBusiness: serperWebsiteOnlyNoEmail(c24domain), searchBusinessEmail: serperEmailSearchNoMatch },
+      () => withMockedCrawler(
+        { crawlFirstPartyContactEmails: async () => ({ candidates: [{ email: `info@${c24domain}`, sourceUrl: `https://${c24domain}/contact`, evidenceType: "mailto" as const }], fetchCompleted: true, pagesAttempted: 1 }) },
+        () => enrichContactBatch([c24.id], { batchSize: 1 }),
+      ),
+    );
+    assert(result.crawlerEmailsFound === 1, "the role address is still staged even with no linked business");
+    const [staged] = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c24domain}`);
+    assert(!!staged, "a candidate row was recorded");
+    assert(staged?.attributionScope === "role", "it's still classified as role attribution");
+    assert(staged?.subjectType === "business", "the fallback-to-contactId role row still carries subjectType='business' — it's business evidence, only the FK bookkeeping differs");
+    assert(staged?.contactId === c24.id, "it falls back to contactId ownership when no businessId link exists");
+    assert(!(staged?.businessId === null && staged?.contactId === null), "the row is never left with both FKs null (orphaned)");
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c24domain}`).catch(() => {});
+    await db.execute(sql`DELETE FROM email_discovery_domain_cache WHERE domain = ${c24domain}`).catch(() => {});
+    await cleanupContact(c24.id);
+  }
+
+  console.log("\n── Test 25: subject_type/attribution_scope/business_id consistency is enforced at both the service layer and the DB CHECK constraint (code-review regression) ──");
+  const c25domain = `subject-type-consistency-${runId}.com`;
+  const c25 = await makeTestContact({ companyName: "Subject Type Consistency Task1978", email: "", website: c25domain });
+  try {
+    const { recordFreeDiscoveryCandidate, createFreeDiscoveryGeneration, completeFreeDiscoveryGeneration } = await import("../server/services/free-discovery/evidence-service");
+    const gen = await createFreeDiscoveryGeneration({ runKey: `test-subject-type-${runId}`, actorId: "test-suite", reason: "task-1978-regression-test" });
+
+    let threwBusinessNamed = false;
+    try {
+      await recordFreeDiscoveryCandidate({
+        generationId: gen.id, subjectType: "business", businessId: null, contactId: c25.id,
+        domain: c25domain, email: `jane@${c25domain}`, source: "first_party_contact_page",
+        attributionScope: "named", confidence: 50,
+      });
+    } catch { threwBusinessNamed = true; }
+    assert(threwBusinessNamed, "service layer rejects subjectType='business' paired with attributionScope='named'");
+
+    let threwPersonRole = false;
+    try {
+      await recordFreeDiscoveryCandidate({
+        generationId: gen.id, subjectType: "person", businessId: null, contactId: c25.id,
+        domain: c25domain, email: `info@${c25domain}`, source: "first_party_contact_page",
+        attributionScope: "role", confidence: 50,
+      });
+    } catch { threwPersonRole = true; }
+    assert(threwPersonRole, "service layer rejects subjectType='person' paired with attributionScope='role'");
+
+    let threwPersonWithBusiness = false;
+    try {
+      await recordFreeDiscoveryCandidate({
+        generationId: gen.id, subjectType: "person", businessId: c25.businessId ?? 1, contactId: c25.id,
+        domain: c25domain, email: `bob@${c25domain}`, source: "first_party_contact_page",
+        attributionScope: "named", confidence: 50,
+      });
+    } catch { threwPersonWithBusiness = true; }
+    assert(threwPersonWithBusiness, "service layer rejects a 'person' subject carrying a business_id");
+
+    // Bypass the service layer entirely and try the same invalid combination
+    // as a raw insert, proving the DB CHECK constraint is the real backstop
+    // (not just app-level discipline that a future direct-SQL caller could skip).
+    let dbRejectedRawInsert = false;
+    try {
+      await db.execute(sql`
+        INSERT INTO free_discovery_candidates
+          (generation_id, field, subject_type, business_id, contact_id, domain, source, attribution_scope,
+           disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version,
+           normalized_value_hash, masked_value)
+        VALUES (${gen.id}::uuid, 'email', 'business', NULL, ${c25.id}, ${c25domain}, 'first_party_contact_page', 'named',
+                'staged', 50, 'x', 'x', 'x', 1, ${`raw-insert-test-${runId}`}, 'x@***')
+      `);
+    } catch { dbRejectedRawInsert = true; }
+    assert(dbRejectedRawInsert, "the DB CHECK constraint independently rejects a business/named mismatch even bypassing the service layer");
+
+    // Regression: a business-owned role row and a contact-fallback role row
+    // can carry equal NUMERIC ids (e.g. business #7 and contact #7) even
+    // though they are different subjects. subject_type alone does not
+    // disambiguate them (both are 'business'); the count must key off which
+    // FK column actually holds the id. Force a real business row and a real
+    // contact row to share the same numeric id so the collision is concrete,
+    // not just theoretically possible.
+    //
+    // contacts.id values in this DB run far higher than businesses.id values
+    // (contacts is a much older/larger table), so it's safe to mint a fresh
+    // contact via the normal sequence and then force-insert a businesses row
+    // at that same numeric id (which businesses' own sequence hasn't reached
+    // yet) rather than risk colliding an explicit id with an existing real
+    // business or contact row.
+    const contactRow = await makeTestContact({
+      companyName: "Subject Type Consistency Task1978 B",
+      email: "", phone: "5550001112", website: `${c25domain}-b.com`,
+    });
+    const sharedNumericId = contactRow.id;
+    const [existingBiz] = await db.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, sharedNumericId));
+    assert(!existingBiz, `sanity check: businesses.id=${sharedNumericId} is not already taken, so the forced-collision insert below is safe`);
+    // Deliberately do NOT call setval() here — an explicit-id INSERT does not
+    // itself advance the serial sequence, and bumping the sequence forward to
+    // a contact-scale id would permanently mutate shared DB sequence state
+    // for the rest of the suite (and any concurrent run). The fixture row is
+    // deleted in the finally block below, so leaving the sequence untouched
+    // is both safe (this test's chosen id is already known-free) and fully
+    // reversible — nothing about this test's state survives it.
+    await db.execute(sql`
+      INSERT INTO businesses (id, canonical_name, normalized_name)
+      VALUES (${sharedNumericId}, ${`Subject Type Consistency Biz ${runId}`}, ${`subject type consistency biz ${runId}`})
+    `);
+    try {
+      await recordFreeDiscoveryCandidate({
+        generationId: gen.id, subjectType: "business", businessId: sharedNumericId, contactId: null,
+        domain: `${c25domain}-biz.com`, email: `info@${c25domain}-biz.com`, source: "first_party_contact_page",
+        attributionScope: "role", confidence: 50,
+      });
+      await recordFreeDiscoveryCandidate({
+        generationId: gen.id, subjectType: "business", businessId: null, contactId: sharedNumericId,
+        domain: `${c25domain}-contact.com`, email: `info@${c25domain}-contact.com`, source: "first_party_contact_page",
+        attributionScope: "role", confidence: 50,
+      });
+      await completeFreeDiscoveryGeneration(gen.id);
+      const [genAfter] = await db.select().from(freeDiscoveryGenerations).where(eq(freeDiscoveryGenerations.id, gen.id));
+      assert(
+        genAfter?.subjectCount === 2,
+        `a business_id=${sharedNumericId} row and a contact_id=${sharedNumericId} row are counted as 2 distinct subjects, not collapsed into 1 (got ${genAfter?.subjectCount})`,
+      );
+    } finally {
+      await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} IN (${`${c25domain}-biz.com`}, ${`${c25domain}-contact.com`})`).catch(() => {});
+      await cleanupContact(contactRow.id);
+      await db.delete(businesses).where(eq(businesses.id, sharedNumericId)).catch(() => {});
+    }
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c25domain}`).catch(() => {});
+    await cleanupContact(c25.id);
+  }
+
+  console.log("\n── Test 26: two contacts needing independent crawls in one batch call share exactly one free-discovery generation (code-review concurrency regression) ──");
+  const c26domainA = `concurrent-gen-a-${runId}.com`;
+  const c26domainB = `concurrent-gen-b-${runId}.com`;
+  const c26a = await makeTestContact({ companyName: "Concurrent Gen A Task1978", email: "", website: c26domainA });
+  const c26b = await makeTestContact({ companyName: "Concurrent Gen B Task1978", email: "", website: c26domainB });
+  try {
+    const result = await withMockedSerper(
+      {
+        // contact.website (set at creation) takes top priority over Serper's
+        // resolved website (Test 12), so this fixed response never actually
+        // determines either contact's domain — it only needs to genuinely
+        // complete with no email so both contacts fall through to the
+        // crawler.
+        searchBusiness: serperWebsiteOnlyNoEmail(c26domainA),
+        searchBusinessEmail: serperEmailSearchNoMatch,
+      },
+      () => withMockedCrawler(
+        {
+          // Two different domains — both contacts genuinely trigger their own
+          // crawl (no shared crawlCache entry), so both independently call
+          // getOrCreateBatchFreeDiscoveryGenerationId(). If that function ever
+          // regresses to checking-then-setting a plain variable instead of
+          // memoizing a single in-flight promise, a future concurrent/batched
+          // caller could let both contacts each observe "no generation yet"
+          // and open two separate generations — splitting one batch's
+          // candidates across two rows, only one of which is ever completed.
+          crawlFirstPartyContactEmails: async (domain: string) => ({
+            candidates: [{ email: `info@${domain}`, sourceUrl: `https://${domain}/contact`, evidenceType: "mailto" as const }],
+            fetchCompleted: true,
+            pagesAttempted: 1,
+          }),
+        },
+        () => enrichContactBatch([c26a.id, c26b.id], { batchSize: 2 }),
+      ),
+    );
+    assert(result.crawlerEmailsFound === 2, "both contacts' independent crawls each stage a role candidate");
+    const c26Candidates = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} IN (${c26domainA}, ${c26domainB})`);
+    assert(c26Candidates.length === 2, "both candidates were recorded");
+    const distinctGenerationIds = Array.from(new Set(c26Candidates.map((c) => c.generationId)));
+    assert(
+      distinctGenerationIds.length === 1,
+      `both contacts' candidates land on the SAME generation, not split across two (found ${distinctGenerationIds.length} distinct generation ids)`,
+    );
+    const [c26gen] = await db.select().from(freeDiscoveryGenerations).where(eq(freeDiscoveryGenerations.id, distinctGenerationIds[0]!));
+    assert(c26gen?.state === "completed", "the one shared generation is completed at batch end, not left permanently running");
+    assert(c26gen?.subjectCount === 2, "the completed generation's subject_count covers both contacts' candidates, not just whichever one happened to create the generation");
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} IN (${c26domainA}, ${c26domainB})`).catch(() => {});
+    await cleanupContact(c26a.id);
+    await cleanupContact(c26b.id);
+  }
+
+  console.log("\n── Test 27: a role candidate served from the domain cache does NOT refresh the cache's crawl metadata/TTL (code-review regression) ──");
+  const c27domain = `cache-read-no-refresh-${runId}.com`;
+  const c27a = await makeTestContact({ companyName: "Cache Read No Refresh A Task1978", email: "", website: c27domain });
+  try {
+    // Seed a fresh, single-role-email cache entry directly, as if an earlier
+    // batch (hours ago, but still within the 30-day TTL) had crawled it.
+    await db.execute(sql`
+      INSERT INTO email_discovery_domain_cache (domain, role_emails, last_crawled_at, crawl_count)
+      VALUES (${c27domain}, ${JSON.stringify([{ email: `info@${c27domain}`, confidence: 60 }])}::jsonb, NOW() - interval '10 days', 1)
+      ON CONFLICT (domain) DO UPDATE SET role_emails = EXCLUDED.role_emails, last_crawled_at = EXCLUDED.last_crawled_at, crawl_count = 1
+    `);
+    const [cacheBefore] = await db.execute(sql`SELECT last_crawled_at, crawl_count FROM email_discovery_domain_cache WHERE domain = ${c27domain}`).then((r: any) => r.rows ?? r);
+    let crawlCalled = false;
+    await withMockedSerper(
+      {
+        searchBusiness: serperWebsiteOnlyNoEmail(c27domain),
+        searchBusinessEmail: serperEmailSearchNoMatch,
+      },
+      () => withMockedCrawler(
+        { crawlFirstPartyContactEmails: async () => { crawlCalled = true; return { candidates: [], fetchCompleted: true, pagesAttempted: 0 }; } },
+        () => enrichContactBatch([c27a.id], { batchSize: 1 }),
+      ),
+    );
+    assert(!crawlCalled, "a fresh cache hit never reaches the crawler at all");
+    const [cacheAfter] = await db.execute(sql`SELECT last_crawled_at, crawl_count FROM email_discovery_domain_cache WHERE domain = ${c27domain}`).then((r: any) => r.rows ?? r);
+    assert(
+      new Date(cacheAfter.last_crawled_at).getTime() === new Date(cacheBefore.last_crawled_at).getTime(),
+      "reading a cached role email does not bump last_crawled_at — that would refresh the TTL for a crawl that never happened",
+    );
+    assert(
+      Number(cacheAfter.crawl_count) === Number(cacheBefore.crawl_count),
+      `reading a cached role email does not increment crawl_count (before=${cacheBefore.crawl_count}, after=${cacheAfter.crawl_count})`,
+    );
+    const c27candidateRows = await db.select().from(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c27domain}`);
+    assert(c27candidateRows.length === 1 && c27candidateRows[0]?.attributionScope === "role", "the cache-served candidate is still staged as evidence for this contact/generation");
+  } finally {
+    await db.delete(freeDiscoveryCandidates).where(sql`${freeDiscoveryCandidates.domain} = ${c27domain}`).catch(() => {});
+    await db.execute(sql`DELETE FROM email_discovery_domain_cache WHERE domain = ${c27domain}`).catch(() => {});
+    await cleanupContact(c27a.id);
   }
 
   console.log("\n── Test 20: crawler SSRF-block still counts as a genuinely completed lookup (not a transport failure) ──");

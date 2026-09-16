@@ -9153,6 +9153,81 @@ export const cro03cCandidateEvidence = pgTable("cro03c_candidate_evidence", {
 ]);
 export type Cro03cCandidateEvidence = typeof cro03cCandidateEvidence.$inferSelect;
 
+// ── Task #1978: Free-discovery candidate evidence (Sunbiz/free-email pipeline) ──
+// Durable, contract-compatible run/generation envelope for FREE (non-paid)
+// discovery activity (first-party contact-page crawl, JSON-LD, etc). Deliberately
+// NOT inserted into cro03c_generations/cro03c_commands — those tables represent
+// paid-provider billing/ceremony authority (activation policy + live runtime
+// attestation + CRO-03A/B admission chain) which free discovery never performs
+// or impersonates. Reuses the same envelope-encryption/hash/mask contract as
+// cro03c_candidate_evidence (server/services/cro03/candidate-evidence-service.ts)
+// so a later governed promotion into that table (under explicit operator
+// authorization) can carry the value forward without re-deriving it.
+export const freeDiscoveryGenerations = pgTable("free_discovery_generations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runKey: text("run_key").notNull().unique(),
+  actorId: text("actor_id").notNull(),
+  purpose: text("purpose").notNull().default("email_discovery"),
+  reason: text("reason").notNull(),
+  state: text("state").notNull().default("running"),
+  subjectCount: integer("subject_count").notNull().default(0),
+  candidateCount: integer("candidate_count").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type FreeDiscoveryGeneration = typeof freeDiscoveryGenerations.$inferSelect;
+
+export const freeDiscoveryCandidates = pgTable("free_discovery_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  generationId: uuid("generation_id").notNull().references(() => freeDiscoveryGenerations.id, { onDelete: "restrict" }),
+  field: text("field").notNull().default("email"),
+  subjectType: text("subject_type").notNull(),
+  businessId: integer("business_id").references(() => businesses.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  domain: text("domain").notNull(),
+  source: text("source").notNull(),
+  /** 'role' = business-level inbox (info@, sales@...); 'named' = tied to one identified person. */
+  attributionScope: text("attribution_scope").notNull(),
+  /** Only populated for attributionScope='named' — the name/title evidence that justified attaching this address to one specific contact. */
+  personNameEvidence: text("person_name_evidence"),
+  personTitleEvidence: text("person_title_evidence"),
+  disposition: text("disposition").notNull().default("staged"),
+  confidence: integer("confidence").notNull().default(0),
+  envelopeCiphertext: text("envelope_ciphertext").notNull(),
+  envelopeNonce: text("envelope_nonce").notNull(),
+  envelopeTag: text("envelope_tag").notNull(),
+  envelopeKeyVersion: integer("envelope_key_version").notNull().default(1),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  maskedValue: text("masked_value").notNull(),
+  /** Set only once a governed promotion writes the value into cro03c_candidate_evidence — immutable provenance link, never rewritten. */
+  promotedCandidateEvidenceId: uuid("promoted_candidate_evidence_id").references(() => cro03cCandidateEvidence.id, { onDelete: "set null" }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("free_discovery_candidates_gen_field_value_uniq").on(table.generationId, table.field, table.normalizedValueHash),
+  index("free_discovery_candidates_business_idx").on(table.businessId),
+  index("free_discovery_candidates_contact_idx").on(table.contactId),
+  index("free_discovery_candidates_domain_idx").on(table.domain),
+]);
+export type FreeDiscoveryCandidate = typeof freeDiscoveryCandidates.$inferSelect;
+
+// Cross-run domain crawl cache. Cached role-inbox evidence is reusable without
+// recrawling; named-person evidence is NEVER cached/copied here — it stays
+// scoped to the one free_discovery_candidates row that has the supporting
+// name/title evidence, so it can never leak onto a different contact sharing
+// the same domain.
+export const emailDiscoveryDomainCache = pgTable("email_discovery_domain_cache", {
+  domain: text("domain").primaryKey(),
+  firstCrawledAt: timestamp("first_crawled_at", { withTimezone: true }).notNull().defaultNow(),
+  lastCrawledAt: timestamp("last_crawled_at", { withTimezone: true }).notNull().defaultNow(),
+  crawlCount: integer("crawl_count").notNull().default(1),
+  /** [{ email, confidence, sourceUrl }] — role-inbox candidates only. */
+  roleEmails: jsonb("role_emails").notNull().default([]),
+  lastGenerationId: uuid("last_generation_id").references(() => freeDiscoveryGenerations.id, { onDelete: "set null" }),
+});
+export type EmailDiscoveryDomainCache = typeof emailDiscoveryDomainCache.$inferSelect;
+
 // ── MI-05: businesses enrichment provenance (CAS tracking) ───────────────────
 // Tracks which CRO-03C generation last wrote each enrichment field on a
 // businesses row. Required for CAS in projectBusinessEnrichmentFields().

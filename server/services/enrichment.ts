@@ -39,8 +39,13 @@ import { recordDecisionMakerCandidate } from "./commercial-relationship-authorit
 import {
   crawlFirstPartyContactEmails as realCrawlFirstPartyContactEmails,
   selectContactDiscoveryEmail,
+  isRoleInboxEmail,
   type ContactPageCrawlResult,
 } from "./sdr/contactpage-enrichment";
+import {
+  createFreeDiscoveryGeneration, completeFreeDiscoveryGeneration, recordFreeDiscoveryCandidate,
+  getDomainCache, markDomainCrawled, newFreeDiscoveryRunKey,
+} from "./free-discovery/evidence-service";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -470,11 +475,22 @@ export async function enrichContactBatch(
   websitesFound: number;
   errors: number;
   gatewayBlocked: boolean;
-  // task #1977 telemetry — counts and source classification only, never raw
-  // emails. serperEmailsFound + crawlerEmailsFound <= totalEmailsFound
-  // (totalEmailsFound === emailsFound; kept as an explicit alias so callers
-  // don't have to infer that the two Serper sources roll into the same
-  // pre-existing counter).
+  // task #1977/#1978 telemetry — counts and source classification only,
+  // never raw emails.
+  //
+  // serperEmailsFound counts emails Serper found AND actually wrote to
+  // contacts.email; totalEmailsFound === emailsFound === serperEmailsFound
+  // today (an explicit alias kept so callers don't have to infer that the
+  // two Serper sources roll into the same pre-existing counter).
+  //
+  // crawlerEmailsFound is DIFFERENT in kind, not just a third source added
+  // to the same total: per Task #1978 correction #3, a crawler-discovered
+  // address is never written to contacts.email — it's staged as encrypted
+  // free-discovery candidate evidence instead (see
+  // server/services/free-discovery/evidence-service.ts). crawlerEmailsFound
+  // counts candidates staged this way; it does NOT roll into
+  // emailsFound/totalEmailsFound, and no email address it counts was ever
+  // written to a contact record by this function.
   crawlerDomainsAttempted: number;
   crawlerPagesAttempted: number;
   crawlerEmailsFound: number;
@@ -506,6 +522,25 @@ export async function enrichContactBatch(
   // Scoped to this single batch call — contacts sharing a domain (e.g. two
   // contacts at the same business) trigger only one crawl.
   const crawlCache = new Map<string, Promise<ContactPageCrawlResult>>();
+  // Lazily created once per batch call, the first time the crawler actually
+  // yields a selectable candidate — a batch that never reaches the crawler
+  // (Serper-only outcomes) never opens a free-discovery generation.
+  // Contacts in a batch are processed concurrently, so this must memoize a
+  // single in-flight PROMISE (not a resolved value) — otherwise two contacts
+  // can both observe a null id at the same time and each create their own
+  // generation row, silently splitting one batch's candidates across two
+  // generations (only one of which ever gets completed/counted at batch end).
+  let batchFreeDiscoveryGenerationPromise: Promise<string> | null = null;
+  async function getOrCreateBatchFreeDiscoveryGenerationId(): Promise<string> {
+    if (!batchFreeDiscoveryGenerationPromise) {
+      batchFreeDiscoveryGenerationPromise = createFreeDiscoveryGeneration({
+        runKey: newFreeDiscoveryRunKey("contact_enrich_batch"),
+        actorId: "system:contact_enrich_batch",
+        reason: "Task #1977/#1978 first-party contact-page crawl candidate capture",
+      }).then((gen) => gen.id);
+    }
+    return batchFreeDiscoveryGenerationPromise;
+  }
   // Only contacts that were actually, successfully processed this batch are
   // eligible for downstream business materialization — never contacts that
   // were skipped (missing name), blocked mid-call, or never attempted
@@ -566,6 +601,12 @@ export async function enrichContactBatch(
           // blocked) — losing real data because a LATER call failed would be
           // its own bug — but stop attempting any further contacts.
           let stopBatchAfterThisContact = false;
+          // True when this contact's crawl produced a staged free-discovery
+          // candidate (role or named) rather than nothing at all — used so
+          // the enrichment_runs audit row says "candidate staged", not the
+          // misleading "no_match", when we genuinely found something and
+          // simply didn't write it straight to contacts.email (correction #3).
+          let crawlerCandidateStaged = false;
           // Distinct from stopBatchAfterThisContact: a first-party crawl
           // failure (DNS/TLS/timeout fetching ONE business's own website) is
           // domain-specific, not a signal that the shared Serper gateway or
@@ -666,36 +707,151 @@ export async function enrichContactBatch(
               // when the two Serper steps above genuinely completed and
               // still found nothing.
               if (!stopBatchAfterThisContact && !updates.email && bestKnownDomain) {
-                const { result: crawlResultPromise, wasNewCrawl } = getOrCrawlDomain(crawlCache, bestKnownDomain);
-                const crawlResult = await crawlResultPromise;
-                // Only attribute domain/page-attempt telemetry to the actual
-                // outbound crawl (cache miss) — a contact that merely reads a
-                // cached result from an earlier contact in this batch didn't
-                // trigger a second crawl.
-                if (wasNewCrawl) {
-                  crawlerDomainsAttempted++;
-                  crawlerPagesAttempted += crawlResult.pagesAttempted;
-                }
-                if (!crawlResult.fetchCompleted) {
-                  // Transport failure (timeout, DNS failure, thrown exception)
-                  // — NOT an SSRF block, which reports fetchCompleted:true as
-                  // a valid skip. This lookup never genuinely completed for
-                  // THIS contact's domain, so don't record a cooldown row —
-                  // it stays immediately eligible for retry. But this is
-                  // domain-specific, not a shared-gateway problem, so it must
-                  // NOT stop the rest of the batch the way a real Serper
-                  // gateway block does.
-                  console.warn(`[ContactEnrich] First-party crawl did not complete for contact ${contactId} (domain=${bestKnownDomain}) — leaving this contact eligible for retry, continuing batch.`);
-                  crawlTransportFailedNoCooldown = true;
+                // Task #1978 correction #4: a fresh domain-cache entry for this
+                // domain is reused without recrawling — including a fresh
+                // NEGATIVE result (crawled recently, found no role email),
+                // which must also skip recrawling. Cache reads never return
+                // named (non-role) addresses — those are never cached.
+                const domainCache = await getDomainCache(bestKnownDomain).catch(() => ({ fresh: false, emails: [] as { email: string; confidence: number }[] }));
+                let selection: { email: string | null; sourceUrl: string | null; confidence: number; ambiguous: boolean };
+                let crawledThisContact = false;
+                let crawlGenuinelyCompletedEmpty = false;
+                // True only when THIS contact's lookup performed a genuine
+                // outbound crawl (not a cache hit, and not a reader riding an
+                // earlier contact's in-flight crawl in this same batch).
+                // Domain-cache metadata (last_crawled_at/crawl_count/TTL) must
+                // only ever advance on this path — otherwise merely reading a
+                // cached role address re-stages it into a new generation
+                // (recordFreeDiscoveryCandidate always inserts fresh per
+                // generation) and that insert's cache-touch would refresh the
+                // TTL and crawl_count for a crawl that never actually happened,
+                // letting a frequently-read domain's stale evidence survive
+                // indefinitely without ever being re-verified.
+                let originatedFromLiveCrawl = false;
+                if (domainCache.fresh && domainCache.emails.length === 1) {
+                  selection = { email: domainCache.emails[0].email, sourceUrl: null, confidence: domainCache.emails[0].confidence, ambiguous: false };
+                } else if (domainCache.fresh && domainCache.emails.length > 1) {
+                  selection = { email: null, sourceUrl: null, confidence: 0, ambiguous: true };
+                } else if (domainCache.fresh) {
+                  // Fresh cache row with zero role emails — an authoritative
+                  // negative result from an earlier crawl in the TTL window.
+                  // Nothing to do; do NOT recrawl.
+                  selection = { email: null, sourceUrl: null, confidence: 0, ambiguous: false };
                 } else {
-                  const selection = selectContactDiscoveryEmail(crawlResult.candidates, bestKnownDomain);
+                  crawledThisContact = true;
+                  const { result: crawlResultPromise, wasNewCrawl } = getOrCrawlDomain(crawlCache, bestKnownDomain);
+                  const crawlResult = await crawlResultPromise;
+                  // Only attribute domain/page-attempt telemetry to the actual
+                  // outbound crawl (cache miss) — a contact that merely reads a
+                  // cached result from an earlier contact in this batch didn't
+                  // trigger a second crawl.
+                  if (wasNewCrawl) {
+                    crawlerDomainsAttempted++;
+                    crawlerPagesAttempted += crawlResult.pagesAttempted;
+                  }
+                  if (!crawlResult.fetchCompleted) {
+                    // Transport failure (timeout, DNS failure, thrown exception)
+                    // — NOT an SSRF block, which reports fetchCompleted:true as
+                    // a valid skip. This lookup never genuinely completed for
+                    // THIS contact's domain, so don't record a cooldown row —
+                    // it stays immediately eligible for retry. But this is
+                    // domain-specific, not a shared-gateway problem, so it must
+                    // NOT stop the rest of the batch the way a real Serper
+                    // gateway block does.
+                    console.warn(`[ContactEnrich] First-party crawl did not complete for contact ${contactId} (domain=${bestKnownDomain}) — leaving this contact eligible for retry, continuing batch.`);
+                    crawlTransportFailedNoCooldown = true;
+                    selection = { email: null, sourceUrl: null, confidence: 0, ambiguous: false };
+                  } else if (wasNewCrawl) {
+                    // The contact that actually triggered this crawl may claim
+                    // ANY candidate the crawl found — role or named — since it
+                    // is the one contact whose lookup genuinely produced this
+                    // evidence.
+                    originatedFromLiveCrawl = true;
+                    selection = selectContactDiscoveryEmail(crawlResult.candidates, bestKnownDomain);
+                    crawlGenuinelyCompletedEmpty = !selection.email && !selection.ambiguous;
+                  } else {
+                    // Correction #4 (in-batch leak fix): a contact that merely
+                    // reads an in-flight/completed crawl result from an EARLIER
+                    // contact in this same batch (via crawlCache) must never be
+                    // able to independently "select" a named/person address out
+                    // of it — that would attribute the same person's address to
+                    // a second, different contact. Such a reader may only ever
+                    // pick up an already role-classified candidate; a named
+                    // candidate is invisible to it, exactly as if it weren't
+                    // there.
+                    const roleOnlyCandidates = crawlResult.candidates.filter((c) => isRoleInboxEmail(c.email));
+                    selection = selectContactDiscoveryEmail(roleOnlyCandidates, bestKnownDomain);
+                    crawlGenuinelyCompletedEmpty = !selection.email && !selection.ambiguous;
+                  }
+                }
+
+                if (!crawlTransportFailedNoCooldown) {
                   if (selection.ambiguous) {
                     crawlerAmbiguous++;
                   } else if (selection.email) {
-                    updates.email = selection.email;
-                    emailsFound++;
-                    crawlerEmailsFound++;
-                    emailDiscoverySource = "first_party_contact_page";
+                    // Task #1978 correction #3: a newly-discovered, unvalidated
+                    // address is NEVER written to contacts.email directly. It is
+                    // persisted as encrypted candidate evidence instead, and
+                    // only the governed validation/projection path may later
+                    // fill an operational email field.
+                    //
+                    // Correction #4: only a genuine role/shared inbox
+                    // (info@/sales@/etc) is business-scoped and cache-eligible.
+                    // Any other address is scoped to THIS contact only and is
+                    // never written to the domain cache, so it can never leak
+                    // onto a different contact at the same business.
+                    const isRole = isRoleInboxEmail(selection.email);
+                    // A role address is business-scoped when a business link
+                    // exists; otherwise it still needs *some* owning subject,
+                    // so it falls back to this contact rather than being
+                    // recorded as an orphaned business_id=null/contact_id=null
+                    // row. It keeps attributionScope:"role" (and is still
+                    // written into the domain cache below) either way — the
+                    // scope FK is about audit ownership, not about whether the
+                    // address itself is a shared role inbox.
+                    const roleHasBusinessLink = isRole && !!contact.businessId;
+                    try {
+                      const generationId = await getOrCreateBatchFreeDiscoveryGenerationId();
+                      await recordFreeDiscoveryCandidate({
+                        generationId,
+                        // A role/shared inbox is business-level evidence
+                        // regardless of whether a businesses row is already
+                        // linked (it falls back to contactId ownership below
+                        // only for FK bookkeeping, never changing what kind of
+                        // evidence it is). A named/person address is always
+                        // person-level evidence, tied to the one contact it
+                        // was found for — never eligible for business-email
+                        // projection.
+                        subjectType: isRole ? "business" : "person",
+                        businessId: roleHasBusinessLink ? contact.businessId! : null,
+                        contactId: roleHasBusinessLink ? null : contactId,
+                        domain: bestKnownDomain,
+                        email: selection.email,
+                        source: "first_party_contact_page",
+                        attributionScope: isRole ? "role" : "named",
+                        confidence: selection.confidence,
+                        // Only a genuine outbound crawl this contact actually
+                        // performed may advance the domain cache's crawl
+                        // metadata/TTL — never a cache hit or an in-batch
+                        // cache read, or a frequently-read domain's stale
+                        // evidence would never expire.
+                        refreshDomainCache: originatedFromLiveCrawl,
+                      });
+                      crawlerEmailsFound++;
+                      crawlerCandidateStaged = true;
+                    } catch (candidateErr) {
+                      console.error(`[ContactEnrich] Failed to record free-discovery candidate for contact ${contactId}:`, candidateErr);
+                    }
+                  } else if (crawledThisContact && crawlGenuinelyCompletedEmpty) {
+                    // A genuinely completed crawl that found nothing usable —
+                    // cache that outcome too, so this domain isn't recrawled
+                    // by every contact sharing it until the cache TTL expires.
+                    try {
+                      const generationId = await getOrCreateBatchFreeDiscoveryGenerationId();
+                      await markDomainCrawled(bestKnownDomain, generationId);
+                    } catch (cacheErr) {
+                      console.error(`[ContactEnrich] Failed to record empty-crawl domain cache entry for ${bestKnownDomain}:`, cacheErr);
+                    }
                   }
                 }
               }
@@ -751,20 +907,24 @@ export async function enrichContactBatch(
               processed++;
               materializableContactIds.push(contactId);
             } else if (serperAttempted) {
-              // Serper completed every lookup it needed to and found nothing
-              // usable. Record the attempt so getContactIdsNeedingEnrichment's
-              // cooldown skips this contact for 24h instead of retrying it —
-              // and starving everything behind it in the backlog — every tick.
+              // Serper completed every lookup it needed to. Record the
+              // attempt so getContactIdsNeedingEnrichment's cooldown skips
+              // this contact for 24h instead of retrying it — and starving
+              // everything behind it in the backlog — every tick. Use a
+              // distinct status when a free-discovery candidate WAS staged
+              // (Task #1978 correction #3 — found, but never written to
+              // contacts.email) so this audit row doesn't misreport a real
+              // find as "no_match".
               try {
                 await db.insert(enrichmentRuns).values({
                   provider: "serper",
                   jobType: "email_lookup",
-                  status: "no_match",
+                  status: crawlerCandidateStaged ? "candidate_staged" : "no_match",
                   contactId,
                   businessId: contact.businessId || null,
                   startedAt: new Date(),
                   completedAt: new Date(),
-                  outputPayload: {},
+                  outputPayload: crawlerCandidateStaged ? { emailDiscoverySource: "first_party_contact_page" } : {},
                 });
               } catch (_) {}
               processed++;
@@ -843,6 +1003,14 @@ export async function enrichContactBatch(
         await ingestBusinessFromContact(cid, "serper", `contact_enrich_batch`);
       } catch (err) {
         console.error(`[ContactEnrich] Business materialization failed for contact ${cid}:`, err);
+      }
+    }
+
+    if (batchFreeDiscoveryGenerationPromise) {
+      try {
+        await completeFreeDiscoveryGeneration(await batchFreeDiscoveryGenerationPromise);
+      } catch (err) {
+        console.error("[ContactEnrich] Failed to close free-discovery generation:", err);
       }
     }
   } catch (fatalErr) {

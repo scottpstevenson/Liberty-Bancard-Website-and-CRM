@@ -385,7 +385,19 @@ export interface ContactDiscoverySelection {
   ambiguous: boolean;
 }
 
-const CONTACT_DISCOVERY_ACCEPTED_PREFIXES = ["info", "contact", "sales", "hello", "support"];
+export const CONTACT_DISCOVERY_ACCEPTED_PREFIXES = ["info", "contact", "sales", "hello", "support"];
+
+/**
+ * True for a role/shared inbox local-part (info@, sales@, etc) — the only
+ * kind of address Task #1978's free-discovery domain cache is allowed to
+ * reuse across contacts at the same business. Anything else (a person's
+ * name, a numbered/ticket alias, etc) must stay scoped to the one contact it
+ * was found for and never be cached or copied elsewhere (correction #4).
+ */
+export function isRoleInboxEmail(email: string): boolean {
+  const local = email.split("@")[0]?.toLowerCase() ?? "";
+  return CONTACT_DISCOVERY_ACCEPTED_PREFIXES.some(p => local === p || local.startsWith(p + "."));
+}
 const FREE_HOSTED_EMAIL_DOMAINS = new Set([
   "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com", "icloud.com", "mail.com", "protonmail.com",
 ]);

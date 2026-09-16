@@ -74,7 +74,7 @@ export interface CandidateEvidenceRecord {
 
 // ── Encryption helpers ─────────────────────────────────────────────────────────
 
-function seal(field: string, value: string): {
+export function seal(field: string, value: string): {
   ciphertext: string; nonce: string; tag: string;
   normalizedValueHash: string; maskedValue: string;
 } {
