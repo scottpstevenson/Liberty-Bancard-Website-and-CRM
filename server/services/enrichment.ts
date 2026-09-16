@@ -19,6 +19,15 @@ export const _serperDeps = {
   searchBusiness: realSearchBusiness,
   searchBusinessEmail: realSearchBusinessEmail,
 };
+
+/**
+ * Same test-injection seam as _serperDeps, for the first-party contact-page
+ * crawler (task #1977) — lets tests simulate crawl outcomes deterministically
+ * without making a real outbound fetch.
+ */
+export const _crawlerDeps = {
+  crawlFirstPartyContactEmails: (domain: string) => realCrawlFirstPartyContactEmails(domain),
+};
 import { ingestBusinessFromContact } from "./sdr/dedupe";
 import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
@@ -27,6 +36,11 @@ import { enqueueReadinessRecalculation } from "./contact-readiness";
 import { logAiCall } from "./ai-audit-logger";
 import { scoreDecisionMaker } from "./bounce-feedback";
 import { recordDecisionMakerCandidate } from "./commercial-relationship-authority";
+import {
+  crawlFirstPartyContactEmails as realCrawlFirstPartyContactEmails,
+  selectContactDiscoveryEmail,
+  type ContactPageCrawlResult,
+} from "./sdr/contactpage-enrichment";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -371,6 +385,46 @@ const CONTACT_NEEDS_ENRICHMENT_SQL = sql`
   AND ${FIELD_MISSING_SQL}
 `;
 
+/**
+ * Normalizes a raw website/domain string (with or without protocol, path,
+ * or "www.") down to a bare lowercase domain for comparison and crawling.
+ * Returns null for blank/unusable input.
+ */
+function normalizeDomainString(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let v = raw.trim();
+  if (!v) return null;
+  v = v.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  v = v.split(/[\/?#]/)[0];
+  v = v.toLowerCase();
+  return v || null;
+}
+
+/**
+ * Per-batch cache of first-party crawl results keyed by normalized domain,
+ * so contacts that share a domain (e.g. multiple contacts at the same
+ * business) trigger only one crawl per enrichContactBatch() call. Returns
+ * whether this call actually triggered the crawl (cache miss) so callers can
+ * attribute domain/page-attempt telemetry to the real outbound crawl only,
+ * not to every contact that happens to read the cached result.
+ */
+function getOrCrawlDomain(
+  cache: Map<string, Promise<ContactPageCrawlResult>>,
+  domain: string
+): { result: Promise<ContactPageCrawlResult>; wasNewCrawl: boolean } {
+  const key = domain.toLowerCase();
+  let entry = cache.get(key);
+  let wasNewCrawl = false;
+  if (!entry) {
+    wasNewCrawl = true;
+    entry = _crawlerDeps.crawlFirstPartyContactEmails(key).catch(
+      () => ({ candidates: [], fetchCompleted: false, pagesAttempted: 0 })
+    );
+    cache.set(key, entry);
+  }
+  return { result: entry, wasNewCrawl };
+}
+
 /** Re-checks the same "missing" definition as CONTACT_NEEDS_ENRICHMENT_SQL for one contact. */
 function contactFieldsMissing(contact: { email: string; phone: string; website: string | null }) {
   const email = contact.email ?? "";
@@ -409,10 +463,32 @@ export async function getEnrichmentBacklogCount(): Promise<number> {
 export async function enrichContactBatch(
   contactIds: number[],
   options?: { batchSize?: number }
-): Promise<{ processed: number; emailsFound: number; phonesFound: number; websitesFound: number; errors: number; gatewayBlocked: boolean }> {
+): Promise<{
+  processed: number;
+  emailsFound: number;
+  phonesFound: number;
+  websitesFound: number;
+  errors: number;
+  gatewayBlocked: boolean;
+  // task #1977 telemetry — counts and source classification only, never raw
+  // emails. serperEmailsFound + crawlerEmailsFound <= totalEmailsFound
+  // (totalEmailsFound === emailsFound; kept as an explicit alias so callers
+  // don't have to infer that the two Serper sources roll into the same
+  // pre-existing counter).
+  crawlerDomainsAttempted: number;
+  crawlerPagesAttempted: number;
+  crawlerEmailsFound: number;
+  crawlerAmbiguous: number;
+  serperEmailsFound: number;
+  totalEmailsFound: number;
+}> {
   if (contactEnrichRunning) {
     console.warn("[ContactEnrich] Already running, skipping.");
-    return { processed: 0, emailsFound: 0, phonesFound: 0, websitesFound: 0, errors: 0, gatewayBlocked: false };
+    return {
+      processed: 0, emailsFound: 0, phonesFound: 0, websitesFound: 0, errors: 0, gatewayBlocked: false,
+      crawlerDomainsAttempted: 0, crawlerPagesAttempted: 0, crawlerEmailsFound: 0, crawlerAmbiguous: 0,
+      serperEmailsFound: 0, totalEmailsFound: 0,
+    };
   }
   contactEnrichRunning = true;
   const batchSize = options?.batchSize || 10;
@@ -422,6 +498,14 @@ export async function enrichContactBatch(
   let websitesFound = 0;
   let errors = 0;
   let gatewayBlocked = false;
+  let crawlerDomainsAttempted = 0;
+  let crawlerPagesAttempted = 0;
+  let crawlerEmailsFound = 0;
+  let crawlerAmbiguous = 0;
+  let serperEmailsFound = 0;
+  // Scoped to this single batch call — contacts sharing a domain (e.g. two
+  // contacts at the same business) trigger only one crawl.
+  const crawlCache = new Map<string, Promise<ContactPageCrawlResult>>();
   // Only contacts that were actually, successfully processed this batch are
   // eligible for downstream business materialization — never contacts that
   // were skipped (missing name), blocked mid-call, or never attempted
@@ -471,6 +555,10 @@ export async function enrichContactBatch(
 
           const updates: Record<string, any> = {};
           let serperAttempted = false;
+          // Per-contact classification tag for batch telemetry only — never
+          // exposed to unrestricted logs/telemetry as a raw email, just this
+          // enum. See enrichContactBatch's return type for the aggregate counts.
+          let emailDiscoverySource: "serper_primary" | "serper_email_search" | "first_party_contact_page" | null = null;
           // Set when a call's own outcome (not the cheap pre-filter) proves
           // the gateway blocked mid-batch. We still finish writing back
           // whatever this contact's earlier, genuinely-completed call found
@@ -478,6 +566,14 @@ export async function enrichContactBatch(
           // blocked) — losing real data because a LATER call failed would be
           // its own bug — but stop attempting any further contacts.
           let stopBatchAfterThisContact = false;
+          // Distinct from stopBatchAfterThisContact: a first-party crawl
+          // failure (DNS/TLS/timeout fetching ONE business's own website) is
+          // domain-specific, not a signal that the shared Serper gateway or
+          // the crawler transport is down for everyone. It must not stop the
+          // batch or mark it gateway-blocked — only skip recording a
+          // cooldown row for THIS contact so it retries promptly, while
+          // every other queued contact still gets processed this run.
+          let crawlTransportFailedNoCooldown = false;
 
           if (needsSerper) {
             if (!isSerperConfigured()) {
@@ -523,20 +619,85 @@ export async function enrichContactBatch(
             if (serperResult.emails.length > 0 && needsEmail) {
               updates.email = serperResult.emails[0];
               emailsFound++;
+              serperEmailsFound++;
+              emailDiscoverySource = "serper_primary";
             }
             if (serperResult.phones.length > 0 && needsPhone) {
               updates.phone = serperResult.phones[0];
               phonesFound++;
             }
 
-            if (needsEmail && !updates.email && serperResult.website) {
-              const emailResult = await _serperDeps.searchBusinessEmail(companyName, serperResult.website, contact.city || undefined);
-              if (!emailResult.providerAttempted) {
-                console.warn(`[ContactEnrich] Serper email-lookup call did not complete for contact ${contactId} — finishing this contact with what was already found, then stopping batch.`);
-                stopBatchAfterThisContact = true;
-              } else if (emailResult.emails.length > 0) {
-                updates.email = emailResult.emails[0];
-                emailsFound++;
+            if (needsEmail && !updates.email) {
+              // Resolve the best known domain in priority order so an
+              // already-known contact or canonical-business domain is never
+              // lost just because THIS Serper attempt found no website:
+              // (1) the contact's own existing website, (2) the linked
+              // business's canonical website_domain, (3) the website this
+              // searchBusiness() call just found.
+              let bestKnownDomain = normalizeDomainString(contact.website);
+              if (!bestKnownDomain && contact.businessId) {
+                const [linkedBusiness] = await db
+                  .select({ websiteDomain: businesses.websiteDomain })
+                  .from(businesses)
+                  .where(eq(businesses.id, contact.businessId))
+                  .limit(1);
+                bestKnownDomain = normalizeDomainString(linkedBusiness?.websiteDomain ?? null);
+              }
+              if (!bestKnownDomain) {
+                bestKnownDomain = normalizeDomainString(serperResult.website);
+              }
+
+              if (bestKnownDomain) {
+                const emailResult = await _serperDeps.searchBusinessEmail(companyName, bestKnownDomain, contact.city || undefined);
+                if (!emailResult.providerAttempted) {
+                  console.warn(`[ContactEnrich] Serper email-lookup call did not complete for contact ${contactId} — finishing this contact with what was already found, then stopping batch.`);
+                  stopBatchAfterThisContact = true;
+                } else if (emailResult.emails.length > 0) {
+                  updates.email = emailResult.emails[0];
+                  emailsFound++;
+                  serperEmailsFound++;
+                  emailDiscoverySource = "serper_email_search";
+                }
+              }
+
+              // No new Serper call here — only the shared, SSRF-safe
+              // first-party crawler (server/services/sdr/contactpage-enrichment.ts),
+              // bounded to a fixed page set and an overall deadline, and only
+              // when the two Serper steps above genuinely completed and
+              // still found nothing.
+              if (!stopBatchAfterThisContact && !updates.email && bestKnownDomain) {
+                const { result: crawlResultPromise, wasNewCrawl } = getOrCrawlDomain(crawlCache, bestKnownDomain);
+                const crawlResult = await crawlResultPromise;
+                // Only attribute domain/page-attempt telemetry to the actual
+                // outbound crawl (cache miss) — a contact that merely reads a
+                // cached result from an earlier contact in this batch didn't
+                // trigger a second crawl.
+                if (wasNewCrawl) {
+                  crawlerDomainsAttempted++;
+                  crawlerPagesAttempted += crawlResult.pagesAttempted;
+                }
+                if (!crawlResult.fetchCompleted) {
+                  // Transport failure (timeout, DNS failure, thrown exception)
+                  // — NOT an SSRF block, which reports fetchCompleted:true as
+                  // a valid skip. This lookup never genuinely completed for
+                  // THIS contact's domain, so don't record a cooldown row —
+                  // it stays immediately eligible for retry. But this is
+                  // domain-specific, not a shared-gateway problem, so it must
+                  // NOT stop the rest of the batch the way a real Serper
+                  // gateway block does.
+                  console.warn(`[ContactEnrich] First-party crawl did not complete for contact ${contactId} (domain=${bestKnownDomain}) — leaving this contact eligible for retry, continuing batch.`);
+                  crawlTransportFailedNoCooldown = true;
+                } else {
+                  const selection = selectContactDiscoveryEmail(crawlResult.candidates, bestKnownDomain);
+                  if (selection.ambiguous) {
+                    crawlerAmbiguous++;
+                  } else if (selection.email) {
+                    updates.email = selection.email;
+                    emailsFound++;
+                    crawlerEmailsFound++;
+                    emailDiscoverySource = "first_party_contact_page";
+                  }
+                }
               }
             }
           }
@@ -573,7 +734,7 @@ export async function enrichContactBatch(
           // immediately eligible, even though we already wrote the website
           // we did resolve. Writing a "success" row here just because SOME
           // field was found would wrongly suppress retrying the missing one.
-          if (!stopBatchAfterThisContact) {
+          if (!stopBatchAfterThisContact && !crawlTransportFailedNoCooldown) {
             if (foundSomething) {
               try {
                 await db.insert(enrichmentRuns).values({
@@ -584,7 +745,7 @@ export async function enrichContactBatch(
                   businessId: contact.businessId || null,
                   startedAt: new Date(),
                   completedAt: new Date(),
-                  outputPayload: updates,
+                  outputPayload: emailDiscoverySource ? { ...updates, emailDiscoverySource } : updates,
                 });
               } catch (_) {}
               processed++;
@@ -611,14 +772,22 @@ export async function enrichContactBatch(
             }
             // else: this contact didn't need Serper at all — nothing to record.
           }
-          // else (stopBatchAfterThisContact): no enrichment_runs row is written
-          // here on purpose — the contact remains immediately eligible (no
-          // false cooldown) for its still-missing field(s) on the next run.
+          // else (stopBatchAfterThisContact or crawlTransportFailedNoCooldown):
+          // no enrichment_runs row is written here on purpose — the contact
+          // remains immediately eligible (no false cooldown) for its
+          // still-missing field(s) on the next run.
 
           if (stopBatchAfterThisContact) {
+            // A real shared-gateway signal (Serper call itself didn't
+            // complete) — every other queued contact would hit the same
+            // wall, so stop the whole batch rather than burn through it.
             gatewayBlocked = true;
             break batchLoop;
           }
+          // crawlTransportFailedNoCooldown intentionally does NOT set
+          // gatewayBlocked or break the loop — it's specific to this one
+          // contact's domain, not the shared Serper/crawler transport, so
+          // every other queued contact must still get processed this run.
         } catch (err) {
           console.error(`[ContactEnrich] Error enriching contact ${contactId}:`, err);
           errors++;
@@ -660,7 +829,10 @@ export async function enrichContactBatch(
     await db.update(enrichmentRuns).set({
       status: gatewayBlocked ? "partial" : errors > 0 ? "partial" : "success",
       completedAt: new Date(),
-      outputPayload: { processed, errors, emailsFound, phonesFound, websitesFound, gatewayBlocked },
+      outputPayload: {
+        processed, errors, emailsFound, phonesFound, websitesFound, gatewayBlocked,
+        crawlerDomainsAttempted, crawlerPagesAttempted, crawlerEmailsFound, crawlerAmbiguous, serperEmailsFound,
+      },
       errorMessage: gatewayBlocked
         ? "Serper gateway blocked (disabled or circuit open) — batch stopped early"
         : errors > 0 ? `${errors} contacts failed enrichment` : null,
@@ -690,5 +862,9 @@ export async function enrichContactBatch(
     contactEnrichRunning = false;
   }
 
-  return { processed, emailsFound, phonesFound, websitesFound, errors, gatewayBlocked };
+  return {
+    processed, emailsFound, phonesFound, websitesFound, errors, gatewayBlocked,
+    crawlerDomainsAttempted, crawlerPagesAttempted, crawlerEmailsFound, crawlerAmbiguous,
+    serperEmailsFound, totalEmailsFound: emailsFound,
+  };
 }

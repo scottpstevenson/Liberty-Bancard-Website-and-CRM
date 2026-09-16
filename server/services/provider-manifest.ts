@@ -216,7 +216,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "first_party_web", capability: ["website_parsing"], billing: "free", parser: "html_parser",
     activationPolicy: "free", approvedAdapters: ["server/services/sdr/contactpage-enrichment.ts", "server/services/sunbiz-enrichment.ts"],
-    approvedCallers: ["server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/live-safe-egress.ts"], secretNames: [], durableOperation: "request",
+    approvedCallers: ["server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/live-safe-egress.ts", "server/services/enrichment.ts"], secretNames: [], durableOperation: "request",
     budget: { required: false, accounting: "none", unit: "none" }, timeoutMs: 6_000, retry: TRANSIENT_RETRY,
     normalizedOutcomes: STANDARD_OUTCOMES, candidateFields: ["website", "email", "phone", "address"],
     redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Only the business's own public site; cap body size and redirects.",
