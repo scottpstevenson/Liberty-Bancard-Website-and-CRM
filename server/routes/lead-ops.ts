@@ -487,6 +487,73 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // ── One-time correction: repair businesses the bootstrap created with the
+  // ── wrong record_class before the create.recordClass fix was published.
+  // ── Read-only preview first; the guarded run below requires a typed
+  // ── confirmation phrase bound to a short-lived, single-use preview token,
+  // ── mirroring the /sunbiz-bootstrap preview+run pattern above.
+  app.get("/api/lead-ops/sunbiz-bootstrap/record-class-repair/preview", requireRole("admin"), async (_req, res) => {
+    try {
+      const {
+        previewSunbizRecordClassRepair,
+        sunbizRecordClassRepairConfirmationPhrase,
+        issueSunbizRecordClassRepairToken,
+      } = await import("../services/sunbiz-bootstrap");
+      const preview = await previewSunbizRecordClassRepair();
+      const confirmationPhrase = sunbizRecordClassRepairConfirmationPhrase(preview.cohortCount);
+      const previewToken = issueSunbizRecordClassRepairToken(
+        confirmationPhrase,
+        preview.rows.map((r) => r.id),
+      );
+      res.json({ confirmationPhrase, previewToken, ...preview });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to preview Sunbiz record_class repair" });
+    }
+  });
+
+  app.post("/api/lead-ops/sunbiz-bootstrap/record-class-repair/run", requireRole("admin"), async (req, res) => {
+    try {
+      const confirmation = String(req.body?.confirmation ?? "");
+      const previewToken = String(req.body?.previewToken ?? "");
+      const {
+        peekSunbizRecordClassRepairToken,
+        consumeSunbizRecordClassRepairToken,
+        runSunbizRecordClassRepair,
+      } = await import("../services/sunbiz-bootstrap");
+
+      const tokenRecord = previewToken ? peekSunbizRecordClassRepairToken(previewToken) : null;
+      if (!tokenRecord) {
+        return res.status(400).json({
+          error: "preview_token_required",
+          reason: "Call GET .../record-class-repair/preview first and submit its previewToken with this request; it is single-use and expires after 5 minutes.",
+        });
+      }
+      if (confirmation !== tokenRecord.confirmationPhrase) {
+        return res.status(400).json({
+          error: "typed_confirmation_required",
+          reason: `Type exactly '${tokenRecord.confirmationPhrase}' to run this repair.`,
+        });
+      }
+      if (tokenRecord.businessIds.length === 0) {
+        return res.status(409).json({
+          error: "no_candidates",
+          reason: "No businesses currently qualify for this repair.",
+        });
+      }
+      consumeSunbizRecordClassRepairToken(previewToken);
+      const result = await runSunbizRecordClassRepair(tokenRecord.businessIds);
+      await storage.createAuditLog({
+        action: "sunbiz_record_class_repair",
+        entityType: "system",
+        entityId: 0,
+        details: result,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Sunbiz record_class repair failed; rerun is safe" });
+    }
+  });
+
   app.post("/api/lead-ops/sunbiz-bootstrap/run", requireRole("admin"), async (req, res) => {
     try {
       const limit = Math.min(25, Math.max(1, Math.floor(Number(req.body?.limit) || 25)));

@@ -2752,7 +2752,7 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
       SELECT qr.id, COUNT(h.id)::int AS handoff_count
       FROM cro03a_qualification_runs qr
       LEFT JOIN cro03a_handoffs h ON h.run_id = qr.id
-      WHERE qr.status = 'completed'
+      WHERE qr.state = 'completed'
       GROUP BY qr.id
       HAVING COUNT(h.id) >= 10
       LIMIT 1

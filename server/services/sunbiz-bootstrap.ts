@@ -24,6 +24,10 @@ import {
   peekOrganizationResolution,
 } from "./organization-resolver";
 
+function rows<T = any>(result: unknown): T[] {
+  return (result as { rows?: T[] })?.rows ?? [];
+}
+
 const DEFAULT_BATCH_LIMIT = 25;
 const MAX_BATCH_LIMIT = 25;
 
@@ -276,6 +280,139 @@ export async function previewSunbizBootstrap(limit = DEFAULT_BATCH_LIMIT, opts: 
   return result;
 }
 
+// ── Record-class repair (one-time production correction) ──────────────────
+//
+// Before this correction, resolveOrganization() was called without
+// create.recordClass, so newly created businesses fell through to the
+// businesses.record_class database default of 'unknown' — invisible to
+// /api/lead-ops/businesses, the free-enrichment cohort, and MI-09
+// eligibility, all of which require record_class='canonical'.
+//
+// This repair is scoped as narrowly as possible: only businesses that are
+// PROVEN to be a Sunbiz-bootstrap "created" outcome (not "matched_existing",
+// which must never have its record_class touched) and that still carry the
+// pre-fix 'unknown' default, and for which the expected canonical Sunbiz
+// source lineage row genuinely exists (proving the claim's finalize step
+// actually completed for this exact business/filing pair, not a partial or
+// unrelated row). It never widens to "any unknown business" — other
+// ingestion paths intentionally rely on fail-closed 'unknown' classification
+// for businesses that have NOT been proven canonical, and this repair must
+// not silently reclassify those.
+const RECORD_CLASS_REPAIR_COHORT_SQL = sql`
+  SELECT b.id, b.canonical_name AS canonical_name, c.filing_number AS filing_number
+  FROM sunbiz_bootstrap_claims c
+  JOIN businesses b ON b.id = c.business_id
+  JOIN canonical_source_links csl
+    ON csl.business_id = b.id
+   AND csl.source_system = 'sunbiz'
+   AND csl.source_type = 'sunbiz_entity'
+   AND csl.stable_key = c.filing_number
+  WHERE c.status = 'created'
+    AND b.record_class = 'unknown'
+  ORDER BY b.id
+`;
+
+export interface SunbizRecordClassRepairRow {
+  id: number;
+  canonicalName: string;
+  filingNumber: string;
+}
+
+export interface SunbizRecordClassRepairPreview {
+  cohortCount: number;
+  rows: SunbizRecordClassRepairRow[];
+}
+
+/** Read-only: derives the exact repair cohort from the database. Never writes. */
+export async function previewSunbizRecordClassRepair(): Promise<SunbizRecordClassRepairPreview> {
+  const result = rows(await db.execute(RECORD_CLASS_REPAIR_COHORT_SQL)) as Array<{
+    id: number;
+    canonical_name: string;
+    filing_number: string;
+  }>;
+  return {
+    cohortCount: result.length,
+    rows: result.map((r) => ({ id: r.id, canonicalName: r.canonical_name, filingNumber: r.filing_number })),
+  };
+}
+
+export function sunbizRecordClassRepairConfirmationPhrase(cohortCount: number): string {
+  return `REPAIR SUNBIZ RECORD CLASS ${cohortCount}`;
+}
+
+interface SunbizRecordClassRepairTokenRecord {
+  confirmationPhrase: string;
+  businessIds: number[];
+  expiresAt: number;
+}
+
+const sunbizRecordClassRepairTokens = new Map<string, SunbizRecordClassRepairTokenRecord>();
+
+function pruneExpiredRepairTokens(): void {
+  const now = Date.now();
+  for (const [token, record] of sunbizRecordClassRepairTokens) {
+    if (record.expiresAt <= now) sunbizRecordClassRepairTokens.delete(token);
+  }
+}
+
+export function issueSunbizRecordClassRepairToken(confirmationPhrase: string, businessIds: number[]): string {
+  pruneExpiredRepairTokens();
+  const token = crypto.randomUUID();
+  sunbizRecordClassRepairTokens.set(token, {
+    confirmationPhrase,
+    businessIds: [...businessIds].sort((a, b) => a - b),
+    expiresAt: Date.now() + PREVIEW_TOKEN_TTL_MS,
+  });
+  return token;
+}
+
+export function peekSunbizRecordClassRepairToken(token: string): SunbizRecordClassRepairTokenRecord | null {
+  pruneExpiredRepairTokens();
+  return sunbizRecordClassRepairTokens.get(token) ?? null;
+}
+
+export function consumeSunbizRecordClassRepairToken(token: string): SunbizRecordClassRepairTokenRecord | null {
+  pruneExpiredRepairTokens();
+  const record = sunbizRecordClassRepairTokens.get(token);
+  if (!record) return null;
+  sunbizRecordClassRepairTokens.delete(token);
+  return record;
+}
+
+export interface SunbizRecordClassRepairResult {
+  attemptedCount: number;
+  repairedCount: number;
+  repairedIds: number[];
+}
+
+/**
+ * Executes the repair. Idempotent by construction: it re-derives the SAME
+ * proven cohort live (not trusting the token's snapshot to still be
+ * 'unknown') and updates only rows that are STILL 'unknown' at execution
+ * time, scoped to the exact business IDs the token captured. Re-running this
+ * after a successful repair (or after nothing qualifies any more) always
+ * updates zero rows rather than erroring or reclassifying anything new.
+ */
+export async function runSunbizRecordClassRepair(expectedBusinessIds: number[]): Promise<SunbizRecordClassRepairResult> {
+  if (expectedBusinessIds.length === 0) {
+    return { attemptedCount: 0, repairedCount: 0, repairedIds: [] };
+  }
+  const idList = sql.join(expectedBusinessIds.map((id) => sql`${id}::int`), sql`, `);
+  const updated = rows(await db.execute(sql`
+    UPDATE businesses
+    SET record_class = 'canonical'
+    WHERE id IN (${idList})
+      AND record_class = 'unknown'
+      AND id IN (SELECT id FROM (${RECORD_CLASS_REPAIR_COHORT_SQL}) AS proven_cohort)
+    RETURNING id
+  `)) as Array<{ id: number }>;
+  return {
+    attemptedCount: expectedBusinessIds.length,
+    repairedCount: updated.length,
+    repairedIds: updated.map((r) => r.id),
+  };
+}
+
 export interface SunbizBootstrapRunOutcome {
   filingNumber: string;
   entityName: string;
@@ -450,7 +587,18 @@ export async function runSunbizBootstrapBatch(
 
     let resolution: Awaited<ReturnType<typeof resolveOrganization>>;
     try {
-      resolution = await resolveOrganization(toResolverInput(candidate));
+      // Explicitly classify newly created businesses as 'canonical'. Without
+      // this, resolveOrganization()'s insert falls through to the
+      // businesses.record_class database default of 'unknown' — which is
+      // invisible to /api/lead-ops/businesses, the free-enrichment cohort,
+      // and MI-09 eligibility, all of which require record_class='canonical'.
+      // This only affects the newly INSERTed row for this candidate; a
+      // "matched" resolution reuses an existing business row untouched, so
+      // an already-existing business's record_class is never altered here.
+      resolution = await resolveOrganization({
+        ...toResolverInput(candidate),
+        create: { recordClass: "canonical" },
+      });
     } catch (err: any) {
       const fenced = (await db.execute(sql`
         UPDATE sunbiz_bootstrap_claims
