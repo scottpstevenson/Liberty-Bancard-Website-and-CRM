@@ -4,13 +4,17 @@
  * depth with per-metric { value, available, stale, staleSince?, error? } signals.
  * Polls /api/lead-ops/health every 30 seconds.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw } from "lucide-react";
-import { queryClient } from "@/lib/queryClient";
+import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle } from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,7 +190,27 @@ function MetricDisplay({ label, cell, unit = "" }: { label: string; cell?: Metri
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+interface PromotionState {
+  promotionEnabled: boolean;
+  staged: number;
+  validationAdmitted: number;
+  note: string;
+}
+
+interface BackfillResult {
+  examined: number;
+  promoted: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
 export function ProgramHealthPanel() {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [backfillLimit, setBackfillLimit] = useState<number>(50);
+
   const healthQuery = useQuery<LeadOpsHealth>({
     queryKey: ["/api/lead-ops/health"],
     queryFn: async () => {
@@ -197,7 +221,40 @@ export function ProgramHealthPanel() {
     refetchInterval: 30_000,
   });
 
+  const promotionStateQuery = useQuery<PromotionState>({
+    queryKey: ["/api/lead-ops/candidates/promotion-state"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/candidates/promotion-state", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const backfillMutation = useMutation<BackfillResult, Error, number>({
+    mutationFn: async (limit: number) => {
+      const res = await apiRequest("POST", "/api/lead-ops/candidates/backfill-promotion", { limit });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Backfill complete",
+        description: `Examined ${data.examined} — promoted ${data.promoted}, skipped ${data.skipped}${data.failed > 0 ? `, failed ${data.failed}` : ""}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/candidates/promotion-state"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Backfill failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const h = healthQuery.data;
+  const ps = promotionStateQuery.data;
 
   if (healthQuery.isLoading) {
     return (
@@ -468,10 +525,26 @@ export function ProgramHealthPanel() {
       {/* ── Stuck-processing + candidate funnel ─────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Candidate Pipeline</CardTitle>
-          <CardDescription className="text-xs">
-            Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
-          </CardDescription>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm">Candidate Pipeline</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
+              </CardDescription>
+            </div>
+            {/* Gate status badge */}
+            {ps && (
+              ps.promotionEnabled ? (
+                <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
+                  <CheckCircle className="h-3 w-3 mr-1" /> Gate open
+                </Badge>
+              ) : (
+                <Badge className="shrink-0 bg-red-100 text-red-800 border-red-300 hover:bg-red-100" variant="outline">
+                  <XCircle className="h-3 w-3 mr-1" /> Gate closed
+                </Badge>
+              )
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {/* Stuck processing count */}
@@ -496,8 +569,49 @@ export function ProgramHealthPanel() {
           {/* Candidate funnel */}
           {h?.candidateFunnel ? (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Staged tile — includes backfill controls */}
+              <div className="rounded-md border bg-muted/10 px-3 py-2 col-span-2 sm:col-span-1">
+                <div className="text-xs text-muted-foreground mb-0.5">
+                  Staged
+                  <span className="ml-1 text-[9px] text-muted-foreground/70">(unvalidated)</span>
+                </div>
+                <div className="text-lg font-bold text-blue-700">{h.candidateFunnel.staged.toLocaleString()}</div>
+                {/* Backfill controls — admin only */}
+                {isAdmin && (
+                  <>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={backfillLimit}
+                        onChange={(e) => setBackfillLimit(Math.min(200, Math.max(1, Math.floor(Number(e.target.value)) || 50)))}
+                        className="h-6 w-16 text-xs px-1.5 py-0"
+                        aria-label="Backfill limit"
+                        disabled={backfillMutation.isPending}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[11px] px-2 gap-1"
+                        disabled={backfillMutation.isPending || !ps?.promotionEnabled}
+                        title={!ps?.promotionEnabled ? "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first" : `Promote up to ${backfillLimit} staged candidates`}
+                        onClick={() => backfillMutation.mutate(backfillLimit)}
+                      >
+                        {backfillMutation.isPending
+                          ? <><RefreshCw className="h-3 w-3 animate-spin" /> Running…</>
+                          : <><PlayCircle className="h-3 w-3" /> Promote</>
+                        }
+                      </Button>
+                    </div>
+                    {!ps?.promotionEnabled && (
+                      <p className="mt-1 text-[10px] text-red-500">Gate closed</p>
+                    )}
+                  </>
+                )}
+              </div>
+
               {[
-                { label: "Staged", value: h.candidateFunnel.staged, color: "text-blue-700", note: "unvalidated" },
                 { label: "Admitted", value: h.candidateFunnel.validationAdmitted, color: "text-indigo-700", note: "pending ZB" },
                 { label: "Suppressed", value: h.candidateFunnel.suppressed, color: "text-red-700", note: "" },
                 { label: "Stalled", value: h.candidateFunnel.stalled, color: "text-amber-700", note: "crashed gen" },
