@@ -3691,7 +3691,7 @@ export async function runFreeBusinessEnrichmentForBusiness(businessId: number): 
     WHERE id = ${businessId}
       AND website_domain IS NOT NULL
       AND record_class = 'canonical'
-      AND ${businessLacksDbprLineageSql(_sql`id`)}
+      AND ${businessLacksDbprLineageSql(_sql`businesses.id`)}
       AND (
         free_enrichment_status IS NULL
         OR (free_enrichment_status = 'failed'

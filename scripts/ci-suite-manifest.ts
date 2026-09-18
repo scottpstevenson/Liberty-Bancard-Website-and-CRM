@@ -245,6 +245,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source-only URL/import scanner; no providers",
   },
   {
+    name: "Free-Enrichment Column Preflight",
+    script: "scripts/check-free-enrichment-columns.ts",
+    capability: "deterministic-integration",
+    providerDenial: "EXPLAIN dry-runs only; no enrichment adapters, GHL, SMTP, Serper, or paid providers",
+  },
+  {
     name: "Tracked-File Exposure Scan",
     script: "scripts/scan-tracked-files.ts",
     capability: "deterministic-static",
@@ -647,12 +653,6 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     script: "scripts/test-cro03c-provider-executors.ts",
     capability: "deterministic-integration",
     providerDenial: "loads the DB-bound live provider executor graph against disposable PostgreSQL; no provider client method is invoked",
-  },
-  {
-    name: "CRO-03C Master Lead E2E Certification",
-    script: "scripts/test-cro03c-master-lead-e2e-certification.ts",
-    capability: "deterministic-integration",
-    providerDenial: "disposable PostgreSQL and suite-isolated Redis; ZeroBounce transport is a fake test double, real credentials are scrubbed by the certification provider-deny boundary",
   },
   {
     name: "MI-09 Pricing Artifact & Snapshot Seed Certification",

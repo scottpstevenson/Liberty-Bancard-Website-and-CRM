@@ -249,6 +249,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "Free-Enrichment Column Preflight (businesses table columns + EXPLAIN dry-run of claim UPDATE)",
+    script: "scripts/check-free-enrichment-columns.ts",
+    timeoutSecs: 30,
+  },
+  {
     name: "Provider Health and Readiness Kill Lines",
     script: "scripts/test-provider-readiness-controls.ts",
     timeoutSecs: 60,

@@ -27,6 +27,40 @@ let laneRunning = false;
  * The dynamic import keeps the lane boundary explicit and avoids importing the
  * broad queue registry at module load time.
  */
+/**
+ * Preflight: confirm every free_enrichment_* column the lane writes actually
+ * exists in the businesses table. A missing column would silently turn every
+ * UPDATE into a PostgreSQL error, leaving free_enrichment_status=null for
+ * the entire batch. This probe surfaces that as an immediate, named failure
+ * rather than 20/20 silent losses per tick.
+ */
+async function assertFreeEnrichmentColumnsExist(): Promise<void> {
+  const REQUIRED_COLUMNS = [
+    "free_enrichment_status",
+    "free_enrichment_attempt_count",
+    "free_enrichment_last_attempt_at",
+    "free_enrichment_completed_at",
+    "free_enrichment_last_error_code",
+    "free_enrichment_evidence",
+  ] as const;
+
+  const result = await db.execute(sql`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'businesses'
+      AND column_name = ANY(ARRAY[${sql.raw(REQUIRED_COLUMNS.map((c) => `'${c}'`).join(","))}])
+  `);
+  const found = new Set(((result as any).rows ?? result).map((r: any) => r.column_name as string));
+  const missing = REQUIRED_COLUMNS.filter((c) => !found.has(c));
+  if (missing.length > 0) {
+    throw new Error(
+      `FREE_ENRICHMENT_COLUMN_PREFLIGHT_FAILED: businesses table is missing column(s): ${missing.join(", ")}. ` +
+      `Run migration 0250_free_enrichment_pipeline.sql against this database before starting the lane.`,
+    );
+  }
+}
+
 export async function runFreeEnrichmentLane(
   businessIds: readonly number[],
 ): Promise<FreeEnrichmentLaneResult[]> {
@@ -34,6 +68,18 @@ export async function runFreeEnrichmentLane(
   laneRunning = true;
   const ids = [...new Set(businessIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
   const results: FreeEnrichmentLaneResult[] = [];
+
+  // Fail loudly if the DB schema is missing required columns. This turns silent
+  // 20/20 batch failures (each UPDATE throws a column-not-found SQL error that
+  // was previously swallowed) into a single clear error logged before any work.
+  try {
+    await assertFreeEnrichmentColumnsExist();
+  } catch (preflightErr: any) {
+    console.error(`[FreeEnrichLane] Column preflight failed — aborting lane: ${preflightErr.message}`);
+    laneRunning = false;
+    await writeLaneState({ status: "error", error: preflightErr.message, lastRunAt: new Date().toISOString() }).catch(() => {});
+    throw preflightErr;
+  }
 
   await writeLaneState({ status: "running", total: ids.length, examined: 0, enriched: 0, skipped: 0, failed: 0 });
   try {
