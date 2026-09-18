@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ShieldCheck, Loader2, Play, SearchCheck, XCircle, DatabaseZap } from "lucide-react";
+import { ShieldCheck, Loader2, Play, SearchCheck, XCircle, DatabaseZap, CheckCircle2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -56,9 +56,23 @@ export function SouthFloridaQualificationPanel() {
   });
   useEffect(() => {
     if (!runStatus.data) return;
-    setRun({ ...runStatus.data, runId: runStatus.data.id });
+    const updated = { ...runStatus.data, runId: runStatus.data.id };
+    setRun(updated);
     if (runStatus.data.state === "completed") {
       queryClient.invalidateQueries({ queryKey: ["/api/cro03a/source-census"] });
+      // Zero-handoff completion: treat as a successful terminal result.
+      // Do NOT invoke any downstream admission/enrichment command — the handoffs
+      // array would be empty and the admission endpoint would reject it.
+      // Show an informational toast and return without calling cro03b/commands.
+      if (Number(runStatus.data.selectedCount ?? 0) === 0) {
+        toast({
+          title: "Qualification complete — no handoffs selected",
+          description: `${runStatus.data.terminalCount ?? 0}/${runStatus.data.totalCount ?? 0} occurrences reached a terminal decision; 0 qualified. No admission command sent.`,
+        });
+        return;
+      }
+      // selectedCount > 0: handoffs exist; downstream admission may proceed when
+      // the operator explicitly initiates it. No automatic call is made here.
     }
   }, [runStatus.data]);
   const occurrenceIds = useMemo(() => [...selected].sort(), [selected]);
@@ -166,7 +180,14 @@ export function SouthFloridaQualificationPanel() {
               Preview: {Object.entries(preview.dispositionCounts).map(([key, count]) => `${key} ${count}`).join(" · ")}
             </span>
           )}
-          {run && (
+          {run && run.state === "completed" && Number(run.selectedCount ?? 0) === 0 && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              Qualification complete — 0 of {run.totalCount} qualified (
+              {run.terminalCount}/{run.totalCount} terminal). No admission command sent.
+            </span>
+          )}
+          {run && !(run.state === "completed" && Number(run.selectedCount ?? 0) === 0) && (
             <span className="text-xs text-muted-foreground">
               Run {run.state}: {run.selectedCount} selected · {run.reviewCount} review · {run.terminalCount}/{run.totalCount} terminal
             </span>

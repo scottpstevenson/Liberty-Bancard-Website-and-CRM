@@ -1618,7 +1618,7 @@ export async function selectSouthFloridaEligibleOccurrenceIds(
   `));
   const eligible: string[] = [];
   for (const row of rows) {
-    const payload = json<Record<string, unknown>>(row.payload);
+    const payload = json<Record<string, unknown>>(row.payload as string | Record<string, unknown>);
     const geo = evaluateSouthFloridaGeography({
       state: normalizeStateFl(payloadStr(payload, "state", "principalState")),
       county: payloadStr(payload, "county", "principalCounty"),
@@ -1702,7 +1702,7 @@ export async function selectUndecidedSouthFloridaOccurrenceIds(
   const eligible: string[] = [];
   for (const row of candidates) {
     if (eligible.length >= limit) break;
-    const payload = json<Record<string, unknown>>(row.payload);
+    const payload = json<Record<string, unknown>>(row.payload as string | Record<string, unknown>);
     const geo = evaluateSouthFloridaGeography({
       state: normalizeStateFl(payloadStr(payload, "state", "principalState")),
       county: payloadStr(payload, "county", "principalCounty"),
@@ -1821,7 +1821,7 @@ export async function backfillCro03aObservationGeography(
 
     // Evaluate geography in-process for the informational counters only.
     // Result is NOT persisted — observations are immutable content-addressed records.
-    const payload = json<Record<string, unknown>>(row.payload);
+    const payload = json<Record<string, unknown>>(row.payload as string | Record<string, unknown>);
     const geo = evaluateSouthFloridaGeography({
       state: normalizeStateFl(payloadStr(payload, "state", "principalState")),
       county: payloadStr(payload, "county", "principalCounty"),
