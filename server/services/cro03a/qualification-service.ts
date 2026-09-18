@@ -21,10 +21,56 @@ import {
   sunbizSourceSubject,
   type Cro03aSourceDraft,
 } from "./adapters";
+import {
+  evaluateSouthFloridaGeography,
+  CRO03A_COUNTY_FIPS,
+  _ZIP_COUNTY_V2_FOR_TEST,
+  _CITY_COUNTY_V2_FOR_TEST,
+} from "./geography";
 
 const resultRows = (result: any): any[] => result?.rows ?? result ?? [];
 const json = <T>(value: T | string): T => typeof value === "string" ? JSON.parse(value) as T : value;
 const allowedSelectableTypes = new Set(["prospect", "sunbiz_entity", "sdr_merchant", "provider_csv_row", "lead_discovery_result", "master_lead"]);
+
+/** Extract the first non-empty string value from a payload object by trying keys in order. */
+const payloadStr = (payload: Record<string, unknown>, ...keys: string[]): string | undefined =>
+  keys.map((k) => payload[k]).find((v) => typeof v === "string" && (v as string).trim()) as string | undefined;
+
+/** The three active South Florida county FIPS codes (excluding disabled Monroe). */
+const SOUTH_FLORIDA_FIPS_SET = new Set(Object.values(CRO03A_COUNTY_FIPS));
+const ELIGIBLE_COUNTY_NAMES = new Set(Object.keys(CRO03A_COUNTY_FIPS)); // Broward, Miami-Dade, Palm Beach
+
+/**
+ * ZIP codes that map to exactly one South Florida target county (Broward, Miami-Dade,
+ * Palm Beach) per the v2 reference.  Ambiguous or Monroe-only ZIPs are excluded.
+ * Used as a SQL-side pre-filter to avoid scanning non-target FL records.
+ */
+const SOUTH_FLORIDA_ZIPS: readonly string[] = Object.freeze(
+  Object.entries(_ZIP_COUNTY_V2_FOR_TEST)
+    .filter(([, counties]) => counties.length === 1 && ELIGIBLE_COUNTY_NAMES.has(counties[0]))
+    .map(([zip]) => zip),
+);
+
+/**
+ * City names (lowercased) that map to exactly one South Florida target county.
+ * Ambiguous or Monroe-only city entries are excluded.
+ */
+const SOUTH_FLORIDA_CITIES: readonly string[] = Object.freeze(
+  Object.entries(_CITY_COUNTY_V2_FOR_TEST)
+    .filter(([, counties]) => counties.length === 1 && ELIGIBLE_COUNTY_NAMES.has(counties[0]))
+    .map(([city]) => city),
+);
+
+/**
+ * Normalise a state string so the geography evaluator (which only recognises "FL"
+ * after uppercasing) correctly handles records where the full name "Florida" was
+ * stored instead of the abbreviation.
+ */
+const normalizeStateFl = (state: string | undefined): string | undefined => {
+  if (!state) return state;
+  const trimmed = state.trim();
+  return trimmed.toUpperCase() === "FLORIDA" ? "FL" : trimmed;
+};
 
 export type FrozenOccurrence = {
   occurrenceId: string; subjectId: string; subjectType: string; sourceSystem: string;
@@ -1062,7 +1108,11 @@ export async function getCro03aSourceCensus(filters?: {
       idx++;
     }
     if (filters?.countyFips?.length) {
-      // county_fips may live in the observation payload or in business_locations
+      // county_fips may live in the observation payload as an explicit field.
+      // Only check the explicit stored fields — do NOT add a broad FL-state fallback
+      // here because city/ZIP → FIPS resolution requires in-process evaluation that
+      // cannot be expressed accurately in SQL without embedding the full ZIP/city maps.
+      // A broad fallback would include Tampa, Orlando, and other non-target areas.
       conditions.push(`(
         v.payload->>'countyFips' = ANY($${idx}::text[])
         OR v.payload->>'county_fips' = ANY($${idx}::text[])
@@ -1340,10 +1390,31 @@ export async function processOutboxCro03aQualificationCommands(): Promise<{ proc
         continue;
       }
 
-      const runIdempotencyKey = `cro03a-autowire:${String(row.source_import_run_id)}:chunk:${Number(row.chunk_number)}:${String(row.selection_hash).slice(0, 16)}`;
+      // Pre-filter to South Florida-eligible occurrences only.
+      // This ensures that auto-wired runs from source-registry imports contain
+      // only in-territory candidates, matching the south_florida_candidate_qualification
+      // policy intent.  Non-FL or unknown-geography occurrences are excluded here
+      // rather than evaluated and dispositioned as 'outside_geography' in the run.
+      const eligibleIds = await filterOutboxOccurrencesByGeography(occurrenceIds);
+      if (!eligibleIds.length) {
+        // All occurrences in this chunk are outside South Florida — mark completed,
+        // no run needed.
+        await db.execute(sql`
+          UPDATE cro03a_qualification_commands
+             SET state = 'completed', processed_at = NOW(),
+                 error_text = 'geography_pre_filter:0_eligible_of_' || ${occurrenceIds.length}
+           WHERE id = ${cmdId}::uuid
+        `);
+        processed++;
+        continue;
+      }
+
+      // Embed the filtered count in the idempotency key so that a command whose eligible
+      // subset changes across retries (because backfill updated payloads) gets a fresh run.
+      const runIdempotencyKey = `cro03a-autowire:${String(row.source_import_run_id)}:chunk:${Number(row.chunk_number)}:${String(row.selection_hash).slice(0, 16)}:geo${eligibleIds.length}`;
       await createCro03aQualificationRun({
         idempotencyKey: runIdempotencyKey,
-        occurrenceIds,
+        occurrenceIds: eligibleIds,
         actorId: CRO03A_AUTOWIRE_ACTOR_ID,
         actorRole: "admin",
       });
@@ -1460,6 +1531,28 @@ export async function watchdogCro03aStaleOccurrences(): Promise<{
     if (existingAlert) continue;
 
     const hasFailed = (commandsByState.failed ?? 0) > 0;
+
+    // If every completed command for this run was intentionally short-circuited by the
+    // geography pre-filter (no South Florida occurrences in the import chunk), the
+    // undecided occurrences are expected — they are not a stale-processing fault.
+    // Detect this by checking whether all completed commands carry the
+    // 'geography_pre_filter:' error_text prefix written by processOutboxCro03aQualificationCommands.
+    const completedCount = commandsByState.completed ?? 0;
+    if (!neverEnqueued && !hasFailed && completedCount > 0) {
+      const geoFilteredResult = resultRows(await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt
+          FROM cro03a_qualification_commands
+         WHERE source_import_run_id = ${runId}::uuid
+           AND state = 'completed'
+           AND error_text LIKE 'geography_pre_filter:%'
+      `))[0];
+      const geoFilteredCount = Number(geoFilteredResult?.cnt ?? 0);
+      if (geoFilteredCount === completedCount) {
+        // All commands were geography-filtered — undecided occurrences are intentional.
+        continue;
+      }
+    }
+
     const staleSummary = neverEnqueued
       ? "NEVER_ENQUEUED"
       : hasFailed
@@ -1496,4 +1589,190 @@ export async function watchdogCro03aStaleOccurrences(): Promise<{
   }
 
   return { staleRunCount: staleRuns.length, alertsWritten };
+}
+
+// ── CRO-03A South Florida Geography Pre-filter ───────────────────────────────
+
+/**
+ * Given a list of occurrence IDs, returns only the subset whose source-observation
+ * payload contains South Florida-eligible geography (evaluated by the TS geography
+ * evaluator using state / county / countyFips / zip / city fields).
+ *
+ * Loads observation payloads in a single query (no per-row round-trips) and runs the
+ * geography evaluator in-process.  Any occurrence whose payload yields
+ * geography.eligible=true is included in the result.
+ *
+ * Chunk size cap: caller is responsible for reasonable input sizes; this function
+ * does not paginate internally — it trusts the caller to pass bounded slices.
+ */
+export async function selectSouthFloridaEligibleOccurrenceIds(
+  occurrenceIds: string[],
+  executor: any = db,
+): Promise<string[]> {
+  if (!occurrenceIds.length) return [];
+  const rows = resultRows(await executor.execute(sql`
+    SELECT o.id::text AS occurrence_id, v.payload
+      FROM cro03_source_occurrences o
+      JOIN cro03_source_observations v ON v.id = o.source_observation_id
+     WHERE o.id IN (${sql.join(occurrenceIds.map((id) => sql`${id}::uuid`), sql`,`)})
+  `));
+  const eligible: string[] = [];
+  for (const row of rows) {
+    const payload = json<Record<string, unknown>>(row.payload);
+    const geo = evaluateSouthFloridaGeography({
+      state: normalizeStateFl(payloadStr(payload, "state", "principalState")),
+      county: payloadStr(payload, "county", "principalCounty"),
+      countyFips: payloadStr(payload, "countyFips", "county_fips"),
+      zip: payloadStr(payload, "zip", "postalCode", "principalZip"),
+      city: payloadStr(payload, "city", "principalCity"),
+    });
+    if (geo.eligible) eligible.push(String(row.occurrence_id));
+  }
+  return eligible;
+}
+
+// ── CRO-03A Recurring Geography-Based Qualification Run ──────────────────────
+
+/**
+ * Selects occurrence IDs that:
+ *   - Belong to selectable subject types
+ *   - Were observed within the freshness window (365 days)
+ *   - Have no existing qualification decision
+ *   - Pass the South Florida geography check (payload state / zip / city evaluated in-process)
+ *
+ * Returns up to `limit` occurrence IDs ordered by source_observed_at ASC (oldest first)
+ * so that the recurring job makes steady forward progress through the backlog.
+ */
+export async function selectUndecidedSouthFloridaOccurrenceIds(
+  limit = 500,
+): Promise<string[]> {
+  // SQL-side pre-filter using the exact same ZIP, city, and FIPS reference data that
+  // the in-process geography evaluator uses.  This eliminates starvation from large
+  // non-target FL populations (Tampa, Orlando, Monroe, etc.) that would otherwise
+  // block the window forever when eligible SF records are positioned later in the
+  // ordered scan.
+  //
+  // Match criterion (any one sufficient):
+  //   1. Explicit countyFips / county_fips payload field equals a target FIPS code
+  //   2. ZIP code (zip / postalCode / principalZip) is in the South Florida ZIP list
+  //      (single-county, non-Monroe ZIPs from the v2 reference)
+  //   3. City name (city / principalCity, lowercased) is in the South Florida city list
+  //      (single-county, non-Monroe cities from the v2 reference)
+  //
+  // In-process verification via evaluateSouthFloridaGeography is still run to
+  // catch conflicting evidence (e.g., FL zip + non-FL state) and to apply the
+  // full evidenceClass hierarchy.
+  //
+  // The candidate limit is 4× the requested limit to absorb any SQL false-positives
+  // (conflicting evidence, ambiguous zips, etc.) without a second round-trip.
+  const candidateLimit = Math.min(limit * 4, 2000);
+  const targetFips = Object.values(CRO03A_COUNTY_FIPS);
+
+  const candidates = (await pool.query<{ occurrence_id: string; payload: unknown }>(
+    `SELECT o.id::text AS occurrence_id, v.payload
+       FROM cro03_source_occurrences o
+       JOIN cro03_source_subjects    s  ON s.id = o.source_subject_id
+       JOIN cro03_source_observations v  ON v.id = o.source_observation_id
+       LEFT JOIN cro03a_qualification_decisions qd ON qd.occurrence_id = o.id
+      WHERE s.subject_type IN (
+              'prospect', 'sunbiz_entity', 'sdr_merchant',
+              'provider_csv_row', 'lead_discovery_result', 'master_lead'
+            )
+        AND o.source_observed_at >= NOW() - INTERVAL '365 days'
+        AND qd.id IS NULL
+        AND (
+          v.payload->>'countyFips'   = ANY($1::text[])
+          OR v.payload->>'county_fips' = ANY($1::text[])
+          OR COALESCE(
+               v.payload->>'zip',
+               v.payload->>'postalCode',
+               v.payload->>'principalZip'
+             ) = ANY($2::text[])
+          OR lower(COALESCE(
+               v.payload->>'city',
+               v.payload->>'principalCity',
+               ''
+             )) = ANY($3::text[])
+        )
+      ORDER BY o.source_observed_at ASC
+      LIMIT $4`,
+    [targetFips, SOUTH_FLORIDA_ZIPS, SOUTH_FLORIDA_CITIES, candidateLimit],
+  )).rows;
+
+  const eligible: string[] = [];
+  for (const row of candidates) {
+    if (eligible.length >= limit) break;
+    const payload = json<Record<string, unknown>>(row.payload);
+    const geo = evaluateSouthFloridaGeography({
+      state: normalizeStateFl(payloadStr(payload, "state", "principalState")),
+      county: payloadStr(payload, "county", "principalCounty"),
+      countyFips: payloadStr(payload, "countyFips", "county_fips"),
+      zip: payloadStr(payload, "zip", "postalCode", "principalZip"),
+      city: payloadStr(payload, "city", "principalCity"),
+    });
+    if (geo.eligible) eligible.push(String(row.occurrence_id));
+  }
+  return eligible;
+}
+
+/**
+ * Recurring geography-based qualification job.
+ *
+ * Selects undecided South Florida-eligible occurrences and creates a qualification
+ * run for them.  This ensures the pilot funnel receives handoffs from the existing
+ * observation backlog even when no new source-registry imports arrive.
+ *
+ * Idempotency: the run idempotency key embeds a date-hour bucket + selection hash,
+ * so re-runs within the same hour with the same eligible population are no-ops.
+ *
+ * Returns null when there are no eligible undecided occurrences (nothing to do).
+ */
+export async function processRecurringCro03aGeographyQualification(options: {
+  limit?: number;
+  actorId?: string;
+}): Promise<{ runId: string; totalCount: number; replayed: boolean } | null> {
+  const limit = options.limit ?? 500;
+  const actorId = options.actorId ?? CRO03A_AUTOWIRE_ACTOR_ID;
+
+  const occurrenceIds = await selectUndecidedSouthFloridaOccurrenceIds(limit);
+  if (!occurrenceIds.length) return null;
+
+  // Bucket by UTC hour so the idempotency key remains stable within a scheduling window.
+  const hourBucket = new Date().toISOString().slice(0, 13); // "2026-09-18T14"
+  const selectionHash = stableCro03aSelectionHash([...occurrenceIds].sort());
+  const idempotencyKey = `cro03a-recurring-geo:${hourBucket}:${selectionHash.slice(0, 16)}`;
+
+  const result = await createCro03aQualificationRun({
+    idempotencyKey,
+    occurrenceIds,
+    actorId,
+    actorRole: "admin",
+  });
+
+  return { runId: result.id, totalCount: result.totalCount, replayed: result.replayed };
+}
+
+// ── CRO-03A Outbox Observation Geography Pre-filter ──────────────────────────
+
+/**
+ * Filters occurrence IDs from an outbox command chunk to only those with South
+ * Florida-eligible geography.  Called by processOutboxCro03aQualificationCommands
+ * before passing IDs to createCro03aQualificationRun so that pilot runs only
+ * include in-territory candidates.
+ *
+ * Processes in slices of 500 to respect loadOccurrences() caps.  Returns the
+ * filtered subset in the same relative order as the input.
+ */
+export async function filterOutboxOccurrencesByGeography(
+  occurrenceIds: string[],
+): Promise<string[]> {
+  if (!occurrenceIds.length) return [];
+  const SLICE = 500;
+  const eligible: string[] = [];
+  for (let i = 0; i < occurrenceIds.length; i += SLICE) {
+    const slice = occurrenceIds.slice(i, i + SLICE);
+    const sliceEligible = await selectSouthFloridaEligibleOccurrenceIds(slice);
+    eligible.push(...sliceEligible);
+  }
+  return eligible;
 }

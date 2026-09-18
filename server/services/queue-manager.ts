@@ -537,6 +537,16 @@ const NAMED_QUEUE_SCHEDULES: NamedQueueSchedule[] = [
     jobId:        "cro03a-watchdog-stale-occurrences-repeatable",
   },
   {
+    // CRO-03A recurring geography-based qualification run.
+    // Selects undecided South Florida-eligible occurrences (state/zip/city evaluated
+    // in-process against the v2 geography reference) and creates a qualification run.
+    // Runs every 10 minutes (dev: 15 min) to steadily drain the observation backlog.
+    queueName:    QUEUE_NAMES.CRO03A_QUALIFICATION,
+    jobName:      "recurring-geography-qualification",
+    repeatEveryMs: IS_DEV ? 15 * 60 * 1000 : 10 * 60 * 1000,
+    jobId:        "cro03a-recurring-geo-qualification-repeatable",
+  },
+  {
     // MI-07: master-lead-stager pending-intent recovery sweep.
     // Re-enqueues any committed pending intents that were not consumed due to a
     // queue-outage window between writeBusinessValidationResult() and BullMQ delivery.
@@ -1674,6 +1684,7 @@ class QueueManager {
             recoverCro03aQualificationRunsQueueSafe,
             processOutboxCro03aQualificationCommands,
             watchdogCro03aStaleOccurrences,
+            processRecurringCro03aGeographyQualification,
           } = await import("./cro03a/qualification-service");
           if (_job.name === "run" && typeof _job.data?.runId === "string") {
             await processCro03aQualificationRunQueueSafe(_job.data.runId);
@@ -1683,6 +1694,13 @@ class QueueManager {
           } else if (_job.name === "watchdog-stale-occurrences") {
             const result = await watchdogCro03aStaleOccurrences();
             console.log(`[CRO03A Watchdog] staleRuns=${result.staleRunCount} alertsWritten=${result.alertsWritten}`);
+          } else if (_job.name === "recurring-geography-qualification") {
+            const result = await processRecurringCro03aGeographyQualification({ limit: 500 });
+            if (result) {
+              console.log(`[CRO03A GeoQual] runId=${result.runId} total=${result.totalCount} replayed=${result.replayed}`);
+            } else {
+              console.log("[CRO03A GeoQual] no undecided South Florida occurrences found");
+            }
           } else {
             await recoverCro03aQualificationRunsQueueSafe();
           }
