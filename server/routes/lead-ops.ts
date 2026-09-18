@@ -2230,6 +2230,33 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         zeroBounceSafety: paidProviderControls.zeroBounce,
         paidInFlightCount: paidProviderControls.inFlightCount,
         paidInFlightOperations: paidProviderControls.inFlightOperations,
+        // ── Serper gateway state telemetry ──────────────────────────────────
+        // Exposes the live circuit-breaker state from serper_control so the
+        // Paid Pilot panel can show correct enabled/closed status without
+        // relying on env-var guessing. This is read-only; actual Serper calls
+        // still go through SerperGateway.executeSearch().
+        serperTelemetry: await (async () => {
+          try {
+            const serperRow = ((await db.execute(sql`
+              SELECT enabled, circuit_state, daily_call_count, daily_cost_micros,
+                     daily_calls_cap, daily_cost_cap_micros, updated_at
+              FROM serper_control WHERE id = 1 LIMIT 1
+            `)) as any).rows?.[0] ?? null;
+            if (!serperRow) return { configured: false, reason: "no_control_row" };
+            return {
+              configured: !!process.env.SERPER_API_KEY,
+              enabled: Boolean(serperRow.enabled),
+              circuitState: serperRow.circuit_state ?? "unknown",
+              dailyCallCount: Number(serperRow.daily_call_count ?? 0),
+              dailyCostMicros: Number(serperRow.daily_cost_micros ?? 0),
+              dailyCallsCap: Number(serperRow.daily_calls_cap ?? 0),
+              dailyCostCapMicros: Number(serperRow.daily_cost_cap_micros ?? 0),
+              updatedAt: serperRow.updated_at ?? null,
+            };
+          } catch {
+            return { configured: false, reason: "query_failed" };
+          }
+        })(),
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
@@ -2680,6 +2707,80 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     } catch (err: any) {
       console.error("[LeadOps] clear-sla-tasks error:", err?.message);
       res.status(500).json({ error: err?.message || "Failed to clear tasks" });
+    }
+  });
+
+  // ── GET /api/lead-ops/candidates/promotion-state ────────────────────────────
+  // Exposes the runtime gate for FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED so
+  // the UI can display correct status without having admins guess from env vars.
+  app.get("/api/lead-ops/candidates/promotion-state", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const enabled = process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true";
+      const stagedCount = ((await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'staged'
+      `)) as any).rows?.[0]?.cnt ?? 0;
+      const validationAdmittedCount = ((await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'validation_admitted'
+      `)) as any).rows?.[0]?.cnt ?? 0;
+      res.json({
+        promotionEnabled: enabled,
+        staged: Number(stagedCount),
+        validationAdmitted: Number(validationAdmittedCount),
+        note: enabled
+          ? "Promotion gate is OPEN — promoteCandidateForValidation() will advance staged candidates."
+          : "Promotion gate is CLOSED — set FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true to enable.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── POST /api/lead-ops/candidates/backfill-promotion ───────────────────────
+  // Bounded backfill: advances staged candidates to validation_admitted, at most
+  // `limit` per call (default 50, max 200). Requires the promotion gate to be
+  // open. This corrects the 143 candidates stuck in 'staged' after a production
+  // outage reset the promotion flag to disabled.
+  app.post("/api/lead-ops/candidates/backfill-promotion", requireRole("admin"), async (req, res) => {
+    try {
+      const { promoteCandidateForValidation } = await import("../services/free-discovery/evidence-service");
+      const limit = Math.min(Number(req.body?.limit ?? 50), 200);
+      if (Number.isNaN(limit) || limit < 1) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+      }
+
+      // Fetch a bounded batch of staged candidates (oldest first for fairness).
+      const stagedRows = ((await db.execute(sql`
+        SELECT id FROM free_discovery_candidates
+        WHERE disposition = 'staged'
+        ORDER BY created_at ASC
+        LIMIT ${limit}
+      `)) as any).rows ?? [];
+
+      const results = { promoted: 0, skipped: 0, failed: 0, errors: [] as string[] };
+      for (const row of stagedRows) {
+        try {
+          const outcome = await promoteCandidateForValidation(String(row.id));
+          if (outcome.status === "PROMOTED") {
+            results.promoted++;
+          } else {
+            results.skipped++;
+          }
+        } catch (promErr: any) {
+          results.failed++;
+          results.errors.push(`${row.id}: ${String(promErr?.message ?? promErr).slice(0, 100)}`);
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "lead_ops_backfill_promotion",
+        entityType: "system",
+        entityId: 0,
+        details: { limit, examined: stagedRows.length, ...results },
+      }).catch(() => {});
+
+      res.json({ examined: stagedRows.length, ...results });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
     }
   });
 }

@@ -453,6 +453,15 @@ export function registerCro03Routes(app: Express): void {
   });
 
   app.post("/api/cro03b/commands", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    // Explicit empty-array guard — must return a CRO03B-prefixed code so safeError preserves
+    // it instead of folding it into the opaque CRO03_REQUEST_FAILED fallback.  A zero-handoff
+    // request from the UI after a 0-selected qualification run is the most common trigger.
+    if (Array.isArray(req.body?.handoffIds) && req.body.handoffIds.length === 0) {
+      return res.status(400).json({
+        code: "CRO03B_ZERO_HANDOFFS",
+        message: "No handoffs were selected — admission requires at least one qualified handoff.",
+      });
+    }
     const parsed = cro03bCommandSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ code: "CRO03B_INVALID_REQUEST", message: "Invalid recipe command." });

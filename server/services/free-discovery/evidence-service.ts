@@ -380,9 +380,22 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
 
   // Gate 4: ZeroBounce suppression — candidate hash must not appear on the suppression list.
   // The suppression list guards against re-validating emails already known invalid/blocked.
-  const suppressed = rows(await db.execute(sql`
-    SELECT 1 FROM zerobounce_suppressions WHERE normalized_value_hash = ${candidate.normalized_value_hash} LIMIT 1
-  `))[0];
+  // Note: `zerobounce_suppressions` is provisioned separately from the main schema; if the
+  // table doesn't exist yet, treat as no-suppression (fail-open is safe here — it only means
+  // we may re-attempt validation, which ZeroBounce will deduplicate on their side).
+  let suppressed: unknown = undefined;
+  try {
+    suppressed = rows(await db.execute(sql`
+      SELECT 1 FROM zerobounce_suppressions WHERE normalized_value_hash = ${candidate.normalized_value_hash} LIMIT 1
+    `))[0];
+  } catch (zbSuppErr: any) {
+    // Table doesn't exist or query failed — log once and skip this gate.
+    if (/relation.*does not exist/i.test(zbSuppErr?.message ?? "")) {
+      console.debug("[FreeDiscovery] zerobounce_suppressions table not yet provisioned — Gate 4 skipped");
+    } else {
+      console.warn("[FreeDiscovery] zerobounce_suppressions query error (Gate 4 skipped):", zbSuppErr?.message);
+    }
+  }
   if (suppressed) {
     // Mark the candidate as suppressed so UI and downstream queries can see why.
     await db.execute(sql`

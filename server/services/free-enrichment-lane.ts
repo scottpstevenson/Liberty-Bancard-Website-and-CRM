@@ -45,7 +45,26 @@ export async function runFreeEnrichmentLane(
       try {
         await runFreeBusinessEnrichmentForBusiness(businessId);
       } catch (error: any) {
-        results.push({ businessId, outcome: "failed", error: String(error?.message ?? error).slice(0, 250) });
+        const errorMsg = String(error?.message ?? error).slice(0, 250);
+        console.error(
+          `[FreeEnrichLane] Business ${businessId} threw before claim UPDATE — status stays null. Error: ${errorMsg}`,
+        );
+        // Persist the failure to DB so the row doesn't silently re-queue on the next tick.
+        // This UPDATE is intentionally unconditional: if the row is still null (no claim was
+        // executed), write failed; if the function's own try/catch already wrote failed, the
+        // WHERE guard makes this a safe no-op.
+        await db.execute(sql`
+          UPDATE businesses
+          SET free_enrichment_status = 'failed',
+              free_enrichment_last_error_code = 'LANE_UNCAUGHT_PRE_CLAIM',
+              free_enrichment_last_attempt_at  = COALESCE(free_enrichment_last_attempt_at, NOW()),
+              free_enrichment_attempt_count    = COALESCE(free_enrichment_attempt_count, 0) + 1
+          WHERE id = ${businessId}
+            AND (free_enrichment_status IS NULL OR free_enrichment_status = 'processing')
+        `).catch((dbErr: any) =>
+          console.error(`[FreeEnrichLane] Business ${businessId} — could not persist pre-claim failure: ${dbErr?.message}`)
+        );
+        results.push({ businessId, outcome: "failed", error: errorMsg });
         continue;
       }
 
