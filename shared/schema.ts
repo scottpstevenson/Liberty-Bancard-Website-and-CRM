@@ -653,9 +653,11 @@ export const cro03SourceObservations = pgTable("cro03_source_observations", {
   payload: jsonb("payload").notNull(),
   payloadHash: text("payload_hash").notNull(),
   hashAlgorithmVersion: text("hash_algorithm_version").notNull().default("sha256-v1"),
+  geographyBackfillAttemptedAt: timestamp("geography_backfill_attempted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("cro03_source_observation_unique").on(table.sourceSubjectId, table.payloadHash),
+  index("cro03_obs_geo_backfill_pending_idx").on(table.createdAt).where(sql`geography_backfill_attempted_at IS NULL`),
 ]);
 
 export const cro03SourceOccurrences = pgTable("cro03_source_occurrences", {

@@ -1685,6 +1685,7 @@ class QueueManager {
             processOutboxCro03aQualificationCommands,
             watchdogCro03aStaleOccurrences,
             processRecurringCro03aGeographyQualification,
+            backfillCro03aObservationGeography,
           } = await import("./cro03a/qualification-service");
           if (_job.name === "run" && typeof _job.data?.runId === "string") {
             await processCro03aQualificationRunQueueSafe(_job.data.runId);
@@ -1695,6 +1696,14 @@ class QueueManager {
             const result = await watchdogCro03aStaleOccurrences();
             console.log(`[CRO03A Watchdog] staleRuns=${result.staleRunCount} alertsWritten=${result.alertsWritten}`);
           } else if (_job.name === "recurring-geography-qualification") {
+            // Run observation geography backfill first (bounded batch) so that
+            // non-resolvable observations get stamped and excluded from future ticks.
+            const backfillResult = await backfillCro03aObservationGeography(200);
+            if (backfillResult.featureDetected) {
+              console.log(
+                `[CRO03A GeoBackfill] processed=${backfillResult.processed} eligible=${backfillResult.eligible} ineligible=${backfillResult.ineligible}`,
+              );
+            }
             const result = await processRecurringCro03aGeographyQualification({ limit: 500 });
             if (result) {
               console.log(`[CRO03A GeoQual] runId=${result.runId} total=${result.totalCount} replayed=${result.replayed}`);

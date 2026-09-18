@@ -1752,6 +1752,97 @@ export async function processRecurringCro03aGeographyQualification(options: {
   return { runId: result.id, totalCount: result.totalCount, replayed: result.replayed };
 }
 
+// ── CRO-03A Observation Geography Backfill ───────────────────────────────────
+
+/**
+ * Stamps geography_backfill_attempted_at on every cro03_source_observations row
+ * that has not yet been processed, preventing those rows from being re-scanned on
+ * every scheduler tick.
+ *
+ * Immutability contract: observations are content-addressed (payload_hash =
+ * sha256(payload)). This function NEVER mutates the payload or payload_hash columns.
+ * The sentinel column records that geography resolution was attempted; the resolved
+ * eligibility result (eligible / ineligible / unknown) is captured separately by
+ * the in-process geography evaluator at qualification-run time.
+ *
+ * Rolling-upgrade safe: feature-detects the sentinel column before doing any work,
+ * returning featureDetected=false as a safe no-op on schemas that haven't had the
+ * 0274 migration applied yet.
+ *
+ * @param batchSize  Maximum number of observations to process per call (default 200).
+ * @returns          { processed, eligible, ineligible, featureDetected }
+ *                   eligible / ineligible counts are informational only (for logging).
+ */
+export async function backfillCro03aObservationGeography(
+  batchSize = 200,
+): Promise<{ processed: number; eligible: number; ineligible: number; featureDetected: boolean }> {
+  // Feature-detect the sentinel column so the function is safe to call on a schema
+  // that hasn't had the 0274 migration applied yet (rolling upgrade guard).
+  try {
+    const colCheck = resultRows(await db.execute(sql`
+      SELECT 1
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'cro03_source_observations'
+         AND column_name  = 'geography_backfill_attempted_at'
+       LIMIT 1
+    `));
+    if (colCheck.length === 0) {
+      return { processed: 0, eligible: 0, ineligible: 0, featureDetected: false };
+    }
+  } catch {
+    return { processed: 0, eligible: 0, ineligible: 0, featureDetected: false };
+  }
+
+  // Fetch a bounded batch of observations that have not yet been attempted.
+  // Order by created_at ASC so the job makes steady forward progress through the
+  // historical backlog before reaching recent rows.
+  const rows = resultRows(await db.execute(sql`
+    SELECT id::text AS id, payload
+      FROM cro03_source_observations
+     WHERE geography_backfill_attempted_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT ${batchSize}
+  `));
+
+  if (rows.length === 0) {
+    return { processed: 0, eligible: 0, ineligible: 0, featureDetected: true };
+  }
+
+  let eligible = 0;
+  let ineligible = 0;
+
+  // Collect IDs to stamp in a single bulk UPDATE, preserving payload immutability.
+  const allIds: string[] = [];
+
+  for (const row of rows) {
+    const obsId = String(row.id);
+    allIds.push(obsId);
+
+    // Evaluate geography in-process for the informational counters only.
+    // Result is NOT persisted — observations are immutable content-addressed records.
+    const payload = json<Record<string, unknown>>(row.payload);
+    const geo = evaluateSouthFloridaGeography({
+      state: normalizeStateFl(payloadStr(payload, "state", "principalState")),
+      county: payloadStr(payload, "county", "principalCounty"),
+      countyFips: payloadStr(payload, "countyFips", "county_fips"),
+      zip: payloadStr(payload, "zip", "postalCode", "principalZip"),
+      city: payloadStr(payload, "city", "principalCity"),
+    });
+    if (geo.eligible) { eligible++; } else { ineligible++; }
+  }
+
+  // Single bulk UPDATE — only the sentinel column is touched, never payload or payload_hash.
+  await db.execute(sql`
+    UPDATE cro03_source_observations
+       SET geography_backfill_attempted_at = NOW()
+     WHERE id IN (${sql.join(allIds.map((id) => sql`${id}::uuid`), sql`,`)})
+       AND geography_backfill_attempted_at IS NULL
+  `);
+
+  return { processed: allIds.length, eligible, ineligible, featureDetected: true };
+}
+
 // ── CRO-03A Outbox Observation Geography Pre-filter ──────────────────────────
 
 /**
