@@ -200,6 +200,150 @@ export function registerCro03Routes(app: Express): void {
    * workerFleetComplete=false sentinel that blocks a separately governed ceremony
    * against a process that intentionally has no workers (e.g. a web-only replica).
    */
+  // ── GET /api/admin/cro03c/gate-diagnostics ───────────────────────────────
+  // Owner-only truthful diagnostic: reports every prerequisite for attestation
+  // issuance (inventory, worker fleet, attestation, closed-gate reason) without
+  // exposing secrets or key material.
+  app.get("/api/admin/cro03c/gate-diagnostics", isDashboardUser, requireRole("admin"), async (_req, res) => {
+    const { getCro03cQueueTopologyHash } = await import("../services/queue-manager");
+    const { getSharedRedisClient, getBullMqTestPrefix } = await import("../services/queue-connection");
+    const { readCro03cWorkerFleet } = await import("../services/cro03/runtime-heartbeat");
+
+    const releaseSha = process.env.RELEASE_SHA ?? null;
+    const deploymentIdentity = process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? null;
+    const environmentIdentity = process.env.NODE_ENV ?? null;
+    const queueTopologyHash = getCro03cQueueTopologyHash();
+
+    // ── Inventory diagnostic ──────────────────────────────────────────────────
+    type InventoryDiag = { present: boolean; inventoryId?: string; releaseShaMatch?: boolean; environmentMatch?: boolean; deploymentMatch?: boolean; topologyMatch?: boolean; workerIdentitiesInInventory?: string[]; expectedCount?: number; issuedAt?: string; expiresAt?: string; expired?: boolean; ambiguous?: boolean };
+    let inventory: InventoryDiag = { present: false };
+    try {
+      const invRows: any[] = ((await db.execute(sql`
+        SELECT i.id::text, i.release_sha, i.environment_identity, i.deployment_identity,
+               i.queue_topology_hash, i.worker_identities, i.expected_count,
+               i.issued_at::text, i.expires_at::text
+          FROM cro03c_deployment_inventories i
+          LEFT JOIN cro03c_deployment_inventory_revocations r ON r.inventory_id = i.id
+         WHERE r.inventory_id IS NULL AND i.expires_at > NOW()
+           AND i.deployment_identity  = ${deploymentIdentity ?? ""}
+           AND i.environment_identity = ${environmentIdentity ?? ""}
+           AND i.release_sha          = ${releaseSha ?? ""}
+           AND i.queue_topology_hash  = ${queueTopologyHash}
+         ORDER BY i.issued_at DESC LIMIT 2
+      `)) as any).rows ?? [];
+      if (invRows.length === 0) {
+        inventory = { present: false };
+      } else {
+        const row = invRows[0];
+        const rawIds = row.worker_identities;
+        const ids: string[] = typeof rawIds === "string" ? JSON.parse(rawIds) : Array.isArray(rawIds) ? rawIds : [];
+        inventory = {
+          present: true,
+          ambiguous: invRows.length > 1,
+          inventoryId: String(row.id),
+          releaseShaMatch: String(row.release_sha) === releaseSha,
+          environmentMatch: String(row.environment_identity) === environmentIdentity,
+          deploymentMatch: String(row.deployment_identity) === deploymentIdentity,
+          topologyMatch: String(row.queue_topology_hash) === queueTopologyHash,
+          workerIdentitiesInInventory: ids,
+          expectedCount: Number(row.expected_count),
+          issuedAt: String(row.issued_at),
+          expiresAt: String(row.expires_at),
+          expired: new Date(row.expires_at).getTime() <= Date.now(),
+        };
+      }
+    } catch { inventory = { present: false }; }
+
+    // ── Worker fleet diagnostic ───────────────────────────────────────────────
+    type FleetDiag = { present: boolean; count: number; identities?: string[]; oldestHeartbeatAgeMs?: number; complete?: boolean; errorCode?: string };
+    let workerFleet: FleetDiag = { present: false, count: 0 };
+    try {
+      const redis = getSharedRedisClient();
+      if (redis && releaseSha && /^[0-9a-f]{40}$/i.test(releaseSha)) {
+        const now = new Date();
+        const fleet = await readCro03cWorkerFleet({
+          redis, prefix: getBullMqTestPrefix(),
+          expectedReleaseSha: releaseSha,
+          expectedQueueTopologyHash: queueTopologyHash,
+          expectedProcessIdentities: [],
+          expectedEnvironmentIdentity: environmentIdentity ?? undefined,
+          expectedDeploymentIdentity: deploymentIdentity ?? undefined,
+          now,
+        });
+        const nowMs = now.getTime();
+        let oldestAgeMs: number | undefined;
+        if (fleet.heartbeats.length > 0) {
+          oldestAgeMs = Math.max(...fleet.heartbeats.map((h) => nowMs - new Date(h.timestamp).getTime()));
+        }
+        workerFleet = {
+          present: fleet.heartbeats.length > 0,
+          count: fleet.heartbeats.length,
+          identities: fleet.heartbeats.map((h) => h.processIdentity).sort(),
+          oldestHeartbeatAgeMs: oldestAgeMs,
+          complete: fleet.complete,
+        };
+      } else {
+        workerFleet = { present: false, count: 0, errorCode: "RELEASE_SHA_MISSING_OR_REDIS_NOT_READY" };
+      }
+    } catch (err: any) {
+      workerFleet = { present: false, count: 0, errorCode: err?.message?.slice(0, 100) };
+    }
+
+    // ── Attestation diagnostic ────────────────────────────────────────────────
+    type AttestDiag = { present: boolean; attestationId?: string; capturedAt?: string; expiresAt?: string; reason: string };
+    let attestation: AttestDiag = { present: false, reason: "NO_LIVE_RUNTIME_ATTESTATION" };
+    try {
+      const attestRow: any = ((await db.execute(sql`
+        SELECT id::text, captured_at::text, expires_at::text
+          FROM cro03c_runtime_attestations
+         WHERE expires_at > NOW()
+         ORDER BY captured_at DESC LIMIT 1
+      `)) as any).rows?.[0];
+      if (attestRow) {
+        attestation = {
+          present: true,
+          attestationId: String(attestRow.id),
+          capturedAt: String(attestRow.captured_at),
+          expiresAt: String(attestRow.expires_at),
+          reason: "OK",
+        };
+      }
+    } catch { /* already set to missing */ }
+
+    // ── Compute exact closed-gate reason ─────────────────────────────────────
+    let closedGateReason: string | null = null;
+    if (!releaseSha || !/^[0-9a-f]{40}$/i.test(releaseSha)) {
+      closedGateReason = "RELEASE_SHA_MISSING_OR_INVALID";
+    } else if (!inventory.present) {
+      closedGateReason = inventory.ambiguous ? "INVENTORY_AMBIGUOUS" : "INVENTORY_MISSING";
+    } else if (inventory.expired) {
+      closedGateReason = "INVENTORY_EXPIRED";
+    } else if (!inventory.releaseShaMatch) {
+      closedGateReason = "INVENTORY_RELEASE_SHA_MISMATCH";
+    } else if (!inventory.environmentMatch) {
+      closedGateReason = "INVENTORY_ENVIRONMENT_MISMATCH";
+    } else if (!workerFleet.present) {
+      closedGateReason = "WORKER_FLEET_EMPTY";
+    } else if (!workerFleet.complete) {
+      closedGateReason = "WORKER_FLEET_SCAN_INCOMPLETE";
+    } else if (!attestation.present) {
+      closedGateReason = "NO_ATTESTATION";
+    } else {
+      closedGateReason = null; // gate is open
+    }
+
+    res.json({
+      deployedReleaseSha: releaseSha,
+      deploymentIdentity,
+      environmentIdentity,
+      queueTopologyHash,
+      inventory,
+      workerFleet,
+      attestation,
+      closedGateReason,
+    });
+  });
+
   // ── POST /api/admin/cro03c/deployment-inventory/converge ─────────────────
   // Triggers an immediate deployment-inventory self-convergence using the
   // operator private key already in environment.  Idempotent: safe to call
@@ -641,7 +785,7 @@ export function registerCro03Routes(app: Express): void {
       // Register the run immediately so concurrent retries see it.
       const actorId = String((req.user as any).id);
       const now = new Date().toISOString();
-      const initialState = {
+      const initialState: Record<string, unknown> = {
         runId: idempotencyKey,
         status: "queued" as const,
         startedAt: now,
@@ -653,6 +797,13 @@ export function registerCro03Routes(app: Express): void {
         INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(initialState)})
         ON CONFLICT (key) DO NOTHING
       `);
+
+      // Persist a pointer to the latest run so page-refresh can recover it.
+      const latestRunPayload = JSON.stringify({ runId: idempotencyKey, actorId, startedAt: now });
+      await db.execute(sql`
+        INSERT INTO system_settings (key, value) VALUES ('cro03a_staging_job:latest', ${latestRunPayload})
+        ON CONFLICT (key) DO UPDATE SET value = ${latestRunPayload}, updated_at = NOW()
+      `).catch(() => { /* best-effort */ });
 
       // Wall-clock budget: 120 s. SET LOCAL is scoped to a single transaction
       // and has no effect on a pooled connection outside one — we use a Promise.race
@@ -714,6 +865,37 @@ export function registerCro03Routes(app: Express): void {
       return res.status(202).json(initialState);
     } catch (error) {
       res.status(400).json(safeError(error));
+    }
+  });
+
+  // ── GET /api/cro03a/source-census/latest-run ─────────────────────────────
+  // Returns the status of the most recently started staging run, allowing
+  // the client to resume polling after a page refresh without losing the runId.
+  app.get("/api/cro03a/source-census/latest-run", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const latestRow = ((await db.execute(sql`
+        SELECT value FROM system_settings WHERE key = 'cro03a_staging_job:latest'
+      `)) as any).rows?.[0]?.value;
+      if (!latestRow) return res.status(404).json({ code: "CRO03A_NO_RUNS" });
+      const latestRef = typeof latestRow === "string" ? JSON.parse(latestRow) : latestRow;
+      const runId: string = String(latestRef?.runId ?? "");
+      if (!runId || runId.length < 8) return res.status(404).json({ code: "CRO03A_NO_RUNS" });
+
+      const settingsKey = `cro03a_staging_job:${runId}`;
+      const row = ((await db.execute(sql`
+        SELECT value, updated_at FROM system_settings WHERE key = ${settingsKey}
+      `)) as any).rows?.[0];
+      if (!row) return res.status(404).json({ code: "CRO03A_RUN_NOT_FOUND", runId });
+      const state = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      if (state.status === "running" || state.status === "queued") {
+        const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+        if (updatedAt && Date.now() - updatedAt > 150_000) {
+          return res.json({ ...state, status: "stalled", stalledAt: new Date().toISOString(), stallReason: "Background process did not update run state within 150 s" });
+        }
+      }
+      res.json(state);
+    } catch (err: any) {
+      res.status(500).json({ code: "CRO03A_POLL_FAILED", message: err?.message });
     }
   });
 

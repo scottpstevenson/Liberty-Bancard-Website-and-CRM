@@ -4,17 +4,18 @@
  * depth with per-metric { value, available, stale, staleSince?, error? } signals.
  * Polls /api/lead-ops/health every 30 seconds.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle, ShieldCheck } from "lucide-react";
+import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle, ShieldCheck, Info } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,6 +201,43 @@ interface PromotionState {
   note: string;
 }
 
+interface GateDiagnostics {
+  deployedReleaseSha: string | null;
+  deploymentIdentity: string | null;
+  environmentIdentity: string | null;
+  queueTopologyHash: string;
+  inventory: {
+    present: boolean;
+    ambiguous?: boolean;
+    inventoryId?: string;
+    releaseShaMatch?: boolean;
+    environmentMatch?: boolean;
+    deploymentMatch?: boolean;
+    topologyMatch?: boolean;
+    workerIdentitiesInInventory?: string[];
+    expectedCount?: number;
+    issuedAt?: string;
+    expiresAt?: string;
+    expired?: boolean;
+  };
+  workerFleet: {
+    present: boolean;
+    count: number;
+    identities?: string[];
+    oldestHeartbeatAgeMs?: number;
+    complete?: boolean;
+    errorCode?: string;
+  };
+  attestation: {
+    present: boolean;
+    attestationId?: string;
+    capturedAt?: string;
+    expiresAt?: string;
+    reason: string;
+  };
+  closedGateReason: string | null;
+}
+
 interface BackfillResult {
   examined: number;
   promoted: number;
@@ -231,6 +269,17 @@ export function ProgramHealthPanel() {
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
+    refetchInterval: 30_000,
+  });
+
+  const gateDiagnosticsQuery = useQuery<GateDiagnostics>({
+    queryKey: ["/api/admin/cro03c/gate-diagnostics"],
+    queryFn: async () => {
+      const r = await fetch("/api/admin/cro03c/gate-diagnostics", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: isAdmin,
     refetchInterval: 30_000,
   });
 
@@ -574,6 +623,87 @@ export function ProgramHealthPanel() {
         </Card>
       )}
 
+      {/* ── CRO-03C Readiness diagnostics (admin only) ───────────────────── */}
+      {isAdmin && (() => {
+        const diag = gateDiagnosticsQuery.data;
+        if (!diag && gateDiagnosticsQuery.isLoading) {
+          return (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">CRO-03C Readiness</CardTitle></CardHeader>
+              <CardContent><Skeleton className="h-16 w-full" /></CardContent>
+            </Card>
+          );
+        }
+        if (!diag) return null;
+
+        const checks: Array<{ label: string; pass: boolean; detail?: string }> = [
+          {
+            label: "Release SHA",
+            pass: !!diag.deployedReleaseSha && /^[0-9a-f]{40}$/i.test(diag.deployedReleaseSha),
+            detail: diag.deployedReleaseSha ? diag.deployedReleaseSha.slice(0, 12) + "…" : "missing",
+          },
+          {
+            label: "Deployment inventory",
+            pass: diag.inventory.present && !diag.inventory.ambiguous && !diag.inventory.expired,
+            detail: diag.inventory.ambiguous ? "ambiguous (multiple valid rows)" : diag.inventory.present ? (diag.inventory.expired ? "expired" : `${diag.inventory.workerIdentitiesInInventory?.length ?? 0} worker(s)`) : "missing — issue attestation to create",
+          },
+          {
+            label: "Worker heartbeats",
+            pass: diag.workerFleet.present && (diag.workerFleet.complete ?? false),
+            detail: diag.workerFleet.present
+              ? `${diag.workerFleet.count} worker(s)${diag.workerFleet.oldestHeartbeatAgeMs !== undefined ? `, ${Math.round(diag.workerFleet.oldestHeartbeatAgeMs / 1000)}s ago` : ""}`
+              : (diag.workerFleet.errorCode ?? "none found"),
+          },
+          {
+            label: "Runtime attestation",
+            pass: diag.attestation.present,
+            detail: diag.attestation.present
+              ? `expires ${new Date(diag.attestation.expiresAt!).toLocaleTimeString()}`
+              : diag.closedGateReason ?? "missing",
+          },
+        ];
+
+        const allPass = checks.every((c) => c.pass);
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-sm">CRO-03C Readiness</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">Prerequisites for runtime attestation issuance.</CardDescription>
+                </div>
+                {allPass ? (
+                  <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
+                    <CheckCircle className="h-3 w-3 mr-1" /> All checks pass
+                  </Badge>
+                ) : (
+                  <Badge className="shrink-0 bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100" variant="outline">
+                    <AlertTriangle className="h-3 w-3 mr-1" /> {diag.closedGateReason ?? "Checks failing"}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {checks.map((c) => (
+                  <div key={c.label} className={`rounded-md border px-3 py-2 ${c.pass ? "bg-muted/10" : "bg-amber-50/60 border-amber-200"}`}>
+                    <div className="text-xs text-muted-foreground mb-0.5">{c.label}</div>
+                    <span className={`inline-flex items-center gap-1 text-xs ${c.pass ? "text-green-700" : "text-amber-700"}`}>
+                      {c.pass
+                        ? <CheckCircle className="h-3 w-3 text-green-500" />
+                        : <AlertTriangle className="h-3 w-3 text-amber-500" />
+                      }
+                      {c.pass ? "OK" : "Fail"}
+                    </span>
+                    {c.detail && <div className="text-[10px] text-muted-foreground mt-0.5 truncate" title={c.detail}>{c.detail}</div>}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* ── Stuck-processing + candidate funnel ─────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
@@ -601,21 +731,43 @@ export function ProgramHealthPanel() {
                     {ps.promotionEnabled && !ps.attestationLive ? "No attestation" : "Gate closed"}
                   </Badge>
                   {/* Show Issue Attestation button when flag is on but no live row */}
-                  {isAdmin && ps.promotionEnabled && !ps.attestationLive && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[11px] px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
-                      disabled={issueAttestationMutation.isPending}
-                      title="Verify the live worker fleet and issue a runtime attestation so the promotion gate opens"
-                      onClick={() => issueAttestationMutation.mutate()}
-                    >
-                      {issueAttestationMutation.isPending
-                        ? <><RefreshCw className="h-3 w-3 animate-spin" /> Checking…</>
-                        : <><ShieldCheck className="h-3 w-3" /> Issue attestation</>
-                      }
-                    </Button>
-                  )}
+                  {isAdmin && ps.promotionEnabled && !ps.attestationLive && (() => {
+                    const diag = gateDiagnosticsQuery.data;
+                    // Disable if worker fleet is provably empty — no amount of inventory
+                    // convergence fixes missing worker heartbeats.
+                    const workerFleetEmpty = diag ? !diag.workerFleet.present : false;
+                    const releaseShaInvalid = diag ? (!diag.deployedReleaseSha || !/^[0-9a-f]{40}$/i.test(diag.deployedReleaseSha)) : false;
+                    const isDisabled = issueAttestationMutation.isPending || workerFleetEmpty || releaseShaInvalid;
+                    const disabledReason = workerFleetEmpty
+                      ? "No live worker heartbeats — start the worker process first"
+                      : releaseShaInvalid
+                        ? "RELEASE_SHA is missing or invalid — redeploy to fix"
+                        : undefined;
+                    const btn = (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[11px] px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                        disabled={isDisabled}
+                        onClick={() => !isDisabled && issueAttestationMutation.mutate()}
+                        aria-disabled={isDisabled}
+                      >
+                        {issueAttestationMutation.isPending
+                          ? <><RefreshCw className="h-3 w-3 animate-spin" /> Checking…</>
+                          : <><ShieldCheck className="h-3 w-3" /> Issue attestation</>
+                        }
+                      </Button>
+                    );
+                    if (disabledReason) {
+                      return (
+                        <Tooltip>
+                          <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                          <TooltipContent className="text-xs max-w-[220px]">{disabledReason}</TooltipContent>
+                        </Tooltip>
+                      );
+                    }
+                    return btn;
+                  })()}
                 </div>
               )
             )}

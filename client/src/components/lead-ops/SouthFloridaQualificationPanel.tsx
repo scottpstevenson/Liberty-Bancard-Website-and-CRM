@@ -54,6 +54,26 @@ export function SouthFloridaQualificationPanel() {
   const [stagingRun, setStagingRun] = useState<StagingRunState | null>(null);
   // Track whether we've already fired the completion toast for this run.
   const stagingCompletedRef = useRef<string | null>(null);
+
+  // On mount: check if there's an in-progress staging run from before the
+  // last page refresh. Restores the runId into state so polling resumes.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/cro03a/source-census/latest-run", { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const data: StagingRunState = await res.json();
+        if (cancelled) return;
+        // Only restore if the run is still active (queued or running).
+        // Terminal states don't need polling but we surface a one-time note.
+        if (data.status === "queued" || data.status === "running") {
+          setStagingRun(data);
+        }
+      } catch { /* best-effort — silently ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const census = useQuery<Census>({
     queryKey: ["/api/cro03a/source-census"],
     queryFn: async () => {

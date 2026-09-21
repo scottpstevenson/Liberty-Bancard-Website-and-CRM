@@ -1197,9 +1197,17 @@ export async function stageCro03aSourceCensus(input: {
 }) {
   const limit = Math.max(1, Math.min(input.limitPerSource ?? 100, 500));
   const policy = await getActivePolicy();
-  const cursorFor = async (source: string, table: string, kind: "number" | "uuid" = "number") => db.transaction(async (tx) => {
+  const cursorFor = async (source: string, table: string, kind: "number" | "uuid" = "number") => {
+    // NOWAIT: if a concurrent census run holds the cursor lock, skip this source
+    // rather than blocking the entire staging run indefinitely.
+    const LOCKED_SENTINEL = { locked: true as const, value: 0, highWater: 0, valueText: "", highWaterText: "", snapshotKey: `locked:${source}` };
+    try {
+      return await db.transaction(async (tx) => {
+        // SET lock_timeout inside the transaction so the FOR UPDATE NOWAIT
+        // error message is consistent across Postgres versions.
+        await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
     let cursor = resultRows(await tx.execute(sql`
-      SELECT * FROM cro03a_census_cursors WHERE source_system=${source} FOR UPDATE
+      SELECT * FROM cro03a_census_cursors WHERE source_system=${source} FOR UPDATE NOWAIT
     `))[0];
     const exhausted = kind === "uuid"
       ? !cursor || String(cursor.cursor_value_text ?? "") >= String(cursor.snapshot_high_water_text ?? "")
@@ -1226,11 +1234,22 @@ export async function stageCro03aSourceCensus(input: {
       `))[0];
     }
     return {
+      locked: false as const,
       value: Number(cursor.cursor_value), highWater: Number(cursor.snapshot_high_water),
       valueText: String(cursor.cursor_value_text ?? ""), highWaterText: String(cursor.snapshot_high_water_text ?? ""),
       snapshotKey: String(cursor.snapshot_key),
     };
-  });
+      }); // end db.transaction
+    } catch (err: any) {
+      // Lock not available (NOWAIT / lock_timeout) — skip this source for this run.
+      if (/lock.*not available|could not obtain lock|lock timeout/i.test(err?.message ?? "")) {
+        console.warn(`[CensusStage] Cursor for "${source}" is locked by another process — skipping source this run`);
+        return LOCKED_SENTINEL;
+      }
+      throw err;
+    }
+  }; // end cursorFor
+
   const cursors = {
     prospects: await cursorFor("prospects", "prospects"),
     sunbiz: await cursorFor("sunbiz_entities", "sunbiz_entities"),
@@ -1238,17 +1257,22 @@ export async function stageCro03aSourceCensus(input: {
     discovery: await cursorFor("lead_discovery_results", "lead_discovery_results"),
     master: await cursorFor("master_leads", "master_leads", "uuid"),
   };
+  // Collect names of sources that were skipped due to cursor lock contention.
+  const skippedLocked: string[] = Object.entries(cursors)
+    .filter(([, c]) => c.locked)
+    .map(([src]) => src);
+
   const [prospectRows, sunbizRows, merchantRows, discoveryRows, masterRows] = await Promise.all([
-    db.select().from(prospects).where(and(gt(prospects.id, cursors.prospects.value), lte(prospects.id, cursors.prospects.highWater))).orderBy(prospects.id).limit(limit),
-    db.select().from(sunbizEntities).where(and(gt(sunbizEntities.id, cursors.sunbiz.value), lte(sunbizEntities.id, cursors.sunbiz.highWater))).orderBy(sunbizEntities.id).limit(limit),
-    db.select().from(sdrMerchants).where(and(gt(sdrMerchants.id, cursors.merchants.value), lte(sdrMerchants.id, cursors.merchants.highWater))).orderBy(sdrMerchants.id).limit(limit),
-    db.select().from(leadDiscoveryResults).where(and(gt(leadDiscoveryResults.id, cursors.discovery.value), lte(leadDiscoveryResults.id, cursors.discovery.highWater))).orderBy(leadDiscoveryResults.id).limit(limit),
+    cursors.prospects.locked ? Promise.resolve([]) : db.select().from(prospects).where(and(gt(prospects.id, cursors.prospects.value), lte(prospects.id, cursors.prospects.highWater))).orderBy(prospects.id).limit(limit),
+    cursors.sunbiz.locked ? Promise.resolve([]) : db.select().from(sunbizEntities).where(and(gt(sunbizEntities.id, cursors.sunbiz.value), lte(sunbizEntities.id, cursors.sunbiz.highWater))).orderBy(sunbizEntities.id).limit(limit),
+    cursors.merchants.locked ? Promise.resolve([]) : db.select().from(sdrMerchants).where(and(gt(sdrMerchants.id, cursors.merchants.value), lte(sdrMerchants.id, cursors.merchants.highWater))).orderBy(sdrMerchants.id).limit(limit),
+    cursors.discovery.locked ? Promise.resolve([]) : db.select().from(leadDiscoveryResults).where(and(gt(leadDiscoveryResults.id, cursors.discovery.value), lte(leadDiscoveryResults.id, cursors.discovery.highWater))).orderBy(leadDiscoveryResults.id).limit(limit),
     // uuid cursors: empty-string sentinels are not valid uuid literals, so they must
     // never be passed into a uuid-column comparison. An empty highWaterText means the
     // source table had zero rows at snapshot time — nothing to fetch. An empty
     // valueText means scanning has not started yet — omit the lower bound instead of
     // comparing against ''.
-    !cursors.master.highWaterText ? Promise.resolve([]) : db.select().from(masterLeads).where(and(
+    (cursors.master.locked || !cursors.master.highWaterText) ? Promise.resolve([]) : db.select().from(masterLeads).where(and(
       ...(cursors.master.valueText ? [gt(masterLeads.id, cursors.master.valueText)] : []),
       lte(masterLeads.id, cursors.master.highWaterText),
       isNull(masterLeads.canonicalLeadId),
@@ -1281,15 +1305,18 @@ export async function stageCro03aSourceCensus(input: {
     });
     result.replayed ? replayed++ : created++;
   }
+  // Only advance cursors for sources that were not locked — locked sources keep
+  // their current position so the next census run retries them.
   const advances = [
-    ["prospects", prospectRows.at(-1)?.id ?? cursors.prospects.highWater],
-    ["sunbiz", sunbizRows.at(-1)?.id ?? cursors.sunbiz.highWater],
-    ["merchants", merchantRows.at(-1)?.id ?? cursors.merchants.highWater],
-    ["discovery", discoveryRows.at(-1)?.id ?? cursors.discovery.highWater],
-    ["master", masterRows.at(-1)?.id ?? cursors.master.highWaterText],
+    ["prospects", prospectRows.at(-1)?.id ?? cursors.prospects.highWater, cursors.prospects.locked],
+    ["sunbiz", sunbizRows.at(-1)?.id ?? cursors.sunbiz.highWater, cursors.sunbiz.locked],
+    ["merchants", merchantRows.at(-1)?.id ?? cursors.merchants.highWater, cursors.merchants.locked],
+    ["discovery", discoveryRows.at(-1)?.id ?? cursors.discovery.highWater, cursors.discovery.locked],
+    ["master", masterRows.at(-1)?.id ?? cursors.master.highWaterText, cursors.master.locked],
   ] as const;
   await db.transaction(async (tx) => {
-    for (const [source, value] of advances) {
+    for (const [source, value, locked] of advances) {
+      if (locked) continue; // Don't advance a cursor we couldn't lock
       await tx.execute(sql`
         UPDATE cro03a_census_cursors
            SET cursor_value=CASE WHEN snapshot_high_water_text IS NULL THEN ${Number(value) || 0} ELSE cursor_value END,
@@ -1301,6 +1328,7 @@ export async function stageCro03aSourceCensus(input: {
   });
   return {
     created, replayed, total: stageableDrafts.length, skippedUnattested: drafts.length - stageableDrafts.length,
+    skippedLocked: skippedLocked.length > 0 ? skippedLocked : undefined,
     sourceResults: {
       prospects: prospectRows.length, sunbiz_entities: sunbizRows.length,
       sdr_merchants: merchantRows.length, lead_discovery_results: discoveryRows.length,
