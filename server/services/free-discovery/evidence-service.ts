@@ -412,9 +412,23 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
   if (!policy) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_APPROVED_ACTIVATION_POLICY" };
 
   // Gate 6: live runtime attestation — worker fleet must be active (non-expired attestation).
-  const attestation = rows(await db.execute(sql`
-    SELECT id FROM cro03c_runtime_attestations WHERE expires_at > NOW() ORDER BY created_at DESC LIMIT 1
-  `))[0];
+  // Schema note: the table uses `captured_at` (not `created_at`) for ordering.
+  let attestation: { id: string } | undefined;
+  try {
+    attestation = rows(await db.execute(sql`
+      SELECT id FROM cro03c_runtime_attestations WHERE expires_at > NOW() ORDER BY captured_at DESC LIMIT 1
+    `))[0];
+  } catch (attErr: any) {
+    // Distinguish schema/DB errors from legitimate policy denial.
+    // A DB error here (e.g. missing table or column) is a configuration failure,
+    // not a policy denial.  Surface a distinct reason so callers can detect it.
+    const msg = String(attErr?.message ?? "");
+    const reason = /column.*does not exist|relation.*does not exist/i.test(msg)
+      ? "ATTESTATION_SCHEMA_ERROR"
+      : "ATTESTATION_QUERY_ERROR";
+    console.error(`[FreeDiscovery] Gate 6 attestation query failed (${reason}):`, msg);
+    return { status: "PENDING_OPERATOR_ACTIVATION", reason };
+  }
   if (!attestation) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_LIVE_RUNTIME_ATTESTATION" };
 
   // All gates passed — advance disposition to 'validation_admitted' and write audit row.

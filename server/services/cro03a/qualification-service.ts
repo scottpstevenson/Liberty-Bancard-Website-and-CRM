@@ -981,9 +981,17 @@ export async function recoverCro03aQualificationRunsQueueSafe(): Promise<void> {
 }
 
 async function enqueueCro03aQualificationRun(runId: string): Promise<void> {
-  const { getQueueManagerProducers, QUEUE_NAMES } = await import("../queue-manager");
-  const queue = getQueueManagerProducers()?.getQueue(QUEUE_NAMES.CRO03A_QUALIFICATION);
-  if (queue) await queue.add("run", { runId }, { jobId: `cro03a-qualification:${runId}` });
+  // Non-fatal: the run row is already durable in the DB.  If BullMQ or Redis is
+  // unavailable, the scheduled recurring tick will claim queued runs on the next
+  // cycle.  Never let a queue-layer failure cause the HTTP route to return
+  // CRO03_REQUEST_FAILED when the run was successfully created.
+  try {
+    const { getQueueManagerProducers, QUEUE_NAMES } = await import("../queue-manager");
+    const queue = getQueueManagerProducers()?.getQueue(QUEUE_NAMES.CRO03A_QUALIFICATION);
+    if (queue) await queue.add("run", { runId }, { jobId: `cro03a-qualification:${runId}` });
+  } catch (enqueueErr: any) {
+    console.warn("[CRO03A] enqueueCro03aQualificationRun: queue unavailable — run is durable and will be picked up by the scheduler:", enqueueErr?.message);
+  }
 }
 
 export async function getCro03aRun(runId: string, actorId: string, role: string) {
@@ -1263,7 +1271,11 @@ export async function stageCro03aSourceCensus(input: {
   let replayed = 0;
   for (const draft of stageableDrafts) {
     const result = await createCro03SourceBatch({
-      idempotencyKey: `cro03a-census:${draft.subjectType}:${draft.sourceSystem}:${draft.sourceEventKey}`,
+      // Key incorporates a stable payload fingerprint so a changed payload for the
+    // same event key receives a fresh key instead of colliding with the original batch.
+    // Exact retries (identical payload) produce the same hash → replayed.
+    // Changed payloads produce a different hash → new batch, no collision.
+    idempotencyKey: `cro03a-census:${draft.subjectType}:${draft.sourceSystem}:${draft.sourceEventKey}:${hashCro03Evidence(draft.payload).slice(0, 16)}`,
       actorType: "user", actorId: input.actorId, purpose: "staging_review",
       subjects: [draft],
     });

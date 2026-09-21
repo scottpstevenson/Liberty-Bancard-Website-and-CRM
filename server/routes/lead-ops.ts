@@ -2748,6 +2748,34 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
       }
 
+      // ── Shared attestation preflight (run ONCE before processing the batch) ──
+      // Gate 6 inside promoteCandidateForValidation would query cro03c_runtime_attestations
+      // once per candidate.  A schema or policy failure on the first candidate would
+      // repeat 50 identical DB errors.  Instead we probe the attestation table here,
+      // distinguish schema errors from legitimate policy denial, and abort early with
+      // a clear failure reason so the UI does not show a misleading "failed: 50".
+      let sharedAttestationReason: string | null = null;
+      try {
+        const attRow = ((await db.execute(sql`
+          SELECT id FROM cro03c_runtime_attestations WHERE expires_at > NOW() ORDER BY captured_at DESC LIMIT 1
+        `)) as any).rows?.[0];
+        if (!attRow) sharedAttestationReason = "NO_LIVE_RUNTIME_ATTESTATION";
+      } catch (attErr: any) {
+        const msg = String(attErr?.message ?? "");
+        sharedAttestationReason = /column.*does not exist|relation.*does not exist/i.test(msg)
+          ? "ATTESTATION_SCHEMA_ERROR"
+          : "ATTESTATION_QUERY_ERROR";
+        console.error("[BackfillPromotion] Attestation preflight failed:", msg);
+      }
+      if (sharedAttestationReason) {
+        return res.status(422).json({
+          examined: 0, promoted: 0, skipped: 0, failed: 0,
+          preflight: "FAILED",
+          preflightReason: sharedAttestationReason,
+          message: `Attestation preflight failed: ${sharedAttestationReason}. No candidates were processed. Repair the attestation table/schema and retry.`,
+        });
+      }
+
       // Fetch a bounded batch of staged candidates (oldest first for fairness).
       const stagedRows = ((await db.execute(sql`
         SELECT id FROM free_discovery_candidates
@@ -2764,6 +2792,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             results.promoted++;
           } else {
             results.skipped++;
+            if (outcome.reason && !["CANDIDATE_NOT_FOUND", "CANDIDATE_DISPOSITION_INELIGIBLE"].includes(outcome.reason)) {
+              results.errors.push(`${row.id}: skipped(${outcome.reason})`);
+            }
           }
         } catch (promErr: any) {
           results.failed++;
