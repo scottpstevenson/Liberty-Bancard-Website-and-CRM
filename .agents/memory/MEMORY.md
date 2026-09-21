@@ -152,3 +152,6 @@
 - [Live dev DB delta assertion flakiness](live-dev-db-delta-assertion-flakiness.md) — global before/after count assertions flap against this project's shared dev DB; scope to uniquely-prefixed fixture rows instead.
 - [Pilot evidence-completeness chain](pilot-evidence-completeness-chain.md) — terminal state alone isn't proof; walk receipt→resolution→final-outcome; missing checkpoint rows must count as unresolved, not pass by default.
 - [First-party contact-page email crawler](first-party-contact-crawler.md) — Serper->crawler fallback domain-priority order, dual email policies, `_crawlerDeps` test seam, and a benign pre-existing test-noise error to ignore.
+- [CRO-03C inventory AMBIGUOUS prevention](cro03c-inventory-ambiguous-prevention.md) — convergence must check+revoke existing valid inventories before signing a new one; PID-based processIdentity causes stale rows within a 24h TTL on restart.
+- [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources return sentinel and skip both row fetch and cursor advance for that run.
+- [CRO-03C gate diagnostics endpoint](cro03c-gate-diagnostics.md) — GET /api/admin/cro03c/gate-diagnostics returns all prerequisite statuses; closedGateReason is a single enum (null=open); census latest-run at GET /api/cro03a/source-census/latest-run.
