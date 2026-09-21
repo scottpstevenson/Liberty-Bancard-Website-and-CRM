@@ -266,6 +266,112 @@ assert(
   "Client polls GET /api/cro03a/source-census/stage/:runId with encoded runId",
 );
 
+// ── Area 10: Deployment inventory self-convergence ────────────────────────────
+console.log("\n── Area 10: Deployment inventory self-convergence ──");
+
+const convergenceFile = readFileSync(resolve("server/services/cro03-inventory-convergence.ts"), "utf8");
+
+assert(
+  /CRO03D_OPERATOR_PRIVATE_KEY/.test(convergenceFile),
+  "Convergence service reads CRO03D_OPERATOR_PRIVATE_KEY from env",
+);
+assert(
+  /ed25519Sign/.test(convergenceFile),
+  "Convergence service signs the inventory payload with Ed25519",
+);
+assert(
+  /importCro03cDeploymentInventory/.test(convergenceFile),
+  "Convergence service imports via the canonical importCro03cDeploymentInventory function",
+);
+assert(
+  /waitForWorkerHeartbeats/.test(convergenceFile),
+  "Convergence service waits for live worker heartbeats before signing",
+);
+assert(
+  /converged.*true|true.*converged/.test(convergenceFile),
+  "Convergence service returns { converged: true } on success",
+);
+assert(
+  /converged.*false|false.*converged/.test(convergenceFile),
+  "Convergence service returns { converged: false, reason } on failure",
+);
+assert(
+  /24 \* 3600/.test(convergenceFile) || /24h|24 h/.test(convergenceFile),
+  "Inventory TTL is 24 hours",
+);
+
+// Startup wiring
+const indexFile = readFileSync(resolve("server/index.ts"), "utf8");
+assert(
+  /convergeCro03cDeploymentInventory/.test(indexFile),
+  "server/index.ts calls convergeCro03cDeploymentInventory at startup",
+);
+assert(
+  /10_000.*head-start|head-start.*10_000|head-start.*worker|worker.*head-start/.test(indexFile) ||
+  (/convergeCro03cDeploymentInventory/.test(indexFile) && /10_000/.test(indexFile)),
+  "Startup convergence is delayed (10 s head-start for worker heartbeats)",
+);
+
+// Admin re-converge route
+const cro03RouteFile = readFileSync(resolve("server/routes/cro03.ts"), "utf8");
+assert(
+  /deployment-inventory\/converge/.test(cro03RouteFile),
+  "POST /api/admin/cro03c/deployment-inventory/converge route exists",
+);
+
+// ── Area 11: Census staging terminal-state fixes ──────────────────────────────
+console.log("\n── Area 11: Census staging terminal-state fixes ──");
+
+assert(
+  /status.*running|running.*status/.test(cro03RouteFile),
+  "Census background runner marks status as 'running' before staging begins",
+);
+assert(
+  /runningAt/.test(cro03RouteFile),
+  "Census 'running' state includes runningAt timestamp for stale detection",
+);
+assert(
+  /Promise\.race/.test(cro03RouteFile),
+  "Census background runner uses Promise.race for wall-clock timeout",
+);
+assert(
+  /STAGE_TIMEOUT_MS|120_000/.test(cro03RouteFile),
+  "Census background runner has a 120 s wall-clock timeout",
+);
+assert(
+  /status.*stalled|stalled.*status/.test(cro03RouteFile),
+  "Census timeout path sets status='stalled' (not 'running') in terminal state",
+);
+assert(
+  /attempt.*[0-3].*persist|persist.*terminal.*retries|attempt < [23]/.test(cro03RouteFile),
+  "Terminal state write retries up to 3 times before giving up",
+);
+assert(
+  /stallThresholdMs|150_000/.test(cro03RouteFile),
+  "Poll endpoint detects stale 'running' runs after 150 s and returns status='stalled'",
+);
+
+// ── Area 12: Client auto-converge on DEPLOYMENT_INVENTORY_MISSING ─────────────
+console.log("\n── Area 12: Client auto-converge on attestation ──");
+
+const panelFinal = readFileSync(
+  resolve("client/src/pages/dashboard/LeadOps/ProgramHealthPanel.tsx"),
+  "utf8",
+);
+
+assert(
+  /CRO03C_DEPLOYMENT_INVENTORY_MISSING/.test(panelFinal),
+  "Issue Attestation mutation checks for CRO03C_DEPLOYMENT_INVENTORY_MISSING error code",
+);
+assert(
+  /deployment-inventory\/converge/.test(panelFinal),
+  "Issue Attestation mutation calls convergence route when inventory is missing",
+);
+assert(
+  /autoConverged/.test(panelFinal),
+  "Issue Attestation success toast notes when auto-convergence occurred",
+);
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log("\n──────────────────────────────────────────────");
 console.log(`  ${passed} passed, ${failed} failed`);

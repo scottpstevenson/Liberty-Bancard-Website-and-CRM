@@ -200,6 +200,26 @@ export function registerCro03Routes(app: Express): void {
    * workerFleetComplete=false sentinel that blocks a separately governed ceremony
    * against a process that intentionally has no workers (e.g. a web-only replica).
    */
+  // ── POST /api/admin/cro03c/deployment-inventory/converge ─────────────────
+  // Triggers an immediate deployment-inventory self-convergence using the
+  // operator private key already in environment.  Idempotent: safe to call
+  // after every deploy or whenever the gate shows "No attestation".
+  app.post("/api/admin/cro03c/deployment-inventory/converge", isDashboardUser, requireRole("admin"), async (req, res) => {
+    try {
+      const { convergeCro03cDeploymentInventory } = await import("../services/cro03-inventory-convergence");
+      const result = await convergeCro03cDeploymentInventory({
+        actorId: String((req.user as any).id),
+        workerWaitMs: 30_000,
+      });
+      if (result.converged) {
+        return res.status(result.replayed ? 200 : 201).json(result);
+      }
+      return res.status(422).json({ code: result.reason, message: result.detail ?? result.reason });
+    } catch (err: any) {
+      res.status(500).json({ code: "CRO03C_CONVERGENCE_ERROR", message: err?.message });
+    }
+  });
+
   app.get("/api/admin/cro03c/runtime-identity", isDashboardUser, requireRole("admin"), async (_req, res) => {
     const { getCro03cQueueTopologyHash } = await import("../services/queue-manager");
     const { getSharedRedisClient, getBullMqTestPrefix } = await import("../services/queue-connection");
@@ -620,10 +640,12 @@ export function registerCro03Routes(app: Express): void {
 
       // Register the run immediately so concurrent retries see it.
       const actorId = String((req.user as any).id);
+      const now = new Date().toISOString();
       const initialState = {
         runId: idempotencyKey,
         status: "queued" as const,
-        startedAt: new Date().toISOString(),
+        startedAt: now,
+        queuedAt: now,
         limitPerSource: limitPerSource ?? 100,
         actorId,
       };
@@ -632,14 +654,30 @@ export function registerCro03Routes(app: Express): void {
         ON CONFLICT (key) DO NOTHING
       `);
 
-      // Run the staging work in the background with a 90-second statement timeout.
+      // Wall-clock budget: 120 s. SET LOCAL is scoped to a single transaction
+      // and has no effect on a pooled connection outside one — we use a Promise.race
+      // instead so the background job always reaches a terminal state.
+      const STAGE_TIMEOUT_MS = 120_000;
+
       setImmediate(async () => {
+        // Mark the run as "running" so the poll endpoint can distinguish a live
+        // run from a stalled one, and so the client shows a spinner.
+        const runningState = { ...initialState, status: "running", runningAt: new Date().toISOString() };
         try {
-          await db.execute(sql`SET LOCAL statement_timeout = '90s'`);
-        } catch { /* best-effort; some pooled connections ignore this */ }
+          await db.execute(sql`
+            INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(runningState)})
+            ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(runningState)}, updated_at = NOW()
+          `);
+        } catch { /* best-effort — still attempt staging */ }
+
         let finalState: Record<string, unknown>;
         try {
-          const result = await stageCro03aSourceCensus({ actorId, limitPerSource });
+          // Race the staging work against the wall-clock budget.
+          const timeoutError = new Error("CRO03A_STAGING_TIMEOUT");
+          const result = await Promise.race([
+            stageCro03aSourceCensus({ actorId, limitPerSource }),
+            new Promise<never>((_, reject) => setTimeout(() => reject(timeoutError), STAGE_TIMEOUT_MS)),
+          ]);
           finalState = {
             runId: idempotencyKey,
             status: "completed",
@@ -647,20 +685,29 @@ export function registerCro03Routes(app: Express): void {
             ...result,
           };
         } catch (err: any) {
+          const isTimeout = err?.message === "CRO03A_STAGING_TIMEOUT";
           finalState = {
             runId: idempotencyKey,
-            status: "failed",
+            status: isTimeout ? "stalled" : "failed",
             failedAt: new Date().toISOString(),
             error: err?.message ?? String(err),
+            timedOut: isTimeout,
           };
         }
-        try {
-          await db.execute(sql`
-            INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(finalState)})
-            ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(finalState)}, updated_at = NOW()
-          `);
-        } catch (persistErr: any) {
-          console.error("[CensusStage] Failed to persist terminal state:", persistErr?.message);
+
+        // Persist terminal state with up to 3 retries so a transient pool
+        // exhaustion doesn't leave the run permanently in "running".
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await db.execute(sql`
+              INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(finalState)})
+              ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(finalState)}, updated_at = NOW()
+            `);
+            break;
+          } catch (persistErr: any) {
+            console.error(`[CensusStage] Failed to persist terminal state (attempt ${attempt + 1}):`, persistErr?.message);
+            if (attempt < 2) await new Promise((r) => setTimeout(r, 2_000));
+          }
         }
       });
 
@@ -678,10 +725,19 @@ export function registerCro03Routes(app: Express): void {
     try {
       const settingsKey = `cro03a_staging_job:${runId}`;
       const row = ((await db.execute(sql`
-        SELECT value FROM system_settings WHERE key = ${settingsKey}
+        SELECT value, updated_at FROM system_settings WHERE key = ${settingsKey}
       `)) as any).rows?.[0];
       if (!row) return res.status(404).json({ code: "CRO03A_RUN_NOT_FOUND", runId });
       const state = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      // If the run is still "running" but hasn't been updated in >150 s (120 s timeout
+      // + 30 s grace), the background process likely died without persisting terminal state.
+      if (state.status === "running" || state.status === "queued") {
+        const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+        const stallThresholdMs = 150_000;
+        if (updatedAt && Date.now() - updatedAt > stallThresholdMs) {
+          return res.json({ ...state, status: "stalled", stalledAt: new Date().toISOString(), stallReason: "Background process did not update run state within 150 s" });
+        }
+      }
       res.json(state);
     } catch (err: any) {
       res.status(500).json({ code: "CRO03A_POLL_FAILED", message: err?.message });

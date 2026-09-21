@@ -35,6 +35,9 @@ type StagingRunState = {
   startedAt?: string;
   completedAt?: string;
   failedAt?: string;
+  stalledAt?: string;
+  stallReason?: string;
+  timedOut?: boolean;
   created?: number;
   replayed?: number;
   total?: number;
@@ -146,6 +149,13 @@ export function SouthFloridaQualificationPanel() {
     } else if (data.status === "failed") {
       stagingCompletedRef.current = data.runId;
       toast({ title: "Census staging failed", description: data.error ?? "Unknown error", variant: "destructive" });
+    } else if (data.status === "stalled") {
+      stagingCompletedRef.current = data.runId;
+      toast({
+        title: "Census staging stalled",
+        description: data.stallReason ?? "The background run stopped without completing. Retry with a new staging request.",
+        variant: "destructive",
+      });
     }
   }, [stagingPollQuery.data]);
 

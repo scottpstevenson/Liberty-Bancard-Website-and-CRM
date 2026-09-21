@@ -525,7 +525,25 @@ app.use((req, _res, next) => {
         // panel reflects sync mode, not just the startup log.
         const { recordWorkerSuccess, JOB_NAMES } = await import("./services/job-registry");
         await recordWorkerSuccess(JOB_NAMES.GHL_SYNC_MODE).catch(() => {});
-        // W13: Phase 2 ceremony removed from startup — use scripts/cro03d-run-ceremony.ts offline.
+
+        // ── CRO-03C Deployment Inventory Convergence ──────────────────────────
+        // Ensures a valid deployment inventory row exists for the current release
+        // so that POST /api/cro03c/runtime-attestations succeeds without a manual
+        // offline ceremony run after every deploy.
+        // Non-blocking: runs in background after workers have had time to register.
+        setTimeout(async () => {
+          try {
+            const { convergeCro03cDeploymentInventory } = await import("./services/cro03-inventory-convergence");
+            const result = await convergeCro03cDeploymentInventory({ workerWaitMs: 60_000 });
+            if (result.converged) {
+              log(`[CRO03C-Inventory] Converged: inventoryId=${result.inventoryId} replayed=${result.replayed} workers=${result.workerCount}`);
+            } else {
+              console.warn(`[CRO03C-Inventory] Convergence deferred: ${result.reason}${result.detail ? ` — ${result.detail}` : ""}`);
+            }
+          } catch (err: any) {
+            console.warn("[CRO03C-Inventory] Convergence threw unexpectedly:", err?.message);
+          }
+        }, 10_000); // 10 s head-start so workers can register their first heartbeat
       }).catch(async err => {
         console.error("[Queue] Failed to initialize BullMQ — workers remain stopped (fail-closed):", err.message);
         log("GHL sync mode: unavailable");

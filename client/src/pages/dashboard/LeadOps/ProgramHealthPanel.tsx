@@ -234,22 +234,43 @@ export function ProgramHealthPanel() {
     refetchInterval: 30_000,
   });
 
-  const issueAttestationMutation = useMutation<{ replayed: boolean; expiresAt?: string }, Error>({
+  const issueAttestationMutation = useMutation<{ replayed: boolean; expiresAt?: string; autoConverged?: boolean }, Error>({
     mutationFn: async () => {
+      // Step 1: If inventory is missing, self-converge it first (uses the
+      // operator private key already in the server environment).
       const idempotencyKey = `attest-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-      const res = await apiRequest("POST", "/api/cro03c/runtime-attestations", { idempotencyKey });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as any).message ?? `HTTP ${res.status}`);
+      const attemptAttestation = async () => {
+        const res = await apiRequest("POST", "/api/cro03c/runtime-attestations", { idempotencyKey });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw Object.assign(new Error((body as any).message ?? `HTTP ${res.status}`), { code: (body as any).code });
+        }
+        return res.json() as Promise<{ replayed: boolean; expiresAt?: string }>;
+      };
+
+      try {
+        return await attemptAttestation();
+      } catch (firstErr: any) {
+        // Auto-converge if inventory is the only missing piece, then retry once.
+        if (firstErr?.code === "CRO03C_DEPLOYMENT_INVENTORY_MISSING") {
+          const convergeRes = await apiRequest("POST", "/api/admin/cro03c/deployment-inventory/converge", {});
+          if (!convergeRes.ok) {
+            const body = await convergeRes.json().catch(() => ({}));
+            throw new Error(`Inventory convergence failed: ${(body as any).message ?? convergeRes.status}`);
+          }
+          const result = await attemptAttestation();
+          return { ...result, autoConverged: true };
+        }
+        throw firstErr;
       }
-      return res.json();
     },
     onSuccess: (data) => {
+      const convergeNote = data.autoConverged ? " Deployment inventory was auto-converged." : "";
       toast({
         title: data.replayed ? "Attestation already active" : "Runtime attestation issued",
         description: data.replayed
-          ? "A valid attestation was already on record — gate should now be open."
-          : `Gate is now open. Attestation expires at ${data.expiresAt ? new Date(data.expiresAt).toLocaleTimeString() : "unknown"}.`,
+          ? `A valid attestation was on record — gate should now be open.${convergeNote}`
+          : `Gate is now open. Expires at ${data.expiresAt ? new Date(data.expiresAt).toLocaleTimeString() : "unknown"}.${convergeNote}`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/candidates/promotion-state"] });
     },
