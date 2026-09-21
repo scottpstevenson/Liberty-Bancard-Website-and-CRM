@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle } from "lucide-react";
+import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle, ShieldCheck } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -232,6 +232,34 @@ export function ProgramHealthPanel() {
       return r.json();
     },
     refetchInterval: 30_000,
+  });
+
+  const issueAttestationMutation = useMutation<{ replayed: boolean; expiresAt?: string }, Error>({
+    mutationFn: async () => {
+      const idempotencyKey = `attest-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      const res = await apiRequest("POST", "/api/cro03c/runtime-attestations", { idempotencyKey });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).message ?? `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.replayed ? "Attestation already active" : "Runtime attestation issued",
+        description: data.replayed
+          ? "A valid attestation was already on record — gate should now be open."
+          : `Gate is now open. Attestation expires at ${data.expiresAt ? new Date(data.expiresAt).toLocaleTimeString() : "unknown"}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/candidates/promotion-state"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Attestation failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const backfillMutation = useMutation<BackfillResult, Error, number>({
@@ -542,14 +570,32 @@ export function ProgramHealthPanel() {
                   <CheckCircle className="h-3 w-3 mr-1" /> Gate open
                 </Badge>
               ) : (
-                <Badge
-                  className="shrink-0 bg-red-100 text-red-800 border-red-300 hover:bg-red-100 cursor-help"
-                  variant="outline"
-                  title={ps.note}
-                >
-                  <XCircle className="h-3 w-3 mr-1" />
-                  {ps.promotionEnabled && !ps.attestationLive ? "No attestation" : "Gate closed"}
-                </Badge>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Badge
+                    className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100 cursor-help"
+                    variant="outline"
+                    title={ps.note}
+                  >
+                    <XCircle className="h-3 w-3 mr-1" />
+                    {ps.promotionEnabled && !ps.attestationLive ? "No attestation" : "Gate closed"}
+                  </Badge>
+                  {/* Show Issue Attestation button when flag is on but no live row */}
+                  {isAdmin && ps.promotionEnabled && !ps.attestationLive && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[11px] px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
+                      disabled={issueAttestationMutation.isPending}
+                      title="Verify the live worker fleet and issue a runtime attestation so the promotion gate opens"
+                      onClick={() => issueAttestationMutation.mutate()}
+                    >
+                      {issueAttestationMutation.isPending
+                        ? <><RefreshCw className="h-3 w-3 animate-spin" /> Checking…</>
+                        : <><ShieldCheck className="h-3 w-3" /> Issue attestation</>
+                      }
+                    </Button>
+                  )}
+                </div>
               )
             )}
           </div>
