@@ -151,6 +151,121 @@ assert(
   "Panel still shows 'No admission command sent' informational badge",
 );
 
+// ── Area 7: promotion-state checks live attestation (not just feature flag) ──
+console.log("\n── Area 7: promotion-state endpoint checks attestation ──");
+
+assert(
+  /cro03c_runtime_attestations/.test(leadOpsFile),
+  "promotion-state handler queries cro03c_runtime_attestations",
+);
+// The attestation query must appear BEFORE the stagedCount query in the handler.
+const promoStateHandlerStart = leadOpsFile.indexOf("GET /api/lead-ops/candidates/promotion-state");
+const attestQueryIdx = leadOpsFile.indexOf("cro03c_runtime_attestations", promoStateHandlerStart);
+const stagedQueryIdx = leadOpsFile.indexOf("disposition = 'staged'", promoStateHandlerStart);
+assert(
+  promoStateHandlerStart > 0 && attestQueryIdx > promoStateHandlerStart && attestQueryIdx < stagedQueryIdx,
+  "Attestation query precedes staged-count query in promotion-state handler",
+);
+assert(
+  /attestationLive/.test(leadOpsFile),
+  "promotion-state response includes attestationLive",
+);
+assert(
+  /gateOpen/.test(leadOpsFile),
+  "promotion-state response includes gateOpen (flag AND attestation both required)",
+);
+assert(
+  /no live runtime attestation exists/i.test(leadOpsFile),
+  "promotion-state note explains missing attestation when flag is ON but no live row",
+);
+
+// ── Area 8: Census staging is async (202 + runId, idempotency key required) ──
+console.log("\n── Area 8: Census staging async + idempotency ──");
+
+const cro03File = readFileSync(resolve("server/routes/cro03.ts"), "utf8");
+
+assert(
+  /idempotencyKey.*z\.string|z\.string.*idempotencyKey/.test(cro03File),
+  "censusStageSchema requires idempotencyKey field",
+);
+assert(
+  /cro03a_staging_job:/.test(cro03File),
+  "Census staging uses system_settings key prefixed cro03a_staging_job:",
+);
+assert(
+  /setImmediate/.test(cro03File),
+  "Census staging dispatches background work via setImmediate (non-blocking)",
+);
+assert(
+  /202/.test(cro03File),
+  "Census staging route returns 202 (Accepted) immediately",
+);
+assert(
+  /GET.*source-census\/stage\/:runId|source-census\/stage.*:runId/.test(cro03File),
+  "Poll endpoint GET /api/cro03a/source-census/stage/:runId exists",
+);
+assert(
+  /ON CONFLICT.*DO NOTHING/.test(cro03File),
+  "Concurrent retries with same key get no-op insert (DO NOTHING)",
+);
+assert(
+  /status.*queued|queued.*status/.test(cro03File),
+  "Initial job state includes status: queued",
+);
+assert(
+  /status.*completed|completed.*status/.test(cro03File),
+  "Terminal job state includes status: completed",
+);
+assert(
+  /status.*failed|failed.*status/.test(cro03File),
+  "Terminal job state includes status: failed",
+);
+
+// ── Area 9: Client badge uses gateOpen not just promotionEnabled ─────────────
+console.log("\n── Area 9: Client badge uses gateOpen ──");
+
+const panelBig = readFileSync(
+  resolve("client/src/pages/dashboard/LeadOps/ProgramHealthPanel.tsx"),
+  "utf8",
+);
+
+assert(
+  /attestationLive.*boolean|boolean.*attestationLive/.test(panelBig),
+  "PromotionState interface includes attestationLive: boolean",
+);
+assert(
+  /gateOpen.*boolean|boolean.*gateOpen/.test(panelBig),
+  "PromotionState interface includes gateOpen: boolean",
+);
+// Badge now uses gateOpen, not just promotionEnabled.
+const badgeBlock = panelBig.slice(panelBig.indexOf("Gate status badge"), panelBig.indexOf("Gate status badge") + 600);
+assert(
+  /ps\.gateOpen/.test(badgeBlock),
+  "Gate status badge renders based on ps.gateOpen",
+);
+assert(
+  !/ps\.promotionEnabled/.test(badgeBlock),
+  "Gate status badge does NOT render based on ps.promotionEnabled alone",
+);
+// Button also gated on gateOpen.
+assert(
+  /disabled.*gateOpen|gateOpen.*disabled/.test(panelBig),
+  "Promote button is disabled when !ps.gateOpen",
+);
+// Client census mutation now sends idempotency key.
+const sfqpFile = readFileSync(
+  resolve("client/src/components/lead-ops/SouthFloridaQualificationPanel.tsx"),
+  "utf8",
+);
+assert(
+  /idempotencyKey.*census-|census-.*idempotencyKey/.test(sfqpFile),
+  "Census staging mutation sends a client-generated idempotencyKey",
+);
+assert(
+  /source-census\/stage.*encodeURIComponent|encodeURIComponent.*source-census\/stage/.test(sfqpFile),
+  "Client polls GET /api/cro03a/source-census/stage/:runId with encoded runId",
+);
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log("\n──────────────────────────────────────────────");
 console.log(`  ${passed} passed, ${failed} failed`);

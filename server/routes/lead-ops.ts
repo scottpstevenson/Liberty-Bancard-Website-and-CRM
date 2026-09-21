@@ -2716,19 +2716,49 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/candidates/promotion-state", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const enabled = process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true";
+      // Check attestation: requires a non-expired row in cro03c_runtime_attestations.
+      // This is the same gate the promotion action enforces — the state endpoint must
+      // report the same answer so the UI badge is truthful.
+      let attestationLive = false;
+      let attestationReason = "NO_LIVE_RUNTIME_ATTESTATION";
+      try {
+        const attestRows = ((await db.execute(sql`
+          SELECT id FROM cro03c_runtime_attestations
+          WHERE expires_at > NOW()
+          ORDER BY captured_at DESC
+          LIMIT 1
+        `)) as any).rows ?? [];
+        attestationLive = attestRows.length > 0;
+        if (attestationLive) attestationReason = "OK";
+      } catch (attestErr: any) {
+        const msg: string = attestErr?.message ?? "";
+        attestationReason = /relation.*does not exist|column.*does not exist/i.test(msg)
+          ? "ATTESTATION_SCHEMA_ERROR"
+          : "ATTESTATION_QUERY_ERROR";
+      }
+      const gateOpen = enabled && attestationLive;
       const stagedCount = ((await db.execute(sql`
         SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'staged'
       `)) as any).rows?.[0]?.cnt ?? 0;
       const validationAdmittedCount = ((await db.execute(sql`
         SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'validation_admitted'
       `)) as any).rows?.[0]?.cnt ?? 0;
+      let note: string;
+      if (!enabled) {
+        note = "Promotion gate is CLOSED — set FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true to enable.";
+      } else if (!attestationLive) {
+        note = `Promotion gate is CLOSED — feature flag is ON but no live runtime attestation exists (${attestationReason}). Issue a runtime attestation via POST /api/cro03c/runtime-attestations before promoting.`;
+      } else {
+        note = "Promotion gate is OPEN — promoteCandidateForValidation() will advance staged candidates.";
+      }
       res.json({
         promotionEnabled: enabled,
+        attestationLive,
+        attestationReason,
+        gateOpen,
         staged: Number(stagedCount),
         validationAdmitted: Number(validationAdmittedCount),
-        note: enabled
-          ? "Promotion gate is OPEN — promoteCandidateForValidation() will advance staged candidates."
-          : "Promotion gate is CLOSED — set FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true to enable.",
+        note,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });

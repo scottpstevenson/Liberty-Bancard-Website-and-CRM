@@ -92,10 +92,38 @@ export function SouthFloridaQualificationPanel() {
     onError: (error: Error) => toast({ title: "Qualification failed", description: error.message, variant: "destructive" }),
   });
   const stageMutation = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/cro03a/source-census/stage", { limitPerSource: 100 })).json(),
-    onSuccess: (data: { created: number; replayed: number }) => {
+    mutationFn: async () => {
+      // Generate a stable idempotency key for this staging request.
+      // The server uses this to de-duplicate retries and track run state.
+      const idempotencyKey = `census-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      const res = await apiRequest("POST", "/api/cro03a/source-census/stage", {
+        limitPerSource: 100,
+        idempotencyKey,
+      });
+      const initial: { runId: string; status: string } = await res.json();
+      if (initial.status === "completed" || initial.status === "failed") return initial;
+      // Poll until the background job finishes (max ~90 s, 3 s intervals).
+      const runId = initial.runId;
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        try {
+          const poll = await apiRequest("GET", `/api/cro03a/source-census/stage/${encodeURIComponent(runId)}`);
+          const state: { status: string; [k: string]: unknown } = await poll.json();
+          if (state.status === "completed" || state.status === "failed") return state;
+        } catch { /* transient network error — keep polling */ }
+      }
+      // Timed out waiting — return the queued state so the caller can inform the user.
+      return { ...initial, status: "timeout" };
+    },
+    onSuccess: (data: { status: string; created?: number; replayed?: number; error?: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cro03a/source-census"] });
-      toast({ title: "Source census staged", description: `${data.created} new snapshots; ${data.replayed} replayed safely.` });
+      if (data.status === "completed") {
+        toast({ title: "Source census staged", description: `${data.created ?? 0} new snapshots; ${data.replayed ?? 0} replayed safely.` });
+      } else if (data.status === "failed") {
+        toast({ title: "Census staging failed", description: data.error ?? "Unknown error", variant: "destructive" });
+      } else {
+        toast({ title: "Census staging running", description: "The run is still processing. Refresh in a moment to see updated counts." });
+      }
     },
     onError: (error: Error) => toast({ title: "Census staging failed", description: error.message, variant: "destructive" }),
   });

@@ -54,6 +54,10 @@ const policyActivationSchema = z.object({
 }).strict();
 const censusStageSchema = z.object({
   limitPerSource: z.number().int().min(1).max(500).optional(),
+  // Client-generated idempotency key. Required so that:
+  //  - Retries with the same key produce no additional rows (replayed).
+  //  - A new staging run requires a new key (changed payload → new batch).
+  idempotencyKey: z.string().trim().min(8).max(200),
 }).strict();
 const cro03bCommandSchema = z.object({
   handoffIds: z.array(z.string().uuid()).min(1).max(CRO03B_MAX_HANDOFFS_PER_COMMAND),
@@ -590,15 +594,97 @@ export function registerCro03Routes(app: Express): void {
     }
   });
 
+  // ── POST /api/cro03a/source-census/stage ──────────────────────────────────
+  // Async census staging: returns 202 + runId immediately; actual staging
+  // work runs in a background promise bounded by a per-source statement
+  // timeout. Poll GET /api/cro03a/source-census/stage/:runId for progress.
+  //
+  // Idempotency: the client-generated `idempotencyKey` scopes the run.
+  //   - Same key while a run is queued/running → 200 with existing state.
+  //   - Same key after a run completes → 200 with the cached result.
+  //   - New key → 202 + fresh run.
   app.post("/api/cro03a/source-census/stage", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     const parsed = censusStageSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ code: "CRO03A_INVALID_REQUEST", message: "Invalid census scope." });
+    const { idempotencyKey, limitPerSource } = parsed.data;
+    const settingsKey = `cro03a_staging_job:${idempotencyKey}`;
     try {
-      res.status(202).json(await stageCro03aSourceCensus({
-        actorId: String((req.user as any).id), ...parsed.data,
-      }));
+      // Check if a run already exists under this key.
+      const existing = ((await db.execute(sql`
+        SELECT value FROM system_settings WHERE key = ${settingsKey}
+      `)) as any).rows?.[0]?.value;
+      if (existing) {
+        const state = typeof existing === "string" ? JSON.parse(existing) : existing;
+        return res.status(200).json(state);
+      }
+
+      // Register the run immediately so concurrent retries see it.
+      const actorId = String((req.user as any).id);
+      const initialState = {
+        runId: idempotencyKey,
+        status: "queued" as const,
+        startedAt: new Date().toISOString(),
+        limitPerSource: limitPerSource ?? 100,
+        actorId,
+      };
+      await db.execute(sql`
+        INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(initialState)})
+        ON CONFLICT (key) DO NOTHING
+      `);
+
+      // Run the staging work in the background with a 90-second statement timeout.
+      setImmediate(async () => {
+        try {
+          await db.execute(sql`SET LOCAL statement_timeout = '90s'`);
+        } catch { /* best-effort; some pooled connections ignore this */ }
+        let finalState: Record<string, unknown>;
+        try {
+          const result = await stageCro03aSourceCensus({ actorId, limitPerSource });
+          finalState = {
+            runId: idempotencyKey,
+            status: "completed",
+            completedAt: new Date().toISOString(),
+            ...result,
+          };
+        } catch (err: any) {
+          finalState = {
+            runId: idempotencyKey,
+            status: "failed",
+            failedAt: new Date().toISOString(),
+            error: err?.message ?? String(err),
+          };
+        }
+        try {
+          await db.execute(sql`
+            INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(finalState)})
+            ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(finalState)}, updated_at = NOW()
+          `);
+        } catch (persistErr: any) {
+          console.error("[CensusStage] Failed to persist terminal state:", persistErr?.message);
+        }
+      });
+
+      return res.status(202).json(initialState);
     } catch (error) {
       res.status(400).json(safeError(error));
+    }
+  });
+
+  // ── GET /api/cro03a/source-census/stage/:runId ────────────────────────────
+  // Poll for the status of an async census staging run.
+  app.get("/api/cro03a/source-census/stage/:runId", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    const runId = String(req.params.runId ?? "").trim();
+    if (!runId || runId.length < 8) return res.status(400).json({ code: "CRO03A_INVALID_RUN_ID" });
+    try {
+      const settingsKey = `cro03a_staging_job:${runId}`;
+      const row = ((await db.execute(sql`
+        SELECT value FROM system_settings WHERE key = ${settingsKey}
+      `)) as any).rows?.[0];
+      if (!row) return res.status(404).json({ code: "CRO03A_RUN_NOT_FOUND", runId });
+      const state = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      res.json(state);
+    } catch (err: any) {
+      res.status(500).json({ code: "CRO03A_POLL_FAILED", message: err?.message });
     }
   });
 

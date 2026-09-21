@@ -192,6 +192,9 @@ function MetricDisplay({ label, cell, unit = "" }: { label: string; cell?: Metri
 
 interface PromotionState {
   promotionEnabled: boolean;
+  attestationLive: boolean;
+  attestationReason: string;
+  gateOpen: boolean;
   staged: number;
   validationAdmitted: number;
   note: string;
@@ -532,15 +535,20 @@ export function ProgramHealthPanel() {
                 Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
               </CardDescription>
             </div>
-            {/* Gate status badge */}
+            {/* Gate status badge — reflects BOTH feature flag AND live attestation */}
             {ps && (
-              ps.promotionEnabled ? (
+              ps.gateOpen ? (
                 <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
                   <CheckCircle className="h-3 w-3 mr-1" /> Gate open
                 </Badge>
               ) : (
-                <Badge className="shrink-0 bg-red-100 text-red-800 border-red-300 hover:bg-red-100" variant="outline">
-                  <XCircle className="h-3 w-3 mr-1" /> Gate closed
+                <Badge
+                  className="shrink-0 bg-red-100 text-red-800 border-red-300 hover:bg-red-100 cursor-help"
+                  variant="outline"
+                  title={ps.note}
+                >
+                  <XCircle className="h-3 w-3 mr-1" />
+                  {ps.promotionEnabled && !ps.attestationLive ? "No attestation" : "Gate closed"}
                 </Badge>
               )
             )}
@@ -594,8 +602,8 @@ export function ProgramHealthPanel() {
                         size="sm"
                         variant="outline"
                         className="h-6 text-[11px] px-2 gap-1"
-                        disabled={backfillMutation.isPending || !ps?.promotionEnabled}
-                        title={!ps?.promotionEnabled ? "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first" : `Promote up to ${backfillLimit} staged candidates`}
+                        disabled={backfillMutation.isPending || !ps?.gateOpen}
+                        title={!ps?.gateOpen ? (ps?.promotionEnabled ? "No live attestation — issue a runtime attestation first" : "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first") : `Promote up to ${backfillLimit} staged candidates`}
                         onClick={() => backfillMutation.mutate(backfillLimit)}
                       >
                         {backfillMutation.isPending
@@ -604,8 +612,12 @@ export function ProgramHealthPanel() {
                         }
                       </Button>
                     </div>
-                    {!ps?.promotionEnabled && (
-                      <p className="mt-1 text-[10px] text-red-500">Gate closed</p>
+                    {!ps?.gateOpen && (
+                      <p className="mt-1 text-[10px] text-red-500">
+                        {ps?.promotionEnabled && !ps?.attestationLive
+                          ? "No live attestation"
+                          : "Gate closed"}
+                      </p>
                     )}
                   </>
                 )}
