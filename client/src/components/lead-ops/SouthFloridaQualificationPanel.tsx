@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ShieldCheck, Loader2, Play, SearchCheck, XCircle, DatabaseZap, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, Loader2, Play, SearchCheck, XCircle, DatabaseZap, CheckCircle2, Clock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -29,11 +29,28 @@ type Run = {
 };
 type RunStatus = Omit<Run, "runId"> & { id: string };
 
+type StagingRunState = {
+  runId: string;
+  status: string;
+  startedAt?: string;
+  completedAt?: string;
+  failedAt?: string;
+  created?: number;
+  replayed?: number;
+  total?: number;
+  skippedUnattested?: number;
+  sourceResults?: Record<string, number | string>;
+  error?: string;
+};
+
 export function SouthFloridaQualificationPanel() {
   const { toast } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<Preview | null>(null);
   const [run, setRun] = useState<Run | null>(null);
+  const [stagingRun, setStagingRun] = useState<StagingRunState | null>(null);
+  // Track whether we've already fired the completion toast for this run.
+  const stagingCompletedRef = useRef<string | null>(null);
   const census = useQuery<Census>({
     queryKey: ["/api/cro03a/source-census"],
     queryFn: async () => {
@@ -75,6 +92,78 @@ export function SouthFloridaQualificationPanel() {
       // the operator explicitly initiates it. No automatic call is made here.
     }
   }, [runStatus.data]);
+
+  // ── Census staging run polling ──────────────────────────────────────────────
+  // stageMutation only fires the POST and captures the initial runId.
+  // A separate useQuery polls the status endpoint every 3 s while in progress.
+  const stagingActive = stagingRun !== null &&
+    (stagingRun.status === "queued" || stagingRun.status === "running");
+
+  // Timeout sentinel: if we started > 90 s ago and the run is still in progress,
+  // surface the "still running" message.
+  const stagingTimedOut = stagingRun !== null && stagingActive &&
+    Boolean(stagingRun.startedAt) &&
+    Date.now() - new Date(stagingRun.startedAt!).getTime() > 90_000;
+
+  const stagingPollQuery = useQuery<StagingRunState>({
+    queryKey: ["/api/cro03a/source-census/stage", stagingRun?.runId],
+    enabled: stagingActive && !stagingTimedOut,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/cro03a/source-census/stage/${encodeURIComponent(stagingRun!.runId)}`,
+        { credentials: "include" },
+      );
+      if (!response.ok) throw new Error("Unable to poll census staging run");
+      return response.json();
+    },
+    refetchInterval: 3_000,
+    refetchIntervalInBackground: true,
+  });
+
+  useEffect(() => {
+    if (!stagingPollQuery.data) return;
+    const data = stagingPollQuery.data;
+    setStagingRun(data);
+    const alreadyFired = stagingCompletedRef.current === data.runId;
+    if (alreadyFired) return;
+    if (data.status === "completed") {
+      stagingCompletedRef.current = data.runId;
+      queryClient.invalidateQueries({ queryKey: ["/api/cro03a/source-census"] });
+      // Build a per-source breakdown for the toast.
+      const sourceLines = data.sourceResults
+        ? Object.entries(data.sourceResults)
+            .filter(([, v]) => typeof v === "number")
+            .map(([src, count]) => `${src}: ${count}`)
+            .join(", ")
+        : "";
+      toast({
+        title: "Source census staged",
+        description: [
+          `${data.created ?? 0} new · ${data.replayed ?? 0} replayed · ${data.skippedUnattested ?? 0} skipped`,
+          sourceLines ? `Sources — ${sourceLines}` : "",
+        ].filter(Boolean).join(". "),
+      });
+    } else if (data.status === "failed") {
+      stagingCompletedRef.current = data.runId;
+      toast({ title: "Census staging failed", description: data.error ?? "Unknown error", variant: "destructive" });
+    }
+  }, [stagingPollQuery.data]);
+
+  // Also fire the timeout toast once when the sentinel flips.
+  const stagingTimedOutRef = useRef(false);
+  useEffect(() => {
+    if (stagingTimedOut && !stagingTimedOutRef.current) {
+      stagingTimedOutRef.current = true;
+      toast({
+        title: "Census staging still running",
+        description: "The run is taking longer than expected. It will complete in the background — refresh the page later to see updated counts.",
+      });
+    }
+    if (!stagingTimedOut) {
+      stagingTimedOutRef.current = false;
+    }
+  }, [stagingTimedOut]);
+
   const occurrenceIds = useMemo(() => [...selected].sort(), [selected]);
   const previewMutation = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/cro03a/preview", { occurrenceIds })).json(),
@@ -93,37 +182,32 @@ export function SouthFloridaQualificationPanel() {
   });
   const stageMutation = useMutation({
     mutationFn: async () => {
-      // Generate a stable idempotency key for this staging request.
-      // The server uses this to de-duplicate retries and track run state.
       const idempotencyKey = `census-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
       const res = await apiRequest("POST", "/api/cro03a/source-census/stage", {
         limitPerSource: 100,
         idempotencyKey,
       });
-      const initial: { runId: string; status: string } = await res.json();
-      if (initial.status === "completed" || initial.status === "failed") return initial;
-      // Poll until the background job finishes (max ~90 s, 3 s intervals).
-      const runId = initial.runId;
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        try {
-          const poll = await apiRequest("GET", `/api/cro03a/source-census/stage/${encodeURIComponent(runId)}`);
-          const state: { status: string; [k: string]: unknown } = await poll.json();
-          if (state.status === "completed" || state.status === "failed") return state;
-        } catch { /* transient network error — keep polling */ }
-      }
-      // Timed out waiting — return the queued state so the caller can inform the user.
-      return { ...initial, status: "timeout" };
+      const initial: StagingRunState = await res.json();
+      return initial;
     },
-    onSuccess: (data: { status: string; created?: number; replayed?: number; error?: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/cro03a/source-census"] });
+    onSuccess: (data: StagingRunState) => {
+      stagingCompletedRef.current = null;
+      stagingTimedOutRef.current = false;
+      setStagingRun(data);
+      // If the server returned an already-terminal state (e.g. replayed completed run),
+      // surface the result immediately without waiting for polling.
       if (data.status === "completed") {
-        toast({ title: "Source census staged", description: `${data.created ?? 0} new snapshots; ${data.replayed ?? 0} replayed safely.` });
+        stagingCompletedRef.current = data.runId;
+        queryClient.invalidateQueries({ queryKey: ["/api/cro03a/source-census"] });
+        toast({
+          title: "Source census staged",
+          description: `${data.created ?? 0} new · ${data.replayed ?? 0} replayed (replayed from cache).`,
+        });
       } else if (data.status === "failed") {
+        stagingCompletedRef.current = data.runId;
         toast({ title: "Census staging failed", description: data.error ?? "Unknown error", variant: "destructive" });
-      } else {
-        toast({ title: "Census staging running", description: "The run is still processing. Refresh in a moment to see updated counts." });
       }
+      // queued/running → polling takes over via stagingPollQuery
     },
     onError: (error: Error) => toast({ title: "Census staging failed", description: error.message, variant: "destructive" }),
   });
@@ -185,10 +269,41 @@ export function SouthFloridaQualificationPanel() {
             </label>
           ))}
         </div>
+        {/* ── Census staging progress row ────────────────────────────────── */}
+        {stagingRun && (stagingActive || stagingTimedOut) && (
+          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            {stagingTimedOut ? (
+              <Clock className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            ) : (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-emerald-600 dark:text-emerald-400" />
+            )}
+            <span className="text-muted-foreground">
+              {stagingTimedOut
+                ? "Still running in background — refresh later to see updated counts."
+                : `Census staging ${stagingRun.status}…`}
+            </span>
+            {stagingPollQuery.data?.sourceResults && !stagingTimedOut && (
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                {Object.entries(stagingPollQuery.data.sourceResults)
+                  .filter(([, v]) => typeof v === "number")
+                  .map(([src, count]) => `${src.replace(/_/g, " ")}: ${count}`)
+                  .join(" · ")}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" disabled={stageMutation.isPending} onClick={() => stageMutation.mutate()}>
-            {stageMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <DatabaseZap className="mr-1.5 h-3.5 w-3.5" />}
-            Stage source census
+          <Button
+            variant="outline" size="sm"
+            disabled={stageMutation.isPending || stagingActive}
+            onClick={() => stageMutation.mutate()}
+          >
+            {(stageMutation.isPending || stagingActive) ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <DatabaseZap className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            {stagingActive ? "Staging…" : "Stage source census"}
           </Button>
           <Button variant="outline" size="sm" disabled={!selected.size || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
             {previewMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <SearchCheck className="mr-1.5 h-3.5 w-3.5" />}
