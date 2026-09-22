@@ -2852,6 +2852,199 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // SOUTH FLORIDA PROSPECTING — independent program routes
+  // Works when master_leads = 0, no MI-09 pilot, no CRO-03A handoffs.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // GET /api/lead-ops/sfp/program — get or create the SFP program definition
+  app.get("/api/lead-ops/sfp/program", requireRole("admin"), async (_req, res) => {
+    try {
+      const { ensureProgram } = await import("../services/cro03/south-florida-prospecting");
+      const program = await ensureProgram();
+      res.json(program);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/program/ensure — idempotent program creation
+  app.post("/api/lead-ops/sfp/program/ensure", requireRole("admin"), async (req, res) => {
+    try {
+      const { ensureProgram } = await import("../services/cro03/south-florida-prospecting");
+      const program = await ensureProgram({
+        createdBy: `admin:${(req as any).user?.id ?? "system"}`,
+        maxCohortSize: req.body?.maxCohortSize,
+      });
+      res.json(program);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/funnel — read-only funnel preview with truthful counts
+  app.get("/api/lead-ops/sfp/funnel", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewFunnel } = await import("../services/cro03/south-florida-prospecting");
+      const preview = await previewFunnel({
+        maxPreview: req.query.maxPreview ? Number(req.query.maxPreview) : 25,
+      });
+      res.json(preview);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs — list cohort runs
+  app.get("/api/lead-ops/sfp/runs", requireRole("admin"), async (_req, res) => {
+    try {
+      const { listCohortRuns } = await import("../services/cro03/south-florida-prospecting");
+      const runs = await listCohortRuns();
+      res.json({ runs });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/freeze — freeze a deterministic cohort (idempotent)
+  // Body: { idempotencyKey: string, maxCohortSize?: number }
+  app.post("/api/lead-ops/sfp/runs/freeze", requireRole("admin"), async (req, res) => {
+    try {
+      const { freezeCohort } = await import("../services/cro03/south-florida-prospecting");
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey) {
+        return res.status(400).json({ error: "idempotencyKey is required" });
+      }
+      const result = await freezeCohort({
+        idempotencyKey,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        maxCohortSize: req.body?.maxCohortSize,
+        releaseSha: process.env.RELEASE_SHA ?? "",
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("COHORT_CENSUS_INSUFFICIENT") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId — get a single cohort run
+  app.get("/api/lead-ops/sfp/runs/:runId", requireRole("admin"), async (req, res) => {
+    try {
+      const { getCohortRun } = await import("../services/cro03/south-florida-prospecting");
+      const run = await getCohortRun(String(req.params.runId));
+      if (!run) return res.status(404).json({ error: "SFP cohort run not found" });
+      res.json(run);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/free-evidence — free-evidence report
+  app.get("/api/lead-ops/sfp/runs/:runId/free-evidence", requireRole("admin"), async (req, res) => {
+    try {
+      const { getFreeEvidenceReport } = await import("../services/cro03/south-florida-prospecting");
+      const report = await getFreeEvidenceReport(String(req.params.runId));
+      res.json(report);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("NOT_FROZEN") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/validation-preview — ZeroBounce preview (read-only)
+  app.get("/api/lead-ops/sfp/runs/:runId/validation-preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewSfpValidation } = await import("../services/cro03/sfp-validation");
+      const preview = await previewSfpValidation(String(req.params.runId));
+      res.json(preview);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("NOT_FROZEN") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/:runId/validate — execute bounded validation
+  // Body: { idempotencyKey: string, maxValidations?: number }
+  app.post("/api/lead-ops/sfp/runs/:runId/validate", requireRole("admin"), async (req, res) => {
+    try {
+      const { executeSfpValidation } = await import("../services/cro03/sfp-validation");
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey) {
+        return res.status(400).json({ error: "idempotencyKey is required" });
+      }
+      const result = await executeSfpValidation(String(req.params.runId), {
+        idempotencyKey,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        maxValidations: req.body?.maxValidations,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("BLOCKED") ? 422
+        : err?.message?.includes("NOT_FROZEN") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/prospects — validated outreach prospects with filters
+  app.get("/api/lead-ops/sfp/runs/:runId/prospects", requireRole("admin"), async (req, res) => {
+    try {
+      const { getValidatedProspects } = await import("../services/cro03/south-florida-prospecting");
+      const result = await getValidatedProspects({
+        cohortRunId: String(req.params.runId),
+        filters: {
+          county: req.query.county ? String(req.query.county) : undefined,
+          vertical: req.query.vertical ? String(req.query.vertical) : undefined,
+          namedContact: req.query.namedContact === "true" ? true : req.query.namedContact === "false" ? false : undefined,
+          roleInbox: req.query.roleInbox === "true" ? true : undefined,
+          status: req.query.status as any,
+          outreachEligible: req.query.outreachEligible === "true",
+          reviewRequired: req.query.reviewRequired === "true",
+        },
+        limit: req.query.limit ? Number(req.query.limit) : 50,
+        offset: req.query.offset ? Number(req.query.offset) : 0,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/campaign-staging-preview — preview campaign staging
+  app.get("/api/lead-ops/sfp/runs/:runId/campaign-staging-preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewCampaignStaging } = await import("../services/cro03/south-florida-prospecting");
+      const preview = await previewCampaignStaging(String(req.params.runId));
+      res.json(preview);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/:runId/stage-for-campaign — stage eligible prospects
+  // Body: { idempotencyKey: string, businessIds?: number[] }
+  app.post("/api/lead-ops/sfp/runs/:runId/stage-for-campaign", requireRole("admin"), async (req, res) => {
+    try {
+      const { stageForCampaign } = await import("../services/cro03/south-florida-prospecting");
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey) {
+        return res.status(400).json({ error: "idempotencyKey is required" });
+      }
+      const result = await stageForCampaign({
+        cohortRunId: String(req.params.runId),
+        idempotencyKey,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        businessIds: Array.isArray(req.body?.businessIds) ? req.body.businessIds.map(Number) : undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── POST /api/lead-ops/candidates/backfill-promotion ───────────────────────
   // Bounded backfill: advances staged candidates to validation_admitted.
   // NOW REQUIRES a pilotRunId to bind promotion to a frozen cohort (max 25).

@@ -31,6 +31,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SouthFloridaQualificationPanel } from "@/components/lead-ops/SouthFloridaQualificationPanel";
+import { SouthFloridaProspectingPanel } from "@/components/lead-ops/SouthFloridaProspectingPanel";
 import { SourceRegistryPanel } from "@/pages/dashboard/SourceRegistryPanel";
 import { ProgramHealthPanel } from "@/pages/dashboard/LeadOps/ProgramHealthPanel";
 import { BusinessDetailPanel } from "@/pages/dashboard/LeadOps/BusinessDetailPanel";
@@ -1662,8 +1663,11 @@ export default function LeadOpsCenter() {
           <TabsTrigger value="pipeline" className="gap-1.5 min-h-[44px] text-sm">
             <TrendingUp className="h-4 w-4" aria-hidden /> Inbound Operations
           </TabsTrigger>
+          <TabsTrigger value="sfp" className="gap-1.5 min-h-[44px] text-sm">
+            <MapPin className="h-4 w-4" aria-hidden /> South Florida Prospecting
+          </TabsTrigger>
           <TabsTrigger value="pilot" className="gap-1.5 min-h-[44px] text-sm">
-            🧪 Paid Pilot
+            🧪 Paid Pilot (Legacy)
           </TabsTrigger>
           <TabsTrigger value="health" className="gap-1.5 min-h-[44px] text-sm">
             <HeartPulse className="h-4 w-4" aria-hidden /> Enrichment Program Health
@@ -2610,8 +2614,12 @@ export default function LeadOpsCenter() {
       )}
         </TabsContent>
 
-        {/* ── Health tab ─────────────────────────────────────────────────── */}
-        {/* ── MI-09: Pilot Status tab ─────────────────────────────────── */}
+        {/* ── South Florida Prospecting tab ──────────────────────────────── */}
+        <TabsContent value="sfp" className="space-y-4">
+          <SouthFloridaProspectingPanel />
+        </TabsContent>
+
+        {/* ── MI-09: Pilot Status tab (legacy) ────────────────────────── */}
         <TabsContent value="pilot" className="space-y-4">
           <PilotStatusPanel />
         </TabsContent>

@@ -1953,6 +1953,27 @@
       "when": 1800000008300,
       "tag": "0274_cro03_observation_geo_backfill_sentinel",
       "breakpoints": false
+    },
+    {
+      "idx": 279,
+      "version": "0275",
+      "when": 1800000009000,
+      "tag": "0275_roi_candidate_scores_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 280,
+      "version": "0276",
+      "when": 1800000009100,
+      "tag": "0276_cohort_validation_runs_table",
+      "breakpoints": false
+    },
+    {
+      "idx": 281,
+      "version": "0277",
+      "when": 1800000009200,
+      "tag": "0277_south_florida_prospecting",
+      "breakpoints": false
     }
   ]
 }
