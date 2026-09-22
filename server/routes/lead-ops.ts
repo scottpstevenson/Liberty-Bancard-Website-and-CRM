@@ -2765,15 +2765,119 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // ── Level 1 ROI cohort routes ───────────────────────────────────────────────
+
+  // POST /api/lead-ops/pilot/definitions/ensure-level1 — convergently creates the
+  // canonical Level 1 pilot definition (South FL FIPS + five verticals, no paid
+  // providers, max 25 businesses).
+  app.post("/api/lead-ops/pilot/definitions/ensure-level1", requireRole("admin"), async (req, res) => {
+    try {
+      const { ensureLevel1PilotDefinition } = await import("../services/cro03/level1-roi-cohort");
+      const result = await ensureLevel1PilotDefinition({
+        createdBy: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs/:runId/select-roi-cohort — Level 1 ROI-ranked
+  // cohort selection + freeze. Uses selectRoiCohort() (businesses + business_locations
+  // directly) so it succeeds when master_leads = 0. Idempotent.
+  app.post("/api/lead-ops/pilot/runs/:runId/select-roi-cohort", requireRole("admin"), async (req, res) => {
+    try {
+      const { selectAndFreezeLevel1RoiCohort } = await import("../services/cro03/level1-roi-cohort");
+      const result = await selectAndFreezeLevel1RoiCohort(String(req.params.runId));
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("CENSUS_INSUFFICIENT") ? 409
+        : err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("NOT_LEVEL_1") ? 400
+        : err?.message?.includes("FREEZE_BLOCKED") ? 409
+        : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/pilot/runs/:runId/free-evidence-report — Level 1 free-evidence
+  // summary per frozen cohort business. Shows candidate counts, best masked values,
+  // geography / vertical distribution. Never triggers any paid provider call.
+  app.get("/api/lead-ops/pilot/runs/:runId/free-evidence-report", requireRole("admin"), async (req, res) => {
+    try {
+      const { getLevel1FreeEvidenceReport } = await import("../services/cro03/level1-roi-cohort");
+      const report = await getLevel1FreeEvidenceReport(String(req.params.runId));
+      res.json(report);
+    } catch (err: any) {
+      res.status(err?.message?.includes("NOT_FOUND") ? 404 : 500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/pilot/runs/:runId/validation-preview — preview bounded
+  // ZeroBounce validation for the frozen cohort. Shows exact count, cost, worst-case,
+  // remaining budget, and gate status. Read-only; no provider call.
+  app.get("/api/lead-ops/pilot/runs/:runId/validation-preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewCohortValidation } = await import("../services/cro03/cohort-validation");
+      const preview = await previewCohortValidation(String(req.params.runId));
+      res.json(preview);
+    } catch (err: any) {
+      res.status(err?.message?.includes("NOT_FOUND") ? 404 : 500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/runs/:runId/validate-cohort — operator-authorized
+  // bounded ZeroBounce validation. Max 25 addresses. Only provider_valid results
+  // create master_leads rows. Idempotent by idempotencyKey.
+  // Body: { idempotencyKey: string, maxValidations?: number }
+  app.post("/api/lead-ops/pilot/runs/:runId/validate-cohort", requireRole("admin"), async (req, res) => {
+    try {
+      const { executeBoundedValidation } = await import("../services/cro03/cohort-validation");
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey || idempotencyKey.length > 200) {
+        return res.status(400).json({ error: "idempotencyKey is required (max 200 chars)" });
+      }
+      const result = await executeBoundedValidation(String(req.params.runId), {
+        idempotencyKey,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        maxValidations: req.body?.maxValidations,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("BLOCKED") ? 422
+        : err?.message?.includes("NOT_FROZEN") ? 409
+        : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
   // ── POST /api/lead-ops/candidates/backfill-promotion ───────────────────────
-  // Bounded backfill: advances staged candidates to validation_admitted, at most
-  // `limit` per call (default 50, max 200). Requires the promotion gate to be
-  // open. This corrects the 143 candidates stuck in 'staged' after a production
-  // outage reset the promotion flag to disabled.
+  // Bounded backfill: advances staged candidates to validation_admitted.
+  // NOW REQUIRES a pilotRunId to bind promotion to a frozen cohort (max 25).
+  // Global unbounded promotion is blocked — must specify a frozen cohort.
   app.post("/api/lead-ops/candidates/backfill-promotion", requireRole("admin"), async (req, res) => {
     try {
       const { promoteCandidateForValidation } = await import("../services/free-discovery/evidence-service");
-      const limit = Math.min(Number(req.body?.limit ?? 50), 200);
+
+      // Cohort binding is required — prevents global promotion of all staged candidates.
+      const pilotRunId = req.body?.pilotRunId ? String(req.body.pilotRunId) : null;
+      if (!pilotRunId) {
+        return res.status(400).json({
+          error: "pilotRunId is required. Provide a frozen cohort run ID to scope promotion to at most 25 candidates. Global unbounded promotion is disabled.",
+          documentation: "POST /api/lead-ops/pilot/runs/:runId/validate-cohort is the correct endpoint for cohort-bound validation.",
+        });
+      }
+
+      // Verify the pilot run exists and has a frozen cohort.
+      const { getPilotRun } = await import("../services/mi09-pilot-authority");
+      const run = await getPilotRun(pilotRunId);
+      if (!run) return res.status(404).json({ error: "Pilot run not found" });
+      if (!run.cohort_frozen_hash) {
+        return res.status(409).json({ error: "Pilot run cohort is not frozen. Freeze the cohort first." });
+      }
+
+      const limit = Math.min(Number(req.body?.limit ?? 25), 25);
       if (Number.isNaN(limit) || limit < 1) {
         return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
       }

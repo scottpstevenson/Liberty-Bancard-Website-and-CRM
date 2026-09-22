@@ -2870,6 +2870,22 @@ function PilotStatusPanel() {
     onError: errToast,
   });
 
+  const selectRoiCohortMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await apiRequest("POST", `/api/lead-ops/pilot/runs/${runId}/select-roi-cohort`, {});
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.frozen ? "ROI cohort frozen" : "ROI cohort already frozen",
+        description: `Selected ${data.selectedCount || 0} of ${data.eligiblePoolSize ?? "?"} eligible businesses — top ROI-ranked from South Florida / five verticals. master_leads = 0 is OK.`,
+      });
+      invalidatePilot();
+    },
+    onError: errToast,
+  });
+
   const transitionMutation = useMutation({
     mutationFn: async ({ runId, toState, stopReason }: { runId: string; toState: string; stopReason?: string }) => {
       const res = await apiRequest("POST", `/api/lead-ops/pilot/runs/${runId}/transition`, { toState, stopReason });
@@ -3398,7 +3414,12 @@ function PilotStatusPanel() {
             {r.cohort_frozen_hash && <div className="text-muted-foreground">Cohort frozen: ✓ {String(r.cohort_frozen_hash).slice(0, 12)}…</div>}
             {r.stop_reason && <div className="text-red-600">Stop reason: {r.stop_reason}</div>}
             <div className="flex flex-wrap gap-2 pt-1">
-              {r.state === "draft" && !r.cohort_frozen_hash && (
+              {r.state === "draft" && !r.cohort_frozen_hash && r.level === 1 && (
+                <Button size="sm" variant="outline" disabled={selectRoiCohortMutation.isPending} onClick={() => selectRoiCohortMutation.mutate(r.id)}>
+                  Select ROI Cohort (Level 1)
+                </Button>
+              )}
+              {r.state === "draft" && !r.cohort_frozen_hash && r.level !== 1 && (
                 <Button size="sm" variant="outline" disabled={selectCohortMutation.isPending} onClick={() => selectCohortMutation.mutate(r.id)}>Select &amp; Freeze Cohort</Button>
               )}
               {r.state === "draft" && r.cohort_frozen_hash && (
