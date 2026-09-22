@@ -805,15 +805,18 @@ export function registerCro03Routes(app: Express): void {
         ON CONFLICT (key) DO UPDATE SET value = ${latestRunPayload}, updated_at = NOW()
       `).catch(() => { /* best-effort */ });
 
-      // Wall-clock budget: 120 s. SET LOCAL is scoped to a single transaction
-      // and has no effect on a pooled connection outside one — we use a Promise.race
-      // instead so the background job always reaches a terminal state.
-      const STAGE_TIMEOUT_MS = 120_000;
+      // Safety ceiling: 10 minutes absolute max.  Stall detection uses heartbeat
+      // age (see poll endpoints), NOT elapsed wall-clock time, so a slow-but-healthy
+      // run is never falsely killed within this ceiling.
+      const STAGE_TIMEOUT_MS = 10 * 60_000;
 
       setImmediate(async () => {
         // Mark the run as "running" so the poll endpoint can distinguish a live
         // run from a stalled one, and so the client shows a spinner.
-        const runningState = { ...initialState, status: "running", runningAt: new Date().toISOString() };
+        const runningState: Record<string, unknown> = {
+          ...initialState, status: "running", runningAt: new Date().toISOString(),
+          lastHeartbeat: new Date().toISOString(),
+        };
         try {
           await db.execute(sql`
             INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(runningState)})
@@ -821,12 +824,31 @@ export function registerCro03Routes(app: Express): void {
           `);
         } catch { /* best-effort — still attempt staging */ }
 
+        // onProgress: called every HEARTBEAT_BATCH items.
+        // Writes a live progress snapshot to system_settings so poll endpoints
+        // can verify the run is alive using lastHeartbeat age, not elapsed time.
+        const onProgress = async (p: { completed: number; total: number; currentStage: string }) => {
+          const heartbeatState: Record<string, unknown> = {
+            ...runningState,
+            status: "running",
+            completedItems: p.completed,
+            totalItems: p.total,
+            currentStage: p.currentStage,
+            lastHeartbeat: new Date().toISOString(),
+          };
+          try {
+            await db.execute(sql`
+              INSERT INTO system_settings (key, value) VALUES (${settingsKey}, ${JSON.stringify(heartbeatState)})
+              ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(heartbeatState)}, updated_at = NOW()
+            `);
+          } catch { /* non-fatal */ }
+        };
+
         let finalState: Record<string, unknown>;
         try {
-          // Race the staging work against the wall-clock budget.
           const timeoutError = new Error("CRO03A_STAGING_TIMEOUT");
           const result = await Promise.race([
-            stageCro03aSourceCensus({ actorId, limitPerSource }),
+            stageCro03aSourceCensus({ actorId, limitPerSource, onProgress }),
             new Promise<never>((_, reject) => setTimeout(() => reject(timeoutError), STAGE_TIMEOUT_MS)),
           ]);
           finalState = {
@@ -843,6 +865,7 @@ export function registerCro03Routes(app: Express): void {
             failedAt: new Date().toISOString(),
             error: err?.message ?? String(err),
             timedOut: isTimeout,
+            stallReason: isTimeout ? "Exceeded 10-minute safety ceiling — check DB pool health" : undefined,
           };
         }
 
@@ -888,9 +911,14 @@ export function registerCro03Routes(app: Express): void {
       if (!row) return res.status(404).json({ code: "CRO03A_RUN_NOT_FOUND", runId });
       const state = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
       if (state.status === "running" || state.status === "queued") {
-        const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
-        if (updatedAt && Date.now() - updatedAt > 150_000) {
-          return res.json({ ...state, status: "stalled", stalledAt: new Date().toISOString(), stallReason: "Background process did not update run state within 150 s" });
+        // Prefer lastHeartbeat (written by onProgress microbatch callback) over
+        // updated_at so a slow-but-healthy run is never falsely stalled.
+        const heartbeatMs = state.lastHeartbeat
+          ? new Date(state.lastHeartbeat).getTime()
+          : (row.updated_at ? new Date(row.updated_at).getTime() : 0);
+        const HEARTBEAT_STALL_MS = 90_000; // 90s without a heartbeat = stalled
+        if (heartbeatMs && Date.now() - heartbeatMs > HEARTBEAT_STALL_MS) {
+          return res.json({ ...state, status: "stalled", stalledAt: new Date().toISOString(), stallReason: "No heartbeat received within 90 s — background process may have crashed" });
         }
       }
       res.json(state);
@@ -911,13 +939,15 @@ export function registerCro03Routes(app: Express): void {
       `)) as any).rows?.[0];
       if (!row) return res.status(404).json({ code: "CRO03A_RUN_NOT_FOUND", runId });
       const state = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
-      // If the run is still "running" but hasn't been updated in >150 s (120 s timeout
-      // + 30 s grace), the background process likely died without persisting terminal state.
+      // Stall detection: prefer lastHeartbeat (written by onProgress microbatch callback)
+      // over updated_at so a slow-but-healthy run is never falsely stalled.
       if (state.status === "running" || state.status === "queued") {
-        const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
-        const stallThresholdMs = 150_000;
-        if (updatedAt && Date.now() - updatedAt > stallThresholdMs) {
-          return res.json({ ...state, status: "stalled", stalledAt: new Date().toISOString(), stallReason: "Background process did not update run state within 150 s" });
+        const heartbeatMs = state.lastHeartbeat
+          ? new Date(state.lastHeartbeat).getTime()
+          : (row.updated_at ? new Date(row.updated_at).getTime() : 0);
+        const HEARTBEAT_STALL_MS = 90_000; // 90s without a heartbeat = stalled
+        if (heartbeatMs && Date.now() - heartbeatMs > HEARTBEAT_STALL_MS) {
+          return res.json({ ...state, status: "stalled", stalledAt: new Date().toISOString(), stallReason: "No heartbeat received within 90 s — background process may have crashed" });
         }
       }
       res.json(state);

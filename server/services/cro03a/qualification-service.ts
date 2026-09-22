@@ -1193,9 +1193,12 @@ export async function getCro03aSourceCensus(filters?: {
 }
 
 export async function stageCro03aSourceCensus(input: {
-  actorId: string; limitPerSource?: number;
+  actorId: string;
+  limitPerSource?: number;
+  /** Called after each microbatch of items so the route can persist a heartbeat. */
+  onProgress?: (p: { completed: number; total: number; currentStage: string }) => Promise<void> | void;
 }) {
-  const limit = Math.max(1, Math.min(input.limitPerSource ?? 100, 500));
+  const limit = Math.max(1, Math.min(input.limitPerSource ?? 10, 500));
   const policy = await getActivePolicy();
   const cursorFor = async (source: string, table: string, kind: "number" | "uuid" = "number") => {
     // NOWAIT: if a concurrent census run holds the cursor lock, skip this source
@@ -1293,7 +1296,13 @@ export async function stageCro03aSourceCensus(input: {
   const stageableDrafts = drafts.filter((draft) => !!draft.sourceObservedAt && !!draft.sourceEventKey);
   let created = 0;
   let replayed = 0;
-  for (const draft of stageableDrafts) {
+  // Emit a heartbeat every HEARTBEAT_BATCH items so the route can persist
+  // a lastHeartbeat timestamp.  Stall detection uses this timestamp, not
+  // elapsed wall-clock time, so a slow-but-healthy run is never falsely killed.
+  const HEARTBEAT_BATCH = 5;
+  const totalItems = stageableDrafts.length;
+  for (let i = 0; i < stageableDrafts.length; i++) {
+    const draft = stageableDrafts[i];
     const result = await createCro03SourceBatch({
       // Key incorporates a stable payload fingerprint so a changed payload for the
     // same event key receives a fresh key instead of colliding with the original batch.
@@ -1304,6 +1313,16 @@ export async function stageCro03aSourceCensus(input: {
       subjects: [draft],
     });
     result.replayed ? replayed++ : created++;
+    const completed = i + 1;
+    if (completed % HEARTBEAT_BATCH === 0 || completed === totalItems) {
+      try {
+        await input.onProgress?.({
+          completed,
+          total: totalItems,
+          currentStage: `processing item ${completed}/${totalItems}`,
+        });
+      } catch { /* non-fatal — heartbeat failure must not abort staging */ }
+    }
   }
   // Only advance cursors for sources that were not locked — locked sources keep
   // their current position so the next census run retries them.

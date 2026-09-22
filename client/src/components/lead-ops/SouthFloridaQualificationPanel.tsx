@@ -44,6 +44,11 @@ type StagingRunState = {
   skippedUnattested?: number;
   sourceResults?: Record<string, number | string>;
   error?: string;
+  // Heartbeat fields written by the onProgress microbatch callback
+  lastHeartbeat?: string;
+  currentStage?: string;
+  completedItems?: number;
+  totalItems?: number;
 };
 
 export function SouthFloridaQualificationPanel() {
@@ -52,6 +57,8 @@ export function SouthFloridaQualificationPanel() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [stagingRun, setStagingRun] = useState<StagingRunState | null>(null);
+  // Operator-controlled cohort size (1–50).  Default 10 for the pre-pilot proof.
+  const [limitPerSource, setLimitPerSource] = useState(10);
   // Track whether we've already fired the completion toast for this run.
   const stagingCompletedRef = useRef<string | null>(null);
 
@@ -122,15 +129,9 @@ export function SouthFloridaQualificationPanel() {
   const stagingActive = stagingRun !== null &&
     (stagingRun.status === "queued" || stagingRun.status === "running");
 
-  // Timeout sentinel: if we started > 90 s ago and the run is still in progress,
-  // surface the "still running" message.
-  const stagingTimedOut = stagingRun !== null && stagingActive &&
-    Boolean(stagingRun.startedAt) &&
-    Date.now() - new Date(stagingRun.startedAt!).getTime() > 90_000;
-
   const stagingPollQuery = useQuery<StagingRunState>({
     queryKey: ["/api/cro03a/source-census/stage", stagingRun?.runId],
-    enabled: stagingActive && !stagingTimedOut,
+    enabled: stagingActive,
     queryFn: async () => {
       const response = await fetch(
         `/api/cro03a/source-census/stage/${encodeURIComponent(stagingRun!.runId)}`,
@@ -179,20 +180,6 @@ export function SouthFloridaQualificationPanel() {
     }
   }, [stagingPollQuery.data]);
 
-  // Also fire the timeout toast once when the sentinel flips.
-  const stagingTimedOutRef = useRef(false);
-  useEffect(() => {
-    if (stagingTimedOut && !stagingTimedOutRef.current) {
-      stagingTimedOutRef.current = true;
-      toast({
-        title: "Census staging still running",
-        description: "The run is taking longer than expected. It will complete in the background — refresh the page later to see updated counts.",
-      });
-    }
-    if (!stagingTimedOut) {
-      stagingTimedOutRef.current = false;
-    }
-  }, [stagingTimedOut]);
 
   const occurrenceIds = useMemo(() => [...selected].sort(), [selected]);
   const previewMutation = useMutation({
@@ -214,7 +201,7 @@ export function SouthFloridaQualificationPanel() {
     mutationFn: async () => {
       const idempotencyKey = `census-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
       const res = await apiRequest("POST", "/api/cro03a/source-census/stage", {
-        limitPerSource: 100,
+        limitPerSource,
         idempotencyKey,
       });
       const initial: StagingRunState = await res.json();
@@ -222,7 +209,6 @@ export function SouthFloridaQualificationPanel() {
     },
     onSuccess: (data: StagingRunState) => {
       stagingCompletedRef.current = null;
-      stagingTimedOutRef.current = false;
       setStagingRun(data);
       // If the server returned an already-terminal state (e.g. replayed completed run),
       // surface the result immediately without waiting for polling.
@@ -300,29 +286,45 @@ export function SouthFloridaQualificationPanel() {
           ))}
         </div>
         {/* ── Census staging progress row ────────────────────────────────── */}
-        {stagingRun && (stagingActive || stagingTimedOut) && (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
-            {stagingTimedOut ? (
-              <Clock className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-            ) : (
+        {stagingRun && stagingActive && (
+          <div className="space-y-1 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            <div className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-emerald-600 dark:text-emerald-400" />
+              <span className="text-muted-foreground">
+                {stagingRun.currentStage ?? `Census staging ${stagingRun.status}…`}
+              </span>
+              {stagingRun.completedItems !== undefined && stagingRun.totalItems !== undefined && (
+                <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                  {stagingRun.completedItems}/{stagingRun.totalItems} items
+                </span>
+              )}
+            </div>
+            {stagingRun.lastHeartbeat && (
+              <div className="font-mono text-[10px] text-muted-foreground pl-5">
+                Last heartbeat: {Math.round((Date.now() - new Date(stagingRun.lastHeartbeat).getTime()) / 1000)}s ago
+              </div>
             )}
-            <span className="text-muted-foreground">
-              {stagingTimedOut
-                ? "Still running in background — refresh later to see updated counts."
-                : `Census staging ${stagingRun.status}…`}
-            </span>
-            {stagingPollQuery.data?.sourceResults && !stagingTimedOut && (
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+            {stagingPollQuery.data?.sourceResults && (
+              <div className="font-mono text-[10px] text-muted-foreground pl-5">
                 {Object.entries(stagingPollQuery.data.sourceResults)
                   .filter(([, v]) => typeof v === "number")
                   .map(([src, count]) => `${src.replace(/_/g, " ")}: ${count}`)
                   .join(" · ")}
-              </span>
+              </div>
             )}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Cohort size control — allows bounded pre-pilot runs */}
+          <div className="flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">Per source:</span>
+            <input
+              type="number" min={1} max={50} value={limitPerSource}
+              disabled={stageMutation.isPending || stagingActive}
+              onChange={(e) => setLimitPerSource(Math.max(1, Math.min(50, Number(e.target.value) || 10)))}
+              className="w-12 bg-transparent text-xs text-center focus:outline-none disabled:opacity-50"
+            />
+          </div>
           <Button
             variant="outline" size="sm"
             disabled={stageMutation.isPending || stagingActive}

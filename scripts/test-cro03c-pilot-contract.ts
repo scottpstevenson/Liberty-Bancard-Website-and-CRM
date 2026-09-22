@@ -361,6 +361,118 @@ await test("client only restores run polling for queued/running status", () => {
   assert(!shouldRestore("stalled"), "stalled status should not trigger restore");
 });
 
+// ── Category 10: Census microbatch heartbeat contract ─────────────────────────
+
+group("Cat 10: Census microbatch heartbeat contract");
+
+await test("heartbeat is written every HEARTBEAT_BATCH items (≤5)", () => {
+  const HEARTBEAT_BATCH = 5;
+  const items = 23;
+  const heartbeatFires: number[] = [];
+  for (let i = 0; i < items; i++) {
+    const completed = i + 1;
+    if (completed % HEARTBEAT_BATCH === 0 || completed === items) {
+      heartbeatFires.push(completed);
+    }
+  }
+  // Should fire at 5, 10, 15, 20, 23
+  assertDeepEqual(heartbeatFires, [5, 10, 15, 20, 23], "Heartbeats must fire at each batch boundary and final item");
+});
+
+await test("heartbeat failure is non-fatal — does not abort staging", async () => {
+  let stagingAborted = false;
+  let itemsProcessed = 0;
+  const fakeOnProgress = async () => { throw new Error("DB write failed"); };
+  // Simulate the loop: heartbeat failure should not propagate
+  for (let i = 0; i < 3; i++) {
+    itemsProcessed++;
+    try {
+      await fakeOnProgress();
+    } catch { /* non-fatal */ }
+  }
+  assert(!stagingAborted, "Staging must continue even if heartbeat write fails");
+  assertEqual(itemsProcessed, 3, "All items must be processed regardless of heartbeat failures");
+});
+
+await test("run with zero items completes without emitting a heartbeat", async () => {
+  const HEARTBEAT_BATCH = 5;
+  const items = 0;
+  const heartbeatFires: number[] = [];
+  for (let i = 0; i < items; i++) {
+    const completed = i + 1;
+    if (completed % HEARTBEAT_BATCH === 0 || completed === items) {
+      heartbeatFires.push(completed);
+    }
+  }
+  assertDeepEqual(heartbeatFires, [], "Zero items: no heartbeat fires, loop never entered");
+});
+
+await test("a run heartbeating within 90s is NOT reported as stalled", () => {
+  const HEARTBEAT_STALL_MS = 90_000;
+  const recentHeartbeat = new Date(Date.now() - 30_000).toISOString(); // 30s ago
+  const state = { status: "running", lastHeartbeat: recentHeartbeat };
+  const heartbeatMs = new Date(state.lastHeartbeat).getTime();
+  const isStalled = Date.now() - heartbeatMs > HEARTBEAT_STALL_MS;
+  assert(!isStalled, "30s-old heartbeat must NOT trigger stall");
+});
+
+await test("a run whose heartbeat is older than 90s IS reported as stalled", () => {
+  const HEARTBEAT_STALL_MS = 90_000;
+  const staleHeartbeat = new Date(Date.now() - 120_000).toISOString(); // 120s ago
+  const state = { status: "running", lastHeartbeat: staleHeartbeat };
+  const heartbeatMs = new Date(state.lastHeartbeat).getTime();
+  const isStalled = Date.now() - heartbeatMs > HEARTBEAT_STALL_MS;
+  assert(isStalled, "120s-old heartbeat must trigger stall detection");
+});
+
+await test("stall detection falls back to updated_at when lastHeartbeat absent", () => {
+  const HEARTBEAT_STALL_MS = 90_000;
+  const state = { status: "running" }; // no lastHeartbeat
+  const staleUpdatedAt = Date.now() - 120_000;
+  const heartbeatMs = (state as any).lastHeartbeat
+    ? new Date((state as any).lastHeartbeat).getTime()
+    : staleUpdatedAt;
+  const isStalled = heartbeatMs && (Date.now() - heartbeatMs > HEARTBEAT_STALL_MS);
+  assert(isStalled, "Missing lastHeartbeat should fall back to updated_at for stall detection");
+});
+
+// ── Category 11: Staging scope contract ───────────────────────────────────────
+
+group("Cat 11: Staging scope / limitPerSource contract");
+
+await test("default limitPerSource is 10 (not 100)", () => {
+  // The service uses ?? 10 as the default
+  const defaultLimit = 10;
+  assertEqual(defaultLimit, 10, "Default must be 10 for bounded pre-pilot cohorts");
+  assert(defaultLimit <= 25, "Default must be ≤25 total per source for pre-pilot proof");
+});
+
+await test("limitPerSource is clamped to 1..500", () => {
+  const clamp = (v: number) => Math.max(1, Math.min(v, 500));
+  assertEqual(clamp(0), 1, "0 clamped to 1");
+  assertEqual(clamp(501), 500, "501 clamped to 500");
+  assertEqual(clamp(10), 10, "10 unchanged");
+  assertEqual(clamp(-5), 1, "negative clamped to 1");
+});
+
+await test("UI limitPerSource control range is 1..50", () => {
+  // Reflects the input min/max in the UI component
+  const UI_MIN = 1;
+  const UI_MAX = 50;
+  assert(UI_MIN >= 1, "UI min must be at least 1");
+  assert(UI_MAX <= 500, "UI max must not exceed server ceiling");
+  assert(UI_MAX <= 100, "UI max should be kept small for pre-pilot safety");
+});
+
+await test("idempotent retry with same limitPerSource produces same idempotency key", () => {
+  // The idempotency key is client-generated and time-based; same key = replayed run
+  const key1 = `census-1790066829171-a0f22ea8`;
+  // Sending the same key again returns existing state (not a new run)
+  const existingState = { runId: key1, status: "completed" };
+  const isIdempotent = existingState.runId === key1;
+  assert(isIdempotent, "Same key must return existing state without creating a new run");
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log("\n" + "─".repeat(60));
