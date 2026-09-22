@@ -356,6 +356,50 @@ export async function runDrizzleMigrations(): Promise<void> {
         );
         console.log(`[DB Migrate] Inserted baseline sentinel at ${baselineWhen}.`);
       }
+
+      // Production convergence baseline (post-snapshot, pre-0173).
+      //
+      // Migrations 0110–0172 were applied to the production database by earlier
+      // deploys, but drizzle.__drizzle_migrations may not have hash rows for all
+      // of them (e.g., a deploy that ran before full journal tracking was in place).
+      // Without these rows, the Drizzle migrator treats those migrations as
+      // unapplied and tries to re-run bare CREATE TABLE statements — causing a
+      // crash-loop the moment any of those tables already exist.
+      //
+      // Sentinel: if `contact_business_link_candidates` is present in the public
+      // schema, migrations through 0172 (when=1795600000000) must already be
+      // applied. We backfill their hashes so the migrator skips them.
+      const PROD_CONVERGENCE_THROUGH_WHEN = 1795600000000; // 0172_cro02_reviewed_contact_business_links
+      const { rows: cblcSentinel } = await client.query(
+        `SELECT to_regclass('public.contact_business_link_candidates') IS NOT NULL AS present`
+      );
+      if (cblcSentinel[0]?.present) {
+        // Re-fetch existingHashes in case it was modified above.
+        const { rows: existingNow } = await client.query(
+          `SELECT hash FROM "${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}"`
+        );
+        const existingHashesNow = new Set(existingNow.map((r: any) => r.hash));
+
+        const postSnapshotEntries = journal.entries.filter(
+          (e) => e.idx > snapshotEntry.idx && e.when <= PROD_CONVERGENCE_THROUGH_WHEN
+        );
+        let convergenceInserted = 0;
+        for (const entry of postSnapshotEntries) {
+          const hash = computeMigrationHash(entry.tag);
+          if (!hash || existingHashesNow.has(hash)) continue;
+          await client.query(
+            `INSERT INTO "${DRIZZLE_SCHEMA}"."${DRIZZLE_TABLE}" (hash, created_at) VALUES ($1, $2)`,
+            [hash, entry.when]
+          );
+          existingHashesNow.add(hash);
+          convergenceInserted++;
+        }
+        if (convergenceInserted > 0) {
+          console.log(
+            `[DB Migrate] Production convergence: baselined ${convergenceInserted} post-snapshot migration(s) through 0172.`
+          );
+        }
+      }
     }
   } finally {
     client.release();
