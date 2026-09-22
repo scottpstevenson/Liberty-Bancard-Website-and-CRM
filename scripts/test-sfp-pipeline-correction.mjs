@@ -16,6 +16,9 @@ const files = {
   manifest: read("server/services/provider-manifest.ts"),
   schema: read("shared/schema.ts"),
   migration: read("migrations/0278_sfp_governed_operations.sql"),
+  replit: read(".replit"),
+  packageJson: read("package.json"),
+  migrateRunner: read("scripts/migrate.ts"),
   roi: read("server/services/cro03/roi-cohort-selector.ts"),
 };
 
@@ -127,6 +130,12 @@ test("durable SFP schema exists in migration and Drizzle schema", () => {
   }
   has(files.migration, "master_leads_sfp_business_email_uidx");
   has(files.schema, "master_leads_sfp_business_email_uidx");
+});
+test("production deployment applies journaled migrations before API startup", () => {
+  has(files.packageJson, '"db:migrate": "tsx scripts/migrate.ts"');
+  has(files.replit, "npm run db:migrate && RELEASE_SHA=");
+  has(files.migrateRunner, "pg_advisory_lock(hashtext($1))");
+  has(files.migrateRunner, "pg_advisory_unlock(hashtext($1))");
 });
 test("UI actions parse API responses and do not display fake provider status", () => {
   has(files.ui, ")).json()");

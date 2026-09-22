@@ -15,9 +15,18 @@
  */
 
 import { runDrizzleMigrations } from "../server/db-migrate";
+import { pool } from "../server/db";
+
+const DEPLOY_MIGRATION_LOCK = "liberty-bancard:production-deploy-migrations";
 
 async function main() {
   console.log("[migrate] Starting migration runner...");
+
+  // Replit autoscale may start more than one instance for a release. Hold a
+  // session-level advisory lock for the entire migration run so only one
+  // instance performs journal reconciliation at a time. Waiting instances run
+  // the same idempotent check after the first instance releases the lock.
+  const lockClient = await pool.connect();
 
   // Await core migrations without a whole-run timeout.  runDrizzleMigrations
   // uses a dedicated pg.Client with statement_timeout=0 for DDL so that
@@ -27,16 +36,25 @@ async function main() {
   // function would misclassify a legitimate long index build as a success,
   // allowing deployment with a partially applied schema.
   try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [DEPLOY_MIGRATION_LOCK]);
     await runDrizzleMigrations();
     console.log("[migrate] Done.");
   } catch (err: any) {
     console.error("[migrate] Migration failed:", err.message ?? err);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await lockClient
+      .query("SELECT pg_advisory_unlock(hashtext($1))", [DEPLOY_MIGRATION_LOCK])
+      .catch((error: any) => console.error("[migrate] Failed to release deployment lock:", error?.message ?? error));
+    lockClient.release();
   }
 
   // Force exit: pool.end() can hang when a checked-out connection or an
   // outbound socket (e.g. OpenAI indexing call) is still open.
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }
 
-main();
+main().catch((err: any) => {
+  console.error("[migrate] Fatal migration-runner error:", err?.message ?? err);
+  process.exit(1);
+});

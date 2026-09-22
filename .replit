@@ -27,7 +27,7 @@ PORT = "5000"
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "RELEASE_SHA=$(cat dist/RELEASE_SHA 2>/dev/null || echo unset) npm run start"]
+run = ["bash", "-c", "npm run db:migrate && RELEASE_SHA=$(cat dist/RELEASE_SHA 2>/dev/null || echo unset) npm run start"]
 build = ["bash", "-c", "npm run build && git rev-parse HEAD > dist/RELEASE_SHA"]
 
 [workflows]

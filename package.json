@@ -12,6 +12,7 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
+    "db:migrate": "tsx scripts/migrate.ts",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "test:redis-topology": "npx tsx scripts/test-redis-topology.ts",
