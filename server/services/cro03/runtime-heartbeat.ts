@@ -215,6 +215,8 @@ export async function readCro03cWorkerFleet(input: {
   const observed: Cro03cWorkerHeartbeat[] = [];
   const releaseShaWarnings: Cro03cReleaseShaWarning[] = [];
   const generationalSkips: Cro03cGenerationalSkip[] = [];
+  // Pre-build the expected identity set for O(1) membership checks in verification mode.
+  const expectedSet = new Set(input.expectedProcessIdentities);
 
   for (const key of [...new Set(keys)].sort()) {
     let raw: string | null;
@@ -291,7 +293,19 @@ export async function readCro03cWorkerFleet(input: {
         continue;
       }
     } else {
-      // ── VERIFICATION MODE: all checks remain hard failures ──
+      // ── VERIFICATION MODE: only evaluate heartbeats in the expected set ──
+      // Fleet membership is defined by the signed deployment inventory
+      // (expectedProcessIdentities).  Redis can contain foreign heartbeats
+      // from dev workspaces, old deploys, or sibling processes that share the
+      // same key namespace.  Those heartbeats are not part of THIS fleet — the
+      // inventory never listed them — so checking them would produce spurious
+      // topology/environment/deployment mismatches and abort the verification.
+      // We simply ignore keys that aren't in the expected set; the membership
+      // check at the end of the loop still enforces that every expected worker
+      // is present and correct.
+      if (!expectedSet.has(heartbeat.processIdentity)) {
+        continue; // Not a member of the declared fleet — skip without recording.
+      }
       if (heartbeat.queueTopologyHash !== input.expectedQueueTopologyHash) {
         throw new Error("CRO03C_WORKER_TOPOLOGY_MISMATCH");
       }

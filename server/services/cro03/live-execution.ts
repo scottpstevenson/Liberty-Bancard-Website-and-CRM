@@ -661,52 +661,85 @@ export async function createCro03cRuntimeAttestation(input: {
       expiresAt: new Date(replay.expires_at).toISOString(), replayed: true,
     };
   }
-  const { getCro03cQueueTopologyHash } = await import("../queue-manager");
-  const queueTopologyHash = getCro03cQueueTopologyHash();
-  const artifactSha = process.env.RELEASE_SHA ?? "";
-  const deploymentIdentity = process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? "";
-  const environmentIdentity = process.env.NODE_ENV ?? "";
-  if (!SHA1.test(artifactSha) || !deploymentIdentity || !environmentIdentity) throw new Error("CRO03C_RELEASE_UNVERIFIED");
+  // ── Fleet evaluation via ONE shared evaluator ──────────────────────────────
+  // Both gate-diagnostics and this route use evaluateCro03cRuntimeFleet() so
+  // they can never diverge.  Discovery mode scans all heartbeats and skips
+  // foreign generations; verification of the expected set happens here via the
+  // cross-check in the snapshot (missingWorkers / unexpectedWorkers).
+  // No second topology comparison is performed.
+  const { evaluateCro03cRuntimeFleet } = await import("./runtime-fleet-snapshot");
+  const capturedAt = new Date();
+  const snapshot = await evaluateCro03cRuntimeFleet({ now: capturedAt });
+
+  const artifactSha = snapshot.releaseSha;
+  const queueTopologyHash = snapshot.queueTopologyHash;
+  const deploymentIdentity = snapshot.deploymentIdentity;
+  const environmentIdentity = snapshot.environmentIdentity;
+  const dbHealthy = snapshot.dbHealthy;
+  const redisHealthy = snapshot.redisHealthy;
+
+  if (!SHA1.test(artifactSha) || !deploymentIdentity || !environmentIdentity) {
+    throw new Error("CRO03C_RELEASE_UNVERIFIED");
+  }
+
+  // Hard prerequisite gates (must all pass before issuance).
+  // Structured diagnostics are returned so the caller can surface them.
+  if (!snapshot.inventoryValid) {
+    const diagCode = snapshot.warnings.some((w) => w.startsWith("INVENTORY_AMBIGUOUS"))
+      ? "CRO03C_DEPLOYMENT_INVENTORY_AMBIGUOUS"
+      : "CRO03C_DEPLOYMENT_INVENTORY_MISSING";
+    throw Object.assign(new Error(diagCode), {
+      diagnostics: {
+        expectedTopologyHash: queueTopologyHash,
+        observedInventoryTopologyHash: snapshot.inventoryTopologyHash,
+        inventoryId: snapshot.inventoryId,
+        reason: diagCode,
+      },
+    });
+  }
+
+  if (!snapshot.fleetComplete) {
+    throw Object.assign(new Error("CRO03C_WORKER_FLEET_SCAN_INCOMPLETE"), {
+      diagnostics: { generationalSkips: snapshot.generationalSkips },
+    });
+  }
+
+  if (snapshot.logicalWorkers.length === 0) {
+    throw Object.assign(new Error("CRO03C_WORKER_ATTESTATION_UNAVAILABLE"), {
+      diagnostics: {
+        inventoryWorkers: snapshot.inventoryWorkerIdentities,
+        liveWorkers: [],
+        generationalSkips: snapshot.generationalSkips,
+      },
+    });
+  }
+
+  // Verify live fleet matches the inventory declaration.
+  // missingWorkers = expected by inventory but absent from Redis.
+  // unexpectedWorkers = present in Redis but not in inventory (informational).
+  if (snapshot.missingWorkers.length > 0) {
+    throw Object.assign(new Error("CRO03C_WORKER_FLEET_IDENTITY_MISMATCH"), {
+      diagnostics: {
+        expectedTopologyHash: queueTopologyHash,
+        observedTopologyHash: queueTopologyHash,
+        inventoryWorkers: snapshot.inventoryWorkerIdentities.sort(),
+        liveWorkers: snapshot.logicalWorkers,
+        missingWorkers: snapshot.missingWorkers,
+        unexpectedWorkers: snapshot.unexpectedWorkers,
+        generationalSkips: snapshot.generationalSkips,
+      },
+    });
+  }
+
+  // Load the full signed inventory to get inventoryId for the attestation row.
   const inventory = await currentCro03cDeploymentInventory({
     deploymentIdentity, environmentIdentity, releaseSha: artifactSha, queueTopologyHash,
   });
-  let dbHealthy = false;
-  let redisHealthy = false;
-  try {
-    const probe = rows(await db.execute(sql`SELECT 1 AS ok`))[0];
-    dbHealthy = Number(probe?.ok) === 1;
-  } catch {
-    dbHealthy = false;
-  }
-  const redis = getSharedRedisClient();
-  let observedWorker;
-  let observedWorkers: Cro03cWorkerHeartbeat[] = [];
-  if (redis) {
-    try {
-      redisHealthy = await redis.ping() === "PONG";
-    } catch {
-      redisHealthy = false;
-    }
-    if (redisHealthy) {
-      // W09: bind verification to this process's env/deployment so cross-env
-      // heartbeats sharing Redis are rejected during attestation creation.
-      const fleet = await readCro03cWorkerFleet({
-        redis,
-        prefix: getBullMqTestPrefix(),
-        expectedReleaseSha: artifactSha,
-        expectedQueueTopologyHash: queueTopologyHash,
-        expectedProcessIdentities: inventory.workerIdentities,
-        expectedEnvironmentIdentity: environmentIdentity,
-        expectedDeploymentIdentity: deploymentIdentity,
-        now: new Date(),
-      });
-      if (!fleet.complete) throw new Error("CRO03C_WORKER_FLEET_SCAN_INCOMPLETE");
-      observedWorkers = fleet.heartbeats;
-      observedWorker = observedWorkers[0];
-    }
-  }
+
+  const observedWorkers: Cro03cWorkerHeartbeat[] = snapshot.heartbeats;
+  const observedWorker = observedWorkers[0];
   if (!observedWorker) throw new Error("CRO03C_WORKER_ATTESTATION_UNAVAILABLE");
-  const capturedAt = new Date();
+  // capturedAt was captured at the start of the evaluator call (before snapshot) — reuse it.
   const expiresAt = new Date(capturedAt.getTime() + Math.min(Math.max(input.ttlMs ?? 60_000, 1_000), 15 * 60_000));
   const attestation: Cro03cRuntimeAttestation = {
     inventoryId: inventory.inventoryId,

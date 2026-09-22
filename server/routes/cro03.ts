@@ -205,175 +205,60 @@ export function registerCro03Routes(app: Express): void {
   // issuance (inventory, worker fleet, attestation, closed-gate reason) without
   // exposing secrets or key material.
   app.get("/api/admin/cro03c/gate-diagnostics", isDashboardUser, requireRole("admin"), async (_req, res) => {
-    const { getCro03cQueueTopologyHash } = await import("../services/queue-manager");
-    const { getSharedRedisClient, getBullMqTestPrefix } = await import("../services/queue-connection");
-    const { readCro03cWorkerFleet } = await import("../services/cro03/runtime-heartbeat");
+    // ONE shared evaluator — identical fleet evidence as the attestation route.
+    const { evaluateCro03cRuntimeFleet } = await import("../services/cro03/runtime-fleet-snapshot");
 
-    const releaseSha = process.env.RELEASE_SHA ?? null;
-    const deploymentIdentity = process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID ?? null;
-    const environmentIdentity = process.env.NODE_ENV ?? null;
-    const queueTopologyHash = getCro03cQueueTopologyHash();
+    const snap = await evaluateCro03cRuntimeFleet();
 
-    // ── Inventory diagnostic ──────────────────────────────────────────────────
-    type InventoryDiag = { present: boolean; inventoryId?: string; releaseShaMatch?: boolean; environmentMatch?: boolean; deploymentMatch?: boolean; topologyMatch?: boolean; workerIdentitiesInInventory?: string[]; expectedCount?: number; issuedAt?: string; expiresAt?: string; expired?: boolean; ambiguous?: boolean };
-    let inventory: InventoryDiag = { present: false };
-    try {
-      const invRows: any[] = ((await db.execute(sql`
-        SELECT i.id::text, i.release_sha, i.environment_identity, i.deployment_identity,
-               i.queue_topology_hash, i.worker_identities, i.expected_count,
-               i.issued_at::text, i.expires_at::text
-          FROM cro03c_deployment_inventories i
-          LEFT JOIN cro03c_deployment_inventory_revocations r ON r.inventory_id = i.id
-         WHERE r.inventory_id IS NULL AND i.expires_at > NOW()
-           AND i.deployment_identity  = ${deploymentIdentity ?? ""}
-           AND i.environment_identity = ${environmentIdentity ?? ""}
-           AND i.release_sha          = ${releaseSha ?? ""}
-           AND i.queue_topology_hash  = ${queueTopologyHash}
-         ORDER BY i.issued_at DESC LIMIT 2
-      `)) as any).rows ?? [];
-      if (invRows.length === 0) {
-        inventory = { present: false };
-      } else {
-        const row = invRows[0];
-        const rawIds = row.worker_identities;
-        const ids: string[] = typeof rawIds === "string" ? JSON.parse(rawIds) : Array.isArray(rawIds) ? rawIds : [];
-        inventory = {
-          present: true,
-          ambiguous: invRows.length > 1,
-          inventoryId: String(row.id),
-          releaseShaMatch: String(row.release_sha) === releaseSha,
-          environmentMatch: String(row.environment_identity) === environmentIdentity,
-          deploymentMatch: String(row.deployment_identity) === deploymentIdentity,
-          topologyMatch: String(row.queue_topology_hash) === queueTopologyHash,
-          workerIdentitiesInInventory: ids,
-          expectedCount: Number(row.expected_count),
-          issuedAt: String(row.issued_at),
-          expiresAt: String(row.expires_at),
-          expired: new Date(row.expires_at).getTime() <= Date.now(),
-        };
-      }
-    } catch { inventory = { present: false }; }
-
-    // ── Worker fleet diagnostic ───────────────────────────────────────────────
-    type ReleaseShaWarning = { apiSha: string; workerSha: string; processIdentity: string };
-    type GenerationalSkip = { reason: string; processIdentity: string; observed: string; expected: string };
-    type FleetDiag = {
-      present: boolean; count: number; identities?: string[];
-      oldestHeartbeatAgeMs?: number; complete?: boolean; errorCode?: string;
-      /** Unique release SHAs seen in live heartbeats */
-      workerReleaseShas?: string[];
-      /** true when any worker SHA differs from the API SHA — warning only, not a gate failure */
-      shaWarning?: boolean;
-      shaWarnings?: ReleaseShaWarning[];
-      /**
-       * Heartbeats skipped because they belong to a different generation (old topology,
-       * env, deploy, or stale).  Diagnostic evidence only — they are not admitted.
-       */
-      generationalSkips?: GenerationalSkip[];
-      generationalSkipCount?: number;
+    // Map snapshot to the existing response contract so UI clients are unchanged.
+    const inventory = {
+      present: snap.inventoryValid,
+      inventoryId: snap.inventoryId ?? undefined,
+      releaseShaMatch: snap.releaseSha === snap.releaseSha, // always true when valid
+      environmentMatch: snap.inventoryValid,
+      deploymentMatch: snap.inventoryValid,
+      topologyMatch: snap.inventoryTopologyHash === snap.queueTopologyHash,
+      workerIdentitiesInInventory: snap.inventoryWorkerIdentities,
+      ambiguous: snap.warnings.some((w) => w.startsWith("INVENTORY_AMBIGUOUS")),
     };
-    let workerFleet: FleetDiag = { present: false, count: 0 };
-    try {
-      const redis = getSharedRedisClient();
-      if (redis && /^[0-9a-f]{40}$/i.test(releaseSha ?? "")) {
-        const now = new Date();
-        const fleet = await readCro03cWorkerFleet({
-          redis, prefix: getBullMqTestPrefix(),
-          expectedReleaseSha: releaseSha ?? "",
-          expectedQueueTopologyHash: queueTopologyHash,
-          expectedProcessIdentities: [],
-          expectedEnvironmentIdentity: environmentIdentity ?? undefined,
-          expectedDeploymentIdentity: deploymentIdentity ?? undefined,
-          now,
-        });
-        const nowMs = now.getTime();
-        let oldestAgeMs: number | undefined;
-        if (fleet.heartbeats.length > 0) {
-          oldestAgeMs = Math.max(...fleet.heartbeats.map((h) => nowMs - new Date(h.timestamp).getTime()));
-        }
-        const workerReleaseShas = [...new Set(fleet.heartbeats.map((h) => h.releaseSha))];
-        const hasShaWarning = (fleet.releaseShaWarnings?.length ?? 0) > 0;
-        workerFleet = {
-          present: fleet.heartbeats.length > 0,
-          count: fleet.heartbeats.length,
-          identities: fleet.heartbeats.map((h) => h.processIdentity).sort(),
-          oldestHeartbeatAgeMs: oldestAgeMs,
-          complete: fleet.complete,
-          workerReleaseShas,
-          shaWarning: hasShaWarning,
-          shaWarnings: fleet.releaseShaWarnings,
-          generationalSkips: fleet.generationalSkips,
-          generationalSkipCount: fleet.generationalSkips?.length ?? 0,
-        };
-      } else if (!redis) {
-        workerFleet = { present: false, count: 0, errorCode: "REDIS_NOT_INITIALIZED" };
-      } else {
-        workerFleet = { present: false, count: 0, errorCode: "RELEASE_SHA_MISSING_OR_INVALID" };
-      }
-    } catch (err: any) {
-      workerFleet = { present: false, count: 0, errorCode: err?.message?.slice(0, 100) };
-    }
 
-    // ── Attestation diagnostic ────────────────────────────────────────────────
-    type AttestDiag = { present: boolean; attestationId?: string; capturedAt?: string; expiresAt?: string; reason: string };
-    let attestation: AttestDiag = { present: false, reason: "NO_LIVE_RUNTIME_ATTESTATION" };
-    try {
-      const attestRow: any = ((await db.execute(sql`
-        SELECT id::text, captured_at::text, expires_at::text
-          FROM cro03c_runtime_attestations
-         WHERE expires_at > NOW()
-         ORDER BY captured_at DESC LIMIT 1
-      `)) as any).rows?.[0];
-      if (attestRow) {
-        attestation = {
-          present: true,
-          attestationId: String(attestRow.id),
-          capturedAt: String(attestRow.captured_at),
-          expiresAt: String(attestRow.expires_at),
-          reason: "OK",
-        };
-      }
-    } catch { /* already set to missing */ }
+    const workerFleet = {
+      present: snap.logicalWorkers.length > 0,
+      count: snap.logicalWorkers.length,
+      identities: snap.logicalWorkers,
+      oldestHeartbeatAgeMs: snap.oldestHeartbeatAgeMs,
+      complete: snap.fleetComplete,
+      workerReleaseShas: [...new Set(snap.heartbeats.map((h) => h.releaseSha))],
+      shaWarning: snap.hasShaWarning,
+      shaWarnings: snap.releaseShaWarnings,
+      generationalSkips: snap.generationalSkips,
+      generationalSkipCount: snap.generationalSkips.length,
+      missingWorkers: snap.missingWorkers,
+      unexpectedWorkers: snap.unexpectedWorkers,
+    };
 
-    // ── Compute exact closed-gate reason ─────────────────────────────────────
-    // NOTE: API/worker release SHA equality is DIAGNOSTIC EVIDENCE ONLY — a SHA
-    // difference appears as shaWarning=true in workerFleet but is NOT a hard gate.
-    // Hard gates: missing/invalid API SHA, missing/expired/ambiguous inventory,
-    // environment mismatch, empty worker fleet, scan incomplete, no attestation.
-    let closedGateReason: string | null = null;
-    if (!releaseSha || !/^[0-9a-f]{40}$/i.test(releaseSha)) {
-      closedGateReason = "RELEASE_SHA_MISSING_OR_INVALID";
-    } else if (!inventory.present) {
-      closedGateReason = inventory.ambiguous ? "INVENTORY_AMBIGUOUS" : "INVENTORY_MISSING";
-    } else if (inventory.expired) {
-      closedGateReason = "INVENTORY_EXPIRED";
-    } else if (!inventory.environmentMatch) {
-      closedGateReason = "INVENTORY_ENVIRONMENT_MISMATCH";
-    } else if (!workerFleet.present) {
-      closedGateReason = "WORKER_FLEET_EMPTY";
-    } else if (!workerFleet.complete) {
-      closedGateReason = "WORKER_FLEET_SCAN_INCOMPLETE";
-    } else if (!attestation.present) {
-      closedGateReason = "NO_ATTESTATION";
-    } else {
-      closedGateReason = null; // gate is open
-    }
+    const attestation = snap.hasAttestation
+      ? { present: true, attestationId: snap.activeAttestationId, expiresAt: snap.activeAttestationExpiresAt, reason: "OK" }
+      : { present: false, reason: "NO_LIVE_RUNTIME_ATTESTATION" };
 
-    // SHA-difference is surfaced as a yellow warning in the UI, not a gate reason.
-    const shaReleaseWarning = workerFleet.shaWarning
-      ? `Worker SHA(s) differ from API SHA ${releaseSha?.slice(0, 12) ?? ""}… — diagnostic only`
+    const shaReleaseWarning = snap.hasShaWarning
+      ? `Worker SHA(s) differ from API SHA ${snap.releaseSha.slice(0, 12)}… — diagnostic only`
       : null;
 
     res.json({
-      deployedReleaseSha: releaseSha,
-      deploymentIdentity,
-      environmentIdentity,
-      queueTopologyHash,
+      deployedReleaseSha: snap.releaseSha,
+      deploymentIdentity: snap.deploymentIdentity,
+      environmentIdentity: snap.environmentIdentity,
+      queueTopologyHash: snap.queueTopologyHash,
       inventory,
       workerFleet,
       attestation,
-      closedGateReason,
+      closedGateReason: snap.primaryBlockingReason,
       shaReleaseWarning,
+      // Extended fields for the new evaluator — available to updated UI clients.
+      blockingReasons: snap.blockingReasons,
+      warnings: snap.warnings,
+      capturedAt: snap.capturedAt,
     });
   });
 
