@@ -1025,6 +1025,33 @@ class QueueManager {
     await this.setupRepeatableJobs();
     await this.cleanupStaleActiveJobs();
     await this.startCro03cWorkerHeartbeat();
+    // Auto-converge the CRO-03C deployment inventory immediately after publishing the
+    // startup heartbeat.  This eliminates the manual "Issue Attestation" prerequisite:
+    // the inventory is rebuilt from the live Redis fleet evidence on every startup so
+    // the gate-diagnostics endpoint can open the ceremony without operator action.
+    // Fire-and-forget (setImmediate) so a transient convergence error never blocks
+    // the rest of startup.  Errors are logged but do not abort initialization.
+    setImmediate(() => {
+      Promise.resolve().then(async () => {
+        try {
+          const { convergeCro03cDeploymentInventory } = await import("./cro03-inventory-convergence");
+          const result = await convergeCro03cDeploymentInventory({
+            actorId: "system:startup",
+            workerWaitMs: 15_000,
+          });
+          if (result.converged) {
+            console.log(
+              `[CRO03C] Startup inventory convergence: inventoryId=${result.inventoryId}` +
+              ` workers=${result.workerCount} replayed=${result.replayed}`,
+            );
+          } else {
+            console.warn(`[CRO03C] Startup inventory convergence deferred: ${result.reason}${result.detail ? ` — ${result.detail}` : ""}`);
+          }
+        } catch (err: unknown) {
+          console.warn(`[CRO03C] Startup inventory convergence error (non-fatal): ${(err as Error)?.message}`);
+        }
+      });
+    });
 
     // Recover source-registry import runs left in queued/running state by a prior crash.
     // Two phases:

@@ -232,6 +232,9 @@ interface GateDiagnostics {
     /** true when any worker SHA differs from the API SHA — warning only, not a gate failure */
     shaWarning?: boolean;
     shaWarnings?: Array<{ apiSha: string; workerSha: string; processIdentity: string }>;
+    /** Heartbeats skipped because they belong to a different generation (old topology/env/deploy/stale) */
+    generationalSkips?: Array<{ reason: string; processIdentity: string; observed: string; expected: string }>;
+    generationalSkipCount?: number;
   };
   attestation: {
     present: boolean;

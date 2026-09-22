@@ -256,14 +256,21 @@ export function registerCro03Routes(app: Express): void {
 
     // ── Worker fleet diagnostic ───────────────────────────────────────────────
     type ReleaseShaWarning = { apiSha: string; workerSha: string; processIdentity: string };
+    type GenerationalSkip = { reason: string; processIdentity: string; observed: string; expected: string };
     type FleetDiag = {
       present: boolean; count: number; identities?: string[];
       oldestHeartbeatAgeMs?: number; complete?: boolean; errorCode?: string;
       /** Unique release SHAs seen in live heartbeats */
       workerReleaseShas?: string[];
-      /** true when any worker's SHA differs from the API SHA — warning only, not a gate failure */
+      /** true when any worker SHA differs from the API SHA — warning only, not a gate failure */
       shaWarning?: boolean;
       shaWarnings?: ReleaseShaWarning[];
+      /**
+       * Heartbeats skipped because they belong to a different generation (old topology,
+       * env, deploy, or stale).  Diagnostic evidence only — they are not admitted.
+       */
+      generationalSkips?: GenerationalSkip[];
+      generationalSkipCount?: number;
     };
     let workerFleet: FleetDiag = { present: false, count: 0 };
     try {
@@ -295,6 +302,8 @@ export function registerCro03Routes(app: Express): void {
           workerReleaseShas,
           shaWarning: hasShaWarning,
           shaWarnings: fleet.releaseShaWarnings,
+          generationalSkips: fleet.generationalSkips,
+          generationalSkipCount: fleet.generationalSkips?.length ?? 0,
         };
       } else if (!redis) {
         workerFleet = { present: false, count: 0, errorCode: "REDIS_NOT_INITIALIZED" };
