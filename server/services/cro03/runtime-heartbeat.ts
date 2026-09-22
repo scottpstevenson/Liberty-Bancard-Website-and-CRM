@@ -95,11 +95,27 @@ export async function publishCro03cWorkerHeartbeat(
   );
 }
 
+export interface Cro03cReleaseShaWarning {
+  /** SHA the API process reports (from RELEASE_SHA env var / expectedReleaseSha arg) */
+  apiSha: string;
+  /** SHA this individual worker heartbeat carries */
+  workerSha: string;
+  /** The worker's process identity for correlation */
+  processIdentity: string;
+}
+
 export interface Cro03cWorkerFleetRead {
   complete: boolean;
   heartbeats: Cro03cWorkerHeartbeat[];
   /** W06: true when the call was in discovery mode (expectedProcessIdentities=[]) */
   discoveryMode: boolean;
+  /**
+   * SHA-mismatch warnings (non-fatal): populated when one or more heartbeats carry
+   * a release SHA that differs from the expected (API) SHA.  Workers are still
+   * counted as live — SHA equality is diagnostic evidence only, not a gate.
+   * Topology, environment, deployment, and freshness mismatches remain hard failures.
+   */
+  releaseShaWarnings?: Cro03cReleaseShaWarning[];
 }
 
 /**
@@ -173,6 +189,7 @@ export async function readCro03cWorkerFleet(input: {
   const nowMs = (input.now ?? new Date()).getTime();
   const maxAgeMs = input.maxAgeMs ?? CRO03C_WORKER_HEARTBEAT_TTL_MS;
   const observed: Cro03cWorkerHeartbeat[] = [];
+  const releaseShaWarnings: Cro03cReleaseShaWarning[] = [];
   for (const key of [...new Set(keys)].sort()) {
     let raw: string | null;
     try {
@@ -191,9 +208,18 @@ export async function readCro03cWorkerFleet(input: {
     if (!heartbeat.bootIdentity || !heartbeat.processIdentity || !Number.isFinite(timestamp)) {
       throw new Error("CRO03C_WORKER_HEARTBEAT_INVALID");
     }
+    // SHA equality is diagnostic evidence only — do NOT throw.
+    // A worker whose release SHA differs from the API SHA is still counted as live
+    // provided topology, environment, deployment, and freshness all pass.
+    // The caller receives releaseShaWarnings for any such heartbeats.
     if (heartbeat.releaseSha !== input.expectedReleaseSha) {
-      throw new Error("CRO03C_WORKER_RELEASE_MISMATCH");
+      releaseShaWarnings.push({
+        apiSha: input.expectedReleaseSha,
+        workerSha: heartbeat.releaseSha,
+        processIdentity: heartbeat.processIdentity,
+      });
     }
+
     if (heartbeat.queueTopologyHash !== input.expectedQueueTopologyHash) {
       throw new Error("CRO03C_WORKER_TOPOLOGY_MISMATCH");
     }
@@ -216,10 +242,12 @@ export async function readCro03cWorkerFleet(input: {
     observed.push(heartbeat);
   }
 
+  const warnings = releaseShaWarnings.length > 0 ? releaseShaWarnings : undefined;
+
   // W06: In discovery mode, skip fleet-size and identity checks.
   // The caller observes what is present; it does not certify completeness.
   if (discoveryMode) {
-    return { complete: true, heartbeats: observed, discoveryMode: true };
+    return { complete: true, heartbeats: observed, discoveryMode: true, releaseShaWarnings: warnings };
   }
 
   // Verification mode: enforce exact expected membership
@@ -235,5 +263,5 @@ export async function readCro03cWorkerFleet(input: {
   if (expected.some((identity, index) => identity !== actual[index])) {
     throw new Error("CRO03C_WORKER_FLEET_IDENTITY_MISMATCH");
   }
-  return { complete: true, heartbeats: observed, discoveryMode: false };
+  return { complete: true, heartbeats: observed, discoveryMode: false, releaseShaWarnings: warnings };
 }

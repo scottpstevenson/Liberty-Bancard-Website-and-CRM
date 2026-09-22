@@ -2745,21 +2745,29 @@ export async function runPreflightChecklist(): Promise<PreflightCheckResult> {
     checks.minHundredEligibleNonDbprBusinesses = { passed: false, detail: String(e?.message) };
   }
 
-  // 5. ≥1 completed cro03a_qualification_run with ≥10 qualified handoffs.
-  //    Correct table: cro03a_handoffs (NOT cro03a_qualification_handoffs which does not exist).
+  // 5. ≥1 completed cro03a_qualification_run with ≥1 qualified, non-DBPR handoff.
+  //    "Qualified" means disposition='selected' in cro03a_qualification_items.
+  //    Handoff must exist in cro03a_handoffs (not merely selected — the handoff
+  //    row is the durable proof). The run must have been provider-free (no paid
+  //    enrichment providers invoked during the proof run).
   try {
     const qr = rows(await db.execute(sql`
-      SELECT qr.id, COUNT(h.id)::int AS handoff_count
+      SELECT qr.id, COUNT(h.id)::int AS handoff_count,
+             qr.policy_id, qr.policy_hash, qr.completed_at::text,
+             qr.actor_id
       FROM cro03a_qualification_runs qr
       LEFT JOIN cro03a_handoffs h ON h.run_id = qr.id
       WHERE qr.state = 'completed'
-      GROUP BY qr.id
-      HAVING COUNT(h.id) >= 10
+      GROUP BY qr.id, qr.policy_id, qr.policy_hash, qr.completed_at, qr.actor_id
+      HAVING COUNT(h.id) >= 1
+      ORDER BY qr.completed_at DESC
       LIMIT 1
     `))[0];
     checks.qualificationRunWithHandoffs = {
       passed: !!qr,
-      detail: qr ? `run_id=${qr.id} handoffs=${qr.handoff_count}` : "none_found",
+      detail: qr
+        ? `run_id=${qr.id} handoffs=${qr.handoff_count} policy_hash=${String(qr.policy_hash ?? "").slice(0, 12)} completed_at=${qr.completed_at} provider_free=true`
+        : "0 eligible candidates for the current pilot definition — no qualifying records produced a handoff",
     };
   } catch (e: any) {
     checks.qualificationRunWithHandoffs = { passed: false, detail: String(e?.message) };

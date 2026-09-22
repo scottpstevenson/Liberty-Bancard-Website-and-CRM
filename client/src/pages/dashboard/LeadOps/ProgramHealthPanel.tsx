@@ -227,6 +227,11 @@ interface GateDiagnostics {
     oldestHeartbeatAgeMs?: number;
     complete?: boolean;
     errorCode?: string;
+    /** Unique release SHAs seen in live heartbeats */
+    workerReleaseShas?: string[];
+    /** true when any worker SHA differs from the API SHA — warning only, not a gate failure */
+    shaWarning?: boolean;
+    shaWarnings?: Array<{ apiSha: string; workerSha: string; processIdentity: string }>;
   };
   attestation: {
     present: boolean;
@@ -236,6 +241,8 @@ interface GateDiagnostics {
     reason: string;
   };
   closedGateReason: string | null;
+  /** Non-null when a SHA difference exists — shown as yellow warning, not a red failure */
+  shaReleaseWarning?: string | null;
 }
 
 interface BackfillResult {
@@ -636,23 +643,63 @@ export function ProgramHealthPanel() {
         }
         if (!diag) return null;
 
-        const checks: Array<{ label: string; pass: boolean; detail?: string }> = [
+        const apiShaOk = !!diag.deployedReleaseSha && /^[0-9a-f]{40}$/i.test(diag.deployedReleaseSha);
+        const workerReleaseSha = diag.workerFleet.workerReleaseShas?.[0] ?? null;
+        const shasDiffer = diag.workerFleet.shaWarning === true;
+
+        // Hard-gate checks (red = blocked)
+        const checks: Array<{ label: string; pass: boolean; warn?: boolean; detail?: string }> = [
           {
-            label: "Release SHA",
-            pass: !!diag.deployedReleaseSha && /^[0-9a-f]{40}$/i.test(diag.deployedReleaseSha),
+            label: "Live worker heartbeat",
+            pass: diag.workerFleet.present && (diag.workerFleet.complete ?? false),
+            detail: diag.workerFleet.present
+              ? `${diag.workerFleet.count} worker(s)${diag.workerFleet.oldestHeartbeatAgeMs !== undefined ? `, ${Math.round(diag.workerFleet.oldestHeartbeatAgeMs / 1000)}s ago` : ""}`
+              : (diag.workerFleet.errorCode ?? "none found — start worker process"),
+          },
+          {
+            label: "Environment identity",
+            pass: !!diag.environmentIdentity,
+            detail: diag.environmentIdentity ?? "unknown",
+          },
+          {
+            label: "Worker fleet complete",
+            pass: diag.workerFleet.present && (diag.workerFleet.complete ?? false),
+            detail: diag.workerFleet.complete ? `${diag.workerFleet.count} worker(s) confirmed` : "scan incomplete",
+          },
+          {
+            label: "Queue topology compat.",
+            pass: diag.inventory.topologyMatch !== false,
+            detail: diag.inventory.topologyMatch === false ? "topology hash mismatch" : (diag.queueTopologyHash.slice(0, 12) + "…"),
+          },
+          {
+            label: "Capability manifest",
+            pass: diag.inventory.present && !diag.inventory.expired,
+            detail: diag.inventory.present ? (diag.inventory.expired ? "expired" : "present") : "missing",
+          },
+          {
+            label: "API release SHA",
+            pass: apiShaOk,
             detail: diag.deployedReleaseSha ? diag.deployedReleaseSha.slice(0, 12) + "…" : "missing",
+          },
+          {
+            label: "Worker release SHA",
+            // SHA equality is diagnostic — mark as pass, use warn=shasDiffer for yellow
+            pass: diag.workerFleet.present,
+            warn: shasDiffer,
+            detail: workerReleaseSha
+              ? (shasDiffer ? `${workerReleaseSha.slice(0, 12)}… (differs from API)` : `${workerReleaseSha.slice(0, 12)}… (matches)`)
+              : (diag.workerFleet.present ? "checking…" : "no heartbeat"),
+          },
+          {
+            label: "SHA equality",
+            pass: true,  // never a hard gate
+            warn: shasDiffer,
+            detail: shasDiffer ? "SHA differs — diagnostic only" : "matches",
           },
           {
             label: "Deployment inventory",
             pass: diag.inventory.present && !diag.inventory.ambiguous && !diag.inventory.expired,
-            detail: diag.inventory.ambiguous ? "ambiguous (multiple valid rows)" : diag.inventory.present ? (diag.inventory.expired ? "expired" : `${diag.inventory.workerIdentitiesInInventory?.length ?? 0} worker(s)`) : "missing — issue attestation to create",
-          },
-          {
-            label: "Worker heartbeats",
-            pass: diag.workerFleet.present && (diag.workerFleet.complete ?? false),
-            detail: diag.workerFleet.present
-              ? `${diag.workerFleet.count} worker(s)${diag.workerFleet.oldestHeartbeatAgeMs !== undefined ? `, ${Math.round(diag.workerFleet.oldestHeartbeatAgeMs / 1000)}s ago` : ""}`
-              : (diag.workerFleet.errorCode ?? "none found"),
+            detail: diag.inventory.ambiguous ? "ambiguous — run convergence" : diag.inventory.present ? (diag.inventory.expired ? "expired" : `issued ${diag.inventory.issuedAt ? new Date(diag.inventory.issuedAt).toLocaleTimeString() : "?"}`) : "missing — issue attestation",
           },
           {
             label: "Runtime attestation",
@@ -661,21 +708,35 @@ export function ProgramHealthPanel() {
               ? `expires ${new Date(diag.attestation.expiresAt!).toLocaleTimeString()}`
               : diag.closedGateReason ?? "missing",
           },
+          {
+            label: "Provider admission",
+            pass: diag.attestation.present && diag.inventory.present && diag.workerFleet.present,
+            detail: diag.closedGateReason ? `Blocked: ${diag.closedGateReason}` : "Gate open",
+          },
         ];
 
-        const allPass = checks.every((c) => c.pass);
+        const hardFails = checks.filter((c) => !c.pass && !c.warn);
+        const warnings = checks.filter((c) => c.warn);
+        const allPass = hardFails.length === 0;
+
         return (
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-sm">CRO-03C Readiness</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">Prerequisites for runtime attestation issuance.</CardDescription>
+                  <CardDescription className="text-xs mt-0.5">Prerequisites for runtime attestation issuance. SHA equality is diagnostic — not a hard gate.</CardDescription>
                 </div>
                 {allPass ? (
-                  <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
-                    <CheckCircle className="h-3 w-3 mr-1" /> All checks pass
-                  </Badge>
+                  warnings.length > 0 ? (
+                    <Badge className="shrink-0 bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-100" variant="outline">
+                      <AlertTriangle className="h-3 w-3 mr-1" /> SHA differs (warning)
+                    </Badge>
+                  ) : (
+                    <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
+                      <CheckCircle className="h-3 w-3 mr-1" /> All checks pass
+                    </Badge>
+                  )
                 ) : (
                   <Badge className="shrink-0 bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100" variant="outline">
                     <AlertTriangle className="h-3 w-3 mr-1" /> {diag.closedGateReason ?? "Checks failing"}
@@ -684,20 +745,31 @@ export function ProgramHealthPanel() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {checks.map((c) => (
-                  <div key={c.label} className={`rounded-md border px-3 py-2 ${c.pass ? "bg-muted/10" : "bg-amber-50/60 border-amber-200"}`}>
-                    <div className="text-xs text-muted-foreground mb-0.5">{c.label}</div>
-                    <span className={`inline-flex items-center gap-1 text-xs ${c.pass ? "text-green-700" : "text-amber-700"}`}>
-                      {c.pass
-                        ? <CheckCircle className="h-3 w-3 text-green-500" />
-                        : <AlertTriangle className="h-3 w-3 text-amber-500" />
-                      }
-                      {c.pass ? "OK" : "Fail"}
-                    </span>
-                    {c.detail && <div className="text-[10px] text-muted-foreground mt-0.5 truncate" title={c.detail}>{c.detail}</div>}
-                  </div>
-                ))}
+              {diag.shaReleaseWarning && (
+                <div className="mb-3 flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50/60 px-3 py-2 text-xs text-yellow-800">
+                  <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-yellow-600" />
+                  <span>{diag.shaReleaseWarning} — This is expected after a new publish. Workers adopt the new SHA on restart.</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {checks.map((c) => {
+                  const isWarnOnly = c.warn && c.pass;
+                  const isFail = !c.pass;
+                  const bg = isWarnOnly ? "bg-yellow-50/60 border-yellow-200" : isFail ? "bg-amber-50/60 border-amber-200" : "bg-muted/10";
+                  const textColor = isWarnOnly ? "text-yellow-700" : isFail ? "text-amber-700" : "text-green-700";
+                  const Icon = isWarnOnly ? AlertTriangle : isFail ? AlertTriangle : CheckCircle;
+                  const iconColor = isWarnOnly ? "text-yellow-500" : isFail ? "text-amber-500" : "text-green-500";
+                  return (
+                    <div key={c.label} className={`rounded-md border px-3 py-2 ${bg}`}>
+                      <div className="text-xs text-muted-foreground mb-0.5">{c.label}</div>
+                      <span className={`inline-flex items-center gap-1 text-xs ${textColor}`}>
+                        <Icon className={`h-3 w-3 ${iconColor}`} />
+                        {isWarnOnly ? "Warn" : c.pass ? "OK" : "Fail"}
+                      </span>
+                      {c.detail && <div className="text-[10px] text-muted-foreground mt-0.5 truncate" title={c.detail}>{c.detail}</div>}
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

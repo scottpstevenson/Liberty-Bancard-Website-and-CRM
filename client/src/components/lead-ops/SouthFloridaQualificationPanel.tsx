@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ShieldCheck, Loader2, Play, SearchCheck, XCircle, DatabaseZap, CheckCircle2, Clock } from "lucide-react";
+import { ShieldCheck, Loader2, Play, SearchCheck, XCircle, DatabaseZap, CheckCircle2, Clock, Filter, AlertCircle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -51,16 +51,63 @@ type StagingRunState = {
   totalItems?: number;
 };
 
+type PilotCohortFunnel = {
+  pilotDefinition: {
+    id: string | null;
+    level: number;
+    countyScope: string[];
+    verticalScope: string[];
+    maxCohortSize: number;
+  };
+  funnel: {
+    totalSourceRecordsStaged: number;
+    totalDecided: number;
+    undecided: number;
+    outsideGeography: number;
+    existingRelationship: number;
+    insufficientEvidence: number;
+    inactiveEntity: number;
+    excluded: number;
+    duplicate: number;
+    reviewRequired: number;
+    automaticallyEligible: number;
+    handoffsCreated: number;
+    terminalWithoutHandoff: number;
+  };
+  eligibleSummary: string | null;
+  lastQualificationRun: {
+    runId: string;
+    completedAt: string;
+    policyId: string;
+    policyHash: string;
+    handoffCount: number;
+    actorId: string;
+  } | null;
+};
+
 export function SouthFloridaQualificationPanel() {
   const { toast } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<Preview | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [stagingRun, setStagingRun] = useState<StagingRunState | null>(null);
+  const [showCohortFunnel, setShowCohortFunnel] = useState(false);
   // Operator-controlled cohort size (1–50).  Default 10 for the pre-pilot proof.
   const [limitPerSource, setLimitPerSource] = useState(10);
   // Track whether we've already fired the completion toast for this run.
   const stagingCompletedRef = useRef<string | null>(null);
+
+  // Pilot cohort funnel query — loaded on demand
+  const pilotCohortQuery = useQuery<PilotCohortFunnel>({
+    queryKey: ["/api/cro03a/pilot-cohort/eligible"],
+    queryFn: async () => {
+      const response = await fetch("/api/cro03a/pilot-cohort/eligible", { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load pilot cohort funnel");
+      return response.json();
+    },
+    enabled: showCohortFunnel,
+    staleTime: 30_000,
+  });
 
   // On mount: check if there's an in-progress staging run from before the
   // last page refresh. Restores the runId into state so polling resumes.
@@ -285,6 +332,89 @@ export function SouthFloridaQualificationPanel() {
             </label>
           ))}
         </div>
+        {/* ── Pilot cohort funnel ───────────────────────────────────────── */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost" size="sm"
+              className="h-7 gap-1.5 text-xs px-2"
+              onClick={() => setShowCohortFunnel((v) => !v)}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              {showCohortFunnel ? "Hide" : "Find eligible pilot cohort"}
+            </Button>
+            {pilotCohortQuery.isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          </div>
+          {showCohortFunnel && (
+            <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-2">
+              {pilotCohortQuery.isLoading ? (
+                <div className="text-xs text-muted-foreground animate-pulse">Loading pilot cohort funnel…</div>
+              ) : pilotCohortQuery.isError ? (
+                <div className="flex items-center gap-1.5 text-xs text-red-700">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  Failed to load cohort funnel.
+                </div>
+              ) : pilotCohortQuery.data ? (() => {
+                const { pilotDefinition, funnel, eligibleSummary, lastQualificationRun } = pilotCohortQuery.data;
+                const funnelRows = [
+                  { label: "Total source records staged", value: funnel.totalSourceRecordsStaged, color: "text-foreground" },
+                  { label: "Total decided", value: funnel.totalDecided, color: "text-foreground" },
+                  { label: "Undecided (potential)", value: funnel.undecided, color: "text-blue-700" },
+                  { label: "Outside geography", value: funnel.outsideGeography, color: "text-muted-foreground" },
+                  { label: "Existing relationship", value: funnel.existingRelationship, color: "text-muted-foreground" },
+                  { label: "Insufficient evidence", value: funnel.insufficientEvidence, color: "text-amber-700" },
+                  { label: "Inactive entity", value: funnel.inactiveEntity, color: "text-muted-foreground" },
+                  { label: "Excluded / duplicate", value: funnel.excluded + funnel.duplicate, color: "text-muted-foreground" },
+                  { label: "Review required", value: funnel.reviewRequired, color: "text-yellow-700" },
+                  { label: "Automatically eligible", value: funnel.automaticallyEligible, color: "text-green-700" },
+                  { label: "Handoffs created", value: funnel.handoffsCreated, color: funnel.handoffsCreated > 0 ? "text-emerald-700 font-semibold" : "text-muted-foreground" },
+                  { label: "Terminal without handoff", value: funnel.terminalWithoutHandoff, color: "text-muted-foreground" },
+                ];
+                return (
+                  <div className="space-y-2">
+                    {/* Pilot definition */}
+                    <div className="text-[10px] text-muted-foreground space-y-0.5">
+                      <div><span className="font-medium">Level {pilotDefinition.level} pilot</span> · county: {pilotDefinition.countyScope.join(", ")} · vertical: {pilotDefinition.verticalScope.join(", ")} · max cohort: {pilotDefinition.maxCohortSize}</div>
+                    </div>
+                    {/* Eligible summary */}
+                    {eligibleSummary && (
+                      <div className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border ${funnel.automaticallyEligible === 0 ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-green-50 border-green-200 text-green-800"}`}>
+                        {funnel.automaticallyEligible === 0
+                          ? <AlertCircle className="h-3 w-3 shrink-0" />
+                          : <CheckCircle2 className="h-3 w-3 shrink-0" />}
+                        {eligibleSummary}
+                      </div>
+                    )}
+                    {/* Funnel grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                      {funnelRows.map(({ label, value, color }) => (
+                        <div key={label} className="flex items-center justify-between gap-2 rounded border bg-background/80 px-2 py-1">
+                          <span className="text-[10px] text-muted-foreground truncate">{label}</span>
+                          <span className={`text-xs font-mono shrink-0 ${color}`}>{value.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Last qualification run summary */}
+                    {lastQualificationRun && (
+                      <div className="rounded border bg-background/80 px-3 py-2 text-[10px] text-muted-foreground space-y-0.5">
+                        <div className="font-medium text-xs text-foreground">Last qualification run</div>
+                        <div>Run ID: <span className="font-mono">{lastQualificationRun.runId.slice(0, 16)}…</span></div>
+                        <div>Completed: {new Date(lastQualificationRun.completedAt).toLocaleString()}</div>
+                        <div>Policy hash: <span className="font-mono">{lastQualificationRun.policyHash.slice(0, 12)}…</span></div>
+                        <div>Handoffs: <span className={lastQualificationRun.handoffCount > 0 ? "text-green-700 font-semibold" : ""}>{lastQualificationRun.handoffCount}</span></div>
+                        <div>Provider-free: <span className="text-green-700">yes</span></div>
+                      </div>
+                    )}
+                    {!lastQualificationRun && (
+                      <div className="text-[10px] text-muted-foreground">No completed qualification runs yet.</div>
+                    )}
+                  </div>
+                );
+              })() : null}
+            </div>
+          )}
+        </div>
+
         {/* ── Census staging progress row ────────────────────────────────── */}
         {stagingRun && stagingActive && (
           <div className="space-y-1 rounded-md border bg-muted/40 px-3 py-2 text-xs">

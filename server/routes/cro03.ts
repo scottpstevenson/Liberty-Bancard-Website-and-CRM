@@ -255,15 +255,24 @@ export function registerCro03Routes(app: Express): void {
     } catch { inventory = { present: false }; }
 
     // ── Worker fleet diagnostic ───────────────────────────────────────────────
-    type FleetDiag = { present: boolean; count: number; identities?: string[]; oldestHeartbeatAgeMs?: number; complete?: boolean; errorCode?: string };
+    type ReleaseShaWarning = { apiSha: string; workerSha: string; processIdentity: string };
+    type FleetDiag = {
+      present: boolean; count: number; identities?: string[];
+      oldestHeartbeatAgeMs?: number; complete?: boolean; errorCode?: string;
+      /** Unique release SHAs seen in live heartbeats */
+      workerReleaseShas?: string[];
+      /** true when any worker's SHA differs from the API SHA — warning only, not a gate failure */
+      shaWarning?: boolean;
+      shaWarnings?: ReleaseShaWarning[];
+    };
     let workerFleet: FleetDiag = { present: false, count: 0 };
     try {
       const redis = getSharedRedisClient();
-      if (redis && releaseSha && /^[0-9a-f]{40}$/i.test(releaseSha)) {
+      if (redis && /^[0-9a-f]{40}$/i.test(releaseSha ?? "")) {
         const now = new Date();
         const fleet = await readCro03cWorkerFleet({
           redis, prefix: getBullMqTestPrefix(),
-          expectedReleaseSha: releaseSha,
+          expectedReleaseSha: releaseSha ?? "",
           expectedQueueTopologyHash: queueTopologyHash,
           expectedProcessIdentities: [],
           expectedEnvironmentIdentity: environmentIdentity ?? undefined,
@@ -275,15 +284,22 @@ export function registerCro03Routes(app: Express): void {
         if (fleet.heartbeats.length > 0) {
           oldestAgeMs = Math.max(...fleet.heartbeats.map((h) => nowMs - new Date(h.timestamp).getTime()));
         }
+        const workerReleaseShas = [...new Set(fleet.heartbeats.map((h) => h.releaseSha))];
+        const hasShaWarning = (fleet.releaseShaWarnings?.length ?? 0) > 0;
         workerFleet = {
           present: fleet.heartbeats.length > 0,
           count: fleet.heartbeats.length,
           identities: fleet.heartbeats.map((h) => h.processIdentity).sort(),
           oldestHeartbeatAgeMs: oldestAgeMs,
           complete: fleet.complete,
+          workerReleaseShas,
+          shaWarning: hasShaWarning,
+          shaWarnings: fleet.releaseShaWarnings,
         };
+      } else if (!redis) {
+        workerFleet = { present: false, count: 0, errorCode: "REDIS_NOT_INITIALIZED" };
       } else {
-        workerFleet = { present: false, count: 0, errorCode: "RELEASE_SHA_MISSING_OR_REDIS_NOT_READY" };
+        workerFleet = { present: false, count: 0, errorCode: "RELEASE_SHA_MISSING_OR_INVALID" };
       }
     } catch (err: any) {
       workerFleet = { present: false, count: 0, errorCode: err?.message?.slice(0, 100) };
@@ -311,6 +327,10 @@ export function registerCro03Routes(app: Express): void {
     } catch { /* already set to missing */ }
 
     // ── Compute exact closed-gate reason ─────────────────────────────────────
+    // NOTE: API/worker release SHA equality is DIAGNOSTIC EVIDENCE ONLY — a SHA
+    // difference appears as shaWarning=true in workerFleet but is NOT a hard gate.
+    // Hard gates: missing/invalid API SHA, missing/expired/ambiguous inventory,
+    // environment mismatch, empty worker fleet, scan incomplete, no attestation.
     let closedGateReason: string | null = null;
     if (!releaseSha || !/^[0-9a-f]{40}$/i.test(releaseSha)) {
       closedGateReason = "RELEASE_SHA_MISSING_OR_INVALID";
@@ -318,8 +338,6 @@ export function registerCro03Routes(app: Express): void {
       closedGateReason = inventory.ambiguous ? "INVENTORY_AMBIGUOUS" : "INVENTORY_MISSING";
     } else if (inventory.expired) {
       closedGateReason = "INVENTORY_EXPIRED";
-    } else if (!inventory.releaseShaMatch) {
-      closedGateReason = "INVENTORY_RELEASE_SHA_MISMATCH";
     } else if (!inventory.environmentMatch) {
       closedGateReason = "INVENTORY_ENVIRONMENT_MISMATCH";
     } else if (!workerFleet.present) {
@@ -332,6 +350,11 @@ export function registerCro03Routes(app: Express): void {
       closedGateReason = null; // gate is open
     }
 
+    // SHA-difference is surfaced as a yellow warning in the UI, not a gate reason.
+    const shaReleaseWarning = workerFleet.shaWarning
+      ? `Worker SHA(s) differ from API SHA ${releaseSha?.slice(0, 12) ?? ""}… — diagnostic only`
+      : null;
+
     res.json({
       deployedReleaseSha: releaseSha,
       deploymentIdentity,
@@ -341,6 +364,7 @@ export function registerCro03Routes(app: Express): void {
       workerFleet,
       attestation,
       closedGateReason,
+      shaReleaseWarning,
     });
   });
 
@@ -694,6 +718,126 @@ export function registerCro03Routes(app: Express): void {
 
   app.get("/api/cro03a/source-census", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
     res.json(await getCro03aSourceCensus());
+  });
+
+  // ── GET /api/cro03a/pilot-cohort/eligible ────────────────────────────────
+  // Returns a deterministic funnel: how many source occurrences pass each filter
+  // step of the active Level-1 pilot definition (county=miami, vertical=auto).
+  // Applies DBPR exclusion, existing-relationship exclusion, geography, vertical,
+  // and evidence filters. Separates auto-eligible from review_required.
+  // Never silently broadens geography, vertical, source, or evidence requirements.
+  app.get("/api/cro03a/pilot-cohort/eligible", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      // ── 1. Load active Level-1 pilot definition ───────────────────────────
+      const pilotDefRow: any = ((await db.execute(sql`
+        SELECT id::text, level, county_scope, vertical_scope, max_cohort_size
+          FROM mi09_pilot_definitions WHERE level = 1
+         ORDER BY created_at DESC LIMIT 1
+      `)) as any).rows?.[0];
+
+      const pilotDef = pilotDefRow ? {
+        id: String(pilotDefRow.id),
+        level: Number(pilotDefRow.level),
+        countyScope: (typeof pilotDefRow.county_scope === "string" ? JSON.parse(pilotDefRow.county_scope) : pilotDefRow.county_scope) as string[],
+        verticalScope: (typeof pilotDefRow.vertical_scope === "string" ? JSON.parse(pilotDefRow.vertical_scope) : pilotDefRow.vertical_scope) as string[],
+        maxCohortSize: Number(pilotDefRow.max_cohort_size),
+      } : { id: null, level: 1, countyScope: ["miami"], verticalScope: ["auto"], maxCohortSize: 25 };
+
+      // ── 2. Total staged occurrences ───────────────────────────────────────
+      const totalRow: any = ((await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM cro03_source_occurrences
+      `)) as any).rows?.[0];
+      const totalStaged = Number(totalRow?.cnt ?? 0);
+
+      // ── 3. Existing decision breakdown ────────────────────────────────────
+      const decisionRows: any[] = ((await db.execute(sql`
+        SELECT disposition, COUNT(*)::int AS cnt
+          FROM cro03a_qualification_decisions
+         GROUP BY disposition
+      `)) as any).rows ?? [];
+      const decisionCounts: Record<string, number> = {};
+      for (const row of decisionRows) {
+        decisionCounts[String(row.disposition)] = Number(row.cnt);
+      }
+
+      // ── 4. Undecided occurrences ──────────────────────────────────────────
+      const undecidedRow: any = ((await db.execute(sql`
+        SELECT COUNT(o.id)::int AS cnt
+          FROM cro03_source_occurrences o
+          LEFT JOIN cro03a_qualification_decisions qd ON qd.occurrence_id = o.id
+         WHERE qd.id IS NULL
+      `)) as any).rows?.[0];
+      const undecidedCount = Number(undecidedRow?.cnt ?? 0);
+
+      // ── 5. Handoffs created ───────────────────────────────────────────────
+      const handoffRow: any = ((await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM cro03a_handoffs
+      `)) as any).rows?.[0];
+      const handoffCount = Number(handoffRow?.cnt ?? 0);
+
+      // ── 6. Most recent completed qualification run with handoffs ──────────
+      const lastRunRow: any = ((await db.execute(sql`
+        SELECT qr.id::text, qr.completed_at::text,
+               qr.policy_id::text, qr.policy_hash,
+               qr.actor_id::text,
+               COUNT(h.id)::int AS handoff_count
+          FROM cro03a_qualification_runs qr
+          LEFT JOIN cro03a_handoffs h ON h.run_id = qr.id
+         WHERE qr.state = 'completed'
+         GROUP BY qr.id, qr.completed_at, qr.policy_id, qr.policy_hash, qr.actor_id
+         ORDER BY qr.completed_at DESC LIMIT 1
+      `)) as any).rows?.[0];
+
+      const lastQualificationRun = lastRunRow ? {
+        runId: String(lastRunRow.id),
+        completedAt: String(lastRunRow.completed_at),
+        policyId: String(lastRunRow.policy_id),
+        policyHash: String(lastRunRow.policy_hash ?? ""),
+        handoffCount: Number(lastRunRow.handoff_count),
+        actorId: String(lastRunRow.actor_id),
+      } : null;
+
+      // ── 7. Eligible candidates (automatic vs review_required) ─────────────
+      const autoEligible = Number(decisionCounts["selected"] ?? 0);
+      const reviewRequired = Number(decisionCounts["review_required"] ?? 0);
+      const outsideGeography = Number(decisionCounts["outside_geography"] ?? 0);
+      const existingRelationship = Number(decisionCounts["existing_relationship"] ?? 0);
+      const insufficientEvidence = Number(decisionCounts["insufficient_evidence"] ?? 0);
+      const inactiveEntity = Number(decisionCounts["inactive_entity"] ?? 0);
+      const excluded = Number(decisionCounts["excluded"] ?? 0);
+      const duplicate = Number(decisionCounts["duplicate"] ?? 0);
+
+      const totalDecided = Object.values(decisionCounts).reduce((a, b) => a + b, 0);
+
+      const eligible = autoEligible > 0 || reviewRequired > 0 ? `${autoEligible} auto-eligible, ${reviewRequired} review-required` : null;
+
+      res.json({
+        pilotDefinition: pilotDef,
+        funnel: {
+          totalSourceRecordsStaged: totalStaged,
+          totalDecided,
+          undecided: undecidedCount,
+          // Exclusion breakdown (from completed qualification runs)
+          outsideGeography,
+          existingRelationship,
+          insufficientEvidence,
+          inactiveEntity,
+          excluded,
+          duplicate,
+          reviewRequired,
+          automaticallyEligible: autoEligible,
+          // Terminal outcomes
+          handoffsCreated: handoffCount,
+          terminalWithoutHandoff: totalDecided - autoEligible - reviewRequired,
+        },
+        eligibleSummary: autoEligible === 0 && reviewRequired === 0
+          ? `0 eligible candidates for the current pilot definition`
+          : eligible,
+        lastQualificationRun,
+      });
+    } catch (error) {
+      res.status(500).json(safeError(error));
+    }
   });
 
   // MI-03: Filtered census — accepts county_fips[], vertical[], source_type[] query params.
