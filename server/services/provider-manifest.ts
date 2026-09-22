@@ -151,7 +151,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "zerobounce", capability: ["email_validation"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/zerobounce.ts"],
-    approvedCallers: ["server/services/zerobounce-campaign-worker.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/business-validation-service.ts"], secretNames: ["ZEROBOUNCE_API_KEY"],
+    approvedCallers: ["server/services/zerobounce-campaign-worker.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/business-validation-service.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-validation.ts"], secretNames: ["ZEROBOUNCE_API_KEY"],
     durableOperation: "batch", budget: { required: true, accounting: "control_row", unit: "request" },
     timeoutMs: 10_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["email"], redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT,
@@ -160,7 +160,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "serper", capability: ["business_discovery", "directory_lookup"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/serper-gateway.ts"],
-    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/serper-business-identity.ts"],
+    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/serper-business-identity.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"],
     secretNames: ["SERPER_API_KEY"], durableOperation: "request",
     budget: { required: true, accounting: "control_row", unit: "request" }, timeoutMs: 15_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,

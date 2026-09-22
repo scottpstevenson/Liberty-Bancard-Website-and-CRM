@@ -2129,7 +2129,13 @@ class QueueManager {
             console.error('[FreeEnrich] Stuck-business reaper error (non-fatal):', reaperErr?.message);
           }
           const { businessLacksDbprLineageSql } = await import("./dbpr");
-          const FREE_LANE_BATCH = 20;
+          // Default is sized to clear the current backlog in days while the
+          // single-consumer lane still prevents overlapping crawls. Operators
+          // may tune within a hard bound without changing code.
+          const configuredFreeBatch = Number.parseInt(process.env.FREE_ENRICHMENT_BATCH_SIZE ?? "50", 10);
+          const FREE_LANE_BATCH = Number.isFinite(configuredFreeBatch)
+            ? Math.max(1, Math.min(100, configuredFreeBatch))
+            : 50;
           const eligibleRows = await _feDb.execute(_feSql`
             SELECT id FROM (
               SELECT id FROM businesses b

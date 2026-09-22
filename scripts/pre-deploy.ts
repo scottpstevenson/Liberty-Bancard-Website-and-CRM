@@ -84,6 +84,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "South Florida Enrichment Pipeline Correction",
+    script: "scripts/test-sfp-pipeline-correction.mjs",
+    timeoutSecs: 60,
+  },
+  {
     name: "REV-05A Processor Boarding Kill Lines (simulation paths, ping() 404-success, ambiguous retry, raw MID audit, deals.mid outside canonical service)",
     script: "scripts/check-processor-kill-lines.ts",
     timeoutSecs: 60,

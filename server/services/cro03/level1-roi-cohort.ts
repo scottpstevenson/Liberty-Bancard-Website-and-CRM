@@ -316,27 +316,27 @@ export async function getLevel1FreeEvidenceReport(
       (
         SELECT fdc2.id FROM free_discovery_candidates fdc2
         WHERE fdc2.business_id = fdc.business_id
-          AND fdc2.disposition = 'staged'
+          AND fdc2.disposition IN ('staged', 'validation_admitted')
         ORDER BY fdc2.confidence DESC, fdc2.created_at ASC
         LIMIT 1
       ) AS best_candidate_id,
       (
         SELECT fdc2.masked_value FROM free_discovery_candidates fdc2
         WHERE fdc2.business_id = fdc.business_id
-          AND fdc2.disposition = 'staged'
+          AND fdc2.disposition IN ('staged', 'validation_admitted')
         ORDER BY fdc2.confidence DESC, fdc2.created_at ASC
         LIMIT 1
       ) AS best_candidate_masked,
       (
         SELECT fdc2.confidence FROM free_discovery_candidates fdc2
         WHERE fdc2.business_id = fdc.business_id
-          AND fdc2.disposition = 'staged'
+          AND fdc2.disposition IN ('staged', 'validation_admitted')
         ORDER BY fdc2.confidence DESC, fdc2.created_at ASC
         LIMIT 1
       ) AS best_candidate_confidence
     FROM free_discovery_candidates fdc
     WHERE fdc.business_id = ANY(ARRAY[${sql.join(bizIds.map((id) => sql`${id}::int`), sql`, `)}])
-      AND fdc.disposition = 'staged'
+      AND fdc.disposition IN ('staged', 'validation_admitted')
     GROUP BY fdc.business_id
   `));
 

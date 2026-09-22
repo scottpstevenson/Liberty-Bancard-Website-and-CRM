@@ -2882,6 +2882,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/program/activation — explicit operator switch.
+  // Credentials and background profiles never implicitly activate this program.
+  app.post("/api/lead-ops/sfp/program/activation", requireRole("admin"), async (req, res) => {
+    try {
+      if (typeof req.body?.active !== "boolean") {
+        return res.status(400).json({ error: "active must be a boolean" });
+      }
+      const { setProgramActivation } = await import("../services/cro03/south-florida-prospecting");
+      const program = await setProgramActivation({
+        active: req.body.active,
+        recurringEnabled: req.body.recurringEnabled === true,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(program);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // GET /api/lead-ops/sfp/funnel — read-only funnel preview with truthful counts
   app.get("/api/lead-ops/sfp/funnel", requireRole("admin"), async (req, res) => {
     try {
@@ -2915,10 +2934,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!idempotencyKey) {
         return res.status(400).json({ error: "idempotencyKey is required" });
       }
+      const requestedCohortSize = req.body?.maxCohortSize == null ? 25 : Number(req.body.maxCohortSize);
+      if (!Number.isInteger(requestedCohortSize) || requestedCohortSize < 1 || requestedCohortSize > 500) {
+        return res.status(400).json({ error: "maxCohortSize must be an integer between 1 and 500" });
+      }
       const result = await freezeCohort({
         idempotencyKey,
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
-        maxCohortSize: req.body?.maxCohortSize,
+        maxCohortSize: requestedCohortSize,
         releaseSha: process.env.RELEASE_SHA ?? "",
       });
       res.json(result);
@@ -2953,6 +2976,60 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/runs/:runId/free-discovery — execute the real
+  // bounded free-only crawler for this frozen cohort.
+  app.post("/api/lead-ops/sfp/runs/:runId/free-discovery", requireRole("admin"), async (req, res) => {
+    try {
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey || idempotencyKey.length > 200) {
+        return res.status(400).json({ error: "idempotencyKey is required (max 200 chars)" });
+      }
+      const maxBusinesses = req.body?.maxBusinesses == null ? 100 : Number(req.body.maxBusinesses);
+      if (!Number.isInteger(maxBusinesses) || maxBusinesses < 1 || maxBusinesses > 500) {
+        return res.status(400).json({ error: "maxBusinesses must be an integer between 1 and 500" });
+      }
+      const { runSfpFreeDiscovery } = await import("../services/cro03/south-florida-prospecting");
+      const result = await runSfpFreeDiscovery({
+        cohortRunId: String(req.params.runId),
+        idempotencyKey,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        maxBusinesses,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("NOT_FROZEN") || err?.message?.includes("INACTIVE") ? 409
+        : err?.message?.includes("LANE_BUSY") ? 423 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/lead-ops/sfp/runs/:runId/paid-waterfall-preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewSfpPaidWaterfall } = await import("../services/cro03/sfp-paid-waterfall");
+      res.json(await previewSfpPaidWaterfall(String(req.params.runId)));
+    } catch (err: any) {
+      res.status(err?.message?.includes("NOT_FOUND") ? 404 : 409).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/lead-ops/sfp/runs/:runId/paid-waterfall/serper", requireRole("admin"), async (req, res) => {
+    try {
+      const idempotencyKey=String(req.body?.idempotencyKey ?? "");
+      if(!idempotencyKey || idempotencyKey.length>200) return res.status(400).json({error:"idempotencyKey is required (max 200 chars)"});
+      const maxBusinesses=req.body?.maxBusinesses == null ? 10 : Number(req.body.maxBusinesses);
+      if(!Number.isInteger(maxBusinesses) || maxBusinesses<1 || maxBusinesses>25) return res.status(400).json({error:"maxBusinesses must be an integer between 1 and 25"});
+      const { executeSfpSerperDiscovery } = await import("../services/cro03/sfp-paid-waterfall");
+      res.json(await executeSfpSerperDiscovery({
+        cohortRunId:String(req.params.runId),idempotencyKey,
+        actorId:`admin:${(req as any).user?.id ?? "system"}`,maxBusinesses,
+      }));
+    } catch(err:any){
+      const status=err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404 : 500;
+      res.status(status).json({error:err?.message});
+    }
+  });
+
   // GET /api/lead-ops/sfp/runs/:runId/validation-preview — ZeroBounce preview (read-only)
   app.get("/api/lead-ops/sfp/runs/:runId/validation-preview", requireRole("admin"), async (req, res) => {
     try {
@@ -2975,10 +3052,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!idempotencyKey) {
         return res.status(400).json({ error: "idempotencyKey is required" });
       }
+      const maxValidations = req.body?.maxValidations == null ? 25 : Number(req.body.maxValidations);
+      if (!Number.isInteger(maxValidations) || maxValidations < 1 || maxValidations > 25) {
+        return res.status(400).json({ error: "maxValidations must be an integer between 1 and 25" });
+      }
       const result = await executeSfpValidation(String(req.params.runId), {
         idempotencyKey,
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
-        maxValidations: req.body?.maxValidations,
+        maxValidations,
       });
       res.json(result);
     } catch (err: any) {
@@ -3072,7 +3153,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
       const limit = Math.min(Number(req.body?.limit ?? 25), 25);
       if (Number.isNaN(limit) || limit < 1) {
-        return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+        return res.status(400).json({ error: "limit must be an integer between 1 and 25" });
       }
 
       // ── Shared attestation preflight (run ONCE before processing the batch) ──
@@ -3103,11 +3184,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         });
       }
 
-      // Fetch a bounded batch of staged candidates (oldest first for fairness).
+      // Fetch a bounded batch from this frozen pilot cohort only. Requiring a
+      // pilotRunId while selecting global candidates would violate the cohort
+      // boundary the operator approved.
       const stagedRows = ((await db.execute(sql`
-        SELECT id FROM free_discovery_candidates
-        WHERE disposition = 'staged'
-        ORDER BY created_at ASC
+        SELECT fdc.id
+        FROM free_discovery_candidates fdc
+        JOIN mi09_pilot_cohort_members pcm
+          ON pcm.canonical_business_id = fdc.business_id
+         AND pcm.pilot_run_id = ${pilotRunId}::uuid
+        WHERE fdc.disposition = 'staged'
+        ORDER BY fdc.created_at ASC
         LIMIT ${limit}
       `)) as any).rows ?? [];
 

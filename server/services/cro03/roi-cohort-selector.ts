@@ -70,6 +70,8 @@ export interface RoiCandidateScore {
   geographyClass: GeographyEvidenceClass;
   /** Source field that resolved geography */
   geographySource: "county_fips" | "zip" | "city" | "none";
+  countyFips: string | null;
+  vertical: string | null;
   /** Reason the candidate was included or excluded */
   dispositionReason: string;
   /** true = eligible for cohort, false = excluded */
@@ -95,6 +97,9 @@ export interface RoiCohortSelection {
     dbprExcluded: number;
     existingCustomer: number;
     testDemoInternal: number;
+    suppressed: number;
+    bouncedInvalidOnly: number;
+    inactiveEntity: number;
     eligibleAfterExclusions: number;
   };
 }
@@ -204,6 +209,9 @@ export async function selectRoiCohort(opts: {
     dbprExcluded: 0,
     existingCustomer: 0,
     testDemoInternal: 0,
+    suppressed: 0,
+    bouncedInvalidOnly: 0,
+    inactiveEntity: 0,
     eligibleAfterExclusions: 0,
   };
 
@@ -232,6 +240,23 @@ export async function selectRoiCohort(opts: {
     WHERE existing_customer_flag = true AND business_id IS NOT NULL
   `));
   const custBizIds = new Set(custBizRows.map((r: any) => Number(r.business_id)));
+
+  const suppressedBizRows = rows(await db.execute(sql`
+    SELECT DISTINCT business_id FROM contacts
+     WHERE business_id IS NOT NULL AND (
+       opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
+       OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
+       OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
+     )
+  `));
+  const suppressedBizIds = new Set(suppressedBizRows.map((r:any)=>Number(r.business_id)));
+  const bouncedOnlyRows = rows(await db.execute(sql`
+    SELECT business_id FROM contacts WHERE business_id IS NOT NULL
+     GROUP BY business_id HAVING COUNT(*) FILTER (WHERE email IS NOT NULL)>0
+       AND COUNT(*) FILTER (WHERE email IS NOT NULL AND (bounce_status IS NULL OR bounce_status NOT IN ('hard','complained'))
+                            AND COALESCE(email_status,'') NOT IN ('bounced','invalid'))=0
+  `));
+  const bouncedOnlyIds = new Set(bouncedOnlyRows.map((r:any)=>Number(r.business_id)));
 
   // Pre-build location evidence: FIPS-matched and all-locations
   const fipsRows = rows(await db.execute(sql`
@@ -262,6 +287,7 @@ export async function selectRoiCohort(opts: {
         b.city,
         b.state,
         b.postal_code,
+        b.status AS business_status,
         COALESCE(em_agg.has_valid_email, false) AS has_valid_email,
         COALESCE(em_agg.email_status, 'unvalidated') AS email_status,
         COALESCE(em_agg.has_decision_maker, false) AS has_decision_maker,
@@ -305,6 +331,7 @@ export async function selectRoiCohort(opts: {
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::int AS loc_count FROM business_locations WHERE business_id = b.id
       ) all_locs ON true
+      WHERE b.record_class='canonical'
       ORDER BY b.id ASC
       LIMIT ${CHUNK} OFFSET ${offset}
     `));
@@ -317,6 +344,7 @@ export async function selectRoiCohort(opts: {
       const bizId = Number(row.business_id);
       const canonicalName = String(row.canonical_name ?? "");
       const vertical = String(row.vertical ?? "");
+      const businessStatus = String(row.business_status ?? "new").trim().toLowerCase();
 
       // ── Exclusions (counted before scoring for truthful funnel) ──────────────
 
@@ -331,6 +359,26 @@ export async function selectRoiCohort(opts: {
       if (custBizIds.has(bizId)) {
         funnel.existingCustomer++;
         excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:existing_customer", false, "none", "unknown"));
+        continue;
+      }
+
+      if (suppressedBizIds.has(bizId)) {
+        funnel.suppressed++;
+        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,"excluded:suppressed",false,"none","unknown"));
+        continue;
+      }
+      if (bouncedOnlyIds.has(bizId)) {
+        funnel.bouncedInvalidOnly++;
+        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,"excluded:bounced_invalid_only",false,"none","unknown"));
+        continue;
+      }
+
+      // The canonical status defaults to "new". Only explicit terminal or
+      // operator-suppressed states are inactive; otherwise nearly every new
+      // prospect would be discarded before enrichment.
+      if (["inactive", "closed", "dissolved", "revoked", "expired", "archived", "suppressed"].includes(businessStatus)) {
+        funnel.inactiveEntity++;
+        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,`excluded:inactive_entity:${businessStatus}`,false,"none","unknown"));
         continue;
       }
 
@@ -369,11 +417,6 @@ export async function selectRoiCohort(opts: {
           geoSource = geoResult.evidenceClass === "zip_inferred" ? "zip" : "city";
           resolvedCountyFips = geoResult.countyFips;
           geoEligible = true;
-          if (geoClass === "zip_inferred") {
-            funnel.southFlorida++;
-          } else if (geoClass === "city_inferred") {
-            funnel.southFlorida++;
-          }
         } else if (geoResult.reasonCodes.includes("OUTSIDE_TERRITORY")) {
           funnel.outsideGeography++;
           excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:outside_geography", false, geoSource, geoClass));
@@ -406,7 +449,7 @@ export async function selectRoiCohort(opts: {
       const dimensions = {
         geographyConfidence: geoClassToConfidence(geoClass),
         verticalFit: 100,
-        activeStatus: 80,
+        activeStatus: businessStatus === "active" ? 100 : 80,
         estimatedOpportunity: Math.min(100, locationCount * 25),
         multiLocationEvidence: locationCount >= 3 ? 100 : locationCount === 2 ? 60 : 30,
         websiteDomainConfidence: row.website ? 100 : 0,
@@ -427,6 +470,8 @@ export async function selectRoiCohort(opts: {
         dimensions,
         geographyClass: geoClass,
         geographySource: geoSource,
+        countyFips: resolvedCountyFips,
+        vertical,
         dispositionReason: "eligible",
         eligible: true,
       });
@@ -488,6 +533,8 @@ function _buildCandidate(
     },
     geographyClass: geoClass,
     geographySource: geoSource,
+    countyFips: fipsMap.get(bizId)?.countyFips ?? null,
+    vertical: row.vertical ? String(row.vertical) : null,
     dispositionReason,
     eligible,
   };

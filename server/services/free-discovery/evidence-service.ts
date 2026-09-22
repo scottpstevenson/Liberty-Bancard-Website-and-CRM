@@ -19,10 +19,10 @@
  * name/title evidence justified it.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
-import { seal } from "../cro03/candidate-evidence-service";
+import { seal, unseal } from "../cro03/candidate-evidence-service";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 
@@ -332,7 +332,7 @@ export type PromotionResult =
  *   1. FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true
  *   2. Candidate is in 'staged' disposition (idempotent — already-admitted is re-returned)
  *   3. Subject business has no DBPR lineage (fail-closed)
- *   4. Candidate email is not on the ZeroBounce suppression list
+ *   4. Candidate email is not present on the canonical contact suppression surface
  *   5. An approved cro03c_activation_policies row (MI-09 ZeroBounce authorization)
  *   6. A live (non-expired) cro03c_runtime_attestations row (worker fleet active)
  *
@@ -352,7 +352,8 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
 
   // Load candidate record to check eligibility and state.
   const candidate = rows(await db.execute(sql`
-    SELECT id, disposition, business_id, contact_id, domain, normalized_value_hash
+    SELECT id, disposition, business_id, contact_id, domain, normalized_value_hash,
+           envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
     FROM free_discovery_candidates WHERE id = ${candidateId}::uuid
   `))[0];
   if (!candidate) {
@@ -378,28 +379,52 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
     }
   }
 
-  // Gate 4: ZeroBounce suppression — candidate hash must not appear on the suppression list.
-  // The suppression list guards against re-validating emails already known invalid/blocked.
-  // Note: `zerobounce_suppressions` is provisioned separately from the main schema; if the
-  // table doesn't exist yet, treat as no-suppression (fail-open is safe here — it only means
-  // we may re-attempt validation, which ZeroBounce will deduplicate on their side).
-  let suppressed: unknown = undefined;
+  // Gate 4: use the canonical suppression/bounce surface that actually exists
+  // in every deployed schema. Query errors deny admission; they must never be
+  // silently treated as permission to spend or contact.
+  let contactEmailTokenHash: string;
   try {
-    suppressed = rows(await db.execute(sql`
-      SELECT 1 FROM zerobounce_suppressions WHERE normalized_value_hash = ${candidate.normalized_value_hash} LIMIT 1
+    const plaintext = unseal("email", {
+      ciphertext: String(candidate.envelope_ciphertext),
+      nonce: String(candidate.envelope_nonce),
+      tag: String(candidate.envelope_tag),
+      keyVersion: Number(candidate.envelope_key_version ?? 1),
+    });
+    contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
+  } catch (decryptErr: any) {
+    console.error("[FreeDiscovery] candidate envelope could not be opened:", decryptErr?.message);
+    return { status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_DECRYPTION_FAILED" };
+  }
+
+  let suppressed = false;
+  try {
+    // contacts.email_token_hash uses the long-standing plaintext-normalized
+    // hash, while candidate evidence uses a field-scoped hash. Check both.
+    const suppression = rows(await db.execute(sql`
+      SELECT EXISTS(
+        SELECT 1 FROM contacts c
+         WHERE c.email_token_hash IN (${candidate.normalized_value_hash}, ${contactEmailTokenHash})
+           AND (
+             COALESCE(c.opted_out_email, FALSE) = TRUE
+             OR c.opt_out_status = 'opted_out'
+             OR c.unsubscribe_status = 'unsubscribed'
+             OR c.complaint_status = 'reported'
+             OR COALESCE(c.do_not_auto_contact, FALSE) = TRUE
+             OR c.suppression_reason IS NOT NULL
+             OR c.bounce_status = 'hard'
+             OR c.email_status IN ('bounced', 'invalid')
+           )
+      ) AS suppressed
     `))[0];
-  } catch (zbSuppErr: any) {
-    // Table doesn't exist or query failed — log once and skip this gate.
-    if (/relation.*does not exist/i.test(zbSuppErr?.message ?? "")) {
-      console.debug("[FreeDiscovery] zerobounce_suppressions table not yet provisioned — Gate 4 skipped");
-    } else {
-      console.warn("[FreeDiscovery] zerobounce_suppressions query error (Gate 4 skipped):", zbSuppErr?.message);
-    }
+    suppressed = suppression?.suppressed === true;
+  } catch (suppressionErr: any) {
+    console.error("[FreeDiscovery] canonical suppression query failed:", suppressionErr?.message);
+    return { status: "PENDING_OPERATOR_ACTIVATION", reason: "SUPPRESSION_QUERY_ERROR" };
   }
   if (suppressed) {
     // Mark the candidate as suppressed so UI and downstream queries can see why.
     await db.execute(sql`
-      UPDATE free_discovery_candidates SET disposition = 'suppressed', updated_at = NOW()
+      UPDATE free_discovery_candidates SET disposition = 'suppressed'
       WHERE id = ${candidateId}::uuid AND disposition = 'staged'
     `).catch(() => {});
     return { status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_SUPPRESSED" };
@@ -436,7 +461,7 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
   // behaviour on cast-type SET objects (see drizzle-set-silent-drop memory note).
   const updated = rows(await db.execute(sql`
     UPDATE free_discovery_candidates
-       SET disposition = 'validation_admitted', updated_at = NOW()
+       SET disposition = 'validation_admitted'
      WHERE id = ${candidateId}::uuid AND disposition = 'staged'
      RETURNING id
   `))[0];

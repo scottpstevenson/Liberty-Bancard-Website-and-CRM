@@ -83,6 +83,12 @@ type SuiteManifestDefinition = Omit<
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   // ── deterministic-static ─────────────────────────────────────────────────
   {
+    name: "South Florida Enrichment Pipeline Correction",
+    script: "scripts/test-sfp-pipeline-correction.mjs",
+    capability: "deterministic-static",
+    providerDenial: "pure source and migration scan; no DB, network, server, or provider transport",
+  },
+  {
     name: "REV-05A Processor Boarding Kill Lines",
     script: "scripts/check-processor-kill-lines.ts",
     capability: "deterministic-static",

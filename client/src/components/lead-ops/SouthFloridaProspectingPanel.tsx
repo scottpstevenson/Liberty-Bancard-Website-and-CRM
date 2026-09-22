@@ -30,6 +30,8 @@ type SfpProgram = {
   verticalIds: string[];
   maxCohortSize: number;
   isActive: boolean;
+  recurringEnabled: boolean;
+  activatedAt: string | null;
 };
 
 type SfpFunnel = {
@@ -43,6 +45,9 @@ type SfpFunnel = {
     dbprExcluded: number;
     existingCustomer: number;
     testDemoInternal: number;
+    suppressed: number;
+    bouncedInvalidOnly: number;
+    inactiveEntity: number;
     eligibleAfterExclusions: number;
   };
   topCandidates: Array<{
@@ -141,6 +146,12 @@ type CampaignStagingPreview = {
   ineligibleReasons: Record<string, number>;
 };
 
+type PaidWaterfallPreview = {
+  businessesNeedingPaidDiscovery: number;
+  providers: Array<{provider:string;credentialPresent:boolean;enabled:boolean;circuitState:string;executableForSfp:boolean;unitPriceMicros:number|null;role:string}>;
+  note: string;
+};
+
 // ── Helper ─────────────────────────────────────────────────────────────────────
 
 function fmtMicros(micros: number): string {
@@ -176,6 +187,7 @@ export function SouthFloridaProspectingPanel() {
   const [showProspects, setShowProspects] = useState(false);
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
+  const [freeBatchSize, setFreeBatchSize] = useState(100);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -219,10 +231,16 @@ export function SouthFloridaProspectingPanel() {
     retry: false,
   });
 
+  const paidPreviewQuery = useQuery<PaidWaterfallPreview>({
+    queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`],
+    enabled: !!activeRunId,
+    retry: false,
+  });
+
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const ensureProgram = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/lead-ops/sfp/program/ensure"),
+    mutationFn: async () => (await apiRequest("POST", "/api/lead-ops/sfp/program/ensure")).json(),
     onSuccess: () => {
       toast({ title: "South Florida Prospecting program initialized" });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/program"] });
@@ -230,11 +248,22 @@ export function SouthFloridaProspectingPanel() {
     onError: (e: any) => toast({ title: "Error", description: e?.message, variant: "destructive" }),
   });
 
+  const setActivation = useMutation({
+    mutationFn: async (active: boolean) => (await apiRequest("POST", "/api/lead-ops/sfp/program/activation", {
+      active, recurringEnabled: false,
+    })).json(),
+    onSuccess: () => {
+      toast({ title: program?.isActive ? "Program paused" : "Program activated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/program"] });
+    },
+    onError: (e: any) => toast({ title: "Activation failed", description: e?.message, variant: "destructive" }),
+  });
+
   const freezeCohort = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/lead-ops/sfp/runs/freeze", {
+    mutationFn: async () => (await apiRequest("POST", "/api/lead-ops/sfp/runs/freeze", {
       idempotencyKey: `sfp-freeze-${Date.now()}`,
       maxCohortSize: maxCohort,
-    }),
+    })).json(),
     onSuccess: (data: any) => {
       toast({ title: "Cohort frozen", description: `${data?.run?.cohortSize ?? 0} businesses selected` });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/runs"] });
@@ -250,7 +279,9 @@ export function SouthFloridaProspectingPanel() {
     mutationFn: async () => {
       if (!activeRunId) throw new Error("No active run");
       const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/validate`, {
-        idempotencyKey: `sfp-validate-${activeRunId}`,
+        // A new operator click is a new bounded attempt. Provider operations
+        // inside that attempt remain idempotent per candidate.
+        idempotencyKey: `sfp-validate-${activeRunId}-${Date.now()}`,
         maxValidations: 25,
       });
       return res.json();
@@ -266,12 +297,48 @@ export function SouthFloridaProspectingPanel() {
     onError: (e: any) => toast({ title: "Validation failed", description: e?.message, variant: "destructive" }),
   });
 
-  const stageForCampaign = useMutation({
-    mutationFn: () => {
+  const runFreeDiscovery = useMutation({
+    mutationFn: async () => {
       if (!activeRunId) throw new Error("No active run");
-      return apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/stage-for-campaign`, {
-        idempotencyKey: `sfp-stage-${activeRunId}`,
+      const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/free-discovery`, {
+        idempotencyKey: `sfp-free-${activeRunId}-${Date.now()}`,
+        maxBusinesses: freeBatchSize,
       });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Free discovery completed",
+        description: `${data.enriched} enriched · ${data.failed} failed · ${data.skipped} skipped`,
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/validation-preview`] });
+    },
+    onError: (e: any) => toast({ title: "Free discovery failed", description: e?.message, variant: "destructive" }),
+  });
+
+  const runSerperDiscovery = useMutation({
+    mutationFn: async () => {
+      if(!activeRunId) throw new Error("No active run");
+      const res=await apiRequest("POST",`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/serper`,{
+        idempotencyKey:`sfp-serper-${activeRunId}-${Date.now()}`,maxBusinesses:10,
+      });
+      return res.json();
+    },
+    onSuccess:(data:any)=>{
+      toast({title:"Serper discovery completed",description:`${data.succeeded} matched · ${data.noResult} no result · ${data.failed} failed`});
+      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`]});
+      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`]});
+    },
+    onError:(e:any)=>toast({title:"Paid discovery blocked",description:e?.message,variant:"destructive"}),
+  });
+
+  const stageForCampaign = useMutation({
+    mutationFn: async () => {
+      if (!activeRunId) throw new Error("No active run");
+      return (await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/stage-for-campaign`, {
+        idempotencyKey: `sfp-stage-${activeRunId}`,
+      })).json();
     },
     onSuccess: (data: any) => {
       toast({
@@ -312,9 +379,15 @@ export function SouthFloridaProspectingPanel() {
                 Initialize Program
               </Button>
             ) : (
-              <Badge variant="outline" className="text-xs">
-                {program.verticalIds.length} verticals · {program.countyFips.length} counties
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={program.isActive ? "default" : "secondary"} className="text-xs">
+                  {program.isActive ? "Active" : "Inactive"}
+                </Badge>
+                <Button size="sm" variant={program.isActive ? "outline" : "default"}
+                  onClick={() => setActivation.mutate(!program.isActive)} disabled={setActivation.isPending}>
+                  {program.isActive ? "Pause program" : "Activate program"}
+                </Button>
+              </div>
             )}
           </div>
         </CardHeader>
@@ -335,7 +408,7 @@ export function SouthFloridaProspectingPanel() {
             </div>
             <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
               <Lock className="h-3 w-3" />
-              All paid providers are OFF. Operator must explicitly activate each provider after publish.
+              Provider status below is live. Credentials alone never authorize a paid call.
             </p>
           </CardContent>
         )}
@@ -371,6 +444,9 @@ export function SouthFloridaProspectingPanel() {
                 ["Vertical unresolved", funnel.verticalUnresolved, "text-yellow-600"],
                 ["DBPR excluded", funnel.dbprExcluded, "text-red-500"],
                 ["Existing customer", funnel.existingCustomer, "text-red-500"],
+                ["Suppressed", funnel.suppressed, "text-red-500"],
+                ["Bounced/invalid only", funnel.bouncedInvalidOnly, "text-red-500"],
+                ["Inactive entity", funnel.inactiveEntity, "text-red-500"],
                 ["Test/demo", funnel.testDemoInternal, "text-gray-500"],
                 ["Eligible", funnel.eligibleAfterExclusions, "text-green-700 font-bold"],
               ].map(([label, count, cls]) => (
@@ -404,7 +480,7 @@ export function SouthFloridaProspectingPanel() {
           <Button
             size="sm"
             onClick={() => freezeCohort.mutate()}
-            disabled={!program || freezeCohort.isPending}
+            disabled={!program?.isActive || freezeCohort.isPending}
           >
             {freezeCohort.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Target className="h-3 w-3 mr-1" />}
             Freeze Deterministic Cohort (top {maxCohort} by ROI score)
@@ -474,8 +550,19 @@ export function SouthFloridaProspectingPanel() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {evidenceQuery.data.totalCandidates} total staged candidates.
-                  Run the free enrichment worker (no cost) to discover more.
+                  Use the bounded action below to run the real free-only crawler for this cohort.
                 </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <label className="text-xs">Batch:</label>
+                  <input type="number" min={1} max={500} value={freeBatchSize}
+                    onChange={(e) => setFreeBatchSize(Math.max(1, Math.min(500, Number(e.target.value))))}
+                    className="border rounded px-2 py-1 text-xs w-20" />
+                  <Button size="sm" onClick={() => runFreeDiscovery.mutate()}
+                    disabled={!program?.isActive || runFreeDiscovery.isPending}>
+                    {runFreeDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                    Run free discovery
+                  </Button>
+                </div>
               </div>
             ) : evidenceQuery.error ? (
               <p className="text-xs text-red-500">{String((evidenceQuery.error as any)?.message ?? "Error loading evidence report")}</p>
@@ -484,39 +571,42 @@ export function SouthFloridaProspectingPanel() {
         </Card>
       )}
 
-      {/* Steps 7-8: Paid escalation placeholder */}
+      {/* Steps 7-8: governed paid escalation */}
       {activeRun && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <span className="text-xs bg-blue-100 text-blue-700 rounded-full px-2 py-0.5 font-mono">7–8</span>
               Paid Provider Escalation
-              <Badge variant="secondary" className="text-xs">Providers OFF</Badge>
+              <Badge variant="secondary" className="text-xs">Explicit authorization required</Badge>
             </CardTitle>
             <CardDescription className="text-xs">
-              Serper → Outscraper → Apollo → OpenAI waterfall.
-              All paid providers are disabled by default.
-              Activate each in Provider Controls after publish, then authorize a bounded run.
+              Start with Serper only for businesses that still have no email candidate. A matched
+              official domain is immediately passed back through the free first-party crawler.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              {[
-                { name: "Serper", desc: "Domain / email discovery" },
-                { name: "Outscraper", desc: "Business identity / location" },
-                { name: "Apollo", desc: "Named decision-maker" },
-                { name: "OpenAI", desc: "Classification / scoring" },
-              ].map((p) => (
-                <div key={p.name} className="border rounded p-2 opacity-60">
-                  <div className="font-medium">{p.name}</div>
-                  <div className="text-muted-foreground">{p.desc}</div>
-                  <Badge variant="outline" className="text-xs mt-1">Off</Badge>
+              {(paidPreviewQuery.data?.providers ?? []).map((p) => (
+                <div key={p.provider} className={`border rounded p-2 ${p.executableForSfp ? "" : "opacity-60"}`}>
+                  <div className="font-medium capitalize">{p.provider}</div>
+                  <div className="text-muted-foreground">{p.role}</div>
+                  <Badge variant={p.enabled && p.credentialPresent && p.circuitState === "closed" ? "default" : "outline"} className="text-xs mt-1">
+                    {!p.credentialPresent ? "credential missing" : !p.enabled ? "disabled" : p.circuitState}
+                  </Badge>
                 </div>
               ))}
             </div>
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              <span className="text-xs font-medium">{paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery</span>
+              <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
+                disabled={runSerperDiscovery.isPending || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
+                {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
+                Authorize Serper batch (max 10)
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Provider admission, pricing, budget reservation, circuit breaker, and audit telemetry
-              are all enforced via the canonical provider-control system before any paid call.
+              {paidPreviewQuery.data?.note ?? "Loading provider controls…"}
             </p>
           </CardContent>
         </Card>

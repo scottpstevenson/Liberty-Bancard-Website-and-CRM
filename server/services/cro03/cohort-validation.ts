@@ -4,7 +4,7 @@
  * Bounded ZeroBounce validation for a frozen cohort.
  *
  * SECURITY:
- *   - Real email address is decrypted via openCandidate() immediately before
+ *   - Real email address is decrypted via the candidate-evidence envelope immediately before
  *     the governed provider call. The masked_value is NEVER sent to ZeroBounce.
  *   - Plaintext email addresses are never written to logs, audit metadata,
  *     API responses, or telemetry.
@@ -32,7 +32,7 @@ import { db } from "../../db";
 import { getPilotRun } from "../mi09-pilot-authority";
 import { getPauseState } from "../outbound-pause-authority";
 import { businessHasDbprLineageSql } from "../dbpr";
-import { openCandidate } from "./candidate-vault";
+import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -305,18 +305,11 @@ export async function executeBoundedValidation(
       // SECURITY: Decrypt via established boundary. Plaintext never logged.
       let realEmail: string;
       try {
-        realEmail = openCandidate({
-          field: "email",
-          subjectId: Number(candRow.business_id),
-          subjectGeneration: null,
-          envelope: {
-            ciphertext: String(candRow.envelope_ciphertext),
-            nonce: String(candRow.envelope_nonce),
-            tag: String(candRow.envelope_tag),
-            keyVersion: Number(candRow.envelope_key_version ?? 1),
-            normalizedValueHash: "",
-            maskedValue: String(candRow.masked_value ?? ""),
-          },
+        realEmail = unsealCandidateEvidence("email", {
+          ciphertext: String(candRow.envelope_ciphertext),
+          nonce: String(candRow.envelope_nonce),
+          tag: String(candRow.envelope_tag),
+          keyVersion: Number(candRow.envelope_key_version ?? 1),
         });
       } catch {
         return "failed";

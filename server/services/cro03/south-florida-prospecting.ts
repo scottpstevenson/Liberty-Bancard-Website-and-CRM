@@ -25,9 +25,9 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
-import { randomUUID, createHash } from "crypto";
+import { createHash } from "crypto";
 import { selectRoiCohort, loadPilotVerticalIds, type RoiCohortSelection } from "./roi-cohort-selector";
-import { openCandidate } from "./candidate-vault";
+import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service";
 import { CRO03A_COUNTY_FIPS } from "../cro03a/geography";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -58,6 +58,8 @@ export interface SfpProgram {
   maxCohortSize: number;
   policyVersion: number;
   isActive: boolean;
+  recurringEnabled: boolean;
+  activatedAt: string | null;
   createdAt: string;
   createdBy: string;
 }
@@ -78,7 +80,17 @@ export async function ensureProgram(opts: {
   `))[0];
 
   if (existing) {
-    return _mapProgram(existing);
+    // Converge the mutable program definition to the current canonical
+    // vertical/county configuration. Frozen cohort members remain immutable.
+    const converged = rows(await db.execute(sql`
+      UPDATE sfp_programs
+         SET county_fips=ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
+             vertical_ids=ARRAY[${sql.join(verticalIds.map((v) => sql`${v}`), sql`, `)}],
+             policy_version=${SFP_POLICY_VERSION}
+       WHERE id=${String(existing.id)}::uuid
+       RETURNING *
+    `))[0];
+    return _mapProgram(converged);
   }
 
   const created = rows(await db.execute(sql`
@@ -109,9 +121,35 @@ function _mapProgram(row: any): SfpProgram {
     maxCohortSize: Number(row.max_cohort_size ?? 100),
     policyVersion: Number(row.policy_version ?? 1),
     isActive: Boolean(row.is_active),
+    recurringEnabled: Boolean(row.recurring_enabled),
+    activatedAt: row.activated_at ? String(row.activated_at) : null,
     createdAt: String(row.created_at),
     createdBy: String(row.created_by),
   };
+}
+
+/** Explicit operator-owned activation. Credentials never activate this program. */
+export async function setProgramActivation(input: {
+  active: boolean;
+  actorId: string;
+  recurringEnabled?: boolean;
+}): Promise<SfpProgram> {
+  const program = await ensureProgram({ createdBy: input.actorId });
+  const updated = rows(await db.execute(sql`
+    UPDATE sfp_programs
+       SET is_active = ${input.active},
+           recurring_enabled = ${input.active && input.recurringEnabled === true},
+           activated_at = CASE WHEN ${input.active} THEN NOW() ELSE activated_at END,
+           activated_by = CASE WHEN ${input.active} THEN ${input.actorId} ELSE activated_by END
+     WHERE id = ${program.id}::uuid
+     RETURNING *
+  `))[0];
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_program_activation_changed', 'sfp_program', ${program.id}, 'user', ${input.actorId},
+            ${JSON.stringify({ active: input.active, recurringEnabled: input.active && input.recurringEnabled === true })}::jsonb)
+  `);
+  return _mapProgram(updated);
 }
 
 // ── Funnel preview (read-only) ─────────────────────────────────────────────────
@@ -139,6 +177,7 @@ export async function previewFunnel(opts: {
   programId?: string;
 } = {}): Promise<SfpFunnelPreview> {
   const program = await ensureProgram();
+  if (!program.isActive) throw new Error("SFP_PROGRAM_INACTIVE:activate_the_program_before_freezing_a_cohort");
   const result = await selectRoiCohort({
     maxCohort: opts.maxPreview ?? 25,
     verticalIds: program.verticalIds,
@@ -155,8 +194,8 @@ export async function previewFunnel(opts: {
       roiScore: c.roiScore,
       geographyClass: c.geographyClass,
       geographySource: c.geographySource,
-      vertical: null,
-      countyFips: null,
+      vertical: c.vertical,
+      countyFips: c.countyFips,
       eligible: c.eligible,
       dispositionReason: c.dispositionReason,
     })),
@@ -197,7 +236,8 @@ export async function freezeCohort(opts: {
       newlyFrozen: false,
       funnel: { totalScanned: 0, southFlorida: 0, outsideGeography: 0, geographyUnresolved: 0,
                 inTargetVertical: 0, verticalUnresolved: 0, dbprExcluded: 0, existingCustomer: 0,
-                testDemoInternal: 0, eligibleAfterExclusions: 0 },
+                testDemoInternal: 0, suppressed: 0, bouncedInvalidOnly: 0, inactiveEntity: 0,
+                eligibleAfterExclusions: 0 },
     };
   }
 
@@ -249,7 +289,7 @@ export async function freezeCohort(opts: {
           (cohort_run_id, business_id, roi_score, geography_class, geography_source,
            county_fips, vertical, exclusion_reason)
         VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${c.roiScore},
-                ${c.geographyClass}, ${c.geographySource}, ${null}, ${null}, ${null})
+                ${c.geographyClass}, ${c.geographySource}, ${c.countyFips}, ${c.vertical}, ${null})
         ON CONFLICT (cohort_run_id, business_id) DO NOTHING
       `);
     }
@@ -272,14 +312,25 @@ export async function freezeCohort(opts: {
       INSERT INTO sfp_funnel_snapshots
         (cohort_run_id, total_businesses, south_florida, outside_geography,
          geography_unresolved, in_target_vertical, vertical_unresolved,
-         dbpr_excluded, existing_customer, test_demo_internal,
+         dbpr_excluded, suppressed, bounced_invalid_only, existing_customer, test_demo_internal, inactive_entity,
          outreach_eligible, selected_frozen)
       VALUES (${runId}::uuid, ${f.totalScanned}, ${f.southFlorida}, ${f.outsideGeography},
               ${f.geographyUnresolved}, ${f.inTargetVertical}, ${f.verticalUnresolved},
-              ${f.dbprExcluded}, ${f.existingCustomer}, ${f.testDemoInternal},
+              ${f.dbprExcluded}, ${f.suppressed}, ${f.bouncedInvalidOnly}, ${f.existingCustomer}, ${f.testDemoInternal}, ${f.inactiveEntity},
               ${f.eligibleAfterExclusions}, ${result.eligible.length})
       ON CONFLICT (cohort_run_id) DO UPDATE SET
         total_businesses = EXCLUDED.total_businesses,
+        south_florida = EXCLUDED.south_florida,
+        outside_geography = EXCLUDED.outside_geography,
+        geography_unresolved = EXCLUDED.geography_unresolved,
+        in_target_vertical = EXCLUDED.in_target_vertical,
+        vertical_unresolved = EXCLUDED.vertical_unresolved,
+        dbpr_excluded = EXCLUDED.dbpr_excluded,
+        suppressed = EXCLUDED.suppressed,
+        bounced_invalid_only = EXCLUDED.bounced_invalid_only,
+        existing_customer = EXCLUDED.existing_customer,
+        test_demo_internal = EXCLUDED.test_demo_internal,
+        inactive_entity = EXCLUDED.inactive_entity,
         outreach_eligible = EXCLUDED.outreach_eligible,
         selected_frozen = EXCLUDED.selected_frozen
     `);
@@ -355,14 +406,14 @@ export async function getFreeEvidenceReport(cohortRunId: string): Promise<SfpFre
       COUNT(*)::int AS candidate_count,
       MAX(fdc.confidence) AS best_confidence,
       (SELECT fdc2.masked_value FROM free_discovery_candidates fdc2
-       WHERE fdc2.business_id = fdc.business_id AND fdc2.disposition = 'staged'
+       WHERE fdc2.business_id = fdc.business_id AND fdc2.disposition IN ('staged', 'validation_admitted')
        ORDER BY fdc2.confidence DESC, fdc2.created_at ASC LIMIT 1) AS best_masked,
       (SELECT fdc2.disposition FROM free_discovery_candidates fdc2
        WHERE fdc2.business_id = fdc.business_id
        ORDER BY fdc2.confidence DESC LIMIT 1) AS top_disposition
     FROM free_discovery_candidates fdc
     WHERE fdc.business_id = ANY(ARRAY[${sql.join(bizIds.map((id) => sql`${id}::int`), sql`, `)}])
-      AND fdc.disposition = 'staged'
+      AND fdc.disposition IN ('staged', 'validation_admitted')
     GROUP BY fdc.business_id
   `));
 
@@ -396,6 +447,121 @@ export async function getFreeEvidenceReport(cohortRunId: string): Promise<SfpFre
     perBusiness,
     capturedAt: new Date().toISOString(),
   };
+}
+
+export interface SfpFreeDiscoveryResult {
+  stageRunId: string;
+  cohortRunId: string;
+  selected: number;
+  enriched: number;
+  failed: number;
+  skipped: number;
+  replayed: boolean;
+  completedAt: string;
+}
+
+/**
+ * Execute the real free-only crawler for a frozen ROI cohort. This is not a
+ * report endpoint: it calls the canonical free lane and durably records the
+ * bounded stage run. The free lane's paid-provider kill line remains intact.
+ */
+export async function runSfpFreeDiscovery(input: {
+  cohortRunId: string;
+  idempotencyKey: string;
+  actorId: string;
+  maxBusinesses?: number;
+}): Promise<SfpFreeDiscoveryResult> {
+  const maxBusinesses = Math.max(1, Math.min(500, Number(input.maxBusinesses ?? 100)));
+  const cohort = rows(await db.execute(sql`
+    SELECT r.id, r.cohort_hash, p.is_active
+      FROM sfp_cohort_runs r JOIN sfp_programs p ON p.id = r.program_id
+     WHERE r.id = ${input.cohortRunId}::uuid
+  `))[0];
+  if (!cohort) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  if (!cohort.cohort_hash) throw new Error("SFP_COHORT_NOT_FROZEN");
+  if (!cohort.is_active) throw new Error("SFP_PROGRAM_INACTIVE");
+
+  const existing = rows(await db.execute(sql`
+    SELECT * FROM sfp_stage_runs WHERE stage='free_discovery' AND idempotency_key=${input.idempotencyKey} LIMIT 1
+  `))[0];
+  if (existing?.state === "completed") {
+    return {
+      stageRunId: String(existing.id), cohortRunId: input.cohortRunId,
+      selected: Number(existing.selected_count), enriched: Number(existing.succeeded_count),
+      failed: Number(existing.failed_count), skipped: Number(existing.skipped_count),
+      replayed: true, completedAt: String(existing.completed_at),
+    };
+  }
+
+  const stage = existing ?? rows(await db.execute(sql`
+    INSERT INTO sfp_stage_runs
+      (cohort_run_id, stage, idempotency_key, actor_id, state, max_items, started_at, last_heartbeat_at)
+    VALUES (${input.cohortRunId}::uuid, 'free_discovery', ${input.idempotencyKey}, ${input.actorId},
+            'running', ${maxBusinesses}, NOW(), NOW())
+    ON CONFLICT (stage, idempotency_key) DO UPDATE
+      SET state=CASE WHEN sfp_stage_runs.state IN ('failed','stalled','partial') THEN 'running' ELSE sfp_stage_runs.state END,
+          last_heartbeat_at=NOW(), updated_at=NOW()
+    RETURNING *
+  `))[0];
+
+  const members = rows(await db.execute(sql`
+    SELECT m.business_id
+      FROM sfp_cohort_members m
+      JOIN businesses b ON b.id=m.business_id
+     WHERE m.cohort_run_id=${input.cohortRunId}::uuid
+       AND b.record_class='canonical'
+       AND b.website_domain IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_stage_items i
+          WHERE i.stage_run_id=${String(stage.id)}::uuid AND i.business_id=m.business_id
+            AND i.provider='first_party_web' AND i.state IN ('completed','no_result','skipped')
+       )
+     ORDER BY m.roi_score DESC, m.business_id ASC
+     LIMIT ${maxBusinesses}
+  `));
+  const businessIds = members.map((m: any) => Number(m.business_id));
+  await db.execute(sql`
+    UPDATE sfp_stage_runs SET selected_count=${businessIds.length}, last_heartbeat_at=NOW(), updated_at=NOW()
+     WHERE id=${String(stage.id)}::uuid
+  `);
+  for (const businessId of businessIds) {
+    await db.execute(sql`
+      INSERT INTO sfp_stage_items (stage_run_id,business_id,provider,state)
+      VALUES (${String(stage.id)}::uuid,${businessId},'first_party_web','pending')
+      ON CONFLICT (stage_run_id,business_id,provider) DO NOTHING
+    `);
+  }
+
+  const { runFreeEnrichmentLane } = await import("../free-enrichment-lane");
+  let laneResults: Awaited<ReturnType<typeof runFreeEnrichmentLane>> = [];
+  try {
+    laneResults = await runFreeEnrichmentLane(businessIds);
+  } catch (error: any) {
+    await db.execute(sql`
+      UPDATE sfp_stage_runs SET state='failed', terminal_reason=${String(error?.message ?? error).slice(0, 200)},
+             completed_at=NOW(),updated_at=NOW() WHERE id=${String(stage.id)}::uuid
+    `);
+    throw error;
+  }
+  const enriched = laneResults.filter((r) => r.outcome === "enriched").length;
+  const failed = laneResults.filter((r) => r.outcome === "failed").length;
+  const skipped = laneResults.filter((r) => r.outcome === "skipped").length;
+  for (const result of laneResults) {
+    await db.execute(sql`
+      UPDATE sfp_stage_items SET state=${result.outcome === "enriched" ? "completed" : result.outcome === "failed" ? "failed" : "skipped"},
+             outcome_code=${result.error ?? result.outcome},completed_at=NOW(),updated_at=NOW()
+       WHERE stage_run_id=${String(stage.id)}::uuid AND business_id=${result.businessId} AND provider='first_party_web'
+    `);
+  }
+  const completedAt = new Date().toISOString();
+  await db.execute(sql`
+    UPDATE sfp_stage_runs SET state=${failed > 0 ? "partial" : "completed"},processed_count=${laneResults.length},
+           succeeded_count=${enriched},failed_count=${failed},skipped_count=${skipped},
+           last_heartbeat_at=NOW(),completed_at=${completedAt}::timestamptz,updated_at=NOW()
+     WHERE id=${String(stage.id)}::uuid
+  `);
+  return { stageRunId: String(stage.id), cohortRunId: input.cohortRunId, selected: businessIds.length,
+           enriched, failed, skipped, replayed: false, completedAt };
 }
 
 // ── Validated outreach prospects ───────────────────────────────────────────────
@@ -440,7 +606,9 @@ export async function getValidatedProspects(opts: {
   const { cohortRunId, filters = {}, limit = 50, offset = 0 } = opts;
 
   let whereClause = sql`soe.cohort_run_id = ${cohortRunId}::uuid`;
-  if (filters.county) whereClause = sql`${whereClause} AND soe.county_fips_resolved = ${filters.county}`;
+  if (filters.county) whereClause = sql`${whereClause} AND scm.county_fips = ${filters.county}`;
+  if (filters.vertical) whereClause = sql`${whereClause} AND b.vertical = ${filters.vertical}`;
+  if (filters.source) whereClause = sql`${whereClause} AND soe.discovery_source = ${filters.source}`;
   if (filters.namedContact !== undefined) whereClause = sql`${whereClause} AND soe.named_contact = ${filters.namedContact}`;
   if (filters.roleInbox !== undefined) whereClause = sql`${whereClause} AND soe.role_inbox = ${filters.roleInbox}`;
   if (filters.status) whereClause = sql`${whereClause} AND soe.status = ${filters.status}`;
@@ -493,7 +661,7 @@ export async function getValidatedProspects(opts: {
     validationAt: r.validation_at ? String(r.validation_at) : null,
     validationAgeDays: r.validation_age_days ? Number(r.validation_age_days) : null,
     zbOutcome: r.zb_outcome ? String(r.zb_outcome) : null,
-    suppressionStatus: "not_suppressed",
+    suppressionStatus: String(r.suppression_status ?? "unchecked"),
     outreachPolicyStatus: r.status === "validated_outreach_eligible" ? "eligible" : "ineligible",
     exclusionReason: r.decision_reason ? String(r.decision_reason) : null,
     campaignStagedAt: r.campaign_staged_at ? String(r.campaign_staged_at) : null,
@@ -590,22 +758,19 @@ export async function stageForCampaign(opts: {
 }): Promise<CampaignStagingResult> {
   const { cohortRunId, idempotencyKey, actorId } = opts;
 
-  // Idempotency check
-  const existing = rows(await db.execute(sql`
-    SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility
-    WHERE cohort_run_id = ${cohortRunId}::uuid AND campaign_staged_at IS NOT NULL
-  `))[0];
-
   let whereExtra = sql``;
   if (opts.businessIds && opts.businessIds.length > 0) {
     whereExtra = sql`AND business_id = ANY(ARRAY[${sql.join(opts.businessIds.map((id) => sql`${id}::int`), sql`, `)}])`;
   }
 
   const eligibleRows = rows(await db.execute(sql`
-    SELECT soe.id, soe.business_id, soe.status, soe.zb_outcome,
-           soe.validation_at, soe.masked_email, soe.campaign_staged_at,
-           soe.decision_reason
+    SELECT soe.id, soe.business_id, soe.candidate_id, soe.status, soe.zb_outcome,
+           soe.validation_at, soe.masked_email, soe.role_inbox, soe.campaign_staged_at,
+           soe.decision_reason,fdc.normalized_value_hash,
+           b.canonical_name,b.website_domain,b.main_phone,b.vertical,b.city,b.state
     FROM sfp_outreach_eligibility soe
+    JOIN free_discovery_candidates fdc ON fdc.id=soe.candidate_id
+    JOIN businesses b ON b.id=soe.business_id
     WHERE soe.cohort_run_id = ${cohortRunId}::uuid
       AND soe.status = 'validated_outreach_eligible'
       ${whereExtra}
@@ -678,12 +843,115 @@ export async function stageForCampaign(opts: {
       continue;
     }
 
-    // Mark staged (creates campaign staging intent — no outreach sent)
+    // Re-check the canonical contact suppression/bounce surface at the final
+    // staging boundary. A provider-valid result is deliverability evidence;
+    // it never overrides an opt-out, complaint, hard bounce, or DNC marker.
+    const suppressionCheck = rows(await db.execute(sql`
+      SELECT EXISTS(
+        SELECT 1
+        FROM contacts c
+        WHERE c.email_token_hash = ${String(row.normalized_value_hash)}
+          AND (
+            COALESCE(c.opted_out_email, FALSE) = TRUE
+            OR c.opt_out_status = 'opted_out'
+            OR c.unsubscribe_status = 'unsubscribed'
+            OR c.complaint_status = 'reported'
+            OR COALESCE(c.do_not_auto_contact, FALSE) = TRUE
+            OR c.suppression_reason IS NOT NULL
+            OR c.bounce_status = 'hard'
+            OR c.email_status IN ('bounced', 'invalid')
+          )
+      ) AS suppressed
+    `))[0];
+    if (suppressionCheck?.suppressed === true) {
+      rejected++;
+      reasons["suppressed_at_staging"] = (reasons["suppressed_at_staging"] ?? 0) + 1;
+      await db.execute(sql`
+        UPDATE sfp_outreach_eligibility
+        SET status = 'validated_suppressed', decision_reason = 'suppressed_at_staging',
+            suppression_status = 'suppressed', updated_at = NOW()
+        WHERE id = ${String(row.id)}::uuid
+      `);
+      continue;
+    }
+
+    if (!row.candidate_id) {
+      rejected++;
+      reasons["candidate_missing"] = (reasons["candidate_missing"] ?? 0) + 1;
+      continue;
+    }
+    const plaintextEmail = await decryptCandidateEmail(String(row.candidate_id));
+    if (!plaintextEmail) {
+      rejected++;
+      reasons["candidate_decryption_failed"] = (reasons["candidate_decryption_failed"] ?? 0) + 1;
+      continue;
+    }
+    const contactEmailTokenHash = createHash("sha256")
+      .update(plaintextEmail.trim().toLowerCase())
+      .digest("hex");
+    const plaintextSuppression = rows(await db.execute(sql`
+      SELECT EXISTS(
+        SELECT 1 FROM contacts c
+         WHERE c.email_token_hash = ${contactEmailTokenHash}
+           AND (
+             COALESCE(c.opted_out_email, FALSE) = TRUE
+             OR c.opt_out_status = 'opted_out'
+             OR c.unsubscribe_status = 'unsubscribed'
+             OR c.complaint_status = 'reported'
+             OR COALESCE(c.do_not_auto_contact, FALSE) = TRUE
+             OR c.suppression_reason IS NOT NULL
+             OR c.bounce_status = 'hard'
+             OR c.email_status IN ('bounced', 'invalid')
+           )
+      ) AS suppressed
+    `))[0];
+    if (plaintextSuppression?.suppressed === true) {
+      rejected++;
+      reasons["suppressed_at_staging"] = (reasons["suppressed_at_staging"] ?? 0) + 1;
+      await db.execute(sql`
+        UPDATE sfp_outreach_eligibility
+           SET status='validated_suppressed',decision_reason='suppressed_at_staging',
+               suppression_status='suppressed',updated_at=NOW()
+         WHERE id=${String(row.id)}::uuid
+      `);
+      continue;
+    }
+    // Create a real, durable staging intent. This is intentionally still a
+    // no-send boundary: campaign/GHL workers do not consume this table.
+    const intent = rows(await db.execute(sql`
+      INSERT INTO sfp_campaign_staging_intents
+        (cohort_run_id,eligibility_id,business_id,candidate_id,idempotency_key,actor_id,
+         state,policy_version,validation_snapshot,lineage)
+      VALUES (${cohortRunId}::uuid,${String(row.id)}::uuid,${Number(row.business_id)},
+              ${String(row.candidate_id)}::uuid,${idempotencyKey},${actorId},'staged',${SFP_POLICY_VERSION},
+              ${JSON.stringify({ zbOutcome: row.zb_outcome, validationAt: row.validation_at, status: row.status })}::jsonb,
+              ${JSON.stringify({ source: "sfp", cohortRunId, eligibilityId: String(row.id) })}::jsonb)
+      ON CONFLICT (cohort_run_id,business_id,candidate_id) DO UPDATE SET updated_at=NOW()
+      RETURNING id
+    `))[0];
+    const masterLead = rows(await db.execute(sql`
+      INSERT INTO master_leads
+        (status,company,normalized_company,domain,email,email_type,phone,vertical,
+         outreach_readiness,readiness_reason,source,source_path,city,state,website,email_valid,
+         pipeline_origin,canonical_business_id,email_token_hash,masked_email,created_at,updated_at)
+      VALUES ('staged',${row.canonical_name},LOWER(TRIM(${row.canonical_name})),${row.website_domain},${plaintextEmail},
+              ${row.role_inbox ? "role" : "business"},${row.main_phone},${row.vertical},
+              'not_ready','awaiting_explicit_campaign_authorization','sfp_validated',
+              ${`sfp:${cohortRunId}:${String(row.candidate_id)}`},${row.city},${row.state},${row.website_domain},TRUE,
+              'sfp_pipeline',${Number(row.business_id)},${contactEmailTokenHash},${row.masked_email},NOW(),NOW())
+      ON CONFLICT (canonical_business_id,email_token_hash)
+        WHERE pipeline_origin='sfp_pipeline' AND canonical_business_id IS NOT NULL AND email_token_hash IS NOT NULL
+      DO UPDATE SET status='staged',email_valid=TRUE,masked_email=EXCLUDED.masked_email,updated_at=NOW()
+      RETURNING id
+    `))[0];
     await db.execute(sql`
       UPDATE sfp_outreach_eligibility
-      SET campaign_staged_at = NOW(), campaign_staged_by = ${actorId},
-          updated_at = NOW()
-      WHERE id = ${String(row.id)}::uuid
+         SET campaign_staged_at=NOW(),campaign_staged_by=${actorId},staging_intent_id=${String(intent.id)}::uuid,updated_at=NOW()
+       WHERE id=${String(row.id)}::uuid
+    `);
+    await db.execute(sql`
+      UPDATE sfp_campaign_staging_intents SET master_lead_id=${String(masterLead.id)}::uuid,updated_at=NOW()
+       WHERE id=${String(intent.id)}::uuid
     `);
     created++;
   }
@@ -727,7 +995,7 @@ export async function getCohortRun(cohortRunId: string): Promise<SfpCohortRun | 
 
 /**
  * Decrypt a candidate's real email address for ZeroBounce validation.
- * Uses the established openCandidate() boundary — never exposes plaintext
+ * Uses the candidate-evidence envelope boundary — never exposes plaintext
  * in logs, API responses, or telemetry.
  */
 export async function decryptCandidateEmail(candidateId: string): Promise<string | null> {
@@ -746,18 +1014,11 @@ export async function decryptCandidateEmail(candidateId: string): Promise<string
   }
 
   try {
-    const decrypted = openCandidate({
-      field: "email",
-      subjectId: Number(candRow.business_id),
-      subjectGeneration: null,
-      envelope: {
-        ciphertext: String(candRow.envelope_ciphertext),
-        nonce: String(candRow.envelope_nonce),
-        tag: String(candRow.envelope_tag),
-        keyVersion: Number(candRow.envelope_key_version ?? 1),
-        normalizedValueHash: "",
-        maskedValue: String(candRow.masked_value ?? ""),
-      },
+    const decrypted = unsealCandidateEvidence("email", {
+      ciphertext: String(candRow.envelope_ciphertext),
+      nonce: String(candRow.envelope_nonce),
+      tag: String(candRow.envelope_tag),
+      keyVersion: Number(candRow.envelope_key_version ?? 1),
     });
     return decrypted;
   } catch (err: any) {

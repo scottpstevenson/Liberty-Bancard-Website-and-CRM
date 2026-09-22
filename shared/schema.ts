@@ -7359,6 +7359,9 @@ export const masterLeads = pgTable("master_leads", {
   index("master_leads_pipeline_origin_idx").on(table.pipelineOrigin),
   index("master_leads_canonical_business_id_idx").on(table.canonicalBusinessId),
   index("master_leads_pilot_run_id_idx").on(table.pilotRunId),
+  uniqueIndex("master_leads_sfp_business_email_uidx")
+    .on(table.canonicalBusinessId, table.emailTokenHash)
+    .where(sql`pipeline_origin = 'sfp_pipeline' AND canonical_business_id IS NOT NULL AND email_token_hash IS NOT NULL`),
 ]);
 
 export type MasterLead = typeof masterLeads.$inferSelect;
@@ -9213,6 +9216,171 @@ export const freeDiscoveryCandidates = pgTable("free_discovery_candidates", {
   index("free_discovery_candidates_domain_idx").on(table.domain),
 ]);
 export type FreeDiscoveryCandidate = typeof freeDiscoveryCandidates.$inferSelect;
+
+// ── South Florida Prospecting (migration 0277/0278) ─────────────────────────
+// Declared in the Drizzle schema as well as SQL migrations because production
+// Publish applies schema diffs and does not execute arbitrary migration files.
+export const sfpPrograms = pgTable("sfp_programs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  countyFips: text("county_fips").array().notNull(),
+  verticalIds: text("vertical_ids").array().notNull(),
+  maxCohortSize: integer("max_cohort_size").notNull().default(100),
+  policyVersion: integer("policy_version").notNull().default(1),
+  isActive: boolean("is_active").notNull().default(false),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+  activatedBy: text("activated_by"),
+  recurringEnabled: boolean("recurring_enabled").notNull().default(false),
+  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").notNull(),
+});
+
+export const sfpCohortRuns = pgTable("sfp_cohort_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programId: uuid("program_id").notNull().references(() => sfpPrograms.id),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  status: text("status").notNull().default("draft"),
+  cohortSize: integer("cohort_size").notNull().default(0),
+  cohortHash: text("cohort_hash"),
+  frozenAt: timestamp("frozen_at", { withTimezone: true }),
+  releaseSha: text("release_sha").notNull().default(""),
+  actorId: text("actor_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  errorDetail: text("error_detail"),
+}, (table) => [index("idx_sfp_cohort_runs_program").on(table.programId, table.createdAt)]);
+
+export const sfpCohortMembers = pgTable("sfp_cohort_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  roiScore: integer("roi_score").notNull().default(0),
+  geographyClass: text("geography_class").notNull().default("unknown"),
+  geographySource: text("geography_source").notNull().default("none"),
+  countyFips: text("county_fips"),
+  vertical: text("vertical"),
+  exclusionReason: text("exclusion_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_cohort_members_run_business_uidx").on(table.cohortRunId, table.businessId),
+  index("idx_sfp_cohort_members_run").on(table.cohortRunId, table.roiScore),
+]);
+
+export const sfpFunnelSnapshots = pgTable("sfp_funnel_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }).unique(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  totalBusinesses: integer("total_businesses").notNull().default(0),
+  southFlorida: integer("south_florida").notNull().default(0),
+  outsideGeography: integer("outside_geography").notNull().default(0),
+  geographyUnresolved: integer("geography_unresolved").notNull().default(0),
+  inTargetVertical: integer("in_target_vertical").notNull().default(0),
+  verticalUnresolved: integer("vertical_unresolved").notNull().default(0),
+  dbprExcluded: integer("dbpr_excluded").notNull().default(0),
+  suppressed: integer("suppressed").notNull().default(0),
+  bouncedInvalidOnly: integer("bounced_invalid_only").notNull().default(0),
+  existingCustomer: integer("existing_customer").notNull().default(0),
+  testDemoInternal: integer("test_demo_internal").notNull().default(0),
+  inactiveEntity: integer("inactive_entity").notNull().default(0),
+  duplicateConflict: integer("duplicate_conflict").notNull().default(0),
+  alreadyEnriched: integer("already_enriched").notNull().default(0),
+  requiresFreeDiscovery: integer("requires_free_discovery").notNull().default(0),
+  requiresPaidDiscovery: integer("requires_paid_discovery").notNull().default(0),
+  readyForValidation: integer("ready_for_validation").notNull().default(0),
+  providerValid: integer("provider_valid").notNull().default(0),
+  outreachEligible: integer("outreach_eligible").notNull().default(0),
+  reviewRequired: integer("review_required").notNull().default(0),
+  selectedFrozen: integer("selected_frozen").notNull().default(0),
+});
+
+export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "set null" }),
+  policyVersion: integer("policy_version").notNull().default(1),
+  status: text("status").notNull(),
+  decisionReason: text("decision_reason").notNull().default(""),
+  zbOutcome: text("zb_outcome"),
+  validationAt: timestamp("validation_at", { withTimezone: true }),
+  validationAgeDays: integer("validation_age_days"),
+  namedContact: boolean("named_contact").notNull().default(false),
+  roleInbox: boolean("role_inbox").notNull().default(false),
+  maskedEmail: text("masked_email"),
+  discoverySource: text("discovery_source"),
+  evidenceConfidence: integer("evidence_confidence"),
+  suppressionStatus: text("suppression_status").notNull().default("unchecked"),
+  outreachPolicyVersion: integer("outreach_policy_version"),
+  outreachPolicyReason: text("outreach_policy_reason"),
+  validationOperationId: uuid("validation_operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  stagingIntentId: uuid("staging_intent_id"),
+  campaignStagedAt: timestamp("campaign_staged_at", { withTimezone: true }),
+  campaignStagedBy: text("campaign_staged_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_outreach_run_business_policy_uidx").on(table.cohortRunId, table.businessId, table.policyVersion),
+  index("idx_sfp_outreach_eligibility_run").on(table.cohortRunId, table.status),
+  index("idx_sfp_outreach_eligibility_status").on(table.status, table.createdAt),
+  index("sfp_outreach_candidate_idx").on(table.candidateId),
+]);
+
+export const sfpStageRuns = pgTable("sfp_stage_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  stage: text("stage").notNull(), idempotencyKey: text("idempotency_key").notNull(), actorId: text("actor_id").notNull(),
+  state: text("state").notNull().default("pending"), maxItems: integer("max_items").notNull(),
+  providerKeys: jsonb("provider_keys").notNull().default([]),
+  estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }).notNull().default(0),
+  reservedCostMicros: bigint("reserved_cost_micros", { mode: "number" }).notNull().default(0),
+  settledCostMicros: bigint("settled_cost_micros", { mode: "number" }).notNull().default(0),
+  selectedCount: integer("selected_count").notNull().default(0), processedCount: integer("processed_count").notNull().default(0),
+  succeededCount: integer("succeeded_count").notNull().default(0), failedCount: integer("failed_count").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0), claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }), lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  terminalReason: text("terminal_reason"), authorization: jsonb("authorization"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_stage_runs_stage_idempotency_uidx").on(table.stage, table.idempotencyKey),
+  index("sfp_stage_runs_cohort_stage_idx").on(table.cohortRunId, table.stage, table.createdAt),
+]);
+
+export const sfpStageItems = pgTable("sfp_stage_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stageRunId: uuid("stage_run_id").notNull().references(() => sfpStageRuns.id, { onDelete: "cascade" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  provider: text("provider"), candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "set null" }),
+  providerOperationId: uuid("provider_operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  state: text("state").notNull().default("pending"), attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(), claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }), outcomeCode: text("outcome_code"),
+  redactedResult: jsonb("redacted_result").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_stage_items_run_business_provider_uidx").on(table.stageRunId, table.businessId, table.provider),
+  index("sfp_stage_items_business_idx").on(table.businessId, table.createdAt),
+]);
+
+export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
+  eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  candidateId: uuid("candidate_id").notNull().references(() => freeDiscoveryCandidates.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(), actorId: text("actor_id").notNull(),
+  state: text("state").notNull().default("staged"), policyVersion: integer("policy_version").notNull(),
+  validationSnapshot: jsonb("validation_snapshot").notNull(), lineage: jsonb("lineage").notNull(),
+  masterLeadId: uuid("master_lead_id").references(() => masterLeads.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_campaign_intent_cohort_business_candidate_uidx").on(table.cohortRunId, table.businessId, table.candidateId),
+  uniqueIndex("sfp_campaign_intent_key_business_uidx").on(table.idempotencyKey, table.businessId),
+  index("sfp_campaign_staging_intents_state_idx").on(table.state, table.createdAt),
+]);
 
 // Cross-run domain crawl cache. Cached role-inbox evidence is reusable without
 // recrawling; named-person evidence is NEVER cached/copied here — it stays
