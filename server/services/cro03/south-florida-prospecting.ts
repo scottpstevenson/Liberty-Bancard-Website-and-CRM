@@ -293,13 +293,23 @@ export async function previewFunnel(opts: {
   maxPreview?: number;
   programId?: string;
 } = {}): Promise<SfpFunnelPreview> {
+  // Task #1998 round-3 correction (item 4): validate maxPreview INSIDE this
+  // service function, not only at the HTTP route (server/routes/lead-ops.ts
+  // has its own copy of this same check, but any other caller — a script, a
+  // worker, a future route — must not be able to bypass it and reach
+  // selectRoiCohort with a malformed cap).
+  if (opts.maxPreview !== undefined) {
+    if (!Number.isInteger(opts.maxPreview) || opts.maxPreview < 1 || opts.maxPreview > SFP_PROGRAM_MAX_COHORT) {
+      throw new Error(`SFP_PREVIEW_CAP_INVALID:maxPreview_must_be_an_integer_between_1_and_${SFP_PROGRAM_MAX_COHORT}:received=${String(opts.maxPreview)}`);
+    }
+  }
   // Read-only: never converges/creates the program row. Preview must work
   // even while the program is inactive — freeze (not preview) is the gate
   // that requires activation.
   const program = await getProgramReadOnly();
   if (!program) throw new Error("SFP_PROGRAM_NOT_CONFIGURED:create_the_program_via_POST_program_ensure_first");
   const result = await selectRoiCohort({
-    maxCohort: opts.maxPreview ?? 25,
+    maxCohort: opts.maxPreview ?? SFP_CANARY_CAP,
     verticalIds: program.verticalIds,
     countyFips: program.countyFips,
     persistScores: false,
@@ -469,7 +479,19 @@ async function freezeCohortLocked(opts: {
   _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void;
 }): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
   const program = await ensureProgram();
-  const maxCohortSize = Math.max(1, Math.min(SFP_PROGRAM_MAX_COHORT, opts.maxCohortSize ?? program.maxCohortSize));
+  // Task #1998 round-3 correction (item 4): validate the caller-supplied
+  // cohort cap INSIDE the service layer itself, not only at the HTTP route.
+  // The old Math.max(1, Math.min(100, opts.maxCohortSize ?? ...)) silently
+  // coerced invalid input (NaN, fractional, negative, > 100) into NaN or a
+  // seemingly-valid clamped number instead of rejecting it outright — a
+  // non-HTTP caller (a worker, a script, a future route that forgets its
+  // own validation) would never be told its request was malformed.
+  if (opts.maxCohortSize !== undefined) {
+    if (!Number.isInteger(opts.maxCohortSize) || opts.maxCohortSize < 1 || opts.maxCohortSize > SFP_PROGRAM_MAX_COHORT) {
+      throw stableError(`SFP_COHORT_CAP_INVALID:maxCohortSize_must_be_an_integer_between_1_and_${SFP_PROGRAM_MAX_COHORT}:received=${String(opts.maxCohortSize)}`);
+    }
+  }
+  const maxCohortSize = Math.min(SFP_PROGRAM_MAX_COHORT, opts.maxCohortSize ?? program.maxCohortSize);
 
   const requestPayload = {
     programId: program.id,
@@ -732,6 +754,18 @@ async function freezeCohortTx(
         // trail. Covers both suppressed and bounced/invalid-only exclusions.
         const suppressionScope = c.suppressionEvidence?.scope ?? (disposition === "suppressed" || disposition === "bounced_invalid_only" ? "business" : null);
         const suppressionSubjectHash = c.suppressionEvidence?.subjectHash ?? null;
+        // Task #1998 round-3 correction (item 3): persist the FULL structured
+        // per-subject evidence — every determining contact, its real
+        // authority/reasonCode/evidenceRef/channel — never collapsed to one
+        // sampled subject or a scope inferred from email-column presence.
+        const supEv = c.suppressionEvidence;
+        const firstSubject = supEv?.subjects?.[0] ?? null;
+        const suppressionAuthority = firstSubject?.authority ?? null;
+        const suppressionReasonCode = firstSubject?.reasonCode ?? supEv?.reason ?? null;
+        const suppressionEvidenceRef = firstSubject?.evidenceRef ?? null;
+        const suppressionChannel = firstSubject?.channel ?? null;
+        const suppressionSubjectsJson = supEv?.subjects && supEv.subjects.length > 0 ? JSON.stringify(supEv.subjects) : null;
+        const suppressionBusinessWideRuleApplied = supEv?.businessWideRuleApplied ?? false;
         // Correction 1: persist the exact classifier/geography evidence that
         // decided this business's disposition (selected or excluded) — not
         // just for admitted members. A business excluded on geography or
@@ -742,12 +776,18 @@ async function freezeCohortTx(
         await tx.execute(sql`
           INSERT INTO sfp_cohort_decisions
             (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
-             suppression_subject_hash, geography_class, geography_source, vertical, roi_score, selected,
+             suppression_subject_hash, suppression_authority, suppression_reason_code,
+             suppression_evidence_ref, suppression_channel, suppression_subjects,
+             suppression_business_wide_rule_applied,
+             geography_class, geography_source, vertical, roi_score, selected,
              classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
              classifier_reasons, classifier_evidence_hash,
              geography_resolver_version, geography_outcome, geography_location_id, geography_reasons)
           VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
-                  ${suppressionScope}, ${suppressionSubjectHash}, ${c.geographyClass}, ${c.geographySource}, ${c.vertical},
+                  ${suppressionScope}, ${suppressionSubjectHash}, ${suppressionAuthority}, ${suppressionReasonCode},
+                  ${suppressionEvidenceRef}, ${suppressionChannel}, ${suppressionSubjectsJson}::jsonb,
+                  ${suppressionBusinessWideRuleApplied},
+                  ${c.geographyClass}, ${c.geographySource}, ${c.vertical},
                   ${c.roiScore}, ${isSelected},
                   ${cls?.version ?? null}, ${cls?.outcome ?? null}, ${cls?.confidence ?? null}, ${cls?.matchedTargetId ?? null},
                   ${cls ? JSON.stringify(cls.reasons) : null}::jsonb, ${cls?.evidenceHash ?? null},
@@ -928,7 +968,18 @@ export async function supersedeCohortRun(opts: {
     const run = lockedById.get(opts.cohortRunId);
     const replacement = lockedById.get(opts.supersededByRunId);
     if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-    if (!replacement || replacement.cohort_state !== "frozen") throw new Error("SFP_SUPERSEDE_REJECTED:replacement_not_frozen");
+    if (!replacement) throw new Error("SFP_COHORT_RUN_NOT_FOUND:replacement");
+    // Task #1998 round-3 correction (item 5): a replacement run belonging to
+    // a DIFFERENT program must never be accepted as the supersession of this
+    // run — that would let one program's cohort silently replace another
+    // program's history, corrupting per-program lineage. Verified inside
+    // this same locked transaction, using the just-locked rows (not an
+    // earlier, separately-committed read), for the same reason the
+    // replacement's lifecycle state is revalidated here.
+    if (replacement.program_id !== run.program_id) {
+      throw new Error("SFP_SUPERSEDE_REJECTED:cross_program_replacement_not_allowed");
+    }
+    if (replacement.cohort_state !== "frozen") throw new Error("SFP_SUPERSEDE_REJECTED:replacement_not_frozen");
     if (run.cohort_state !== "frozen") throw new Error(`SFP_SUPERSEDE_REJECTED:not_frozen:current_state=${run.cohort_state}`);
 
     const updated = rows(await tx.execute(sql`

@@ -52,11 +52,51 @@ export const ROI_SCORE_VERSION = 2 as const;
  * `subjectHash` is a SHA-256 of the specific contact id or (lowercased)
  * email address that decided the outcome — never the raw PII itself.
  */
+/**
+ * Task #1998 round-3 correction (item 3): a single per-business "sample"
+ * subject is not genuine subject-aware evidence — it silently discards every
+ * OTHER determining contact/email at that business, and it inferred `scope`
+ * from whether an email field happened to be present rather than from which
+ * predicate actually fired. `subjects` now carries one entry per contact
+ * whose own row genuinely determined the exclusion, each with the real
+ * authority (the specific column/rule that fired), a canonical reason code,
+ * an evidence reference, and the channel that predicate governs. The
+ * top-level scope/subjectHash/reason/contactId fields mirror the first
+ * subject for backward-compatible call sites but are no longer the only
+ * evidence recorded.
+ */
+export interface SuppressionSubject {
+  scope: "contact" | "email";
+  subjectHash: string;
+  contactId: number;
+  /** The specific column/rule that determined this subject was unusable,
+   *  e.g. "contact.unsubscribe_status", "contact.bounce_status". */
+  authority: string;
+  /** Canonical, closed-vocabulary reason code — never a free-text sample. */
+  reasonCode: string;
+  /** Stable reference an auditor can use to look up the deciding fact
+   *  (never raw PII — a contact id reference, not the email itself). */
+  evidenceRef: string;
+  /** Which contact channel this predicate governs. */
+  channel: "email" | "sms" | "all";
+}
 export interface SuppressionEvidence {
+  /** "business" only when a business-level authoritative rule applied, or
+   *  when every contact's own individual subjects independently prove no
+   *  usable subject remains (both are genuine deterministic facts, not a
+   *  guess). Otherwise "contact"/"email" mirroring subjects[0]. */
   scope: "contact" | "email" | "business";
   subjectHash: string;
   reason: string;
   contactId: number | null;
+  /** Every individual contact/email whose own row determined this outcome —
+   *  never truncated to one sample. Empty only for an authoritative
+   *  business-wide rule with no per-contact predicate involved. */
+  subjects: SuppressionSubject[];
+  /** True only when an authoritative business-wide rule (e.g. businesses.status
+   *  = 'suppressed') applied directly — never inferred merely because every
+   *  currently-known contact happens to be suppressed/bounced. */
+  businessWideRuleApplied: boolean;
 }
 function _hashSubject(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -302,105 +342,180 @@ export async function selectRoiCohort(opts: {
   // could still be used. A business is only excluded at the business level
   // when EVERY contact belonging to it is suppressed (no usable unsuppressed
   // candidate remains) — that is the one case where business-wide exclusion
-  // is provably correct rather than an over-broad guess. Per-contact
-  // suppression itself is already tracked as subject-level evidence on the
-  // `contacts` row (opt_out_date/opted_out_email/etc.); this query only
-  // decides whether the *business* has zero usable candidates left.
-  // Correction 5: carry a representative contact id/email + the specific
-  // predicate that decided the outcome, so the ledger records real
-  // contact/email-level evidence instead of a blanket "business" label. The
-  // exclusion is still only applied at the business level once EVERY
-  // contact is suppressed (unchanged admission logic) — only the evidence
-  // recorded about WHY changes.
-  const suppressionRows = rows(await exec.execute(sql`
+  // is provably correct from per-contact evidence, rather than an
+  // over-broad guess.
+  //
+  // Task #1998 round-3 correction (item 3): the prior version sampled ONE
+  // contact via `(ARRAY_AGG(...))[1]` and inferred `scope` from whether the
+  // sampled row's `email` column happened to be non-null — not from which
+  // predicate actually fired. This version fetches every determining
+  // contact's own row directly (one SELECT per suppressed contact, not an
+  // aggregate sample), so `subjects` below carries real per-contact
+  // authority/reasonCode/channel evidence for every subject that
+  // contributed to the outcome.
+  const suppressionPredicateRows = rows(await exec.execute(sql`
     SELECT
-      business_id,
-      COUNT(*)::int AS total_contacts,
-      COUNT(*) FILTER (WHERE
-        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
-        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
-        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
-      )::int AS suppressed_contacts,
-      (ARRAY_AGG(id ORDER BY id) FILTER (WHERE
-        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
-        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
-        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
-      ))[1] AS sample_contact_id,
-      (ARRAY_AGG(email ORDER BY id) FILTER (WHERE
-        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
-        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
-        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
-      ))[1] AS sample_email,
-      (ARRAY_AGG(
-        CASE
-          WHEN opt_out_date IS NOT NULL OR opt_out_status='opted_out' THEN 'opt_out'
-          WHEN opted_out_email=TRUE OR unsubscribe_status='unsubscribed' THEN 'unsubscribed'
-          WHEN complaint_status='reported' THEN 'complaint'
-          WHEN do_not_auto_contact=TRUE THEN 'do_not_contact'
-          ELSE COALESCE(suppression_reason, 'suppressed')
-        END ORDER BY id) FILTER (WHERE
-        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
-        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
-        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
-      ))[1] AS sample_reason
+      id, business_id, email,
+      opt_out_date, opted_out_email, opt_out_status, unsubscribe_status,
+      complaint_status, do_not_auto_contact, suppression_reason
     FROM contacts
     WHERE business_id IS NOT NULL
-    GROUP BY business_id
+      AND (
+        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
+        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
+        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
+      )
+    ORDER BY business_id, id
   `));
+  const totalContactsByBiz = new Map<number, number>();
+  for (const r of rows(await exec.execute(sql`
+    SELECT business_id, COUNT(*)::int AS total_contacts FROM contacts
+    WHERE business_id IS NOT NULL GROUP BY business_id
+  `))) {
+    totalContactsByBiz.set(Number(r.business_id), Number(r.total_contacts));
+  }
+  function _suppressionSubjectFrom(r: any): SuppressionSubject {
+    const contactId = Number(r.id);
+    const email = r.email ? String(r.email).trim().toLowerCase() : null;
+    let authority: string;
+    let reasonCode: string;
+    let channel: SuppressionSubject["channel"];
+    if (r.opted_out_email === true) {
+      authority = "contact.opted_out_email"; reasonCode = "opted_out_email"; channel = "email";
+    } else if (r.unsubscribe_status === "unsubscribed") {
+      authority = "contact.unsubscribe_status"; reasonCode = "unsubscribed"; channel = "email";
+    } else if (r.complaint_status === "reported") {
+      authority = "contact.complaint_status"; reasonCode = "complaint"; channel = "email";
+    } else if (r.opt_out_date !== null || r.opt_out_status === "opted_out") {
+      authority = "contact.opt_out_status"; reasonCode = "opt_out"; channel = "all";
+    } else if (r.do_not_auto_contact === true) {
+      authority = "contact.do_not_auto_contact"; reasonCode = "do_not_contact"; channel = "all";
+    } else {
+      authority = "contact.suppression_reason"; reasonCode = String(r.suppression_reason ?? "suppressed"); channel = "all";
+    }
+    const scope: SuppressionSubject["scope"] = channel === "email" && email ? "email" : "contact";
+    return {
+      scope,
+      subjectHash: _hashSubject(scope === "email" && email ? email : `contact:${contactId}`),
+      contactId,
+      authority,
+      reasonCode,
+      evidenceRef: `contact:${contactId}`,
+      channel,
+    };
+  }
+  const suppressionSubjectsByBiz = new Map<number, SuppressionSubject[]>();
+  for (const r of suppressionPredicateRows) {
+    const bizId = Number(r.business_id);
+    const list = suppressionSubjectsByBiz.get(bizId) ?? [];
+    list.push(_suppressionSubjectFrom(r));
+    suppressionSubjectsByBiz.set(bizId, list);
+  }
   const suppressedBizIds = new Set(
-    suppressionRows
-      .filter((r: any) => Number(r.total_contacts) > 0 && Number(r.suppressed_contacts) === Number(r.total_contacts))
-      .map((r: any) => Number(r.business_id)),
+    Array.from(suppressionSubjectsByBiz.entries())
+      .filter(([bizId, subjects]) => (totalContactsByBiz.get(bizId) ?? 0) > 0 && subjects.length === totalContactsByBiz.get(bizId))
+      .map(([bizId]) => bizId),
   );
   const suppressionEvidenceByBiz = new Map<number, SuppressionEvidence>();
-  for (const r of suppressionRows) {
-    if (!(Number(r.total_contacts) > 0 && Number(r.suppressed_contacts) === Number(r.total_contacts))) continue;
-    const bizId = Number(r.business_id);
-    const email = r.sample_email ? String(r.sample_email).trim().toLowerCase() : null;
-    const contactId = r.sample_contact_id != null ? Number(r.sample_contact_id) : null;
+  for (const bizId of suppressedBizIds) {
+    const subjects = suppressionSubjectsByBiz.get(bizId) ?? [];
+    const first = subjects[0];
+    // "business" scope is used here ONLY as the aggregate label for "every
+    // contact independently proved unusable" — the deterministic per-subject
+    // evidence in `subjects` is what actually proves it, never a guess.
     suppressionEvidenceByBiz.set(bizId, {
-      scope: email ? "email" : (contactId != null ? "contact" : "business"),
-      subjectHash: _hashSubject(email ?? (contactId != null ? `contact:${contactId}` : `business:${bizId}`)),
-      reason: String(r.sample_reason ?? "suppressed"),
-      contactId,
+      scope: subjects.length > 1 ? "business" : first.scope,
+      subjectHash: first.subjectHash,
+      reason: first.reasonCode,
+      contactId: first.contactId,
+      subjects,
+      businessWideRuleApplied: false,
     });
   }
 
-  const bouncedOnlyRows = rows(await exec.execute(sql`
+  // Bounced/invalid-only exclusion — same per-subject evidence discipline.
+  // Task #1998 round-3 correction (item 3): a business whose currently-known
+  // emails are ALL bounced/invalid must never be treated as PERMANENTLY
+  // excluded merely on that fact — free/paid discovery could still surface a
+  // different address for the same business. This predicate therefore only
+  // fires when the business has never had free discovery attempted
+  // (free_enrichment_status IS NULL) — once free discovery HAS run, a
+  // bounced-only business with contacts already discovered is genuinely
+  // exhausted at the current comprehensiveness level and the exclusion is
+  // safe to record as evidence (not a guess) rather than silently retried
+  // forever. This mirrors the existing `requiresFreeDiscovery`
+  // funnel semantics elsewhere in this module.
+  const bouncedOnlyPredicateRows = rows(await exec.execute(sql`
     SELECT
-      business_id,
-      (ARRAY_AGG(id ORDER BY id) FILTER (WHERE email IS NOT NULL AND (
-        (bounce_status IS NOT NULL AND bounce_status IN ('hard','complained'))
-        OR COALESCE(email_status,'') IN ('bounced','invalid')
-      )))[1] AS sample_contact_id,
-      (ARRAY_AGG(email ORDER BY id) FILTER (WHERE email IS NOT NULL AND (
-        (bounce_status IS NOT NULL AND bounce_status IN ('hard','complained'))
-        OR COALESCE(email_status,'') IN ('bounced','invalid')
-      )))[1] AS sample_email,
-      (ARRAY_AGG(
-        CASE
-          WHEN bounce_status IN ('hard','complained') THEN 'bounce:' || bounce_status
-          ELSE 'invalid_email:' || COALESCE(email_status,'unknown')
-        END ORDER BY id) FILTER (WHERE email IS NOT NULL AND (
-        (bounce_status IS NOT NULL AND bounce_status IN ('hard','complained'))
-        OR COALESCE(email_status,'') IN ('bounced','invalid')
-      )))[1] AS sample_reason
-    FROM contacts WHERE business_id IS NOT NULL
-     GROUP BY business_id HAVING COUNT(*) FILTER (WHERE email IS NOT NULL)>0
-       AND COUNT(*) FILTER (WHERE email IS NOT NULL AND (bounce_status IS NULL OR bounce_status NOT IN ('hard','complained'))
-                            AND COALESCE(email_status,'') NOT IN ('bounced','invalid'))=0
+      c.id, c.business_id, c.email, c.bounce_status, c.email_status
+    FROM contacts c
+    WHERE c.business_id IS NOT NULL AND c.email IS NOT NULL
+      AND ((c.bounce_status IS NOT NULL AND c.bounce_status IN ('hard','complained'))
+           OR COALESCE(c.email_status,'') IN ('bounced','invalid'))
+    ORDER BY c.business_id, c.id
   `));
-  const bouncedOnlyIds = new Set(bouncedOnlyRows.map((r:any)=>Number(r.business_id)));
-  const bounceEvidenceByBiz = new Map<number, SuppressionEvidence>();
-  for (const r of bouncedOnlyRows) {
-    const bizId = Number(r.business_id);
-    const email = r.sample_email ? String(r.sample_email).trim().toLowerCase() : null;
-    const contactId = r.sample_contact_id != null ? Number(r.sample_contact_id) : null;
-    bounceEvidenceByBiz.set(bizId, {
-      scope: email ? "email" : (contactId != null ? "contact" : "business"),
-      subjectHash: _hashSubject(email ?? (contactId != null ? `contact:${contactId}` : `business:${bizId}`)),
-      reason: String(r.sample_reason ?? "bounced_invalid_only"),
+  const emailedContactCountByBiz = new Map<number, number>();
+  const usableEmailContactCountByBiz = new Map<number, number>();
+  for (const r of rows(await exec.execute(sql`
+    SELECT business_id,
+      COUNT(*) FILTER (WHERE email IS NOT NULL)::int AS emailed_contacts,
+      COUNT(*) FILTER (WHERE email IS NOT NULL AND (bounce_status IS NULL OR bounce_status NOT IN ('hard','complained'))
+                       AND COALESCE(email_status,'') NOT IN ('bounced','invalid'))::int AS usable_contacts
+    FROM contacts WHERE business_id IS NOT NULL GROUP BY business_id
+  `))) {
+    emailedContactCountByBiz.set(Number(r.business_id), Number(r.emailed_contacts));
+    usableEmailContactCountByBiz.set(Number(r.business_id), Number(r.usable_contacts));
+  }
+  const discoveryNeverAttemptedBizIds = new Set(
+    rows(await exec.execute(sql`
+      SELECT id FROM businesses WHERE free_enrichment_status IS NULL
+    `)).map((r: any) => Number(r.id)),
+  );
+  function _bounceSubjectFrom(r: any): SuppressionSubject {
+    const contactId = Number(r.id);
+    const email = r.email ? String(r.email).trim().toLowerCase() : null;
+    const reasonCode = r.bounce_status === "hard" || r.bounce_status === "complained"
+      ? `bounce_${r.bounce_status}` : `invalid_email_${String(r.email_status ?? "unknown")}`;
+    const authority = r.bounce_status ? "contact.bounce_status" : "contact.email_status";
+    return {
+      scope: "email",
+      subjectHash: _hashSubject(email ?? `contact:${contactId}`),
       contactId,
+      authority,
+      reasonCode,
+      evidenceRef: `contact:${contactId}`,
+      channel: "email",
+    };
+  }
+  const bounceSubjectsByBiz = new Map<number, SuppressionSubject[]>();
+  for (const r of bouncedOnlyPredicateRows) {
+    const bizId = Number(r.business_id);
+    const list = bounceSubjectsByBiz.get(bizId) ?? [];
+    list.push(_bounceSubjectFrom(r));
+    bounceSubjectsByBiz.set(bizId, list);
+  }
+  const bouncedOnlyIds = new Set(
+    Array.from(bounceSubjectsByBiz.keys()).filter((bizId) => {
+      const emailed = emailedContactCountByBiz.get(bizId) ?? 0;
+      const usable = usableEmailContactCountByBiz.get(bizId) ?? 0;
+      if (!(emailed > 0 && usable === 0)) return false;
+      // Deterministic evidence "no usable subject remains" requires free
+      // discovery to have already run at least once — otherwise discovery
+      // could still find another address and this must not be terminal.
+      return !discoveryNeverAttemptedBizIds.has(bizId);
+    }),
+  );
+  const bounceEvidenceByBiz = new Map<number, SuppressionEvidence>();
+  for (const bizId of bouncedOnlyIds) {
+    const subjects = bounceSubjectsByBiz.get(bizId) ?? [];
+    const first = subjects[0];
+    bounceEvidenceByBiz.set(bizId, {
+      scope: subjects.length > 1 ? "business" : first.scope,
+      subjectHash: first.subjectHash,
+      reason: first.reasonCode,
+      contactId: first.contactId,
+      subjects,
+      businessWideRuleApplied: false,
     });
   }
 

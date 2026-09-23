@@ -113,7 +113,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
-import { applyCertificationProviderDenyBoundary } from "./certification-provider-deny";
+import {
+  applyCertificationProviderDenyBoundary,
+  getBlockedCertificationNetworkAttemptCount,
+  getLastBlockedCertificationNetworkOrigin,
+} from "./certification-provider-deny";
 
 await assertDisposableTestInfrastructure({
   operation: "SFP disposable certification",
@@ -363,6 +367,15 @@ try {
   await pool.query(
     `INSERT INTO contacts (business_id, first_name, last_name, email, phone, bounce_status) VALUES ($1, 'Cert', 'Bounced', $2, $3, 'hard')`,
     [bouncedBizId, bouncedEmail, bouncedPhone],
+  );
+  // Task #1998 round-3 correction (item 3): a bounced-only business is only
+  // terminally excluded once free discovery has genuinely been attempted
+  // for it (otherwise discovery could still surface a different address) --
+  // mark this fixture as already having gone through free discovery so it
+  // exercises the terminal-exclusion path this test asserts.
+  await pool.query(
+    `UPDATE businesses SET free_enrichment_status = 'completed', free_enrichment_completed_at = NOW() WHERE id = $1`,
+    [bouncedBizId],
   );
 
   // Seed a business excluded on geography (outside territory) so RC2-16 can
@@ -812,7 +825,26 @@ try {
     "RC2-17a", "the terminal decision ledger row count reconciles exactly against the frozen funnel snapshot's total scanned businesses");
 
   // ── RC2-20: zero outreach / zero provider call proof ──────────────────────
-  check(true, "RC2-20", "this suite never called runSfpFreeDiscovery, executePaidWaterfall, executeValidation, or stageForCampaign, and never set is_active=true on any program -- zero outreach/provider effects by construction");
+  // Task #1998 round-3 correction (item 1): `check(true, ...)` asserted this
+  // as a narrative claim, not a fact the run itself verified. Two genuine,
+  // executable checks replace it: (a) this suite's own source text contains
+  // no reference to the named outreach/provider entry points, proven by
+  // reading the file the interpreter is actually executing, not by
+  // recalling what the author intended to write; (b) the program this suite
+  // exercised never had is_active flipped true, read directly from the
+  // database.
+  const fsForRc220 = await import("node:fs/promises");
+  const ownSourceForRc220Lines = (await fsForRc220.readFile(new URL(import.meta.url), "utf8")).split("\n");
+  // Exclude this very check's own source lines (which necessarily spell out
+  // the forbidden names as literal strings to search for) so the scan is
+  // over the REST of the file's actual executable code, not a
+  // self-referential false positive against its own string literals.
+  const ownSourceForRc220 = ownSourceForRc220Lines.filter((line) => !line.includes("forbiddenOutreachCalls") && !line.includes("rc220NoOutreachCalls")).join("\n");
+  const forbiddenOutreachCalls = ["runSfpFreeDiscovery" + "(", "executePaidWaterfall" + "(", "executeValidation" + "(", "stageForCampaign" + "("];
+  const rc220NoOutreachCalls = forbiddenOutreachCalls.every((needle) => !ownSourceForRc220.includes(needle));
+  check(rc220NoOutreachCalls, "RC2-20a", "this suite's own executing source text contains zero calls to runSfpFreeDiscovery/executePaidWaterfall/executeValidation/stageForCampaign -- verified by reading the actual file, not asserted by narrative");
+  const rc220ProgramNeverActivated = rows(await pool.query(`SELECT is_active FROM sfp_programs WHERE id = $1`, [programRow.id]))[0];
+  check(rc220ProgramNeverActivated.is_active === false, "RC2-20b", "the program this suite exercised has is_active=false in the database at the end of the run -- it was never activated, not merely assumed not to have been");
 
   // ═══════════════════════════════════════════════════════════════════════
   // AUTHORITATIVE VFC-01..20 -- the restored, original pre-build audit
@@ -821,11 +853,33 @@ try {
   // ═══════════════════════════════════════════════════════════════════════
   const { execSync } = await import("node:child_process");
 
-  // VFC-01: current origin/main SHA pinned; task diff isolated to this branch.
+  // Task #1998 round-3 correction (item 1): `currentBranch !== "main"` is not
+  // deterministic release provenance — a caller could run this suite ON
+  // main (nothing prevents it) and the check would silently pass anyway
+  // once the branch happened to be non-"main" for an unrelated reason, and
+  // it says nothing about WHICH commit was actually certified. Being a
+  // 40-hex string is also not "pinned" — any commit's SHA matches that
+  // regex. Genuine provenance requires recording the full HEAD SHA and, when
+  // the caller supplies an expected SHA (the same RELEASE_SHA convention
+  // scripts/run-pre-deploy.sh and scripts/verify-release-identity.ts already
+  // use), failing closed on any mismatch — proving this exact certification
+  // run executed against the exact commit it claims to certify.
   const currentBranch = execSync("git rev-parse --abbrev-ref HEAD").toString().trim();
   const currentSha = execSync("git rev-parse HEAD").toString().trim();
-  check(/^[0-9a-f]{40}$/.test(currentSha), "VFC-01a", "the working tree resolves to a real, pinned 40-char commit SHA");
-  check(currentBranch !== "main", "VFC-01b", `task diff is isolated on branch '${currentBranch}', not committed directly to main`);
+  const workingTreeDirty = execSync("git status --porcelain").toString().trim().length > 0;
+  const expectedReleaseSha = process.env.RELEASE_SHA ?? null;
+  check(/^[0-9a-f]{40}$/.test(currentSha), "VFC-01a", `the working tree resolves to a real, recorded commit SHA=${currentSha} on branch='${currentBranch}'`);
+  check(!workingTreeDirty, "VFC-01b", "the working tree has zero uncommitted changes at certification time -- the recorded SHA genuinely reflects what was tested");
+  if (expectedReleaseSha !== null) {
+    check(
+      /^[0-9a-f]{40}$/.test(expectedReleaseSha) && expectedReleaseSha === currentSha,
+      "VFC-01c",
+      `RELEASE_SHA=${expectedReleaseSha} was supplied by the caller and exact-matches the certified working tree SHA=${currentSha} -- this run is bound to that specific commit, not merely 40-hex-shaped`,
+    );
+  } else {
+    console.log(`  [VFC-01c] no RELEASE_SHA supplied -- recording uncompared commit SHA=${currentSha} (caller did not request exact-match provenance binding)`);
+  }
+  check(currentBranch !== "main", "VFC-01d", `this run executed on branch '${currentBranch}', not directly on main -- required by this task's own instruction not to commit round-3 changes to main, independent of and in addition to the SHA-provenance checks above`);
 
   // VFC-02: SFP configuration is SFP-owned and versioned (sfp_programs.policy_version).
   const programCfgRow = rows(await pool.query(`SELECT policy_version, max_cohort_size FROM sfp_programs WHERE id = $1`, [programRow.id]))[0];
@@ -916,6 +970,52 @@ try {
   const defaultPreview = await sfp.previewFunnel({});
   check(typeof defaultPreview === "object", "VFC-10c", "the canary preview layer applies its own owned default cap (25) when no maxPreview is supplied, independent of the program's cap");
 
+  // Task #1998 round-3 correction (item 4): full boundary matrix for
+  // maxCohortSize (freezeCohort) and maxPreview (previewFunnel), enforced
+  // INSIDE the service functions themselves so a non-HTTP caller cannot
+  // bypass the 1-100 bound the route-level check also applies.
+  await rejects(
+    () => sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-0`, actorId: "sfp-certification", maxCohortSize: 0 }),
+    "SFP_COHORT_CAP_INVALID", "VFC-10d", "maxCohortSize=0 is rejected by freezeCohort itself",
+  );
+  await rejects(
+    () => sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-101`, actorId: "sfp-certification", maxCohortSize: 101 }),
+    "SFP_COHORT_CAP_INVALID", "VFC-10e", "maxCohortSize=101 is rejected by freezeCohort itself",
+  );
+  await rejects(
+    () => sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-frac`, actorId: "sfp-certification", maxCohortSize: 25.5 }),
+    "SFP_COHORT_CAP_INVALID", "VFC-10f", "a fractional maxCohortSize is rejected by freezeCohort itself",
+  );
+  await rejects(
+    () => sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-nan`, actorId: "sfp-certification", maxCohortSize: NaN }),
+    "SFP_COHORT_CAP_INVALID", "VFC-10g", "maxCohortSize=NaN is rejected by freezeCohort itself",
+  );
+  const capOneRun = await sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-1`, actorId: "sfp-certification", maxCohortSize: 1 });
+  check(capOneRun.run.cohortState === "frozen", "VFC-10h", "maxCohortSize=1 (lower bound) is accepted and freezes successfully");
+  const capHundredRun = await sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-100`, actorId: "sfp-certification", maxCohortSize: 100 });
+  check(capHundredRun.run.cohortState === "frozen", "VFC-10i", "maxCohortSize=100 (upper bound) is accepted and freezes successfully");
+  const capOmittedRun = await sfp.freezeCohort({ idempotencyKey: `sfp-cert-${nonce}-cap-omitted`, actorId: "sfp-certification" });
+  check(capOmittedRun.run.cohortState === "frozen", "VFC-10j", "omitting maxCohortSize entirely falls back to the program's configured cap and still freezes successfully");
+
+  await rejects(
+    () => sfp.previewFunnel({ maxPreview: 0 }), "SFP_PREVIEW_CAP_INVALID", "VFC-10k", "maxPreview=0 is rejected by previewFunnel itself",
+  );
+  await rejects(
+    () => sfp.previewFunnel({ maxPreview: 101 }), "SFP_PREVIEW_CAP_INVALID", "VFC-10l", "maxPreview=101 is rejected by previewFunnel itself",
+  );
+  await rejects(
+    () => sfp.previewFunnel({ maxPreview: 12.5 }), "SFP_PREVIEW_CAP_INVALID", "VFC-10m", "a fractional maxPreview is rejected by previewFunnel itself",
+  );
+  await rejects(
+    () => sfp.previewFunnel({ maxPreview: NaN }), "SFP_PREVIEW_CAP_INVALID", "VFC-10n", "maxPreview=NaN is rejected by previewFunnel itself",
+  );
+  const previewOne = await sfp.previewFunnel({ maxPreview: 1 });
+  check(typeof previewOne === "object", "VFC-10o", "maxPreview=1 (lower bound) is accepted");
+  const previewTwentyFive = await sfp.previewFunnel({ maxPreview: 25 });
+  check(typeof previewTwentyFive === "object", "VFC-10p", "maxPreview=25 is accepted");
+  const previewHundred = await sfp.previewFunnel({ maxPreview: 100 });
+  check(typeof previewHundred === "object", "VFC-10q", "maxPreview=100 (upper bound) is accepted");
+
   // VFC-11: freeze uses one consistent snapshot and is atomic; injected
   // failure leaves no partial cohort (reuses the RC2-10 fault-injection evidence).
   check(Number(orphanedMembers.n) === 0 && Number(orphanedDecisions.n) === 0 && Number(orphanedMembers2.n) === 0 && Number(orphanedDecisions2.n) === 0,
@@ -970,10 +1070,29 @@ try {
     "VFC-15b", "a still-frozen, non-voided/non-superseded cohort run is correctly accepted as usable downstream");
 
   // VFC-19: zero live provider calls, zero spend, zero campaign/sequence
-  // changes, zero outreach, zero production writes (this suite ran only
-  // against the disposable TEST_DATABASE_URL with the provider-deny
-  // boundary armed at the top of the script).
-  check(true, "VFC-19a", "this suite ran entirely against a disposable database with applyCertificationProviderDenyBoundary({fatal:true}) armed -- any provider call would have thrown, not silently no-opped");
+  // changes, zero outreach, zero production writes.
+  //
+  // Task #1998 round-3 correction (item 1): `check(true, ...)` claimed the
+  // provider-deny boundary would have thrown on any attempt, but never
+  // observed the boundary's own counters, so a silently-defeated boundary
+  // (e.g. the module failing to apply, or being applied after some other
+  // code path already fired a request) would have gone undetected. This
+  // proves the boundary via its own instrumented counter: it was genuinely
+  // armed (the module's apply function returned successfully at the top of
+  // this run) AND it recorded zero blocked attempts (proving no code in this
+  // run ever tried to reach a non-loopback origin in the first place --
+  // the strongest available evidence, since a positive blocked-attempt
+  // count would mean this suite itself attempted a live provider call).
+  check(
+    typeof getBlockedCertificationNetworkAttemptCount === "function" && getBlockedCertificationNetworkAttemptCount() === 0,
+    "VFC-19a",
+    `the certification provider-deny boundary's own observable counter reports ${getBlockedCertificationNetworkAttemptCount()} blocked network attempts across this entire run -- proving zero code path in this certification even attempted a live provider/network call, not merely that such a call would have thrown`,
+  );
+  check(
+    getLastBlockedCertificationNetworkOrigin() === null,
+    "VFC-19b",
+    "the provider-deny boundary never recorded a blocked origin -- the armed-and-untriggered state is proven by the boundary's own evidence, not asserted",
+  );
 
   console.log(`\nSFP disposable certification: ${assertions} assertions passed across ${new Set(results.map((r) => r.id.replace(/[a-z]$/, ""))).size} checks (VFC-01..20 restored + RC2-01..20 round-2 corrections).`);
   process.exit(0);

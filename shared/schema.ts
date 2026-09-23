@@ -9234,7 +9234,14 @@ export const sfpPrograms = pgTable("sfp_programs", {
   scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: text("created_by").notNull(),
-});
+}, (table) => [
+  // Task #1998 round-3 correction (item 4): the PROGRAM's owned configuration
+  // cap is a distinct DB-enforced fact from sfp_cohort_runs.cohort_size's own
+  // 0-100 RUN-RESULT constraint below — this one bounds what an operator may
+  // configure as the program's ceiling, never a value borrowed from the run
+  // table. See migrations/0285_sfp_program_max_cohort_size_range.sql.
+  check("sfp_programs_max_cohort_size_range", sql`max_cohort_size BETWEEN 1 AND 100`),
+]);
 
 export const sfpCohortRuns = pgTable("sfp_cohort_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -9324,6 +9331,16 @@ export const sfpCohortDecisions = pgTable("sfp_cohort_decisions", {
   dispositionDetail: text("disposition_detail"),
   suppressionScope: text("suppression_scope"),
   suppressionSubjectHash: text("suppression_subject_hash"),
+  // Task #1998 round-3 correction (item 3): structured, genuinely
+  // subject-aware suppression/bounce evidence — see SuppressionEvidence /
+  // SuppressionSubject in roi-cohort-selector.ts. `suppressionSubjects`
+  // carries EVERY determining contact, never a single sample.
+  suppressionAuthority: text("suppression_authority"),
+  suppressionReasonCode: text("suppression_reason_code"),
+  suppressionEvidenceRef: text("suppression_evidence_ref"),
+  suppressionChannel: text("suppression_channel"),
+  suppressionSubjects: jsonb("suppression_subjects"),
+  suppressionBusinessWideRuleApplied: boolean("suppression_business_wide_rule_applied").notNull().default(false),
   geographyClass: text("geography_class"),
   geographySource: text("geography_source"),
   vertical: text("vertical"),

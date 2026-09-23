@@ -2023,6 +2023,20 @@
       "when": 1800000010100,
       "tag": "0284_sfp_cohort_size_range_check",
       "breakpoints": true
+    },
+    {
+      "idx": 289,
+      "version": "7",
+      "when": 1800000010200,
+      "tag": "0285_sfp_program_max_cohort_size_range",
+      "breakpoints": true
+    },
+    {
+      "idx": 290,
+      "version": "7",
+      "when": 1800000010300,
+      "tag": "0286_sfp_subject_aware_suppression_evidence",
+      "breakpoints": true
     }
   ]
 }

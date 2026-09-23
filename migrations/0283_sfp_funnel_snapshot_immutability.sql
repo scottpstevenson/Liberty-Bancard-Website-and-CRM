@@ -18,15 +18,34 @@
 
 -- ── sfp_cohort_members / sfp_cohort_decisions: also guard INSERT ───────────
 
+-- Task #1998 round-3 correction (item 2): the previous version of this
+-- function used `COALESCE(NEW.cohort_run_id, OLD.cohort_run_id)` — on an
+-- UPDATE that changes cohort_run_id, COALESCE always picks NEW first, so it
+-- checked ONLY the new (destination) owner's lifecycle state. A row could be
+-- moved OUT of a frozen/voided/superseded run (its OLD owner) as long as the
+-- NEW owner happened to still be 'freezing' — the exact bypass this
+-- correction closes. Both the OLD owner (is this row being moved OUT of a
+-- terminal run?) and the NEW owner (is it being moved INTO one?) must be
+-- independently checked on every UPDATE; INSERT only has NEW, DELETE only
+-- has OLD.
 CREATE OR REPLACE FUNCTION sfp_reject_frozen_member_mutation() RETURNS TRIGGER AS $$
 DECLARE
-  run_state TEXT;
+  old_owner_state TEXT;
+  new_owner_state TEXT;
 BEGIN
-  SELECT cohort_state INTO run_state FROM sfp_cohort_runs
-    WHERE id = COALESCE(NEW.cohort_run_id, OLD.cohort_run_id);
-  IF run_state IN ('frozen', 'voided', 'superseded') THEN
-    RAISE EXCEPTION 'SFP_FROZEN_IMMUTABLE: cannot % row in % for a run that is frozen/voided/superseded', TG_OP, TG_TABLE_NAME
-      USING ERRCODE = 'raise_exception';
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    SELECT cohort_state INTO old_owner_state FROM sfp_cohort_runs WHERE id = OLD.cohort_run_id;
+    IF old_owner_state IN ('frozen', 'voided', 'superseded') THEN
+      RAISE EXCEPTION 'SFP_FROZEN_IMMUTABLE: cannot % row in % out of a run that is frozen/voided/superseded', TG_OP, TG_TABLE_NAME
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    SELECT cohort_state INTO new_owner_state FROM sfp_cohort_runs WHERE id = NEW.cohort_run_id;
+    IF new_owner_state IN ('frozen', 'voided', 'superseded') THEN
+      RAISE EXCEPTION 'SFP_FROZEN_IMMUTABLE: cannot % row in % for a run that is frozen/voided/superseded', TG_OP, TG_TABLE_NAME
+        USING ERRCODE = 'raise_exception';
+    END IF;
   END IF;
   IF TG_OP = 'DELETE' THEN
     RETURN OLD;
@@ -46,16 +65,28 @@ CREATE TRIGGER trg_sfp_cohort_decisions_immutable
   FOR EACH ROW EXECUTE FUNCTION sfp_reject_frozen_member_mutation();
 
 -- ── sfp_funnel_snapshots: new immutability trigger (previously had none) ───
+-- Same OLD/NEW independent-validation fix applies here (a snapshot row has
+-- a unique cohort_run_id, so an UPDATE moving it between runs is not a
+-- realistic write path today, but the guard must not depend on that).
 
 CREATE OR REPLACE FUNCTION sfp_reject_frozen_snapshot_mutation() RETURNS TRIGGER AS $$
 DECLARE
-  run_state TEXT;
+  old_owner_state TEXT;
+  new_owner_state TEXT;
 BEGIN
-  SELECT cohort_state INTO run_state FROM sfp_cohort_runs
-    WHERE id = COALESCE(NEW.cohort_run_id, OLD.cohort_run_id);
-  IF run_state IN ('frozen', 'voided', 'superseded') THEN
-    RAISE EXCEPTION 'SFP_FROZEN_IMMUTABLE: cannot % row in % for a run that is frozen/voided/superseded', TG_OP, TG_TABLE_NAME
-      USING ERRCODE = 'raise_exception';
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    SELECT cohort_state INTO old_owner_state FROM sfp_cohort_runs WHERE id = OLD.cohort_run_id;
+    IF old_owner_state IN ('frozen', 'voided', 'superseded') THEN
+      RAISE EXCEPTION 'SFP_FROZEN_IMMUTABLE: cannot % row in % out of a run that is frozen/voided/superseded', TG_OP, TG_TABLE_NAME
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    SELECT cohort_state INTO new_owner_state FROM sfp_cohort_runs WHERE id = NEW.cohort_run_id;
+    IF new_owner_state IN ('frozen', 'voided', 'superseded') THEN
+      RAISE EXCEPTION 'SFP_FROZEN_IMMUTABLE: cannot % row in % for a run that is frozen/voided/superseded', TG_OP, TG_TABLE_NAME
+        USING ERRCODE = 'raise_exception';
+    END IF;
   END IF;
   IF TG_OP = 'DELETE' THEN
     RETURN OLD;
