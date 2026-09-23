@@ -101,6 +101,7 @@ const KNOWN_EXEMPT_SEEDS: Record<string, { table: string; classification: "histo
     { table: "audit_logs", classification: "not_config_seed", reason: "append-only audit record of the REV-06A sandbox probe; activation authority reads the immutable snapshot evidence, not this audit row." },
   ],
   "0244_source_registry.sql": [{ table: "source_registry_adapters", classification: "historical_one_time", reason: "initial source-registry catalog is a reviewed, schedule-disabled bootstrap snapshot. Adapter rows are operator-managed after creation; replaying the migration would not be an appropriate production convergence mechanism." }],
+  "0285_sfp_program_max_cohort_size_range.sql": [{ table: "sfp_programs", classification: "historical_one_time", reason: "one-time safe-apply clamp of any pre-existing out-of-range max_cohort_size value into [1, 100] before the CHECK constraint is added in the same migration; not config seed data — it only repairs rows that existed at the time so the new constraint can be added without failing, and new/edited programs are validated by the constraint itself going forward." }],
 };
 
 function stripFunctionBodies(sqlText: string): string {
