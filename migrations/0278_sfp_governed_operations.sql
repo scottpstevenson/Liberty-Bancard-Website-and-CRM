@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS sfp_stage_runs (
   lease_expires_at TIMESTAMPTZ,
   last_heartbeat_at TIMESTAMPTZ,
   terminal_reason TEXT,
-  authorization JSONB,
+  "authorization" JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
