@@ -35,7 +35,7 @@ import {
 const rowsOf = (r: any): any[] => r?.rows ?? r ?? [];
 
 /** Bump whenever the authority order, tiebreak rule, or evaluator changes. */
-export const GEOGRAPHY_RESOLVER_VERSION = 1 as const;
+export const GEOGRAPHY_RESOLVER_VERSION = 2 as const;
 
 export type GeographyResolutionOutcome = "resolved" | "outside_territory" | "conflicting" | "unresolved";
 
@@ -98,7 +98,22 @@ export function resolveGeographyFromCandidates(candidates: LocationCandidateInpu
     }),
   }));
 
+  // Correction 6: a business that has ANY real, eligible South Florida
+  // location must not have that qualifying location erased by an
+  // out-of-territory HQ/primary location. `evidenceClass` alone is not
+  // enough to decide the winner — "verified" applies equally to a
+  // confidently-resolved OUTSIDE-territory location (e.g. a known non-FL
+  // state) and a confidently-resolved INSIDE-territory one, so ranking by
+  // authority alone (as before) let an outside-territory primary location
+  // with tied authority beat an eligible, in-territory branch location on
+  // the isPrimary tiebreak — silently dropping a real South Florida
+  // presence. Eligibility is now the first sort key: any eligible
+  // candidate always outranks every ineligible one, regardless of which is
+  // flagged primary. Only among candidates that agree on eligibility does
+  // the original (authority DESC, isPrimary DESC, lowest-id) order apply.
   evaluated.sort((a, b) => {
+    const eligibleDelta = Number(b.result.eligible) - Number(a.result.eligible);
+    if (eligibleDelta !== 0) return eligibleDelta;
     const authorityDelta = AUTHORITY_RANK[b.result.evidenceClass] - AUTHORITY_RANK[a.result.evidenceClass];
     if (authorityDelta !== 0) return authorityDelta;
     const primaryDelta = Number(b.candidate.isPrimary) - Number(a.candidate.isPrimary);

@@ -21,6 +21,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { createHash } from "crypto";
 import { db } from "../../db";
 import {
   evaluateSouthFloridaGeography,
@@ -40,6 +41,26 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 /** Current ROI scoring algorithm version. Bump when formula changes. */
 export const ROI_SCORE_VERSION = 2 as const;
+
+/**
+ * Correction 5: subject-aware suppression/bounce evidence. A business-level
+ * exclusion must never be recorded as a blanket, evidence-free "business"
+ * scope when the actual determining fact is at the contact or email level —
+ * doing so would make it impossible to tell, from the ledger alone, whether
+ * suppressing one email address correctly implied the whole business had no
+ * usable contact left, or whether the exclusion silently over-broadened.
+ * `subjectHash` is a SHA-256 of the specific contact id or (lowercased)
+ * email address that decided the outcome — never the raw PII itself.
+ */
+export interface SuppressionEvidence {
+  scope: "contact" | "email" | "business";
+  subjectHash: string;
+  reason: string;
+  contactId: number | null;
+}
+function _hashSubject(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 /** Default pilot verticals when system_settings key is absent. */
 const DEFAULT_PILOT_VERTICAL_IDS = [
@@ -96,6 +117,9 @@ export interface RoiCandidateScore {
   geographyResolution: GeographyResolution | null;
   /** Full deterministic five-target classifier result (VFC-01). */
   classifierResult: ClassifierResult | null;
+  /** Correction 5: subject-aware suppression/bounce evidence, set only when
+   *  dispositionReason is excluded:suppressed or excluded:bounced_invalid_only. */
+  suppressionEvidence: SuppressionEvidence | null;
 }
 
 export interface RoiCohortSelection {
@@ -282,6 +306,12 @@ export async function selectRoiCohort(opts: {
   // suppression itself is already tracked as subject-level evidence on the
   // `contacts` row (opt_out_date/opted_out_email/etc.); this query only
   // decides whether the *business* has zero usable candidates left.
+  // Correction 5: carry a representative contact id/email + the specific
+  // predicate that decided the outcome, so the ledger records real
+  // contact/email-level evidence instead of a blanket "business" label. The
+  // exclusion is still only applied at the business level once EVERY
+  // contact is suppressed (unchanged admission logic) — only the evidence
+  // recorded about WHY changes.
   const suppressionRows = rows(await exec.execute(sql`
     SELECT
       business_id,
@@ -290,7 +320,29 @@ export async function selectRoiCohort(opts: {
         opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
         OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
         OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
-      )::int AS suppressed_contacts
+      )::int AS suppressed_contacts,
+      (ARRAY_AGG(id ORDER BY id) FILTER (WHERE
+        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
+        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
+        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
+      ))[1] AS sample_contact_id,
+      (ARRAY_AGG(email ORDER BY id) FILTER (WHERE
+        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
+        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
+        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
+      ))[1] AS sample_email,
+      (ARRAY_AGG(
+        CASE
+          WHEN opt_out_date IS NOT NULL OR opt_out_status='opted_out' THEN 'opt_out'
+          WHEN opted_out_email=TRUE OR unsubscribe_status='unsubscribed' THEN 'unsubscribed'
+          WHEN complaint_status='reported' THEN 'complaint'
+          WHEN do_not_auto_contact=TRUE THEN 'do_not_contact'
+          ELSE COALESCE(suppression_reason, 'suppressed')
+        END ORDER BY id) FILTER (WHERE
+        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
+        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
+        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
+      ))[1] AS sample_reason
     FROM contacts
     WHERE business_id IS NOT NULL
     GROUP BY business_id
@@ -300,13 +352,57 @@ export async function selectRoiCohort(opts: {
       .filter((r: any) => Number(r.total_contacts) > 0 && Number(r.suppressed_contacts) === Number(r.total_contacts))
       .map((r: any) => Number(r.business_id)),
   );
+  const suppressionEvidenceByBiz = new Map<number, SuppressionEvidence>();
+  for (const r of suppressionRows) {
+    if (!(Number(r.total_contacts) > 0 && Number(r.suppressed_contacts) === Number(r.total_contacts))) continue;
+    const bizId = Number(r.business_id);
+    const email = r.sample_email ? String(r.sample_email).trim().toLowerCase() : null;
+    const contactId = r.sample_contact_id != null ? Number(r.sample_contact_id) : null;
+    suppressionEvidenceByBiz.set(bizId, {
+      scope: email ? "email" : (contactId != null ? "contact" : "business"),
+      subjectHash: _hashSubject(email ?? (contactId != null ? `contact:${contactId}` : `business:${bizId}`)),
+      reason: String(r.sample_reason ?? "suppressed"),
+      contactId,
+    });
+  }
+
   const bouncedOnlyRows = rows(await exec.execute(sql`
-    SELECT business_id FROM contacts WHERE business_id IS NOT NULL
+    SELECT
+      business_id,
+      (ARRAY_AGG(id ORDER BY id) FILTER (WHERE email IS NOT NULL AND (
+        (bounce_status IS NOT NULL AND bounce_status IN ('hard','complained'))
+        OR COALESCE(email_status,'') IN ('bounced','invalid')
+      )))[1] AS sample_contact_id,
+      (ARRAY_AGG(email ORDER BY id) FILTER (WHERE email IS NOT NULL AND (
+        (bounce_status IS NOT NULL AND bounce_status IN ('hard','complained'))
+        OR COALESCE(email_status,'') IN ('bounced','invalid')
+      )))[1] AS sample_email,
+      (ARRAY_AGG(
+        CASE
+          WHEN bounce_status IN ('hard','complained') THEN 'bounce:' || bounce_status
+          ELSE 'invalid_email:' || COALESCE(email_status,'unknown')
+        END ORDER BY id) FILTER (WHERE email IS NOT NULL AND (
+        (bounce_status IS NOT NULL AND bounce_status IN ('hard','complained'))
+        OR COALESCE(email_status,'') IN ('bounced','invalid')
+      )))[1] AS sample_reason
+    FROM contacts WHERE business_id IS NOT NULL
      GROUP BY business_id HAVING COUNT(*) FILTER (WHERE email IS NOT NULL)>0
        AND COUNT(*) FILTER (WHERE email IS NOT NULL AND (bounce_status IS NULL OR bounce_status NOT IN ('hard','complained'))
                             AND COALESCE(email_status,'') NOT IN ('bounced','invalid'))=0
   `));
   const bouncedOnlyIds = new Set(bouncedOnlyRows.map((r:any)=>Number(r.business_id)));
+  const bounceEvidenceByBiz = new Map<number, SuppressionEvidence>();
+  for (const r of bouncedOnlyRows) {
+    const bizId = Number(r.business_id);
+    const email = r.sample_email ? String(r.sample_email).trim().toLowerCase() : null;
+    const contactId = r.sample_contact_id != null ? Number(r.sample_contact_id) : null;
+    bounceEvidenceByBiz.set(bizId, {
+      scope: email ? "email" : (contactId != null ? "contact" : "business"),
+      subjectHash: _hashSubject(email ?? (contactId != null ? `contact:${contactId}` : `business:${bizId}`)),
+      reason: String(r.sample_reason ?? "bounced_invalid_only"),
+      contactId,
+    });
+  }
 
   // Pre-build location evidence from ALL business_locations rows (not only
   // rows already inside the target counties). A business whose only location
@@ -450,12 +546,14 @@ export async function selectRoiCohort(opts: {
 
       if (suppressedBizIds.has(bizId)) {
         funnel.suppressed++;
-        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,"excluded:suppressed",false,"none","unknown"));
+        const evidence = suppressionEvidenceByBiz.get(bizId) ?? null;
+        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,`excluded:suppressed:${evidence?.scope ?? "business"}:${evidence?.subjectHash ?? "unknown"}`,false,"none","unknown",null,null,evidence));
         continue;
       }
       if (bouncedOnlyIds.has(bizId)) {
         funnel.bouncedInvalidOnly++;
-        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,"excluded:bounced_invalid_only",false,"none","unknown"));
+        const evidence = bounceEvidenceByBiz.get(bizId) ?? null;
+        excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,`excluded:bounced_invalid_only:${evidence?.scope ?? "business"}:${evidence?.subjectHash ?? "unknown"}`,false,"none","unknown",null,null,evidence));
         continue;
       }
 
@@ -574,6 +672,7 @@ export async function selectRoiCohort(opts: {
         eligible: true,
         geographyResolution: geoResolution,
         classifierResult,
+        suppressionEvidence: null,
       });
     }
 
@@ -624,6 +723,7 @@ function _buildCandidate(
   geoClass: GeographyEvidenceClass,
   geographyResolution: GeographyResolution | null = null,
   classifierResult: ClassifierResult | null = null,
+  suppressionEvidence: SuppressionEvidence | null = null,
 ): RoiCandidateScore {
   return {
     canonicalBusinessId: bizId,
@@ -644,6 +744,7 @@ function _buildCandidate(
     eligible,
     geographyResolution,
     classifierResult,
+    suppressionEvidence,
   };
 }
 

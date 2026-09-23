@@ -35,6 +35,28 @@ import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
+/**
+ * Marks an expected, stable control-flow outcome from freezeCohortTx —
+ * idempotent replay mismatch, a key that already failed, or a key pinned to
+ * a terminal (voided/superseded) run. These are not new freeze failures:
+ * the existing row already durably reflects the truth, so freezeCohort's
+ * catch block must recognize them via `instanceof` (a structured domain
+ * type, not fragile message-substring sniffing) and re-throw them exactly
+ * as-is, WITHOUT attempting any failure-persistence write. See Correction 2:
+ * a failure-persistence write for one of these would collide with the
+ * existing row's own unique idempotency_key and mask the real, stable error
+ * code behind SFP_FREEZE_FAILURE_PERSISTENCE_FAILED.
+ */
+class SfpStableControlFlowError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SfpStableControlFlowError";
+  }
+}
+function stableError(message: string): SfpStableControlFlowError {
+  return new SfpStableControlFlowError(message);
+}
+
 const PROGRAM_NAME = "south-florida-v1";
 const SOUTH_FLORIDA_FIPS = Object.values(CRO03A_COUNTY_FIPS);
 const SFP_POLICY_VERSION = 1;
@@ -338,6 +360,12 @@ export interface SfpCohortRun {
   voidReason: string | null;
   supersededAt: string | null;
   supersededByRunId: string | null;
+  /** Correction 7: explicit frozen source-snapshot / high-water identity,
+   *  captured inside the freeze transaction, distinct from requestHash. */
+  sourceSnapshotHash: string | null;
+  sourceHighWaterBusinessId: number | null;
+  sourceBusinessCount: number | null;
+  sourceSnapshotCapturedAt: string | null;
 }
 
 function _mapFunnelSnapshot(f: any): RoiCohortSelection["funnel"] {
@@ -377,6 +405,18 @@ export async function freezeCohort(opts: {
   actorId: string;
   maxCohortSize?: number;
   releaseSha?: string;
+  /**
+   * Correction 3: test-only fault-injection seam. Never set by production
+   * callers (no route/UI path threads this through). When provided, it is
+   * invoked at defined checkpoints inside the freeze transaction
+   * ("after_members_inserted", "after_decisions_inserted") so the
+   * disposable certification suite can prove a genuine mid-transaction
+   * failure — thrown from real code executing inside the real transaction,
+   * not a simulated/mocked error — rolls back every write the transaction
+   * made (members, decisions, snapshot, run-row state) and leaves only the
+   * single durable failed-run row this function's own catch block writes.
+   */
+  _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void;
 }): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
   const program = await ensureProgram();
   const maxCohortSize = Math.max(1, Math.min(SFP_PROGRAM_MAX_COHORT, opts.maxCohortSize ?? program.maxCohortSize));
@@ -410,31 +450,47 @@ export async function freezeCohort(opts: {
   const preGeneratedRunId = randomUUID();
 
   try {
-    return await db.transaction(async (tx) => { return freezeCohortTx(tx, opts, program, maxCohortSize, requestPayload, requestHash, policyVersions, configHash, preGeneratedRunId); });
+    return await db.transaction(async (tx) => { return freezeCohortTx(tx, opts, program, maxCohortSize, requestPayload, requestHash, policyVersions, configHash, preGeneratedRunId, opts._testFaultInjector); });
   } catch (err) {
-    // The transaction above has already been rolled back and its connection
-    // released by drizzle's db.transaction() wrapper by the time this catch
-    // runs — issuing the durable failure write only now (never from inside
-    // the still-open failing transaction) avoids a self-deadlock: an INSERT
-    // on a second connection targeting the SAME pre-generated id as an
-    // uncommitted row on the first connection must wait for that row's
-    // commit/rollback to resolve visibility, which never happens if the
-    // first connection is itself blocked awaiting this INSERT to finish.
+    // Correction 2: expected/stable control-flow outcomes (idempotent
+    // payload mismatch, a key that already failed, a key pinned to a
+    // terminal voided/superseded run) are NOT new freeze failures — the
+    // existing row for this idempotency_key already durably reflects the
+    // truth. Attempting a failure-persistence INSERT for one of these would
+    // collide with that row's own unique idempotency_key constraint and
+    // replace this exact, stable error with a generic
+    // SFP_FREEZE_FAILURE_PERSISTENCE_FAILED, masking it. Detected via a
+    // structured domain type (instanceof), never fragile message sniffing.
+    if (err instanceof SfpStableControlFlowError) {
+      throw err;
+    }
+
+    // Genuine new-attempt failure. The transaction above has already been
+    // rolled back and its connection released by drizzle's db.transaction()
+    // wrapper by the time this catch runs — issuing the durable failure
+    // write only now (never from inside the still-open failing transaction)
+    // avoids a self-deadlock: an INSERT on a second connection targeting a
+    // row an uncommitted transaction on the first connection is still
+    // holding must wait for that row's commit/rollback to resolve
+    // visibility, which never happens if the first connection is itself
+    // blocked awaiting this INSERT to finish.
     //
-    // The previous implementation issued an UPDATE ... WHERE id = runId on a
-    // plain (non-transactional) connection, which silently affected ZERO
-    // rows when the failing transaction's own INSERT never committed — the
-    // failure was never actually persisted (VFC-08). This INSERT with
-    // ON CONFLICT DO UPDATE is durable regardless of whether the failing
-    // transaction's own INSERT ever committed:
-    //   - If it never committed (the common case), this INSERT creates the
-    //     row fresh, so the idempotency key correctly reflects 'failed' on
-    //     the next lookup.
-    //   - If the transaction actually got far enough to commit its own
-    //     INSERT before failing later (impossible given transaction
-    //     atomicity, but guarded defensively anyway), ON CONFLICT (id) DO
-    //     UPDATE ... WHERE cohort_state != 'frozen' still applies safely and
-    //     never downgrades a frozen run.
+    // ON CONFLICT targets idempotency_key (the actual unique constraint on
+    // this table), not id: a retry of a crashed 'freezing' row reuses that
+    // row's OWN id inside freezeCohortTx, which differs from this call's
+    // freshly generated preGeneratedRunId. Conflicting on id would then miss
+    // the existing row entirely and attempt a second INSERT with the same
+    // idempotency_key, which itself raises a duplicate-key error and would
+    // wrongly fall into the persist-failure branch below for a case that
+    // isn't a persistence failure at all. Conflicting on idempotency_key
+    // instead correctly updates whichever row (existing 'freezing' row, or
+    // none) already owns this key, leaving its original id untouched:
+    //   - No existing row for this key: this INSERT creates it fresh.
+    //   - An existing 'freezing' row (a prior crashed attempt) for this key:
+    //     the UPDATE branch marks THAT row 'failed' with this error.
+    //   - Either way, exactly one durable failed row ends up owning this key.
+    // The WHERE clause guards against ever downgrading a run that reached a
+    // terminal frozen/voided/superseded state before this failure.
     await db.execute(sql`
       INSERT INTO sfp_cohort_runs
         (id, program_id, idempotency_key, status, cohort_state, actor_id, release_sha,
@@ -443,9 +499,9 @@ export async function freezeCohort(opts: {
               ${opts.actorId}, ${opts.releaseSha ?? process.env.RELEASE_SHA ?? ""},
               ${requestHash}, ${configHash}, ${JSON.stringify(requestPayload)}::jsonb,
               ${JSON.stringify(policyVersions)}::jsonb, ${(err as Error).message})
-      ON CONFLICT (id) DO UPDATE SET
+      ON CONFLICT (idempotency_key) DO UPDATE SET
         status = 'error', cohort_state = 'failed', error_detail = EXCLUDED.error_detail
-      WHERE sfp_cohort_runs.cohort_state != 'frozen'
+      WHERE sfp_cohort_runs.cohort_state NOT IN ('frozen', 'voided', 'superseded')
     `).catch((persistErr) => {
       // If even the durable failure write fails (e.g. DB unreachable), do
       // not swallow it silently — surface both errors so an operator sees
@@ -466,6 +522,7 @@ async function freezeCohortTx(
   policyVersions: { programPolicyVersion: number; scoreVersion: number; classifierVersion: number; geographyResolverVersion: number; sfpPolicyVersion: number },
   configHash: string,
   preGeneratedRunId: string,
+  _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void,
 ): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
     // One consistent snapshot for the whole freeze attempt.
     await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
@@ -486,16 +543,16 @@ async function freezeCohortTx(
           `))[0];
           return { run: _mapRun(existing), newlyFrozen: false, funnel: snap ? _mapFunnelSnapshot(snap) : ZERO_FUNNEL };
         }
-        throw new Error("SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH:same_key_different_request_use_a_new_idempotency_key");
+        throw stableError("SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH:same_key_different_request_use_a_new_idempotency_key");
       }
       if (existing.cohort_state === "failed") {
         // Never reopen a prior failed run — the plan requires a genuinely
         // new attempt (new idempotency key) rather than silently retrying
         // in place, so failure history stays truthful and inspectable.
-        throw new Error(`SFP_COHORT_RUN_PREVIOUSLY_FAILED:${String(existing.error_detail ?? "unknown")}:use_a_new_idempotency_key_to_retry`);
+        throw stableError(`SFP_COHORT_RUN_PREVIOUSLY_FAILED:${String(existing.error_detail ?? "unknown")}:use_a_new_idempotency_key_to_retry`);
       }
       if (existing.cohort_state === "voided" || existing.cohort_state === "superseded") {
-        throw new Error(`SFP_COHORT_RUN_TERMINAL_LIFECYCLE:${String(existing.cohort_state)}:use_a_new_idempotency_key`);
+        throw stableError(`SFP_COHORT_RUN_TERMINAL_LIFECYCLE:${String(existing.cohort_state)}:use_a_new_idempotency_key`);
       }
       // cohort_state === 'freezing' here means a previous attempt crashed
       // mid-transaction without committing (its INSERT never became
@@ -514,6 +571,32 @@ async function freezeCohortTx(
       RETURNING *
     `))[0]);
     const runId = String(runRow.id);
+
+      // Correction 7: capture an explicit source snapshot / high-water
+      // identity inside this same REPEATABLE READ transaction, before the
+      // scan runs, so it describes exactly the canonical-business universe
+      // selectRoiCohort is about to observe. Deliberately NOT folded into
+      // requestHash (which drives idempotent replay matching) — the source
+      // snapshot changes on every subsequent insert to `businesses`, but the
+      // same logical freeze request must still replay identically.
+      const snapRow = rows(await tx.execute(sql`
+        SELECT
+          txid_current() AS txid,
+          txid_current_snapshot()::text AS txn_snapshot,
+          (SELECT MAX(id) FROM businesses WHERE record_class = 'canonical') AS high_water_id,
+          (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical') AS biz_count
+      `))[0];
+      const sourceHighWaterBusinessId = snapRow?.high_water_id != null ? Number(snapRow.high_water_id) : null;
+      const sourceBusinessCount = Number(snapRow?.biz_count ?? 0);
+      const sourceTxid = snapRow?.txid != null ? String(snapRow.txid) : null;
+      const sourceSnapshotCapturedAt = new Date().toISOString();
+      const sourceSnapshotHash = createHash("sha256").update(JSON.stringify({
+        txnSnapshot: snapRow?.txn_snapshot ?? null,
+        highWaterBusinessId: sourceHighWaterBusinessId,
+        businessCount: sourceBusinessCount,
+        policyVersions,
+        capturedAt: sourceSnapshotCapturedAt,
+      })).digest("hex");
 
       // ROI selection runs against this same transaction handle, so the
       // scan, scoring, and member insert all observe one consistent
@@ -571,6 +654,13 @@ async function freezeCohortTx(
         `);
       }
 
+      // Correction 3 fault-injection checkpoint: fires only when a test
+      // explicitly supplies _testFaultInjector. A throw here happens inside
+      // this same open transaction, after real member rows have already
+      // been written to it (but not committed), proving the transaction's
+      // rollback — not application-level cleanup — is what removes them.
+      _testFaultInjector?.("after_members_inserted");
+
       // Terminal decision ledger: exactly one row per scanned business
       // (both selected and excluded), so sum(all dispositions) reconciles
       // exactly against total scanned canonical businesses.
@@ -580,17 +670,45 @@ async function freezeCohortTx(
         const disposition = c.dispositionReason.startsWith("excluded:")
           ? c.dispositionReason.split(":")[1]
           : (isSelected ? "selected" : "excluded:cohort_cap");
-        const suppressionScope = disposition === "suppressed" ? "business" : null;
+        // Correction 5: subject-aware suppression scope/subject evidence,
+        // taken directly from the structured evidence the selector computed
+        // (roi-cohort-selector.ts) — never collapse every suppression to a
+        // blanket "business" scope, which would silently broaden an email-
+        // or contact-scoped suppression to the whole business in this audit
+        // trail. Covers both suppressed and bounced/invalid-only exclusions.
+        const suppressionScope = c.suppressionEvidence?.scope ?? (disposition === "suppressed" || disposition === "bounced_invalid_only" ? "business" : null);
+        const suppressionSubjectHash = c.suppressionEvidence?.subjectHash ?? null;
+        // Correction 1: persist the exact classifier/geography evidence that
+        // decided this business's disposition (selected or excluded) — not
+        // just for admitted members. A business excluded on geography or
+        // vertical grounds still carries a real classifier/geography
+        // resolution explaining WHY.
+        const cls = c.classifierResult;
+        const geo = c.geographyResolution;
         await tx.execute(sql`
           INSERT INTO sfp_cohort_decisions
             (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
-             geography_class, geography_source, vertical, roi_score, selected)
+             suppression_subject_hash, geography_class, geography_source, vertical, roi_score, selected,
+             classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
+             classifier_reasons, classifier_evidence_hash,
+             geography_resolver_version, geography_outcome, geography_location_id, geography_reasons)
           VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
-                  ${suppressionScope}, ${c.geographyClass}, ${c.geographySource}, ${c.vertical},
-                  ${c.roiScore}, ${isSelected})
+                  ${suppressionScope}, ${suppressionSubjectHash}, ${c.geographyClass}, ${c.geographySource}, ${c.vertical},
+                  ${c.roiScore}, ${isSelected},
+                  ${cls?.version ?? null}, ${cls?.outcome ?? null}, ${cls?.confidence ?? null}, ${cls?.matchedTargetId ?? null},
+                  ${cls ? JSON.stringify(cls.reasons) : null}::jsonb, ${cls?.evidenceHash ?? null},
+                  ${geo?.resolverVersion ?? null}, ${geo?.outcome ?? null}, ${geo?.winningLocationId ?? null},
+                  ${geo ? JSON.stringify(geo.reasons) : null}::jsonb)
           ON CONFLICT (cohort_run_id, business_id) DO NOTHING
         `);
       }
+
+      // Correction 3 second fault-injection checkpoint: after the full
+      // decision ledger has been written (but still inside the open,
+      // uncommitted transaction). Lets the certification suite prove
+      // rollback removes BOTH member and decision rows together, not just
+      // whichever table happened to be written first.
+      _testFaultInjector?.("after_decisions_inserted");
 
       // Full-manifest cohort hash (VFC-04): covers every field that
       // determines this cohort's admitted membership and how it was scored
@@ -637,7 +755,12 @@ async function freezeCohortTx(
       const updatedRun = rows(await tx.execute(sql`
         UPDATE sfp_cohort_runs
         SET status = 'frozen', cohort_state = 'frozen', cohort_size = ${result.eligible.length},
-            cohort_hash = ${cohortHash}, frozen_at = NOW()
+            cohort_hash = ${cohortHash}, frozen_at = NOW(),
+            source_snapshot_hash = ${sourceSnapshotHash},
+            source_high_water_business_id = ${sourceHighWaterBusinessId},
+            source_business_count = ${sourceBusinessCount},
+            source_txid = ${sourceTxid}::bigint,
+            source_snapshot_captured_at = ${sourceSnapshotCapturedAt}::timestamptz
         WHERE id = ${runId}::uuid
         RETURNING *
       `))[0];
@@ -807,6 +930,10 @@ function _mapRun(row: any): SfpCohortRun {
     voidReason: row.void_reason ? String(row.void_reason) : null,
     supersededAt: row.superseded_at ? String(row.superseded_at) : null,
     supersededByRunId: row.superseded_by_run_id ? String(row.superseded_by_run_id) : null,
+    sourceSnapshotHash: row.source_snapshot_hash ? String(row.source_snapshot_hash) : null,
+    sourceHighWaterBusinessId: row.source_high_water_business_id != null ? Number(row.source_high_water_business_id) : null,
+    sourceBusinessCount: row.source_business_count != null ? Number(row.source_business_count) : null,
+    sourceSnapshotCapturedAt: row.source_snapshot_captured_at ? String(row.source_snapshot_captured_at) : null,
   };
 }
 

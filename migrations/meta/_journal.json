@@ -2002,6 +2002,13 @@
       "when": 1800000009600,
       "tag": "0281_sfp_corrections",
       "breakpoints": false
+    },
+    {
+      "idx": 286,
+      "version": "0282",
+      "when": 1800000009700,
+      "tag": "0282_sfp_lifecycle_evidence_and_snapshot",
+      "breakpoints": false
     }
   ]
 }
