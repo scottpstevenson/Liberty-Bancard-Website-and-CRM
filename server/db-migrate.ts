@@ -357,19 +357,23 @@ export async function runDrizzleMigrations(): Promise<void> {
         console.log(`[DB Migrate] Inserted baseline sentinel at ${baselineWhen}.`);
       }
 
-      // Production convergence baseline (post-snapshot, pre-0173).
+      // Production convergence baseline (post-snapshot, pre-SFP).
       //
-      // Migrations 0110–0172 were applied to the production database by earlier
+      // Migrations 0110–0274 were applied to the production database by earlier
       // deploys, but drizzle.__drizzle_migrations may not have hash rows for all
-      // of them (e.g., a deploy that ran before full journal tracking was in place).
-      // Without these rows, the Drizzle migrator treats those migrations as
-      // unapplied and tries to re-run bare CREATE TABLE statements — causing a
-      // crash-loop the moment any of those tables already exist.
+      // of them. Without these rows the Drizzle migrator treats them as unapplied
+      // and tries to re-run DDL that already executed — causing a crash-loop.
       //
-      // Sentinel: if `contact_business_link_candidates` is present in the public
-      // schema, migrations through 0172 (when=1795600000000) must already be
-      // applied. We backfill their hashes so the migrator skips them.
-      const PROD_CONVERGENCE_THROUGH_WHEN = 1795600000000; // 0172_cro02_reviewed_contact_business_links
+      // Sentinel: `contact_business_link_candidates` was created by migration 0172.
+      // Its presence proves migrations at least through 0172 were applied, and by
+      // extension all migrations up to 0274 (the last migration before the SFP
+      // feature work that introduced 0275–0278). We backfill hashes for all
+      // post-snapshot journal entries through 0274 (when=1800000008300) so the
+      // migrator skips them and only runs genuinely new SFP migrations.
+      //
+      // "sfp_programs" absence is used as a safety guard: if SFP tables are already
+      // present the convergence block is a no-op (all hashes are already recorded).
+      const PROD_CONVERGENCE_THROUGH_WHEN = 1800000008300; // 0274_cro03_observation_geo_backfill_sentinel
       const { rows: cblcSentinel } = await client.query(
         `SELECT to_regclass('public.contact_business_link_candidates') IS NOT NULL AS present`
       );
@@ -396,7 +400,7 @@ export async function runDrizzleMigrations(): Promise<void> {
         }
         if (convergenceInserted > 0) {
           console.log(
-            `[DB Migrate] Production convergence: baselined ${convergenceInserted} post-snapshot migration(s) through 0172.`
+            `[DB Migrate] Production convergence: baselined ${convergenceInserted} post-snapshot migration(s) through 0274.`
           );
         }
       }
