@@ -201,6 +201,7 @@ const SystemAudit = lazy(() => import("@/pages/dashboard/SystemAudit"));
 const ContactCensus = lazy(() => import("@/pages/dashboard/ContactCensus"));
 const QueueHoldsPage = lazy(() => import("@/pages/queue-holds"));
 const LeadOpsCenter = lazy(() => import("@/pages/dashboard/LeadOpsCenter"));
+const BusinessDetailPage = lazy(() => import("@/pages/dashboard/LeadOps/BusinessDetailPage").then(m => ({ default: m.BusinessDetailPage })));
 const OutreachQueue = lazy(() => import("@/pages/dashboard/OutreachQueue"));
 const ExecutiveDashboard = lazy(() => import("@/pages/dashboard/Executive"));
 const LaunchReadiness = lazy(() => import("@/pages/dashboard/LaunchReadiness"));
@@ -953,6 +954,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/queue-holds">
           <ProtectedRoute component={QueueHoldsPage} allowedRoles={["admin"]} />
+        </Route>
+        <Route path="/dashboard/lead-ops/business/:id">
+          <ProtectedRoute component={BusinessDetailPage} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/lead-ops">
           <ProtectedRoute component={LeadOpsCenter} allowedRoles={["admin", "manager"]} />

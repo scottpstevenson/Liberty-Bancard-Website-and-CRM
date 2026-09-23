@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, parseApiRequestError } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import {
   TrendingUp, Brain, Target, ArrowRight, Download, Activity,
   X, ShieldAlert, Cpu, RotateCcw, ListTodo, XCircle, RotateCw,
   Building2, GitBranch, BarChart3, Layers, HeartPulse, MapPin,
-  ArrowRightLeft, Loader2,
+  ArrowRightLeft, Loader2, ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -798,6 +798,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
   const [emailStatusFilter, setEmailStatusFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessListItem | null>(null);
+  const [, navigateTo] = useLocation();
   const [bootstrapConfirmation, setBootstrapConfirmation] = useState("");
   const [bootstrapLimit, setBootstrapLimit] = useState("10");
   const [recordClassRepairConfirmation, setRecordClassRepairConfirmation] = useState("");
@@ -1081,14 +1082,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
           </CardContent>
         </Card>
       )}
-      {/* Slide-over detail panel */}
-      {selectedBusiness && (
-        <BusinessDetailPanel
-          businessId={selectedBusiness.id}
-          businessName={selectedBusiness.canonical_name ?? undefined}
-          onClose={() => setSelectedBusiness(null)}
-        />
-      )}
+      {/* Detail panel removed — clicking a row navigates to /dashboard/lead-ops/business/:id */}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
@@ -1146,7 +1140,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
           : businesses.length === 0
             ? <p className="text-sm text-muted-foreground py-8 text-center">No businesses match your filters.</p>
             : businesses.map((b) => (
-                <MobileBusinessCard key={b.id} business={b} onTap={setSelectedBusiness} />
+                <MobileBusinessCard key={b.id} business={b} onTap={(biz) => navigateTo(`/dashboard/lead-ops/business/${biz.id}`)} />
               ))
         }
       </div>
@@ -1186,11 +1180,21 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                       </TableRow>
                     )
                     : businesses.map((b) => (
-                        <TableRow key={b.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedBusiness(b)}>
+                        <TableRow key={b.id} className="cursor-pointer hover:bg-muted/30" onClick={() => navigateTo(`/dashboard/lead-ops/business/${b.id}`)}>
                           <TableCell className="font-medium max-w-[200px]">
                             <div className="truncate">{b.canonical_name}</div>
                             {b.website_domain && (
-                              <div className="text-[10px] text-blue-500 truncate">{b.website_domain}</div>
+                              <a
+                                href={b.website_domain.startsWith("http") ? b.website_domain : `https://${b.website_domain}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-0.5 text-[10px] text-blue-500 hover:text-blue-700 truncate"
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Open ${b.website_domain}`}
+                              >
+                                {b.website_domain}
+                                <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                              </a>
                             )}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
@@ -1260,7 +1264,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                           <TableCell>
                             <Button
                               variant="ghost" size="sm" className="h-7 text-xs"
-                              onClick={(e) => { e.stopPropagation(); setSelectedBusiness(b); }}
+                              onClick={(e) => { e.stopPropagation(); navigateTo(`/dashboard/lead-ops/business/${b.id}`); }}
                               aria-label={`View details for ${b.canonical_name}`}
                             >
                               View
