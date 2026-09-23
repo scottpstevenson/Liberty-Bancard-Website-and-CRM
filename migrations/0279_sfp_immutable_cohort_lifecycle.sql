@@ -28,6 +28,9 @@ UPDATE sfp_cohort_runs SET cohort_state = CASE
 END WHERE cohort_state = 'freezing';
 
 ALTER TABLE sfp_cohort_runs
+  DROP CONSTRAINT IF EXISTS sfp_cohort_runs_cohort_state_check;
+
+ALTER TABLE sfp_cohort_runs
   ADD CONSTRAINT sfp_cohort_runs_cohort_state_check
   CHECK (cohort_state IN ('freezing','frozen','failed','voided','superseded'));
 
