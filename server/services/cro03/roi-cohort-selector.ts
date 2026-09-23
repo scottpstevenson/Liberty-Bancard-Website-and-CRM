@@ -27,6 +27,7 @@ import {
   CRO03A_COUNTY_FIPS,
   type GeographyEvidenceClass,
 } from "../cro03a/geography";
+import { businessHasDbprLineageSql } from "../dbpr";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -41,6 +42,47 @@ const DEFAULT_PILOT_VERTICAL_IDS = [
   "Restaurant",
   "Retail",
 ] as const;
+
+/**
+ * Alias map for the five narrow target-vertical literals. `businesses.vertical`
+ * often carries a broader canonical label (e.g. "Healthcare", "Salon/Spa",
+ * "Auto", "Food/Beverage") rather than the exact pilot literal, so an exact
+ * string-equality match against DEFAULT_PILOT_VERTICAL_IDS silently rejects
+ * businesses that should be admitted. This map is intentionally conservative:
+ * broad labels that could straddle a target and a non-target sub-category
+ * (e.g. "Auto" alone, which could be repair, dealer, rental, or wash) are
+ * NOT included here — they fall through to `verticalUnresolved` for
+ * `review_required` handling by a future, more granular classifier rather
+ * than being silently admitted or silently rejected.
+ */
+const VERTICAL_ALIASES: Record<string, string[]> = {
+  // Only exact spelling/punctuation variants of the SAME specific concept are
+  // aliased here. Broader category labels that span both a target and a
+  // non-target sub-category (e.g. "Healthcare" spans dental, med spa, and
+  // many non-target specialties; "Salon/Spa" spans med spas and ordinary hair
+  // salons; "Food/Beverage" spans restaurants and non-target categories like
+  // grocery/liquor) are deliberately NOT aliased — they fall through to
+  // `verticalUnresolved` for `review_required` handling by a future,
+  // evidence-based classifier rather than being silently admitted on a
+  // guess. See follow-up task "Build a real five-vertical classifier".
+  "Med Spa": ["Med Spa", "Medspa"],
+  "Dental": ["Dental", "Dentist"],
+  "Auto Repair": ["Auto Repair", "Automotive Repair"],
+  "Restaurant": ["Restaurant"],
+  "Retail": ["Retail"],
+};
+
+/** True when `vertical` maps (directly or via alias) to one of `targetIds`. */
+function verticalMatchesTargets(vertical: string, targetIds: string[]): boolean {
+  const v = vertical.trim().toLowerCase();
+  if (!v) return false;
+  for (const targetId of targetIds) {
+    if (targetId.trim().toLowerCase() === v) return true;
+    const aliases = VERTICAL_ALIASES[targetId];
+    if (aliases && aliases.some((a) => a.trim().toLowerCase() === v)) return true;
+  }
+  return false;
+}
 
 /** South Florida county FIPS codes. */
 const SOUTH_FLORIDA_FIPS = Object.values(CRO03A_COUNTY_FIPS); // ["12011","12086","12099"]
@@ -192,7 +234,12 @@ export async function selectRoiCohort(opts: {
   /** If true, businesses with unresolved geography are included (scored lower).
    *  Defaults to false (they are scored but excluded from the eligible set). */
   includeGeographyUnresolved?: boolean;
+  /** DB executor to run every query against. Pass a transaction handle
+   *  (e.g. from db.transaction(async (tx) => ...)) so the entire scan runs
+   *  against one consistent snapshot. Defaults to the shared pool. */
+  executor?: { execute: (q: any) => Promise<any> };
 } = {}): Promise<RoiCohortSelection> {
+  const exec = opts.executor ?? db;
   const now = opts.now ?? new Date();
   const maxCohort = opts.maxCohort ?? 25;
   const countyFips = opts.countyFips ?? [...SOUTH_FLORIDA_FIPS];
@@ -222,35 +269,60 @@ export async function selectRoiCohort(opts: {
   // We fetch in chunks of 500 to avoid OOM on large tables, but retain the
   // global top candidates after all chunks are scored.
   const CHUNK = 500;
-  let offset = 0;
+  // Keyset pagination on the stable canonical business id, not a mutable
+  // OFFSET. OFFSET-based pagination over a live table can skip or duplicate
+  // rows when concurrent writes shift row order between chunk fetches;
+  // keyset pagination on an indexed, immutable primary key does not.
+  let lastSeenId = 0;
   const allScored: RoiCandidateScore[] = [];
 
-  // Pre-build DBPR-excluded business IDs set (single query, not per-row subquery)
-  const dbprBizRows = rows(await db.execute(sql`
-    SELECT DISTINCT con.business_id
-    FROM contacts con
-    JOIN contact_source_events cse ON cse.contact_id = con.id
-    WHERE cse.source_type = 'dbpr' AND con.business_id IS NOT NULL
+  // Pre-build DBPR-excluded business IDs set using the canonical DBPR-family
+  // predicate (server/services/dbpr.ts) rather than an ad hoc contact-source
+  // join, so this selector stays in lockstep with every other DBPR exclusion
+  // boundary in the codebase. Scoped to canonical businesses only.
+  const dbprBizRows = rows(await exec.execute(sql`
+    SELECT b.id AS business_id
+    FROM businesses b
+    WHERE b.record_class = 'canonical'
+      AND ${businessHasDbprLineageSql(sql`b.id`)}
   `));
   const dbprBizIds = new Set(dbprBizRows.map((r: any) => Number(r.business_id)));
 
   // Pre-build existing-customer business IDs set
-  const custBizRows = rows(await db.execute(sql`
+  const custBizRows = rows(await exec.execute(sql`
     SELECT DISTINCT business_id FROM sdr_merchants
     WHERE existing_customer_flag = true AND business_id IS NOT NULL
   `));
   const custBizIds = new Set(custBizRows.map((r: any) => Number(r.business_id)));
 
-  const suppressedBizRows = rows(await db.execute(sql`
-    SELECT DISTINCT business_id FROM contacts
-     WHERE business_id IS NOT NULL AND (
-       opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
-       OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
-       OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
-     )
+  // Subject-scoped suppression: a suppression flag on ONE contact must not
+  // blanket-exclude the whole business when another, non-suppressed contact
+  // could still be used. A business is only excluded at the business level
+  // when EVERY contact belonging to it is suppressed (no usable unsuppressed
+  // candidate remains) — that is the one case where business-wide exclusion
+  // is provably correct rather than an over-broad guess. Per-contact
+  // suppression itself is already tracked as subject-level evidence on the
+  // `contacts` row (opt_out_date/opted_out_email/etc.); this query only
+  // decides whether the *business* has zero usable candidates left.
+  const suppressionRows = rows(await exec.execute(sql`
+    SELECT
+      business_id,
+      COUNT(*)::int AS total_contacts,
+      COUNT(*) FILTER (WHERE
+        opt_out_date IS NOT NULL OR opted_out_email=TRUE OR opt_out_status='opted_out'
+        OR unsubscribe_status='unsubscribed' OR complaint_status='reported'
+        OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL
+      )::int AS suppressed_contacts
+    FROM contacts
+    WHERE business_id IS NOT NULL
+    GROUP BY business_id
   `));
-  const suppressedBizIds = new Set(suppressedBizRows.map((r:any)=>Number(r.business_id)));
-  const bouncedOnlyRows = rows(await db.execute(sql`
+  const suppressedBizIds = new Set(
+    suppressionRows
+      .filter((r: any) => Number(r.total_contacts) > 0 && Number(r.suppressed_contacts) === Number(r.total_contacts))
+      .map((r: any) => Number(r.business_id)),
+  );
+  const bouncedOnlyRows = rows(await exec.execute(sql`
     SELECT business_id FROM contacts WHERE business_id IS NOT NULL
      GROUP BY business_id HAVING COUNT(*) FILTER (WHERE email IS NOT NULL)>0
        AND COUNT(*) FILTER (WHERE email IS NOT NULL AND (bounce_status IS NULL OR bounce_status NOT IN ('hard','complained'))
@@ -258,27 +330,62 @@ export async function selectRoiCohort(opts: {
   `));
   const bouncedOnlyIds = new Set(bouncedOnlyRows.map((r:any)=>Number(r.business_id)));
 
-  // Pre-build location evidence: FIPS-matched and all-locations
-  const fipsRows = rows(await db.execute(sql`
+  // Pre-build location evidence from ALL business_locations rows (not only
+  // rows already inside the target counties). A business whose only location
+  // is authoritatively OUTSIDE the target counties must resolve to
+  // "outside_geography", not "geography_unresolved" — restricting this query
+  // to in-county rows made that distinction impossible. We therefore scan
+  // every location with a known county_fips and split it into two maps:
+  // in-county (drives "inside") and any-known-county (drives "authoritatively
+  // outside" when no in-county row exists for that business).
+  const allLocFipsRows = rows(await exec.execute(sql`
     SELECT
       bl.business_id,
       bl.county_fips,
       COUNT(*)::int AS location_count
     FROM business_locations bl
-    WHERE bl.county_fips = ANY(ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}])
+    WHERE bl.county_fips IS NOT NULL
     GROUP BY bl.business_id, bl.county_fips
   `));
   const fipsLocationMap = new Map<number, { countyFips: string; locationCount: number }>();
-  for (const r of fipsRows) {
+  const anyKnownCountyMap = new Map<number, { countyFips: string; locationCount: number }>();
+  for (const r of allLocFipsRows) {
     const bizId = Number(r.business_id);
-    if (!fipsLocationMap.has(bizId)) {
-      fipsLocationMap.set(bizId, { countyFips: String(r.county_fips), locationCount: Number(r.location_count) });
+    const fips = String(r.county_fips);
+    if (countyFips.includes(fips)) {
+      if (!fipsLocationMap.has(bizId)) {
+        fipsLocationMap.set(bizId, { countyFips: fips, locationCount: Number(r.location_count) });
+      }
+    } else if (!anyKnownCountyMap.has(bizId)) {
+      anyKnownCountyMap.set(bizId, { countyFips: fips, locationCount: Number(r.location_count) });
     }
+  }
+
+  // Per-business location totals, including rows with NO county_fips at all.
+  // "Authoritatively outside" requires EVERY business_locations row to
+  // resolve outside the target counties — a business with one outside row
+  // and one unresolved (null county_fips) row is NOT authoritatively
+  // outside; it must fall through to unresolved, not be misclassified as
+  // outside on partial evidence.
+  const locationTotalsRows = rows(await exec.execute(sql`
+    SELECT
+      bl.business_id,
+      COUNT(*)::int AS total_locations,
+      COUNT(*) FILTER (WHERE bl.county_fips IS NULL)::int AS unclassified_locations
+    FROM business_locations bl
+    GROUP BY bl.business_id
+  `));
+  const locationTotalsMap = new Map<number, { total: number; unclassified: number }>();
+  for (const r of locationTotalsRows) {
+    locationTotalsMap.set(Number(r.business_id), {
+      total: Number(r.total_locations),
+      unclassified: Number(r.unclassified_locations),
+    });
   }
 
   // Chunked business scan — no pre-filter by geography so funnel is truthful
   while (true) {
-    const chunk = rows(await db.execute(sql`
+    const chunk = rows(await exec.execute(sql`
       SELECT
         b.id AS business_id,
         b.vertical,
@@ -331,13 +438,13 @@ export async function selectRoiCohort(opts: {
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::int AS loc_count FROM business_locations WHERE business_id = b.id
       ) all_locs ON true
-      WHERE b.record_class='canonical'
+      WHERE b.record_class='canonical' AND b.id > ${lastSeenId}
       ORDER BY b.id ASC
-      LIMIT ${CHUNK} OFFSET ${offset}
+      LIMIT ${CHUNK}
     `));
 
     if (chunk.length === 0) break;
-    offset += chunk.length;
+    lastSeenId = Number(chunk[chunk.length - 1].business_id);
     funnel.totalScanned += chunk.length;
 
     for (const row of chunk) {
@@ -403,8 +510,22 @@ export async function selectRoiCohort(opts: {
         geoSource = "county_fips";
         resolvedCountyFips = locInfo.countyFips;
         geoEligible = true;
+      } else if (anyKnownCountyMap.has(bizId) && (locationTotalsMap.get(bizId)?.unclassified ?? 0) === 0) {
+        // Authoritative "outside": at least one location resolves to a known
+        // county outside the target set, none resolve inside, and EVERY
+        // business_locations row for this business has a resolved
+        // county_fips (no unclassified/null rows). Only then can we say
+        // every location is outside — a business with a mix of outside and
+        // unresolved locations must NOT be marked outside; it falls through
+        // to unresolved below via the ZIP/city fallback.
+        funnel.outsideGeography++;
+        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:outside_geography", false, "county_fips", "verified"));
+        continue;
       } else {
-        // Stage 2: ZIP/city inference via CRO03A geography evaluator
+        // Stage 2: no business_locations evidence at all — fall back to
+        // ZIP/city inference via CRO03A geography evaluator on the primary
+        // address. This fallback never overrides stronger location evidence
+        // because both branches above already returned/continued.
         const geoResult = evaluateSouthFloridaGeography({
           state: row.state ? String(row.state) : null,
           county: null,
@@ -433,7 +554,7 @@ export async function selectRoiCohort(opts: {
       if (geoEligible) funnel.southFlorida++;
 
       // ── Vertical filter ────────────────────────────────────────────────────────
-      if (!verticalIds.includes(vertical)) {
+      if (!verticalMatchesTargets(vertical, verticalIds)) {
         funnel.verticalUnresolved++;
         excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_mismatch:${vertical}`, false, geoSource, geoClass));
         continue;
@@ -455,8 +576,14 @@ export async function selectRoiCohort(opts: {
         websiteDomainConfidence: row.website ? 100 : 0,
         processorPaymentClues: row.has_processor_clue ? 100 : 0,
         decisionMakerEvidence: row.has_decision_maker && row.has_valid_email ? 100 : row.has_decision_maker ? 50 : 0,
-        emailSourceConfidence: emailStatus === "valid" ? 100 : emailStatus === "active" ? 60 : emailStatus === "unvalidated" ? 20 : 0,
-        validationState: emailStatus === "valid" ? 100 : emailStatus === "unvalidated" ? 50 : 0,
+        // "active"/"unvalidated" are non-provider-validated email states (see
+        // memory: zerobounce-email-status-default — "active" means
+        // legacy-never-validated, and "unvalidated" is the schema default).
+        // Neither has been confirmed deliverable by a provider, so neither
+        // may receive positive provider-validation credit; only "valid"
+        // (an actual ZeroBounce-confirmed outcome) scores here.
+        emailSourceConfidence: emailStatus === "valid" ? 100 : 0,
+        validationState: emailStatus === "valid" ? 100 : 0,
         freshness: daysSince <= 1 ? 100 : daysSince <= 30 ? 70 : daysSince <= 90 ? 30 : 0,
         existingRelationshipPenalty: 0,
         providerCostAlreadyIncurred: 0,
@@ -480,8 +607,11 @@ export async function selectRoiCohort(opts: {
     if (chunk.length < CHUNK) break;
   }
 
-  // Global rank after all chunks are scored — no ID-bias
-  allScored.sort((a, b) => b.roiScore - a.roiScore);
+  // Global rank after all chunks are scored. Stable total order: roi_score
+  // DESC, then canonical_business_id ASC as a deterministic tiebreak so two
+  // runs against the same data always produce the same ranked order (no
+  // dependence on scan/insertion order for equal scores).
+  allScored.sort((a, b) => b.roiScore - a.roiScore || a.canonicalBusinessId - b.canonicalBusinessId);
 
   const topCohort = allScored.slice(0, maxCohort);
   eligible.push(...topCohort);
@@ -492,7 +622,7 @@ export async function selectRoiCohort(opts: {
 
   // ── Persist scores ──────────────────────────────────────────────────────────
   if (opts.persistScores && allScored.length > 0) {
-    await persistRoiScores(allScored, opts.actorId ?? "system:roi-cohort-selector");
+    await persistRoiScores(allScored, opts.actorId ?? "system:roi-cohort-selector", exec);
   }
 
   return {
@@ -542,16 +672,31 @@ function _buildCandidate(
 
 // ── Score persistence (uses migration-managed table — no runtime DDL) ──────────
 
-async function persistRoiScores(candidates: RoiCandidateScore[], actorId: string): Promise<void> {
+async function persistRoiScores(
+  candidates: RoiCandidateScore[],
+  actorId: string,
+  exec: { execute: (q: any) => Promise<any> } = db,
+): Promise<void> {
   if (candidates.length === 0) return;
   try {
     for (const c of candidates) {
-      await db.execute(sql`
+      // Upsert on (business_id, score_version): a repeated selection run
+      // for the same score version replaces the prior score in place
+      // instead of silently accumulating duplicate rows (the previous
+      // ON CONFLICT DO NOTHING had no matching unique constraint, so it
+      // was never a real no-op — every run re-inserted a full duplicate set).
+      await exec.execute(sql`
         INSERT INTO cro03c_roi_candidate_scores
           (business_id, roi_score, score_version, dimensions, disposition_reason, eligible, actor_id)
         VALUES (${c.canonicalBusinessId}, ${c.roiScore}, ${c.scoreVersion},
                 ${JSON.stringify(c.dimensions)}::jsonb, ${c.dispositionReason}, ${c.eligible}, ${actorId})
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (business_id, score_version) DO UPDATE SET
+          roi_score = EXCLUDED.roi_score,
+          dimensions = EXCLUDED.dimensions,
+          disposition_reason = EXCLUDED.disposition_reason,
+          eligible = EXCLUDED.eligible,
+          actor_id = EXCLUDED.actor_id,
+          created_at = NOW()
       `);
     }
   } catch (err: any) {

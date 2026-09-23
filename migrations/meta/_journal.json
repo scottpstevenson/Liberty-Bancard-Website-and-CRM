@@ -1981,6 +1981,20 @@
       "when": 1800000009300,
       "tag": "0278_sfp_governed_operations",
       "breakpoints": false
+    },
+    {
+      "idx": 283,
+      "version": "0279",
+      "when": 1800000009400,
+      "tag": "0279_sfp_immutable_cohort_lifecycle",
+      "breakpoints": false
+    },
+    {
+      "idx": 284,
+      "version": "0280",
+      "when": 1800000009500,
+      "tag": "0280_roi_candidate_scores_dedupe",
+      "breakpoints": false
     }
   ]
 }

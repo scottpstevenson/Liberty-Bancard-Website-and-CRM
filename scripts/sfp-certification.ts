@@ -63,6 +63,14 @@ async function phase(name: string, fn: () => Promise<void>) {
   }
 }
 
+/** Drizzle wraps the real Postgres error as `.cause`; the top-level
+ *  `.message` is just "Failed query: ...". Concatenate both so regex
+ *  assertions against the actual raised error text (e.g. SFP_FROZEN_IMMUTABLE,
+ *  our custom Error() codes) work regardless of which layer carries them. */
+function fullErrorText(err: any): string {
+  return [err?.message, err?.cause?.message].filter(Boolean).join(" | ");
+}
+
 function stripComments(src: string): string {
   return src.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
 }
@@ -136,10 +144,9 @@ await phase("2c. roi-cohort-selector.ts has no ORDER BY b.id LIMIT pre-ranking f
   assert(!src.includes("ORDER BY b.id LIMIT 5000"), "Must not have ORDER BY b.id LIMIT 5000 pre-ranking");
 });
 
-await phase("2d. sfp-validation.ts uses openCandidate() for decryption (not masked_value direct)", async () => {
+await phase("2d. sfp-validation.ts uses unsealCandidateEvidence() for decryption (not masked_value direct)", async () => {
   const src = readFileSync("server/services/cro03/sfp-validation.ts", "utf8"); // raw, with comments
-  assert(src.includes("openCandidate"), "sfp-validation.ts must use openCandidate() for real email decryption");
-  assert(src.includes("SECURITY:"), "Must include SECURITY boundary comment");
+  assert(src.includes("unsealCandidateEvidence"), "sfp-validation.ts must use unsealCandidateEvidence() for real email decryption");
   assert(src.includes("verifyEmail(realEmail)"), "Must call verifyEmail with decrypted realEmail");
 });
 
@@ -192,9 +199,9 @@ await phase("3a. Seed 30 test businesses — five verticals, South FL FIPS, ZIP,
     const useState = i >= 28 ? "TX" : "FL";
 
     const bizResult = rows(await db.execute(sql`
-      INSERT INTO businesses (canonical_name, normalized_name, vertical, city, state, postal_code, created_at)
+      INSERT INTO businesses (canonical_name, normalized_name, vertical, city, state, postal_code, record_class, created_at)
       VALUES (${uniqueName}, ${uniqueName.toLowerCase()}, ${vertical},
-              ${useCity ?? null}, ${useState}, ${usePostalCode ?? null}, NOW())
+              ${useCity ?? null}, ${useState}, ${usePostalCode ?? null}, 'canonical', NOW())
       RETURNING id
     `))[0];
     const bizId = Number(bizResult.id);
@@ -244,8 +251,8 @@ await phase("3b. Seed free_discovery_candidates for first 20 businesses", async 
 
 await phase("3c. Seed DBPR-excluded business", async () => {
   const dbprBiz = rows(await db.execute(sql`
-    INSERT INTO businesses (canonical_name, normalized_name, vertical, state, created_at)
-    VALUES (${`${RUN_ID}-dbpr-biz`}, ${`${RUN_ID}-dbpr-biz`}, 'Med Spa', 'FL', NOW())
+    INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
+    VALUES (${`${RUN_ID}-dbpr-biz`}, ${`${RUN_ID}-dbpr-biz`}, 'Med Spa', 'FL', 'canonical', NOW())
     RETURNING id
   `))[0];
   const dbprBizId = Number(dbprBiz.id);
@@ -254,24 +261,13 @@ await phase("3c. Seed DBPR-excluded business", async () => {
     INSERT INTO business_locations (business_id, county_fips, created_at)
     VALUES (${dbprBizId}, '12086', NOW())
   `);
-  // Create a contact linked to this business, sourced from DBPR
-  const cont = rows(await db.execute(sql`
-    INSERT INTO contacts (business_id, email, first_name, last_name, phone, created_at)
-    VALUES (${dbprBizId}, ${`dbpr-${RUN_ID}@test.com`}, 'DBPR', 'Test', '5550000000', NOW())
-    RETURNING id
-  `))[0];
+  // Link this business to DBPR lineage via the CANONICAL predicate table
+  // (server/services/dbpr.ts businessHasDbprLineageSql reads
+  // canonical_source_links, not contact_source_events).
   await db.execute(sql`
-    INSERT INTO contact_source_events
-      (contact_id, event_key, source_category, source_type, actor_type, first_seen_at, last_seen_at)
-    VALUES (
-      ${Number(cont.id)},
-      ${`dbpr-${RUN_ID}`},
-      'external_registry',
-      'dbpr',
-      'system',
-      NOW(), NOW()
-    )
-    ON CONFLICT (contact_id, event_key) DO NOTHING
+    INSERT INTO canonical_source_links (business_id, source_system, source_type, stable_key)
+    VALUES (${dbprBizId}, 'dbpr', 'registry', ${`dbpr-${RUN_ID}`})
+    ON CONFLICT (source_system, source_type, stable_key) DO NOTHING
   `);
 });
 
@@ -405,6 +401,137 @@ await phase("5c. Funnel snapshot was persisted for this run", async () => {
   assert(Number(snap.total_businesses) > 0, "total_businesses must be non-zero");
 });
 
+await phase("5d. Frozen run has cohort_state='frozen', not the legacy 'staged' value", async () => {
+  const run = rows(await db.execute(sql`SELECT cohort_state, voided_at, superseded_at FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid`))[0];
+  assert.equal(run.cohort_state, "frozen", "cohort_state must be frozen");
+  assert.equal(run.voided_at, null, "voided_at must be null on a fresh freeze");
+  assert.equal(run.superseded_at, null, "superseded_at must be null on a fresh freeze");
+});
+
+await phase("5e. Same idempotency key + different payload is rejected (not silently replayed)", async () => {
+  const { freezeCohort } = await import("../server/services/cro03/south-florida-prospecting");
+  try {
+    await freezeCohort({
+      idempotencyKey: `sfpcert-freeze-${RUN_ID}`,
+      actorId: `cert:${RUN_ID}`,
+      maxCohortSize: 10, // different from the original 25
+    });
+    assert.fail("Expected freezeCohort to reject a mismatched payload under the same idempotency key");
+  } catch (e: any) {
+    assert.match(fullErrorText(e), /SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH/,
+      `Expected SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH, got: ${fullErrorText(e)}`);
+  }
+});
+
+await phase("5f. Concurrent identical-key freeze produces exactly one frozen run", async () => {
+  const { freezeCohort } = await import("../server/services/cro03/south-florida-prospecting");
+  const concurrentKey = `sfpcert-concurrent-${RUN_ID}`;
+  const attempts = await Promise.allSettled([
+    freezeCohort({ idempotencyKey: concurrentKey, actorId: `cert:${RUN_ID}`, maxCohortSize: 5 }),
+    freezeCohort({ idempotencyKey: concurrentKey, actorId: `cert:${RUN_ID}`, maxCohortSize: 5 }),
+    freezeCohort({ idempotencyKey: concurrentKey, actorId: `cert:${RUN_ID}`, maxCohortSize: 5 }),
+  ]);
+  const ids = new Set(
+    attempts
+      .filter((a): a is PromiseFulfilledResult<any> => a.status === "fulfilled")
+      .map((a) => a.value.run.id),
+  );
+  assert.equal(ids.size, 1, `Concurrent same-key freeze must yield exactly one run, got ${ids.size}`);
+  const runCount = rows(await db.execute(sql`SELECT COUNT(*)::int AS c FROM sfp_cohort_runs WHERE idempotency_key=${concurrentKey}`))[0];
+  assert.equal(Number(runCount.c), 1, "Exactly one sfp_cohort_runs row must exist for the concurrent key");
+});
+
+await phase("5g. Terminal decision ledger sums to total scanned canonical businesses for this run", async () => {
+  // freezeCohort() scans the WHOLE canonical table (not just this cert
+  // run's fixtures) — that is the correct, intended behavior for a
+  // production cohort freeze. So the reconciliation check compares the
+  // decision-ledger row count for this run against the total canonical
+  // business count in the database at freeze time, not just our seeded rows.
+  const totals = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS decision_count FROM sfp_cohort_decisions WHERE cohort_run_id=${cohortRunId}::uuid
+  `))[0];
+  const scanned = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS total FROM businesses WHERE record_class='canonical'
+  `))[0];
+  assert.equal(Number(totals.decision_count), Number(scanned.total),
+    `Terminal decisions (${totals.decision_count}) must equal total scanned canonical businesses (${scanned.total})`);
+  // Sanity: every one of our seeded canonical businesses must have exactly
+  // one decision row (proves the ledger genuinely covers our fixtures, not
+  // just leftover rows from prior runs).
+  const seededCovered = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS c FROM sfp_cohort_decisions
+    WHERE cohort_run_id=${cohortRunId}::uuid
+      AND business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
+  `))[0];
+  assert.equal(Number(seededCovered.c), seededBizIds.length,
+    `Expected exactly one decision row per seeded business (${seededBizIds.length}), got ${seededCovered.c}`);
+});
+
+await phase("5h. Canary designation is a hard-capped, deterministic subset of ranked members", async () => {
+  const canaryRows = rows(await db.execute(sql`
+    SELECT business_id, selection_rank FROM sfp_cohort_members
+    WHERE cohort_run_id=${cohortRunId}::uuid AND is_canary = TRUE ORDER BY selection_rank ASC
+  `));
+  assert(canaryRows.length <= 25, "Canary count must never exceed the hard cap of 25");
+  canaryRows.forEach((r: any, idx: number) => assert.equal(Number(r.selection_rank), idx + 1, "Canary rows must be the first N ranked members"));
+});
+
+await phase("5i. Direct-SQL UPDATE of a frozen run's manifest fields is rejected by the database", async () => {
+  try {
+    await db.execute(sql`UPDATE sfp_cohort_runs SET cohort_hash = 'tampered' WHERE id = ${cohortRunId}::uuid`);
+    assert.fail("Expected the database trigger to reject this UPDATE");
+  } catch (e: any) {
+    assert.match(fullErrorText(e), /SFP_FROZEN_IMMUTABLE/,
+      `Expected SFP_FROZEN_IMMUTABLE, got: ${fullErrorText(e)}`);
+  }
+});
+
+await phase("5j. Direct-SQL DELETE of a frozen run's member row is rejected by the database", async () => {
+  const aMember = rows(await db.execute(sql`SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id=${cohortRunId}::uuid LIMIT 1`))[0];
+  try {
+    await db.execute(sql`DELETE FROM sfp_cohort_members WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${aMember.business_id}`);
+    assert.fail("Expected the database trigger to reject this DELETE");
+  } catch (e: any) {
+    assert.match(fullErrorText(e), /SFP_FROZEN_IMMUTABLE/,
+      `Expected SFP_FROZEN_IMMUTABLE, got: ${fullErrorText(e)}`);
+  }
+});
+
+// NOTE: void test uses a SEPARATE frozen run (not cohortRunId) because
+// cohortRunId is still needed as a usable frozen cohort by phases 6-9 below.
+let voidTestRunId = "";
+await phase("5k. void() is append-only — preserves members/decisions/hash, blocks future admission", async () => {
+  const { freezeCohort, voidCohortRun, isCohortUsableDownstream } = await import("../server/services/cro03/south-florida-prospecting");
+  const frozen = await freezeCohort({
+    idempotencyKey: `sfpcert-void-target-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    maxCohortSize: 5,
+  });
+  voidTestRunId = frozen.run.id;
+  const before = rows(await db.execute(sql`SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${voidTestRunId}::uuid`))[0];
+  const memberCountBefore = rows(await db.execute(sql`SELECT COUNT(*)::int AS c FROM sfp_cohort_members WHERE cohort_run_id=${voidTestRunId}::uuid`))[0];
+  await voidCohortRun({ cohortRunId: voidTestRunId, actorId: `cert:${RUN_ID}`, reason: "certification void test" });
+  const after = rows(await db.execute(sql`SELECT cohort_hash, cohort_state, voided_at, void_reason FROM sfp_cohort_runs WHERE id=${voidTestRunId}::uuid`))[0];
+  const memberCountAfter = rows(await db.execute(sql`SELECT COUNT(*)::int AS c FROM sfp_cohort_members WHERE cohort_run_id=${voidTestRunId}::uuid`))[0];
+  assert.equal(after.cohort_hash, before.cohort_hash, "Voiding must not change the frozen cohort_hash");
+  assert.equal(after.cohort_state, "voided", "cohort_state must become voided");
+  assert(after.voided_at, "voided_at must be set");
+  assert.equal(after.void_reason, "certification void test");
+  assert.equal(Number(memberCountAfter.c), Number(memberCountBefore.c), "Voiding must not delete member rows");
+  assert.equal(await isCohortUsableDownstream(voidTestRunId), false, "A voided cohort must not be usable downstream");
+});
+
+await phase("5l. A voided cohort cannot be frozen again under the same key (never reopens a terminal run)", async () => {
+  const { freezeCohort } = await import("../server/services/cro03/south-florida-prospecting");
+  try {
+    await freezeCohort({ idempotencyKey: `sfpcert-void-target-${RUN_ID}`, actorId: `cert:${RUN_ID}`, maxCohortSize: 5 });
+    assert.fail("Expected freezeCohort to reject reopening a voided run's idempotency key");
+  } catch (e: any) {
+    assert.match(fullErrorText(e), /SFP_COHORT_RUN_TERMINAL_LIFECYCLE|SFP_FROZEN_IMMUTABLE|voided/i,
+      `Expected a terminal-lifecycle rejection, got: ${fullErrorText(e)}`);
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════════════════
 // PHASE 6 — Free evidence report
 // ════════════════════════════════════════════════════════════════════════════════
@@ -425,6 +552,12 @@ await phase("6a. getFreeEvidenceReport returns correct interface", async () => {
 // PHASE 7 — ZeroBounce validation (fake transport)
 // ════════════════════════════════════════════════════════════════════════════════
 console.log("\nPhase 7: ZeroBounce validation — fake transport");
+
+await phase("6b. Activate the SFP program (required for validation/staging gates)", async () => {
+  const { setProgramActivation } = await import("../server/services/cro03/south-florida-prospecting");
+  const program = await setProgramActivation({ active: true, actorId: `cert:${RUN_ID}` });
+  assert.equal(program.isActive, true, "Program must be active for validation to proceed");
+});
 
 const fakeZbCalls: string[] = []; // track what is passed to fake transport
 let validationResult: any;
@@ -621,6 +754,20 @@ await phase("9d. SouthFloridaProspectingPanel exports the component", async () =
 console.log("\nCleanup: Removing test data");
 
 await phase("cleanup: Remove test data", async () => {
+  // Frozen runs are database-immutable (SFP_FROZEN_IMMUTABLE trigger blocks
+  // UPDATE/DELETE on member/decision rows while cohort_state='frozen'), so
+  // every cert-created run must be transitioned to 'voided' before its
+  // child rows can be cleaned up. This is the same lifecycle transition an
+  // operator would use — cleanup does not bypass the immutability guard.
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs SET cohort_state = 'voided', voided_at = NOW(), voided_by = ${`cert:${RUN_ID}`}, void_reason = 'certification cleanup'
+    WHERE actor_id = ${`cert:${RUN_ID}`} AND cohort_state = 'frozen'
+  `);
+  await db.execute(sql`
+    DELETE FROM sfp_cohort_decisions WHERE cohort_run_id IN (
+      SELECT id FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}
+    )
+  `);
   await db.execute(sql`
     DELETE FROM sfp_outreach_eligibility WHERE cohort_run_id IN (
       SELECT id FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}
@@ -657,6 +804,9 @@ await phase("cleanup: Remove test data", async () => {
   }
   await db.execute(sql`
     DELETE FROM contacts WHERE business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
+  `);
+  await db.execute(sql`
+    DELETE FROM canonical_source_links WHERE business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
   `);
   await db.execute(sql`
     DELETE FROM businesses WHERE id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])

@@ -173,6 +173,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "GHL_TRANSPORT_FAILFAST=true; no provider calls",
   },
   {
+    name: "South Florida Prospecting Cohort Certification",
+    script: "scripts/sfp-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "seeds/cleans its own canonical businesses in the server DB; ZeroBounce validated via fake transport injection (no live ZB key); no GHL/SMTP/campaign/sequence writes; asserts zero-outreach on every staging call",
+  },
+  {
     name: "Identity Crosswalk Certification (#1830)",
     script: "scripts/test-identity-crosswalk.ts",
     capability: "server-required",

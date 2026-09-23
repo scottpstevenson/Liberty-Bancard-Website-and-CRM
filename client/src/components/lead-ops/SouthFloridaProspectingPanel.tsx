@@ -19,7 +19,9 @@ import {
   ShieldCheck, Eye, Play, RefreshCw, Mail, Users, Target,
   TrendingUp, BarChart3, ChevronDown, ChevronRight, Lock,
 } from "lucide-react";
-// randomUUID not needed — using Date.now() for idempotency keys
+// Freeze idempotency keys use crypto.randomUUID(), generated once per
+// logical freeze attempt and retained across retry/reload so a retried
+// request replays the same stored result instead of minting a fresh run.
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -66,11 +68,18 @@ type SfpFunnel = {
 type SfpCohortRun = {
   id: string;
   status: string;
+  cohortState: "freezing" | "frozen" | "failed" | "voided" | "superseded";
   cohortSize: number;
   cohortHash: string | null;
   frozenAt: string | null;
   actorId: string;
   createdAt: string;
+  requestHash: string | null;
+  configHash: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  supersededAt: string | null;
+  supersededByRunId: string | null;
 };
 
 type SfpEvidenceReport = {
@@ -188,6 +197,11 @@ export function SouthFloridaProspectingPanel() {
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
+  // Generated once per logical freeze attempt and retained across
+  // retry/reload; an explicit "start new cohort" action rotates it.
+  const [freezeIdempotencyKey, setFreezeIdempotencyKey] = useState<string>(() => crypto.randomUUID());
+  const [voidReason, setVoidReason] = useState("");
+  const [confirmingVoid, setConfirmingVoid] = useState(false);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -209,6 +223,19 @@ export function SouthFloridaProspectingPanel() {
 
   const evidenceQuery = useQuery<SfpEvidenceReport>({
     queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`],
+    enabled: !!activeRunId,
+    retry: false,
+  });
+
+  // Terminal decision-ledger reconciliation — kept structurally and visually
+  // separate from downstream stage-progress metrics (validation/staging).
+  const reconciliationQuery = useQuery<{
+    byDisposition: Array<{ disposition: string; count: number }>;
+    totalDecisions: number;
+    totalScannedCanonical: number;
+    reconciles: boolean;
+  }>({
+    queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/reconciliation`],
     enabled: !!activeRunId,
     retry: false,
   });
@@ -261,11 +288,11 @@ export function SouthFloridaProspectingPanel() {
 
   const freezeCohort = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/lead-ops/sfp/runs/freeze", {
-      idempotencyKey: `sfp-freeze-${Date.now()}`,
+      idempotencyKey: freezeIdempotencyKey,
       maxCohortSize: maxCohort,
     })).json(),
     onSuccess: (data: any) => {
-      toast({ title: "Cohort frozen", description: `${data?.run?.cohortSize ?? 0} businesses selected` });
+      toast({ title: "Cohort frozen", description: `${data?.run?.cohortSize ?? 0} businesses selected — hash ${String(data?.run?.cohortHash ?? "").slice(0, 12)}` });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/runs"] });
       if (data?.run?.id) setActiveRunId(data.run.id);
     },
@@ -273,6 +300,25 @@ export function SouthFloridaProspectingPanel() {
       const msg = e?.message ?? "Unknown error";
       toast({ title: "Cohort freeze failed", description: msg, variant: "destructive" });
     },
+  });
+
+  // Explicit "start new cohort" action — rotates the idempotency key so the
+  // next freeze attempt is a genuinely new logical request rather than a
+  // retry of the previous one.
+  const startNewCohortAttempt = () => setFreezeIdempotencyKey(crypto.randomUUID());
+
+  const voidRun = useMutation({
+    mutationFn: async () => {
+      if (!activeRunId) throw new Error("No active run");
+      return (await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/void`, { reason: voidReason })).json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cohort run voided" });
+      setConfirmingVoid(false);
+      setVoidReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/runs"] });
+    },
+    onError: (e: any) => toast({ title: "Void failed", description: e?.message, variant: "destructive" }),
   });
 
   const validateCohort = useMutation<SfpValidationResult>({
@@ -472,22 +518,29 @@ export function SouthFloridaProspectingPanel() {
           <div className="flex items-center gap-2">
             <label className="text-xs whitespace-nowrap">Max cohort size:</label>
             <input
-              type="number" min={1} max={500} value={maxCohort}
-              onChange={(e) => setMaxCohort(Math.max(1, Math.min(500, Number(e.target.value))))}
+              type="number" min={1} max={100} value={maxCohort}
+              onChange={(e) => setMaxCohort(Math.max(1, Math.min(100, Number(e.target.value))))}
               className="border rounded px-2 py-1 text-xs w-20"
             />
+            <span className="text-xs text-muted-foreground">(program cap: 100)</span>
           </div>
-          <Button
-            size="sm"
-            onClick={() => freezeCohort.mutate()}
-            disabled={!program?.isActive || freezeCohort.isPending}
-          >
-            {freezeCohort.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Target className="h-3 w-3 mr-1" />}
-            Freeze Deterministic Cohort (top {maxCohort} by ROI score)
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => freezeCohort.mutate()}
+              disabled={!program?.isActive || freezeCohort.isPending}
+            >
+              {freezeCohort.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Target className="h-3 w-3 mr-1" />}
+              Freeze Deterministic Cohort (top {maxCohort} by ROI score)
+            </Button>
+            <Button size="sm" variant="ghost" onClick={startNewCohortAttempt} title="Rotate the idempotency key to start a genuinely new freeze attempt">
+              <RefreshCw className="h-3 w-3 mr-1" /> Start new cohort
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">
-            Idempotent — re-running with the same key returns the existing frozen cohort.
-            ROI scores all eligible businesses globally before selecting the top {maxCohort}.
+            Idempotent — re-running with the same key ({freezeIdempotencyKey.slice(0, 8)}…) replays the existing
+            frozen cohort; a payload change under the same key is rejected. Use "Start new cohort" for a genuinely
+            new attempt. ROI scores all eligible businesses globally before selecting the top {maxCohort}.
           </p>
         </CardContent>
       </Card>
@@ -507,15 +560,102 @@ export function SouthFloridaProspectingPanel() {
                   onClick={() => setActiveRunId(run.id)}
                 >
                   <div className="flex items-center gap-2">
-                    {statusBadge(run.status)}
+                    {statusBadge((run as any).cohortState ?? run.status)}
                     <span className="font-mono text-muted-foreground">{run.id.slice(0, 8)}…</span>
                     <span>{run.cohortSize} businesses</span>
+                    {run.cohortHash && <span className="font-mono text-muted-foreground" title="Full-manifest cohort hash">#{run.cohortHash.slice(0, 10)}</span>}
                     {run.frozenAt && <span className="text-muted-foreground">{new Date(run.frozenAt).toLocaleDateString()}</span>}
+                    {(run as any).voidedAt && <Badge variant="destructive">Voided</Badge>}
+                    {(run as any).supersededAt && <Badge variant="secondary">Superseded</Badge>}
                   </div>
                   {run.id === activeRunId && <Badge variant="outline">Active</Badge>}
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active run: request/config fingerprint + terminal reconciliation.
+          Deliberately a separate card from any stage-progress metrics
+          (validation/staging counts below) so the two are never conflated. */}
+      {activeRun && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Run Fingerprint &amp; Terminal Reconciliation</CardTitle>
+            <CardDescription className="text-xs">
+              Terminal decisions come from the freeze-time decision ledger and are independent of any
+              later validation/staging stage progress shown below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2 text-xs">
+            <div className="grid grid-cols-2 gap-1 font-mono">
+              <span className="text-muted-foreground">Cohort hash</span>
+              <span className="truncate" title={activeRun.cohortHash ?? ""}>{activeRun.cohortHash ?? "—"}</span>
+              <span className="text-muted-foreground">Request hash</span>
+              <span className="truncate" title={activeRun.requestHash ?? ""}>{activeRun.requestHash ?? "—"}</span>
+              <span className="text-muted-foreground">Config hash</span>
+              <span className="truncate" title={activeRun.configHash ?? ""}>{activeRun.configHash ?? "—"}</span>
+            </div>
+            {reconciliationQuery.data && (
+              <div className="border-t pt-2 mt-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-medium">Terminal decision reconciliation</span>
+                  {reconciliationQuery.data.reconciles ? (
+                    <Badge variant="outline" className="text-green-700 border-green-300">Reconciles</Badge>
+                  ) : (
+                    <Badge variant="destructive">Mismatch</Badge>
+                  )}
+                </div>
+                <p className="text-muted-foreground mb-1">
+                  {reconciliationQuery.data.totalDecisions} terminal decisions vs. {reconciliationQuery.data.totalScannedCanonical} total scanned canonical businesses
+                </p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                  {reconciliationQuery.data.byDisposition.map((d) => (
+                    <span key={d.disposition} className="flex justify-between">
+                      <span className="text-muted-foreground">{d.disposition}</span>
+                      <span className="font-mono">{d.count}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active run: lifecycle controls (void/supersede) */}
+      {activeRun && (activeRun as any).cohortState === "frozen" && !(activeRun as any).voidedAt && !(activeRun as any).supersededAt && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Cohort Lifecycle</CardTitle>
+            <CardDescription className="text-xs">
+              A frozen cohort's membership and hash are immutable. Voiding blocks it from future
+              use while preserving its full history — it never rewrites or deletes the manifest.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            {!confirmingVoid ? (
+              <Button size="sm" variant="destructive" onClick={() => setConfirmingVoid(true)}>
+                Void this cohort run
+              </Button>
+            ) : (
+              <div className="space-y-2 border rounded p-2 bg-red-50">
+                <p className="text-xs font-medium">Confirm void — this cannot be undone. Enter a reason:</p>
+                <input
+                  type="text" value={voidReason} onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="Reason for voiding this cohort run"
+                  className="border rounded px-2 py-1 text-xs w-full"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="destructive" disabled={!voidReason.trim() || voidRun.isPending} onClick={() => voidRun.mutate()}>
+                    {voidRun.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                    Confirm void
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setConfirmingVoid(false); setVoidReason(""); }}>Cancel</Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -150,7 +150,8 @@ test("paid and free execution routes are admin-only", () => {
   assert.ok(routeLines.every((line) => line.includes('requireRole("admin")')), "an SFP route is not admin-only");
 });
 test("operator batch inputs are integer-validated at the HTTP boundary", () => {
-  has(files.routes, "maxCohortSize must be an integer between 1 and 500");
+  // Program cohort cap is 100 everywhere (not the legacy 500 bound).
+  has(files.routes, "maxCohortSize must be an integer between 1 and 100");
   has(files.routes, "maxBusinesses must be an integer between 1 and 500");
   has(files.routes, "maxBusinesses must be an integer between 1 and 25");
   has(files.routes, "maxValidations must be an integer between 1 and 25");

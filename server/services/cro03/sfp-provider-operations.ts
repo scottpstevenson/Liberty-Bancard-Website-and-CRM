@@ -51,7 +51,8 @@ export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ 
          WHERE expires_at>NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
          ORDER BY captured_at DESC LIMIT 1
       ) a ON TRUE
-     WHERE r.id=${cohortRunId}::uuid AND r.cohort_hash IS NOT NULL AND p.is_active=TRUE
+     WHERE r.id=${cohortRunId}::uuid AND r.cohort_state='frozen' AND r.voided_at IS NULL
+       AND r.superseded_at IS NULL AND p.is_active=TRUE
   `))[0];
   if (!authority) throw new Error("SFP_PAID_BLOCKED:NO_LIVE_RUNTIME_AUTHORITY");
   return { attestationId: String(authority.attestation_id) };

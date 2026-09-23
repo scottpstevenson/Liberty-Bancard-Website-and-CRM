@@ -68,30 +68,37 @@ export interface SfpProgram {
  * Idempotent program definition. Creates or returns the existing program.
  * The program starts inactive — operator must explicitly activate after publish.
  */
+/**
+ * SFP's own default target-vertical IDs. This is the sole runtime authority
+ * for program configuration once a program row exists — the legacy
+ * `system_settings.cro03c_roi_pilot_verticals` value is NEVER read here.
+ * It is only ever consumed through the explicit, audited, one-time
+ * `initializeProgramFromLegacyConfig` path below, and only when no SFP
+ * program configuration exists yet.
+ */
+const SFP_DEFAULT_VERTICAL_IDS = ["Med Spa", "Dental", "Auto Repair", "Restaurant", "Retail"];
+
+/**
+ * Idempotent program definition. Creates the program with SFP-owned defaults
+ * on first call and returns the existing row on every subsequent call.
+ * Unlike earlier revisions, this NEVER reconverges county_fips/vertical_ids/
+ * policy_version from any external source (including the legacy
+ * cro03c_roi_pilot_verticals system_settings key) on every call — once a
+ * program row exists, its configuration is mutable only through an explicit
+ * admin action (setProgramActivation, a future config-update endpoint, or
+ * the one-time legacy initializer below).
+ */
 export async function ensureProgram(opts: {
   createdBy?: string;
   maxCohortSize?: number;
 } = {}): Promise<SfpProgram> {
-  const verticalIds = await loadPilotVerticalIds();
-  const countyFips = [...SOUTH_FLORIDA_FIPS];
-
   const existing = rows(await db.execute(sql`
     SELECT * FROM sfp_programs WHERE name = ${PROGRAM_NAME} LIMIT 1
   `))[0];
+  if (existing) return _mapProgram(existing);
 
-  if (existing) {
-    // Converge the mutable program definition to the current canonical
-    // vertical/county configuration. Frozen cohort members remain immutable.
-    const converged = rows(await db.execute(sql`
-      UPDATE sfp_programs
-         SET county_fips=ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
-             vertical_ids=ARRAY[${sql.join(verticalIds.map((v) => sql`${v}`), sql`, `)}],
-             policy_version=${SFP_POLICY_VERSION}
-       WHERE id=${String(existing.id)}::uuid
-       RETURNING *
-    `))[0];
-    return _mapProgram(converged);
-  }
+  const countyFips = [...SOUTH_FLORIDA_FIPS];
+  const verticalIds = [...SFP_DEFAULT_VERTICAL_IDS];
 
   const created = rows(await db.execute(sql`
     INSERT INTO sfp_programs
@@ -100,16 +107,91 @@ export async function ensureProgram(opts: {
       ${PROGRAM_NAME},
       ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
       ARRAY[${sql.join(verticalIds.map((v) => sql`${v}`), sql`, `)}],
-      ${opts.maxCohortSize ?? 100},
+      ${Math.max(1, Math.min(100, opts.maxCohortSize ?? 100))},
       ${SFP_POLICY_VERSION},
       false,
       ${opts.createdBy ?? "system:sfp"}
     )
-    ON CONFLICT (name) DO UPDATE SET max_cohort_size = EXCLUDED.max_cohort_size
+    ON CONFLICT (name) DO NOTHING
+    RETURNING *
+  `))[0];
+  if (created) return _mapProgram(created);
+
+  // Lost the create race to a concurrent caller — read back the winner's row.
+  const winner = rows(await db.execute(sql`
+    SELECT * FROM sfp_programs WHERE name = ${PROGRAM_NAME} LIMIT 1
+  `))[0];
+  return _mapProgram(winner);
+}
+
+/**
+ * Explicit, audited, ONE-TIME initializer that seeds the SFP program's
+ * target-vertical configuration from the legacy
+ * `system_settings.cro03c_roi_pilot_verticals` key. Only fires when no SFP
+ * program configuration exists yet; every other read/preview/freeze path
+ * never touches this key. Writes a permanent audit receipt (source,
+ * source hash, resulting config, actor, timestamp) so the origin of the
+ * configuration is always traceable.
+ */
+export async function initializeProgramFromLegacyConfig(opts: {
+  actorId: string;
+}): Promise<{ program: SfpProgram; initialized: boolean; reason?: string }> {
+  const existing = await getProgramReadOnly();
+  if (existing) {
+    return { program: existing, initialized: false, reason: "SFP_PROGRAM_ALREADY_CONFIGURED" };
+  }
+
+  const legacyVerticalIds = await loadPilotVerticalIds();
+  const countyFips = [...SOUTH_FLORIDA_FIPS];
+  const sourceHash = createHash("sha256").update(JSON.stringify(legacyVerticalIds)).digest("hex");
+
+  const created = rows(await db.execute(sql`
+    INSERT INTO sfp_programs
+      (name, county_fips, vertical_ids, max_cohort_size, policy_version, is_active, created_by)
+    VALUES (
+      ${PROGRAM_NAME},
+      ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
+      ARRAY[${sql.join(legacyVerticalIds.map((v) => sql`${v}`), sql`, `)}],
+      100,
+      ${SFP_POLICY_VERSION},
+      false,
+      ${opts.actorId}
+    )
+    ON CONFLICT (name) DO NOTHING
     RETURNING *
   `))[0];
 
-  return _mapProgram(created ?? existing);
+  if (!created) {
+    // Lost the race — another caller created the program between the
+    // read-only check and this insert. No initialization happened here.
+    const winner = await getProgramReadOnly();
+    return { program: winner!, initialized: false, reason: "SFP_PROGRAM_CREATED_CONCURRENTLY" };
+  }
+
+  await db.execute(sql`
+    INSERT INTO sfp_config_init_receipts (program_id, source, source_hash, resulting_config, actor_id)
+    VALUES (${String(created.id)}::uuid, 'system_settings.cro03c_roi_pilot_verticals', ${sourceHash},
+            ${JSON.stringify({ countyFips, verticalIds: legacyVerticalIds })}::jsonb, ${opts.actorId})
+  `);
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_program_initialized_from_legacy_config', 'sfp_program', ${String(created.id)}, 'user', ${opts.actorId},
+            ${JSON.stringify({ source: "cro03c_roi_pilot_verticals", sourceHash, verticalIds: legacyVerticalIds })}::jsonb)
+  `);
+
+  return { program: _mapProgram(created), initialized: true };
+}
+
+/**
+ * Read-only program lookup. Never inserts or converges the program row —
+ * safe to call from GET/preview paths. Returns null when no program has been
+ * explicitly created yet (via ensureProgram/POST .../program/ensure).
+ */
+export async function getProgramReadOnly(): Promise<SfpProgram | null> {
+  const existing = rows(await db.execute(sql`
+    SELECT * FROM sfp_programs WHERE name = ${PROGRAM_NAME} LIMIT 1
+  `))[0];
+  return existing ? _mapProgram(existing) : null;
 }
 
 function _mapProgram(row: any): SfpProgram {
@@ -176,8 +258,11 @@ export async function previewFunnel(opts: {
   maxPreview?: number;
   programId?: string;
 } = {}): Promise<SfpFunnelPreview> {
-  const program = await ensureProgram();
-  if (!program.isActive) throw new Error("SFP_PROGRAM_INACTIVE:activate_the_program_before_freezing_a_cohort");
+  // Read-only: never converges/creates the program row. Preview must work
+  // even while the program is inactive — freeze (not preview) is the gate
+  // that requires activation.
+  const program = await getProgramReadOnly();
+  if (!program) throw new Error("SFP_PROGRAM_NOT_CONFIGURED:create_the_program_via_POST_program_ensure_first");
   const result = await selectRoiCohort({
     maxCohort: opts.maxPreview ?? 25,
     verticalIds: program.verticalIds,
@@ -207,146 +292,373 @@ export async function previewFunnel(opts: {
 
 // ── Cohort freeze ──────────────────────────────────────────────────────────────
 
+const ZERO_FUNNEL: RoiCohortSelection["funnel"] = {
+  totalScanned: 0, southFlorida: 0, outsideGeography: 0, geographyUnresolved: 0,
+  inTargetVertical: 0, verticalUnresolved: 0, dbprExcluded: 0, existingCustomer: 0,
+  testDemoInternal: 0, suppressed: 0, bouncedInvalidOnly: 0, inactiveEntity: 0,
+  eligibleAfterExclusions: 0,
+};
+
+/** Canary designation cap — independent of the program's 1-100 cohort cap. */
+const SFP_CANARY_CAP = 25;
+/** Program-level cohort size cap enforced at this owning layer regardless of caller input. */
+const SFP_PROGRAM_MAX_COHORT = 100;
+
 export interface SfpCohortRun {
   id: string;
   programId: string;
   idempotencyKey: string;
   status: string;
+  /** Immutable cohort lifecycle — distinct from downstream stage-progress
+   *  status (sfp_stage_runs.state). Only 'frozen' with voidedAt/
+   *  supersededAt both null is consumable downstream. */
+  cohortState: "freezing" | "frozen" | "failed" | "voided" | "superseded";
   cohortSize: number;
   cohortHash: string | null;
   frozenAt: string | null;
   releaseSha: string;
   actorId: string;
   createdAt: string;
+  requestHash: string | null;
+  configHash: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  supersededAt: string | null;
+  supersededByRunId: string | null;
 }
 
+function _mapFunnelSnapshot(f: any): RoiCohortSelection["funnel"] {
+  return {
+    totalScanned: Number(f.total_businesses ?? 0),
+    southFlorida: Number(f.south_florida ?? 0),
+    outsideGeography: Number(f.outside_geography ?? 0),
+    geographyUnresolved: Number(f.geography_unresolved ?? 0),
+    inTargetVertical: Number(f.in_target_vertical ?? 0),
+    verticalUnresolved: Number(f.vertical_unresolved ?? 0),
+    dbprExcluded: Number(f.dbpr_excluded ?? 0),
+    existingCustomer: Number(f.existing_customer ?? 0),
+    testDemoInternal: Number(f.test_demo_internal ?? 0),
+    suppressed: Number(f.suppressed ?? 0),
+    bouncedInvalidOnly: Number(f.bounced_invalid_only ?? 0),
+    inactiveEntity: Number(f.inactive_entity ?? 0),
+    eligibleAfterExclusions: Number(f.ready_for_validation ?? f.outreach_eligible ?? 0),
+  };
+}
+
+/**
+ * Freeze a cohort against ONE consistent snapshot (REPEATABLE READ), inside
+ * one atomic transaction, with keyset-paginated scanning (see
+ * roi-cohort-selector.ts), program-cap enforcement (1-100), a full-manifest
+ * cohort hash, a terminal decision ledger row per scanned business, a
+ * deterministic canary designation, and program+key+request-hash idempotency
+ * semantics:
+ *   - same idempotency key + same request payload → replay the stored run (200)
+ *   - same idempotency key + different request payload → reject (409-mapped error)
+ *   - a prior 'frozen' or 'failed' run under this key is NEVER reopened
+ *   - concurrent callers with the same key are serialized by a Postgres
+ *     advisory transaction lock keyed on the idempotency key, so they
+ *     produce exactly one result
+ */
 export async function freezeCohort(opts: {
   idempotencyKey: string;
   actorId: string;
   maxCohortSize?: number;
   releaseSha?: string;
 }): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
-  // Idempotency check
-  const existing = rows(await db.execute(sql`
-    SELECT * FROM sfp_cohort_runs WHERE idempotency_key = ${opts.idempotencyKey} LIMIT 1
-  `))[0];
-  if (existing?.cohort_hash) {
-    return {
-      run: _mapRun(existing),
-      newlyFrozen: false,
-      funnel: { totalScanned: 0, southFlorida: 0, outsideGeography: 0, geographyUnresolved: 0,
-                inTargetVertical: 0, verticalUnresolved: 0, dbprExcluded: 0, existingCustomer: 0,
-                testDemoInternal: 0, suppressed: 0, bouncedInvalidOnly: 0, inactiveEntity: 0,
-                eligibleAfterExclusions: 0 },
-    };
-  }
-
   const program = await ensureProgram();
+  const maxCohortSize = Math.max(1, Math.min(SFP_PROGRAM_MAX_COHORT, opts.maxCohortSize ?? program.maxCohortSize));
 
-  // Create draft run row
-  const runRow = rows(await db.execute(sql`
-    INSERT INTO sfp_cohort_runs
-      (program_id, idempotency_key, status, actor_id, release_sha)
-    VALUES (${program.id}::uuid, ${opts.idempotencyKey}, 'freezing',
-            ${opts.actorId}, ${opts.releaseSha ?? process.env.RELEASE_SHA ?? ""})
-    ON CONFLICT (idempotency_key) DO UPDATE SET status = 'freezing'
-    RETURNING *
-  `))[0];
-  const runId = String(runRow.id);
+  const requestPayload = {
+    programId: program.id,
+    verticalIds: [...program.verticalIds].sort(),
+    countyFips: [...program.countyFips].sort(),
+    maxCohortSize,
+  };
+  const requestHash = createHash("sha256").update(JSON.stringify(requestPayload)).digest("hex");
+  const policyVersions = { programPolicyVersion: program.policyVersion, scoreVersion: 1 };
+  const configHash = createHash("sha256").update(JSON.stringify({
+    verticalIds: requestPayload.verticalIds, countyFips: requestPayload.countyFips, policyVersions,
+  })).digest("hex");
 
-  try {
-    // ROI selection — all businesses, no pre-rank limit
-    const result = await selectRoiCohort({
-      maxCohort: opts.maxCohortSize ?? program.maxCohortSize,
-      verticalIds: program.verticalIds,
-      countyFips: program.countyFips,
-      persistScores: true,
-      actorId: opts.actorId,
-    });
+  return db.transaction(async (tx) => {
+    // One consistent snapshot for the whole freeze attempt.
+    await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
+    // Serialize every concurrent freeze attempt sharing this idempotency
+    // key so exactly one of them does the work; the rest observe its
+    // final state once this transaction commits and the lock releases.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${opts.idempotencyKey}))`);
 
-    if (result.eligible.length === 0) {
-      // Build a human-readable reason from the funnel
-      const f = result.funnel;
-      let zeroReason = "no_eligible_businesses_after_exclusions";
-      if (f.totalScanned === 0) zeroReason = "no_businesses_in_database";
-      else if (f.southFlorida === 0) zeroReason = "no_south_florida_businesses_found:check_geography_fields";
-      else if (f.inTargetVertical === 0) zeroReason = `no_businesses_in_target_verticals:${result.verticalIds.join(",")}`;
-      else if (f.dbprExcluded > 0) zeroReason = `all_eligible_businesses_dbpr_excluded:count=${f.dbprExcluded}`;
-      else if (f.existingCustomer > 0) zeroReason = `all_eligible_businesses_existing_customer:count=${f.existingCustomer}`;
-      else if (f.eligibleAfterExclusions === 0) zeroReason = `zero_after_all_exclusions:scanned=${f.totalScanned},sf=${f.southFlorida},vertical=${f.inTargetVertical}`;
-
-      await db.execute(sql`
-        UPDATE sfp_cohort_runs SET status = 'error', error_detail = ${zeroReason}
-        WHERE id = ${runId}::uuid
-      `);
-      throw new Error(`COHORT_CENSUS_INSUFFICIENT:${zeroReason}`);
-    }
-
-    // Insert cohort members
-    for (const c of result.eligible) {
-      await db.execute(sql`
-        INSERT INTO sfp_cohort_members
-          (cohort_run_id, business_id, roi_score, geography_class, geography_source,
-           county_fips, vertical, exclusion_reason)
-        VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${c.roiScore},
-                ${c.geographyClass}, ${c.geographySource}, ${c.countyFips}, ${c.vertical}, ${null})
-        ON CONFLICT (cohort_run_id, business_id) DO NOTHING
-      `);
-    }
-
-    // Compute cohort hash
-    const cohortHash = createHash("sha256")
-      .update(result.eligible.map((c) => c.canonicalBusinessId).sort().join(","))
-      .digest("hex");
-
-    await db.execute(sql`
-      UPDATE sfp_cohort_runs
-      SET status = 'frozen', cohort_size = ${result.eligible.length},
-          cohort_hash = ${cohortHash}, frozen_at = NOW()
-      WHERE id = ${runId}::uuid
-    `);
-
-    // Persist funnel snapshot
-    const f = result.funnel;
-    await db.execute(sql`
-      INSERT INTO sfp_funnel_snapshots
-        (cohort_run_id, total_businesses, south_florida, outside_geography,
-         geography_unresolved, in_target_vertical, vertical_unresolved,
-         dbpr_excluded, suppressed, bounced_invalid_only, existing_customer, test_demo_internal, inactive_entity,
-         outreach_eligible, selected_frozen)
-      VALUES (${runId}::uuid, ${f.totalScanned}, ${f.southFlorida}, ${f.outsideGeography},
-              ${f.geographyUnresolved}, ${f.inTargetVertical}, ${f.verticalUnresolved},
-              ${f.dbprExcluded}, ${f.suppressed}, ${f.bouncedInvalidOnly}, ${f.existingCustomer}, ${f.testDemoInternal}, ${f.inactiveEntity},
-              ${f.eligibleAfterExclusions}, ${result.eligible.length})
-      ON CONFLICT (cohort_run_id) DO UPDATE SET
-        total_businesses = EXCLUDED.total_businesses,
-        south_florida = EXCLUDED.south_florida,
-        outside_geography = EXCLUDED.outside_geography,
-        geography_unresolved = EXCLUDED.geography_unresolved,
-        in_target_vertical = EXCLUDED.in_target_vertical,
-        vertical_unresolved = EXCLUDED.vertical_unresolved,
-        dbpr_excluded = EXCLUDED.dbpr_excluded,
-        suppressed = EXCLUDED.suppressed,
-        bounced_invalid_only = EXCLUDED.bounced_invalid_only,
-        existing_customer = EXCLUDED.existing_customer,
-        test_demo_internal = EXCLUDED.test_demo_internal,
-        inactive_entity = EXCLUDED.inactive_entity,
-        outreach_eligible = EXCLUDED.outreach_eligible,
-        selected_frozen = EXCLUDED.selected_frozen
-    `);
-
-    const updatedRun = rows(await db.execute(sql`
-      SELECT * FROM sfp_cohort_runs WHERE id = ${runId}::uuid LIMIT 1
+    const existing = rows(await tx.execute(sql`
+      SELECT * FROM sfp_cohort_runs WHERE idempotency_key = ${opts.idempotencyKey} LIMIT 1
     `))[0];
 
-    return { run: _mapRun(updatedRun), newlyFrozen: true, funnel: result.funnel };
-  } catch (err) {
-    await db.execute(sql`
-      UPDATE sfp_cohort_runs SET status = 'error', error_detail = ${(err as Error).message}
-      WHERE id = ${runId}::uuid AND status != 'frozen'
-    `);
-    throw err;
-  }
+    if (existing) {
+      if (existing.cohort_state === "frozen") {
+        if (String(existing.request_hash) === requestHash) {
+          const snap = rows(await tx.execute(sql`
+            SELECT * FROM sfp_funnel_snapshots WHERE cohort_run_id = ${String(existing.id)}::uuid LIMIT 1
+          `))[0];
+          return { run: _mapRun(existing), newlyFrozen: false, funnel: snap ? _mapFunnelSnapshot(snap) : ZERO_FUNNEL };
+        }
+        throw new Error("SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH:same_key_different_request_use_a_new_idempotency_key");
+      }
+      if (existing.cohort_state === "failed") {
+        // Never reopen a prior failed run — the plan requires a genuinely
+        // new attempt (new idempotency key) rather than silently retrying
+        // in place, so failure history stays truthful and inspectable.
+        throw new Error(`SFP_COHORT_RUN_PREVIOUSLY_FAILED:${String(existing.error_detail ?? "unknown")}:use_a_new_idempotency_key_to_retry`);
+      }
+      if (existing.cohort_state === "voided" || existing.cohort_state === "superseded") {
+        throw new Error(`SFP_COHORT_RUN_TERMINAL_LIFECYCLE:${String(existing.cohort_state)}:use_a_new_idempotency_key`);
+      }
+      // cohort_state === 'freezing' here means a previous attempt crashed
+      // mid-transaction without committing (its INSERT never became
+      // visible) — under the advisory lock no other transaction could have
+      // been mid-flight concurrently, so it is safe to redo deterministically.
+    }
+
+    const runRow = (existing ?? rows(await tx.execute(sql`
+      INSERT INTO sfp_cohort_runs
+        (program_id, idempotency_key, status, cohort_state, actor_id, release_sha,
+         request_hash, config_hash, request_payload, policy_versions)
+      VALUES (${program.id}::uuid, ${opts.idempotencyKey}, 'freezing', 'freezing',
+              ${opts.actorId}, ${opts.releaseSha ?? process.env.RELEASE_SHA ?? ""},
+              ${requestHash}, ${configHash}, ${JSON.stringify(requestPayload)}::jsonb,
+              ${JSON.stringify(policyVersions)}::jsonb)
+      RETURNING *
+    `))[0]);
+    const runId = String(runRow.id);
+
+    try {
+      // ROI selection runs against this same transaction handle, so the
+      // scan, scoring, and member insert all observe one consistent
+      // snapshot rather than racing live writes between steps.
+      const result = await selectRoiCohort({
+        maxCohort: maxCohortSize,
+        verticalIds: program.verticalIds,
+        countyFips: program.countyFips,
+        persistScores: true,
+        actorId: opts.actorId,
+        executor: tx,
+      });
+
+      if (result.eligible.length === 0) {
+        const f = result.funnel;
+        let zeroReason = "no_eligible_businesses_after_exclusions";
+        if (f.totalScanned === 0) zeroReason = "no_businesses_in_database";
+        else if (f.southFlorida === 0) zeroReason = "no_south_florida_businesses_found:check_geography_fields";
+        else if (f.inTargetVertical === 0) zeroReason = `no_businesses_in_target_verticals:${result.verticalIds.join(",")}`;
+        else if (f.dbprExcluded > 0) zeroReason = `all_eligible_businesses_dbpr_excluded:count=${f.dbprExcluded}`;
+        else if (f.existingCustomer > 0) zeroReason = `all_eligible_businesses_existing_customer:count=${f.existingCustomer}`;
+        else if (f.eligibleAfterExclusions === 0) zeroReason = `zero_after_all_exclusions:scanned=${f.totalScanned},sf=${f.southFlorida},vertical=${f.inTargetVertical}`;
+        throw new Error(`COHORT_CENSUS_INSUFFICIENT:${zeroReason}`);
+      }
+
+      // Insert cohort members with a stable selection_rank (roi_score DESC,
+      // canonical_business_id ASC — see selectRoiCohort's sort) and a
+      // deterministic canary designation on the first SFP_CANARY_CAP ranked
+      // members, independent of the program's cohort-size cap.
+      let rank = 0;
+      for (const c of result.eligible) {
+        rank++;
+        const isCanary = rank <= SFP_CANARY_CAP;
+        await tx.execute(sql`
+          INSERT INTO sfp_cohort_members
+            (cohort_run_id, business_id, roi_score, geography_class, geography_source,
+             county_fips, vertical, exclusion_reason, selection_rank, is_canary)
+          VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${c.roiScore},
+                  ${c.geographyClass}, ${c.geographySource}, ${c.countyFips}, ${c.vertical}, ${null},
+                  ${rank}, ${isCanary})
+        `);
+      }
+
+      // Terminal decision ledger: exactly one row per scanned business
+      // (both selected and excluded), so sum(all dispositions) reconciles
+      // exactly against total scanned canonical businesses.
+      const allDecided = [...result.eligible, ...result.excluded];
+      for (const c of allDecided) {
+        const isSelected = result.eligible.some((e) => e.canonicalBusinessId === c.canonicalBusinessId);
+        const disposition = c.dispositionReason.startsWith("excluded:")
+          ? c.dispositionReason.split(":")[1]
+          : (isSelected ? "selected" : "excluded:cohort_cap");
+        const suppressionScope = disposition === "suppressed" ? "business" : null;
+        await tx.execute(sql`
+          INSERT INTO sfp_cohort_decisions
+            (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
+             geography_class, geography_source, vertical, roi_score, selected)
+          VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
+                  ${suppressionScope}, ${c.geographyClass}, ${c.geographySource}, ${c.vertical},
+                  ${c.roiScore}, ${isSelected})
+          ON CONFLICT (cohort_run_id, business_id) DO NOTHING
+        `);
+      }
+
+      // Full-manifest cohort hash: covers every selected member's identity,
+      // rank, and score — not just a sorted ID list — so any change to
+      // ranking or scoring for the same membership set changes the hash.
+      const manifest = result.eligible
+        .map((c, i) => `${c.canonicalBusinessId}:${i + 1}:${c.roiScore}`)
+        .join(",");
+      const cohortHash = createHash("sha256").update(manifest).digest("hex");
+
+      const updatedRun = rows(await tx.execute(sql`
+        UPDATE sfp_cohort_runs
+        SET status = 'frozen', cohort_state = 'frozen', cohort_size = ${result.eligible.length},
+            cohort_hash = ${cohortHash}, frozen_at = NOW()
+        WHERE id = ${runId}::uuid
+        RETURNING *
+      `))[0];
+
+      const f = result.funnel;
+      await tx.execute(sql`
+        INSERT INTO sfp_funnel_snapshots
+          (cohort_run_id, total_businesses, south_florida, outside_geography,
+           geography_unresolved, in_target_vertical, vertical_unresolved,
+           dbpr_excluded, suppressed, bounced_invalid_only, existing_customer, test_demo_internal, inactive_entity,
+           outreach_eligible, selected_frozen)
+        VALUES (${runId}::uuid, ${f.totalScanned}, ${f.southFlorida}, ${f.outsideGeography},
+                ${f.geographyUnresolved}, ${f.inTargetVertical}, ${f.verticalUnresolved},
+                ${f.dbprExcluded}, ${f.suppressed}, ${f.bouncedInvalidOnly}, ${f.existingCustomer}, ${f.testDemoInternal}, ${f.inactiveEntity},
+                ${f.eligibleAfterExclusions}, ${result.eligible.length})
+        ON CONFLICT (cohort_run_id) DO UPDATE SET
+          total_businesses = EXCLUDED.total_businesses,
+          south_florida = EXCLUDED.south_florida,
+          outside_geography = EXCLUDED.outside_geography,
+          geography_unresolved = EXCLUDED.geography_unresolved,
+          in_target_vertical = EXCLUDED.in_target_vertical,
+          vertical_unresolved = EXCLUDED.vertical_unresolved,
+          dbpr_excluded = EXCLUDED.dbpr_excluded,
+          suppressed = EXCLUDED.suppressed,
+          bounced_invalid_only = EXCLUDED.bounced_invalid_only,
+          existing_customer = EXCLUDED.existing_customer,
+          test_demo_internal = EXCLUDED.test_demo_internal,
+          inactive_entity = EXCLUDED.inactive_entity,
+          outreach_eligible = EXCLUDED.outreach_eligible,
+          selected_frozen = EXCLUDED.selected_frozen
+      `);
+
+      return { run: _mapRun(updatedRun), newlyFrozen: true, funnel: result.funnel };
+    } catch (err) {
+      // Any mid-freeze failure rolls back the whole transaction (no
+      // partial member/decision rows survive); mark cohort_state='failed'
+      // in a SEPARATE statement after the throw is caught by the caller
+      // would be unreachable since the transaction itself is being rolled
+      // back. Persist the failure via a second, independent connection so
+      // the failure record survives the rollback.
+      await db.execute(sql`
+        UPDATE sfp_cohort_runs SET status = 'error', cohort_state = 'failed',
+               error_detail = ${(err as Error).message}
+        WHERE id = ${runId}::uuid AND cohort_state != 'frozen'
+      `).catch(() => {});
+      throw err;
+    }
+  });
+}
+
+/**
+ * Void a frozen cohort run: appends immutable lifecycle evidence
+ * (voided_at/voided_by/void_reason) and blocks it from future downstream
+ * admission. Never rewrites or deletes the frozen manifest, members, or
+ * decisions — that data remains queryable as history.
+ */
+export async function voidCohortRun(opts: {
+  cohortRunId: string;
+  actorId: string;
+  reason: string;
+}): Promise<SfpCohortRun> {
+  const run = rows(await db.execute(sql`
+    SELECT * FROM sfp_cohort_runs WHERE id = ${opts.cohortRunId}::uuid LIMIT 1
+  `))[0];
+  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  if (run.cohort_state !== "frozen") throw new Error(`SFP_COHORT_VOID_REJECTED:not_frozen:current_state=${run.cohort_state}`);
+
+  const updated = rows(await db.execute(sql`
+    UPDATE sfp_cohort_runs
+    SET cohort_state = 'voided', voided_at = NOW(), voided_by = ${opts.actorId}, void_reason = ${opts.reason}
+    WHERE id = ${opts.cohortRunId}::uuid
+    RETURNING *
+  `))[0];
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_cohort_run_voided', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
+            ${JSON.stringify({ reason: opts.reason })}::jsonb)
+  `);
+  return _mapRun(updated);
+}
+
+/**
+ * Supersede a frozen cohort run with a newly frozen replacement: appends
+ * immutable lifecycle evidence (superseded_at/superseded_by_run_id) without
+ * rewriting the original frozen manifest.
+ */
+export async function supersedeCohortRun(opts: {
+  cohortRunId: string;
+  supersededByRunId: string;
+  actorId: string;
+}): Promise<SfpCohortRun> {
+  const run = rows(await db.execute(sql`SELECT * FROM sfp_cohort_runs WHERE id = ${opts.cohortRunId}::uuid LIMIT 1`))[0];
+  const replacement = rows(await db.execute(sql`SELECT * FROM sfp_cohort_runs WHERE id = ${opts.supersededByRunId}::uuid LIMIT 1`))[0];
+  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  if (!replacement || replacement.cohort_state !== "frozen") throw new Error("SFP_SUPERSEDE_REJECTED:replacement_not_frozen");
+  if (run.cohort_state !== "frozen") throw new Error(`SFP_SUPERSEDE_REJECTED:not_frozen:current_state=${run.cohort_state}`);
+
+  const updated = rows(await db.execute(sql`
+    UPDATE sfp_cohort_runs
+    SET cohort_state = 'superseded', superseded_at = NOW(),
+        superseded_by_run_id = ${opts.supersededByRunId}::uuid, superseded_by_actor = ${opts.actorId}
+    WHERE id = ${opts.cohortRunId}::uuid
+    RETURNING *
+  `))[0];
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_cohort_run_superseded', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
+            ${JSON.stringify({ supersededByRunId: opts.supersededByRunId })}::jsonb)
+  `);
+  return _mapRun(updated);
+}
+
+/** True only for a frozen, non-voided, non-superseded cohort run — the sole
+ *  admission condition every downstream service must require. */
+export function isCohortUsableDownstream(run: { cohortState: string; voidedAt: string | null; supersededAt: string | null }): boolean {
+  return run.cohortState === "frozen" && !run.voidedAt && !run.supersededAt;
+}
+
+/**
+ * Terminal decision-ledger reconciliation for a cohort run: the raw
+ * per-disposition breakdown from sfp_cohort_decisions plus the total
+ * scanned-canonical-business count at the time of query, so the UI can show
+ * "terminal decisions sum to total scanned" as a fact distinct from
+ * downstream stage-progress metrics (validation/staging counts live
+ * elsewhere and must never be conflated with this reconciliation).
+ */
+export interface SfpTerminalReconciliation {
+  cohortRunId: string;
+  byDisposition: Array<{ disposition: string; count: number }>;
+  totalDecisions: number;
+  totalScannedCanonical: number;
+  reconciles: boolean;
+}
+
+export async function getCohortRunReconciliation(cohortRunId: string): Promise<SfpTerminalReconciliation> {
+  const run = rows(await db.execute(sql`SELECT id FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid`))[0];
+  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const byDisposition = rows(await db.execute(sql`
+    SELECT disposition, COUNT(*)::int AS count FROM sfp_cohort_decisions
+    WHERE cohort_run_id = ${cohortRunId}::uuid
+    GROUP BY disposition ORDER BY disposition
+  `)).map((r: any) => ({ disposition: String(r.disposition), count: Number(r.count) }));
+  const totalDecisions = byDisposition.reduce((sum, r) => sum + r.count, 0);
+  const totalScannedRow = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS total FROM businesses WHERE record_class = 'canonical'
+  `))[0];
+  const totalScannedCanonical = Number(totalScannedRow?.total ?? 0);
+  return {
+    cohortRunId,
+    byDisposition,
+    totalDecisions,
+    totalScannedCanonical,
+    reconciles: totalDecisions === totalScannedCanonical,
+  };
 }
 
 function _mapRun(row: any): SfpCohortRun {
@@ -355,12 +667,19 @@ function _mapRun(row: any): SfpCohortRun {
     programId: String(row.program_id),
     idempotencyKey: String(row.idempotency_key),
     status: String(row.status),
+    cohortState: (row.cohort_state ?? "freezing") as SfpCohortRun["cohortState"],
     cohortSize: Number(row.cohort_size ?? 0),
     cohortHash: row.cohort_hash ? String(row.cohort_hash) : null,
     frozenAt: row.frozen_at ? String(row.frozen_at) : null,
     releaseSha: String(row.release_sha ?? ""),
     actorId: String(row.actor_id),
     createdAt: String(row.created_at),
+    requestHash: row.request_hash ? String(row.request_hash) : null,
+    configHash: row.config_hash ? String(row.config_hash) : null,
+    voidedAt: row.voided_at ? String(row.voided_at) : null,
+    voidReason: row.void_reason ? String(row.void_reason) : null,
+    supersededAt: row.superseded_at ? String(row.superseded_at) : null,
+    supersededByRunId: row.superseded_by_run_id ? String(row.superseded_by_run_id) : null,
   };
 }
 
@@ -387,7 +706,9 @@ export async function getFreeEvidenceReport(cohortRunId: string): Promise<SfpFre
     SELECT * FROM sfp_cohort_runs WHERE id = ${cohortRunId}::uuid LIMIT 1
   `))[0];
   if (!runRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (!runRow.cohort_hash) throw new Error("SFP_COHORT_NOT_FROZEN");
+  if (runRow.cohort_state !== "frozen" || runRow.voided_at || runRow.superseded_at) {
+    throw new Error(`SFP_COHORT_NOT_FROZEN:state=${runRow.cohort_state}`);
+  }
 
   const members = rows(await db.execute(sql`
     SELECT business_id FROM sfp_cohort_members
@@ -473,12 +794,14 @@ export async function runSfpFreeDiscovery(input: {
 }): Promise<SfpFreeDiscoveryResult> {
   const maxBusinesses = Math.max(1, Math.min(500, Number(input.maxBusinesses ?? 100)));
   const cohort = rows(await db.execute(sql`
-    SELECT r.id, r.cohort_hash, p.is_active
+    SELECT r.id, r.cohort_hash, r.cohort_state, r.voided_at, r.superseded_at, p.is_active
       FROM sfp_cohort_runs r JOIN sfp_programs p ON p.id = r.program_id
      WHERE r.id = ${input.cohortRunId}::uuid
   `))[0];
   if (!cohort) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (!cohort.cohort_hash) throw new Error("SFP_COHORT_NOT_FROZEN");
+  if (cohort.cohort_state !== "frozen" || cohort.voided_at || cohort.superseded_at) {
+    throw new Error(`SFP_COHORT_NOT_FROZEN:state=${cohort.cohort_state}`);
+  }
   if (!cohort.is_active) throw new Error("SFP_PROGRAM_INACTIVE");
 
   const existing = rows(await db.execute(sql`

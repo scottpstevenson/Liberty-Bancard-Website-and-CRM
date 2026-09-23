@@ -74,7 +74,9 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
     SELECT * FROM sfp_cohort_runs WHERE id = ${cohortRunId}::uuid LIMIT 1
   `))[0];
   if (!runRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (!runRow.cohort_hash) throw new Error("SFP_VALIDATION_PREVIEW:cohort_not_frozen");
+  if (runRow.cohort_state !== "frozen" || runRow.voided_at || runRow.superseded_at) {
+    throw new Error(`SFP_VALIDATION_PREVIEW:cohort_not_usable:state=${runRow.cohort_state}`);
+  }
 
   const members = rows(await db.execute(sql`
     SELECT business_id FROM sfp_cohort_members
@@ -160,7 +162,9 @@ export async function executeSfpValidation(
      WHERE r.id = ${cohortRunId}::uuid LIMIT 1
   `))[0];
   if (!runRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (!runRow.cohort_hash) throw new Error("SFP_VALIDATION_BLOCKED:cohort_not_frozen");
+  if (runRow.cohort_state !== "frozen" || runRow.voided_at || runRow.superseded_at) {
+    throw new Error(`SFP_VALIDATION_BLOCKED:cohort_not_usable:state=${runRow.cohort_state}`);
+  }
 
   if (!runRow.is_active) throw new Error("SFP_VALIDATION_BLOCKED:program_inactive");
   if (!opts.zbTransport && process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
@@ -439,11 +443,13 @@ export async function executeSfpValidation(
     }
   }
 
-  // Update run status
-  await db.execute(sql`
-    UPDATE sfp_cohort_runs SET status = 'staged', completed_at = NOW()
-    WHERE id = ${cohortRunId}::uuid
-  `);
+  // NOTE: the cohort run's own lifecycle field (cohort_state) is never
+  // mutated by a downstream stage. A frozen cohort's lifecycle stays
+  // 'frozen' for its entire life (until an explicit void/supersede);
+  // stage-progress belongs only to sfp_stage_runs.state, updated below.
+  // A prior revision wrote status='staged' onto sfp_cohort_runs here,
+  // corrupting the run's own status field with a downstream stage's
+  // progress value — removed.
   await db.execute(sql`
     UPDATE sfp_stage_runs SET state=${failedCount > 0 ? "partial" : "completed"},selected_count=${selectedCandidates.length},
            processed_count=${validationAttempts},succeeded_count=${validCount+catchAllCount+invalidCount},

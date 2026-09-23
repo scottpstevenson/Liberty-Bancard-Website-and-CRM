@@ -320,6 +320,11 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "South Florida Prospecting Cohort Certification",
+    script: "scripts/sfp-certification.ts",
+    timeoutSecs: 180,
+  },
+  {
     name: "Transport Dispatch (Gmail/SMTP/GHL routing + unsubscribe URL)",
     script: "scripts/test-transport-dispatch.ts",
     timeoutSecs: 120,

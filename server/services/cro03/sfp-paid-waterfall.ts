@@ -15,11 +15,14 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 export async function previewSfpPaidWaterfall(cohortRunId: string) {
   const cohort = rows(await db.execute(sql`
-    SELECT r.id,r.cohort_hash,p.is_active FROM sfp_cohort_runs r JOIN sfp_programs p ON p.id=r.program_id
+    SELECT r.id,r.cohort_hash,r.cohort_state,r.voided_at,r.superseded_at,p.is_active
+      FROM sfp_cohort_runs r JOIN sfp_programs p ON p.id=r.program_id
      WHERE r.id=${cohortRunId}::uuid
   `))[0];
   if (!cohort) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (!cohort.cohort_hash) throw new Error("SFP_COHORT_NOT_FROZEN");
+  if (cohort.cohort_state !== "frozen" || cohort.voided_at || cohort.superseded_at) {
+    throw new Error(`SFP_COHORT_NOT_USABLE:state=${cohort.cohort_state}`);
+  }
   const eligible = rows(await db.execute(sql`
     SELECT COUNT(*)::int AS count FROM sfp_cohort_members m
      WHERE m.cohort_run_id=${cohortRunId}::uuid

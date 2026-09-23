@@ -2857,11 +2857,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // Works when master_leads = 0, no MI-09 pilot, no CRO-03A handoffs.
   // ════════════════════════════════════════════════════════════════════════════
 
-  // GET /api/lead-ops/sfp/program — get or create the SFP program definition
+  // GET /api/lead-ops/sfp/program — read-only lookup. Never creates or
+  // converges the program row; use POST .../program/ensure for that.
   app.get("/api/lead-ops/sfp/program", requireRole("admin"), async (_req, res) => {
     try {
-      const { ensureProgram } = await import("../services/cro03/south-florida-prospecting");
-      const program = await ensureProgram();
+      const { getProgramReadOnly } = await import("../services/cro03/south-florida-prospecting");
+      const program = await getProgramReadOnly();
+      if (!program) return res.status(404).json({ error: "SFP_PROGRAM_NOT_CONFIGURED" });
       res.json(program);
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
@@ -2935,8 +2937,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         return res.status(400).json({ error: "idempotencyKey is required" });
       }
       const requestedCohortSize = req.body?.maxCohortSize == null ? 25 : Number(req.body.maxCohortSize);
-      if (!Number.isInteger(requestedCohortSize) || requestedCohortSize < 1 || requestedCohortSize > 500) {
-        return res.status(400).json({ error: "maxCohortSize must be an integer between 1 and 500" });
+      if (!Number.isInteger(requestedCohortSize) || requestedCohortSize < 1 || requestedCohortSize > 100) {
+        return res.status(400).json({ error: "maxCohortSize must be an integer between 1 and 100" });
       }
       const result = await freezeCohort({
         idempotencyKey,
@@ -2946,7 +2948,66 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       });
       res.json(result);
     } catch (err: any) {
-      const status = err?.message?.includes("COHORT_CENSUS_INSUFFICIENT") ? 409 : 500;
+      const status = err?.message?.includes("COHORT_CENSUS_INSUFFICIENT")
+        || err?.message?.includes("SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH")
+        || err?.message?.includes("SFP_COHORT_RUN_PREVIOUSLY_FAILED")
+        || err?.message?.includes("SFP_COHORT_RUN_TERMINAL_LIFECYCLE")
+        ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/program/initialize-from-legacy — explicit, audited,
+  // one-time consumption of the legacy cro03c_roi_pilot_verticals setting.
+  // Only fires when no SFP program configuration exists yet.
+  app.post("/api/lead-ops/sfp/program/initialize-from-legacy", requireRole("admin"), async (req, res) => {
+    try {
+      const { initializeProgramFromLegacyConfig } = await import("../services/cro03/south-florida-prospecting");
+      const result = await initializeProgramFromLegacyConfig({
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/:runId/void — append-only void of a frozen
+  // cohort run. Never rewrites or deletes the frozen manifest/members/decisions.
+  app.post("/api/lead-ops/sfp/runs/:runId/void", requireRole("admin"), async (req, res) => {
+    try {
+      const reason = String(req.body?.reason ?? "").trim();
+      if (!reason) return res.status(400).json({ error: "reason is required" });
+      const { voidCohortRun } = await import("../services/cro03/south-florida-prospecting");
+      const run = await voidCohortRun({
+        cohortRunId: String(req.params.runId),
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        reason,
+      });
+      res.json(run);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("REJECTED") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/:runId/supersede — append-only supersede of a
+  // frozen cohort run by a newly frozen replacement run.
+  app.post("/api/lead-ops/sfp/runs/:runId/supersede", requireRole("admin"), async (req, res) => {
+    try {
+      const supersededByRunId = String(req.body?.supersededByRunId ?? "").trim();
+      if (!supersededByRunId) return res.status(400).json({ error: "supersededByRunId is required" });
+      const { supersedeCohortRun } = await import("../services/cro03/south-florida-prospecting");
+      const run = await supersedeCohortRun({
+        cohortRunId: String(req.params.runId),
+        supersededByRunId,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(run);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("REJECTED") ? 409 : 500;
       res.status(status).json({ error: err?.message });
     }
   });
@@ -2960,6 +3021,21 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       res.json(run);
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/reconciliation — terminal decision-ledger
+  // reconciliation (sum of all dispositions vs. total scanned canonical
+  // businesses), kept visually and structurally separate from downstream
+  // stage-progress metrics.
+  app.get("/api/lead-ops/sfp/runs/:runId/reconciliation", requireRole("admin"), async (req, res) => {
+    try {
+      const { getCohortRunReconciliation } = await import("../services/cro03/south-florida-prospecting");
+      const report = await getCohortRunReconciliation(String(req.params.runId));
+      res.json(report);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404 : 500;
+      res.status(status).json({ error: err?.message });
     }
   });
 

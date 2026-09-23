@@ -9249,7 +9249,25 @@ export const sfpCohortRuns = pgTable("sfp_cohort_runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   errorDetail: text("error_detail"),
-}, (table) => [index("idx_sfp_cohort_runs_program").on(table.programId, table.createdAt)]);
+  /** Immutable lifecycle of the frozen cohort itself — separate from
+   *  downstream stage-progress status (sfp_stage_runs.state). Only
+   *  'frozen' with voidedAt/supersededAt both null is consumable
+   *  downstream. */
+  cohortState: text("cohort_state").notNull().default("freezing"),
+  requestHash: text("request_hash"),
+  configHash: text("config_hash"),
+  requestPayload: jsonb("request_payload"),
+  policyVersions: jsonb("policy_versions"),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  voidedBy: text("voided_by"),
+  voidReason: text("void_reason"),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
+  supersededByRunId: uuid("superseded_by_run_id"),
+  supersededByActor: text("superseded_by_actor"),
+}, (table) => [
+  index("idx_sfp_cohort_runs_program").on(table.programId, table.createdAt),
+  index("idx_sfp_cohort_runs_cohort_state").on(table.cohortState, table.createdAt),
+]);
 
 export const sfpCohortMembers = pgTable("sfp_cohort_members", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -9261,11 +9279,46 @@ export const sfpCohortMembers = pgTable("sfp_cohort_members", {
   countyFips: text("county_fips"),
   vertical: text("vertical"),
   exclusionReason: text("exclusion_reason"),
+  selectionRank: integer("selection_rank"),
+  isCanary: boolean("is_canary").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("sfp_cohort_members_run_business_uidx").on(table.cohortRunId, table.businessId),
   index("idx_sfp_cohort_members_run").on(table.cohortRunId, table.roiScore),
 ]);
+
+/** One row per (cohortRunId, businessId) scanned during a freeze attempt —
+ *  the full ordered disposition taxonomy. sum(all rows for a run) must equal
+ *  the run's total scanned canonical businesses. */
+export const sfpCohortDecisions = pgTable("sfp_cohort_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  disposition: text("disposition").notNull(),
+  dispositionDetail: text("disposition_detail"),
+  suppressionScope: text("suppression_scope"),
+  suppressionSubjectHash: text("suppression_subject_hash"),
+  geographyClass: text("geography_class"),
+  geographySource: text("geography_source"),
+  vertical: text("vertical"),
+  roiScore: integer("roi_score"),
+  selected: boolean("selected").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_cohort_decisions_run_business_uidx").on(table.cohortRunId, table.businessId),
+  index("idx_sfp_cohort_decisions_run_disposition").on(table.cohortRunId, table.disposition),
+]);
+
+/** Audit receipt for the one-time legacy-key SFP config initializer. */
+export const sfpConfigInitReceipts = pgTable("sfp_config_init_receipts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programId: uuid("program_id").notNull().references(() => sfpPrograms.id),
+  source: text("source").notNull(),
+  sourceHash: text("source_hash").notNull(),
+  resultingConfig: jsonb("resulting_config").notNull(),
+  actorId: text("actor_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const sfpFunnelSnapshots = pgTable("sfp_funnel_snapshots", {
   id: uuid("id").primaryKey().defaultRandom(),
