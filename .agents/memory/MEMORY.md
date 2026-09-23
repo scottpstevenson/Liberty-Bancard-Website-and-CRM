@@ -108,17 +108,13 @@
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repo access alone may be insufficient.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
-- [Disposable pre-deploy database setup](local-predeploy-database.md) — supervised workflows may inject PORT/PGUSER; force local socket/role + separate ports.
-- [Cross-database BullMQ test isolation](cross-db-bullmq-test-isolation.md) — shared Redis namespaces let workers on another DB consume durable command IDs and silently no-op.
-- [Certification process isolation](certification-process-isolation.md) — spawn application children with replacement envs; in-process scrubbing is insufficient.
+- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — local socket/role/port forcing; launcher-minted-only sinks (disposable-database-capabilities.md); cross-DB BullMQ Redis-namespace collisions (cross-db-bullmq-test-isolation.md); replacement-env child processes (certification-process-isolation.md); per-suite Redis prefixes (certification-capability-isolation.md).
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial resolution authority](commercial-resolution-authority.md) — five-value class stays separate from provenance/identity/link axes; shadow never replaces legacy before cutover.
 - [Channel cohort authority](channel-cohort-authority.md) — channel qualification freezes immutable evidence; never implies activation/consumption.
-- [Certification capability isolation](certification-capability-isolation.md) — classify HTTP suites server-required; reserve per-suite Redis prefixes.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
 - [Publish/production schema ownership](production-schema-ownership.md) — Replit Publish owns production DDL; app startup must not replay Drizzle migrations against it; inline NOT VALID constraints fail Publish (see publish-inline-not-valid.md).
-- [Disposable database capabilities](disposable-database-capabilities.md) — local rehearsal SQL sinks must accept launcher-minted targets only.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
 - [Migration ledger hash-only proof](migration-ledger-hash-proof.md) — drizzle.__drizzle_migrations row count is NOT valid applied-migration proof; only exact content-hash match is sound.
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
@@ -157,3 +153,4 @@
 - [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources return sentinel and skip both row fetch and cursor advance for that run.
 - [CRO-03C gate diagnostics endpoint](cro03c-gate-diagnostics.md) — GET /api/admin/cro03c/gate-diagnostics returns all prerequisite statuses; closedGateReason is a single enum (null=open); census latest-run at GET /api/cro03a/source-census/latest-run.
 - [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — a catch-block INSERT reusing a failing transaction's own pre-generated PK on a second connection deadlocks until the failing tx actually rolls back; write failures only in an outer catch, never inside the transaction callback.
+- [Certification fixture reuse after mutation](cert-fixture-mutation-reuse.md) — a fixture mutated by an earlier check (voided/marked existing-customer) silently shows that mutated state to any later check reusing the same id, not the original state.

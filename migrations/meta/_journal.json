@@ -2009,6 +2009,20 @@
       "when": 1800000009700,
       "tag": "0282_sfp_lifecycle_evidence_and_snapshot",
       "breakpoints": false
+    },
+    {
+      "idx": 287,
+      "version": "7",
+      "when": 1800000010000,
+      "tag": "0283_sfp_funnel_snapshot_immutability",
+      "breakpoints": true
+    },
+    {
+      "idx": 288,
+      "version": "7",
+      "when": 1800000010100,
+      "tag": "0284_sfp_cohort_size_range_check",
+      "breakpoints": true
     }
   ]
 }

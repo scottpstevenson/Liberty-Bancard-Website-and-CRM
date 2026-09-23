@@ -24,7 +24,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { db } from "../../db";
+import { db, pool } from "../../db";
 import { createHash } from "crypto";
 import { randomUUID } from "crypto";
 import { selectRoiCohort, loadPilotVerticalIds, ROI_SCORE_VERSION, type RoiCohortSelection } from "./roi-cohort-selector";
@@ -418,6 +418,56 @@ export async function freezeCohort(opts: {
    */
   _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void;
 }): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
+  // Round-2 correction: same-idempotency-key concurrent freeze race.
+  //
+  // The prior design acquired `pg_advisory_xact_lock` as the FIRST statement
+  // inside the very REPEATABLE READ transaction that also did the existing-
+  // row lookup. In Postgres, a REPEATABLE READ transaction's snapshot is
+  // fixed at the time its first statement begins executing — which happens
+  // BEFORE that statement's own wait for the advisory lock resolves. So a
+  // caller B that started waiting for the lock while caller A was still
+  // mid-freeze had already fixed a snapshot that predates A's commit. Once
+  // A committed and released the lock, B would acquire it, but B's OWN
+  // snapshot still could not see A's newly frozen row — B would then treat
+  // the idempotency key as unclaimed and attempt a duplicate freeze,
+  // failing on the row's unique idempotency_key constraint (or worse,
+  // racing to insert distinguishable member sets in versions without that
+  // constraint).
+  //
+  // Fix: serialize on a SESSION-level advisory lock held on a dedicated
+  // physical connection, acquired and released OUTSIDE the REPEATABLE READ
+  // transaction. Session-level `pg_advisory_lock` is a cluster-global lock
+  // keyed by its argument, not tied to any one transaction, so caller B's
+  // lock acquisition only completes after caller A's session releases it —
+  // which happens only after A's transaction has already committed. B's
+  // REPEATABLE READ transaction (and therefore its snapshot) is only opened
+  // AFTER B's lock acquisition succeeds, so B is guaranteed to see A's
+  // committed row. A dedicated `pool.connect()` client (not a pooled
+  // drizzle `db.transaction()`) is required because the acquire/release
+  // pair must run on the exact same physical connection.
+  const lockKeyClient = await pool.connect();
+  try {
+    await lockKeyClient.query("SELECT pg_advisory_lock(hashtext($1))", [opts.idempotencyKey]);
+    try {
+      return await freezeCohortLocked(opts);
+    } finally {
+      // Always release from the same connection that acquired it, even if
+      // the freeze attempt threw — an unreleased session lock would
+      // permanently wedge every future freeze attempt for this key.
+      await lockKeyClient.query("SELECT pg_advisory_unlock(hashtext($1))", [opts.idempotencyKey]);
+    }
+  } finally {
+    lockKeyClient.release();
+  }
+}
+
+async function freezeCohortLocked(opts: {
+  idempotencyKey: string;
+  actorId: string;
+  maxCohortSize?: number;
+  releaseSha?: string;
+  _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void;
+}): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
   const program = await ensureProgram();
   const maxCohortSize = Math.max(1, Math.min(SFP_PROGRAM_MAX_COHORT, opts.maxCohortSize ?? program.maxCohortSize));
 
@@ -524,12 +574,16 @@ async function freezeCohortTx(
   preGeneratedRunId: string,
   _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void,
 ): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
-    // One consistent snapshot for the whole freeze attempt.
+    // One consistent snapshot for the whole freeze attempt. Serialization
+    // across concurrent same-idempotency-key callers is already handled by
+    // the SESSION-level pg_advisory_lock acquired on a dedicated connection
+    // in freezeCohort() before this transaction ever opens (see the Round-2
+    // correction comment there). Taking a SECOND, transaction-scoped
+    // pg_advisory_xact_lock on the SAME key here would try to acquire the
+    // same cluster-global lock ID from a different physical connection than
+    // the one already holding it for the whole duration of this call —
+    // deadlocking against itself, not against a genuine concurrent caller.
     await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
-    // Serialize every concurrent freeze attempt sharing this idempotency
-    // key so exactly one of them does the work; the rest observe its
-    // final state once this transaction commits and the lock releases.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${opts.idempotencyKey}))`);
 
     const existing = rows(await tx.execute(sql`
       SELECT * FROM sfp_cohort_runs WHERE idempotency_key = ${opts.idempotencyKey} LIMIT 1
@@ -752,19 +806,14 @@ async function freezeCohortTx(
       );
       const cohortHash = createHash("sha256").update(manifest).digest("hex");
 
-      const updatedRun = rows(await tx.execute(sql`
-        UPDATE sfp_cohort_runs
-        SET status = 'frozen', cohort_state = 'frozen', cohort_size = ${result.eligible.length},
-            cohort_hash = ${cohortHash}, frozen_at = NOW(),
-            source_snapshot_hash = ${sourceSnapshotHash},
-            source_high_water_business_id = ${sourceHighWaterBusinessId},
-            source_business_count = ${sourceBusinessCount},
-            source_txid = ${sourceTxid}::bigint,
-            source_snapshot_captured_at = ${sourceSnapshotCapturedAt}::timestamptz
-        WHERE id = ${runId}::uuid
-        RETURNING *
-      `))[0];
-
+      // Round-2 correction: the funnel snapshot MUST be written while the
+      // run is still 'freezing' — i.e. before the run row itself flips to
+      // 'frozen' — because migration 0283 adds a BEFORE INSERT/UPDATE/DELETE
+      // immutability trigger on sfp_funnel_snapshots that rejects any write
+      // once its owning run's cohort_state is frozen/voided/superseded.
+      // Writing the snapshot first (matching how members/decisions are
+      // already written before the state flip) keeps this legitimate,
+      // one-time write inside the still-open "freezing" window.
       const f = result.funnel;
       await tx.execute(sql`
         INSERT INTO sfp_funnel_snapshots
@@ -793,6 +842,19 @@ async function freezeCohortTx(
           selected_frozen = EXCLUDED.selected_frozen
       `);
 
+      const updatedRun = rows(await tx.execute(sql`
+        UPDATE sfp_cohort_runs
+        SET status = 'frozen', cohort_state = 'frozen', cohort_size = ${result.eligible.length},
+            cohort_hash = ${cohortHash}, frozen_at = NOW(),
+            source_snapshot_hash = ${sourceSnapshotHash},
+            source_high_water_business_id = ${sourceHighWaterBusinessId},
+            source_business_count = ${sourceBusinessCount},
+            source_txid = ${sourceTxid}::bigint,
+            source_snapshot_captured_at = ${sourceSnapshotCapturedAt}::timestamptz
+        WHERE id = ${runId}::uuid
+        RETURNING *
+      `))[0];
+
       return { run: _mapRun(updatedRun), newlyFrozen: true, funnel: result.funnel };
 }
 
@@ -807,24 +869,31 @@ export async function voidCohortRun(opts: {
   actorId: string;
   reason: string;
 }): Promise<SfpCohortRun> {
-  const run = rows(await db.execute(sql`
-    SELECT * FROM sfp_cohort_runs WHERE id = ${opts.cohortRunId}::uuid LIMIT 1
-  `))[0];
-  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (run.cohort_state !== "frozen") throw new Error(`SFP_COHORT_VOID_REJECTED:not_frozen:current_state=${run.cohort_state}`);
+  // Round-2 correction: single transaction with a row lock, so a concurrent
+  // void/supersede attempt against the same run cannot both read 'frozen'
+  // and both proceed to update it — the second waits for the lock, then
+  // re-reads the now-terminal state and is rejected instead of silently
+  // overwriting the first transition's lifecycle evidence.
+  return await db.transaction(async (tx) => {
+    const run = rows(await tx.execute(sql`
+      SELECT * FROM sfp_cohort_runs WHERE id = ${opts.cohortRunId}::uuid FOR UPDATE
+    `))[0];
+    if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+    if (run.cohort_state !== "frozen") throw new Error(`SFP_COHORT_VOID_REJECTED:not_frozen:current_state=${run.cohort_state}`);
 
-  const updated = rows(await db.execute(sql`
-    UPDATE sfp_cohort_runs
-    SET cohort_state = 'voided', voided_at = NOW(), voided_by = ${opts.actorId}, void_reason = ${opts.reason}
-    WHERE id = ${opts.cohortRunId}::uuid
-    RETURNING *
-  `))[0];
-  await db.execute(sql`
-    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
-    VALUES ('sfp_cohort_run_voided', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
-            ${JSON.stringify({ reason: opts.reason })}::jsonb)
-  `);
-  return _mapRun(updated);
+    const updated = rows(await tx.execute(sql`
+      UPDATE sfp_cohort_runs
+      SET cohort_state = 'voided', voided_at = NOW(), voided_by = ${opts.actorId}, void_reason = ${opts.reason}
+      WHERE id = ${opts.cohortRunId}::uuid
+      RETURNING *
+    `))[0];
+    await tx.execute(sql`
+      INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+      VALUES ('sfp_cohort_run_voided', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
+              ${JSON.stringify({ reason: opts.reason })}::jsonb)
+    `);
+    return _mapRun(updated);
+  });
 }
 
 /**
@@ -837,25 +906,45 @@ export async function supersedeCohortRun(opts: {
   supersededByRunId: string;
   actorId: string;
 }): Promise<SfpCohortRun> {
-  const run = rows(await db.execute(sql`SELECT * FROM sfp_cohort_runs WHERE id = ${opts.cohortRunId}::uuid LIMIT 1`))[0];
-  const replacement = rows(await db.execute(sql`SELECT * FROM sfp_cohort_runs WHERE id = ${opts.supersededByRunId}::uuid LIMIT 1`))[0];
-  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  if (!replacement || replacement.cohort_state !== "frozen") throw new Error("SFP_SUPERSEDE_REJECTED:replacement_not_frozen");
-  if (run.cohort_state !== "frozen") throw new Error(`SFP_SUPERSEDE_REJECTED:not_frozen:current_state=${run.cohort_state}`);
+  if (opts.cohortRunId === opts.supersededByRunId) {
+    throw new Error("SFP_SUPERSEDE_REJECTED:self_supersession_not_allowed");
+  }
+  // Round-2 correction: single transaction, both rows locked in a stable
+  // (id-ordered) order to avoid deadlocking against a concurrent supersede
+  // touching the same two runs in the opposite direction, and the
+  // replacement's 'frozen' state is revalidated INSIDE this same locked
+  // transaction — not from an earlier, separately-committed read — so a
+  // replacement that itself got voided/superseded between the caller's
+  // check and this call can never be accepted.
+  const [firstId, secondId] = [opts.cohortRunId, opts.supersededByRunId].sort();
+  return await db.transaction(async (tx) => {
+    const lockedById = new Map<string, any>();
+    for (const id of [firstId, secondId]) {
+      const row = rows(await tx.execute(sql`
+        SELECT * FROM sfp_cohort_runs WHERE id = ${id}::uuid FOR UPDATE
+      `))[0];
+      if (row) lockedById.set(id, row);
+    }
+    const run = lockedById.get(opts.cohortRunId);
+    const replacement = lockedById.get(opts.supersededByRunId);
+    if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+    if (!replacement || replacement.cohort_state !== "frozen") throw new Error("SFP_SUPERSEDE_REJECTED:replacement_not_frozen");
+    if (run.cohort_state !== "frozen") throw new Error(`SFP_SUPERSEDE_REJECTED:not_frozen:current_state=${run.cohort_state}`);
 
-  const updated = rows(await db.execute(sql`
-    UPDATE sfp_cohort_runs
-    SET cohort_state = 'superseded', superseded_at = NOW(),
-        superseded_by_run_id = ${opts.supersededByRunId}::uuid, superseded_by_actor = ${opts.actorId}
-    WHERE id = ${opts.cohortRunId}::uuid
-    RETURNING *
-  `))[0];
-  await db.execute(sql`
-    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
-    VALUES ('sfp_cohort_run_superseded', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
-            ${JSON.stringify({ supersededByRunId: opts.supersededByRunId })}::jsonb)
-  `);
-  return _mapRun(updated);
+    const updated = rows(await tx.execute(sql`
+      UPDATE sfp_cohort_runs
+      SET cohort_state = 'superseded', superseded_at = NOW(),
+          superseded_by_run_id = ${opts.supersededByRunId}::uuid, superseded_by_actor = ${opts.actorId}
+      WHERE id = ${opts.cohortRunId}::uuid
+      RETURNING *
+    `))[0];
+    await tx.execute(sql`
+      INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+      VALUES ('sfp_cohort_run_superseded', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
+              ${JSON.stringify({ supersededByRunId: opts.supersededByRunId })}::jsonb)
+    `);
+    return _mapRun(updated);
+  });
 }
 
 /** True only for a frozen, non-voided, non-superseded cohort run — the sole
@@ -1551,12 +1640,21 @@ export async function listCohortRuns(opts: {
   programId?: string;
   limit?: number;
 } = {}): Promise<SfpCohortRun[]> {
-  const program = await ensureProgram();
+  // Round-2 correction: GET-shaped read must never mutate. ensureProgram()
+  // creates the program row on first call — a plain "list runs" request
+  // (including one that runs before the program has ever been configured)
+  // must not have that side effect. Read-only lookup only; when no program
+  // exists yet there simply are no runs to return.
+  const program = opts.programId
+    ? { id: opts.programId }
+    : await getProgramReadOnly();
+  if (!program) return [];
+  const limit = Math.max(1, Math.min(100, Math.trunc(opts.limit ?? 20)));
   const rows2 = rows(await db.execute(sql`
     SELECT * FROM sfp_cohort_runs
     WHERE program_id = ${program.id}::uuid
     ORDER BY created_at DESC
-    LIMIT ${opts.limit ?? 20}
+    LIMIT ${limit}
   `));
   return rows2.map(_mapRun);
 }

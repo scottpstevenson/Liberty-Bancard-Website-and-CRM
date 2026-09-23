@@ -9264,9 +9264,18 @@ export const sfpCohortRuns = pgTable("sfp_cohort_runs", {
   supersededAt: timestamp("superseded_at", { withTimezone: true }),
   supersededByRunId: uuid("superseded_by_run_id"),
   supersededByActor: text("superseded_by_actor"),
+  /** Correction 7 (migration 0282): explicit frozen source-snapshot / high-water
+   *  identity captured inside the freeze transaction, distinct from requestHash —
+   *  see south-florida-prospecting.ts freezeCohortTx. */
+  sourceSnapshotHash: text("source_snapshot_hash"),
+  sourceHighWaterBusinessId: integer("source_high_water_business_id"),
+  sourceBusinessCount: integer("source_business_count"),
+  sourceTxid: bigint("source_txid", { mode: "number" }),
+  sourceSnapshotCapturedAt: timestamp("source_snapshot_captured_at", { withTimezone: true }),
 }, (table) => [
   index("idx_sfp_cohort_runs_program").on(table.programId, table.createdAt),
   index("idx_sfp_cohort_runs_cohort_state").on(table.cohortState, table.createdAt),
+  check("sfp_cohort_runs_cohort_size_range", sql`cohort_size BETWEEN 0 AND 100`),
 ]);
 
 export const sfpCohortMembers = pgTable("sfp_cohort_members", {

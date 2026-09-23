@@ -2907,9 +2907,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/sfp/funnel", requireRole("admin"), async (req, res) => {
     try {
       const { previewFunnel } = await import("../services/cro03/south-florida-prospecting");
-      const preview = await previewFunnel({
-        maxPreview: req.query.maxPreview ? Number(req.query.maxPreview) : 25,
-      });
+      let maxPreview = 25;
+      if (req.query.maxPreview !== undefined) {
+        maxPreview = Number(req.query.maxPreview);
+        if (!Number.isInteger(maxPreview) || maxPreview < 1 || maxPreview > 100) {
+          return res.status(400).json({ error: "maxPreview must be an integer between 1 and 100" });
+        }
+      }
+      const preview = await previewFunnel({ maxPreview });
       res.json(preview);
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
