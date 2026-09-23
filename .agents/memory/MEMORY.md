@@ -127,6 +127,7 @@
 - [CRO-02 production seed-row gap](cro02-production-seed-gap.md) — Publish-managed tables can miss Drizzle-seeded rows; repair via insert-only fingerprint-guarded convergence initializer, never by replaying migrations against prod.
 - [Publish vs dev environment drift](publish-vs-dev-environment-drift.md) — publish auto-commits past deployed HEAD; dev/prod DBs separate even with same-named secrets; can share Redis and collide on BullMQ keys.
 - [Production seed convergence pattern](production-seed-convergence.md) — startup service repairs never-replayed INSERT/UPSERT seeds; per-target advisory lock, content-hash conflict detection.
+- [Production drizzle_migrations convergence](prod-drizzle-migrations-convergence.md) — post-snapshot migrations 0110–0274 applied in prod without hash rows; sentinel-gated backfill in db-migrate.ts; raise ceiling when new migrations land before drizzle tracking caught up.
 - [DB pool/worker contention](db-pool-worker-contention.md) — system-wide 500s/timeouts can be pool exhaustion from shared BullMQ workers, not a regression; isolated pg.Pool ping fast = contention.
 - [pool.connect() wrapper danger](pool-connect-wrapper.md) — wrapping pool.connect() to intercept client.release() is unsafe (pg-pool recycles clients); use pool.query() wrapper only.
 - [Contact record_class production gap](contact-record-class-gap.md) — production contacts all land as 'unknown'; fire-and-forget backfill on startup reclassifies; excluded from sync SEED_TARGETS.
