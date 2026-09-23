@@ -38,6 +38,16 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const PROGRAM_NAME = "south-florida-v1";
 const SOUTH_FLORIDA_FIPS = Object.values(CRO03A_COUNTY_FIPS);
 const SFP_POLICY_VERSION = 1;
+/**
+ * Bump whenever the exclusion rules applied during cohort selection change
+ * (DBPR exclusion, existing-customer exclusion, test/demo/internal exclusion,
+ * suppression exclusion, bounced/invalid-only exclusion, inactive-entity
+ * exclusion — see roi-cohort-selector.ts). Tracked independently of
+ * SFP_POLICY_VERSION so a change to *which businesses get excluded* is
+ * visible in the frozen manifest even when the program's own policy
+ * (verticals/counties/cohort cap) has not changed.
+ */
+const EXCLUSION_POLICY_VERSION = 1;
 
 // ── Outreach eligibility status enum ──────────────────────────────────────────
 export type OutreachEligibilityStatus =
@@ -389,6 +399,7 @@ export async function freezeCohort(opts: {
     classifierVersion: CLASSIFIER_VERSION,
     geographyResolverVersion: GEOGRAPHY_RESOLVER_VERSION,
     sfpPolicyVersion: SFP_POLICY_VERSION,
+    exclusionPolicyVersion: EXCLUSION_POLICY_VERSION,
   };
   const configHash = createHash("sha256").update(JSON.stringify({
     verticalIds: requestPayload.verticalIds, countyFips: requestPayload.countyFips, policyVersions,
@@ -570,11 +581,13 @@ async function freezeCohortTx(
       // Full-manifest cohort hash (VFC-04): covers every field that
       // determines this cohort's admitted membership and how it was scored
       // — identity, rank, ROI score, full score dimensions, geography
-      // resolution (version/outcome/winning location/county), and
-      // classifier resolution (version/outcome/matched target) — not just a
+      // resolution (version/outcome/winning location/county), classifier
+      // resolution (version/outcome/matched target/confidence/evidence
+      // hash), and the exclusion-policy version that governed which
+      // businesses could even reach this membership set — not just a
       // sorted businessId:rank:roiScore triple. Any change to ranking,
-      // scoring, geography resolution, or vertical classification for the
-      // same membership set changes this hash.
+      // scoring, geography resolution, vertical classification, or the
+      // exclusion rules for the same membership set changes this hash.
       const manifest = JSON.stringify(
         result.eligible.map((c, i) => ({
           businessId: c.canonicalBusinessId,
@@ -584,6 +597,7 @@ async function freezeCohortTx(
           dimensions: c.dimensions,
           vertical: c.vertical,
           countyFips: c.countyFips,
+          exclusionPolicyVersion: EXCLUSION_POLICY_VERSION,
           geography: c.geographyResolution
             ? {
                 resolverVersion: c.geographyResolution.resolverVersion,
@@ -597,6 +611,7 @@ async function freezeCohortTx(
             ? {
                 version: c.classifierResult.version,
                 outcome: c.classifierResult.outcome,
+                evidenceHash: c.classifierResult.evidenceHash,
                 matchedTargetId: c.classifierResult.matchedTargetId,
                 confidence: c.classifierResult.confidence,
               }

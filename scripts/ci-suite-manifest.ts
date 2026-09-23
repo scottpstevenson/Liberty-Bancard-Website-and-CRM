@@ -149,6 +149,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "requires TEST_DATABASE_URL disposable database; classifier/geography resolver are pure functions; program is never activated and no free-discovery/paid-waterfall/validation/campaign-staging call is made; no provider transports are constructed",
   },
   {
+    name: "South Florida Prospecting UI Idempotency Persistence",
+    script: "scripts/test-sfp-ui-idempotency-persistence.ts",
+    capability: "deterministic-static",
+    providerDenial: "real-renders the panel in jsdom with fetch stubbed to reject; no network, database, or provider calls of any kind",
+  },
+  {
     name: "Canonical Identity Writer Guard",
     script: "scripts/check-contact-identity-writers.ts",
     capability: "deterministic-static",

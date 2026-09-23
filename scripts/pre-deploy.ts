@@ -140,6 +140,11 @@ const MANDATORY_SUITES: Suite[] = [
     requiresDisposableTestDatabase: true,
   },
   {
+    name: "South Florida Prospecting UI Idempotency Persistence (freeze key survives reload; only 'Start new cohort' rotates it)",
+    script: "scripts/test-sfp-ui-idempotency-persistence.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "Fresh Snapshot Completion Guard",
     script: "scripts/test-fresh-snapshot-completion.ts",
     timeoutSecs: 60,
