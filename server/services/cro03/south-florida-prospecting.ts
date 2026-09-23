@@ -547,13 +547,27 @@ async function freezeCohortTx(
       for (const c of result.eligible) {
         rank++;
         const isCanary = rank <= SFP_CANARY_CAP;
+        // Persist the EXACT classifier/geography evidence that admitted this
+        // member (Correction 1) — a selected member always has both
+        // classifierResult and geographyResolution populated (selectRoiCohort
+        // only reaches the eligible array after both resolve favorably), so
+        // neither is expected to be null here.
+        const cls = c.classifierResult;
+        const geo = c.geographyResolution;
         await tx.execute(sql`
           INSERT INTO sfp_cohort_members
             (cohort_run_id, business_id, roi_score, geography_class, geography_source,
-             county_fips, vertical, exclusion_reason, selection_rank, is_canary)
+             county_fips, vertical, exclusion_reason, selection_rank, is_canary,
+             classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
+             classifier_reasons, classifier_evidence_hash,
+             geography_resolver_version, geography_outcome, geography_location_id, geography_reasons)
           VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${c.roiScore},
                   ${c.geographyClass}, ${c.geographySource}, ${c.countyFips}, ${c.vertical}, ${null},
-                  ${rank}, ${isCanary})
+                  ${rank}, ${isCanary},
+                  ${cls?.version ?? null}, ${cls?.outcome ?? null}, ${cls?.confidence ?? null}, ${cls?.matchedTargetId ?? null},
+                  ${cls ? JSON.stringify(cls.reasons) : null}::jsonb, ${cls?.evidenceHash ?? null},
+                  ${geo?.resolverVersion ?? null}, ${geo?.outcome ?? null}, ${geo?.winningLocationId ?? null},
+                  ${geo ? JSON.stringify(geo.reasons) : null}::jsonb)
         `);
       }
 
