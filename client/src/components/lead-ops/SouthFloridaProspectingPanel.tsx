@@ -198,8 +198,20 @@ export function SouthFloridaProspectingPanel() {
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
   // Generated once per logical freeze attempt and retained across
-  // retry/reload; an explicit "start new cohort" action rotates it.
-  const [freezeIdempotencyKey, setFreezeIdempotencyKey] = useState<string>(() => crypto.randomUUID());
+  // retry/reload via localStorage (VFC-06) — a plain useState initializer
+  // resets on every page reload, which silently turned every post-reload
+  // freeze click into a NEW idempotency key instead of a retry of the
+  // pending one. Only an explicit "start new cohort" action rotates it.
+  const SFP_IDEMPOTENCY_STORAGE_KEY = "sfp:freeze-idempotency-key";
+  const [freezeIdempotencyKey, setFreezeIdempotencyKey] = useState<string>(() => {
+    try {
+      const stored = window.localStorage.getItem(SFP_IDEMPOTENCY_STORAGE_KEY);
+      if (stored) return stored;
+    } catch { /* localStorage unavailable — fall through to a fresh key */ }
+    const fresh = crypto.randomUUID();
+    try { window.localStorage.setItem(SFP_IDEMPOTENCY_STORAGE_KEY, fresh); } catch { /* best-effort */ }
+    return fresh;
+  });
   const [voidReason, setVoidReason] = useState("");
   const [confirmingVoid, setConfirmingVoid] = useState(false);
 
@@ -304,8 +316,16 @@ export function SouthFloridaProspectingPanel() {
 
   // Explicit "start new cohort" action — rotates the idempotency key so the
   // next freeze attempt is a genuinely new logical request rather than a
-  // retry of the previous one.
-  const startNewCohortAttempt = () => setFreezeIdempotencyKey(crypto.randomUUID());
+  // retry of the previous one. Must also persist the rotated key to
+  // localStorage immediately (VFC-06) — updating only React state here
+  // would leave the OLD key in storage, so a page reload right after
+  // "start new cohort" (before any freeze click) would silently revert to
+  // retrying the previous attempt instead of starting a new one.
+  const startNewCohortAttempt = () => {
+    const fresh = crypto.randomUUID();
+    try { window.localStorage.setItem(SFP_IDEMPOTENCY_STORAGE_KEY, fresh); } catch { /* best-effort */ }
+    setFreezeIdempotencyKey(fresh);
+  };
 
   const voidRun = useMutation({
     mutationFn: async () => {

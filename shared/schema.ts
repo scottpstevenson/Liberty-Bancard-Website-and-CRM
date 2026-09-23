@@ -9271,7 +9271,10 @@ export const sfpCohortRuns = pgTable("sfp_cohort_runs", {
 
 export const sfpCohortMembers = pgTable("sfp_cohort_members", {
   id: uuid("id").primaryKey().defaultRandom(),
-  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  // RESTRICT (not CASCADE): a frozen cohort run's membership evidence is
+  // permanent history — deleting the run row must never silently take its
+  // members with it. See migration 0281_sfp_corrections.sql.
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   roiScore: integer("roi_score").notNull().default(0),
   geographyClass: text("geography_class").notNull().default("unknown"),
@@ -9282,6 +9285,19 @@ export const sfpCohortMembers = pgTable("sfp_cohort_members", {
   selectionRank: integer("selection_rank"),
   isCanary: boolean("is_canary").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Classifier + geography resolver evidence persisted per member — see
+  // migration 0281_sfp_corrections.sql and sfp-vertical-classifier.ts /
+  // sfp-geography-resolver.ts.
+  classifierVersion: integer("classifier_version"),
+  classifierOutcome: text("classifier_outcome"),
+  classifierConfidence: numeric("classifier_confidence", { precision: 4, scale: 3 }),
+  classifierMatchedTarget: text("classifier_matched_target"),
+  classifierReasons: jsonb("classifier_reasons"),
+  classifierEvidenceHash: text("classifier_evidence_hash"),
+  geographyResolverVersion: integer("geography_resolver_version"),
+  geographyOutcome: text("geography_outcome"),
+  geographyLocationId: integer("geography_location_id"),
+  geographyReasons: jsonb("geography_reasons"),
 }, (table) => [
   uniqueIndex("sfp_cohort_members_run_business_uidx").on(table.cohortRunId, table.businessId),
   index("idx_sfp_cohort_members_run").on(table.cohortRunId, table.roiScore),
@@ -9292,7 +9308,8 @@ export const sfpCohortMembers = pgTable("sfp_cohort_members", {
  *  the run's total scanned canonical businesses. */
 export const sfpCohortDecisions = pgTable("sfp_cohort_decisions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  // RESTRICT (not CASCADE) — see sfpCohortMembers comment above.
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   disposition: text("disposition").notNull(),
   dispositionDetail: text("disposition_detail"),
@@ -9304,6 +9321,16 @@ export const sfpCohortDecisions = pgTable("sfp_cohort_decisions", {
   roiScore: integer("roi_score"),
   selected: boolean("selected").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  classifierVersion: integer("classifier_version"),
+  classifierOutcome: text("classifier_outcome"),
+  classifierConfidence: numeric("classifier_confidence", { precision: 4, scale: 3 }),
+  classifierMatchedTarget: text("classifier_matched_target"),
+  classifierReasons: jsonb("classifier_reasons"),
+  classifierEvidenceHash: text("classifier_evidence_hash"),
+  geographyResolverVersion: integer("geography_resolver_version"),
+  geographyOutcome: text("geography_outcome"),
+  geographyLocationId: integer("geography_location_id"),
+  geographyReasons: jsonb("geography_reasons"),
 }, (table) => [
   uniqueIndex("sfp_cohort_decisions_run_business_uidx").on(table.cohortRunId, table.businessId),
   index("idx_sfp_cohort_decisions_run_disposition").on(table.cohortRunId, table.disposition),
@@ -9322,7 +9349,11 @@ export const sfpConfigInitReceipts = pgTable("sfp_config_init_receipts", {
 
 export const sfpFunnelSnapshots = pgTable("sfp_funnel_snapshots", {
   id: uuid("id").primaryKey().defaultRandom(),
-  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }).unique(),
+  // RESTRICT (not CASCADE) — see sfpCohortMembers comment above. The frozen
+  // funnel snapshot is the sole reconciliation-of-record for a cohort run
+  // (VFC-05) and must never be deletable as a side effect of deleting the
+  // run row.
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }).unique(),
   capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
   totalBusinesses: integer("total_businesses").notNull().default(0),
   southFlorida: integer("south_florida").notNull().default(0),

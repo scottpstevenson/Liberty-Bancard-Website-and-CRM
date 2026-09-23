@@ -143,6 +143,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "requires TEST_DATABASE_URL disposable database; no provider transports are constructed",
   },
   {
+    name: "South Florida Prospecting Corrections Certification",
+    script: "scripts/test-sfp-disposable-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "requires TEST_DATABASE_URL disposable database; classifier/geography resolver are pure functions; program is never activated and no free-discovery/paid-waterfall/validation/campaign-staging call is made; no provider transports are constructed",
+  },
+  {
     name: "Canonical Identity Writer Guard",
     script: "scripts/check-contact-identity-writers.ts",
     capability: "deterministic-static",

@@ -26,9 +26,12 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { createHash } from "crypto";
-import { selectRoiCohort, loadPilotVerticalIds, type RoiCohortSelection } from "./roi-cohort-selector";
+import { randomUUID } from "crypto";
+import { selectRoiCohort, loadPilotVerticalIds, ROI_SCORE_VERSION, type RoiCohortSelection } from "./roi-cohort-selector";
 import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service";
 import { CRO03A_COUNTY_FIPS } from "../cro03a/geography";
+import { CLASSIFIER_VERSION } from "./sfp-vertical-classifier";
+import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -375,12 +378,84 @@ export async function freezeCohort(opts: {
     maxCohortSize,
   };
   const requestHash = createHash("sha256").update(JSON.stringify(requestPayload)).digest("hex");
-  const policyVersions = { programPolicyVersion: program.policyVersion, scoreVersion: 1 };
+  // Real component versions (VFC-03): every algorithm that contributes to
+  // cohort admission/scoring is versioned independently so a change to any
+  // one of them (classifier taxonomy, geography resolver tiebreak, ROI
+  // scoring formula, or the program's own policy) is visible in the frozen
+  // manifest instead of being hidden behind a single hardcoded "1".
+  const policyVersions = {
+    programPolicyVersion: program.policyVersion,
+    scoreVersion: ROI_SCORE_VERSION,
+    classifierVersion: CLASSIFIER_VERSION,
+    geographyResolverVersion: GEOGRAPHY_RESOLVER_VERSION,
+    sfpPolicyVersion: SFP_POLICY_VERSION,
+  };
   const configHash = createHash("sha256").update(JSON.stringify({
     verticalIds: requestPayload.verticalIds, countyFips: requestPayload.countyFips, policyVersions,
   })).digest("hex");
+  // Pre-generated so a mid-freeze failure can be persisted durably (VFC-08)
+  // even when the transaction that would have inserted this row as
+  // 'freezing' never commits — see the catch block below.
+  const preGeneratedRunId = randomUUID();
 
-  return db.transaction(async (tx) => {
+  try {
+    return await db.transaction(async (tx) => { return freezeCohortTx(tx, opts, program, maxCohortSize, requestPayload, requestHash, policyVersions, configHash, preGeneratedRunId); });
+  } catch (err) {
+    // The transaction above has already been rolled back and its connection
+    // released by drizzle's db.transaction() wrapper by the time this catch
+    // runs — issuing the durable failure write only now (never from inside
+    // the still-open failing transaction) avoids a self-deadlock: an INSERT
+    // on a second connection targeting the SAME pre-generated id as an
+    // uncommitted row on the first connection must wait for that row's
+    // commit/rollback to resolve visibility, which never happens if the
+    // first connection is itself blocked awaiting this INSERT to finish.
+    //
+    // The previous implementation issued an UPDATE ... WHERE id = runId on a
+    // plain (non-transactional) connection, which silently affected ZERO
+    // rows when the failing transaction's own INSERT never committed — the
+    // failure was never actually persisted (VFC-08). This INSERT with
+    // ON CONFLICT DO UPDATE is durable regardless of whether the failing
+    // transaction's own INSERT ever committed:
+    //   - If it never committed (the common case), this INSERT creates the
+    //     row fresh, so the idempotency key correctly reflects 'failed' on
+    //     the next lookup.
+    //   - If the transaction actually got far enough to commit its own
+    //     INSERT before failing later (impossible given transaction
+    //     atomicity, but guarded defensively anyway), ON CONFLICT (id) DO
+    //     UPDATE ... WHERE cohort_state != 'frozen' still applies safely and
+    //     never downgrades a frozen run.
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_runs
+        (id, program_id, idempotency_key, status, cohort_state, actor_id, release_sha,
+         request_hash, config_hash, request_payload, policy_versions, error_detail)
+      VALUES (${preGeneratedRunId}::uuid, ${program.id}::uuid, ${opts.idempotencyKey}, 'error', 'failed',
+              ${opts.actorId}, ${opts.releaseSha ?? process.env.RELEASE_SHA ?? ""},
+              ${requestHash}, ${configHash}, ${JSON.stringify(requestPayload)}::jsonb,
+              ${JSON.stringify(policyVersions)}::jsonb, ${(err as Error).message})
+      ON CONFLICT (id) DO UPDATE SET
+        status = 'error', cohort_state = 'failed', error_detail = EXCLUDED.error_detail
+      WHERE sfp_cohort_runs.cohort_state != 'frozen'
+    `).catch((persistErr) => {
+      // If even the durable failure write fails (e.g. DB unreachable), do
+      // not swallow it silently — surface both errors so an operator sees
+      // the freeze failed AND its failure record could not be saved.
+      throw new Error(`SFP_FREEZE_FAILURE_PERSISTENCE_FAILED:${String((persistErr as Error).message)}:original_error=${(err as Error).message}`);
+    });
+    throw err;
+  }
+}
+
+async function freezeCohortTx(
+  tx: any,
+  opts: { idempotencyKey: string; actorId: string; maxCohortSize?: number; releaseSha?: string },
+  program: { id: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number; policyVersion: number },
+  maxCohortSize: number,
+  requestPayload: { programId: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number },
+  requestHash: string,
+  policyVersions: { programPolicyVersion: number; scoreVersion: number; classifierVersion: number; geographyResolverVersion: number; sfpPolicyVersion: number },
+  configHash: string,
+  preGeneratedRunId: string,
+): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
     // One consistent snapshot for the whole freeze attempt.
     await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
     // Serialize every concurrent freeze attempt sharing this idempotency
@@ -419,9 +494,9 @@ export async function freezeCohort(opts: {
 
     const runRow = (existing ?? rows(await tx.execute(sql`
       INSERT INTO sfp_cohort_runs
-        (program_id, idempotency_key, status, cohort_state, actor_id, release_sha,
+        (id, program_id, idempotency_key, status, cohort_state, actor_id, release_sha,
          request_hash, config_hash, request_payload, policy_versions)
-      VALUES (${program.id}::uuid, ${opts.idempotencyKey}, 'freezing', 'freezing',
+      VALUES (${preGeneratedRunId}::uuid, ${program.id}::uuid, ${opts.idempotencyKey}, 'freezing', 'freezing',
               ${opts.actorId}, ${opts.releaseSha ?? process.env.RELEASE_SHA ?? ""},
               ${requestHash}, ${configHash}, ${JSON.stringify(requestPayload)}::jsonb,
               ${JSON.stringify(policyVersions)}::jsonb)
@@ -429,7 +504,6 @@ export async function freezeCohort(opts: {
     `))[0]);
     const runId = String(runRow.id);
 
-    try {
       // ROI selection runs against this same transaction handle, so the
       // scan, scoring, and member insert all observe one consistent
       // snapshot rather than racing live writes between steps.
@@ -493,12 +567,42 @@ export async function freezeCohort(opts: {
         `);
       }
 
-      // Full-manifest cohort hash: covers every selected member's identity,
-      // rank, and score — not just a sorted ID list — so any change to
-      // ranking or scoring for the same membership set changes the hash.
-      const manifest = result.eligible
-        .map((c, i) => `${c.canonicalBusinessId}:${i + 1}:${c.roiScore}`)
-        .join(",");
+      // Full-manifest cohort hash (VFC-04): covers every field that
+      // determines this cohort's admitted membership and how it was scored
+      // — identity, rank, ROI score, full score dimensions, geography
+      // resolution (version/outcome/winning location/county), and
+      // classifier resolution (version/outcome/matched target) — not just a
+      // sorted businessId:rank:roiScore triple. Any change to ranking,
+      // scoring, geography resolution, or vertical classification for the
+      // same membership set changes this hash.
+      const manifest = JSON.stringify(
+        result.eligible.map((c, i) => ({
+          businessId: c.canonicalBusinessId,
+          rank: i + 1,
+          roiScore: c.roiScore,
+          scoreVersion: c.scoreVersion,
+          dimensions: c.dimensions,
+          vertical: c.vertical,
+          countyFips: c.countyFips,
+          geography: c.geographyResolution
+            ? {
+                resolverVersion: c.geographyResolution.resolverVersion,
+                outcome: c.geographyResolution.outcome,
+                evidenceClass: c.geographyResolution.evidenceClass,
+                winningLocationId: c.geographyResolution.winningLocationId,
+                countyFips: c.geographyResolution.countyFips,
+              }
+            : null,
+          classifier: c.classifierResult
+            ? {
+                version: c.classifierResult.version,
+                outcome: c.classifierResult.outcome,
+                matchedTargetId: c.classifierResult.matchedTargetId,
+                confidence: c.classifierResult.confidence,
+              }
+            : null,
+        })),
+      );
       const cohortHash = createHash("sha256").update(manifest).digest("hex");
 
       const updatedRun = rows(await tx.execute(sql`
@@ -538,21 +642,6 @@ export async function freezeCohort(opts: {
       `);
 
       return { run: _mapRun(updatedRun), newlyFrozen: true, funnel: result.funnel };
-    } catch (err) {
-      // Any mid-freeze failure rolls back the whole transaction (no
-      // partial member/decision rows survive); mark cohort_state='failed'
-      // in a SEPARATE statement after the throw is caught by the caller
-      // would be unreachable since the transaction itself is being rolled
-      // back. Persist the failure via a second, independent connection so
-      // the failure record survives the rollback.
-      await db.execute(sql`
-        UPDATE sfp_cohort_runs SET status = 'error', cohort_state = 'failed',
-               error_detail = ${(err as Error).message}
-        WHERE id = ${runId}::uuid AND cohort_state != 'frozen'
-      `).catch(() => {});
-      throw err;
-    }
-  });
 }
 
 /**
@@ -640,7 +729,7 @@ export interface SfpTerminalReconciliation {
 }
 
 export async function getCohortRunReconciliation(cohortRunId: string): Promise<SfpTerminalReconciliation> {
-  const run = rows(await db.execute(sql`SELECT id FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid`))[0];
+  const run = rows(await db.execute(sql`SELECT id, cohort_state FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid`))[0];
   if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
   const byDisposition = rows(await db.execute(sql`
     SELECT disposition, COUNT(*)::int AS count FROM sfp_cohort_decisions
@@ -648,10 +737,19 @@ export async function getCohortRunReconciliation(cohortRunId: string): Promise<S
     GROUP BY disposition ORDER BY disposition
   `)).map((r: any) => ({ disposition: String(r.disposition), count: Number(r.count) }));
   const totalDecisions = byDisposition.reduce((sum, r) => sum + r.count, 0);
-  const totalScannedRow = rows(await db.execute(sql`
-    SELECT COUNT(*)::int AS total FROM businesses WHERE record_class = 'canonical'
+  // VFC-05: compare against the FROZEN funnel snapshot's total_businesses,
+  // never a live `COUNT(*) FROM businesses` query. The live table keeps
+  // growing after a cohort freezes (new imports, enrichment, etc.), so a
+  // live count would silently drift out of reconciliation for every run
+  // that isn't the very latest one — reconciliation must describe what was
+  // true AT FREEZE TIME, which is exactly what the funnel snapshot records.
+  const snapshotRow = rows(await db.execute(sql`
+    SELECT total_businesses FROM sfp_funnel_snapshots WHERE cohort_run_id = ${cohortRunId}::uuid LIMIT 1
   `))[0];
-  const totalScannedCanonical = Number(totalScannedRow?.total ?? 0);
+  if (!snapshotRow) {
+    throw new Error(`SFP_NO_FUNNEL_SNAPSHOT:cohort_run_id=${cohortRunId}:cannot_reconcile_without_a_frozen_snapshot`);
+  }
+  const totalScannedCanonical = Number(snapshotRow.total_businesses ?? 0);
   return {
     cohortRunId,
     byDisposition,

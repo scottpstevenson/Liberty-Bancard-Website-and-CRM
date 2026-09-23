@@ -134,6 +134,12 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 60,
   },
   {
+    name: "South Florida Prospecting Corrections Certification (classifier/geography-resolver determinism, real policy versions, full-manifest cohort hash, frozen-snapshot reconciliation, frozen/voided immutability, atomic failure persistence)",
+    script: "scripts/test-sfp-disposable-certification.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "Fresh Snapshot Completion Guard",
     script: "scripts/test-fresh-snapshot-completion.ts",
     timeoutSecs: 60,

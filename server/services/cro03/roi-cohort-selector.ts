@@ -28,6 +28,13 @@ import {
   type GeographyEvidenceClass,
 } from "../cro03a/geography";
 import { businessHasDbprLineageSql } from "../dbpr";
+import { classifyVertical, CLASSIFIER_VERSION, type ClassifierResult } from "./sfp-vertical-classifier";
+import {
+  resolveGeographyFromCandidates,
+  GEOGRAPHY_RESOLVER_VERSION,
+  type LocationCandidateInput,
+  type GeographyResolution,
+} from "./sfp-geography-resolver";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -43,46 +50,11 @@ const DEFAULT_PILOT_VERTICAL_IDS = [
   "Retail",
 ] as const;
 
-/**
- * Alias map for the five narrow target-vertical literals. `businesses.vertical`
- * often carries a broader canonical label (e.g. "Healthcare", "Salon/Spa",
- * "Auto", "Food/Beverage") rather than the exact pilot literal, so an exact
- * string-equality match against DEFAULT_PILOT_VERTICAL_IDS silently rejects
- * businesses that should be admitted. This map is intentionally conservative:
- * broad labels that could straddle a target and a non-target sub-category
- * (e.g. "Auto" alone, which could be repair, dealer, rental, or wash) are
- * NOT included here — they fall through to `verticalUnresolved` for
- * `review_required` handling by a future, more granular classifier rather
- * than being silently admitted or silently rejected.
- */
-const VERTICAL_ALIASES: Record<string, string[]> = {
-  // Only exact spelling/punctuation variants of the SAME specific concept are
-  // aliased here. Broader category labels that span both a target and a
-  // non-target sub-category (e.g. "Healthcare" spans dental, med spa, and
-  // many non-target specialties; "Salon/Spa" spans med spas and ordinary hair
-  // salons; "Food/Beverage" spans restaurants and non-target categories like
-  // grocery/liquor) are deliberately NOT aliased — they fall through to
-  // `verticalUnresolved` for `review_required` handling by a future,
-  // evidence-based classifier rather than being silently admitted on a
-  // guess. See follow-up task "Build a real five-vertical classifier".
-  "Med Spa": ["Med Spa", "Medspa"],
-  "Dental": ["Dental", "Dentist"],
-  "Auto Repair": ["Auto Repair", "Automotive Repair"],
-  "Restaurant": ["Restaurant"],
-  "Retail": ["Retail"],
-};
-
-/** True when `vertical` maps (directly or via alias) to one of `targetIds`. */
-function verticalMatchesTargets(vertical: string, targetIds: string[]): boolean {
-  const v = vertical.trim().toLowerCase();
-  if (!v) return false;
-  for (const targetId of targetIds) {
-    if (targetId.trim().toLowerCase() === v) return true;
-    const aliases = VERTICAL_ALIASES[targetId];
-    if (aliases && aliases.some((a) => a.trim().toLowerCase() === v)) return true;
-  }
-  return false;
-}
+// The boolean alias-map matcher formerly here (VERTICAL_ALIASES /
+// verticalMatchesTargets) has been replaced by the real, versioned
+// five-target classifier in ./sfp-vertical-classifier.ts, which returns a
+// confidence-scored outcome (resolved_high/resolved_medium/review_required/
+// not_target/unresolved) with an evidence hash instead of a plain boolean.
 
 /** South Florida county FIPS codes. */
 const SOUTH_FLORIDA_FIPS = Object.values(CRO03A_COUNTY_FIPS); // ["12011","12086","12099"]
@@ -118,6 +90,12 @@ export interface RoiCandidateScore {
   dispositionReason: string;
   /** true = eligible for cohort, false = excluded */
   eligible: boolean;
+  /** Full deterministic geography resolution (VFC-02): version, winning
+   *  location id, evidence class, and reasons, evaluated over every
+   *  business_locations row for this business. */
+  geographyResolution: GeographyResolution | null;
+  /** Full deterministic five-target classifier result (VFC-01). */
+  classifierResult: ClassifierResult | null;
 }
 
 export interface RoiCohortSelection {
@@ -347,40 +325,41 @@ export async function selectRoiCohort(opts: {
     WHERE bl.county_fips IS NOT NULL
     GROUP BY bl.business_id, bl.county_fips
   `));
+  // Retained only as a countyFips lookup for non-geography exclusion branches
+  // (dbpr/existing-customer/etc.) that report a best-effort county on an
+  // already-excluded candidate; it is NOT used for any geography admission
+  // decision — that decision is made entirely by the deterministic
+  // all-location resolver below.
   const fipsLocationMap = new Map<number, { countyFips: string; locationCount: number }>();
-  const anyKnownCountyMap = new Map<number, { countyFips: string; locationCount: number }>();
   for (const r of allLocFipsRows) {
     const bizId = Number(r.business_id);
     const fips = String(r.county_fips);
-    if (countyFips.includes(fips)) {
-      if (!fipsLocationMap.has(bizId)) {
-        fipsLocationMap.set(bizId, { countyFips: fips, locationCount: Number(r.location_count) });
-      }
-    } else if (!anyKnownCountyMap.has(bizId)) {
-      anyKnownCountyMap.set(bizId, { countyFips: fips, locationCount: Number(r.location_count) });
+    if (countyFips.includes(fips) && !fipsLocationMap.has(bizId)) {
+      fipsLocationMap.set(bizId, { countyFips: fips, locationCount: Number(r.location_count) });
     }
   }
 
-  // Per-business location totals, including rows with NO county_fips at all.
-  // "Authoritatively outside" requires EVERY business_locations row to
-  // resolve outside the target counties — a business with one outside row
-  // and one unresolved (null county_fips) row is NOT authoritatively
-  // outside; it must fall through to unresolved, not be misclassified as
-  // outside on partial evidence.
-  const locationTotalsRows = rows(await exec.execute(sql`
-    SELECT
-      bl.business_id,
-      COUNT(*)::int AS total_locations,
-      COUNT(*) FILTER (WHERE bl.county_fips IS NULL)::int AS unclassified_locations
-    FROM business_locations bl
-    GROUP BY bl.business_id
+  // Full per-business location rows for the deterministic all-location
+  // geography resolver (VFC-02). One bulk query for every business_locations
+  // row regardless of whether county_fips is populated, grouped in memory —
+  // avoids an N+1 query per business while still evaluating every row.
+  const allLocationRows = rows(await exec.execute(sql`
+    SELECT id, business_id, is_primary, city, state, postal_code, county_fips
+    FROM business_locations
   `));
-  const locationTotalsMap = new Map<number, { total: number; unclassified: number }>();
-  for (const r of locationTotalsRows) {
-    locationTotalsMap.set(Number(r.business_id), {
-      total: Number(r.total_locations),
-      unclassified: Number(r.unclassified_locations),
+  const locationsByBusiness = new Map<number, LocationCandidateInput[]>();
+  for (const r of allLocationRows) {
+    const bizId = Number(r.business_id);
+    const list = locationsByBusiness.get(bizId) ?? [];
+    list.push({
+      locationId: Number(r.id),
+      isPrimary: Boolean(r.is_primary),
+      city: r.city ?? null,
+      state: r.state ?? null,
+      postalCode: r.postal_code ?? null,
+      countyFips: r.county_fips ?? null,
     });
+    locationsByBusiness.set(bizId, list);
   }
 
   // Chunked business scan — no pre-filter by geography so funnel is truthful
@@ -497,68 +476,60 @@ export async function selectRoiCohort(opts: {
         continue;
       }
 
-      // ── Geography resolution (fallback chain) ─────────────────────────────────
-      let geoClass: GeographyEvidenceClass = "unknown";
-      let geoSource: "county_fips" | "zip" | "city" | "none" = "none";
-      let resolvedCountyFips: string | null = null;
-      let geoEligible = false;
+      // ── Geography resolution (deterministic, all-location resolver — VFC-02) ──
+      // Evaluate every business_locations row for this business plus the
+      // businesses-table fallback, then select one winner by evidence
+      // authority → primary-flag → lowest-location-id (see
+      // sfp-geography-resolver.ts). Replaces the prior single-Map lookup
+      // that had no deterministic tiebreak among multiple locations.
+      const locationCandidates: LocationCandidateInput[] = [...(locationsByBusiness.get(bizId) ?? [])];
+      locationCandidates.push({
+        locationId: null,
+        isPrimary: false,
+        city: row.city ? String(row.city) : null,
+        state: row.state ? String(row.state) : null,
+        postalCode: row.postal_code ? String(row.postal_code) : null,
+        countyFips: null,
+      });
+      const geoResolution = resolveGeographyFromCandidates(locationCandidates);
 
-      if (fipsLocationMap.has(bizId)) {
-        // Stage 1: direct FIPS match in business_locations
-        const locInfo = fipsLocationMap.get(bizId)!;
-        geoClass = "verified";
-        geoSource = "county_fips";
-        resolvedCountyFips = locInfo.countyFips;
-        geoEligible = true;
-      } else if (anyKnownCountyMap.has(bizId) && (locationTotalsMap.get(bizId)?.unclassified ?? 0) === 0) {
-        // Authoritative "outside": at least one location resolves to a known
-        // county outside the target set, none resolve inside, and EVERY
-        // business_locations row for this business has a resolved
-        // county_fips (no unclassified/null rows). Only then can we say
-        // every location is outside — a business with a mix of outside and
-        // unresolved locations must NOT be marked outside; it falls through
-        // to unresolved below via the ZIP/city fallback.
+      let geoClass: GeographyEvidenceClass = geoResolution.evidenceClass ?? "unknown";
+      let geoSource: "county_fips" | "zip" | "city" | "none" =
+        geoResolution.evidenceClass === "verified" ? "county_fips"
+        : geoResolution.evidenceClass === "zip_inferred" ? "zip"
+        : geoResolution.evidenceClass === "city_inferred" ? "city"
+        : "none";
+      const resolvedCountyFips = geoResolution.countyFips;
+      const geoEligible = geoResolution.outcome === "resolved";
+
+      if (geoResolution.outcome === "outside_territory") {
         funnel.outsideGeography++;
-        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:outside_geography", false, "county_fips", "verified"));
+        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:outside_geography", false, geoSource, geoClass, geoResolution, null));
         continue;
-      } else {
-        // Stage 2: no business_locations evidence at all — fall back to
-        // ZIP/city inference via CRO03A geography evaluator on the primary
-        // address. This fallback never overrides stronger location evidence
-        // because both branches above already returned/continued.
-        const geoResult = evaluateSouthFloridaGeography({
-          state: row.state ? String(row.state) : null,
-          county: null,
-          countyFips: null,
-          zip: row.postal_code ? String(row.postal_code) : null,
-          city: row.city ? String(row.city) : null,
-        });
-        if (geoResult.eligible) {
-          geoClass = geoResult.evidenceClass;
-          geoSource = geoResult.evidenceClass === "zip_inferred" ? "zip" : "city";
-          resolvedCountyFips = geoResult.countyFips;
-          geoEligible = true;
-        } else if (geoResult.reasonCodes.includes("OUTSIDE_TERRITORY")) {
-          funnel.outsideGeography++;
-          excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:outside_geography", false, geoSource, geoClass));
+      }
+      if (geoResolution.outcome === "unresolved" || geoResolution.outcome === "conflicting") {
+        funnel.geographyUnresolved++;
+        if (!opts.includeGeographyUnresolved) {
+          excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:geography_unresolved:${geoResolution.outcome}`, false, geoSource, "unknown", geoResolution, null));
           continue;
-        } else {
-          funnel.geographyUnresolved++;
-          if (!opts.includeGeographyUnresolved) {
-            excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:geography_unresolved", false, geoSource, "unknown"));
-            continue;
-          }
         }
       }
 
       if (geoEligible) funnel.southFlorida++;
 
-      // ── Vertical filter ────────────────────────────────────────────────────────
-      if (!verticalMatchesTargets(vertical, verticalIds)) {
+      // ── Vertical filter (real five-target classifier — VFC-01) ───────────────
+      const classifierResult = classifyVertical(vertical, verticalIds);
+      if (classifierResult.outcome === "not_target" || classifierResult.outcome === "unresolved") {
         funnel.verticalUnresolved++;
-        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_mismatch:${vertical}`, false, geoSource, geoClass));
+        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${classifierResult.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, classifierResult));
         continue;
       }
+      if (classifierResult.outcome === "review_required") {
+        funnel.verticalUnresolved++;
+        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_review_required:${vertical}`, false, geoSource, geoClass, geoResolution, classifierResult));
+        continue;
+      }
+      // resolved_high or resolved_medium — admitted.
       funnel.inTargetVertical++;
       funnel.eligibleAfterExclusions++;
 
@@ -601,6 +572,8 @@ export async function selectRoiCohort(opts: {
         vertical,
         dispositionReason: "eligible",
         eligible: true,
+        geographyResolution: geoResolution,
+        classifierResult,
       });
     }
 
@@ -649,6 +622,8 @@ function _buildCandidate(
   eligible: boolean,
   geoSource: "county_fips" | "zip" | "city" | "none",
   geoClass: GeographyEvidenceClass,
+  geographyResolution: GeographyResolution | null = null,
+  classifierResult: ClassifierResult | null = null,
 ): RoiCandidateScore {
   return {
     canonicalBusinessId: bizId,
@@ -663,10 +638,12 @@ function _buildCandidate(
     },
     geographyClass: geoClass,
     geographySource: geoSource,
-    countyFips: fipsMap.get(bizId)?.countyFips ?? null,
+    countyFips: geographyResolution?.countyFips ?? fipsMap.get(bizId)?.countyFips ?? null,
     vertical: row.vertical ? String(row.vertical) : null,
     dispositionReason,
     eligible,
+    geographyResolution,
+    classifierResult,
   };
 }
 
