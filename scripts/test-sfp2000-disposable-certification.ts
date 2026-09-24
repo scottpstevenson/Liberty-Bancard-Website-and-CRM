@@ -95,6 +95,22 @@ await authorizePaidBudget({
   typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION,
 });
 
+// A freshly migrated disposable database seeds provider_controls with
+// enabled=FALSE for every provider (migrations 0160/0269) — a real
+// administrator must explicitly enable a provider before any live traffic.
+// This certification never makes a live ZeroBounce call (all validation
+// below goes through an injected fake zbTransport), but previewSfpValidation
+// still reports the provider's real DB-backed gate state, so this test's own
+// assertions about that reported gate need the row enabled the same way an
+// operator would enable it — exactly like the equivalent seed already
+// performed by scripts/sfp-certification.ts's shared (pre-disposable-DB-era)
+// database fixture.
+await db.execute(sql`
+  UPDATE provider_controls
+     SET enabled = TRUE, circuit_state = 'closed', local_budget_units = 1000000, version = version + 1, updated_at = NOW()
+   WHERE provider = 'zerobounce'
+`);
+
 // ── Seed businesses: one with a FREE candidate, one with a PAID-ONLY
 //    candidate, one with a NO-MX free candidate ───────────────────────────
 const seededBizIds: number[] = [];

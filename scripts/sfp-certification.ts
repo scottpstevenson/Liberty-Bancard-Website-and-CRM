@@ -43,7 +43,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { db } from "../server/db";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+// This suite mutates SFP cohort/eligibility/business/contact rows and must
+// never run against a shared or production database. Verify — before the
+// application's normal DB pool initializes — that DATABASE_URL/TEST_DATABASE_URL
+// both point at one clearly-named disposable database.
+await assertDisposableTestInfrastructure({
+  operation: "SFP cohort certification",
+  requireRedis: false,
+});
+
+const { db } = await import("../server/db");
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -857,67 +868,20 @@ await phase("9d. SouthFloridaProspectingPanel exports the component", async () =
 // ════════════════════════════════════════════════════════════════════════════════
 console.log("\nCleanup: Removing test data");
 
-await phase("cleanup: Remove test data", async () => {
-  // Frozen runs are database-immutable (SFP_FROZEN_IMMUTABLE trigger blocks
-  // UPDATE/DELETE on member/decision rows while cohort_state='frozen'), so
-  // every cert-created run must be transitioned to 'voided' before its
-  // child rows can be cleaned up. This is the same lifecycle transition an
-  // operator would use — cleanup does not bypass the immutability guard.
-  await db.execute(sql`
-    UPDATE sfp_cohort_runs SET cohort_state = 'voided', voided_at = NOW(), voided_by = ${`cert:${RUN_ID}`}, void_reason = 'certification cleanup'
-    WHERE actor_id = ${`cert:${RUN_ID}`} AND cohort_state = 'frozen'
-  `);
-  await db.execute(sql`
-    DELETE FROM sfp_cohort_decisions WHERE cohort_run_id IN (
-      SELECT id FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}
-    )
-  `);
-  await db.execute(sql`
-    DELETE FROM sfp_outreach_eligibility WHERE cohort_run_id IN (
-      SELECT id FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}
-    )
-  `);
-  await db.execute(sql`
-    DELETE FROM sfp_funnel_snapshots WHERE cohort_run_id IN (
-      SELECT id FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}
-    )
-  `);
-  await db.execute(sql`
-    DELETE FROM sfp_cohort_members WHERE cohort_run_id IN (
-      SELECT id FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}
-    )
-  `);
-  await db.execute(sql`DELETE FROM sfp_cohort_runs WHERE actor_id = ${`cert:${RUN_ID}`}`);
-  await db.execute(sql`
-    DELETE FROM free_discovery_candidates WHERE generation_id = ${generationId}::uuid
-  `);
-  await db.execute(sql`DELETE FROM free_discovery_generations WHERE run_key = ${`cert-${RUN_ID}`}`);
-  // Remove business_locations for seeded businesses
-  await db.execute(sql`
-    DELETE FROM business_locations WHERE business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
-  `);
-  // Remove contact_source_events for DBPR business contacts first (FK), then contacts
-  const dbprContacts = rows(await db.execute(sql`
-    SELECT id FROM contacts WHERE business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
-  `));
-  if (dbprContacts.length > 0) {
-    const contIds = dbprContacts.map((c: any) => Number(c.id));
-    await db.execute(sql`
-      DELETE FROM contact_source_events WHERE contact_id = ANY(ARRAY[${sql.join(contIds.map((id) => sql`${id}::int`), sql`, `)}])
-    `);
-  }
-  await db.execute(sql`
-    DELETE FROM contacts WHERE business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
-  `);
-  await db.execute(sql`
-    DELETE FROM canonical_source_links WHERE business_id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
-  `);
-  await db.execute(sql`
-    DELETE FROM businesses WHERE id = ANY(ARRAY[${sql.join(seededBizIds.map((id) => sql`${id}::int`), sql`, `)}])
-  `);
-  // Attestation has FK dependents (ON DELETE RESTRICT) — leave it; it expires in 1 hour.
-  // await db.execute(sql`DELETE FROM cro03c_runtime_attestations WHERE idempotency_key = ${`cert-att-${RUN_ID}`}`);
-});
+// This suite must run only against a single-purpose disposable PostgreSQL
+// database (see scripts/run-sfp-certification-disposable.ts), which is
+// destroyed in its entirety once this process exits — see the "DESTROY
+// GUARD" phase below. Because of that, there is nothing left to reclaim
+// inside the database afterward, and — critically — a cert run must never
+// attempt to void-then-delete `sfp_cohort_runs`/members/decisions/
+// eligibility/snapshots rows. Those tables carry the SFP_FROZEN_IMMUTABLE
+// append-only guarantee; forcing a "voided" transition purely to satisfy
+// cleanup exercised that production lifecycle transition for a reason it
+// was never meant for, and left a real risk of leaving rows behind (or
+// racing the trigger) if cleanup itself failed. Whole-database destruction
+// is both simpler and strictly safer: it can't partially fail into a
+// half-cleaned frozen/voided cohort history.
+console.log("\nNo in-database cleanup phase: this suite must run inside a disposable database that is destroyed wholesale after this process exits (see scripts/run-sfp-certification-disposable.ts).");
 
 // ════════════════════════════════════════════════════════════════════════════════
 // RESULTS
