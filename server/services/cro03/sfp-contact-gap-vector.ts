@@ -7,8 +7,24 @@ export type SfpGapDimension =
   | "geography"
   | "target_vertical"
   | "official_domain"
+  | "business_identity"
   | "business_contact_channel"
   | "named_decision_maker";
+
+/** Only the resolver's positive, in-territory outcome closes geography. */
+export function isResolvedSouthFloridaGeographyOutcome(outcome: unknown): boolean {
+  return String(outcome ?? "") === "resolved";
+}
+
+/** A usable business identity requires both a phone and physical locality. */
+export function hasResolvedBusinessIdentity(input: {
+  mainPhone?: unknown;
+  streetAddress?: unknown;
+  city?: unknown;
+}): boolean {
+  return [input.mainPhone, input.streetAddress, input.city]
+    .every((value) => typeof value === "string" && value.trim().length > 0);
+}
 
 export interface SfpGapVectorEntry {
   dimension: SfpGapDimension;
@@ -85,8 +101,10 @@ export interface ComputeSfpGapVectorInput {
   geographyResolved?: boolean;
   targetVerticalResolved: boolean;
   officialDomainKnown: boolean;
+  businessIdentityResolved?: boolean;
   hasFreeDiscoveryContactCandidate: boolean;
   hasPaidContactCandidate?: boolean;
+  hasPaidNamedDecisionMaker?: boolean;
   verifiedLinkReuse: {
     hasVerifiedContact: boolean;
     hasVerifiedNamedDecisionMaker: boolean;
@@ -145,6 +163,13 @@ export async function computeSfpGapVector(
       subjectExclusions: [],
     },
     {
+      dimension: "business_identity",
+      open: input.businessIdentityResolved !== true,
+      closedBy: input.businessIdentityResolved === true ? "business_identity_resolved" : null,
+      evidenceRef: input.evidenceRefs?.business_identity ?? null,
+      subjectExclusions: [],
+    },
+    {
       dimension: "business_contact_channel",
       open: !(input.hasFreeDiscoveryContactCandidate || input.hasPaidContactCandidate || input.verifiedLinkReuse.hasVerifiedContact),
       closedBy: input.hasFreeDiscoveryContactCandidate
@@ -159,9 +184,11 @@ export async function computeSfpGapVector(
     },
     {
       dimension: "named_decision_maker",
-      open: !input.verifiedLinkReuse.hasVerifiedNamedDecisionMaker,
+      open: !(input.hasPaidNamedDecisionMaker || input.verifiedLinkReuse.hasVerifiedNamedDecisionMaker),
       closedBy: input.verifiedLinkReuse.hasVerifiedNamedDecisionMaker
         ? "verified_named_decision_maker_reuse"
+        : input.hasPaidNamedDecisionMaker
+          ? "paid_named_decision_maker_evidence"
         : null,
       evidenceRef: input.evidenceRefs?.named_decision_maker ?? null,
       subjectExclusions: exclusionsFor("named_decision_maker"),

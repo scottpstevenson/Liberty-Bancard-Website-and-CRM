@@ -14,7 +14,11 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { getCurrentPricingSchedule, MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS, getAggregatePilotSpend } from "../mi09-pilot-authority";
 import { currentSfpUnitPrice } from "./sfp-provider-operations";
-import { computeContactLinkReuse } from "./sfp-contact-gap-vector";
+import {
+  computeContactLinkReuse,
+  hasResolvedBusinessIdentity,
+  isResolvedSouthFloridaGeographyOutcome,
+} from "./sfp-contact-gap-vector";
 import { createHash } from "node:crypto";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -85,10 +89,14 @@ async function currentSfpAggregateSpendMicros(): Promise<{ settledMicros: number
   const classificationSpend = rows(await db.execute(sql`
     SELECT COALESCE(SUM(cost_micros),0)::bigint AS spent FROM sfp_classification_evidence
   `))[0];
+  const classificationReservations = rows(await db.execute(sql`
+    SELECT COALESCE(SUM(reserved_cost_micros),0)::bigint AS reserved
+      FROM sfp_classification_runs WHERE state IN ('authorized','running')
+  `))[0];
   const pilotSpend = await getAggregatePilotSpend();
   return {
     settledMicros: Number(sfpSpend?.settled ?? 0) + Number(classificationSpend?.spent ?? 0) + pilotSpend.settledMicros,
-    reservedMicros: Number(sfpSpend?.reserved ?? 0) + pilotSpend.reservedMicros,
+    reservedMicros: Number(sfpSpend?.reserved ?? 0) + Number(classificationReservations?.reserved ?? 0) + pilotSpend.reservedMicros,
   };
 }
 
@@ -187,18 +195,28 @@ export async function getSfpCohortGapSnapshot(cohortRunId: string): Promise<{
   const businessIds = members.map((m: any) => Number(m.business_id));
   const reuse = await computeContactLinkReuse(businessIds);
   const evidenceRows = rows(await db.execute(sql`
-    SELECT business_id,id,'free'::text AS source FROM free_discovery_candidates
+    SELECT business_id,id,'free'::text AS source,NULL::text AS provider,
+           NULL::text AS person_name_evidence,NULL::text AS person_title_evidence
+      FROM free_discovery_candidates
        WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
          AND field IN ('email','phone') AND disposition IN ('staged','validation_admitted','accepted')
       UNION ALL
-      SELECT business_id,id,'paid'::text AS source FROM sfp_paid_candidate_evidence
+      SELECT business_id,id,'paid'::text AS source,provider,
+             person_name_evidence,person_title_evidence
+        FROM sfp_paid_candidate_evidence
        WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
          AND field IN ('email','phone') AND disposition IN ('staged','accepted')
   `));
   const evidenceById = new Map<number, any[]>();
   for (const evidence of evidenceRows) {
     const list = evidenceById.get(Number(evidence.business_id)) ?? [];
-    list.push({ id: String(evidence.id), source: String(evidence.source) });
+    list.push({
+      id: String(evidence.id),
+      source: String(evidence.source),
+      provider: evidence.provider == null ? null : String(evidence.provider),
+      personNameEvidence: evidence.person_name_evidence ?? null,
+      personTitleEvidence: evidence.person_title_evidence ?? null,
+    });
     evidenceById.set(Number(evidence.business_id), list);
   }
   const suppressionRows = rows(await db.execute(sql`
@@ -224,8 +242,13 @@ export async function getSfpCohortGapSnapshot(cohortRunId: string): Promise<{
     return {
       id: Number(m.business_id),
       domain: m.website_domain ?? null,
-      identity: Boolean(m.main_phone && m.street_address && m.city),
-      named: link.hasVerifiedNamedDecisionMaker,
+      identity: hasResolvedBusinessIdentity({
+        mainPhone: m.main_phone,
+        streetAddress: m.street_address,
+        city: m.city,
+      }),
+      named: Boolean(link.hasVerifiedNamedDecisionMaker || evidenceById.get(Number(m.business_id))?.some((evidence) =>
+        evidence.provider === "apollo" && evidence.personNameEvidence && evidence.personTitleEvidence)),
       contact: Boolean(evidenceById.has(Number(m.business_id)) || link.hasVerifiedContact),
       contactEvidence: evidenceById.get(Number(m.business_id)) ?? [],
       verifiedLinks: link.verifiedLinks.map((verified) => ({
@@ -234,7 +257,7 @@ export async function getSfpCohortGapSnapshot(cohortRunId: string): Promise<{
       })),
       subjectSuppressions: suppressionsById.get(Number(m.business_id)) ?? [],
       classifier: String(m.classifier_outcome ?? ""),
-      geography: String(m.geography_outcome ?? ""),
+      geography: isResolvedSouthFloridaGeographyOutcome(m.geography_outcome),
       suppressions: m.suppression_subjects ?? [],
     };
   });

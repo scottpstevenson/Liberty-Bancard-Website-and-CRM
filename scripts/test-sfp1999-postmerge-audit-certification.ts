@@ -67,14 +67,32 @@ try {
     hasFreeDiscoveryContactCandidate: false, verifiedLinkReuse: { hasVerifiedContact: false, hasVerifiedNamedDecisionMaker: false },
     subjectSuppressions: [], businessWideSuppressionApplied: false,
   });
-  check(gap.before.length === 5 && gap.before.every((entry) => entry.open),
-    "gap vector reports all five missing dimensions rather than a contact-link-only shortcut");
+  check(gap.before.length === 6 && gap.before.every((entry) => entry.open),
+    "gap vector reports all six missing dimensions, including business identity");
   const closed = await gapModule.computeSfpGapVector({
     businessId: 1, geographyResolved: true, targetVerticalResolved: true, officialDomainKnown: true,
-    hasFreeDiscoveryContactCandidate: true, verifiedLinkReuse: { hasVerifiedContact: true, hasVerifiedNamedDecisionMaker: true },
+    businessIdentityResolved: true, hasFreeDiscoveryContactCandidate: true,
+    verifiedLinkReuse: { hasVerifiedContact: true, hasVerifiedNamedDecisionMaker: true },
     subjectSuppressions: [], businessWideSuppressionApplied: false,
   });
   check(closed.after.every((entry) => !entry.open), "gap-vector stop conditions reflect all actual resolved facts");
+  const paidNamed = await gapModule.computeSfpGapVector({
+    businessId: 1, geographyResolved: true, targetVerticalResolved: true, officialDomainKnown: true,
+    businessIdentityResolved: true, hasFreeDiscoveryContactCandidate: true,
+    hasPaidNamedDecisionMaker: true,
+    verifiedLinkReuse: { hasVerifiedContact: false, hasVerifiedNamedDecisionMaker: false },
+    subjectSuppressions: [], businessWideSuppressionApplied: false,
+  });
+  check(paidNamed.before.find((entry) => entry.dimension === "named_decision_maker")?.closedBy ===
+    "paid_named_decision_maker_evidence",
+  "Apollo person evidence closes the named-decision-maker gap without fabricating a CRM link");
+  check(gapModule.isResolvedSouthFloridaGeographyOutcome("resolved") === true &&
+    ["outside_territory", "conflicting", "unresolved", ""].every((outcome) =>
+      gapModule.isResolvedSouthFloridaGeographyOutcome(outcome) === false),
+  "only the positive resolved geography outcome closes the geography gap");
+  check(gapModule.hasResolvedBusinessIdentity({ mainPhone: "3055550100", streetAddress: "1 Main St", city: "Miami" }) === true &&
+    gapModule.hasResolvedBusinessIdentity({ mainPhone: "3055550100", streetAddress: null, city: "Miami" }) === false,
+  "business identity is independent from the contact-channel gap and requires usable phone/location evidence");
   check(classifier.classifyVertical("Dentistry", targets).outcome === "resolved_high",
     "classification remains deterministic and pure for a target alias");
   check(evidenceModule.resolveSfpCandidateReference && evidenceModule.getUnifiedSfpCandidates,
@@ -120,6 +138,72 @@ try {
     UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed',updated_at=NOW()
      WHERE id=ANY($1::uuid[])
   `, [capRaceRunIds]);
+  const previewReservationRunId = randomUUID();
+  const previewBeforeReservation = await costPreview.buildSfpCostPreview({
+    officialDomainGapCount: 0, businessIdentityGapCount: 0,
+    decisionMakerGapCount: 0, ambiguousVerticalGapCount: 0,
+  });
+  await pool.query(`
+    INSERT INTO sfp_classification_runs(
+      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
+      config_hash,reserved_cost_micros
+    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,12345)
+  `, [previewReservationRunId, program.id, `sfp1999-preview-reservation-${nonce}`,
+    program.policyVersion, classifier.CLASSIFIER_VERSION, `preview-reservation-${nonce}`]);
+  const previewWithReservation = await costPreview.buildSfpCostPreview({
+    officialDomainGapCount: 0, businessIdentityGapCount: 0,
+    decisionMakerGapCount: 0, ambiguousVerticalGapCount: 0,
+  });
+  check(previewBeforeReservation.aggregateRemainingMicros - previewWithReservation.aggregateRemainingMicros === 12345,
+    "cost preview includes in-flight pre-cohort classification reservations in aggregate headroom");
+  await pool.query(`
+    UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed',updated_at=NOW()
+     WHERE id=$1::uuid
+  `, [previewReservationRunId]);
+
+  const settlementReplayRunId = randomUUID();
+  const settlementReplayOperationId = randomUUID();
+  const settlementReplayClaimToken = randomUUID();
+  await pool.query(`
+    INSERT INTO sfp_classification_runs(
+      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
+      config_hash,reserved_cost_micros
+    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,100)
+  `, [settlementReplayRunId, program.id, `sfp1999-settlement-replay-${nonce}`,
+    program.policyVersion, classifier.CLASSIFIER_VERSION, `settlement-replay-${nonce}`]);
+  await pool.query(`UPDATE provider_controls SET reserved_units=reserved_units+1 WHERE provider='serper'`);
+  await pool.query(`
+    INSERT INTO provider_operations(
+      id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
+      requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
+    ) VALUES ($1::uuid,'serper','sfp_precohort_classification','settlement-replay',$2,'user',
+      'task1999-certification','business:1','running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
+  `, [settlementReplayOperationId, `sfp1999-settlement-replay-op-${nonce}`, settlementReplayClaimToken]);
+  await pool.query(`
+    INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
+    VALUES ($1::uuid,1,'pending',NOW())
+  `, [settlementReplayOperationId]);
+  const settlementReplayReservation = {
+    operationId: settlementReplayOperationId, claimToken: settlementReplayClaimToken,
+    provider: "serper" as const, controlProvider: "serper", amountMicros: 100,
+    units: 1, runId: settlementReplayRunId,
+  };
+  const firstSettlement = await providerOps.settlePreCohortSfpProviderOperation({
+    reservation: settlementReplayReservation, outcome: "failed", observation: "transport", businessId: 1,
+  });
+  const replaySettlement = await providerOps.settlePreCohortSfpProviderOperation({
+    reservation: settlementReplayReservation, outcome: "failed", observation: "transport", businessId: 1,
+  });
+  const replaySettlementState = rows(await pool.query(`
+    SELECT r.reserved_cost_micros,r.settled_cost_micros,
+           (SELECT COUNT(*)::int FROM provider_observations WHERE operation_id=$2::uuid) AS observations
+      FROM sfp_classification_runs r WHERE r.id=$1::uuid
+  `, [settlementReplayRunId, settlementReplayOperationId]))[0];
+  check(firstSettlement.replayed === false && replaySettlement.replayed === true &&
+    Number(replaySettlementState.reserved_cost_micros) === 0 &&
+    Number(replaySettlementState.settled_cost_micros) === 0 &&
+    Number(replaySettlementState.observations) === 1,
+  "pre-cohort settlement replay is a fenced no-op with one accounting/audit effect");
   const killRunId = randomUUID();
   const killOperationId = randomUUID();
   const killClaimToken = randomUUID();
@@ -343,6 +427,17 @@ try {
   const frozen = await prospecting.freezeCohort({
     idempotencyKey: `sfp1999-audit-freeze-${nonce}`, actorId: "task1999-certification", maxCohortSize: 1,
   });
+  const gapSnapshotBeforeApollo = await costPreview.getSfpCohortGapSnapshot(frozen.run.id);
+  await evidenceModule.writeSfpPaidCandidateEvidence({
+    businessId, provider: "apollo", field: "email", value: `apollo-${nonce}@example.test`,
+    subjectType: "person", confidence: 90,
+    personNameEvidence: "Certification Decision Maker", personTitleEvidence: "Owner",
+  });
+  const gapSnapshotAfterApollo = await costPreview.getSfpCohortGapSnapshot(frozen.run.id);
+  check(gapSnapshotAfterApollo.gapCounts.decisionMakerGapCount ===
+    Math.max(0, gapSnapshotBeforeApollo.gapCounts.decisionMakerGapCount - 1) &&
+    gapSnapshotAfterApollo.snapshotHash !== gapSnapshotBeforeApollo.snapshotHash,
+  "persisted Apollo person evidence closes the live decision-maker gap and changes the execution snapshot");
   const validationStage = rows(await pool.query(`
     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys)
     VALUES ($1::uuid,'validation',$2,'task1999-certification','completed',1,'["zerobounce"]'::jsonb)
@@ -438,9 +533,23 @@ try {
     throw new Error("TASK1999_FAULT_AFTER_EVIDENCE_BEFORE_SETTLEMENT");
   }), /TASK1999_FAULT_AFTER_EVIDENCE_BEFORE_SETTLEMENT/,
   "injected result-persistence failure rolls back before settlement/linkage");
-  await providerOps.settleSfpProviderOperation({
+  const firstCohortSettlement = await providerOps.settleSfpProviderOperation({
     reservation: faultReservation, outcome: "failed", observation: "transport", businessId,
   });
+  const cohortSettlementStateBeforeReplay = rows(await pool.query(`
+    SELECT processed_count,failed_count,reserved_cost_micros,settled_cost_micros
+      FROM sfp_stage_runs WHERE id=$1::uuid
+  `, [faultStageRunId]))[0];
+  const replayedCohortSettlement = await providerOps.settleSfpProviderOperation({
+    reservation: faultReservation, outcome: "failed", observation: "transport", businessId,
+  });
+  const cohortSettlementStateAfterReplay = rows(await pool.query(`
+    SELECT processed_count,failed_count,reserved_cost_micros,settled_cost_micros
+      FROM sfp_stage_runs WHERE id=$1::uuid
+  `, [faultStageRunId]))[0];
+  check(firstCohortSettlement.replayed === false && replayedCohortSettlement.replayed === true &&
+    JSON.stringify(cohortSettlementStateBeforeReplay) === JSON.stringify(cohortSettlementStateAfterReplay),
+  "cohort-bound settlement replay is a fenced no-op and cannot double-increment stage counters");
   await pool.query(`
     UPDATE sfp_stage_runs SET state='failed',terminal_reason='TASK1999_FAULT_INJECTION',
       completed_at=NOW(),claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()

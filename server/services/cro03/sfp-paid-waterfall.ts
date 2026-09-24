@@ -13,7 +13,13 @@ import {
 } from "./sfp-provider-operations";
 import { executeSfpApolloDiscovery, executeSfpOutscraperDiscovery } from "./sfp-live-provider-adapters";
 import { writeSfpPaidCandidateEvidence } from "./sfp-paid-evidence-writer";
-import { computeContactLinkReuse, computeSfpGapVector, stopConditionsMet } from "./sfp-contact-gap-vector";
+import {
+  computeContactLinkReuse,
+  computeSfpGapVector,
+  hasResolvedBusinessIdentity,
+  isResolvedSouthFloridaGeographyOutcome,
+  stopConditionsMet,
+} from "./sfp-contact-gap-vector";
 import { candidateTier, rejectEmailCandidate } from "./candidate-selector";
 import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
 
@@ -69,7 +75,8 @@ async function buildCurrentGapVector(input: {
      LIMIT 1
   `))[0];
   const business = rows(await db.execute(sql`
-    SELECT website_domain,vertical FROM businesses WHERE id=${input.businessId}
+    SELECT website_domain,vertical,main_phone,street_address,city
+      FROM businesses WHERE id=${input.businessId}
   `))[0];
   const free = rows(await db.execute(sql`
     SELECT id FROM free_discovery_candidates
@@ -80,6 +87,14 @@ async function buildCurrentGapVector(input: {
   const paid = rows(await db.execute(sql`
     SELECT id FROM sfp_paid_candidate_evidence
      WHERE business_id=${input.businessId} AND field IN ('email','phone')
+       AND disposition IN ('staged','accepted')
+     ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  const paidNamedDecisionMaker = rows(await db.execute(sql`
+    SELECT id FROM sfp_paid_candidate_evidence
+     WHERE business_id=${input.businessId} AND provider='apollo' AND subject_type='person'
+       AND NULLIF(BTRIM(person_name_evidence),'') IS NOT NULL
+       AND NULLIF(BTRIM(person_title_evidence),'') IS NOT NULL
        AND disposition IN ('staged','accepted')
      ORDER BY created_at DESC LIMIT 1
   `))[0];
@@ -116,11 +131,17 @@ async function buildCurrentGapVector(input: {
     businessId: input.businessId,
     // Cohort membership itself is the persisted proof that the same resolver
     // accepted geography at freeze time; retain its actual outcome evidence.
-    geographyResolved: Boolean(decision?.geography_outcome),
+    geographyResolved: isResolvedSouthFloridaGeographyOutcome(decision?.geography_outcome),
     targetVerticalResolved: ["resolved_high", "resolved_medium"].includes(String(decision?.classifier_outcome)),
     officialDomainKnown: Boolean(business?.website_domain),
+    businessIdentityResolved: hasResolvedBusinessIdentity({
+      mainPhone: business?.main_phone,
+      streetAddress: business?.street_address,
+      city: business?.city,
+    }),
     hasFreeDiscoveryContactCandidate: Boolean(free),
     hasPaidContactCandidate: Boolean(paid),
+    hasPaidNamedDecisionMaker: Boolean(paidNamedDecisionMaker),
     verifiedLinkReuse: input.reuse,
     subjectSuppressions,
     businessWideSuppressionApplied: Boolean(decision?.suppression_business_wide_rule_applied),
@@ -128,8 +149,17 @@ async function buildCurrentGapVector(input: {
       geography: decision?.geography_location_id == null ? null : `business_location:${decision.geography_location_id}`,
       target_vertical: decision?.classification_evidence_id ? `classification_evidence:${decision.classification_evidence_id}` : null,
       official_domain: domainEvidence?.id ? `paid_candidate_evidence:${domainEvidence.id}` : null,
+      business_identity: hasResolvedBusinessIdentity({
+        mainPhone: business?.main_phone,
+        streetAddress: business?.street_address,
+        city: business?.city,
+      }) ? `business:${input.businessId}` : null,
       business_contact_channel: paid?.id ? `paid_candidate_evidence:${paid.id}` : free?.id ? `free_discovery_candidate:${free.id}` : null,
-      named_decision_maker: verifiedDecision ? `decision:${verifiedDecision.decisionId}` : null,
+      named_decision_maker: verifiedDecision
+        ? `decision:${verifiedDecision.decisionId}`
+        : paidNamedDecisionMaker?.id
+          ? `paid_candidate_evidence:${paidNamedDecisionMaker.id}`
+          : null,
     },
     apolloSkipReason: input.apolloSkipReason,
     outscraperSkipReason: input.outscraperSkipReason,
@@ -256,7 +286,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     });
     const gapOpen = (dimension: string) => beforeVector.before.some((entry) => entry.dimension === dimension && entry.open);
     let apolloSkipReason: string | null = gapOpen("named_decision_maker") ? null : (linkReuse.skipReason ?? "named_decision_maker_gap_closed");
-    let outscraperSkipReason: string | null = gapOpen("business_contact_channel") ? null : "business_contact_gap_closed";
+    let outscraperSkipReason: string | null = gapOpen("business_identity") ? null : "business_identity_gap_closed";
 
     // Outscraper follows Serper plus the canonical free recrawl, and only runs
     // while the business-identity dimension remains open.

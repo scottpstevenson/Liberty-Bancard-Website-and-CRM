@@ -146,6 +146,11 @@ const MANDATORY_SUITES: Suite[] = [
     requiresDisposableTestDatabase: true,
   },
   {
+    name: "Task #1999 Final Closeout Guard (settlement replay, aggregate reservations, identity/decision-maker/geography gaps)",
+    script: "scripts/test-sfp1999-final-closeout.mjs",
+    timeoutSecs: 60,
+  },
+  {
     name: "South Florida Prospecting UI Idempotency Persistence (freeze key survives reload; only 'Start new cohort' rotates it)",
     script: "scripts/test-sfp-ui-idempotency-persistence.ts",
     timeoutSecs: 60,

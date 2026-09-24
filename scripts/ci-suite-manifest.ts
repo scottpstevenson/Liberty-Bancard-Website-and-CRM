@@ -155,6 +155,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "requires TEST_DATABASE_URL disposable database; runs real migrations and database guards with CRO03 provider transport unset; no provider or outreach calls",
   },
   {
+    name: "Task #1999 Final Closeout Guard",
+    script: "scripts/test-sfp1999-final-closeout.mjs",
+    capability: "deterministic-static",
+    providerDenial: "pure source scan for settlement, budget, and evidence-gap contracts; no DB, network, server, or provider transport",
+  },
+  {
     name: "South Florida Prospecting UI Idempotency Persistence",
     script: "scripts/test-sfp-ui-idempotency-persistence.ts",
     capability: "deterministic-static",

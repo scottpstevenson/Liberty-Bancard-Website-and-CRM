@@ -333,31 +333,50 @@ export async function settlePreCohortSfpProviderOperation(input: {
   businessId: number;
   settledUnits?: number;
   resultData?: unknown;
-}, executor?: { execute: (query: any) => Promise<any> }): Promise<{ settledMicros: number }> {
+}, executor?: { execute: (query: any) => Promise<any> }): Promise<{ settledMicros: number; replayed: boolean }> {
   const completed = input.outcome === "completed" || input.outcome === "no_result";
   const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
   const settledMicros = settledUnits * input.reservation.amountMicros;
   const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
-    await tx.execute(sql`
-      UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
-             retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
-       WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1 RETURNING id
-    `);
-    await tx.execute(sql`
+    // The provider operation is the settlement fence. Only the claimant that
+    // still owns a live reserved operation may move money or counters. A
+    // concurrent/retried settlement observes the terminal row and becomes a
+    // no-op instead of consuming units and spend twice.
+    const operation = rows(await tx.execute(sql`
        UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
              billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
               sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
-              claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.operationId}::uuid
-    `);
+              claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+        WHERE id=${input.reservation.operationId}::uuid
+          AND state='running' AND billing_state='reserved'
+          AND claim_token=${input.reservation.claimToken}::uuid
+      RETURNING id
+    `))[0];
+    if (!operation) {
+      const existing = rows(await tx.execute(sql`
+        SELECT state,billing_state FROM provider_operations
+         WHERE id=${input.reservation.operationId}::uuid
+      `))[0];
+      if (existing && ["completed", "failed", "cancelled"].includes(String(existing.state))
+          && String(existing.billing_state) !== "reserved") {
+        return { settledMicros: 0, replayed: true };
+      }
+      throw new Error("SFP_PROVIDER_SETTLEMENT_FENCE_LOST");
+    }
+    const attempt = rows(await tx.execute(sql`
+      UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
+             retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
+       WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
+         AND completed_at IS NULL
+       RETURNING id
+    `))[0];
+    if (!attempt) throw new Error("SFP_PROVIDER_SETTLEMENT_ATTEMPT_MISSING");
     await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
              consumed_units=consumed_units+${settledUnits},
              last_completed_at=${completed ? sql`NOW()` : sql`last_completed_at`},last_outcome=${input.observation},
              version=version+1,updated_at=NOW() WHERE provider=${input.reservation.controlProvider}
     `);
-    const attempt = rows(await tx.execute(sql`
-      SELECT id FROM provider_attempts WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
-    `))[0];
     await tx.execute(sql`
       INSERT INTO provider_observations(provider,operation_id,attempt_id,subject_type,subject_id,email_token_hash,outcome,retryable)
       VALUES (${input.reservation.controlProvider},${input.reservation.operationId}::uuid,${attempt ? String(attempt.id) : null}::uuid,
@@ -369,10 +388,9 @@ export async function settlePreCohortSfpProviderOperation(input: {
              settled_cost_micros=settled_cost_micros+${settledMicros},updated_at=NOW()
        WHERE id=${input.reservation.runId}::uuid
     `);
+    return { settledMicros, replayed: false };
   };
-  if (executor) await settle(executor);
-  else await db.transaction(settle);
-  return { settledMicros };
+  return executor ? settle(executor) : db.transaction(settle);
 }
 
 /** Last-mile Phase-A fence, called immediately before any provider fetch. */
@@ -442,22 +460,40 @@ export async function settleSfpProviderOperation(input: {
   emailTokenHash?: string | null;
   settledUnits?: number;
   resultData?: unknown;
-}, executor?: { execute: (query: any) => Promise<any> }): Promise<void> {
+}, executor?: { execute: (query: any) => Promise<any> }): Promise<{ settledMicros: number; replayed: boolean }> {
   const completed = input.outcome === "completed" || input.outcome === "no_result";
   const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
   const settledMicros = settledUnits * input.reservation.amountMicros;
   const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
-    const attempt = rows(await tx.execute(sql`
-      UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
-             retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
-       WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1 RETURNING id
-    `))[0];
-    await tx.execute(sql`
+    const operation = rows(await tx.execute(sql`
       UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
              billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
               sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
-              claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.operationId}::uuid
-    `);
+              claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+       WHERE id=${input.reservation.operationId}::uuid
+         AND state='running' AND billing_state='reserved'
+         AND claim_token=${input.reservation.claimToken}::uuid
+      RETURNING id
+    `))[0];
+    if (!operation) {
+      const existing = rows(await tx.execute(sql`
+        SELECT state,billing_state FROM provider_operations
+         WHERE id=${input.reservation.operationId}::uuid
+      `))[0];
+      if (existing && ["completed", "failed", "cancelled"].includes(String(existing.state))
+          && String(existing.billing_state) !== "reserved") {
+        return { settledMicros: 0, replayed: true };
+      }
+      throw new Error("SFP_PROVIDER_SETTLEMENT_FENCE_LOST");
+    }
+    const attempt = rows(await tx.execute(sql`
+      UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
+             retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
+       WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
+         AND completed_at IS NULL
+       RETURNING id
+    `))[0];
+    if (!attempt) throw new Error("SFP_PROVIDER_SETTLEMENT_ATTEMPT_MISSING");
     await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
              consumed_units=consumed_units+${settledUnits},
@@ -480,7 +516,7 @@ export async function settleSfpProviderOperation(input: {
              succeeded_count=succeeded_count+${completed ? 1 : 0},failed_count=failed_count+${completed ? 0 : 1},
              last_heartbeat_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.stageRunId}::uuid
     `);
+    return { settledMicros, replayed: false };
   };
-  if (executor) await settle(executor);
-  else await db.transaction(settle);
+  return executor ? settle(executor) : db.transaction(settle);
 }
