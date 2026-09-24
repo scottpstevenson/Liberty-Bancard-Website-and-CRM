@@ -7,7 +7,10 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { resolveGeographyFromCandidates, type LocationCandidateInput } from "./sfp-geography-resolver";
-import { getBusinessWideSuppressionExclusions } from "./roi-cohort-selector";
+import {
+  getBusinessWideSuppressionExclusions,
+  getSfpBusinessHardExclusionReasons,
+} from "./roi-cohort-selector";
 import { classifyVertical, CLASSIFIER_VERSION } from "./sfp-vertical-classifier";
 import {
   extractWebsiteClassificationEvidence,
@@ -15,10 +18,12 @@ import {
 } from "./sfp-website-evidence";
 import { lookupBusinessIdentity } from "../serper-business-identity";
 import {
+  invokePreCohortSfpProviderTransport,
   reservePreCohortSfpProviderOperation,
   settlePreCohortSfpProviderOperation,
 } from "./sfp-provider-operations";
 import { executeSfpOpenAiClassification } from "./sfp-live-provider-adapters";
+import { AI_MODELS } from "../../config/ai-models";
 
 const CALLER = "server/services/cro03/sfp-classification-bridge.ts";
 
@@ -35,7 +40,7 @@ const CALLER = "server/services/cro03/sfp-classification-bridge.ts";
  * classify, never as instructions, matching the CRO03C prompt-injection
  * defense pattern this codebase already uses.
  */
-const SFP_OPENAI_MODEL = "gpt-5";
+const SFP_OPENAI_MODEL = AI_MODELS.fast;
 const SFP_OPENAI_PROMPT_VERSION = "sfp-vertical-classification-v1";
 const SFP_OPENAI_MAX_COMPLETION_TOKENS = 400;
 // Conservative worst-case token reservation: fixed system/user framing plus
@@ -92,6 +97,7 @@ function validateSfpOpenAiClassification(value: unknown): SfpOpenAiValidated | n
 }
 
 async function defaultOpenAiClassify(input: {
+  runId: string;
   businessId: number;
   rawVertical: string | null;
   websiteEvidence: WebsiteClassificationEvidence | null;
@@ -113,15 +119,27 @@ async function defaultOpenAiClassify(input: {
   let reservation: Awaited<ReturnType<typeof reservePreCohortSfpProviderOperation>> | null = null;
   try {
     reservation = await reservePreCohortSfpProviderOperation({
+      runId: input.runId,
       businessId: input.businessId, provider: "openai_classification", purpose: "sfp_precohort_vertical_classification",
       idempotencyKey: `sfp-openai:${input.businessId}:${createHash("sha256").update(prompt).digest("hex")}`,
       actorId: "system:sfp-classification-bridge", units: SFP_OPENAI_RESERVED_TOKENS,
     });
-    const completion = await executeSfpOpenAiClassification({
-      businessId: input.businessId, model: SFP_OPENAI_MODEL, system: SFP_OPENAI_SYSTEM_PROMPT,
-      text: prompt, maxCompletionTokens: SFP_OPENAI_MAX_COMPLETION_TOKENS,
-      schema: SFP_OPENAI_RESPONSE_SCHEMA as any,
-    });
+    if (reservation.replayed) {
+      const prior = reservation.resultData;
+      if (!prior || !["target", "non_target", "review_required"].includes(String(prior.outcome))) return null;
+      return {
+        outcome: prior.outcome, confidence: Number(prior.confidence), reasonCodes: prior.reasonCodes ?? [],
+        modelVersion: String(prior.modelVersion ?? SFP_OPENAI_MODEL),
+        promptVersion: String(prior.promptVersion ?? SFP_OPENAI_PROMPT_VERSION),
+        costMicros: Number(prior.costMicros ?? 0),
+      };
+    }
+    const completion = await invokePreCohortSfpProviderTransport(reservation, () =>
+      executeSfpOpenAiClassification({
+        businessId: input.businessId, model: SFP_OPENAI_MODEL, system: SFP_OPENAI_SYSTEM_PROMPT,
+        text: prompt, maxCompletionTokens: SFP_OPENAI_MAX_COMPLETION_TOKENS,
+        schema: SFP_OPENAI_RESPONSE_SCHEMA as any,
+      }));
     if (completion.outcome === "invalid_output") {
       await settlePreCohortSfpProviderOperation({
         reservation, outcome: "failed", observation: "transport", businessId: input.businessId,
@@ -140,6 +158,11 @@ async function defaultOpenAiClassify(input: {
     const settled = await settlePreCohortSfpProviderOperation({
       reservation, outcome: "completed", observation: "unknown", businessId: input.businessId,
       settledUnits: completion.usage.totalTokens,
+      resultData: {
+        outcome: validated.outcome, confidence: validated.confidence, reasonCodes: validated.reasonCodes,
+        modelVersion: completion.model, promptVersion: SFP_OPENAI_PROMPT_VERSION,
+        costMicros: Math.max(0, Math.min(reservation.units, completion.usage.totalTokens)) * reservation.amountMicros,
+      },
     });
     return {
       outcome: validated.outcome, confidence: validated.confidence, reasonCodes: validated.reasonCodes,
@@ -165,6 +188,7 @@ async function defaultOpenAiClassify(input: {
 }
 
 async function defaultSerperDomainLookup(input: {
+  runId: string;
   businessId: number;
   idempotencyKey: string;
   actorId: string;
@@ -177,13 +201,23 @@ async function defaultSerperDomainLookup(input: {
   let reservation: Awaited<ReturnType<typeof reservePreCohortSfpProviderOperation>> | null = null;
   try {
     reservation = await reservePreCohortSfpProviderOperation({
+      runId: input.runId,
       businessId: input.businessId, provider: "serper", purpose: "sfp_precohort_official_domain_discovery",
       idempotencyKey: input.idempotencyKey, actorId: input.actorId, units: 4,
     });
-    const outcome = await lookupBusinessIdentity({
-      businessName: input.canonicalName, zip: input.postalCode, city: input.city, state: input.state,
-      address: input.streetAddress,
-    }, { caller: CALLER });
+    if (reservation.replayed) {
+      const prior = reservation.resultData ?? {};
+      return {
+        domain: prior.domain ?? null,
+        costMicros: Number(prior.costMicros ?? reservation.amountMicros * reservation.units),
+        reasonCode: String(prior.reasonCode ?? "SERPER_PRIOR_RESULT_REPLAYED"),
+      };
+    }
+    const outcome = await invokePreCohortSfpProviderTransport(reservation, () =>
+      lookupBusinessIdentity({
+        businessName: input.canonicalName, zip: input.postalCode, city: input.city, state: input.state,
+        address: input.streetAddress,
+      }, { caller: CALLER }));
     let domain: string | null = null;
     if (outcome.kind === "accepted_match" && outcome.accepted?.website) {
       try {
@@ -196,6 +230,11 @@ async function defaultSerperDomainLookup(input: {
     const settled = await settlePreCohortSfpProviderOperation({
       reservation, outcome: domain ? "completed" : "no_result", observation: "unknown",
       businessId: input.businessId, settledUnits: outcome.requestsUsed,
+      resultData: {
+        domain,
+        costMicros: Math.max(0, Math.min(reservation.units, Number(outcome.requestsUsed) || 0)) * reservation.amountMicros,
+        reasonCode: domain ? "SERPER_DOMAIN_DISCOVERED" : "SERPER_DOMAIN_NO_RESULT",
+      },
     });
     return { domain, costMicros: settled.settledMicros, reasonCode: domain ? "SERPER_DOMAIN_DISCOVERED" : "SERPER_DOMAIN_NO_RESULT" };
   } catch (error: any) {
@@ -320,6 +359,16 @@ function rowCounts(run: any) {
   return { processed, succeeded, failed, skipped };
 }
 
+async function renewClassificationRunClaim(runId: string, claimToken: string): Promise<void> {
+  const renewed = rows(await db.execute(sql`
+    UPDATE sfp_classification_runs SET lease_expires_at=NOW()+INTERVAL '30 minutes',updated_at=NOW()
+     WHERE id=${runId}::uuid AND state='running' AND claim_token=${claimToken}::uuid
+       AND lease_expires_at>NOW()
+    RETURNING id
+  `))[0];
+  if (!renewed) throw new Error("SFP_CLASSIFICATION_RUN_CLAIM_LOST");
+}
+
 export async function runPreCohortClassificationBridge(
   input: {
     programId: string;
@@ -345,6 +394,7 @@ export async function runPreCohortClassificationBridge(
      * by omitting it.
      */
     businessIdFilter?: number[];
+    previewSnapshotHash?: string;
   },
   deps: PreCohortClassificationBridgeDeps = {},
 ): Promise<{
@@ -362,10 +412,23 @@ export async function runPreCohortClassificationBridge(
     throw new Error("SFP_CLASSIFICATION_INVALID_CONFIG");
   }
   const targetIds = [...input.targetIds].map(String).sort();
+  if (input.previewSnapshotHash) {
+    const currentPreview = await previewPreCohortClassification(input.programId, {
+      businessIdFilter: input.businessIdFilter, maxBusinesses, targetIds,
+      allowGovernedSerperDomainDiscovery: input.allowGovernedSerperDomainDiscovery === true,
+    });
+    if (currentPreview.snapshotHash !== input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
+  }
   const businessIdFilterForHash = input.businessIdFilter && input.businessIdFilter.length > 0
     ? [...input.businessIdFilter].map(Number).sort((a, b) => a - b)
     : null;
-  const configHash = sha256(canonicalJson({ maxBusinesses, targetIds, policyVersion: input.policyVersion, businessIdFilter: businessIdFilterForHash }));
+  const configHash = sha256(canonicalJson({
+    programId: input.programId, maxBusinesses, targetIds, policyVersion: input.policyVersion,
+    businessIdFilter: businessIdFilterForHash, classifierVersion: CLASSIFIER_VERSION,
+    modelVersion: SFP_OPENAI_MODEL, promptVersion: SFP_OPENAI_PROMPT_VERSION,
+    allowGovernedSerperDomainDiscovery: input.allowGovernedSerperDomainDiscovery === true,
+    previewSnapshotHash: input.previewSnapshotHash ?? null,
+  }));
 
   // Serialize same-key calls, including recovery from a non-terminal run.
   const run = await db.transaction(async (tx) => {
@@ -373,23 +436,30 @@ export async function runPreCohortClassificationBridge(
     const existing = rows(await tx.execute(sql`
       SELECT * FROM sfp_classification_runs WHERE idempotency_key=${input.idempotencyKey} LIMIT 1
     `))[0];
-    if (existing && String(existing.config_hash) !== configHash) {
+    if (existing && (String(existing.config_hash) !== configHash || (existing.payload_hash && String(existing.payload_hash) !== configHash))) {
       throw new Error("SFP_CLASSIFICATION_DIVERGENT_REPLAY");
     }
     if (existing) {
       if (existing.state === "completed") return { row: existing, replayed: true };
+      if (existing.state === "running" && existing.lease_expires_at && new Date(existing.lease_expires_at).getTime() > Date.now()) {
+        throw new Error("SFP_CLASSIFICATION_RUN_ALREADY_RUNNING");
+      }
       const resumed = rows(await tx.execute(sql`
         UPDATE sfp_classification_runs
-           SET state='running', started_at=COALESCE(started_at,NOW()), updated_at=NOW()
-         WHERE id=${String(existing.id)}::uuid RETURNING *
+           SET state='running',claim_token=gen_random_uuid(),lease_expires_at=NOW()+INTERVAL '30 minutes',
+               started_at=COALESCE(started_at,NOW()), updated_at=NOW()
+         WHERE id=${String(existing.id)}::uuid
+           AND (lease_expires_at IS NULL OR lease_expires_at<NOW()) RETURNING *
       `))[0];
+      if (!resumed) throw new Error("SFP_CLASSIFICATION_RUN_ALREADY_RUNNING");
       return { row: resumed, replayed: false };
     }
     const inserted = rows(await tx.execute(sql`
       INSERT INTO sfp_classification_runs
-        (program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,config_hash,started_at)
+          (program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,config_hash,payload_hash,
+           claim_token,lease_expires_at,started_at)
       VALUES (${input.programId}::uuid,${input.idempotencyKey},${input.actorId},'running',${maxBusinesses},
-              ${input.policyVersion},${CLASSIFIER_VERSION},${configHash},NOW())
+               ${input.policyVersion},${CLASSIFIER_VERSION},${configHash},${configHash},gen_random_uuid(),NOW()+INTERVAL '30 minutes',NOW())
       RETURNING *
     `))[0];
     return { row: inserted, replayed: false };
@@ -458,26 +528,46 @@ export async function runPreCohortClassificationBridge(
   const suppressionExclusions = await getBusinessWideSuppressionExclusions(
     southFloridaRows.map((r: any) => Number(r.id)),
   );
+  const hardExclusions = await getSfpBusinessHardExclusionReasons(
+    southFloridaRows.map((r: any) => Number(r.id)),
+  );
+  const excludedRows = southFloridaRows.filter((r: any) =>
+    hardExclusions.has(Number(r.id)) || suppressionExclusions.has(Number(r.id)),
+  );
+  for (const excluded of excludedRows) {
+    const businessId = Number(excluded.id);
+    const reason = hardExclusions.get(businessId) ?? "business_wide_suppression";
+    await db.execute(sql`
+      INSERT INTO sfp_classification_items(run_id,business_id,state,outcome_code,completed_at,updated_at)
+      VALUES (${String(run.row.id)}::uuid,${businessId},'skipped',${`excluded:${reason}`},NOW(),NOW())
+      ON CONFLICT (run_id,business_id) DO UPDATE
+        SET state='skipped',outcome_code=EXCLUDED.outcome_code,completed_at=NOW(),updated_at=NOW()
+      WHERE sfp_classification_items.state='pending'
+    `);
+  }
   const selected = southFloridaRows
-    .filter((r: any) => !suppressionExclusions.has(Number(r.id)))
+    .filter((r: any) => !hardExclusions.has(Number(r.id)) && !suppressionExclusions.has(Number(r.id)))
     .slice(0, maxBusinesses);
 
   await db.execute(sql`
-    UPDATE sfp_classification_runs SET selected_count=${selected.length},updated_at=NOW()
+    UPDATE sfp_classification_runs SET selected_count=${selected.length},skipped_count=${excludedRows.length},updated_at=NOW()
      WHERE id=${String(run.row.id)}::uuid
   `);
   let targetCount = 0;
   let nonTargetCount = 0;
   let reviewRequiredCount = 0;
-  let skippedCount = 0;
+  let skippedCount = excludedRows.length;
   let failedCount = 0;
   let costMicros = 0;
+  const runClaimToken = String(run.row.claim_token);
 
   for (const business of selected) {
+    await renewClassificationRunClaim(String(run.row.id), runClaimToken);
     const businessId = Number(business.id);
+    let itemClaimToken: string | null = null;
     try {
       const item = rows(await db.execute(sql`
-        INSERT INTO sfp_classification_items(run_id,business_id,state)
+       INSERT INTO sfp_classification_items(run_id,business_id,state)
         VALUES (${String(run.row.id)}::uuid,${businessId},'pending')
         ON CONFLICT (run_id,business_id) DO UPDATE SET updated_at=NOW()
         RETURNING *
@@ -495,17 +585,32 @@ export async function runPreCohortClassificationBridge(
           continue;
         }
       }
+      const claimedItem = rows(await db.execute(sql`
+        UPDATE sfp_classification_items
+           SET state='running',claim_token=gen_random_uuid(),lease_expires_at=NOW()+INTERVAL '5 minutes',
+               updated_at=NOW()
+         WHERE id=${String(item.id)}::uuid
+           AND (state IN ('pending','failed') OR (state='running' AND lease_expires_at<NOW()))
+        RETURNING *
+      `))[0];
+      if (!claimedItem) {
+        skippedCount++;
+        continue;
+      }
+      itemClaimToken = String(claimedItem.claim_token);
       const rawVertical = business.vertical == null ? null : String(business.vertical);
       let domain = extractDomain(business.website_domain);
       let discoveryReason: string | null = null;
       let discoveryCostMicros = 0;
       if (!domain && input.allowGovernedSerperDomainDiscovery) {
-        const lookup = deps.serperDomainLookup ?? defaultSerperDomainLookup;
-        const result = await lookup({
+         const lookupInput = {
           businessId, idempotencyKey: `${input.idempotencyKey}:serper-domain:${businessId}`, actorId: input.actorId,
           canonicalName: String(business.canonical_name), city: business.city ?? null, state: business.state ?? null,
           postalCode: business.postal_code ?? null, streetAddress: business.street_address ?? null,
-        });
+         };
+         const result = deps.serperDomainLookup
+           ? await deps.serperDomainLookup(lookupInput)
+           : await defaultSerperDomainLookup({ ...lookupInput, runId: String(run.row.id) });
         domain = result.domain ?? domain;
         discoveryReason = result.reasonCode;
         discoveryCostMicros = result.costMicros;
@@ -546,9 +651,9 @@ export async function runPreCohortClassificationBridge(
       `))[0] as EvidenceRow | undefined;
       if (cached) {
         await db.execute(sql`
-          UPDATE sfp_classification_items SET state='completed',outcome_code=${cached.outcome},
-                 evidence_id=${cached.id}::uuid,completed_at=NOW(),updated_at=NOW()
-           WHERE id=${String(item.id)}::uuid
+           UPDATE sfp_classification_items SET state='completed',outcome_code=${cached.outcome},
+                  evidence_id=${cached.id}::uuid,claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+            WHERE id=${String(item.id)}::uuid AND claim_token=${itemClaimToken}::uuid
         `);
         if (cached.outcome === "target") targetCount++;
         else if (cached.outcome === "non_target") nonTargetCount++;
@@ -570,9 +675,11 @@ export async function runPreCohortClassificationBridge(
         reasonCodes.push("WEBSITE_EVIDENCE_TARGET_OVERLAP", `WEBSITE_CONTENT_HASH:${websiteEvidence.contentHash}`);
       }
       if (outcome === "review_required") {
-        const classify = deps.openAiClassify ?? defaultOpenAiClassify;
         try {
-          const openAiResult = await classify({ businessId, rawVertical, websiteEvidence, targetIds });
+           const classifyInput = { businessId, rawVertical, websiteEvidence, targetIds };
+           const openAiResult = deps.openAiClassify
+             ? await deps.openAiClassify(classifyInput)
+             : await defaultOpenAiClassify({ ...classifyInput, runId: String(run.row.id) });
           if (openAiResult) {
             outcome = openAiResult.outcome;
             confidence = openAiResult.confidence;
@@ -616,9 +723,9 @@ export async function runPreCohortClassificationBridge(
       `))[0]?.id;
       if (!evidenceId) throw new Error("SFP_CLASSIFICATION_EVIDENCE_PERSIST_FAILED");
       await db.execute(sql`
-        UPDATE sfp_classification_items SET state='completed',outcome_code=${outcome},
-               evidence_id=${String(evidenceId)}::uuid,completed_at=NOW(),updated_at=NOW()
-         WHERE id=${String(item.id)}::uuid
+         UPDATE sfp_classification_items SET state='completed',outcome_code=${outcome},
+                evidence_id=${String(evidenceId)}::uuid,claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+          WHERE id=${String(item.id)}::uuid AND claim_token=${itemClaimToken}::uuid
       `);
       costMicros += itemCost;
       if (outcome === "target") targetCount++;
@@ -627,9 +734,10 @@ export async function runPreCohortClassificationBridge(
     } catch {
       failedCount++;
       await db.execute(sql`
-        UPDATE sfp_classification_items SET state='failed',outcome_code='CLASSIFICATION_ITEM_FAILED',
-               completed_at=NOW(),updated_at=NOW()
-         WHERE run_id=${String(run.row.id)}::uuid AND business_id=${businessId}
+         UPDATE sfp_classification_items SET state='failed',outcome_code='CLASSIFICATION_ITEM_FAILED',
+                claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+          WHERE run_id=${String(run.row.id)}::uuid AND business_id=${businessId}
+            AND claim_token=${itemClaimToken}::uuid
       `).catch(() => {});
     }
   }
@@ -638,10 +746,10 @@ export async function runPreCohortClassificationBridge(
   const state = failedCount ? "partial" : "completed";
   await db.execute(sql`
     UPDATE sfp_classification_runs
-       SET state=${state},processed_count=${processed},succeeded_count=${processed - failedCount},
+       SET state=${state},claim_token=NULL,lease_expires_at=NULL,processed_count=${processed},succeeded_count=${processed - failedCount},
            failed_count=${failedCount},skipped_count=${skippedCount},settled_cost_micros=${costMicros},
            completed_at=NOW(),updated_at=NOW()
-     WHERE id=${String(run.row.id)}::uuid
+      WHERE id=${String(run.row.id)}::uuid AND claim_token=${runClaimToken}::uuid
   `);
   return {
     runId: String(run.row.id), replayed: false, processed, targetCount, nonTargetCount,
@@ -666,4 +774,88 @@ export async function getLatestAdmissibleClassificationEvidence(
     policyVersion: Number(evidence.policy_version),
     classifierVersion: Number(evidence.classifier_version),
   } : null;
+}
+
+/** Read-only Phase-A preview: no run, reservation, evidence, or provider I/O. */
+export async function previewPreCohortClassification(programId: string, options: {
+  businessIdFilter?: number[];
+  maxBusinesses?: number;
+  targetIds?: string[];
+  allowGovernedSerperDomainDiscovery?: boolean;
+} = {}) {
+  const program = rows(await db.execute(sql`
+    SELECT id,county_fips,vertical_ids,policy_version,is_active
+      FROM sfp_programs WHERE id=${programId}::uuid
+  `))[0];
+  if (!program) throw new Error("SFP_PROGRAM_NOT_FOUND");
+  const businessFilter = options.businessIdFilter?.length ? options.businessIdFilter.map(Number).filter(Number.isInteger) : null;
+  const candidates = rows(await db.execute(sql`
+    SELECT id,canonical_name,city,state,postal_code,street_address,website_domain,vertical
+      FROM businesses
+     WHERE record_class='canonical'
+       ${businessFilter ? sql`AND id=ANY(ARRAY[${sql.join(businessFilter.map((id) => sql`${id}`), sql`, `)}]::integer[])` : sql``}
+     ORDER BY id
+  `));
+  const ids = candidates.map((row: any) => Number(row.id));
+  const locationRows = ids.length ? rows(await db.execute(sql`
+    SELECT id,business_id,is_primary,city,state,postal_code,county_fips
+      FROM business_locations
+     WHERE business_id=ANY(ARRAY[${sql.join(ids.map((id: number) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY business_id,id
+  `)) : [];
+  const locations = new Map<number, LocationCandidateInput[]>();
+  for (const location of locationRows) {
+    const list = locations.get(Number(location.business_id)) ?? [];
+    list.push({ locationId: Number(location.id), isPrimary: Boolean(location.is_primary),
+      city: location.city ?? null, state: location.state ?? null, postalCode: location.postal_code ?? null,
+      countyFips: location.county_fips ?? null });
+    locations.set(Number(location.business_id), list);
+  }
+  const counties: string[] = Array.isArray(program.county_fips) ? program.county_fips : [];
+  const targets: string[] = Array.isArray(program.vertical_ids) ? program.vertical_ids : [];
+  const local = candidates.filter((business: any) => {
+    const facts = [...(locations.get(Number(business.id)) ?? []), {
+      locationId: null, isPrimary: false, city: business.city ?? null, state: business.state ?? null,
+      postalCode: business.postal_code ?? null, countyFips: null,
+    }];
+    const result = resolveGeographyFromCandidates(facts);
+    return result.outcome === "resolved" && counties.includes(String(result.countyFips));
+  });
+  const idsLocal = local.map((business: any) => Number(business.id));
+  const hardExclusions = await getSfpBusinessHardExclusionReasons(idsLocal);
+  const businessSuppression = await getBusinessWideSuppressionExclusions(idsLocal);
+  const currentEvidence = idsLocal.length ? rows(await db.execute(sql`
+    SELECT DISTINCT ON (business_id) business_id,outcome,evidence_hash
+      FROM sfp_classification_evidence
+     WHERE policy_version=${Number(program.policy_version)} AND terminal_state='completed'
+       AND business_id=ANY(ARRAY[${sql.join(idsLocal.map((id) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY business_id,created_at DESC,evidence_hash ASC
+  `)) : [];
+  const evidenceById = new Map(currentEvidence.map((r: any) => [Number(r.business_id), r]));
+  const eligibleForRun = local.filter((business: any) => {
+    const id = Number(business.id);
+    return !hardExclusions.has(id) && !businessSuppression.has(id) && !evidenceById.has(id);
+  });
+  const counts = { target: 0, nonTarget: 0, reviewRequired: 0 };
+  for (const business of local) {
+    const id = Number(business.id);
+    if (hardExclusions.has(id) || businessSuppression.has(id)) continue;
+    const prior = evidenceById.get(id);
+    const result = prior ? String((prior as any).outcome) : mapClassification(business.vertical ?? null, targets).outcome;
+    if (result === "target") counts.target++;
+    else if (result === "non_target") counts.nonTarget++;
+    else counts.reviewRequired++;
+  }
+  const maxBusinesses = options.maxBusinesses ?? 25;
+  const config = { programId, programPolicyVersion: Number(program.policy_version),
+    targetIds: [...(options.targetIds ?? targets)].map(String).sort(),
+    countyFips: counties, candidateIds: eligibleForRun.map((b: any) => Number(b.id)),
+    maxBusinesses,
+    allowGovernedSerperDomainDiscovery: options.allowGovernedSerperDomainDiscovery === true,
+    classifications: currentEvidence.map((e: any) => [e.business_id,e.evidence_hash,e.outcome]) };
+  return {
+    programId, programActive: Boolean(program.is_active), candidateCount: Math.min(eligibleForRun.length, maxBusinesses),
+    currentPolicyEvidenceCounts: counts, sampleBusinessIds: eligibleForRun.slice(0, 25).map((b: any) => Number(b.id)),
+    providerCallsAuthorized: false, snapshotHash: sha256(canonicalJson(config)),
+  };
 }

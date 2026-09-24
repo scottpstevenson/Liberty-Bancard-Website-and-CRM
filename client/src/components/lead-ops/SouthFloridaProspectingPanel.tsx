@@ -34,6 +34,7 @@ type SfpProgram = {
   isActive: boolean;
   recurringEnabled: boolean;
   activatedAt: string | null;
+  policyVersion?: number;
 };
 
 type SfpFunnel = {
@@ -160,6 +161,18 @@ type PaidWaterfallPreview = {
   providers: Array<{provider:string;credentialPresent:boolean;enabled:boolean;circuitState:string;executableForSfp:boolean;unitPriceMicros:number|null;role:string}>;
   note: string;
 };
+type SfpCohortCostPreview = {
+  snapshotHash: string;
+  selectedBusinessCount: number;
+  totalEstimatedCostMicros: number;
+  totalWorstCaseCostMicros: number;
+  lines: Array<{ provider: string; gapCountDrivingCall: number; estimatedCostMicros: number; worstCaseCostMicros: number }>;
+};
+type SfpPhaseAPreview = {
+  snapshotHash: string;
+  candidateCount: number;
+  currentPolicyEvidenceCounts: { target: number; nonTarget: number; reviewRequired: number };
+};
 
 // ── Helper ─────────────────────────────────────────────────────────────────────
 
@@ -197,6 +210,7 @@ export function SouthFloridaProspectingPanel() {
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
+  const [lastPaidResult, setLastPaidResult] = useState<any>(null);
   // Generated once per logical freeze attempt and retained across
   // retry/reload via localStorage (VFC-06) — a plain useState initializer
   // resets on every page reload, which silently turned every post-reload
@@ -210,6 +224,16 @@ export function SouthFloridaProspectingPanel() {
     } catch { /* localStorage unavailable — fall through to a fresh key */ }
     const fresh = crypto.randomUUID();
     try { window.localStorage.setItem(SFP_IDEMPOTENCY_STORAGE_KEY, fresh); } catch { /* best-effort */ }
+    return fresh;
+  });
+  const SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY = "sfp:discovery-idempotency-key";
+  const [discoveryIdempotencyKey, setDiscoveryIdempotencyKey] = useState<string>(() => {
+    try {
+      const stored = window.localStorage.getItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY);
+      if (stored) return stored;
+    } catch { /* localStorage unavailable — fall through to a fresh key */ }
+    const fresh = crypto.randomUUID();
+    try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, fresh); } catch { /* best-effort */ }
     return fresh;
   });
   const [voidReason, setVoidReason] = useState("");
@@ -275,6 +299,16 @@ export function SouthFloridaProspectingPanel() {
     enabled: !!activeRunId,
     retry: false,
   });
+  const cohortCostPreviewQuery = useQuery<SfpCohortCostPreview>({
+    queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`],
+    enabled: !!activeRunId,
+    retry: false,
+  });
+  const phaseAPreviewQuery = useQuery<SfpPhaseAPreview>({
+    queryKey: [`/api/lead-ops/sfp/programs/${programQuery.data?.id}/classification-preview`],
+    enabled: !!programQuery.data?.id,
+    retry: false,
+  });
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -325,6 +359,8 @@ export function SouthFloridaProspectingPanel() {
     const fresh = crypto.randomUUID();
     try { window.localStorage.setItem(SFP_IDEMPOTENCY_STORAGE_KEY, fresh); } catch { /* best-effort */ }
     setFreezeIdempotencyKey(fresh);
+    try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, fresh); } catch { /* best-effort */ }
+    setDiscoveryIdempotencyKey(fresh);
   };
 
   const voidRun = useMutation({
@@ -387,7 +423,8 @@ export function SouthFloridaProspectingPanel() {
     mutationFn: async () => {
       if(!activeRunId) throw new Error("No active run");
       const res=await apiRequest("POST",`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/serper`,{
-        idempotencyKey:`sfp-serper-${activeRunId}-${Date.now()}`,maxBusinesses:10,
+        idempotencyKey:`sfp-serper-${discoveryIdempotencyKey}`,maxBusinesses:10,
+        previewSnapshotHash:cohortCostPreviewQuery.data?.snapshotHash,
       });
       return res.json();
     },
@@ -395,8 +432,48 @@ export function SouthFloridaProspectingPanel() {
       toast({title:"Serper discovery completed",description:`${data.succeeded} matched · ${data.noResult} no result · ${data.failed} failed`});
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`]});
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`]});
+      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`]});
     },
     onError:(e:any)=>toast({title:"Paid discovery blocked",description:e?.message,variant:"destructive"}),
+  });
+  const runPaidWaterfall = useMutation({
+    mutationFn: async () => {
+      if (!activeRunId || !cohortCostPreviewQuery.data?.snapshotHash) throw new Error("Load the current cost preview before execution");
+      const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/person-identity`, {
+        idempotencyKey: `sfp-paid-${discoveryIdempotencyKey}`, maxBusinesses: 10,
+        previewSnapshotHash: cohortCostPreviewQuery.data.snapshotHash,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setLastPaidResult(data);
+      toast({ title: "Paid waterfall completed", description: `${data.succeeded} succeeded · ${data.failed} failed · ${data.skipped} skipped` });
+      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/candidates`] });
+    },
+    onError: (e: any) => toast({ title: "Paid waterfall blocked", description: e?.message, variant: "destructive" }),
+  });
+  const runPhaseAClassification = useMutation({
+    mutationFn: async () => {
+      const currentProgram = programQuery.data;
+      if (!currentProgram?.id || !phaseAPreviewQuery.data?.snapshotHash) throw new Error("Load the Phase A preview first");
+      const response = await apiRequest("POST", "/api/lead-ops/sfp/classification/run", {
+        programId: currentProgram.id,
+        idempotencyKey: `sfp-classification-${discoveryIdempotencyKey}`,
+        maxBusinesses: 25,
+        targetIds: currentProgram.verticalIds,
+        policyVersion: currentProgram.policyVersion ?? 1,
+        allowGovernedSerperDomainDiscovery: false,
+        previewSnapshotHash: phaseAPreviewQuery.data.snapshotHash,
+      });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Phase A classification complete", description: `${data.targetCount} target · ${data.nonTargetCount} non-target · ${data.reviewRequiredCount} review` });
+      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/programs/${programQuery.data?.id}/classification-preview`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/funnel"] });
+    },
+    onError: (e: any) => toast({ title: "Phase A run blocked", description: e?.message, variant: "destructive" }),
   });
 
   const stageForCampaign = useMutation({
@@ -525,6 +602,32 @@ export function SouthFloridaProspectingPanel() {
           </CardContent>
         )}
       </Card>
+
+      {program && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Phase A Classification (Read-only Preview)</CardTitle>
+            <CardDescription className="text-xs">Preview is read-only; classification runs are bounded, manual, and do not activate providers.</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span>{phaseAPreviewQuery.data?.candidateCount ?? "—"} businesses</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.target ?? 0} target</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.nonTarget ?? 0} non-target</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.reviewRequired ?? 0} review-required</span>
+              <Button size="sm" onClick={() => runPhaseAClassification.mutate()}
+                disabled={!phaseAPreviewQuery.data?.snapshotHash || runPhaseAClassification.isPending}>
+                {runPhaseAClassification.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                Run Phase A (max 25)
+              </Button>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={false} disabled aria-label="Recurring discovery authorization (off)" />
+              Recurring discovery authorization: OFF (scheduler unavailable in this workflow)
+            </label>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Step 3-4: Configure and freeze cohort */}
       <Card>
@@ -741,8 +844,7 @@ export function SouthFloridaProspectingPanel() {
               <Badge variant="secondary" className="text-xs">Explicit authorization required</Badge>
             </CardTitle>
             <CardDescription className="text-xs">
-              Start with Serper only for businesses that still have no email candidate. A matched
-              official domain is immediately passed back through the free first-party crawler.
+              Ordered waterfall: Serper, canonical free recrawl, Outscraper business identity, then Apollo decision-maker discovery.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
@@ -760,11 +862,35 @@ export function SouthFloridaProspectingPanel() {
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <span className="text-xs font-medium">{paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery</span>
               <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
-                disabled={runSerperDiscovery.isPending || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
+                disabled={runSerperDiscovery.isPending || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
                 {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
                 Authorize Serper batch (max 10)
               </Button>
+              <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
+                disabled={runPaidWaterfall.isPending || !cohortCostPreviewQuery.data?.snapshotHash}>
+                {runPaidWaterfall.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                Outscraper + Apollo (max 10)
+              </Button>
             </div>
+            {cohortCostPreviewQuery.data && (
+              <div className="mt-3 space-y-1 text-xs">
+                <div className="font-medium">Server-derived snapshot-bound cost preview · {cohortCostPreviewQuery.data.selectedBusinessCount} frozen members</div>
+                <div className="flex flex-wrap gap-3">
+                  {cohortCostPreviewQuery.data.lines.map((line) => (
+                    <span key={line.provider}>{line.provider}: {line.gapCountDrivingCall} gaps · est. {fmtMicros(line.estimatedCostMicros)} / max {fmtMicros(line.worstCaseCostMicros)}</span>
+                  ))}
+                </div>
+                <div>Estimated {fmtMicros(cohortCostPreviewQuery.data.totalEstimatedCostMicros)} · worst case {fmtMicros(cohortCostPreviewQuery.data.totalWorstCaseCostMicros)}</div>
+              </div>
+            )}
+            {lastPaidResult?.gapVectors?.length > 0 && (
+              <div className="mt-2 text-xs">
+                <div className="font-medium">Per-business gap vectors (before → after)</div>
+                {lastPaidResult.gapVectors.map((vector: any) => (
+                  <div key={vector.businessId}>Business {vector.businessId}: {vector.before.filter((g: any) => g.open).map((g: any) => g.dimension).join(", ") || "none"} → {vector.after.filter((g: any) => g.open).map((g: any) => g.dimension).join(", ") || "none"}</div>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground mt-2">
               {paidPreviewQuery.data?.note ?? "Loading provider controls…"}
             </p>

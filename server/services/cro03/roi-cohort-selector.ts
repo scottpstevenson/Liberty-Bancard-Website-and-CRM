@@ -38,6 +38,50 @@ import {
 } from "./sfp-geography-resolver";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
+const SFP_INACTIVE_ENTITY_STATUSES = [
+  "inactive", "closed", "dissolved", "revoked", "expired", "archived",
+] as const;
+
+/**
+ * Shared hard-exclusion predicate for pre-cohort Phase A and the frozen-cohort
+ * selector. This deliberately excludes only authoritative business-level
+ * facts; a single suppressed contact is never promoted to a business-wide
+ * exclusion.
+ */
+export async function getSfpBusinessHardExclusionReasons(
+  businessIds: number[],
+  executor: { execute: (q: any) => Promise<any> } = db,
+): Promise<Map<number, string>> {
+  if (businessIds.length === 0) return new Map();
+  const idList = sql.join(businessIds.map((id) => sql`${id}`), sql`, `);
+  const records = rows(await executor.execute(sql`
+    SELECT b.id AS business_id,
+      CASE
+        WHEN ${businessHasDbprLineageSql(sql`b.id`)} THEN 'dbpr'
+        WHEN LOWER(COALESCE(b.status,'')) = 'suppressed' THEN 'business_wide_suppression'
+        WHEN EXISTS (
+          SELECT 1 FROM sdr_merchants sm
+           WHERE sm.business_id=b.id AND sm.existing_customer_flag=TRUE
+        ) THEN 'existing_customer'
+        WHEN LOWER(COALESCE(b.status,'')) IN
+          (${sql.join(SFP_INACTIVE_ENTITY_STATUSES.map((status) => sql`${status}`), sql`, `)})
+          THEN 'inactive_entity'
+        WHEN LOWER(COALESCE(b.canonical_name,'')) LIKE '%test%'
+          OR LOWER(COALESCE(b.canonical_name,'')) LIKE '%demo%'
+          OR LOWER(COALESCE(b.canonical_name,'')) LIKE '%internal%'
+          THEN 'test_demo_internal'
+        ELSE NULL
+      END AS exclusion_reason
+      FROM businesses b
+     WHERE b.record_class='canonical'
+       AND b.id = ANY(ARRAY[${idList}]::integer[])
+  `));
+  return new Map<number, string>(
+    records.filter((r: any) => r.exclusion_reason).map((r: any) => [
+      Number(r.business_id), String(r.exclusion_reason),
+    ]),
+  );
+}
 
 /** Current ROI scoring algorithm version. Bump when formula changes. */
 export const ROI_SCORE_VERSION = 2 as const;
@@ -126,19 +170,10 @@ const SOUTH_FLORIDA_FIPS = Object.values(CRO03A_COUNTY_FIPS); // ["12011","12086
  * set of businesses — never a subject-scoped (single contact/candidate)
  * suppression. This intentionally mirrors, rather than duplicates the full
  * scan in, the aggregation this module already performs inside
- * selectRoiCohort: a business is suppression-excluded at the WHOLE-BUSINESS
- * level only when every one of its known contacts independently proves
- * unusable (the `suppressedBizIds` aggregation above) OR when a genuinely
- * authoritative business/domain-level rule fires directly.
- *
- * As of this revision, `businessWideRuleApplied` is hard-coded `false` at
- * every construction site in this module (see selectRoiCohort above) because
- * no standalone business/domain-level suppression rule exists yet — this
- * function therefore correctly returns an empty set today. It exists so
- * Phase A (south-florida-prospecting pre-cohort bridge, Task #1999) can
- * apply the exact same authoritative predicate the frozen-cohort selector
- * uses, rather than inventing a parallel one, and will automatically start
- * excluding businesses the moment a real business-wide rule is added here.
+ * selectRoiCohort: explicit businesses.status='suppressed' is the current
+ * authoritative business-wide rule. Contact/email suppressions remain
+ * subject-scoped and are never promoted by this function, even if every
+ * currently known contact is suppressed.
  */
 export async function getBusinessWideSuppressionExclusions(
   businessIds: number[],
@@ -147,38 +182,11 @@ export async function getBusinessWideSuppressionExclusions(
   if (businessIds.length === 0) return new Set();
   const idList = sql.join(businessIds.map((id) => sql`${id}`), sql`, `);
   const suppressionRows = rows(await executor.execute(sql`
-    SELECT c.id, c.business_id, c.email, c.opted_out_email, c.unsubscribe_status,
-           c.complaint_status, c.opt_out_date, c.opt_out_status, c.do_not_auto_contact,
-           c.suppression_reason
-      FROM contacts c
-     WHERE c.business_id = ANY(ARRAY[${idList}]::integer[])
-       AND (c.opted_out_email = TRUE OR c.unsubscribe_status = 'unsubscribed'
-            OR c.complaint_status = 'reported' OR c.opt_out_date IS NOT NULL
-            OR c.opt_out_status = 'opted_out' OR c.do_not_auto_contact = TRUE
-            OR c.suppression_reason IS NOT NULL)
+    SELECT id FROM businesses
+     WHERE id = ANY(ARRAY[${idList}]::integer[])
+       AND LOWER(COALESCE(status,'')) = 'suppressed'
   `));
-  const totalRows = rows(await executor.execute(sql`
-    SELECT business_id, COUNT(*)::int AS total FROM contacts
-     WHERE business_id = ANY(ARRAY[${idList}]::integer[]) GROUP BY business_id
-  `));
-  const totalByBiz = new Map<number, number>(totalRows.map((r: any) => [Number(r.business_id), Number(r.total)]));
-  const suppressedCountByBiz = new Map<number, number>();
-  for (const r of suppressionRows) {
-    const bizId = Number(r.business_id);
-    suppressedCountByBiz.set(bizId, (suppressedCountByBiz.get(bizId) ?? 0) + 1);
-  }
-  // Business-wide aggregation (every contact independently suppressed) is
-  // recorded in the audit trail as scope="business" but is NOT the same
-  // thing as an authoritative businessWideRuleApplied rule — Architecture
-  // correction 4 requires Phase A to exclude ONLY on a genuine
-  // business/domain-wide rule, never merely because every currently-known
-  // contact happens to be suppressed (a different, still-undiscovered
-  // contact for the same business could still be eligible). Since no such
-  // authoritative rule exists in this codebase yet (confirmed:
-  // businessWideRuleApplied is hard-coded false throughout this file), this
-  // always returns an empty set today — real business-wide rules, once
-  // added, must flow through this same function rather than a new one.
-  return new Set<number>();
+  return new Set<number>(suppressionRows.map((r: any) => Number(r.id)));
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -221,6 +229,14 @@ export interface RoiCandidateScore {
   /** Correction 5: subject-aware suppression/bounce evidence, set only when
    *  dispositionReason is excluded:suppressed or excluded:bounced_invalid_only. */
   suppressionEvidence: SuppressionEvidence | null;
+  classificationEvidence?: {
+    id: string;
+    evidenceHash: string;
+    policyVersion: number;
+    classifierVersion: number;
+    modelVersion: string | null;
+    promptVersion: string | null;
+  } | null;
 }
 
 export interface RoiCohortSelection {
@@ -341,12 +357,25 @@ export async function selectRoiCohort(opts: {
    *  (e.g. from db.transaction(async (tx) => ...)) so the entire scan runs
    *  against one consistent snapshot. Defaults to the shared pool. */
   executor?: { execute: (q: any) => Promise<any> };
+  /** Active Phase-A evidence policy. Missing evidence is intentionally neutral. */
+  classificationPolicyVersion?: number;
 } = {}): Promise<RoiCohortSelection> {
   const exec = opts.executor ?? db;
   const now = opts.now ?? new Date();
   const maxCohort = opts.maxCohort ?? 25;
   const countyFips = opts.countyFips ?? [...SOUTH_FLORIDA_FIPS];
   const verticalIds = opts.verticalIds ?? await loadPilotVerticalIds();
+  const classificationPolicyVersion = opts.classificationPolicyVersion ?? 1;
+  const phaseAEvidenceRows = rows(await exec.execute(sql`
+    SELECT DISTINCT ON (business_id) business_id,outcome,id,evidence_hash,policy_version,
+           classifier_version,model_version,prompt_version,confidence,reason_codes
+      FROM sfp_classification_evidence
+     WHERE policy_version=${classificationPolicyVersion} AND terminal_state='completed'
+     ORDER BY business_id,created_at DESC,evidence_hash ASC
+  `));
+  const phaseAEvidenceByBusiness = new Map<number, any>(
+    phaseAEvidenceRows.map((r: any) => [Number(r.business_id), r]),
+  );
 
   // ── Funnel counters ──────────────────────────────────────────────────────────
   const funnel = {
@@ -378,25 +407,6 @@ export async function selectRoiCohort(opts: {
   // keyset pagination on an indexed, immutable primary key does not.
   let lastSeenId = 0;
   const allScored: RoiCandidateScore[] = [];
-
-  // Pre-build DBPR-excluded business IDs set using the canonical DBPR-family
-  // predicate (server/services/dbpr.ts) rather than an ad hoc contact-source
-  // join, so this selector stays in lockstep with every other DBPR exclusion
-  // boundary in the codebase. Scoped to canonical businesses only.
-  const dbprBizRows = rows(await exec.execute(sql`
-    SELECT b.id AS business_id
-    FROM businesses b
-    WHERE b.record_class = 'canonical'
-      AND ${businessHasDbprLineageSql(sql`b.id`)}
-  `));
-  const dbprBizIds = new Set(dbprBizRows.map((r: any) => Number(r.business_id)));
-
-  // Pre-build existing-customer business IDs set
-  const custBizRows = rows(await exec.execute(sql`
-    SELECT DISTINCT business_id FROM sdr_merchants
-    WHERE existing_customer_flag = true AND business_id IS NOT NULL
-  `));
-  const custBizIds = new Set(custBizRows.map((r: any) => Number(r.business_id)));
 
   // Subject-scoped suppression: a suppression flag on ONE contact must not
   // blanket-exclude the whole business when another, non-suppressed contact
@@ -697,6 +707,15 @@ export async function selectRoiCohort(opts: {
     if (chunk.length === 0) break;
     lastSeenId = Number(chunk[chunk.length - 1].business_id);
     funnel.totalScanned += chunk.length;
+    const hardExclusions = await getSfpBusinessHardExclusionReasons(
+      chunk.map((r: any) => Number(r.business_id)), exec,
+    );
+    const dbprBizIds = new Set(
+      Array.from(hardExclusions).filter(([, reason]) => reason === "dbpr").map(([id]) => id),
+    );
+    const custBizIds = new Set(
+      Array.from(hardExclusions).filter(([, reason]) => reason === "existing_customer").map(([id]) => id),
+    );
 
     for (const row of chunk) {
       const bizId = Number(row.business_id);
@@ -720,6 +739,13 @@ export async function selectRoiCohort(opts: {
         continue;
       }
 
+      if (hardExclusions.get(bizId) === "business_wide_suppression") {
+        funnel.suppressed++;
+        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
+          "excluded:business_wide_suppression", false, "none", "unknown"));
+        continue;
+      }
+
       if (suppressedBizIds.has(bizId)) {
         funnel.suppressed++;
         const evidence = suppressionEvidenceByBiz.get(bizId) ?? null;
@@ -736,15 +762,14 @@ export async function selectRoiCohort(opts: {
       // The canonical status defaults to "new". Only explicit terminal or
       // operator-suppressed states are inactive; otherwise nearly every new
       // prospect would be discarded before enrichment.
-      if (["inactive", "closed", "dissolved", "revoked", "expired", "archived", "suppressed"].includes(businessStatus)) {
+      if (hardExclusions.get(bizId) === "inactive_entity") {
         funnel.inactiveEntity++;
         excluded.push(_buildCandidate(bizId,row,verticalIds,countyFips,fipsLocationMap,`excluded:inactive_entity:${businessStatus}`,false,"none","unknown"));
         continue;
       }
 
       // Test/demo/internal
-      const lowerName = canonicalName.toLowerCase();
-      if (lowerName.includes("test") || lowerName.includes("demo") || lowerName.includes("internal")) {
+      if (hardExclusions.get(bizId) === "test_demo_internal") {
         funnel.testDemoInternal++;
         excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:test_demo_internal", false, "none", "unknown"));
         continue;
@@ -791,8 +816,35 @@ export async function selectRoiCohort(opts: {
 
       if (geoEligible) funnel.southFlorida++;
 
+      // Phase-A decisions are authoritative exclusions for the active policy:
+      // target may proceed through the independent deterministic classifier,
+      // while non-target/review-required remain out pending a new decision.
+      const phaseAEvidence = phaseAEvidenceByBusiness.get(bizId);
+      if (phaseAEvidence?.outcome === "non_target" || phaseAEvidence?.outcome === "review_required") {
+        funnel.verticalUnresolved++;
+        excluded.push(_buildCandidate(
+          bizId, row, verticalIds, countyFips, fipsLocationMap,
+          `excluded:classification_${String(phaseAEvidence.outcome)}`,
+          false, geoSource, geoClass, geoResolution, null,
+        ));
+        continue;
+      }
+
       // ── Vertical filter (real five-target classifier — VFC-01) ───────────────
-      const classifierResult = classifyVertical(vertical, verticalIds);
+      let classifierResult = classifyVertical(vertical, verticalIds);
+      if (phaseAEvidence?.outcome === "target" &&
+          classifierResult.outcome !== "resolved_high" && classifierResult.outcome !== "resolved_medium") {
+        const reasons = typeof phaseAEvidence.reason_codes === "string"
+          ? JSON.parse(phaseAEvidence.reason_codes) : phaseAEvidence.reason_codes ?? [];
+        classifierResult = {
+          ...classifierResult,
+          version: Number(phaseAEvidence.classifier_version) as typeof CLASSIFIER_VERSION,
+          outcome: "resolved_medium",
+          confidence: Number(phaseAEvidence.confidence ?? 0.65),
+          evidenceHash: String(phaseAEvidence.evidence_hash),
+          reasons: [...reasons, "PHASE_A_CLASSIFICATION_EVIDENCE"],
+        };
+      }
       if (classifierResult.outcome === "not_target" || classifierResult.outcome === "unresolved") {
         funnel.verticalUnresolved++;
         excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${classifierResult.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, classifierResult));
@@ -869,6 +921,14 @@ export async function selectRoiCohort(opts: {
   }
 
   // ── Persist scores ──────────────────────────────────────────────────────────
+  for (const candidate of [...eligible, ...excluded, ...allScored]) {
+    const evidence = phaseAEvidenceByBusiness.get(candidate.canonicalBusinessId);
+    if (evidence) candidate.classificationEvidence = {
+      id: String(evidence.id), evidenceHash: String(evidence.evidence_hash),
+      policyVersion: Number(evidence.policy_version), classifierVersion: Number(evidence.classifier_version),
+      modelVersion: evidence.model_version ?? null, promptVersion: evidence.prompt_version ?? null,
+    };
+  }
   if (opts.persistScores && allScored.length > 0) {
     await persistRoiScores(allScored, opts.actorId ?? "system:roi-cohort-selector", exec);
   }

@@ -402,6 +402,7 @@ export const providerOperations = pgTable("provider_operations", {
   leaseExpiresAt: timestamp("lease_expires_at"),
   cancelRequestedAt: timestamp("cancel_requested_at"),
   failureCode: text("failure_code"),
+  sfpResultData: jsonb("sfp_result_data"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -9364,6 +9365,10 @@ export const sfpCohortDecisions = pgTable("sfp_cohort_decisions", {
   // points at one specific row, not at "the latest row for this business".
   classificationEvidenceId: uuid("classification_evidence_id").references(() => sfpClassificationEvidence.id, { onDelete: "restrict" }),
   classificationPolicyVersion: integer("classification_policy_version"),
+  classificationEvidenceHash: text("classification_evidence_hash"),
+  classificationModelVersion: text("classification_model_version"),
+  classificationPromptVersion: text("classification_prompt_version"),
+  classificationClassifierVersion: integer("classification_classifier_version"),
 }, (table) => [
   uniqueIndex("sfp_cohort_decisions_run_business_uidx").on(table.cohortRunId, table.businessId),
   index("idx_sfp_cohort_decisions_run_disposition").on(table.cohortRunId, table.disposition),
@@ -9457,6 +9462,7 @@ export const sfpStageRuns = pgTable("sfp_stage_runs", {
   skippedCount: integer("skipped_count").notNull().default(0), claimToken: uuid("claim_token"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }), lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
   terminalReason: text("terminal_reason"), authorization: jsonb("authorization"),
+  payloadHash: text("payload_hash"), previewSnapshotHash: text("preview_snapshot_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -9469,7 +9475,7 @@ export const sfpStageItems = pgTable("sfp_stage_items", {
   stageRunId: uuid("stage_run_id").notNull().references(() => sfpStageRuns.id, { onDelete: "cascade" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   provider: text("provider"), candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "set null" }),
-  // Task #1999 (C3): paid-provider (Outscraper/Apollo/paid-Serper) candidate evidence lives in its
+  // Task #1999 (C3): paid-provider (Outscraper/Apollo/Serper) evidence lives in its
   // own physically separate, encrypted table — never in free_discovery_candidates or
   // cro03c_candidate_evidence. `candidateId` stays scoped to free_discovery_candidates only.
   // Exactly one of candidateId / paidCandidateEvidenceId may be set, and only when
@@ -9480,6 +9486,7 @@ export const sfpStageItems = pgTable("sfp_stage_items", {
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(), claimToken: uuid("claim_token"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }), outcomeCode: text("outcome_code"),
   redactedResult: jsonb("redacted_result").notNull().default({}),
+  gapVector: jsonb("gap_vector"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), completedAt: timestamp("completed_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -9491,12 +9498,17 @@ export const sfpStageItems = pgTable("sfp_stage_items", {
     sql`
       NOT (candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NOT NULL)
       AND (
-        outcome_code IS DISTINCT FROM 'candidate_found'
+        provider NOT IN ('outscraper', 'apollo', 'serper')
+        OR outcome_code IS DISTINCT FROM 'candidate_found'
         OR ((candidate_id IS NOT NULL) <> (paid_candidate_evidence_id IS NOT NULL))
       )
       AND (
-        outcome_code = 'candidate_found'
+        provider NOT IN ('outscraper', 'apollo', 'serper')
+        OR outcome_code = 'candidate_found'
         OR (candidate_id IS NULL AND paid_candidate_evidence_id IS NULL)
+      )
+      AND (
+        provider IN ('outscraper', 'apollo', 'serper') OR paid_candidate_evidence_id IS NULL
       )
     `,
   ),
@@ -9517,6 +9529,9 @@ export const sfpClassificationRuns = pgTable("sfp_classification_runs", {
   policyVersion: integer("policy_version").notNull(),
   classifierVersion: integer("classifier_version").notNull(),
   configHash: text("config_hash").notNull(),
+  payloadHash: text("payload_hash"),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }).notNull().default(0),
   reservedCostMicros: bigint("reserved_cost_micros", { mode: "number" }).notNull().default(0),
   settledCostMicros: bigint("settled_cost_micros", { mode: "number" }).notNull().default(0),
@@ -9544,6 +9559,8 @@ export const sfpClassificationItems = pgTable("sfp_classification_items", {
   state: text("state").notNull().default("pending"),
   outcomeCode: text("outcome_code"),
   evidenceId: uuid("evidence_id").references(() => sfpClassificationEvidence.id, { onDelete: "restrict" }),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

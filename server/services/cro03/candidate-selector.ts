@@ -164,7 +164,7 @@ async function checkMxRecord(domain: string): Promise<MxCheckResult> {
 
 // ── MI-06: Winner selection tier ranking ───────────────────────────────────────
 // Lower tier value = higher priority.
-function candidateTier(row: {
+export function candidateTier(row: {
   subject_type: string;
   stage_key: string;
   apollo_match_confidence: string | null;

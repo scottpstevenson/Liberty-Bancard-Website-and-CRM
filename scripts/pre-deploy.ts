@@ -140,6 +140,12 @@ const MANDATORY_SUITES: Suite[] = [
     requiresDisposableTestDatabase: true,
   },
   {
+    name: "Task #1999 Post-Merge Audit Certification (migration contracts, evidence immutability/pinning, stale-preview fence, gap vector, and provider denial)",
+    script: "scripts/test-sfp1999-postmerge-audit-certification.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "South Florida Prospecting UI Idempotency Persistence (freeze key survives reload; only 'Start new cohort' rotates it)",
     script: "scripts/test-sfp-ui-idempotency-persistence.ts",
     timeoutSecs: 60,

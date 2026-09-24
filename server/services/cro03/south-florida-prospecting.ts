@@ -787,15 +787,17 @@ async function freezeCohortTx(
         // pre-cohort bridge has not run for it) simply pins null — freeze itself
         // does not depend on the bridge having run, since roi-cohort-selector's
         // own classifyVertical call already independently gates admission.
-        let classificationEvidenceId: string | null = null;
-        let classificationPolicyVersion: number | null = null;
-        try {
-          const admissible = await getLatestAdmissibleClassificationEvidence(c.canonicalBusinessId, SFP_POLICY_VERSION);
-          if (admissible) {
-            classificationEvidenceId = admissible.id;
-            classificationPolicyVersion = admissible.policyVersion;
-          }
-        } catch { /* non-fatal: pinning is best-effort when evidence doesn't exist yet */ }
+        let classificationEvidenceId: string | null = c.classificationEvidence?.id ?? null;
+        let classificationPolicyVersion: number | null = c.classificationEvidence?.policyVersion ?? null;
+        if (!classificationEvidenceId) {
+          try {
+            const admissible = await getLatestAdmissibleClassificationEvidence(c.canonicalBusinessId, SFP_POLICY_VERSION);
+            if (admissible) {
+              classificationEvidenceId = admissible.id;
+              classificationPolicyVersion = admissible.policyVersion;
+            }
+          } catch { /* evidence may not have been produced for this business */ }
+        }
         await tx.execute(sql`
           INSERT INTO sfp_cohort_decisions
             (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
@@ -806,7 +808,8 @@ async function freezeCohortTx(
              classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
              classifier_reasons, classifier_evidence_hash,
              geography_resolver_version, geography_outcome, geography_location_id, geography_reasons,
-             classification_evidence_id, classification_policy_version)
+              classification_evidence_id, classification_policy_version,classification_evidence_hash,
+              classification_model_version,classification_prompt_version,classification_classifier_version)
           VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
                   ${suppressionScope}, ${suppressionSubjectHash}, ${suppressionAuthority}, ${suppressionReasonCode},
                   ${suppressionEvidenceRef}, ${suppressionChannel}, ${suppressionSubjectsJson}::jsonb,
@@ -817,7 +820,9 @@ async function freezeCohortTx(
                   ${cls ? JSON.stringify(cls.reasons) : null}::jsonb, ${cls?.evidenceHash ?? null},
                   ${geo?.resolverVersion ?? null}, ${geo?.outcome ?? null}, ${geo?.winningLocationId ?? null},
                   ${geo ? JSON.stringify(geo.reasons) : null}::jsonb,
-                  ${classificationEvidenceId}::uuid, ${classificationPolicyVersion})
+                   ${classificationEvidenceId}::uuid, ${classificationPolicyVersion},
+                   ${c.classificationEvidence?.evidenceHash ?? null},${c.classificationEvidence?.modelVersion ?? null},
+                   ${c.classificationEvidence?.promptVersion ?? null},${c.classificationEvidence?.classifierVersion ?? null})
           ON CONFLICT (cohort_run_id, business_id) DO NOTHING
         `);
       }
@@ -867,6 +872,7 @@ async function freezeCohortTx(
                 confidence: c.classifierResult.confidence,
               }
             : null,
+          phaseAClassificationEvidence: c.classificationEvidence ?? null,
         })),
       );
       const cohortHash = createHash("sha256").update(manifest).digest("hex");

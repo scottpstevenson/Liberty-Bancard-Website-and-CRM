@@ -14,8 +14,11 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { getCurrentPricingSchedule, MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS, getAggregatePilotSpend } from "../mi09-pilot-authority";
 import { currentSfpUnitPrice } from "./sfp-provider-operations";
+import { computeContactLinkReuse } from "./sfp-contact-gap-vector";
+import { createHash } from "node:crypto";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
+const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 export type SfpCostPreviewProvider = "serper" | "outscraper" | "apollo" | "openai_classification";
 
@@ -162,5 +165,98 @@ export async function buildSfpCostPreview(gapCounts: SfpGapCounts): Promise<SfpC
     aggregateCapMicros: capMicros,
     aggregateRemainingMicros: remainingMicros,
     overCapIfWorstCase: (settledMicros + reservedMicros + totalWorstCaseCostMicros) > capMicros,
+  };
+}
+
+/** Actual frozen-cohort state used by both preview and the execution fence. */
+export async function getSfpCohortGapSnapshot(cohortRunId: string): Promise<{
+  gapCounts: SfpGapCounts;
+  snapshotHash: string;
+  businessIds: number[];
+}> {
+  const members = rows(await db.execute(sql`
+    SELECT m.business_id,b.website_domain,b.main_phone,b.street_address,b.city,
+           d.classifier_outcome,d.geography_outcome,d.suppression_subjects
+      FROM sfp_cohort_members m
+      JOIN businesses b ON b.id=m.business_id
+      LEFT JOIN sfp_cohort_decisions d
+        ON d.cohort_run_id=m.cohort_run_id AND d.business_id=m.business_id
+     WHERE m.cohort_run_id=${cohortRunId}::uuid
+     ORDER BY m.business_id
+  `));
+  const businessIds = members.map((m: any) => Number(m.business_id));
+  const reuse = await computeContactLinkReuse(businessIds);
+  const evidenceRows = rows(await db.execute(sql`
+    SELECT business_id,id,'free'::text AS source FROM free_discovery_candidates
+       WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+         AND field IN ('email','phone') AND disposition IN ('staged','validation_admitted','accepted')
+      UNION ALL
+      SELECT business_id,id,'paid'::text AS source FROM sfp_paid_candidate_evidence
+       WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+         AND field IN ('email','phone') AND disposition IN ('staged','accepted')
+  `));
+  const evidenceById = new Map<number, any[]>();
+  for (const evidence of evidenceRows) {
+    const list = evidenceById.get(Number(evidence.business_id)) ?? [];
+    list.push({ id: String(evidence.id), source: String(evidence.source) });
+    evidenceById.set(Number(evidence.business_id), list);
+  }
+  const suppressionRows = rows(await db.execute(sql`
+    SELECT business_id,id,email,unsubscribe_status,bounce_status,COALESCE(opted_out_email,FALSE) AS opted_out_email,
+           opt_out_status,complaint_status,do_not_auto_contact,suppression_reason
+      FROM contacts WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+       AND (COALESCE(opted_out_email,FALSE)=TRUE OR unsubscribe_status='unsubscribed'
+         OR bounce_status IN ('hard','blocked') OR opt_out_status='opted_out'
+         OR complaint_status='reported' OR do_not_auto_contact=TRUE OR suppression_reason IS NOT NULL)
+  `));
+  const suppressionsById = new Map<number, any[]>();
+  for (const contact of suppressionRows) {
+    const list = suppressionsById.get(Number(contact.business_id)) ?? [];
+    list.push({
+      subjectHash: sha256(String(contact.email ?? contact.id).trim().toLowerCase()),
+      reason: contact.bounce_status ? `bounce_${contact.bounce_status}`
+        : String(contact.unsubscribe_status ?? contact.opt_out_status ?? contact.suppression_reason ?? "suppressed"),
+    });
+    suppressionsById.set(Number(contact.business_id), list);
+  }
+  const gaps = members.map((m: any) => {
+    const link = reuse.get(Number(m.business_id)) ?? { hasVerifiedContact: false, hasVerifiedNamedDecisionMaker: false, verifiedLinks: [], skipReason: null };
+    return {
+      id: Number(m.business_id),
+      domain: m.website_domain ?? null,
+      identity: Boolean(m.main_phone && m.street_address && m.city),
+      named: link.hasVerifiedNamedDecisionMaker,
+      contact: Boolean(evidenceById.has(Number(m.business_id)) || link.hasVerifiedContact),
+      contactEvidence: evidenceById.get(Number(m.business_id)) ?? [],
+      verifiedLinks: link.verifiedLinks.map((verified) => ({
+        decisionId: verified.decisionId, contactNamePresent: Boolean(verified.contactName),
+        contactTitlePresent: Boolean(verified.contactTitle), emailPresent: Boolean(verified.contactEmail),
+      })),
+      subjectSuppressions: suppressionsById.get(Number(m.business_id)) ?? [],
+      classifier: String(m.classifier_outcome ?? ""),
+      geography: String(m.geography_outcome ?? ""),
+      suppressions: m.suppression_subjects ?? [],
+    };
+  });
+  const gapCounts: SfpGapCounts = {
+    officialDomainGapCount: gaps.filter((g) => !g.domain).length,
+    businessIdentityGapCount: gaps.filter((g) => !g.identity).length,
+    decisionMakerGapCount: gaps.filter((g) => !g.named).length,
+    ambiguousVerticalGapCount: 0,
+  };
+  return { gapCounts, snapshotHash: sha256(gaps), businessIds };
+}
+
+export async function buildSfpCohortCostPreview(cohortRunId: string): Promise<SfpCostPreview & {
+  cohortRunId: string;
+  snapshotHash: string;
+  selectedBusinessCount: number;
+}> {
+  const snapshot = await getSfpCohortGapSnapshot(cohortRunId);
+  return {
+    ...await buildSfpCostPreview(snapshot.gapCounts),
+    cohortRunId,
+    snapshotHash: snapshot.snapshotHash,
+    selectedBusinessCount: snapshot.businessIds.length,
   };
 }

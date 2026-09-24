@@ -81,9 +81,12 @@ export async function computeContactLinkReuse(
 
 export interface ComputeSfpGapVectorInput {
   businessId: number;
+  evidenceRefs?: Partial<Record<SfpGapDimension, string | null>>;
+  geographyResolved?: boolean;
   targetVerticalResolved: boolean;
   officialDomainKnown: boolean;
   hasFreeDiscoveryContactCandidate: boolean;
+  hasPaidContactCandidate?: boolean;
   verifiedLinkReuse: {
     hasVerifiedContact: boolean;
     hasVerifiedNamedDecisionMaker: boolean;
@@ -122,34 +125,36 @@ export async function computeSfpGapVector(
   const before: SfpGapVectorEntry[] = [
     {
       dimension: "geography",
-      open: false,
-      closedBy: "cohort_freeze_geography_resolution",
-      evidenceRef: null,
+      open: input.geographyResolved !== true,
+      closedBy: input.geographyResolved === true ? "cohort_freeze_geography_resolution" : null,
+      evidenceRef: input.evidenceRefs?.geography ?? null,
       subjectExclusions: [],
     },
     {
       dimension: "target_vertical",
       open: !input.targetVerticalResolved,
       closedBy: input.targetVerticalResolved ? "target_vertical_resolved" : null,
-      evidenceRef: null,
+      evidenceRef: input.evidenceRefs?.target_vertical ?? null,
       subjectExclusions: [],
     },
     {
       dimension: "official_domain",
       open: !input.officialDomainKnown,
       closedBy: input.officialDomainKnown ? "official_domain_known" : null,
-      evidenceRef: null,
+      evidenceRef: input.evidenceRefs?.official_domain ?? null,
       subjectExclusions: [],
     },
     {
       dimension: "business_contact_channel",
-      open: !(input.hasFreeDiscoveryContactCandidate || input.verifiedLinkReuse.hasVerifiedContact),
+      open: !(input.hasFreeDiscoveryContactCandidate || input.hasPaidContactCandidate || input.verifiedLinkReuse.hasVerifiedContact),
       closedBy: input.hasFreeDiscoveryContactCandidate
         ? "free_discovery_contact_candidate"
+        : input.hasPaidContactCandidate
+          ? "paid_candidate_evidence"
         : input.verifiedLinkReuse.hasVerifiedContact
           ? "verified_contact_reuse"
           : null,
-      evidenceRef: null,
+      evidenceRef: input.evidenceRefs?.business_contact_channel ?? null,
       subjectExclusions: exclusionsFor("business_contact_channel"),
     },
     {
@@ -158,7 +163,7 @@ export async function computeSfpGapVector(
       closedBy: input.verifiedLinkReuse.hasVerifiedNamedDecisionMaker
         ? "verified_named_decision_maker_reuse"
         : null,
-      evidenceRef: null,
+      evidenceRef: input.evidenceRefs?.named_decision_maker ?? null,
       subjectExclusions: exclusionsFor("named_decision_maker"),
     },
   ];

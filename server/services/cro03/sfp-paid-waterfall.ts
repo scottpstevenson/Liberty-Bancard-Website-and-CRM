@@ -1,11 +1,12 @@
 /** Bounded, ROI-ordered paid escalation for the South Florida program. */
 import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { db } from "../../db";
 import { getPaidProviderControls } from "../paid-provider-control";
 import { lookupBusinessIdentity } from "../serper-business-identity";
 import { runFreeEnrichmentLane } from "../free-enrichment-lane";
 import {
-  assertCurrentSfpProviderReservation,
+  invokeSfpProviderTransport,
   currentSfpUnitPrice,
   reserveSfpProviderOperation,
   settleSfpProviderOperation,
@@ -13,8 +14,127 @@ import {
 import { executeSfpApolloDiscovery, executeSfpOutscraperDiscovery } from "./sfp-live-provider-adapters";
 import { writeSfpPaidCandidateEvidence } from "./sfp-paid-evidence-writer";
 import { computeContactLinkReuse, computeSfpGapVector, stopConditionsMet } from "./sfp-contact-gap-vector";
+import { candidateTier, rejectEmailCandidate } from "./candidate-selector";
+import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
+const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+function canonicalDomain(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`)
+      .hostname.replace(/^www\./i, "").toLowerCase() || null;
+  } catch { return null; }
+}
+
+async function claimStageRun(stageRunId: string): Promise<string> {
+  const claimed = rows(await db.execute(sql`
+    UPDATE sfp_stage_runs
+       SET state='running',claim_token=gen_random_uuid(),lease_expires_at=NOW()+INTERVAL '30 minutes',
+           started_at=COALESCE(started_at,NOW()),last_heartbeat_at=NOW(),updated_at=NOW()
+     WHERE id=${stageRunId}::uuid AND (
+       state IN ('authorized','pending') OR (state='running' AND lease_expires_at<NOW())
+     )
+    RETURNING claim_token
+  `))[0];
+  if (!claimed) throw new Error("SFP_STAGE_ALREADY_RUNNING");
+  return String(claimed.claim_token);
+}
+
+async function renewStageRunClaim(stageRunId: string, claimToken: string): Promise<void> {
+  const renewed = rows(await db.execute(sql`
+    UPDATE sfp_stage_runs SET lease_expires_at=NOW()+INTERVAL '30 minutes',last_heartbeat_at=NOW(),updated_at=NOW()
+     WHERE id=${stageRunId}::uuid AND state='running' AND claim_token=${claimToken}::uuid
+       AND lease_expires_at>NOW()
+    RETURNING id
+  `))[0];
+  if (!renewed) throw new Error("SFP_STAGE_CLAIM_LOST");
+}
+
+async function buildCurrentGapVector(input: {
+  cohortRunId: string;
+  businessId: number;
+  reuse: {
+    hasVerifiedContact: boolean; hasVerifiedNamedDecisionMaker: boolean;
+    verifiedLinks?: Array<{ decisionId: string | number; contactName?: string | null; contactTitle?: string | null }>;
+  };
+  apolloSkipReason?: string | null;
+  outscraperSkipReason?: string | null;
+}) {
+  const decision = rows(await db.execute(sql`
+    SELECT classifier_outcome,geography_outcome,geography_location_id,suppression_subjects,
+           suppression_business_wide_rule_applied,classification_evidence_id
+      FROM sfp_cohort_decisions
+     WHERE cohort_run_id=${input.cohortRunId}::uuid AND business_id=${input.businessId}
+     LIMIT 1
+  `))[0];
+  const business = rows(await db.execute(sql`
+    SELECT website_domain,vertical FROM businesses WHERE id=${input.businessId}
+  `))[0];
+  const free = rows(await db.execute(sql`
+    SELECT id FROM free_discovery_candidates
+     WHERE business_id=${input.businessId} AND field IN ('email','phone')
+       AND disposition IN ('staged','validation_admitted','accepted')
+     ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  const paid = rows(await db.execute(sql`
+    SELECT id FROM sfp_paid_candidate_evidence
+     WHERE business_id=${input.businessId} AND field IN ('email','phone')
+       AND disposition IN ('staged','accepted')
+     ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  const contactRows = rows(await db.execute(sql`
+    SELECT id,email,COALESCE(opted_out_email,FALSE) AS opted_out_email,
+           unsubscribe_status,bounce_status
+      FROM contacts WHERE business_id=${input.businessId}
+       AND (COALESCE(opted_out_email,FALSE)=TRUE OR unsubscribe_status IN ('unsubscribed','complained')
+            OR bounce_status IN ('hard','blocked'))
+  `));
+  const domainEvidence = rows(await db.execute(sql`
+    SELECT id FROM sfp_paid_candidate_evidence
+     WHERE business_id=${input.businessId} AND provider='serper' AND field='website_domain'
+       AND disposition IN ('staged','accepted')
+     ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  let storedSuppressions: any[] = [];
+  try {
+    storedSuppressions = typeof decision?.suppression_subjects === "string"
+      ? JSON.parse(decision.suppression_subjects) : decision?.suppression_subjects ?? [];
+  } catch { storedSuppressions = []; }
+  const subjectSuppressions = [
+    ...storedSuppressions,
+    ...contactRows.map((contact: any) => ({
+      subjectHash: sha256(String(contact.email ?? contact.id).trim().toLowerCase()),
+      authority: "canonical_contact_suppression_state",
+      reasonCode: contact.bounce_status ? `bounce_${contact.bounce_status}` : String(contact.unsubscribe_status ?? "opted_out"),
+      channel: "email",
+      scope: "email" as const,
+    })),
+  ];
+  const verifiedDecision = input.reuse.verifiedLinks?.find((verified) => verified.contactName && verified.contactTitle);
+  return computeSfpGapVector({
+    businessId: input.businessId,
+    // Cohort membership itself is the persisted proof that the same resolver
+    // accepted geography at freeze time; retain its actual outcome evidence.
+    geographyResolved: Boolean(decision?.geography_outcome),
+    targetVerticalResolved: ["resolved_high", "resolved_medium"].includes(String(decision?.classifier_outcome)),
+    officialDomainKnown: Boolean(business?.website_domain),
+    hasFreeDiscoveryContactCandidate: Boolean(free),
+    hasPaidContactCandidate: Boolean(paid),
+    verifiedLinkReuse: input.reuse,
+    subjectSuppressions,
+    businessWideSuppressionApplied: Boolean(decision?.suppression_business_wide_rule_applied),
+    evidenceRefs: {
+      geography: decision?.geography_location_id == null ? null : `business_location:${decision.geography_location_id}`,
+      target_vertical: decision?.classification_evidence_id ? `classification_evidence:${decision.classification_evidence_id}` : null,
+      official_domain: domainEvidence?.id ? `paid_candidate_evidence:${domainEvidence.id}` : null,
+      business_contact_channel: paid?.id ? `paid_candidate_evidence:${paid.id}` : free?.id ? `free_discovery_candidate:${free.id}` : null,
+      named_decision_maker: verifiedDecision ? `decision:${verifiedDecision.decisionId}` : null,
+    },
+    apolloSkipReason: input.apolloSkipReason,
+    outscraperSkipReason: input.outscraperSkipReason,
+  });
+}
 
 export async function previewSfpPaidWaterfall(cohortRunId: string) {
   const cohort = rows(await db.execute(sql`
@@ -73,23 +193,49 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     idempotencyKey: string;
     actorId: string;
     maxBusinesses?: number;
+    previewSnapshotHash?: string;
   },
   deps: { fetchImpl?: typeof fetch } = {},
 ) {
   const maxBusinesses = Math.max(1, Math.min(25, Number(input.maxBusinesses ?? 10)));
+  if (!input.previewSnapshotHash) throw new Error("SFP_PREVIEW_REQUIRED");
+  const currentPreview = await getSfpCohortGapSnapshot(input.cohortRunId);
+  if (currentPreview.snapshotHash !== input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
+  const cohortHashRow = rows(await db.execute(sql`
+    SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${input.cohortRunId}::uuid
+  `))[0];
+  if (!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const payloadHash = sha256({
+    cohortRunId: input.cohortRunId, cohortHash: cohortHashRow.cohort_hash, maxBusinesses,
+    providers: ["serper", "outscraper", "apollo"],
+    order: ["serper", "free_first_party_recrawl", "outscraper", "apollo"],
+    previewSnapshotHash: input.previewSnapshotHash ?? null,
+  });
   const existing = rows(await db.execute(sql`
     SELECT * FROM sfp_stage_runs WHERE stage='paid_waterfall' AND idempotency_key=${input.idempotencyKey} LIMIT 1
   `))[0];
+  if (existing?.payload_hash && String(existing.payload_hash) !== payloadHash) {
+    throw new Error("SFP_IDEMPOTENCY_PAYLOAD_MISMATCH");
+  }
   if (existing?.state === "completed") {
     return { stageRunId: String(existing.id), replayed: true, processed: Number(existing.processed_count), succeeded: Number(existing.succeeded_count), failed: Number(existing.failed_count) };
   }
   const stage = existing ?? rows(await db.execute(sql`
-    INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,started_at,last_heartbeat_at)
-    VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["outscraper","apollo"]'::jsonb,NOW(),NOW())
+    INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
+    VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper","outscraper","apollo"]'::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
+  const stageClaimToken = await claimStageRun(String(stage.id));
+  await executeSfpSerperDiscovery({
+    cohortRunId: input.cohortRunId,
+    idempotencyKey: `${input.idempotencyKey}:serper`,
+    actorId: input.actorId,
+    maxBusinesses,
+    previewSnapshotHash: input.previewSnapshotHash,
+    internalSkipPreviewCheck: true,
+  });
   const targets = rows(await db.execute(sql`
-    SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,m.roi_score
+    SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,b.main_phone,m.roi_score
       FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
      WHERE m.cohort_run_id=${input.cohortRunId}::uuid
      ORDER BY m.roi_score DESC,b.id ASC LIMIT ${maxBusinesses}
@@ -102,11 +248,94 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   const gapVectors: Array<Awaited<ReturnType<typeof computeSfpGapVector>>> = [];
 
   for (const target of targets) {
+    await renewStageRunClaim(String(stage.id), stageClaimToken);
     const businessId = Number(target.id);
     const linkReuse = reuse.get(businessId) ?? { hasVerifiedContact: false, hasVerifiedNamedDecisionMaker: false, verifiedLinks: [], skipReason: null };
-    const domainKnown = Boolean(target.website_domain);
-    let apolloSkipReason: string | null = linkReuse.hasVerifiedNamedDecisionMaker ? linkReuse.skipReason : null;
-    let outscraperSkipReason: string | null = domainKnown ? "official_domain_already_known" : null;
+    const beforeVector = await buildCurrentGapVector({
+      cohortRunId: input.cohortRunId, businessId, reuse: linkReuse,
+    });
+    const gapOpen = (dimension: string) => beforeVector.before.some((entry) => entry.dimension === dimension && entry.open);
+    let apolloSkipReason: string | null = gapOpen("named_decision_maker") ? null : (linkReuse.skipReason ?? "named_decision_maker_gap_closed");
+    let outscraperSkipReason: string | null = gapOpen("business_contact_channel") ? null : "business_contact_gap_closed";
+
+    // Outscraper follows Serper plus the canonical free recrawl, and only runs
+    // while the business-identity dimension remains open.
+    if (!outscraperSkipReason) {
+      let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
+      try {
+        reservation = await reserveSfpProviderOperation({
+          stageRunId: String(stage.id), cohortRunId: input.cohortRunId, businessId,
+          provider: "outscraper", purpose: "sfp_business_identity_discovery",
+          idempotencyKey: `${input.idempotencyKey}:outscraper:${businessId}`, actorId: input.actorId, units: 1,
+        });
+        if (reservation.replayed) {
+          skipped++;
+          outscraperSkipReason = "outscraper_already_completed";
+        } else {
+        const result = await invokeSfpProviderTransport(reservation, () =>
+          executeSfpOutscraperDiscovery({
+            businessId, businessName: String(target.canonical_name), domain: target.website_domain,
+            city: target.city, state: target.state, resultLimit: 2,
+          }, deps));
+        const place = result.results?.[0];
+        const candidateValues: Array<{ field: string; value: string }> = [];
+        if (place) {
+          for (const field of ["name", "phone", "email", "website", "address", "city", "state", "zip", "category"] as const) {
+            const value = place[field];
+            if (typeof value === "string" && value.trim() &&
+                (field !== "email" || !rejectEmailCandidate(value, "business"))) candidateValues.push({ field, value: value.trim() });
+          }
+          for (const [field, value] of [["rating", place.rating], ["review_count", place.reviewCount], ["place_id", place.placeId]] as const) {
+            if (value !== null && value !== undefined && String(value).trim()) candidateValues.push({ field, value: String(value) });
+          }
+        }
+        if (candidateValues.length) {
+          const domain = canonicalDomain(place?.website);
+          const writes = await db.transaction(async (tx) => {
+            const evidence = [];
+            for (const item of candidateValues) {
+              evidence.push(await writeSfpPaidCandidateEvidence({
+                businessId, provider: "outscraper", field: item.field, value: item.value, subjectType: "business",
+                providerOperationId: reservation!.operationId, confidence: 70,
+                candidateMetadata: { source: "outscraper", placeId: place?.placeId ?? null },
+              }, tx));
+            }
+            await tx.execute(sql`
+              UPDATE businesses SET
+                website_domain=COALESCE(website_domain,${domain}),
+                main_phone=COALESCE(main_phone,${place?.phone ?? null}),
+                street_address=COALESCE(street_address,${place?.address ?? null}),
+                city=COALESCE(city,${place?.city ?? null}),
+                state=COALESCE(state,${place?.state ?? null}),
+                postal_code=COALESCE(postal_code,${place?.zip ?? null}),
+                updated_at=NOW()
+              WHERE id=${businessId}
+            `);
+            await settleSfpProviderOperation({
+              reservation: reservation!, outcome: "completed", observation: "unknown", businessId,
+            }, tx);
+            await tx.execute(sql`
+              UPDATE sfp_stage_items
+                 SET paid_candidate_evidence_id=${writes[0].id}::uuid,outcome_code='candidate_found',updated_at=NOW()
+               WHERE provider_operation_id=${reservation!.operationId}::uuid
+            `);
+            return evidence;
+          });
+          void writes;
+          succeeded++;
+        } else {
+          await settleSfpProviderOperation({ reservation, outcome: "no_result", observation: "no_result", businessId });
+          skipped++;
+        }
+        }
+      } catch (error: any) {
+        if (reservation) await settleSfpProviderOperation({ reservation, outcome: "failed", observation: "transport", businessId }).catch(() => {});
+        failed++;
+        outscraperSkipReason = `outscraper_failed:${String(error?.message ?? error).slice(0, 120)}`;
+      }
+    } else {
+      skipped++;
+    }
 
     if (!apolloSkipReason) {
       let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
@@ -116,25 +345,74 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
           provider: "apollo", purpose: "sfp_named_decision_maker_discovery",
           idempotencyKey: `${input.idempotencyKey}:apollo:${businessId}`, actorId: input.actorId, units: 1,
         });
-        await assertCurrentSfpProviderReservation(reservation);
-        const result = await executeSfpApolloDiscovery({
-          businessId, businessName: String(target.canonical_name), domain: target.website_domain,
-          city: target.city, state: target.state, address: target.street_address,
-        }, deps);
-        const person = result.outcome === "success" ? result.people?.[0] : null;
-        const ownerEmail = person?.ownerEmail ?? person?.email ?? null;
-        if (result.outcome === "success" && ownerEmail) {
-          const ownerName = [person?.ownerFirstName, person?.ownerLastName].filter(Boolean).join(" ") || null;
-          const write = await writeSfpPaidCandidateEvidence({
-            businessId, provider: "apollo", field: "email", value: ownerEmail, subjectType: "person",
-            providerOperationId: reservation.operationId, confidence: 75,
-            personNameEvidence: ownerName, personTitleEvidence: person?.ownerTitle ?? null,
+        if (reservation.replayed) { skipped++; continue; }
+        const result = await invokeSfpProviderTransport(reservation, () =>
+          executeSfpApolloDiscovery({
+            businessId, businessName: String(target.canonical_name), domain: target.website_domain,
+            city: target.city, state: target.state, address: target.street_address,
+          }, deps));
+        const people = result.outcome === "success" ? [...result.people] : [];
+        people.sort((a: any, b: any) => {
+          const tierA = candidateTier({ subject_type: "person", stage_key: "apollo",
+            apollo_match_confidence: "high", candidate_metadata: { ownerTitle: a.ownerTitle } });
+          const tierB = candidateTier({ subject_type: "person", stage_key: "apollo",
+            apollo_match_confidence: "high", candidate_metadata: { ownerTitle: b.ownerTitle } });
+          return tierA - tierB || Number(Boolean(b.ownerEmail ?? b.email)) - Number(Boolean(a.ownerEmail ?? a.email));
+        });
+        const candidateValues: Array<{ field: string; value: string; subjectType: "person" | "business"; personName?: string | null; personTitle?: string | null }> = [];
+        const org: any = result.outcome === "success" ? result.organization : null;
+        if (org) {
+          for (const [field, value] of [["phone", org.phone], ["email", org.email], ["website", org.website],
+            ["address", org.address], ["city", org.city], ["state", org.state], ["zip", org.zip], ["category", org.category]] as const) {
+            if (typeof value === "string" && value.trim() &&
+                (field !== "email" || !rejectEmailCandidate(value, "business"))) {
+              candidateValues.push({ field, value: value.trim(), subjectType: "business" });
+            }
+          }
+        }
+        for (const person of people as any[]) {
+          const name = [person.ownerFirstName, person.ownerLastName].filter(Boolean).join(" ") || person.name || null;
+          for (const [field, value] of [["email", person.ownerEmail ?? person.email], ["phone", person.ownerPhone ?? person.phone]] as const) {
+            if (typeof value !== "string" || !value.trim()) continue;
+            if (field === "email" && rejectEmailCandidate(value, "person")) continue;
+            candidateValues.push({ field, value: value.trim(), subjectType: "person", personName: name, personTitle: person.ownerTitle ?? null });
+          }
+        }
+        if (result.outcome === "success" && candidateValues.length) {
+          const writes = await db.transaction(async (tx) => {
+            const evidence = [];
+            for (const item of candidateValues) {
+              evidence.push(await writeSfpPaidCandidateEvidence({
+                businessId, provider: "apollo", field: item.field, value: item.value, subjectType: item.subjectType,
+                providerOperationId: reservation!.operationId, confidence: 75,
+                personNameEvidence: item.personName ?? null, personTitleEvidence: item.personTitle ?? null,
+                candidateMetadata: item.subjectType === "person"
+                  ? { apolloMatchConfidence: "high", ownerTitle: item.personTitle ?? null }
+                  : { source: "apollo", organizationId: result.outcome === "success" ? result.organizationId : null },
+              }, tx));
+            }
+            await tx.execute(sql`
+              UPDATE businesses SET
+                website_domain=COALESCE(website_domain,${canonicalDomain(org?.website)}),
+                main_phone=COALESCE(main_phone,${org?.phone ?? null}),
+                street_address=COALESCE(street_address,${org?.address ?? null}),
+                city=COALESCE(city,${org?.city ?? null}),
+                state=COALESCE(state,${org?.state ?? null}),
+                postal_code=COALESCE(postal_code,${org?.zip ?? null}),
+                updated_at=NOW()
+              WHERE id=${businessId}
+            `);
+            await settleSfpProviderOperation({ reservation: reservation!, outcome: "completed", observation: "unknown", businessId }, tx);
+            const emailReferenceIndex = candidateValues.findIndex((value) => value.field === "email");
+            await tx.execute(sql`
+              UPDATE sfp_stage_items
+                 SET paid_candidate_evidence_id=${writes[emailReferenceIndex >= 0 ? emailReferenceIndex : 0].id}::uuid,
+                     outcome_code='candidate_found',updated_at=NOW()
+               WHERE provider_operation_id=${reservation!.operationId}::uuid
+            `);
+            return evidence;
           });
-          await settleSfpProviderOperation({ reservation, outcome: "completed", observation: "unknown", businessId });
-          await db.execute(sql`
-            UPDATE sfp_stage_items SET paid_candidate_evidence_id=${write.id}::uuid,outcome_code='candidate_found',updated_at=NOW()
-             WHERE provider_operation_id=${reservation.operationId}::uuid
-          `);
+          void writes;
           succeeded++;
         } else {
           await settleSfpProviderOperation({ reservation, outcome: "no_result", observation: "no_result", businessId });
@@ -149,60 +427,33 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
       skipped++;
     }
 
-    if (!outscraperSkipReason) {
-      let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
-      try {
-        reservation = await reserveSfpProviderOperation({
-          stageRunId: String(stage.id), cohortRunId: input.cohortRunId, businessId,
-          provider: "outscraper", purpose: "sfp_business_identity_discovery",
-          idempotencyKey: `${input.idempotencyKey}:outscraper:${businessId}`, actorId: input.actorId, units: 1,
-        });
-        await assertCurrentSfpProviderReservation(reservation);
-        const result = await executeSfpOutscraperDiscovery({
-          businessId, businessName: String(target.canonical_name), city: target.city, state: target.state,
-        }, deps);
-        const place = result.results?.[0];
-        if (place?.phone) {
-          const write = await writeSfpPaidCandidateEvidence({
-            businessId, provider: "outscraper", field: "phone", value: place.phone, subjectType: "business",
-            providerOperationId: reservation.operationId, confidence: 70,
-          });
-          await settleSfpProviderOperation({ reservation, outcome: "completed", observation: "unknown", businessId });
-          await db.execute(sql`
-            UPDATE sfp_stage_items SET paid_candidate_evidence_id=${write.id}::uuid,outcome_code='candidate_found',updated_at=NOW()
-             WHERE provider_operation_id=${reservation.operationId}::uuid
-          `);
-          succeeded++;
-        } else {
-          await settleSfpProviderOperation({ reservation, outcome: "no_result", observation: "no_result", businessId });
-          skipped++;
-        }
-      } catch (error: any) {
-        if (reservation) await settleSfpProviderOperation({ reservation, outcome: "failed", observation: "transport", businessId }).catch(() => {});
-        failed++;
-        outscraperSkipReason = `outscraper_failed:${String(error?.message ?? error).slice(0, 120)}`;
-      }
-    } else {
-      skipped++;
-    }
-
-    gapVectors.push(await computeSfpGapVector({
-      businessId, targetVerticalResolved: true, officialDomainKnown: domainKnown,
-      hasFreeDiscoveryContactCandidate: linkReuse.hasVerifiedContact, verifiedLinkReuse: linkReuse,
-      subjectSuppressions: [], businessWideSuppressionApplied: false,
+    const afterVector = await buildCurrentGapVector({
+      cohortRunId: input.cohortRunId, businessId, reuse: linkReuse,
       apolloSkipReason, outscraperSkipReason,
-    }));
+    });
+    const completeVector = { ...afterVector, before: beforeVector.before };
+    gapVectors.push(completeVector);
+    await db.execute(sql`
+      INSERT INTO sfp_stage_items(stage_run_id,business_id,provider,state,outcome_code,gap_vector,redacted_result,completed_at)
+      VALUES(${String(stage.id)}::uuid,${businessId},'gap_vector','completed','gap_vector_recorded',
+             ${JSON.stringify(completeVector)}::jsonb,${JSON.stringify({ before: completeVector.before, after: completeVector.after })}::jsonb,NOW())
+      ON CONFLICT(stage_run_id,business_id,provider) DO UPDATE
+        SET gap_vector=EXCLUDED.gap_vector,redacted_result=EXCLUDED.redacted_result,updated_at=NOW()
+    `);
   }
 
   await db.execute(sql`
-    UPDATE sfp_stage_runs SET state=${failed ? "partial" : "completed"},processed_count=${targets.length},
+    UPDATE sfp_stage_runs SET state=${failed ? "partial" : "completed"},claim_token=NULL,lease_expires_at=NULL,processed_count=${targets.length},
            succeeded_count=${succeeded},failed_count=${failed},skipped_count=${skipped},
            completed_at=NOW(),last_heartbeat_at=NOW(),updated_at=NOW()
-     WHERE id=${String(stage.id)}::uuid
+     WHERE id=${String(stage.id)}::uuid AND claim_token=${stageClaimToken}::uuid
   `);
   return {
     stageRunId: String(stage.id), replayed: false, processed: targets.length, succeeded, failed, skipped,
-    gapVectors: gapVectors.map((v) => ({ businessId: v.businessId, stopConditions: stopConditionsMet(v), skippedProviderCalls: v.skippedProviderCalls })),
+    gapVectors: gapVectors.map((v) => ({
+      businessId: v.businessId, before: v.before, after: v.after,
+      stopConditions: stopConditionsMet(v), skippedProviderCalls: v.skippedProviderCalls,
+    })),
     zeroOutreachConfirmed: true,
   };
 }
@@ -212,27 +463,42 @@ export async function executeSfpSerperDiscovery(input: {
   idempotencyKey:string;
   actorId:string;
   maxBusinesses?:number;
+  previewSnapshotHash?:string;
+  internalSkipPreviewCheck?:boolean;
 }) {
   const maxBusinesses=Math.max(1,Math.min(25,Number(input.maxBusinesses ?? 10)));
+  if (!input.internalSkipPreviewCheck) {
+    if (!input.previewSnapshotHash) throw new Error("SFP_PREVIEW_REQUIRED");
+    const currentPreview=await getSfpCohortGapSnapshot(input.cohortRunId);
+    if(currentPreview.snapshotHash!==input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
+  }
+  const cohortHashRow=rows(await db.execute(sql`SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${input.cohortRunId}::uuid`))[0];
+  if(!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const payloadHash=sha256({cohortRunId:input.cohortRunId,cohortHash:cohortHashRow.cohort_hash,maxBusinesses,
+    providers:["serper"],order:["serper","free_first_party_recrawl"],previewSnapshotHash:input.previewSnapshotHash ?? null});
   const existing=rows(await db.execute(sql`
     SELECT * FROM sfp_stage_runs WHERE stage='paid_waterfall' AND idempotency_key=${input.idempotencyKey} LIMIT 1
   `))[0];
+  if(existing?.payload_hash && String(existing.payload_hash)!==payloadHash) throw new Error("SFP_IDEMPOTENCY_PAYLOAD_MISMATCH");
   if(existing?.state==='completed') return {stageRunId:String(existing.id),replayed:true,processed:Number(existing.processed_count),succeeded:Number(existing.succeeded_count),failed:Number(existing.failed_count)};
   const stage=existing ?? rows(await db.execute(sql`
-    INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,started_at,last_heartbeat_at)
-    VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper"]'::jsonb,NOW(),NOW())
+     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
+     VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper"]'::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
+   const stageClaimToken=await claimStageRun(String(stage.id));
   const targets=rows(await db.execute(sql`
     SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,m.roi_score
       FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
      WHERE m.cohort_run_id=${input.cohortRunId}::uuid
+       AND b.website_domain IS NULL
        AND NOT EXISTS (SELECT 1 FROM free_discovery_candidates c WHERE c.business_id=b.id AND c.disposition IN ('staged','validation_admitted'))
      ORDER BY m.roi_score DESC,b.id ASC LIMIT ${maxBusinesses}
   `));
   await db.execute(sql`UPDATE sfp_stage_runs SET selected_count=${targets.length},updated_at=NOW() WHERE id=${String(stage.id)}::uuid`);
   let succeeded=0,failed=0,noResult=0,freeRecrawlFailed=0;
   for(const target of targets){
+     await renewStageRunClaim(String(stage.id),stageClaimToken);
     let reservation:Awaited<ReturnType<typeof reserveSfpProviderOperation>>|null=null;
     try{
       reservation=await reserveSfpProviderOperation({
@@ -240,20 +506,45 @@ export async function executeSfpSerperDiscovery(input: {
         purpose:"sfp_official_domain_discovery",idempotencyKey:`${input.idempotencyKey}:serper:${target.id}`,
         actorId:input.actorId,units:4,
       });
-      await assertCurrentSfpProviderReservation(reservation);
-      const outcome=await lookupBusinessIdentity({
-        businessName:String(target.canonical_name),zip:target.postal_code,city:target.city,state:target.state,address:target.street_address,
-      },{caller:"server/services/cro03/sfp-paid-waterfall.ts"});
+      if(reservation.replayed){ noResult++; continue; }
+       const outcome=await invokeSfpProviderTransport(reservation,() => lookupBusinessIdentity({
+         businessName:String(target.canonical_name),zip:target.postal_code,city:target.city,state:target.state,address:target.street_address,
+       },{caller:"server/services/cro03/sfp-paid-waterfall.ts"}));
       if(outcome.kind==='accepted_match' && outcome.accepted){
+        const acceptedIdentity = outcome.accepted;
         let domain:string|null=null;
-        if(outcome.accepted.website){
-          try{domain=new URL(outcome.accepted.website.startsWith('http')?outcome.accepted.website:`https://${outcome.accepted.website}`).hostname.replace(/^www\./,'').toLowerCase();}catch{domain=null;}
+        if(acceptedIdentity.website){
+          try{domain=new URL(acceptedIdentity.website.startsWith('http')?acceptedIdentity.website:`https://${acceptedIdentity.website}`).hostname.replace(/^www\./,'').toLowerCase();}catch{domain=null;}
         }
-        await db.execute(sql`
-          UPDATE businesses SET website_domain=COALESCE(website_domain,${domain}),main_phone=COALESCE(main_phone,${outcome.accepted.phone}),updated_at=NOW()
-           WHERE id=${Number(target.id)}
-        `);
-        await settleSfpProviderOperation({reservation,outcome:'completed',observation:'unknown',businessId:Number(target.id),settledUnits:outcome.requestsUsed});
+        const identityCandidates = [
+          ...(domain ? [{ field: "website_domain", value: domain }] : []),
+          ...(acceptedIdentity.phone ? [{ field: "phone", value: acceptedIdentity.phone }] : []),
+        ];
+        await db.transaction(async (tx) => {
+          const evidence = [];
+          for (const candidate of identityCandidates) {
+            evidence.push(await writeSfpPaidCandidateEvidence({
+              businessId: Number(target.id), provider: "serper", field: candidate.field,
+              value: candidate.value, subjectType: "business", providerOperationId: reservation!.operationId,
+              confidence: 90, candidateMetadata: { acceptedIdentityMatch: true },
+            }, tx));
+          }
+          await tx.execute(sql`
+            UPDATE businesses SET website_domain=COALESCE(website_domain,${domain}),main_phone=COALESCE(main_phone,${acceptedIdentity.phone}),updated_at=NOW()
+             WHERE id=${Number(target.id)}
+          `);
+          await settleSfpProviderOperation({
+            reservation: reservation!,outcome:'completed',observation:'unknown',businessId:Number(target.id),
+            settledUnits:outcome.requestsUsed,resultData:{domain,reasonCode:domain ? "SERPER_DOMAIN_DISCOVERED" : "SERPER_IDENTITY_MATCH_NO_DOMAIN"},
+          },tx);
+          if (evidence.length) {
+            await tx.execute(sql`
+              UPDATE sfp_stage_items SET paid_candidate_evidence_id=${evidence[0].id}::uuid,
+                     outcome_code='candidate_found',updated_at=NOW()
+               WHERE provider_operation_id=${reservation!.operationId}::uuid
+            `);
+          }
+        });
         if(domain){
           // Domain discovery is a paid-stage success even if the subsequent
           // free crawl fails. The canonical free lane owns its own retry state.
@@ -264,7 +555,10 @@ export async function executeSfpSerperDiscovery(input: {
           noResult++;
         }
       }else{
-        await settleSfpProviderOperation({reservation,outcome:'no_result',observation:'no_result',businessId:Number(target.id),settledUnits:outcome.requestsUsed});
+        await settleSfpProviderOperation({
+          reservation,outcome:'no_result',observation:'no_result',businessId:Number(target.id),
+          settledUnits:outcome.requestsUsed,resultData:{domain:null,reasonCode:"SERPER_NO_RESULT"},
+        });
         noResult++;
       }
     }catch(error:any){
@@ -274,9 +568,9 @@ export async function executeSfpSerperDiscovery(input: {
     }
   }
   await db.execute(sql`
-    UPDATE sfp_stage_runs SET state=${failed?"partial":"completed"},processed_count=${targets.length},succeeded_count=${succeeded},
+    UPDATE sfp_stage_runs SET state=${failed?"partial":"completed"},claim_token=NULL,lease_expires_at=NULL,processed_count=${targets.length},succeeded_count=${succeeded},
            failed_count=${failed},skipped_count=${noResult},completed_at=NOW(),last_heartbeat_at=NOW(),updated_at=NOW()
-     WHERE id=${String(stage.id)}::uuid
+     WHERE id=${String(stage.id)}::uuid AND claim_token=${stageClaimToken}::uuid
   `);
   return {stageRunId:String(stage.id),replayed:false,processed:targets.length,succeeded,failed,noResult,freeRecrawlFailed,zeroOutreachConfirmed:true};
 }

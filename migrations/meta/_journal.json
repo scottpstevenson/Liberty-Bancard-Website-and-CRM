@@ -2044,6 +2044,13 @@
       "when": 1800000010400,
       "tag": "0287_sfp_classification_paid_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 292,
+      "version": "7",
+      "when": 1800000010500,
+      "tag": "0288_sfp1999_idempotency_gap_immutability",
+      "breakpoints": true
     }
   ]
 }

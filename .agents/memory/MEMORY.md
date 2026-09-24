@@ -87,7 +87,7 @@
 - [Processor boarding authority pattern](processor-boarding-authority.md) — activation snapshot is the single gate for all provider I/O; MIDs masked in every response.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — device_type/serial_number; POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
 - [Cohort Monitoring Preflight](cohort-monitoring-preflight.md) — GET /api/admin/outbound/cohort-metrics + live 4-tile panel; thresholds red>5% bounce, amber>1% opt-out; no automated alert yet.
-- [Appointment-to-Statement polling fix](appointment-statement-polling-fix.md) — pre-deploy flap from GHL rate-limit waits; fixed with pollUntil() (12s) for positive assertions.
+- [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL rate-limit flap fixed with pollUntil() (12s); also see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md) (port owned by dev server).
 - [Outbound Pause Authority (#1531)](outbound-pause-authority.md) — canonical pause read/write via OutboundPauseAuthority; workers start only after initializePauseControl() succeeds.
 - [Queue Coordinator & Hold Ledger (#1532)](queue-coordinator-hold-ledger.md) — logical_job_control_holds; unpause sweeps deferred enrollments; physical actuation WINBACK_OUTREACH only.
 - [ZeroBounce validation safety](zerobounce-validation-safety.md) — canonical predicates + retryable-failure guard; campaign engine attempts table is claim+source of truth (see zerobounce-campaign-engine.md).

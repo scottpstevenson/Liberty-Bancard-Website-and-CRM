@@ -149,6 +149,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "requires TEST_DATABASE_URL disposable database; classifier/geography resolver are pure functions; program is never activated and no free-discovery/paid-waterfall/validation/campaign-staging call is made; no provider transports are constructed",
   },
   {
+    name: "Task #1999 Post-Merge Audit Certification",
+    script: "scripts/test-sfp1999-postmerge-audit-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "requires TEST_DATABASE_URL disposable database; runs real migrations and database guards with CRO03 provider transport unset; no provider or outreach calls",
+  },
+  {
     name: "South Florida Prospecting UI Idempotency Persistence",
     script: "scripts/test-sfp-ui-idempotency-persistence.ts",
     capability: "deterministic-static",

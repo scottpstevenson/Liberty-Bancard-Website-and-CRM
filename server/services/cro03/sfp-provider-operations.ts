@@ -54,6 +54,54 @@ export interface SfpProviderReservation {
   amountMicros: number;
   units: number;
   stageRunId: string;
+  replayed?: boolean;
+  resultData?: any;
+}
+
+/**
+ * Shared in-transaction $50 ledger gate for Phase A and cohort-bound SFP
+ * reservations. The caller must commit the returned reservation in the same
+ * transaction as its provider operation/control-unit reservation. Exported
+ * for deterministic disposable-Postgres race certification; it performs no
+ * provider I/O and cannot authorize transport.
+ */
+export async function reserveSfpAggregateBudgetInTransaction(
+  executor: { execute: (query: any) => Promise<any> },
+  input: {
+    reservationMicros: number;
+    capMicros: number;
+    externalSpendMicros: number;
+    target: { kind: "precohort"; runId: string } | { kind: "cohort"; stageRunId: string };
+  },
+): Promise<void> {
+  await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('sfp-paid-budget',0))`);
+  const current = rows(await executor.execute(sql`
+    SELECT
+      (SELECT COALESCE(SUM(reserved_cost_micros+settled_cost_micros),0)
+         FROM sfp_stage_runs WHERE state IN ('authorized','running','completed','partial')) +
+      (SELECT COALESCE(SUM(reserved_cost_micros),0)
+         FROM sfp_classification_runs WHERE state IN ('authorized','running')) +
+      (SELECT COALESCE(SUM(cost_micros),0) FROM sfp_classification_evidence) AS micros
+  `))[0];
+  if (Number(current?.micros ?? 0) + input.externalSpendMicros + input.reservationMicros > input.capMicros) {
+    throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
+  }
+  const reserved = input.target.kind === "precohort"
+    ? rows(await executor.execute(sql`
+        UPDATE sfp_classification_runs
+           SET reserved_cost_micros=reserved_cost_micros+${input.reservationMicros},
+               state='running',updated_at=NOW()
+         WHERE id=${input.target.runId}::uuid AND state IN ('running','authorized')
+         RETURNING id
+      `))[0]
+    : rows(await executor.execute(sql`
+        UPDATE sfp_stage_runs
+           SET state='running',reserved_cost_micros=reserved_cost_micros+${input.reservationMicros},
+               last_heartbeat_at=NOW(),updated_at=NOW()
+         WHERE id=${input.target.stageRunId}::uuid AND state IN ('authorized','running')
+         RETURNING id
+      `))[0];
+  if (!reserved) throw new Error("SFP_BUDGET_RESERVATION_TARGET_NOT_RUNNING");
 }
 
 export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ attestationId: string }> {
@@ -115,31 +163,30 @@ export async function reserveSfpProviderOperation(input: {
   const controlProvider = CONTROL_KEY[input.provider];
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('sfp-paid-budget',0))`);
     const existing = rows(await tx.execute(sql`
-      SELECT id,claim_token,reserved_units,state FROM provider_operations
+       SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
        WHERE provider=${controlProvider} AND idempotency_key=${input.idempotencyKey} LIMIT 1
     `))[0];
     if (existing) {
-      if (!['running','completed'].includes(String(existing.state))) {
+      if (String(existing.state) === "running") throw new Error("SFP_PAID_BLOCKED:OPERATION_ALREADY_RUNNING");
+      if (String(existing.state) !== "completed") {
         throw new Error(`SFP_PAID_BLOCKED:OPERATION_${String(existing.state).toUpperCase()}`);
       }
       return {
-        operationId:String(existing.id),claimToken:String(existing.claim_token),provider:input.provider,
+        operationId:String(existing.id),claimToken:String(existing.claim_token ?? ""),provider:input.provider,
         controlProvider,amountMicros,units:Number(existing.reserved_units),stageRunId:input.stageRunId,
+        replayed:true,resultData:existing.sfp_result_data ?? null,
       };
     }
 
     // Include independent SFP reservations/settlements in the same fixed $50
     // ceiling used by the pilot authority; getAggregatePilotSpend cannot see
     // SFP rows because they are intentionally not MI-09 pilot effect links.
-    const sfpSpend = rows(await tx.execute(sql`
-      SELECT COALESCE(SUM(reserved_cost_micros+settled_cost_micros),0)::bigint AS micros
-        FROM sfp_stage_runs WHERE state IN ('authorized','running','completed','partial')
-    `))[0];
-    if (Number(sfpSpend?.micros ?? 0) + aggregate.settledMicros + aggregate.reservedMicros + reservedMicros > aggregate.capMicros) {
-      throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
-    }
+    await reserveSfpAggregateBudgetInTransaction(tx, {
+      reservationMicros: reservedMicros, capMicros: aggregate.capMicros,
+      externalSpendMicros: aggregate.settledMicros + aggregate.reservedMicros,
+      target: { kind: "cohort", stageRunId: input.stageRunId },
+    });
     const reserved = rows(await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=reserved_units+${units},version=version+1,updated_at=NOW()
        WHERE provider=${controlProvider} AND enabled=TRUE AND circuit_state='closed'
@@ -162,7 +209,7 @@ export async function reserveSfpProviderOperation(input: {
       VALUES (${String(operation.id)}::uuid,1,'pending',NOW())
     `);
     await tx.execute(sql`
-      UPDATE sfp_stage_runs SET state='running',reserved_cost_micros=reserved_cost_micros+${reservedMicros},
+      UPDATE sfp_stage_runs SET
              "authorization"=${JSON.stringify({ attestationId: authority.attestationId, budgetAuthorizedAt: budgetAuth.authorizedAt })}::jsonb,
              last_heartbeat_at=NOW(),updated_at=NOW()
        WHERE id=${input.stageRunId}::uuid
@@ -189,11 +236,10 @@ export async function reserveSfpProviderOperation(input: {
  * writes, but keeps every other real guardrail: provider transport flag,
  * credential presence, provider-manifest admission, paid-budget authorization,
  * the provider_controls enabled/circuit-breaker/local-budget gate, and the
- * shared aggregate cap. The aggregate-cap check additionally sums
- * `sfp_classification_evidence.cost_micros` (Phase A's own spend ledger) so
- * pre-cohort classification cost counts against the same cap as the
- * cohort-bound paid waterfall — this is the one place the two ledgers must
- * be added together, since neither table sees the other's rows.
+ * shared aggregate cap. The common in-transaction cap gate sums Phase A's
+ * outstanding reservations and `sfp_classification_evidence` spend together
+ * with cohort-bound stage-run reservations/settlements, so neither ledger
+ * can race the other past the shared ceiling.
  */
 export interface SfpPreCohortProviderReservation {
   operationId: string;
@@ -202,9 +248,13 @@ export interface SfpPreCohortProviderReservation {
   controlProvider: string;
   amountMicros: number;
   units: number;
+  runId: string;
+  replayed?: boolean;
+  resultData?: any;
 }
 
 export async function reservePreCohortSfpProviderOperation(input: {
+  runId: string;
   businessId: number;
   provider: SfpPaidProvider;
   purpose: string;
@@ -228,33 +278,29 @@ export async function reservePreCohortSfpProviderOperation(input: {
   const controlProvider = CONTROL_KEY[input.provider];
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('sfp-paid-budget',0))`);
     const existing = rows(await tx.execute(sql`
-      SELECT id,claim_token,reserved_units,state FROM provider_operations
+       SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
        WHERE provider=${controlProvider} AND idempotency_key=${input.idempotencyKey} LIMIT 1
     `))[0];
     if (existing) {
-      if (!['running','completed'].includes(String(existing.state))) {
+      if (String(existing.state) === "running") throw new Error("SFP_PAID_BLOCKED:OPERATION_ALREADY_RUNNING");
+      if (String(existing.state) !== "completed") {
         throw new Error(`SFP_PAID_BLOCKED:OPERATION_${String(existing.state).toUpperCase()}`);
       }
       return {
-        operationId:String(existing.id),claimToken:String(existing.claim_token),provider:input.provider,
-        controlProvider,amountMicros,units:Number(existing.reserved_units),
+        operationId:String(existing.id),claimToken:String(existing.claim_token ?? ""),provider:input.provider,
+        controlProvider,amountMicros,units:Number(existing.reserved_units),runId:input.runId,
+        replayed:true,resultData:existing.sfp_result_data ?? null,
       };
     }
     // Same $50 aggregate ceiling as reserveSfpProviderOperation, but also
     // folding in Phase A's own classification-evidence spend ledger (see
     // doc comment above) so both ledgers share one authoritative cap check.
-    const combinedSpend = rows(await tx.execute(sql`
-      SELECT
-        (SELECT COALESCE(SUM(reserved_cost_micros+settled_cost_micros),0)::bigint FROM sfp_stage_runs
-          WHERE state IN ('authorized','running','completed','partial')) +
-        (SELECT COALESCE(SUM(cost_micros),0)::bigint FROM sfp_classification_evidence)
-        AS micros
-    `))[0];
-    if (Number(combinedSpend?.micros ?? 0) + aggregate.settledMicros + aggregate.reservedMicros + reservedMicros > aggregate.capMicros) {
-      throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
-    }
+    await reserveSfpAggregateBudgetInTransaction(tx, {
+      reservationMicros: reservedMicros, capMicros: aggregate.capMicros,
+      externalSpendMicros: aggregate.settledMicros + aggregate.reservedMicros,
+      target: { kind: "precohort", runId: input.runId },
+    });
     const reserved = rows(await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=reserved_units+${units},version=version+1,updated_at=NOW()
        WHERE provider=${controlProvider} AND enabled=TRUE AND circuit_state='closed'
@@ -276,7 +322,7 @@ export async function reservePreCohortSfpProviderOperation(input: {
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
       VALUES (${String(operation.id)}::uuid,1,'pending',NOW())
     `);
-    return { operationId:String(operation.id),claimToken,provider:input.provider,controlProvider,amountMicros,units };
+    return { operationId:String(operation.id),claimToken,provider:input.provider,controlProvider,amountMicros,units,runId:input.runId };
   });
 }
 
@@ -286,20 +332,22 @@ export async function settlePreCohortSfpProviderOperation(input: {
   observation: "valid" | "invalid" | "risky" | "unknown" | "no_result" | "transport";
   businessId: number;
   settledUnits?: number;
-}): Promise<{ settledMicros: number }> {
+  resultData?: unknown;
+}, executor?: { execute: (query: any) => Promise<any> }): Promise<{ settledMicros: number }> {
   const completed = input.outcome === "completed" || input.outcome === "no_result";
   const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
   const settledMicros = settledUnits * input.reservation.amountMicros;
-  await db.transaction(async (tx) => {
+  const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
     await tx.execute(sql`
       UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
              retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
        WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1 RETURNING id
     `);
     await tx.execute(sql`
-      UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
+       UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
              billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
-             completed_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.operationId}::uuid
+              sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
+              claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.operationId}::uuid
     `);
     await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
@@ -315,8 +363,47 @@ export async function settlePreCohortSfpProviderOperation(input: {
       VALUES (${input.reservation.controlProvider},${input.reservation.operationId}::uuid,${attempt ? String(attempt.id) : null}::uuid,
               'business',${input.businessId},NULL,${input.observation},${!completed})
     `);
-  });
+    await tx.execute(sql`
+      UPDATE sfp_classification_runs
+         SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${input.reservation.amountMicros * input.reservation.units}),
+             settled_cost_micros=settled_cost_micros+${settledMicros},updated_at=NOW()
+       WHERE id=${input.reservation.runId}::uuid
+    `);
+  };
+  if (executor) await settle(executor);
+  else await db.transaction(settle);
   return { settledMicros };
+}
+
+/** Last-mile Phase-A fence, called immediately before any provider fetch. */
+export async function assertCurrentPreCohortSfpProviderReservation(
+  reservation: SfpPreCohortProviderReservation,
+): Promise<void> {
+  const current = rows(await db.execute(sql`
+    SELECT o.id
+      FROM provider_operations o
+      JOIN provider_controls pc ON pc.provider=o.provider
+     WHERE o.id=${reservation.operationId}::uuid
+       AND o.claim_token=${reservation.claimToken}::uuid
+       AND o.state='running' AND o.lease_expires_at>NOW()
+       AND o.cancel_requested_at IS NULL
+        AND pc.enabled=TRUE AND pc.circuit_state='closed'
+        AND EXISTS (
+          SELECT 1 FROM sfp_classification_runs r
+           WHERE r.id=${reservation.runId}::uuid AND r.state='running'
+             AND r.reserved_cost_micros>0
+        )
+  `))[0];
+  if (!current) throw new Error("SFP_PROVIDER_RESERVATION_INVALID");
+}
+
+/** Final fenced invocation used by provider paths and transport-spy certification. */
+export async function invokePreCohortSfpProviderTransport<T>(
+  reservation: SfpPreCohortProviderReservation,
+  transport: () => Promise<T>,
+): Promise<T> {
+  await assertCurrentPreCohortSfpProviderReservation(reservation);
+  return transport();
 }
 
 export async function assertCurrentSfpProviderReservation(reservation: SfpProviderReservation): Promise<void> {
@@ -338,6 +425,15 @@ export async function assertCurrentSfpProviderReservation(reservation: SfpProvid
   if (!current) throw new Error("SFP_PROVIDER_RESERVATION_INVALID");
 }
 
+/** Final fenced invocation used by cohort-bound paid provider paths. */
+export async function invokeSfpProviderTransport<T>(
+  reservation: SfpProviderReservation,
+  transport: () => Promise<T>,
+): Promise<T> {
+  await assertCurrentSfpProviderReservation(reservation);
+  return transport();
+}
+
 export async function settleSfpProviderOperation(input: {
   reservation: SfpProviderReservation;
   outcome: "completed" | "no_result" | "failed" | "ambiguous";
@@ -345,11 +441,12 @@ export async function settleSfpProviderOperation(input: {
   businessId: number;
   emailTokenHash?: string | null;
   settledUnits?: number;
-}): Promise<void> {
+  resultData?: unknown;
+}, executor?: { execute: (query: any) => Promise<any> }): Promise<void> {
   const completed = input.outcome === "completed" || input.outcome === "no_result";
   const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
   const settledMicros = settledUnits * input.reservation.amountMicros;
-  await db.transaction(async (tx) => {
+  const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
     const attempt = rows(await tx.execute(sql`
       UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
              retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
@@ -358,7 +455,8 @@ export async function settleSfpProviderOperation(input: {
     await tx.execute(sql`
       UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
              billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
-             completed_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.operationId}::uuid
+              sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
+              claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.operationId}::uuid
     `);
     await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
@@ -382,5 +480,7 @@ export async function settleSfpProviderOperation(input: {
              succeeded_count=succeeded_count+${completed ? 1 : 0},failed_count=failed_count+${completed ? 0 : 1},
              last_heartbeat_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.stageRunId}::uuid
     `);
-  });
+  };
+  if (executor) await settle(executor);
+  else await db.transaction(settle);
 }

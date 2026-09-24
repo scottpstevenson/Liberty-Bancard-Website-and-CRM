@@ -3104,14 +3104,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       res.json(await executeSfpSerperDiscovery({
         cohortRunId:String(req.params.runId),idempotencyKey,
         actorId:`admin:${(req as any).user?.id ?? "system"}`,maxBusinesses,
+        previewSnapshotHash: String(req.body?.previewSnapshotHash ?? ""),
       }));
     } catch(err:any){
-      const status=err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404 : 500;
+      const status=err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("PREVIEW") || err?.message?.includes("STALE") || err?.message?.includes("MISMATCH") ? 409 : 500;
       res.status(status).json({error:err?.message});
     }
   });
 
   // POST /api/lead-ops/sfp/classification/run — Phase A pre-cohort classification bridge (bounded, manual)
+  app.get("/api/lead-ops/sfp/programs/:programId/classification-preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewPreCohortClassification } = await import("../services/cro03/sfp-classification-bridge");
+      res.json(await previewPreCohortClassification(String(req.params.programId), { maxBusinesses: 25 }));
+    } catch (err: any) {
+      res.status(err?.message?.includes("NOT_FOUND") ? 404 : 500).json({ error: err?.message });
+    }
+  });
+
   // Body: { programId, idempotencyKey, maxBusinesses?, targetIds, policyVersion, allowGovernedSerperDomainDiscovery?, businessIdFilter? }
   app.post("/api/lead-ops/sfp/classification/run", requireRole("admin"), async (req, res) => {
     try {
@@ -3135,11 +3146,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         ? req.body.businessIdFilter.map(Number).filter((n: number) => Number.isInteger(n))
         : undefined;
       const { runPreCohortClassificationBridge } = await import("../services/cro03/sfp-classification-bridge");
+      const previewSnapshotHash = String(req.body?.previewSnapshotHash ?? "");
+      if (!previewSnapshotHash) return res.status(400).json({ error: "previewSnapshotHash is required" });
       const result = await runPreCohortClassificationBridge({
         programId, idempotencyKey, actorId: `admin:${(req as any).user?.id ?? "system"}`,
         maxBusinesses, targetIds, policyVersion,
         allowGovernedSerperDomainDiscovery: req.body?.allowGovernedSerperDomainDiscovery === true,
         businessIdFilter,
+        previewSnapshotHash,
       });
       res.json(result);
     } catch (err: any) {
@@ -3166,10 +3180,12 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const result = await executeSfpPaidPersonAndIdentityDiscovery({
         cohortRunId: String(req.params.runId), idempotencyKey,
         actorId: `admin:${(req as any).user?.id ?? "system"}`, maxBusinesses,
+        previewSnapshotHash: String(req.body?.previewSnapshotHash ?? ""),
       });
       res.json(result);
     } catch (err: any) {
-      const status = err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404 : 500;
+      const status = err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("PREVIEW") || err?.message?.includes("STALE") || err?.message?.includes("MISMATCH") ? 409 : 500;
       res.status(status).json({ error: err?.message });
     }
   });
@@ -3192,15 +3208,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // GET /api/lead-ops/sfp/runs/:runId/cost-preview — billing-semantic cost preview across all four providers
   app.get("/api/lead-ops/sfp/runs/:runId/cost-preview", requireRole("admin"), async (req, res) => {
     try {
-      const officialDomainGapCount = req.query.officialDomainGapCount == null ? 0 : Number(req.query.officialDomainGapCount);
-      const businessIdentityGapCount = req.query.businessIdentityGapCount == null ? 0 : Number(req.query.businessIdentityGapCount);
-      const decisionMakerGapCount = req.query.decisionMakerGapCount == null ? 0 : Number(req.query.decisionMakerGapCount);
-      const ambiguousVerticalGapCount = req.query.ambiguousVerticalGapCount == null ? 0 : Number(req.query.ambiguousVerticalGapCount);
-      for (const [name, val] of Object.entries({ officialDomainGapCount, businessIdentityGapCount, decisionMakerGapCount, ambiguousVerticalGapCount })) {
-        if (!Number.isInteger(val) || val < 0) return res.status(400).json({ error: `${name} must be a non-negative integer` });
-      }
-      const { buildSfpCostPreview } = await import("../services/cro03/sfp-cost-preview");
-      res.json(await buildSfpCostPreview({ officialDomainGapCount, businessIdentityGapCount, decisionMakerGapCount, ambiguousVerticalGapCount }));
+      const { buildSfpCohortCostPreview } = await import("../services/cro03/sfp-cost-preview");
+      res.json(await buildSfpCohortCostPreview(String(req.params.runId)));
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }

@@ -14,6 +14,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { seal, unseal } from "./candidate-evidence-service";
+import { candidateTier } from "./candidate-selector";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -41,10 +42,11 @@ export interface WriteSfpPaidCandidateEvidenceInput {
  */
 export async function writeSfpPaidCandidateEvidence(
   input: WriteSfpPaidCandidateEvidenceInput,
+  executor: { execute: (query: any) => Promise<any> } = db,
 ): Promise<{ id: string; wasNew: boolean }> {
   const { ciphertext, nonce, tag, normalizedValueHash, maskedValue } = seal(input.field, input.value);
   const confidence = Math.max(0, Math.min(100, Math.round(input.confidence ?? 0)));
-  const inserted = rows(await db.execute(sql`
+  const inserted = rows(await executor.execute(sql`
     INSERT INTO sfp_paid_candidate_evidence
       (business_id, provider, field, subject_type, provider_operation_id, disposition,
        confidence, envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version,
@@ -57,8 +59,7 @@ export async function writeSfpPaidCandidateEvidence(
        ${normalizedValueHash}, ${maskedValue}, ${input.personNameEvidence ?? null},
        ${input.personTitleEvidence ?? null},
        ${input.candidateMetadata ? JSON.stringify(input.candidateMetadata) : null}::jsonb)
-    ON CONFLICT (provider, business_id, field, normalized_value_hash) DO UPDATE
-      SET candidate_metadata = COALESCE(sfp_paid_candidate_evidence.candidate_metadata, EXCLUDED.candidate_metadata)
+     ON CONFLICT (provider, business_id, field, normalized_value_hash) DO NOTHING
     RETURNING id, (xmax = 0) AS was_inserted
   `));
   if (inserted.length > 0) {
@@ -66,7 +67,7 @@ export async function writeSfpPaidCandidateEvidence(
     const wasNew = row.was_inserted === true || row.was_inserted === "true" || row.was_inserted === "t";
     return { id: String(row.id), wasNew };
   }
-  const existing = rows(await db.execute(sql`
+  const existing = rows(await executor.execute(sql`
     SELECT id FROM sfp_paid_candidate_evidence
      WHERE provider = ${input.provider} AND business_id = ${input.businessId}
        AND field = ${input.field} AND normalized_value_hash = ${normalizedValueHash}
@@ -148,22 +149,74 @@ export interface UnifiedSfpCandidateView {
   duplicateOfEvidenceId: string | null;
 }
 
+export type SfpCandidateReference =
+  | { sourceKind: "free"; freeDiscoveryCandidateId: string }
+  | { sourceKind: "paid"; paidCandidateEvidenceId: string };
+
+export interface ResolvedSfpCandidateReference {
+  sourceKind: "free" | "paid";
+  evidenceId: string;
+  businessId: number;
+  field: string;
+  provider: string | null;
+  subjectType: string;
+  maskedValue: string;
+  confidence: number;
+  disposition: string;
+  createdAt: string;
+}
+
+/** Read-only lineage resolver for the Task #2000 handoff; no eligibility writes. */
+export async function resolveSfpCandidateReference(
+  reference: SfpCandidateReference,
+): Promise<ResolvedSfpCandidateReference | null> {
+  if (reference.sourceKind === "free") {
+    const row = rows(await db.execute(sql`
+      SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,created_at
+        FROM free_discovery_candidates WHERE id=${reference.freeDiscoveryCandidateId}::uuid LIMIT 1
+    `))[0];
+    return row ? {
+      sourceKind: "free", evidenceId: String(row.id), businessId: Number(row.business_id),
+       field: String(row.field), provider: String(row.source ?? "free"), subjectType: String(row.subject_type ?? "business"),
+      maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
+      createdAt: String(row.created_at),
+    } : null;
+  }
+  const row = rows(await db.execute(sql`
+    SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
+      FROM sfp_paid_candidate_evidence WHERE id=${reference.paidCandidateEvidenceId}::uuid LIMIT 1
+  `))[0];
+  return row ? {
+    sourceKind: "paid", evidenceId: String(row.id), businessId: Number(row.business_id),
+    field: String(row.field), provider: String(row.provider), subjectType: String(row.subject_type),
+    maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
+    createdAt: String(row.created_at),
+  } : null;
+}
+
 export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<UnifiedSfpCandidateView[]> {
   if (businessIds.length === 0) return [];
   const idList = sql.join(businessIds.map((id) => sql`${id}`), sql`, `);
   const freeRows = rows(await db.execute(sql`
-    SELECT id, business_id, field, disposition, confidence, masked_value, normalized_value_hash, created_at
+     SELECT id, business_id, field, source, subject_type,
+            disposition, confidence, masked_value, normalized_value_hash, created_at
       FROM free_discovery_candidates
      WHERE business_id = ANY(ARRAY[${idList}]::integer[])
   `));
   const paidRows = rows(await db.execute(sql`
-    SELECT id, business_id, provider, field, subject_type, disposition, confidence,
+     SELECT id, business_id, provider, field, subject_type, disposition, confidence, candidate_metadata,
            masked_value, normalized_value_hash, person_name_evidence, person_title_evidence, created_at
       FROM sfp_paid_candidate_evidence
      WHERE business_id = ANY(ARRAY[${idList}]::integer[])
      ORDER BY created_at DESC
   `));
-  type Internal = UnifiedSfpCandidateView & { _hashKey: string };
+  type Internal = UnifiedSfpCandidateView & {
+    _hashKey: string;
+    stageKey?: string;
+    subjectType?: string;
+    apolloMatchConfidence?: string | null;
+    candidateMetadata?: Record<string, unknown> | string | null;
+  };
   const unified: Internal[] = [
     ...freeRows.map((r: any) => ({
       sourceKind: "free" as const,
@@ -178,6 +231,10 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       personTitleEvidence: null,
       createdAt: String(r.created_at),
       duplicateOfEvidenceId: null,
+      stageKey: r.source ?? "free",
+      subjectType: r.subject_type ?? "business",
+      apolloMatchConfidence: null,
+      candidateMetadata: null,
       _hashKey: `${r.business_id}:${r.field}:${r.normalized_value_hash}`,
     })),
     ...paidRows.map((p: any) => ({
@@ -193,13 +250,29 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       personTitleEvidence: p.person_title_evidence ?? null,
       createdAt: String(p.created_at),
       duplicateOfEvidenceId: null,
+      stageKey: p.provider,
+      subjectType: p.subject_type,
+      apolloMatchConfidence: p.candidate_metadata?.apolloMatchConfidence ?? null,
+      candidateMetadata: p.candidate_metadata ?? null,
       _hashKey: `${p.business_id}:${p.field}:${p.normalized_value_hash}`,
     })),
   ];
-  // Rank deterministically: paid evidence (higher marginal cost, often more
-  // corroborated) before free, then by confidence desc, then createdAt desc.
+  const tier = (entry: Internal): number => {
+    const metadata = entry.candidateMetadata
+      ? (typeof entry.candidateMetadata === "object" ? entry.candidateMetadata : JSON.parse(String(entry.candidateMetadata)))
+      : null;
+    return candidateTier({
+      subject_type: String(entry.subjectType ?? "business"),
+      stage_key: String(entry.stageKey ?? (entry.provider ? String(entry.provider) : "")),
+      apollo_match_confidence: entry.apolloMatchConfidence ? String(entry.apolloMatchConfidence) : null,
+      candidate_metadata: metadata,
+    });
+  };
+  // Preserve all observations while ordering the likely actionable winner
+  // using the same tier model as canonical CRO-03C email selection.
   unified.sort((a, b) => {
-    if (a.sourceKind !== b.sourceKind) return a.sourceKind === "paid" ? -1 : 1;
+    const tierDelta = tier(a) - tier(b);
+    if (tierDelta !== 0) return tierDelta;
     if (b.confidence !== a.confidence) return b.confidence - a.confidence;
     return b.createdAt.localeCompare(a.createdAt);
   });
