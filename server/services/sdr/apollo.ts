@@ -82,6 +82,19 @@ export type ApolloOrganizationResolution =
 
 export type ApolloFetch = (url: string, init: RequestInit) => Promise<Response>;
 
+export interface ApolloSearchInput extends ApolloFrozenOrganizationIdentity {
+  /** Maximum aggregate result credits to consider for this search. */
+  resultCap?: number;
+}
+
+export type ApolloSearchResult = Cro03cApolloExecution;
+
+export interface ApolloSearchDependencies {
+  fetchImpl?: typeof fetch;
+  /** Optional generic checkpoint, invoked adjacent to every outbound request. */
+  beforeRequest?: () => Promise<void>;
+}
+
 /** A response-safe projection: provider payloads are never durable evidence. */
 export type ApolloRedactedBusiness = Omit<ApolloBusiness, "rawData">;
 
@@ -374,6 +387,124 @@ async function postApolloForCro03c(
 }
 
 /**
+ * Apollo organization + people search transport and parser. It deliberately
+ * has no CRO03C authority or persistence dependency; the optional checkpoint
+ * lets an owning execution boundary revalidate authority before each request.
+ */
+export async function performApolloSearch(
+  input: ApolloSearchInput,
+  deps: ApolloSearchDependencies = {},
+): Promise<ApolloSearchResult> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const resultCap = input.resultCap ?? 100;
+  if (!Number.isInteger(resultCap) || resultCap < 0 || resultCap > 100) {
+    throw new Error("CRO03C_RESULT_CAP_INVALID");
+  }
+  if (resultCap === 0 || !process.env.APOLLO_API_KEY) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+  }
+  const identityInput: ApolloFrozenOrganizationIdentity = {
+    domain: input.domain, legalName: input.legalName, dbaName: input.dbaName,
+    city: input.city, state: input.state, address: input.address,
+  };
+  const identity = normalizedFrozenIdentity(identityInput);
+  if (!identity.domain && !identity.legalName && !identity.dbaName) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+  }
+  await acquireToken();
+  const queries: Record<string, unknown>[] = [];
+  if (identity.domain) queries.push({ q_organization_domains: [identity.domain] });
+  if (identity.legalName) queries.push({ q_organization_name: identity.legalName });
+  if (identity.dbaName && identity.dbaName !== identity.legalName) queries.push({ q_organization_name: identity.dbaName });
+  const organizations = new Map<string, Record<string, any>>();
+  let creditedUnits = 0;
+  let providerReference: string | undefined;
+  const postSearch = async (path: string, body: Record<string, unknown>) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      await deps.beforeRequest?.();
+      const response = await fetchImpl(`${APOLLO_API_URL}${path}`, {
+        method: "POST", headers: apolloHeaders(), body: JSON.stringify(body), signal: controller.signal,
+      });
+      let responseBody: Record<string, any>;
+      try {
+        const parsed = await response.json();
+        responseBody = parsed && typeof parsed === "object" ? parsed : {};
+      } catch {
+        responseBody = {};
+      }
+      return { body: responseBody, billing: apolloCreditReceipt(response, responseBody), ok: response.ok };
+    } catch (err: any) {
+      if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+  for (const query of queries) {
+    const remainingUnits = resultCap - creditedUnits;
+    if (remainingUnits < 1) break;
+    const response = await postSearch(APOLLO_ORG_SEARCH_PATH, {
+      ...query,
+      ...(input.city || input.state
+        ? { organization_locations: [`${input.city?.trim() ?? ""}${input.city && input.state ? ", " : ""}${input.state?.trim() ?? ""}`] }
+        : {}),
+      page: 1, per_page: Math.min(resultCap, remainingUnits),
+    });
+    const responseCredits = response.billing.creditedUnits;
+    if (!response.ok || response.billing.certainty !== "exact" || responseCredits === undefined) {
+      return { outcome: "ambiguous", billing: response.billing };
+    }
+    creditedUnits += responseCredits;
+    providerReference ??= response.billing.providerReference;
+    for (const raw of Array.isArray(response.body.organizations) ? response.body.organizations : []) {
+      const id = raw && typeof raw === "object" ? organizationId(raw) : null;
+      if (id) organizations.set(id, raw);
+    }
+  }
+  const alternatives = [...organizations.values()].filter((raw) => isExactFrozenOrganizationMatch(raw, identity));
+  if (alternatives.length === 0) {
+    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits, providerReference } };
+  }
+  if (alternatives.length !== 1) {
+    return { outcome: "ambiguous", billing: { certainty: "exact", creditedUnits, providerReference } };
+  }
+  const selected = alternatives[0];
+  const selectedId = organizationId(selected)!;
+  const remainingUnits = resultCap - creditedUnits;
+  if (remainingUnits < 1) {
+    return {
+      outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
+      people: [], personIds: [], billing: { certainty: "exact", creditedUnits, providerReference },
+    };
+  }
+  const peopleResponse = await postSearch(APOLLO_PEOPLE_SEARCH_PATH, {
+    organization_ids: [selectedId], page: 1, per_page: Math.min(resultCap, remainingUnits),
+  });
+  const peopleCredits = peopleResponse.billing.creditedUnits;
+  if (!peopleResponse.ok || peopleResponse.billing.certainty !== "exact" || peopleCredits === undefined) {
+    return {
+      outcome: "ambiguous",
+      billing: peopleResponse.billing.certainty === "exact"
+        ? peopleResponse.billing
+        : { certainty: "unknown", providerReference: peopleResponse.billing.providerReference ?? providerReference },
+    };
+  }
+  creditedUnits += peopleCredits;
+  providerReference ??= peopleResponse.billing.providerReference;
+  const rawPeople = (Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [])
+    .filter((person: Record<string, any>) => organizationId(person.organization || person) === selectedId)
+    .slice(0, resultCap);
+  const people = rawPeople.map((person: Record<string, any>) => redactedApolloBusiness(parseApolloPerson(person)));
+  const personIds: string[] = rawPeople.map((person: Record<string, any>) => String(person.id ?? person.person_id ?? ""));
+  return {
+    outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
+    people, personIds, billing: { certainty: "exact", creditedUnits, providerReference },
+  };
+}
+
+/**
  * Canonical CRO03C Apollo entrypoint. It intentionally does not accept the
  * legacy worker context. The only caller may provide an injected transport for
  * deterministic tests; production supplies the global fetch explicitly.
@@ -403,93 +534,10 @@ export async function executeApolloForCro03c(
     return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
   }
 
-  const identity = normalizedFrozenIdentity(frozenIdentity);
-  if (!identity.domain && !identity.legalName && !identity.dbaName) {
-    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
-  }
-
-  await acquireToken();
-  const queries: Record<string, unknown>[] = [];
-  if (identity.domain) queries.push({ q_organization_domains: [identity.domain] });
-  if (identity.legalName) queries.push({ q_organization_name: identity.legalName });
-  if (identity.dbaName && identity.dbaName !== identity.legalName) queries.push({ q_organization_name: identity.dbaName });
-  const organizations = new Map<string, Record<string, any>>();
-  let creditedUnits = 0;
-  let providerReference: string | undefined;
-  for (const query of queries) {
-    // Apollo can bill returned results. Bound each individual request to the
-    // operation's *remaining* worst-case units before it leaves the process;
-    // do not issue a full-size second/third lookup and discover the aggregate
-    // cap only from its receipt afterwards.
-    const remainingUnits = resultCap - creditedUnits;
-    if (remainingUnits < 1) break;
-    const response = await postApolloForCro03c(context, APOLLO_ORG_SEARCH_PATH, {
-      ...query,
-      ...(frozenIdentity.city || frozenIdentity.state
-        ? { organization_locations: [`${frozenIdentity.city?.trim() ?? ""}${frozenIdentity.city && frozenIdentity.state ? ", " : ""}${frozenIdentity.state?.trim() ?? ""}`] }
-        : {}),
-      page: 1, per_page: Math.min(resultCap, remainingUnits),
-    }, fetchOverride);
-    const responseCredits = response.billing.creditedUnits;
-    if (!response.ok || response.billing.certainty !== "exact" || responseCredits === undefined) {
-      return { outcome: "ambiguous", billing: response.billing };
-    }
-    creditedUnits += responseCredits;
-    providerReference ??= response.billing.providerReference;
-    for (const raw of Array.isArray(response.body.organizations) ? response.body.organizations : []) {
-      const id = raw && typeof raw === "object" ? organizationId(raw) : null;
-      if (id) organizations.set(id, raw);
-    }
-  }
-  const alternatives = [...organizations.values()].filter((raw) => isExactFrozenOrganizationMatch(raw, identity));
-  if (alternatives.length === 0) {
-    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits, providerReference } };
-  }
-  if (alternatives.length !== 1) {
-    return { outcome: "ambiguous", billing: { certainty: "exact", creditedUnits, providerReference } };
-  }
-  const selected = alternatives[0];
-  const selectedId = organizationId(selected)!;
-  const remainingUnits = resultCap - creditedUnits;
-  // Organization resolution is still a successful, bounded operation when
-  // its reservation is exhausted. A people request would be new paid I/O and
-  // is therefore prohibited rather than sent optimistically.
-  if (remainingUnits < 1) {
-    return {
-      outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
-      people: [], personIds: [], billing: { certainty: "exact", creditedUnits, providerReference },
-    };
-  }
-  // People search (zero credits on standard plan, no email returned).
-  // Reveal is a separate credit-bearing call per person (see revealApolloPerson).
-  const peopleResponse = await postApolloForCro03c(context, APOLLO_PEOPLE_SEARCH_PATH, {
-    organization_ids: [selectedId], page: 1, per_page: Math.min(resultCap, remainingUnits),
-  }, fetchOverride);
-  const peopleCredits = peopleResponse.billing.creditedUnits;
-  if (!peopleResponse.ok || peopleResponse.billing.certainty !== "exact" || peopleCredits === undefined) {
-    return {
-      outcome: "ambiguous",
-      billing: peopleResponse.billing.certainty === "exact"
-        ? peopleResponse.billing
-        : { certainty: "unknown", providerReference: peopleResponse.billing.providerReference ?? providerReference },
-    };
-  }
-  creditedUnits += peopleCredits;
-  providerReference ??= peopleResponse.billing.providerReference;
-  const rawPeople = (Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [])
-    .filter((person: Record<string, any>) => organizationId(person.organization || person) === selectedId)
-    .slice(0, resultCap);
-  const people = rawPeople.map((person: Record<string, any>) => redactedApolloBusiness(parseApolloPerson(person)));
-  // MI-05: preserve opaque Apollo person IDs (non-PII) for the reveal step.
-  // IMPORTANT: keep empty-string placeholders for persons without an ID so
-  // personIds[] stays parallel with people[]. The executor zips by index; a
-  // missing ID must not shift subsequent valid IDs to pair with the wrong title.
-  const personIds: string[] = rawPeople
-    .map((person: Record<string, any>) => String(person.id ?? person.person_id ?? ""));
-  return {
-    outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
-    people, personIds, billing: { certainty: "exact", creditedUnits, providerReference },
-  };
+  return performApolloSearch(
+    { ...frozenIdentity, resultCap },
+    { fetchImpl: fetchOverride as typeof fetch, beforeRequest: () => assertCro03cAuthorityBeforeIo(context) },
+  );
 }
 
 /**

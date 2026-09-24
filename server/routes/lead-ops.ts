@@ -3111,6 +3111,179 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/classification/run — Phase A pre-cohort classification bridge (bounded, manual)
+  // Body: { programId, idempotencyKey, maxBusinesses?, targetIds, policyVersion, allowGovernedSerperDomainDiscovery?, businessIdFilter? }
+  app.post("/api/lead-ops/sfp/classification/run", requireRole("admin"), async (req, res) => {
+    try {
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey || idempotencyKey.length > 200) {
+        return res.status(400).json({ error: "idempotencyKey is required (max 200 chars)" });
+      }
+      const programId = String(req.body?.programId ?? "");
+      if (!programId) return res.status(400).json({ error: "programId is required" });
+      const targetIds = Array.isArray(req.body?.targetIds) ? req.body.targetIds.map(String) : [];
+      if (targetIds.length === 0) return res.status(400).json({ error: "targetIds must be a non-empty array" });
+      const policyVersion = Number(req.body?.policyVersion);
+      if (!Number.isInteger(policyVersion) || policyVersion < 1) {
+        return res.status(400).json({ error: "policyVersion must be a positive integer" });
+      }
+      const maxBusinesses = req.body?.maxBusinesses == null ? 25 : Number(req.body.maxBusinesses);
+      if (!Number.isInteger(maxBusinesses) || maxBusinesses < 1 || maxBusinesses > 100) {
+        return res.status(400).json({ error: "maxBusinesses must be an integer between 1 and 100" });
+      }
+      const businessIdFilter = Array.isArray(req.body?.businessIdFilter)
+        ? req.body.businessIdFilter.map(Number).filter((n: number) => Number.isInteger(n))
+        : undefined;
+      const { runPreCohortClassificationBridge } = await import("../services/cro03/sfp-classification-bridge");
+      const result = await runPreCohortClassificationBridge({
+        programId, idempotencyKey, actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        maxBusinesses, targetIds, policyVersion,
+        allowGovernedSerperDomainDiscovery: req.body?.allowGovernedSerperDomainDiscovery === true,
+        businessIdFilter,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("INVALID_CONFIG") ? 400
+        : err?.message?.includes("PREVIOUSLY_FAILED") || err?.message?.includes("MISMATCH") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity — Apollo/Outscraper waterfall (bounded, manual)
+  // Body: { idempotencyKey, maxBusinesses? }
+  app.post("/api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity", requireRole("admin"), async (req, res) => {
+    try {
+      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
+      if (!idempotencyKey || idempotencyKey.length > 200) {
+        return res.status(400).json({ error: "idempotencyKey is required (max 200 chars)" });
+      }
+      const maxBusinesses = req.body?.maxBusinesses == null ? 10 : Number(req.body.maxBusinesses);
+      if (!Number.isInteger(maxBusinesses) || maxBusinesses < 1 || maxBusinesses > 25) {
+        return res.status(400).json({ error: "maxBusinesses must be an integer between 1 and 25" });
+      }
+      const { executeSfpPaidPersonAndIdentityDiscovery } = await import("../services/cro03/sfp-paid-waterfall");
+      const result = await executeSfpPaidPersonAndIdentityDiscovery({
+        cohortRunId: String(req.params.runId), idempotencyKey,
+        actorId: `admin:${(req as any).user?.id ?? "system"}`, maxBusinesses,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/candidates — unified free+paid candidate read contract (Task #2000 consumer)
+  app.get("/api/lead-ops/sfp/runs/:runId/candidates", requireRole("admin"), async (req, res) => {
+    try {
+      const memberResult: any = await db.execute(sql`
+        SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id=${String(req.params.runId)}::uuid
+      `);
+      const memberRows: any[] = (memberResult as any).rows ?? memberResult;
+      const businessIds = memberRows.map((m: any) => Number(m.business_id));
+      const { getUnifiedSfpCandidates } = await import("../services/cro03/sfp-paid-evidence-writer");
+      res.json({ businessCount: businessIds.length, candidates: await getUnifiedSfpCandidates(businessIds) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/cost-preview — billing-semantic cost preview across all four providers
+  app.get("/api/lead-ops/sfp/runs/:runId/cost-preview", requireRole("admin"), async (req, res) => {
+    try {
+      const officialDomainGapCount = req.query.officialDomainGapCount == null ? 0 : Number(req.query.officialDomainGapCount);
+      const businessIdentityGapCount = req.query.businessIdentityGapCount == null ? 0 : Number(req.query.businessIdentityGapCount);
+      const decisionMakerGapCount = req.query.decisionMakerGapCount == null ? 0 : Number(req.query.decisionMakerGapCount);
+      const ambiguousVerticalGapCount = req.query.ambiguousVerticalGapCount == null ? 0 : Number(req.query.ambiguousVerticalGapCount);
+      for (const [name, val] of Object.entries({ officialDomainGapCount, businessIdentityGapCount, decisionMakerGapCount, ambiguousVerticalGapCount })) {
+        if (!Number.isInteger(val) || val < 0) return res.status(400).json({ error: `${name} must be a non-negative integer` });
+      }
+      const { buildSfpCostPreview } = await import("../services/cro03/sfp-cost-preview");
+      res.json(await buildSfpCostPreview({ officialDomainGapCount, businessIdentityGapCount, decisionMakerGapCount, ambiguousVerticalGapCount }));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/runs/:runId/gap-vector/:businessId — typed, subject-aware evidence gap vector for one business
+  // Returns the full C6 five-dimension vector (geography, target vertical,
+  // official domain, business contact channel, named decision-maker), not
+  // just contact-link reuse — reuse is one input among several, not the
+  // whole gap vector.
+  app.get("/api/lead-ops/sfp/runs/:runId/gap-vector/:businessId", requireRole("admin"), async (req, res) => {
+    try {
+      const runId = String(req.params.runId);
+      const businessId = Number(req.params.businessId);
+      if (!Number.isInteger(businessId)) return res.status(400).json({ error: "businessId must be an integer" });
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const {
+        computeContactLinkReuse, computeSfpGapVector, stopConditionsMet,
+      } = await import("../services/cro03/sfp-contact-gap-vector");
+      const { getLatestAdmissibleClassificationEvidence } = await import("../services/cro03/sfp-classification-bridge");
+
+      const decisionRow = (
+        (await db.execute(sql`
+          SELECT d.suppression_subjects, d.suppression_business_wide_rule_applied, d.classifier_outcome
+            FROM sfp_cohort_decisions d
+           WHERE d.cohort_run_id=${runId}::uuid AND d.business_id=${businessId}
+           LIMIT 1
+        `)) as any
+      ).rows?.[0] ?? null;
+      if (!decisionRow) {
+        return res.status(404).json({ error: "SFP_COHORT_DECISION_NOT_FOUND: no decision row for this run/business" });
+      }
+      const businessRow = (
+        (await db.execute(sql`SELECT website_domain FROM businesses WHERE id=${businessId} LIMIT 1`)) as any
+      ).rows?.[0] ?? null;
+      const officialDomainKnown = Boolean(businessRow?.website_domain);
+
+      const admissible = await getLatestAdmissibleClassificationEvidence(businessId, 1).catch(() => null);
+      const targetVerticalResolved = admissible
+        ? admissible.outcome === "target"
+        : decisionRow.classifier_outcome === "resolved_high" || decisionRow.classifier_outcome === "resolved_medium";
+
+      const freeCandidateRow = (
+        (await db.execute(sql`
+          SELECT 1 FROM free_discovery_candidates
+           WHERE business_id=${businessId} AND disposition IN ('staged','validation_admitted') LIMIT 1
+        `)) as any
+      ).rows?.[0] ?? null;
+
+      const reuse = await computeContactLinkReuse([businessId]);
+      const linkReuse = reuse.get(businessId) ?? {
+        hasVerifiedContact: false, hasVerifiedNamedDecisionMaker: false, verifiedLinks: [], skipReason: null,
+      };
+
+      const subjectSuppressionsRaw: any[] = Array.isArray(decisionRow.suppression_subjects)
+        ? decisionRow.suppression_subjects
+        : (typeof decisionRow.suppression_subjects === "string" && decisionRow.suppression_subjects.length > 0
+          ? JSON.parse(decisionRow.suppression_subjects) : []);
+      const subjectSuppressions = subjectSuppressionsRaw.map((s: any) => ({
+        subjectHash: String(s.subjectHash ?? ""), authority: String(s.authority ?? ""),
+        reasonCode: String(s.reasonCode ?? ""), channel: String(s.channel ?? "all"),
+        scope: (s.scope === "email" || s.scope === "contact" ? s.scope : "contact") as "contact" | "email" | "business",
+      }));
+
+      const vector = await computeSfpGapVector({
+        businessId, targetVerticalResolved, officialDomainKnown,
+        hasFreeDiscoveryContactCandidate: Boolean(freeCandidateRow),
+        verifiedLinkReuse: {
+          hasVerifiedContact: linkReuse.hasVerifiedContact,
+          hasVerifiedNamedDecisionMaker: linkReuse.hasVerifiedNamedDecisionMaker,
+        },
+        subjectSuppressions,
+        businessWideSuppressionApplied: Boolean(decisionRow.suppression_business_wide_rule_applied),
+        apolloSkipReason: linkReuse.skipReason,
+        outscraperSkipReason: officialDomainKnown ? "official_domain_already_known" : null,
+      });
+      res.json({ ...vector, ...stopConditionsMet(vector), reuse: linkReuse });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // GET /api/lead-ops/sfp/runs/:runId/validation-preview — ZeroBounce preview (read-only)
   app.get("/api/lead-ops/sfp/runs/:runId/validation-preview", requireRole("admin"), async (req, res) => {
     try {

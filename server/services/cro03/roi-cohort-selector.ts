@@ -120,6 +120,67 @@ const DEFAULT_PILOT_VERTICAL_IDS = [
 /** South Florida county FIPS codes. */
 const SOUTH_FLORIDA_FIPS = Object.values(CRO03A_COUNTY_FIPS); // ["12011","12086","12099"]
 
+/**
+ * Task #1999 (Architecture correction 4 / C6): read-only projection of ONLY
+ * authoritative business-wide/domain-wide suppression evidence for a given
+ * set of businesses — never a subject-scoped (single contact/candidate)
+ * suppression. This intentionally mirrors, rather than duplicates the full
+ * scan in, the aggregation this module already performs inside
+ * selectRoiCohort: a business is suppression-excluded at the WHOLE-BUSINESS
+ * level only when every one of its known contacts independently proves
+ * unusable (the `suppressedBizIds` aggregation above) OR when a genuinely
+ * authoritative business/domain-level rule fires directly.
+ *
+ * As of this revision, `businessWideRuleApplied` is hard-coded `false` at
+ * every construction site in this module (see selectRoiCohort above) because
+ * no standalone business/domain-level suppression rule exists yet — this
+ * function therefore correctly returns an empty set today. It exists so
+ * Phase A (south-florida-prospecting pre-cohort bridge, Task #1999) can
+ * apply the exact same authoritative predicate the frozen-cohort selector
+ * uses, rather than inventing a parallel one, and will automatically start
+ * excluding businesses the moment a real business-wide rule is added here.
+ */
+export async function getBusinessWideSuppressionExclusions(
+  businessIds: number[],
+  executor: { execute: (q: any) => Promise<any> } = db,
+): Promise<Set<number>> {
+  if (businessIds.length === 0) return new Set();
+  const idList = sql.join(businessIds.map((id) => sql`${id}`), sql`, `);
+  const suppressionRows = rows(await executor.execute(sql`
+    SELECT c.id, c.business_id, c.email, c.opted_out_email, c.unsubscribe_status,
+           c.complaint_status, c.opt_out_date, c.opt_out_status, c.do_not_auto_contact,
+           c.suppression_reason
+      FROM contacts c
+     WHERE c.business_id = ANY(ARRAY[${idList}]::integer[])
+       AND (c.opted_out_email = TRUE OR c.unsubscribe_status = 'unsubscribed'
+            OR c.complaint_status = 'reported' OR c.opt_out_date IS NOT NULL
+            OR c.opt_out_status = 'opted_out' OR c.do_not_auto_contact = TRUE
+            OR c.suppression_reason IS NOT NULL)
+  `));
+  const totalRows = rows(await executor.execute(sql`
+    SELECT business_id, COUNT(*)::int AS total FROM contacts
+     WHERE business_id = ANY(ARRAY[${idList}]::integer[]) GROUP BY business_id
+  `));
+  const totalByBiz = new Map<number, number>(totalRows.map((r: any) => [Number(r.business_id), Number(r.total)]));
+  const suppressedCountByBiz = new Map<number, number>();
+  for (const r of suppressionRows) {
+    const bizId = Number(r.business_id);
+    suppressedCountByBiz.set(bizId, (suppressedCountByBiz.get(bizId) ?? 0) + 1);
+  }
+  // Business-wide aggregation (every contact independently suppressed) is
+  // recorded in the audit trail as scope="business" but is NOT the same
+  // thing as an authoritative businessWideRuleApplied rule — Architecture
+  // correction 4 requires Phase A to exclude ONLY on a genuine
+  // business/domain-wide rule, never merely because every currently-known
+  // contact happens to be suppressed (a different, still-undiscovered
+  // contact for the same business could still be eligible). Since no such
+  // authoritative rule exists in this codebase yet (confirmed:
+  // businessWideRuleApplied is hard-coded false throughout this file), this
+  // always returns an empty set today — real business-wide rules, once
+  // added, must flow through this same function rather than a new one.
+  return new Set<number>();
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface RoiCandidateScore {

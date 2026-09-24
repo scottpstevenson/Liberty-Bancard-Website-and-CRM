@@ -160,7 +160,7 @@ export const PROVIDER_SOURCE_MANIFEST = [
   {
     id: "serper", capability: ["business_discovery", "directory_lookup"], billing: "paid_per_call", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/serper-gateway.ts"],
-    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/serper-business-identity.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"],
+    approvedCallers: ["server/services/sdr/serper-enrichment.ts", "server/services/sdr/lead-finder.ts", "server/services/cro03/live-provider-executors.ts", "server/services/serper-business-identity.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts", "server/services/cro03/sfp-classification-bridge.ts"],
     secretNames: ["SERPER_API_KEY"], durableOperation: "request",
     budget: { required: true, accounting: "control_row", unit: "request" }, timeoutMs: 15_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
@@ -170,8 +170,8 @@ export const PROVIDER_SOURCE_MANIFEST = [
   },
   {
     id: "outscraper", capability: ["business_discovery"], billing: "paid_per_result", parser: "api",
-    activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/outscraper.ts"],
-    approvedCallers: ["server/services/cro03/live-provider-executors.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
+    activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/outscraper.ts", "server/services/cro03/sfp-live-provider-adapters.ts"],
+    approvedCallers: ["server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
     durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
     timeoutMs: 60_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category"],
@@ -189,8 +189,8 @@ export const PROVIDER_SOURCE_MANIFEST = [
   },
   {
     id: "apollo", capability: ["business_discovery", "contact_enrichment"], billing: "paid_subscription", parser: "api",
-    activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/apollo.ts"],
-    approvedCallers: ["server/services/cro03/live-provider-executors.ts"], secretNames: ["APOLLO_API_KEY"],
+    activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/apollo.ts", "server/services/cro03/sfp-live-provider-adapters.ts"],
+    approvedCallers: ["server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"], secretNames: ["APOLLO_API_KEY"],
     durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
     timeoutMs: 30_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],
@@ -252,8 +252,8 @@ export const PROVIDER_SOURCE_MANIFEST = [
   },
   {
     id: "openai_classification", capability: ["classification"], billing: "paid_per_call", parser: "llm",
-    activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sunbiz-enrichment.ts"],
-    approvedCallers: ["server/services/sunbiz-enrichment.ts", "server/services/cro03/live-provider-executors.ts"], secretNames: ["AI_INTEGRATIONS_OPENAI_API_KEY"],
+    activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sunbiz-enrichment.ts", "server/services/cro03/sfp-live-provider-adapters.ts"],
+    approvedCallers: ["server/services/sunbiz-enrichment.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-classification-bridge.ts"], secretNames: ["AI_INTEGRATIONS_OPENAI_API_KEY"],
     durableOperation: "queue_job", budget: { required: true, accounting: "ai_audit", unit: "token" }, timeoutMs: 30_000,
     retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES, candidateFields: ["classification", "summary", "owner_name"],
     redaction: STANDARD_REDACTION,

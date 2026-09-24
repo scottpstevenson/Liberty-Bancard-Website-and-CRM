@@ -11,6 +11,7 @@
  */
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { QUEUE_NAMES } from "./queue-names";
 
 export type FreeEnrichmentOutcome = "enriched" | "failed" | "skipped";
 
@@ -18,6 +19,55 @@ export interface FreeEnrichmentLaneResult {
   businessId: number;
   outcome: FreeEnrichmentOutcome;
   error?: string;
+}
+
+interface RepeatableSchedule {
+  id?: string | null;
+  every?: number | string | null;
+  next?: number;
+  pattern?: string | null;
+}
+
+interface FreeLaneStatusQueue {
+  getRepeatableJobs(): Promise<RepeatableSchedule[]>;
+  getJobCounts(...types: string[]): Promise<Record<string, number>>;
+}
+
+interface FreeLaneStatusDependencies {
+  /** Optional read-only source seam for deterministic schedule-status tests. */
+  db?: { execute(query: any): Promise<any> };
+  queueManager?: {
+    getQueue(name: string): FreeLaneStatusQueue | undefined;
+    workers?: Map<string, { isRunning(): boolean }>;
+  };
+}
+
+/**
+ * BullMQ's repeatable-job metadata exposes `next` as an epoch-millisecond
+ * timestamp. Older/partial metadata can omit it; for interval schedules,
+ * derive the next cadence from the last execution (or the Unix-epoch interval
+ * boundary, matching BullMQ's `every` cadence).
+ */
+export function getRepeatableNextRunAt(
+  schedule: RepeatableSchedule | undefined,
+  lastRunAt?: string | Date | null,
+  nowMs = Date.now(),
+): string | null {
+  if (!schedule) return null;
+  if (typeof schedule.next === "number" && Number.isFinite(schedule.next) && schedule.next > 0) {
+    return new Date(schedule.next).toISOString();
+  }
+
+  const everyMs = Number(schedule.every);
+  if (!Number.isFinite(everyMs) || everyMs <= 0) return null;
+  const lastRunMs = lastRunAt
+    ? lastRunAt instanceof Date
+      ? lastRunAt.getTime()
+      : new Date(lastRunAt).getTime()
+    : Number.NaN;
+  const anchorMs = Number.isFinite(lastRunMs) ? lastRunMs : 0;
+  const intervalsElapsed = Math.floor((nowMs - anchorMs) / everyMs) + 1;
+  return new Date(anchorMs + Math.max(1, intervalsElapsed) * everyMs).toISOString();
 }
 
 let laneRunning = false;
@@ -142,9 +192,50 @@ export async function runFreeEnrichmentLane(
   }
 }
 
-export async function getFreeEnrichmentLaneStatus(): Promise<Record<string, unknown>> {
-  const state = await readLaneState();
-  const counts = ((await db.execute(sql`
+export async function getFreeEnrichmentLaneStatus(
+  dependencies: FreeLaneStatusDependencies = {},
+): Promise<Record<string, unknown>> {
+  const statusDb = dependencies.db ?? db;
+  const state = await readLaneState(statusDb);
+  const queueManagerApi = dependencies.queueManager
+    ? null
+    : await import("./queue-manager");
+  let queueRegistered = false;
+  let workerRunning = false;
+  let activeJobs = 0;
+  let nextRunAt: string | null = null;
+
+  // Status reads must never lazily initialize the worker fleet. A queue can be
+  // registered in BullMQ/Redis without a live local worker, so report those
+  // states separately instead of treating registration as "running".
+  const queueManagerReady = dependencies.queueManager
+    ? true
+    : Boolean(queueManagerApi?.isQueueManagerReady());
+  if (queueManagerReady) {
+    const queueManager = dependencies.queueManager
+      ?? queueManagerApi!.requireQueueManagerReady() as any;
+    const queue = queueManager.getQueue(QUEUE_NAMES.FREE_ENRICHMENT_LANE);
+    const worker = queueManager.workers?.get(QUEUE_NAMES.FREE_ENRICHMENT_LANE);
+    queueRegistered = Boolean(queue);
+    workerRunning = Boolean(worker?.isRunning?.());
+
+    if (queue) {
+      const [repeatableJobs, jobCounts] = await Promise.all([
+        queue.getRepeatableJobs(),
+        queue.getJobCounts("active"),
+      ]);
+      // The queue's base schedule is installed under this exact job id.
+      // Match it preferentially; tolerate other repeatable entries if one is
+      // present, while never claiming a schedule that does not exist.
+      const schedule = repeatableJobs.find((job: any) =>
+        job.id === `${QUEUE_NAMES.FREE_ENRICHMENT_LANE}-repeatable`
+      ) ?? repeatableJobs[0];
+      nextRunAt = getRepeatableNextRunAt(schedule, state.lastRunAt);
+      activeJobs = Number(jobCounts.active ?? 0);
+    }
+  }
+
+  const counts = ((await statusDb.execute(sql`
     SELECT
       COUNT(*)::int AS examined,
       COUNT(*) FILTER (WHERE free_enrichment_status = 'enriched')::int AS enriched,
@@ -154,20 +245,31 @@ export async function getFreeEnrichmentLaneStatus(): Promise<Record<string, unkn
     FROM businesses
     WHERE free_enrichment_last_attempt_at IS NOT NULL
   `)) as any).rows?.[0] ?? {};
-  const pending = ((await db.execute(sql`
+  const pending = ((await statusDb.execute(sql`
     SELECT COUNT(*)::int AS count FROM businesses
     WHERE record_class = 'canonical'
       AND website_domain IS NOT NULL
       AND (free_enrichment_status IS NULL OR free_enrichment_status = 'failed')
   `)) as any).rows?.[0]?.count ?? 0;
+  const processingBusinesses = Number(counts.running ?? 0);
+  const running = laneRunning || (workerRunning && (activeJobs > 0 || processingBusinesses > 0));
+  const status = running
+    ? "running"
+    : !workerRunning
+      ? "unavailable"
+      : state.status === "error"
+        ? "error"
+        : "idle";
 
   return {
     capabilityGroup: "free-enrichment-lane",
     configured: true,
-    running: state.status === "running" || Number(counts.running ?? 0) > 0,
-    status: state.status ?? "idle",
+    running,
+    status,
+    queueRegistered,
+    workerRunning,
     lastRunAt: state.lastRunAt ?? null,
-    nextRunAt: null, // manual/pilot lane; deliberately no cron schedule
+    nextRunAt,
     examined: Number(state.examined ?? counts.examined ?? 0),
     enriched: Number(state.enriched ?? counts.enriched ?? 0),
     skipped: Number(state.skipped ?? counts.skipped ?? 0),
@@ -177,8 +279,8 @@ export async function getFreeEnrichmentLaneStatus(): Promise<Record<string, unkn
   };
 }
 
-async function readLaneState(): Promise<Record<string, any>> {
-  const result = await db.execute(sql`
+async function readLaneState(statusDb: { execute(query: any): Promise<any> } = db): Promise<Record<string, any>> {
+  const result = await statusDb.execute(sql`
     SELECT value FROM system_settings WHERE key = 'free_enrichment_lane_status' LIMIT 1
   `);
   const value = ((result as any).rows ?? result)[0]?.value;

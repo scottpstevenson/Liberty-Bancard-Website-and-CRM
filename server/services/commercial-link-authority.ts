@@ -128,6 +128,85 @@ export async function decideContactBusinessLink(input: {
   });
 }
 
+/**
+ * Task #1999 (C4): read-only projection of the ONLY predicate that may be treated
+ * as an authoritative existing contact-business link — decision='verified' AND
+ * superseded_at IS NULL, with contacts.business_id consistent with that decision
+ * (decideContactBusinessLink above is the sole writer that keeps them consistent).
+ * A historical 'verified' row later superseded by 'rejected'/'conflicted' is
+ * NEVER returned here. contact_business_link_candidates rows are never authority
+ * and are intentionally excluded — callers needing review evidence must query
+ * that table directly and must not treat its rows as proof of a link.
+ *
+ * This function does not alter decision semantics; it only reads the existing
+ * append-only ledger written by decideContactBusinessLink.
+ */
+export interface AuthoritativeContactBusinessLink {
+  contactId: number;
+  businessId: number;
+  decisionId: string;
+  decisionKey: string;
+  reviewedAt: string | null;
+  contactEmail: string | null;
+  contactName: string | null;
+  contactTitle: string | null;
+}
+
+export async function getAuthoritativeVerifiedContactLinks(
+  businessIds: number[],
+): Promise<AuthoritativeContactBusinessLink[]> {
+  if (businessIds.length === 0) return [];
+  const result = await db.execute(sql`
+    SELECT d.id AS decision_id, d.decision_key, d.contact_id, d.business_id, d.reviewed_at,
+           c.email AS contact_email,
+           concat_ws(' ', nullif(c.first_name, ''), nullif(c.last_name, '')) AS contact_name,
+           c.title AS contact_title
+      FROM contact_business_link_decisions d
+      JOIN contacts c ON c.id = d.contact_id
+     WHERE d.decision = 'verified'
+       AND d.superseded_at IS NULL
+       AND d.business_id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+       -- consistency guard: contacts.business_id (the live projection) must still
+       -- agree with the decision ledger, or this row is stale/inconsistent and
+       -- must not be treated as authoritative.
+       AND c.business_id = d.business_id
+  `);
+  const rowsOut = (result as any).rows ?? result ?? [];
+  return rowsOut.map((r: any) => ({
+    contactId: Number(r.contact_id),
+    businessId: Number(r.business_id),
+    decisionId: String(r.decision_id),
+    decisionKey: String(r.decision_key),
+    reviewedAt: r.reviewed_at ? String(r.reviewed_at) : null,
+    contactEmail: r.contact_email ?? null,
+    contactName: r.contact_name ?? null,
+    contactTitle: r.contact_title ?? null,
+  }));
+}
+
+/**
+ * Task #1999 (C4): review-evidence-only projection of contact_business_link_candidates
+ * for a set of businesses. Never authoritative — callers must never suppress a
+ * provider call or attach an email based solely on rows returned here.
+ */
+export async function getReviewOnlyContactBusinessLinkCandidates(
+  businessIds: number[],
+): Promise<Array<{ contactId: number; businessId: number; source: string; confidence: number }>> {
+  if (businessIds.length === 0) return [];
+  const result = await db.execute(sql`
+    SELECT contact_id, business_id, source, confidence
+      FROM contact_business_link_candidates
+     WHERE business_id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+  `);
+  const rowsOut = (result as any).rows ?? result ?? [];
+  return rowsOut.map((r: any) => ({
+    contactId: Number(r.contact_id),
+    businessId: Number(r.business_id),
+    source: String(r.source),
+    confidence: Number(r.confidence),
+  }));
+}
+
 /** Sole writer for legacy-company to canonical-business mapping decisions. */
 export async function decideLegacyCompanyMapping(input: {
   companyId: number; businessId?: number | null; decision: MappingDecision; decisionKey: string;

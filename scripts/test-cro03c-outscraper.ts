@@ -7,7 +7,9 @@ import {
 
 const source = readFileSync("server/services/sdr/outscraper.ts", "utf8");
 assert.match(source, /consideredResultLimit > 5/);
-assert.match(source, /await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?response = await \(options\.fetchOverride \?\? fetch\)/);
+assert.match(source, /beforeRequest: async \(\) => \{[\s\S]*?await assertCro03cAuthorityBeforeIo\(context\);[\s\S]*?authorityGranted = true/);
+assert.match(source, /export async function performOutscraperSearch[\s\S]*?await deps\.beforeRequest\?\.\(\);[\s\S]*?fetchImpl \?\? fetch/);
+assert.match(source, /await performOutscraperSearch/);
 assert.match(source, /CRO03_OUTSCRAPER_LEGACY_CONTEXT_DENIED/);
 assert.doesNotMatch(
   source.match(/function redactedCro03cEvidence[\s\S]*?\n}\n\nfunction ambiguousCro03cEvidence/)?.[0] ?? "",

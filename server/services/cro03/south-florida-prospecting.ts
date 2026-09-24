@@ -32,6 +32,9 @@ import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service"
 import { CRO03A_COUNTY_FIPS } from "../cro03a/geography";
 import { CLASSIFIER_VERSION } from "./sfp-vertical-classifier";
 import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
+// Task #1999 (Architecture correction 1 / C1): freeze pins the exact latest-admissible
+// pre-cohort classification evidence row into the immutable cohort/decision snapshot.
+import { getLatestAdmissibleClassificationEvidence } from "./sfp-classification-bridge";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -773,6 +776,26 @@ async function freezeCohortTx(
         // resolution explaining WHY.
         const cls = c.classifierResult;
         const geo = c.geographyResolution;
+        // Task #1999 (Architecture correction 1 / C1): pin the latest admissible
+        // pre-cohort classification evidence row for this business, under the
+        // program's active SFP_POLICY_VERSION, into this immutable decision row.
+        // A later classification run inserting a NEW sfp_classification_evidence
+        // row for this same business can never retroactively change what this
+        // already-frozen decision meant, because this FK points at one specific
+        // evidence row id, not at "the latest row for this business" at read time.
+        // Best-effort: a business with no classification evidence yet (e.g. the
+        // pre-cohort bridge has not run for it) simply pins null — freeze itself
+        // does not depend on the bridge having run, since roi-cohort-selector's
+        // own classifyVertical call already independently gates admission.
+        let classificationEvidenceId: string | null = null;
+        let classificationPolicyVersion: number | null = null;
+        try {
+          const admissible = await getLatestAdmissibleClassificationEvidence(c.canonicalBusinessId, SFP_POLICY_VERSION);
+          if (admissible) {
+            classificationEvidenceId = admissible.id;
+            classificationPolicyVersion = admissible.policyVersion;
+          }
+        } catch { /* non-fatal: pinning is best-effort when evidence doesn't exist yet */ }
         await tx.execute(sql`
           INSERT INTO sfp_cohort_decisions
             (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
@@ -782,7 +805,8 @@ async function freezeCohortTx(
              geography_class, geography_source, vertical, roi_score, selected,
              classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
              classifier_reasons, classifier_evidence_hash,
-             geography_resolver_version, geography_outcome, geography_location_id, geography_reasons)
+             geography_resolver_version, geography_outcome, geography_location_id, geography_reasons,
+             classification_evidence_id, classification_policy_version)
           VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
                   ${suppressionScope}, ${suppressionSubjectHash}, ${suppressionAuthority}, ${suppressionReasonCode},
                   ${suppressionEvidenceRef}, ${suppressionChannel}, ${suppressionSubjectsJson}::jsonb,
@@ -792,7 +816,8 @@ async function freezeCohortTx(
                   ${cls?.version ?? null}, ${cls?.outcome ?? null}, ${cls?.confidence ?? null}, ${cls?.matchedTargetId ?? null},
                   ${cls ? JSON.stringify(cls.reasons) : null}::jsonb, ${cls?.evidenceHash ?? null},
                   ${geo?.resolverVersion ?? null}, ${geo?.outcome ?? null}, ${geo?.winningLocationId ?? null},
-                  ${geo ? JSON.stringify(geo.reasons) : null}::jsonb)
+                  ${geo ? JSON.stringify(geo.reasons) : null}::jsonb,
+                  ${classificationEvidenceId}::uuid, ${classificationPolicyVersion})
           ON CONFLICT (cohort_run_id, business_id) DO NOTHING
         `);
       }

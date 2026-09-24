@@ -60,6 +60,31 @@ export interface Cro03cOutscraperExecutionOptions {
   readonly fetchOverride?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
+export interface OutscraperSearchInput {
+  businessName?: string;
+  domain?: string | null;
+  city?: string | null;
+  county?: string | null;
+  state?: string | null;
+  /** Existing CRO03C callers supply their already-frozen query. */
+  query?: string;
+  region?: string;
+  resultLimit?: number;
+}
+
+export interface OutscraperSearchResult {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly consideredResultCount: number;
+  readonly results: readonly OutscraperBusiness[];
+}
+
+export interface OutscraperSearchDependencies {
+  fetchImpl?: typeof fetch;
+  /** Optional generic checkpoint, invoked adjacent to the outbound request. */
+  beforeRequest?: () => Promise<void>;
+}
+
 interface OutscraperUsageStats {
   totalCalls: number;
   successfulCalls: number;
@@ -281,50 +306,26 @@ export async function executeCro03cOutscraper(
     caller: "server/services/cro03/live-provider-executors.ts",
     explicitPaidApproval: true,
   });
-  const apiKey = process.env.OUTSCRAPER_API_KEY;
-  if (!apiKey) throw new Error("CRO03C_PROVIDER_NOT_CONFIGURED");
-
-  await acquireToken();
-  const params = new URLSearchParams({
-    query: input.query, limit: String(input.consideredResultLimit), region: input.region,
-    language: "en", async: "false",
-  });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
-  let response: Response;
   let authorityGranted = false;
   try {
-    // This must remain adjacent to the transport call: a queued/rate-limited
-    // operation may have been cancelled while waiting for its token.
-    await assertCro03cAuthorityBeforeIo(context);
-    authorityGranted = true;
-    response = await (options.fetchOverride ?? fetch)(`${OUTSCRAPER_API_URL}/maps/search-v3?${params}`, {
-      method: "GET",
-      headers: { "X-API-KEY": apiKey, Accept: "application/json" },
-      signal: controller.signal,
+    const response = await performOutscraperSearch({
+      query: input.query, region: input.region, resultLimit: input.consideredResultLimit,
+    }, {
+      fetchImpl: (options.fetchOverride ?? fetch) as typeof fetch,
+      // Must be checked after rate-limit wait and immediately before I/O.
+      beforeRequest: async () => {
+        await assertCro03cAuthorityBeforeIo(context);
+        authorityGranted = true;
+      },
     });
-  } catch (error) {
-    if (!authorityGranted) throw error;
-    return ambiguousCro03cEvidence(null);
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!response.ok) return ambiguousCro03cEvidence(response.status);
-  try {
-    const data = await response.json();
-    const items: unknown[] = Array.isArray(data)
-      ? data.flat()
-      : data && typeof data === "object" && Array.isArray((data as { data?: unknown }).data)
-        ? (data as { data: unknown[] }).data.flat()
-        : [];
+    if (!response.ok) return ambiguousCro03cEvidence(response.status);
+    const items = response.consideredResultCount;
     // More than the frozen requested window has an unknown billable count.
-    if (items.length > input.consideredResultLimit) return ambiguousCro03cEvidence(response.status);
-    const results = items
-      .filter((item): item is Record<string, any> => Boolean(item && typeof item === "object" && (item as any).name))
-      .map(parseOutscraperResult);
+    if (items > input.consideredResultLimit) return ambiguousCro03cEvidence(response.status);
+    const results = response.results;
     // Outscraper prices returned results. Preserve that exact, bounded provider
     // count even when its payload contains a record our parser cannot use.
-    const settledUnits = items.length;
+    const settledUnits = items;
     const settledAmountMicros = settledUnits * input.amountMicros;
     if (settledUnits > input.reservedUnits || !Number.isSafeInteger(settledAmountMicros)) {
       return ambiguousCro03cEvidence(response.status);
@@ -342,8 +343,63 @@ export async function executeCro03cOutscraper(
       evidence: redactedCro03cEvidence(results, settledUnits, response.status),
       businessEmails,
     };
-  } catch {
-    return ambiguousCro03cEvidence(response.status);
+  } catch (error) {
+    if (!authorityGranted) throw error;
+    return ambiguousCro03cEvidence(null);
+  }
+}
+
+/**
+ * Outscraper transport and parsing with no SFP/CRO03C authority or persistence
+ * dependency. The request may be expressed as a direct query or assembled from
+ * a plain business identity and locality.
+ */
+export async function performOutscraperSearch(
+  input: OutscraperSearchInput,
+  deps: OutscraperSearchDependencies = {},
+): Promise<OutscraperSearchResult> {
+  const apiKey = process.env.OUTSCRAPER_API_KEY;
+  if (!apiKey) throw new Error("CRO03C_PROVIDER_NOT_CONFIGURED");
+  const query = input.query?.trim() || [
+    input.businessName, input.domain, input.city, input.county, input.state,
+  ].filter((part): part is string => typeof part === "string" && part.trim().length > 0).join(" ");
+  const limit = input.resultLimit ?? 5;
+  if (!query || query.length > 500 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error("OUTSCRAPER_INPUT_INVALID");
+  }
+  await acquireToken();
+  const params = new URLSearchParams({
+    query, limit: String(limit), region: input.region ?? "US", language: "en", async: "false",
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  try {
+    await deps.beforeRequest?.();
+    const response = await (deps.fetchImpl ?? fetch)(`${OUTSCRAPER_API_URL}/maps/search-v3?${params}`, {
+      method: "GET",
+      headers: { "X-API-KEY": apiKey, Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return { status: response.status, ok: false, consideredResultCount: 0, results: [] };
+    try {
+      const data = await response.json();
+      const items: unknown[] = Array.isArray(data)
+        ? data.flat()
+        : data && typeof data === "object" && Array.isArray((data as { data?: unknown }).data)
+          ? (data as { data: unknown[] }).data.flat()
+          : [];
+      const results = items
+        .filter((item): item is Record<string, any> => Boolean(item && typeof item === "object" && (item as any).name))
+        .map(parseOutscraperResult);
+      return { status: response.status, ok: true, consideredResultCount: items.length, results };
+    } catch {
+      return { status: response.status, ok: false, consideredResultCount: 0, results: [] };
+    }
+  } catch (error: any) {
+    if (error?.name === "AbortError") throw new Error("OUTSCRAPER_TIMEOUT");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

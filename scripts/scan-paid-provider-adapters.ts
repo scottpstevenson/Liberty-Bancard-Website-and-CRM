@@ -104,6 +104,24 @@ function stripComments(text: string): string {
 }
 
 const errors: string[] = [];
+const sfpAdapterPath = "server/services/cro03/sfp-live-provider-adapters.ts";
+const sfpAdapter = readFileSync(join(ROOT, sfpAdapterPath), "utf8");
+for (const sourceId of ["outscraper", "apollo", "openai_classification"] as const) {
+  const row = PROVIDER_SOURCE_MANIFEST.find((candidate) => candidate.id === sourceId);
+  if (!row?.approvedAdapters.includes(sfpAdapterPath)) {
+    errors.push(`${sfpAdapterPath}: ${sourceId} SFP transport wrapper is not an approved adapter`);
+  }
+  if (!row?.approvedCallers.includes(sfpAdapterPath)) {
+    errors.push(`${sfpAdapterPath}: ${sourceId} SFP transport wrapper is not an approved caller`);
+  }
+  const operation = sourceId === "openai_classification"
+    ? "performOpenAiClassification"
+    : sourceId === "outscraper" ? "performOutscraperSearch" : "performApolloSearch";
+  if (!sfpAdapter.includes(`sourceId: "${sourceId}"`) || !sfpAdapter.includes(operation)) {
+    errors.push(`${sfpAdapterPath}: ${sourceId} wrapper must gate and delegate to ${operation}`);
+  }
+}
+
 for (const file of sourceFiles(SCAN_ROOT)) {
   const filePath = normalizePath(file);
   if (filePath === THIS_FILE) continue;

@@ -39,6 +39,68 @@ import type { DurableEgressLimiter, EgressTransport } from "./safe-egress";
  */
 const CALLER = "server/services/cro03/live-provider-executors.ts";
 
+export interface OpenAiClassificationInput {
+  model: string;
+  system: string;
+  prompt: string;
+  maxCompletionTokens: number;
+  schema?: typeof CRO03C_OPENAI_RESPONSE_SCHEMA;
+}
+
+export type OpenAiClassificationResult =
+  | {
+    outcome: "success";
+    model: string;
+    usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number };
+    classification: NonNullable<ReturnType<typeof validateCro03cOpenAiClassification>>;
+  }
+  | {
+    outcome: "invalid_output";
+    model: string;
+    usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number };
+  };
+
+export interface OpenAiClassificationDependencies {
+  fetchImpl?: typeof fetch;
+}
+
+/** Reusable OpenAI transport/parser. It has no DB or authority dependency. */
+export async function performOpenAiClassification(
+  input: OpenAiClassificationInput,
+  deps: OpenAiClassificationDependencies = {},
+): Promise<OpenAiClassificationResult> {
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (!apiKey || !baseURL) throw new Error("CRO03C_PROVIDER_NOT_CONFIGURED");
+  const client = new OpenAI({ apiKey, baseURL, ...(deps.fetchImpl ? { fetch: deps.fetchImpl } : {}) });
+  const completion = await client.chat.completions.create({
+    model: input.model,
+    messages: [{ role: "system", content: input.system }, { role: "user", content: input.prompt }],
+    max_completion_tokens: input.maxCompletionTokens,
+    response_format: {
+      type: "json_schema",
+      json_schema: input.schema ?? CRO03C_OPENAI_RESPONSE_SCHEMA,
+    },
+  });
+  const tokens = completion.usage?.total_tokens;
+  if (typeof tokens !== "number" || !Number.isInteger(tokens) || tokens < 0) {
+    throw new Error("CRO03C_PROVIDER_PRICING_UNVERIFIABLE");
+  }
+  const usage = {
+    promptTokens: completion.usage?.prompt_tokens ?? null,
+    completionTokens: completion.usage?.completion_tokens ?? null,
+    totalTokens: tokens,
+  };
+  const rawContent = completion.choices?.[0]?.message?.content;
+  let parsedContent: unknown = null;
+  if (typeof rawContent === "string") {
+    try { parsedContent = JSON.parse(rawContent); } catch { parsedContent = null; }
+  }
+  const classification = validateCro03cOpenAiClassification(parsedContent);
+  if (!classification) return { outcome: "invalid_output", model: completion.model, usage };
+  return { outcome: "success", model: completion.model, usage, classification };
+}
+
 /** Title rank for Apollo reveal priority (lower = higher priority). */
 const APOLLO_REVEAL_TITLE_RANK: Record<string, number> = {
   owner: 0, president: 1, ceo: 2, founder: 3,
@@ -585,58 +647,29 @@ export async function executeCro03cLiveProvider(
       assertProviderActivation({
         sourceId: "openai_classification", caller: CALLER, explicitPaidApproval: true,
       });
-      const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-      const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-      if (!apiKey || !baseURL) throw new Error("CRO03C_PROVIDER_NOT_CONFIGURED");
-      const client = new OpenAI({ apiKey, baseURL });
       await assertCro03cAuthorityBeforeIo(context);
       await dependencies.beforeTransportInvocation?.();
-      const completion = await client.chat.completions.create({
-        model: input.model,
-        messages: [{ role: "system", content: input.system }, { role: "user", content: input.prompt }],
-        max_completion_tokens: input.maxCompletionTokens,
-        response_format: {
-          type: "json_schema",
-          json_schema: CRO03C_OPENAI_RESPONSE_SCHEMA,
-        },
+      const completion = await performOpenAiClassification({
+        model: input.model, system: input.system, prompt: input.prompt,
+        maxCompletionTokens: input.maxCompletionTokens, schema: CRO03C_OPENAI_RESPONSE_SCHEMA,
       });
-      const tokens = completion.usage?.total_tokens;
-      if (typeof tokens !== "number" || !Number.isInteger(tokens) || tokens < 0) {
-        throw new Error("CRO03C_PROVIDER_PRICING_UNVERIFIABLE");
-      }
-      const usage = {
-        promptTokens: completion.usage?.prompt_tokens ?? null,
-        completionTokens: completion.usage?.completion_tokens ?? null,
-        totalTokens: tokens,
-      };
-      // `strict: true` on the SDK request is not trusted alone: parse and
-      // re-validate the structured output server-side. A missing,
-      // unparseable, or schema-invalid response is a real failure, not a
-      // silently-discarded success — it must never reach result()'s
-      // evidence as if it were a valid classification.
-      const rawContent = completion.choices?.[0]?.message?.content;
-      let parsedContent: unknown = null;
-      if (typeof rawContent === "string") {
-        try { parsedContent = JSON.parse(rawContent); } catch { parsedContent = null; }
-      }
-      const classification = validateCro03cOpenAiClassification(parsedContent);
-      if (!classification) {
+      if (completion.outcome === "invalid_output") {
         // The provider still consumed tokens even though the structured
         // output was missing or invalid; settle the real token consumption,
         // but never as "success" and never with unvalidated content as evidence.
-        return result(context, input, "failed", tokens, {
+        return result(context, input, "failed", completion.usage.totalTokens, {
           responseReceived: true,
           model: completion.model,
-          usage,
+          usage: completion.usage,
           structuredOutputValid: false,
         });
       }
-      return result(context, input, "success", tokens, {
+      return result(context, input, "success", completion.usage.totalTokens, {
         responseReceived: true,
         model: completion.model,
-        usage,
+        usage: completion.usage,
         structuredOutputValid: true,
-        classification,
+        classification: completion.classification,
       });
     }
 

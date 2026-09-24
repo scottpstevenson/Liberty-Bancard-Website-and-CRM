@@ -9357,6 +9357,13 @@ export const sfpCohortDecisions = pgTable("sfp_cohort_decisions", {
   geographyOutcome: text("geography_outcome"),
   geographyLocationId: integer("geography_location_id"),
   geographyReasons: jsonb("geography_reasons"),
+  // Task #1999 (C1/Architecture correction 1): freeze-time evidence pinning. The
+  // selected sfp_classification_evidence row is an immutable, append-only fact — a
+  // later classification run inserting a new row for the same business can never
+  // retroactively change what THIS decision meant at freeze time, because this FK
+  // points at one specific row, not at "the latest row for this business".
+  classificationEvidenceId: uuid("classification_evidence_id").references(() => sfpClassificationEvidence.id, { onDelete: "restrict" }),
+  classificationPolicyVersion: integer("classification_policy_version"),
 }, (table) => [
   uniqueIndex("sfp_cohort_decisions_run_business_uidx").on(table.cohortRunId, table.businessId),
   index("idx_sfp_cohort_decisions_run_disposition").on(table.cohortRunId, table.disposition),
@@ -9462,6 +9469,12 @@ export const sfpStageItems = pgTable("sfp_stage_items", {
   stageRunId: uuid("stage_run_id").notNull().references(() => sfpStageRuns.id, { onDelete: "cascade" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   provider: text("provider"), candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "set null" }),
+  // Task #1999 (C3): paid-provider (Outscraper/Apollo/paid-Serper) candidate evidence lives in its
+  // own physically separate, encrypted table — never in free_discovery_candidates or
+  // cro03c_candidate_evidence. `candidateId` stays scoped to free_discovery_candidates only.
+  // Exactly one of candidateId / paidCandidateEvidenceId may be set, and only when
+  // outcome_code='candidate_found' — enforced by the CHECK below.
+  paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "set null" }),
   providerOperationId: uuid("provider_operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
   state: text("state").notNull().default("pending"), attemptCount: integer("attempt_count").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(), claimToken: uuid("claim_token"),
@@ -9472,7 +9485,137 @@ export const sfpStageItems = pgTable("sfp_stage_items", {
 }, (table) => [
   uniqueIndex("sfp_stage_items_run_business_provider_uidx").on(table.stageRunId, table.businessId, table.provider),
   index("sfp_stage_items_business_idx").on(table.businessId, table.createdAt),
+  index("sfp_stage_items_paid_evidence_idx").on(table.paidCandidateEvidenceId),
+  check(
+    "sfp_stage_items_candidate_ref_one_of_chk",
+    sql`
+      NOT (candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NOT NULL)
+      AND (
+        outcome_code IS DISTINCT FROM 'candidate_found'
+        OR ((candidate_id IS NOT NULL) <> (paid_candidate_evidence_id IS NOT NULL))
+      )
+      AND (
+        outcome_code = 'candidate_found'
+        OR (candidate_id IS NULL AND paid_candidate_evidence_id IS NULL)
+      )
+    `,
+  ),
 ]);
+
+/** Task #1999 (C1): append-only pre-cohort classification contract. Independent of
+ *  cohort_run_id by design — pre-cohort classification happens BEFORE a cohort exists
+ *  (Phase A resolves businesses from vertical-unresolved to target-vertical-eligible;
+ *  freeze, which is cohort-bound, happens afterward and only reads the latest
+ *  admissible row here). Never persist pre-cohort work into sfp_stage_runs/sfp_cohort_*. */
+export const sfpClassificationRuns = pgTable("sfp_classification_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programId: uuid("program_id").notNull().references(() => sfpPrograms.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  actorId: text("actor_id").notNull(),
+  state: text("state").notNull().default("pending"),
+  maxBusinesses: integer("max_businesses").notNull(),
+  policyVersion: integer("policy_version").notNull(),
+  classifierVersion: integer("classifier_version").notNull(),
+  configHash: text("config_hash").notNull(),
+  estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }).notNull().default(0),
+  reservedCostMicros: bigint("reserved_cost_micros", { mode: "number" }).notNull().default(0),
+  settledCostMicros: bigint("settled_cost_micros", { mode: "number" }).notNull().default(0),
+  selectedCount: integer("selected_count").notNull().default(0),
+  processedCount: integer("processed_count").notNull().default(0),
+  succeededCount: integer("succeeded_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0),
+  terminalReason: text("terminal_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_classification_runs_program_idx").on(table.programId, table.createdAt),
+]);
+
+/** Task #1999 (C1): one row per (run, business) attempted by the pre-cohort bridge.
+ *  Append-only in spirit — a row is written once per run/business pair and only its
+ *  terminal state/evidenceId are ever set by the run that owns it. */
+export const sfpClassificationItems = pgTable("sfp_classification_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id").notNull().references(() => sfpClassificationRuns.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  state: text("state").notNull().default("pending"),
+  outcomeCode: text("outcome_code"),
+  evidenceId: uuid("evidence_id").references(() => sfpClassificationEvidence.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_classification_items_run_business_uidx").on(table.runId, table.businessId),
+  index("sfp_classification_items_business_idx").on(table.businessId, table.createdAt),
+]);
+
+/** Task #1999 (C1/C2): append-only pre-cohort classification evidence. Every row is a
+ *  complete, immutable classification decision for one business as of one evidence
+ *  bundle. Rows are NEVER updated — "latest admissible" is a read-time, deterministic
+ *  selection (policyVersion = the currently active policy, ORDER BY createdAt DESC,
+ *  tie-broken by evidenceHash) that a later run can supersede only by inserting a NEW
+ *  row, never by mutating this one. Freeze pins the selected row's id/hash/policy/
+ *  classifier version into sfp_cohort_decisions so a later run can never retroactively
+ *  change the meaning of an already-frozen cohort. */
+export const sfpClassificationEvidence = pgTable("sfp_classification_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  evidenceHash: text("evidence_hash").notNull(),
+  sourceRefs: jsonb("source_refs").notNull().default([]),
+  classifierVersion: integer("classifier_version").notNull(),
+  modelVersion: text("model_version"),
+  promptVersion: text("prompt_version"),
+  policyVersion: integer("policy_version").notNull(),
+  outcome: text("outcome").notNull(),
+  confidence: numeric("confidence", { precision: 4, scale: 3 }),
+  reasonCodes: jsonb("reason_codes").notNull().default([]),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  costMicros: bigint("cost_micros", { mode: "number" }).notNull().default(0),
+  terminalState: text("terminal_state").notNull().default("completed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_classification_evidence_business_idx").on(table.businessId, table.policyVersion, table.createdAt),
+  check(
+    "sfp_classification_evidence_outcome_chk",
+    sql`outcome IN ('target', 'non_target', 'review_required')`,
+  ),
+]);
+
+/** Task #1999 (C3): additive, encrypted, provider-neutral evidence table for
+ *  Outscraper/Apollo/paid-Serper-sourced candidates. Physically separate from
+ *  free_discovery_candidates (free-only) and cro03c_candidate_evidence (whose
+ *  generation_id FK is NOT NULL and must not be weakened or fabricated for SFP). */
+export const sfpPaidCandidateEvidence = pgTable("sfp_paid_candidate_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  provider: text("provider").notNull(),
+  field: text("field").notNull().default("email"),
+  subjectType: text("subject_type").notNull(),
+  providerOperationId: uuid("provider_operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  disposition: text("disposition").notNull().default("staged"),
+  confidence: integer("confidence").notNull().default(0),
+  envelopeCiphertext: text("envelope_ciphertext").notNull(),
+  envelopeNonce: text("envelope_nonce").notNull(),
+  envelopeTag: text("envelope_tag").notNull(),
+  envelopeKeyVersion: integer("envelope_key_version").notNull().default(1),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  maskedValue: text("masked_value").notNull(),
+  personNameEvidence: text("person_name_evidence"),
+  personTitleEvidence: text("person_title_evidence"),
+  candidateMetadata: jsonb("candidate_metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_paid_candidate_evidence_provider_biz_field_value_uniq").on(table.provider, table.businessId, table.field, table.normalizedValueHash),
+  index("sfp_paid_candidate_evidence_business_idx").on(table.businessId),
+  check(
+    "sfp_paid_candidate_evidence_provider_chk",
+    sql`provider IN ('outscraper', 'apollo', 'serper')`,
+  ),
+]);
+export type SfpPaidCandidateEvidence = typeof sfpPaidCandidateEvidence.$inferSelect;
 
 export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents", {
   id: uuid("id").primaryKey().defaultRandom(),

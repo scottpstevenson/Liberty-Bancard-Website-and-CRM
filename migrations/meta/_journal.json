@@ -2037,6 +2037,13 @@
       "when": 1800000010300,
       "tag": "0286_sfp_subject_aware_suppression_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 291,
+      "version": "7",
+      "when": 1800000010400,
+      "tag": "0287_sfp_classification_paid_evidence",
+      "breakpoints": true
     }
   ]
 }
