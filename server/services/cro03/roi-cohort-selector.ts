@@ -831,20 +831,24 @@ export async function selectRoiCohort(opts: {
       }
 
       // ── Vertical filter (real five-target classifier — VFC-01) ───────────────
-      let classifierResult = classifyVertical(vertical, verticalIds);
-      if (phaseAEvidence?.outcome === "target" &&
-          classifierResult.outcome !== "resolved_high" && classifierResult.outcome !== "resolved_medium") {
-        const reasons = typeof phaseAEvidence.reason_codes === "string"
-          ? JSON.parse(phaseAEvidence.reason_codes) : phaseAEvidence.reason_codes ?? [];
-        classifierResult = {
-          ...classifierResult,
-          version: Number(phaseAEvidence.classifier_version) as typeof CLASSIFIER_VERSION,
-          outcome: "resolved_medium",
-          confidence: Number(phaseAEvidence.confidence ?? 0.65),
-          evidenceHash: String(phaseAEvidence.evidence_hash),
-          reasons: [...reasons, "PHASE_A_CLASSIFICATION_EVIDENCE"],
-        };
-      }
+      // Correction (post-merge audit): a prior "target" Phase-A classification
+      // evidence row must never override a negative result from the CURRENT
+      // deterministic classifier run against THIS call's verticalIds. Phase-A
+      // evidence is written by /api/lead-ops/sfp/classification/run, whose
+      // caller-supplied `targetIds` is independent of — and can diverge from —
+      // this program's own configured `verticalIds` (see sfp-classification-
+      // bridge.ts). Evidence rows are keyed only by business_id+policy_version,
+      // not by which targetIds produced them, so a "target" outcome recorded
+      // under one targetIds set previously bled into cohort eligibility for
+      // ANY other program/config sharing the same policy_version — silently
+      // admitting businesses whose vertical does not match this program's
+      // configured verticals at all. The doc comment above the exclusion
+      // branch below states the intended contract precisely: Phase-A can only
+      // ever be authoritative for EXCLUSIONS (non_target/review_required);
+      // a "target" outcome must always re-prove itself against the current
+      // verticalIds via the independent deterministic classifier, never
+      // short-circuit it.
+      const classifierResult = classifyVertical(vertical, verticalIds);
       if (classifierResult.outcome === "not_target" || classifierResult.outcome === "unresolved") {
         funnel.verticalUnresolved++;
         excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${classifierResult.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, classifierResult));

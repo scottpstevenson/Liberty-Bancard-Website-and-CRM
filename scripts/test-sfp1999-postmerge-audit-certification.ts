@@ -177,8 +177,8 @@ try {
       id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
       requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
     ) VALUES ($1::uuid,'serper','sfp_precohort_classification','settlement-replay',$2,'user',
-      'task1999-certification','business:1','running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
-  `, [settlementReplayOperationId, `sfp1999-settlement-replay-op-${nonce}`, settlementReplayClaimToken]);
+      'task1999-certification',$4,'running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
+  `, [settlementReplayOperationId, `sfp1999-settlement-replay-op-${nonce}`, settlementReplayClaimToken, `business:cert-fixture-settlement-replay-${nonce}`]);
   await pool.query(`
     INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
     VALUES ($1::uuid,1,'pending',NOW())
@@ -222,8 +222,8 @@ try {
       id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
       requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
     ) VALUES ($1::uuid,'serper','sfp_precohort_classification','kill-line-test',$2,'user','task1999-certification',
-      'business:1','running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
-  `, [killOperationId, `sfp1999-kill-op-${nonce}`, killClaimToken]);
+      $4,'running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
+  `, [killOperationId, `sfp1999-kill-op-${nonce}`, killClaimToken, `business:cert-fixture-kill-line-${nonce}`]);
   let killLineTransportCalls = 0;
   await rejects(() => providerOps.invokePreCohortSfpProviderTransport({
     operationId: killOperationId, claimToken: killClaimToken, provider: "serper", controlProvider: "serper",
@@ -438,6 +438,38 @@ try {
     Math.max(0, gapSnapshotBeforeApollo.gapCounts.decisionMakerGapCount - 1) &&
     gapSnapshotAfterApollo.snapshotHash !== gapSnapshotBeforeApollo.snapshotHash,
   "persisted Apollo person evidence closes the live decision-maker gap and changes the execution snapshot");
+  check(frozen.newlyFrozen === true &&
+    frozen.run.id !== undefined &&
+    Number(businessId) === Number(businessId) &&
+    (await pool.query(`SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id=$1::uuid`, [frozen.run.id]))
+      .rows.map((r: any) => Number(r.business_id)).includes(Number(businessId)) &&
+    (await pool.query(`SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id=$1::uuid`, [frozen.run.id]))
+      .rows.map((r: any) => Number(r.business_id)).length === 1,
+  "the candidate-reference business, the frozen cohort member, and the gap-snapshot business are the exact same identity");
+  check(gapSnapshotBeforeApollo.businessIds.length === 1 &&
+    gapSnapshotBeforeApollo.businessIds[0] === Number(businessId) &&
+    gapSnapshotAfterApollo.businessIds[0] === Number(businessId),
+  "the gap snapshot's own business identity matches the candidate-reference business before and after the Apollo write");
+
+  // Regression (post-merge audit correction): a business classified "target"
+  // under a DIFFERENT targetIds set (replayBusinessId was classified against
+  // ["Med Spa"] earlier in this run, not this program's own verticalIds) must
+  // never be admitted into a cohort frozen for a program whose configured
+  // verticalIds does not include that vertical. Proves program.verticalIds
+  // remains authoritative even when unrelated Phase-A "target" evidence
+  // exists for the same policy_version.
+  const { selectRoiCohort } = await import("../server/services/cro03/roi-cohort-selector");
+  const currentProgram = await prospecting.ensureProgram();
+  const unrelatedVerticalSelection = await selectRoiCohort({
+    maxCohort: 50, verticalIds: currentProgram.verticalIds, countyFips: currentProgram.countyFips,
+    executor: db, persistScores: false,
+  });
+  const admittedIds = new Set(unrelatedVerticalSelection.eligible.map((c: any) => Number(c.canonicalBusinessId)));
+  const excludedReplay = unrelatedVerticalSelection.excluded.find((c: any) => Number(c.canonicalBusinessId) === Number(replayBusinessId));
+  check(!admittedIds.has(Number(replayBusinessId)) && excludedReplay !== undefined &&
+    String(excludedReplay.dispositionReason ?? "").startsWith("excluded:vertical_"),
+  "stale Phase-A 'target' evidence recorded under an unrelated targetIds set cannot admit a business whose vertical does not match the program's own configured verticalIds");
+
   const validationStage = rows(await pool.query(`
     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys)
     VALUES ($1::uuid,'validation',$2,'task1999-certification','completed',1,'["zerobounce"]'::jsonb)
