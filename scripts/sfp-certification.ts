@@ -81,6 +81,8 @@ console.log(`${"═".repeat(62)}\n`);
 
 // ── Seeded state ───────────────────────────────────────────────────────────────
 const seededBizIds: number[] = [];
+const certSeededPlaintextByIndex = new Map<number, string>();
+let certNoMxEmail = "";
 let generationId = "";
 let cohortRunId = "";
 
@@ -144,9 +146,9 @@ await phase("2c. roi-cohort-selector.ts has no ORDER BY b.id LIMIT pre-ranking f
   assert(!src.includes("ORDER BY b.id LIMIT 5000"), "Must not have ORDER BY b.id LIMIT 5000 pre-ranking");
 });
 
-await phase("2d. sfp-validation.ts uses unsealCandidateEvidence() for decryption (not masked_value direct)", async () => {
+await phase("2d. sfp-validation.ts uses the audited openSfpCandidatePlaintext() boundary for decryption (not masked_value direct)", async () => {
   const src = readFileSync("server/services/cro03/sfp-validation.ts", "utf8"); // raw, with comments
-  assert(src.includes("unsealCandidateEvidence"), "sfp-validation.ts must use unsealCandidateEvidence() for real email decryption");
+  assert(src.includes("openSfpCandidatePlaintext"), "sfp-validation.ts must use the audited openSfpCandidatePlaintext() boundary for real email decryption");
   assert(src.includes("verifyEmail(realEmail)"), "Must call verifyEmail with decrypted realEmail");
 });
 
@@ -228,9 +230,22 @@ await phase("3b. Seed free_discovery_candidates for first 20 businesses", async 
   `))[0];
   generationId = String(genRow.id);
 
+  const { seal } = await import("../server/services/cro03/candidate-evidence-service");
+  const noMxDomain = `nonexistent-domain-${RUN_ID}.invalid`;
+  const noMxEmail = `owner@${noMxDomain}`;
+  certNoMxEmail = noMxEmail;
   for (let i = 0; i < 20; i++) {
     const bizId = seededBizIds[i];
-    const email = `test${i}@${RUN_ID}.example.com`;
+    // Real seal() so the audited decrypt boundary actually decrypts a real
+    // address — a prior revision seeded a fake 'enc-cert' ciphertext and put
+    // the real email straight into masked_value, which never exercised the
+    // decryption boundary this task is required to certify.
+    // Business index 19 deliberately uses a non-resolvable domain to prove
+    // (7f3) that a no-MX candidate is rejected with zero provider spend
+    // before any decryption/reservation/transport call is made for it.
+    const email = i === 19 ? noMxEmail : `test${i}@gmail.com`;
+    certSeededPlaintextByIndex.set(i, email);
+    const sealed = seal("email", email);
     await db.execute(sql`
       INSERT INTO free_discovery_candidates
         (generation_id, business_id, field, subject_type, domain, source,
@@ -240,9 +255,8 @@ await phase("3b. Seed free_discovery_candidates for first 20 businesses", async 
       VALUES (
         ${generationId}::uuid, ${bizId}, 'email', 'business',
         ${`${RUN_ID}-${i}.example.com`}, 'cert-seed', 'role', 'staged', ${80 - i},
-        ${'enc-cert'}, ${'nonce-cert'}, ${'tag-cert'}, 1,
-        ${createHash("sha256").update(`cert-${RUN_ID}-${i}`).digest("hex")},
-        ${email}, NOW()
+        ${sealed.ciphertext}, ${sealed.nonce}, ${sealed.tag}, 1,
+        ${sealed.normalizedValueHash}, ${sealed.maskedValue}, NOW()
       )
       ON CONFLICT (generation_id, field, normalized_value_hash) DO NOTHING
     `);
@@ -559,7 +573,7 @@ await phase("6b. Activate the SFP program (required for validation/staging gates
   assert.equal(program.isActive, true, "Program must be active for validation to proceed");
 });
 
-const fakeZbCalls: string[] = []; // track what is passed to fake transport
+const fakeZbCalls: string[] = []; // track what is passed to fake transport (must be REAL decrypted emails)
 let validationResult: any;
 
 await phase("7a. previewSfpValidation returns correct interface", async () => {
@@ -593,9 +607,11 @@ await phase("7a. previewSfpValidation returns correct interface", async () => {
 });
 
 await phase("7b. executeSfpValidation with fake transport validates ≤25 addresses", async () => {
-  const { executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  const { executeSfpValidation, previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  const preview7b = await previewSfpValidation(cohortRunId);
   validationResult = await executeSfpValidation(cohortRunId, {
     idempotencyKey: `sfpcert-validate-${RUN_ID}`,
+    snapshotHash: preview7b.snapshotHash,
     actorId: `cert:${RUN_ID}`,
     maxValidations: 25,
     zbTransport: async (candidateId, maskedValue) => {
@@ -640,25 +656,113 @@ await phase("7e. Invalid outcomes create invalid rows", async () => {
   assert(invalidRows.length >= 0, "Invalid rows should exist for invalid ZB outcomes");
 });
 
-await phase("7f. Fake transport received masked values, not plaintext emails", async () => {
-  // The masked values in test data are the full email (cert seed) — but in production
-  // real emails are decrypted. The static proof (phase 2e) verifies the production path.
-  // Here we verify the transport was called with the stored masked_value field only.
-  for (const maskedValue of fakeZbCalls) {
-    // masked values must not contain unencrypted certificate content
-    assert(!maskedValue.startsWith("enc-"), "Transport must not receive raw ciphertext");
+await phase("7f. Fake transport received REAL decrypted emails, never masked_value (positive proof)", async () => {
+  const realEmails = new Set(certSeededPlaintextByIndex.values());
+  assert(fakeZbCalls.length > 0, "Transport must have been invoked at least once");
+  for (const received of fakeZbCalls) {
+    assert(realEmails.has(received), `Transport must receive a real decrypted address, got: ${received}`);
+    assert(!received.includes("***"), "Transport must never receive a masked value");
   }
 });
 
-await phase("7g. Validation idempotency — replay returns same counts", async () => {
-  const { executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
-  // sfp-validation idempotency is not fully implemented for replay — skip if status already staged
-  // The key property: calling again does not create duplicate eligibility rows
+await phase("7f2. Negative control — masked_value fed to the transport is detected as wrong", async () => {
+  // Proves the test suite itself would fail if a future regression passed
+  // masked_value (e.g. "t***0@RUNID.example.com") instead of the real address.
+  const maskedLooking = `t***0@${RUN_ID}.example.com`;
+  const realEmails = new Set(certSeededPlaintextByIndex.values());
+  assert(!realEmails.has(maskedLooking), "Sanity: masked-looking value must not equal any real seeded email");
+  let caught = false;
+  try {
+    assert(realEmails.has(maskedLooking), "expected failure");
+  } catch {
+    caught = true;
+  }
+  assert(caught, "Negative control must fail when a masked-looking value is asserted as real");
+});
+
+await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attempt/spend", async () => {
+  // Business index 19 was seeded (phase 3b) with a non-resolvable domain.
+  // It must be authoritatively rejected before decryption/reservation/
+  // transport — proven here by: (a) it never reaches the fake transport,
+  // (b) no provider_observations row exists for it, (c) its eligibility
+  // row is 'invalid' with the precheck_no_mx reason, at zero spend.
+  const noMxBizId = seededBizIds[19];
+  assert(!fakeZbCalls.includes(certNoMxEmail), "no_mx candidate must never reach the transport");
+  const obsRow = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS cnt FROM provider_observations WHERE subject_type='business' AND subject_id=${noMxBizId}
+  `))[0];
+  assert.equal(Number(obsRow?.cnt ?? 0), 0, "no_mx candidate must create zero provider_observations rows");
+  const eligRow = rows(await db.execute(sql`
+    SELECT status, decision_reason FROM sfp_outreach_eligibility
+    WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${noMxBizId}
+  `))[0];
+  assert(eligRow, "no_mx business must still get an eligibility row");
+  assert.equal(eligRow.status, "invalid", "no_mx must be authoritatively ineligible");
+  assert(String(eligRow.decision_reason).includes("no_mx"), "reason must record the no_mx precheck");
+});
+
+await phase("7g. Validation idempotency — same key+payload replays exact stored result, zero new provider calls", async () => {
+  const { executeSfpValidation, previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
   const countBefore = rows(await db.execute(sql`
-    SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility
-    WHERE cohort_run_id = ${cohortRunId}::uuid
+    SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility WHERE cohort_run_id = ${cohortRunId}::uuid
   `))[0]?.cnt ?? 0;
-  assert(Number(countBefore) > 0, "Must have eligibility rows after validation");
+  const fakeCallsBefore = fakeZbCalls.length;
+  const preview7g = await previewSfpValidation(cohortRunId);
+  const replay = await executeSfpValidation(cohortRunId, {
+    idempotencyKey: `sfpcert-validate-${RUN_ID}`, // same key as 7b
+    snapshotHash: preview7g.snapshotHash,
+    actorId: `cert:${RUN_ID}`,
+    maxValidations: 25,
+    zbTransport: async (candidateId, realEmail) => { fakeZbCalls.push(realEmail); return "valid"; },
+  });
+  assert.equal(fakeZbCalls.length, fakeCallsBefore, "Replay of a completed run must make ZERO new provider calls");
+  assert.equal(replay.eligibilityRowsCreated, validationResult.eligibilityRowsCreated,
+    "Replay must return the exact stored result, not a fresh computation");
+  const countAfter = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility WHERE cohort_run_id = ${cohortRunId}::uuid
+  `))[0]?.cnt ?? 0;
+  assert.equal(Number(countAfter), Number(countBefore), "Replay must not create duplicate eligibility rows");
+});
+
+await phase("7h. Same idempotency key with a CHANGED payload fails closed with a conflict", async () => {
+  const { executeSfpValidation, previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  const preview7h = await previewSfpValidation(cohortRunId);
+  let caught = false;
+  try {
+    await executeSfpValidation(cohortRunId, {
+      idempotencyKey: `sfpcert-validate-${RUN_ID}`, // same key as 7b/7g
+      snapshotHash: preview7h.snapshotHash,
+      actorId: `cert:${RUN_ID}`,
+      maxValidations: 24, // deliberately different from the original 25 → different payload
+      zbTransport: async (candidateId, realEmail) => { fakeZbCalls.push(realEmail); return "valid"; },
+    });
+  } catch (err: any) {
+    // Changing maxValidations changes both the snapshot (rejected as
+    // SNAPSHOT_MISMATCH against the stale preview) and, were the snapshot to
+    // somehow match, the payload hash (rejected as IDEMPOTENCY_CONFLICT).
+    // Either is a correct fail-closed outcome — what must never happen is
+    // silent execution under the reused key.
+    const msg = String(err?.message ?? "");
+    caught = msg.includes("IDEMPOTENCY_CONFLICT") || msg.includes("SNAPSHOT_MISMATCH");
+  }
+  assert(caught, "A changed payload under a reused idempotency key must fail closed, never silently execute");
+});
+
+await phase("7i. A stale/mismatched snapshotHash fails closed before any execution", async () => {
+  const { executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  let caught = false;
+  try {
+    await executeSfpValidation(cohortRunId, {
+      idempotencyKey: `sfpcert-validate-stale-${RUN_ID}`,
+      snapshotHash: "0000000000000000000000000000000000000000000000000000000000000000",
+      actorId: `cert:${RUN_ID}`,
+      maxValidations: 25,
+      zbTransport: async (candidateId, realEmail) => { fakeZbCalls.push(realEmail); return "valid"; },
+    });
+  } catch (err: any) {
+    caught = String(err?.message ?? "").includes("SNAPSHOT_MISMATCH");
+  }
+  assert(caught, "A stale/wrong snapshotHash must fail closed with SFP_VALIDATION_SNAPSHOT_MISMATCH");
 });
 
 // ════════════════════════════════════════════════════════════════════════════════

@@ -135,6 +135,10 @@ export interface UnifiedSfpCandidateView {
   personNameEvidence: string | null;
   personTitleEvidence: string | null;
   createdAt: string;
+  /** Persisted subject_type from the source row ('business' | 'person') — the
+   *  authoritative classification for role-inbox vs named-contact decisions.
+   *  Never inferred from whether person-name evidence happens to be present. */
+  subjectType: string;
   /**
    * Cross-source dedupe (C3/proof matrix "cross-source email-hash dedupe"):
    * both free_discovery_candidates and sfp_paid_candidate_evidence hash
@@ -192,6 +196,64 @@ export async function resolveSfpCandidateReference(
     maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
     createdAt: String(row.created_at),
   } : null;
+}
+
+/**
+ * Task #2000: the ONE audited, source-aware plaintext-open boundary for SFP
+ * candidates. Validates business/field/disposition/duplicate/frozen-membership
+ * before ever touching ciphertext, exposes the decrypted value only inside
+ * `use()` (never returned or persisted), and writes one audit_logs row
+ * naming actor/purpose/source-kind/evidence-id. No consumer of this
+ * function ever sees plaintext outside its own callback's stack frame.
+ */
+export interface OpenSfpCandidatePlaintextInput {
+  reference: SfpCandidateReference;
+  cohortRunId: string;
+  actorId: string;
+  purpose: string;
+}
+
+export async function openSfpCandidatePlaintext<T>(
+  input: OpenSfpCandidatePlaintextInput,
+  use: (plaintext: string, resolved: ResolvedSfpCandidateReference) => Promise<T>,
+): Promise<T> {
+  const resolved = await resolveSfpCandidateReference(input.reference);
+  if (!resolved) throw new Error("SFP_CANDIDATE_REFERENCE_NOT_FOUND");
+  if (resolved.disposition === "suppressed" || resolved.disposition === "rejected") {
+    throw new Error(`SFP_CANDIDATE_NOT_OPENABLE:disposition=${resolved.disposition}`);
+  }
+  // Frozen-cohort membership: the candidate's business must actually be a
+  // member of the cohort run this decision belongs to.
+  const memberRow = rows(await db.execute(sql`
+    SELECT 1 FROM sfp_cohort_members WHERE cohort_run_id=${input.cohortRunId}::uuid AND business_id=${resolved.businessId} LIMIT 1
+  `))[0];
+  if (!memberRow) throw new Error("SFP_CANDIDATE_BUSINESS_NOT_IN_COHORT");
+
+  const envelopeRow = resolved.sourceKind === "free"
+    ? rows(await db.execute(sql`
+        SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
+          FROM free_discovery_candidates WHERE id=${resolved.evidenceId}::uuid LIMIT 1
+      `))[0]
+    : rows(await db.execute(sql`
+        SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
+          FROM sfp_paid_candidate_evidence WHERE id=${resolved.evidenceId}::uuid LIMIT 1
+      `))[0];
+  if (!envelopeRow) throw new Error("SFP_CANDIDATE_ENVELOPE_NOT_FOUND");
+
+  const plaintext = unseal("email", {
+    ciphertext: String(envelopeRow.envelope_ciphertext),
+    nonce: String(envelopeRow.envelope_nonce),
+    tag: String(envelopeRow.envelope_tag),
+    keyVersion: Number(envelopeRow.envelope_key_version ?? 1),
+  });
+
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_candidate_plaintext_opened', 'sfp_candidate_evidence', ${resolved.evidenceId}, 'user', ${input.actorId},
+            ${JSON.stringify({ sourceKind: resolved.sourceKind, evidenceId: resolved.evidenceId, businessId: resolved.businessId, purpose: input.purpose, cohortRunId: input.cohortRunId })}::jsonb)
+  `);
+
+  return use(plaintext, resolved);
 }
 
 export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<UnifiedSfpCandidateView[]> {

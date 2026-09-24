@@ -9416,6 +9416,27 @@ export const sfpFunnelSnapshots = pgTable("sfp_funnel_snapshots", {
   selectedFrozen: integer("selected_frozen").notNull().default(0),
 });
 
+export const sfpOutreachPolicyDocuments = pgTable("sfp_outreach_policy_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  version: integer("version").notNull().unique(),
+  documentHash: text("document_hash").notNull(),
+  validationTtlDays: integer("validation_ttl_days").notNull(),
+  acceptedOutcomes: jsonb("accepted_outcomes").notNull(),
+  retryableOutcomes: jsonb("retryable_outcomes").notNull(),
+  roleInboxPolicy: jsonb("role_inbox_policy").notNull(),
+  consentTierPolicy: jsonb("consent_tier_policy").notNull(),
+  reasonCodes: jsonb("reason_codes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").notNull(),
+});
+
+export const sfpOutreachPolicyControl = pgTable("sfp_outreach_policy_control", {
+  singleton: boolean("singleton").primaryKey().default(true),
+  activePolicyId: uuid("active_policy_id").notNull().references(() => sfpOutreachPolicyDocuments.id),
+  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
+  activatedBy: text("activated_by").notNull(),
+});
+
 export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   id: uuid("id").primaryKey().defaultRandom(),
   cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id),
@@ -9439,6 +9460,20 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   stagingIntentId: uuid("staging_intent_id"),
   campaignStagedAt: timestamp("campaign_staged_at", { withTimezone: true }),
   campaignStagedBy: text("campaign_staged_by"),
+  // Task #2000: additive typed source lineage + policy pin. candidateId (above)
+  // remains the legacy free-candidate compatibility FK; sourceKind/paidCandidateEvidenceId
+  // are the new one-of typed reference for unified free+paid candidate handoff.
+  sourceKind: text("source_kind"),
+  paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "set null" }),
+  normalizedValueHash: text("normalized_value_hash"),
+  policyDocumentId: uuid("policy_document_id").references(() => sfpOutreachPolicyDocuments.id),
+  policyDocumentHash: text("policy_document_hash"),
+  consentTier: text("consent_tier"),
+  validationExpiresAt: timestamp("validation_expires_at", { withTimezone: true }),
+  rawProviderStatus: text("raw_provider_status"),
+  rawProviderSubstatus: text("raw_provider_substatus"),
+  reusedFromOperationId: uuid("reused_from_operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  reasonCodes: jsonb("reason_codes").notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -9446,6 +9481,17 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   index("idx_sfp_outreach_eligibility_run").on(table.cohortRunId, table.status),
   index("idx_sfp_outreach_eligibility_status").on(table.status, table.createdAt),
   index("sfp_outreach_candidate_idx").on(table.candidateId),
+  index("sfp_outreach_eligibility_paid_evidence_idx").on(table.paidCandidateEvidenceId),
+  index("sfp_outreach_eligibility_normalized_hash_idx").on(table.businessId, table.normalizedValueHash),
+  index("sfp_outreach_eligibility_policy_idx").on(table.policyDocumentId),
+  check(
+    "sfp_outreach_eligibility_source_ref_one_of_chk",
+    sql`
+      source_kind IS NULL
+      OR (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
+      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL)
+    `,
+  ),
 ]);
 
 export const sfpStageRuns = pgTable("sfp_stage_runs", {
@@ -9463,6 +9509,7 @@ export const sfpStageRuns = pgTable("sfp_stage_runs", {
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }), lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
   terminalReason: text("terminal_reason"), authorization: jsonb("authorization"),
   payloadHash: text("payload_hash"), previewSnapshotHash: text("preview_snapshot_hash"),
+  storedResult: jsonb("stored_result"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

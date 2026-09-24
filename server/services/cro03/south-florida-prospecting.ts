@@ -35,6 +35,7 @@ import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 // Task #1999 (Architecture correction 1 / C1): freeze pins the exact latest-admissible
 // pre-cohort classification evidence row into the immutable cohort/decision snapshot.
 import { getLatestAdmissibleClassificationEvidence } from "./sfp-classification-bridge";
+import { getActiveSfpOutreachPolicy } from "./sfp-outreach-policy";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -1334,6 +1335,10 @@ export interface ValidatedProspect {
   exclusionReason: string | null;
   campaignStagedAt: string | null;
   policyVersion: number;
+  sourceKind: string | null;
+  consentTier: string | null;
+  policyDocumentHash: string | null;
+  reasonCodes: string[];
 }
 
 export async function getValidatedProspects(opts: {
@@ -1363,33 +1368,44 @@ export async function getValidatedProspects(opts: {
   if (filters.outreachEligible) whereClause = sql`${whereClause} AND soe.status = 'validated_outreach_eligible'`;
   if (filters.reviewRequired) whereClause = sql`${whereClause} AND soe.status IN ('validated_review_required','catch_all_review')`;
 
+  // One filtered CTE feeds page rows, the exact total, and the grouped
+  // counts, so every consumer reconciles against the same filtered relation
+  // instead of the page query and the aggregate queries silently drifting
+  // apart (e.g. filters applied to rows but not to the total, or the total
+  // querying a table alias it never joined).
+  const filteredCte = sql`
+    WITH filtered AS (
+      SELECT
+        soe.*,
+        b.canonical_name AS business_name,
+        b.vertical AS business_vertical,
+        scm.roi_score,
+        scm.county_fips,
+        scm.geography_class,
+        EXTRACT(EPOCH FROM (NOW() - soe.validation_at)) / 86400.0 AS validation_age_days
+      FROM sfp_outreach_eligibility soe
+      JOIN sfp_cohort_members scm ON scm.cohort_run_id = soe.cohort_run_id
+        AND scm.business_id = soe.business_id
+      JOIN businesses b ON b.id = soe.business_id
+      WHERE ${whereClause}
+    )
+  `;
+
   const prospectRows = rows(await db.execute(sql`
-    SELECT
-      soe.*,
-      b.canonical_name AS business_name,
-      b.vertical AS business_vertical,
-      scm.roi_score,
-      scm.county_fips,
-      scm.geography_class
-    FROM sfp_outreach_eligibility soe
-    JOIN sfp_cohort_members scm ON scm.cohort_run_id = soe.cohort_run_id
-      AND scm.business_id = soe.business_id
-    JOIN businesses b ON b.id = soe.business_id
-    WHERE ${whereClause}
-    ORDER BY scm.roi_score DESC, soe.created_at DESC
+    ${filteredCte}
+    SELECT * FROM filtered
+    ORDER BY roi_score DESC, created_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `));
 
   const totalRow = rows(await db.execute(sql`
-    SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility soe
-    WHERE ${whereClause}
+    ${filteredCte}
+    SELECT COUNT(*)::int AS cnt FROM filtered
   `))[0];
 
   const statusRows = rows(await db.execute(sql`
-    SELECT status, COUNT(*)::int AS cnt
-    FROM sfp_outreach_eligibility
-    WHERE cohort_run_id = ${cohortRunId}::uuid
-    GROUP BY status
+    ${filteredCte}
+    SELECT status, COUNT(*)::int AS cnt FROM filtered GROUP BY status
   `));
   const byCohort: Record<string, number> = {};
   for (const r of statusRows) byCohort[String(r.status)] = Number(r.cnt);
@@ -1414,6 +1430,10 @@ export async function getValidatedProspects(opts: {
     exclusionReason: r.decision_reason ? String(r.decision_reason) : null,
     campaignStagedAt: r.campaign_staged_at ? String(r.campaign_staged_at) : null,
     policyVersion: Number(r.policy_version ?? 1),
+    sourceKind: r.source_kind ? String(r.source_kind) : null,
+    consentTier: r.consent_tier ? String(r.consent_tier) : null,
+    policyDocumentHash: r.policy_document_hash ? String(r.policy_document_hash) : null,
+    reasonCodes: Array.isArray(r.reason_codes) ? r.reason_codes.map(String) : [],
   }));
 
   return { prospects, total: Number(totalRow?.cnt ?? 0), byCohort };
@@ -1505,19 +1525,29 @@ export async function stageForCampaign(opts: {
   businessIds?: number[];  // if omitted, stage all eligible
 }): Promise<CampaignStagingResult> {
   const { cohortRunId, idempotencyKey, actorId } = opts;
+  const activePolicy = await getActiveSfpOutreachPolicy();
 
   let whereExtra = sql``;
   if (opts.businessIds && opts.businessIds.length > 0) {
     whereExtra = sql`AND business_id = ANY(ARRAY[${sql.join(opts.businessIds.map((id) => sql`${id}::int`), sql`, `)}])`;
   }
 
+  // Task #2000 fence correction: enumerate EVERY eligible eligibility row
+  // first, via a LEFT JOIN to the (free-only) candidate table. An earlier
+  // revision started from an INNER JOIN on free_discovery_candidates, which
+  // silently dropped every paid-source-eligible row (candidate_id IS NULL)
+  // before this loop ever saw it — reporting a false "nothing to stage"
+  // instead of the true, Task-2001-blocked count. This staging path itself
+  // only completes free-source rows; paid-source rows are explicitly
+  // rejected below with an exact, visible count and reason code, never
+  // silently staged and never silently omitted.
   const eligibleRows = rows(await db.execute(sql`
-    SELECT soe.id, soe.business_id, soe.candidate_id, soe.status, soe.zb_outcome,
-           soe.validation_at, soe.masked_email, soe.role_inbox, soe.campaign_staged_at,
-           soe.decision_reason,fdc.normalized_value_hash,
+    SELECT soe.id, soe.business_id, soe.candidate_id, soe.paid_candidate_evidence_id, soe.source_kind,
+           soe.status, soe.zb_outcome, soe.validation_at, soe.validation_expires_at, soe.masked_email, soe.role_inbox,
+           soe.campaign_staged_at, soe.decision_reason, fdc.normalized_value_hash,
            b.canonical_name,b.website_domain,b.main_phone,b.vertical,b.city,b.state
     FROM sfp_outreach_eligibility soe
-    JOIN free_discovery_candidates fdc ON fdc.id=soe.candidate_id
+    LEFT JOIN free_discovery_candidates fdc ON fdc.id=soe.candidate_id
     JOIN businesses b ON b.id=soe.business_id
     WHERE soe.cohort_run_id = ${cohortRunId}::uuid
       AND soe.status = 'validated_outreach_eligible'
@@ -1537,22 +1567,40 @@ export async function stageForCampaign(opts: {
       continue;
     }
 
-    // Freshness check (90-day max)
-    if (row.validation_at) {
-      const validationDate = new Date(String(row.validation_at));
-      const ageDays = (Date.now() - validationDate.getTime()) / 86400000;
-      if (ageDays > 90) {
-        rejected++;
-        reasons["validation_stale"] = (reasons["validation_stale"] ?? 0) + 1;
-        // Downgrade status
-        await db.execute(sql`
-          UPDATE sfp_outreach_eligibility
-          SET status = 'validation_pending', decision_reason = 'validation_expired_>90d',
-              updated_at = NOW()
-          WHERE id = ${String(row.id)}::uuid
-        `);
-        continue;
-      }
+    // Task #2000/#2001 boundary: this staging path only knows how to complete
+    // free-source candidates. A paid-source (Outscraper/Apollo/Serper)
+    // eligible row is real, valid, staging-review-eligible evidence — it is
+    // explicitly reported as blocked pending Task #2001's paid-source
+    // staging support, never silently dropped, never silently staged.
+    if (row.source_kind === "paid" || (!row.candidate_id && row.paid_candidate_evidence_id)) {
+      rejected++;
+      reasons["paid_source_task2001_blocked"] = (reasons["paid_source_task2001_blocked"] ?? 0) + 1;
+      continue;
+    }
+
+    // Freshness check driven by the active outreach policy's TTL
+    // (validation_expires_at was stamped from policy.validationTtlDays at
+    // validation time), never a hardcoded window independent of the
+    // pinned policy document.
+    // Legacy rows written before policy_document tracking existed have a
+    // NULL validation_expires_at. Fail closed for them by deriving an
+    // expiry from validation_at + the CURRENT active policy's TTL, rather
+    // than letting a NULL bypass the freshness check entirely.
+    const effectiveExpiresAt = row.validation_expires_at
+      ? new Date(String(row.validation_expires_at))
+      : row.validation_at
+        ? new Date(new Date(String(row.validation_at)).getTime() + activePolicy.validationTtlDays * 86_400_000)
+        : null;
+    if (!effectiveExpiresAt || effectiveExpiresAt.getTime() < Date.now()) {
+      rejected++;
+      reasons["validation_stale"] = (reasons["validation_stale"] ?? 0) + 1;
+      await db.execute(sql`
+        UPDATE sfp_outreach_eligibility
+        SET status = 'validation_pending', decision_reason = 'validation_expired_per_policy_ttl',
+            updated_at = NOW()
+        WHERE id = ${String(row.id)}::uuid
+      `);
+      continue;
     }
 
     // Re-check DBPR

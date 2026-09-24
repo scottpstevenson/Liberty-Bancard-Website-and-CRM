@@ -139,10 +139,15 @@ type SfpProspects = {
     roleInbox: boolean;
     validationStatus: string;
     validationAt: string | null;
+    validationAgeDays: number | null;
     zbOutcome: string | null;
     outreachPolicyStatus: string;
     campaignStagedAt: string | null;
     exclusionReason: string | null;
+    policyVersion: number;
+    sourceKind: string | null;
+    consentTier: string | null;
+    reasonCodes: string[];
   }>;
   total: number;
   byCohort: Record<string, number>;
@@ -207,6 +212,7 @@ export function SouthFloridaProspectingPanel() {
   const { toast } = useToast();
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [showProspects, setShowProspects] = useState(false);
+  const [stagingResult, setStagingResult] = useState<{ created: number; skipped: number; rejected: number; reasons: Record<string, number> } | null>(null);
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
@@ -484,6 +490,7 @@ export function SouthFloridaProspectingPanel() {
       })).json();
     },
     onSuccess: (data: any) => {
+      setStagingResult(data);
       toast({
         title: "Campaign staging complete",
         description: `${data.created} staged · ${data.skipped} skipped · ${data.rejected} rejected. No outreach sent.`,
@@ -987,15 +994,33 @@ export function SouthFloridaProspectingPanel() {
                   </div>
                   <div className="space-y-1 max-h-64 overflow-y-auto">
                     {prospectsQuery.data.prospects.map((p) => (
-                      <div key={p.businessId} className="flex items-center justify-between p-2 bg-muted/30 rounded text-xs gap-2">
-                        <div className="flex-1 min-w-0">
-                          <span className="font-medium truncate">{p.businessName ?? `Biz #${p.businessId}`}</span>
-                          {p.normalizedVertical && <span className="text-muted-foreground ml-1">· {p.normalizedVertical}</span>}
+                      <div key={p.businessId} className="flex flex-col gap-1 p-2 bg-muted/30 rounded text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium truncate">{p.businessName ?? `Biz #${p.businessId}`}</span>
+                            {p.normalizedVertical && <span className="text-muted-foreground ml-1">· {p.normalizedVertical}</span>}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {p.maskedEmail && <span className="font-mono text-muted-foreground">{p.maskedEmail}</span>}
+                            {statusBadge(p.validationStatus)}
+                            {p.campaignStagedAt && <Badge variant="default" className="text-xs">Staged</Badge>}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {p.maskedEmail && <span className="font-mono text-muted-foreground">{p.maskedEmail}</span>}
-                          {statusBadge(p.validationStatus)}
-                          {p.campaignStagedAt && <Badge variant="default" className="text-xs">Staged</Badge>}
+                        <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+                          <Badge variant="outline" className="text-[10px]">policy v{p.policyVersion}</Badge>
+                          {p.sourceKind && <Badge variant="outline" className="text-[10px]">source: {p.sourceKind}</Badge>}
+                          {p.consentTier && <Badge variant="outline" className="text-[10px]">consent: {p.consentTier}</Badge>}
+                          {p.validationAgeDays != null && (
+                            <Badge variant="outline" className="text-[10px]">{Math.round(p.validationAgeDays)}d old</Badge>
+                          )}
+                          {p.sourceKind === "paid" && !p.campaignStagedAt && (
+                            <Badge variant="secondary" className="text-[10px]">Task 2001 staging blocked (paid source)</Badge>
+                          )}
+                          {p.reasonCodes?.length > 0 && (
+                            <span className="truncate max-w-[240px]" title={p.reasonCodes.join(", ")}>
+                              {p.reasonCodes.join(", ")}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1062,6 +1087,21 @@ export function SouthFloridaProspectingPanel() {
               Staging is idempotent. All re-verification gates run at execution time.
               No email is sent. No sequence enrolled. No GHL write. Outbound stays paused.
             </p>
+            {stagingResult && Object.keys(stagingResult.reasons ?? {}).length > 0 && (
+              <div className="flex flex-wrap gap-1 text-xs">
+                {Object.entries(stagingResult.reasons).map(([reason, cnt]) => (
+                  <Badge
+                    key={reason}
+                    variant={reason === "paid_source_task2001_blocked" ? "secondary" : "outline"}
+                    className="text-[10px]"
+                  >
+                    {reason === "paid_source_task2001_blocked"
+                      ? `Task 2001 staging blocked (paid source): ${cnt}`
+                      : `${reason.replace(/_/g, " ")}: ${cnt}`}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

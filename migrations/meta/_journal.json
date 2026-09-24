@@ -2051,6 +2051,13 @@
       "when": 1800000010500,
       "tag": "0288_sfp1999_idempotency_gap_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 293,
+      "version": "7",
+      "when": 1800000010600,
+      "tag": "0289_sfp2000_policy_and_lineage",
+      "breakpoints": true
     }
   ]
 }

@@ -146,6 +146,12 @@ const MANDATORY_SUITES: Suite[] = [
     requiresDisposableTestDatabase: true,
   },
   {
+    name: "Task #2000 SFP Validation & Outreach Eligibility Certification (unified free+paid candidates, real-vs-masked decryption, freshness reuse, snapshot-bound execute, atomic finalization, Task-2001 staging fence, exact reporting)",
+    script: "scripts/test-sfp2000-disposable-certification.ts",
+    timeoutSecs: 120,
+    requiresDisposableTestDatabase: true,
+  },
+  {
     name: "Task #1999 Final Closeout Guard (settlement replay, aggregate reservations, identity/decision-maker/geography gaps)",
     script: "scripts/test-sfp1999-final-closeout.mjs",
     timeoutSecs: 60,

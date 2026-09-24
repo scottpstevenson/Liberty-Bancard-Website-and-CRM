@@ -3315,18 +3315,24 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!idempotencyKey) {
         return res.status(400).json({ error: "idempotencyKey is required" });
       }
+      const snapshotHash = String(req.body?.snapshotHash ?? "");
+      if (!snapshotHash) {
+        return res.status(400).json({ error: "snapshotHash is required — call the validation-preview endpoint first and pass its snapshotHash" });
+      }
       const maxValidations = req.body?.maxValidations == null ? 25 : Number(req.body.maxValidations);
       if (!Number.isInteger(maxValidations) || maxValidations < 1 || maxValidations > 25) {
         return res.status(400).json({ error: "maxValidations must be an integer between 1 and 25" });
       }
       const result = await executeSfpValidation(String(req.params.runId), {
         idempotencyKey,
+        snapshotHash,
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
         maxValidations,
       });
       res.json(result);
     } catch (err: any) {
       const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("SNAPSHOT_MISMATCH") || err?.message?.includes("IDEMPOTENCY_CONFLICT") ? 409
         : err?.message?.includes("BLOCKED") ? 422
         : err?.message?.includes("NOT_FROZEN") ? 409 : 500;
       res.status(status).json({ error: err?.message });

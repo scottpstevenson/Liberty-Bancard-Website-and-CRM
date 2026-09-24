@@ -155,6 +155,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "requires TEST_DATABASE_URL disposable database; runs real migrations and database guards with CRO03 provider transport unset; no provider or outreach calls",
   },
   {
+    name: "Task #2000 SFP Validation & Outreach Eligibility Certification",
+    script: "scripts/test-sfp2000-disposable-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "requires TEST_DATABASE_URL disposable database with a network-denied fake provider boundary; ZeroBounce validated via injected transport only; proves unified free+paid candidate consumption, real-vs-masked decryption, freshness reuse, snapshot-bound execute, atomic finalization, and the Task-2001 staging fence; no live provider or outreach calls",
+  },
+  {
     name: "Task #1999 Final Closeout Guard",
     script: "scripts/test-sfp1999-final-closeout.mjs",
     capability: "deterministic-static",

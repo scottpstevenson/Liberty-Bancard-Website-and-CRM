@@ -139,9 +139,15 @@ export function isEmailCandidateAccepted(
 
 // ── MI-06: MX check ────────────────────────────────────────────────────────────
 
-type MxCheckResult = "ok" | "no_mx" | "dns_indeterminate";
+export type MxCheckResult = "ok" | "no_mx" | "dns_indeterminate";
 
-async function checkMxRecord(domain: string): Promise<MxCheckResult> {
+/**
+ * Exported (Task #2000) so other candidate pipelines — e.g. SFP's unified
+ * free+paid validation gate — can reuse the exact same authoritative
+ * no_mx/dns_indeterminate classification instead of re-implementing DNS
+ * resolution semantics a second time.
+ */
+export async function checkMxRecord(domain: string): Promise<MxCheckResult> {
   try {
     const timeout = new Promise<MxCheckResult>((_, reject) =>
       setTimeout(() => reject(new Error("timeout")), 3000),
