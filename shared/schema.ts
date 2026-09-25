@@ -9434,11 +9434,19 @@ export const sfpOutreachPolicyDocuments = pgTable("sfp_outreach_policy_documents
 });
 
 export const sfpOutreachPolicyControl = pgTable("sfp_outreach_policy_control", {
+  // NOT chained with .primaryKey() on the column builder: drizzle-kit
+  // 0.31.10's push generation for a boolean primaryKey column double-wraps
+  // its auto-generated CHECK ("CHECK (CHECK (singleton))"), which Postgres
+  // rejects on a fresh install. The primary key and the singleton-enforcing
+  // CHECK are declared explicitly below instead, matching migration 0289's
+  // hand-written DDL exactly (see PM-07 in the Task #2001 corrective audit).
   singleton: boolean("singleton").notNull().default(true),
   activePolicyId: uuid("active_policy_id").notNull().references(() => sfpOutreachPolicyDocuments.id),
   activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
   activatedBy: text("activated_by").notNull(),
 }, (table) => [
+  primaryKey({ columns: [table.singleton] }),
+  check("sfp_outreach_policy_control_singleton_check", sql`singleton`),
   primaryKey({ columns: [table.singleton] }),
 ]);
 

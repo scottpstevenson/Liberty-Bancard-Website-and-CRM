@@ -182,10 +182,15 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
       actorId: String(run.actor_id),
     });
     await renewStageRunClaim(runId, claimToken);
+    // The command key is server-issued by previewStagingV2() and validated
+    // by executeStagingV2() to correspond exactly to cohortRunId+snapshotHash
+    // — it must be passed through unmodified. Suffixing it (e.g. with the
+    // stage-run ID) makes executeStagingV2() reject every recurring batch
+    // with SFP_STAGING_COMMAND_KEY_MISMATCH (see PM-01).
     const execution = await executeStagingV2({
       cohortRunId: String(run.cohort_run_id),
       eligibilityIds,
-      commandKey: `${preview.commandKey}:run:${runId}`,
+      commandKey: preview.commandKey,
       snapshotHash: preview.snapshotHash,
       actorId: String(run.actor_id),
     });
@@ -193,7 +198,7 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
     const heldIds = new Set(rows(await db.execute(sql`
       SELECT eligibility_id
         FROM sfp_campaign_staging_intents
-       WHERE command_key=${`${preview.commandKey}:run:${runId}`}
+       WHERE command_key=${preview.commandKey}
          AND state='ready_held'
     `)).map((item) => String(item.eligibility_id)));
     let succeeded = 0;

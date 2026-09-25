@@ -2065,6 +2065,13 @@
       "when": 1800000010700,
       "tag": "0290_sfp2001_campaign_package_staging",
       "breakpoints": true
+    },
+    {
+      "idx": 295,
+      "version": "7",
+      "when": 1800000010800,
+      "tag": "0291_sfp2001_corrective_patch",
+      "breakpoints": true
     }
   ]
 }
