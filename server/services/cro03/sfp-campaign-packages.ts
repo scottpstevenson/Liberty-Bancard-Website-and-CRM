@@ -264,82 +264,139 @@ export async function applyPackageConvergence(opts: { actorId: string }): Promis
     throw new Error("SFP_W6_GOVERNANCE_TEMPLATE_NOT_FOUND: cannot clone sequence governance shape");
   }
 
+  // PM-02 corrective note (Task #2001 post-merge audit): the prior
+  // implementation (a) never actually performed the "narrow_campaign" action
+  // its own preview described — a shared, multi-vertical source campaign
+  // (e.g. "SDR-05: Medical / Dental / Medspa") was pinned as-is for the
+  // Med Spa package, so a business tagged Dental could still resolve to the
+  // shared campaign's content; and (b) issued each package's writes as
+  // separate autocommitted statements, so a crash partway through one
+  // package could leave a newly-created draft campaign or sequence with no
+  // package_version row pinning it (an orphan, not converged and not
+  // rolled back). Both are fixed here: narrowing is a real, transactional
+  // step, and each package's full resolve/create/narrow/pin sequence runs
+  // inside one transaction so it either fully lands or fully rolls back.
   for (const plan of PACKAGE_PLAN) {
+    // PM-09 correction: a `current` row existing for this package_key is not
+    // by itself proof the package is validly converged — verify it actually
+    // targets this plan's vertical and that its pinned campaign/sequence are
+    // still in the expected states, rather than blindly trusting any row
+    // that happens to be marked current.
     const existingCurrent = rows(await db.execute(sql`
-      SELECT id FROM sfp_campaign_package_versions WHERE package_key = ${plan.packageKey} AND lifecycle_state = 'current' LIMIT 1
+      SELECT v.id, v.vertical, c.status AS campaign_status, s.status AS sequence_status
+      FROM sfp_campaign_package_versions v
+      JOIN campaigns c ON c.id = v.campaign_id
+      JOIN follow_up_sequences s ON s.id = v.sequence_id
+      WHERE v.package_key = ${plan.packageKey} AND v.lifecycle_state = 'current' LIMIT 1
     `))[0];
     if (existingCurrent) {
+      if (String(existingCurrent.vertical) !== plan.vertical) {
+        results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `current package version targets vertical "${existingCurrent.vertical}", expected "${plan.vertical}"` });
+        continue;
+      }
+      if (existingCurrent.campaign_status !== "draft" || existingCurrent.sequence_status !== "paused") {
+        results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `pinned campaign/sequence is no longer draft/paused (campaign=${existingCurrent.campaign_status}, sequence=${existingCurrent.sequence_status})` });
+        continue;
+      }
       results.push({ packageKey: plan.packageKey, status: "already_current", packageVersionId: String(existingCurrent.id) });
       continue;
     }
 
-    // Resolve/create campaign
-    let campaignRow = rows(await db.execute(sql`
-      SELECT id, name, status, content_revision FROM campaigns WHERE name = ${plan.targetCampaignName} LIMIT 1
-    `))[0];
-    if (!campaignRow && plan.isSplit) {
-      const sourceCampaign = rows(await db.execute(sql`
-        SELECT id, description, target_verticals, total_steps FROM campaigns WHERE name = ${plan.sourceCampaignName} LIMIT 1
-      `))[0];
-      if (!sourceCampaign) {
-        results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `source campaign "${plan.sourceCampaignName}" not found` });
-        continue;
-      }
-      campaignRow = rows(await db.execute(sql`
-        INSERT INTO campaigns (name, description, target_verticals, status, total_steps, created_by, content_revision)
-        VALUES (${plan.targetCampaignName},
-                ${`Draft ${plan.vertical} campaign split from "${plan.sourceCampaignName}" (Task #2001). Content/compliance review required before use.`},
-                ARRAY[${plan.vertical}]::text[], 'draft', ${sourceCampaign.total_steps ?? 3}, ${opts.actorId}, 1)
-        RETURNING id, name, status, content_revision
-      `))[0];
-    }
-    if (!campaignRow) {
-      results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `target campaign "${plan.targetCampaignName}" does not exist and is not a split — requires an explicit, separately-governed narrowing edit before this package can go current` });
-      continue;
-    }
-    if (campaignRow.status !== "draft") {
-      results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `campaign "${campaignRow.name}" (id=${campaignRow.id}) status is "${campaignRow.status}", not "draft" — refusing to pin an active/approved campaign without explicit review` });
-      continue;
-    }
+    try {
+      const result = await db.transaction(async (tx) => {
+        // Resolve/create campaign
+        let campaignRow = rows(await tx.execute(sql`
+          SELECT id, name, status, content_revision, target_verticals FROM campaigns WHERE name = ${plan.targetCampaignName} LIMIT 1 FOR UPDATE
+        `))[0];
+        if (!campaignRow && plan.isSplit) {
+          const sourceCampaign = rows(await tx.execute(sql`
+            SELECT id, description, target_verticals, total_steps FROM campaigns WHERE name = ${plan.sourceCampaignName} LIMIT 1
+          `))[0];
+          if (!sourceCampaign) {
+            return { status: "skipped_needs_review" as const, reason: `source campaign "${plan.sourceCampaignName}" not found` };
+          }
+          campaignRow = rows(await tx.execute(sql`
+            INSERT INTO campaigns (name, description, target_verticals, status, total_steps, created_by, content_revision)
+            VALUES (${plan.targetCampaignName},
+                    ${`Draft ${plan.vertical} campaign split from "${plan.sourceCampaignName}" (Task #2001). Content/compliance review required before use.`},
+                    ARRAY[${plan.vertical}]::text[], 'draft', ${sourceCampaign.total_steps ?? 3}, ${opts.actorId}, 1)
+            RETURNING id, name, status, content_revision, target_verticals
+          `))[0];
+        }
+        if (!campaignRow) {
+          return { status: "skipped_needs_review" as const, reason: `target campaign "${plan.targetCampaignName}" does not exist and is not a split — requires an explicit, separately-governed narrowing edit before this package can go current` };
+        }
+        if (campaignRow.status !== "draft") {
+          return { status: "skipped_needs_review" as const, reason: `campaign "${campaignRow.name}" (id=${campaignRow.id}) status is "${campaignRow.status}", not "draft" — refusing to pin an active/approved campaign without explicit review` };
+        }
 
-    // Resolve/create sequence
-    let sequenceRow = rows(await db.execute(sql`
-      SELECT id, name, status, total_steps FROM follow_up_sequences WHERE name = ${plan.targetSequenceName} LIMIT 1
-    `))[0];
-    if (!sequenceRow) {
-      sequenceRow = rows(await db.execute(sql`
-        INSERT INTO follow_up_sequences
-          (name, description, trigger_type, trigger_config, total_steps, status, created_by,
-           sequence_family, eligible_consent_tiers, channels_allowed, offer_routes, lifecycle_stages_allowed)
-        VALUES (${plan.targetSequenceName},
-                ${`SFP ${plan.vertical} cold-outreach sequence (Task #2001), cloned from the W6 governance template. Paused until a later, separately authorized activation task.`},
-                ${w6.trigger_type}, ${JSON.stringify(w6.trigger_config)}::jsonb, ${w6.total_steps ?? 0}, 'paused', ${opts.actorId},
-                ${plan.sequenceFamily}, ${w6.eligible_consent_tiers}, ${w6.channels_allowed}, ${w6.offer_routes}, ${w6.lifecycle_stages_allowed})
-        RETURNING id, name, status, total_steps
-      `))[0];
+        // Real narrowing: a non-split package's target campaign must be
+        // scoped to exactly this vertical before it can be pinned current.
+        // A shared source campaign that still lists other verticals is
+        // narrowed here (with a content_revision bump, so the pinned
+        // content hash reflects the narrowed state); if it lists OTHER
+        // verticals not in this plan at all (an unrelated/unexpected
+        // shape), fail closed instead of guessing.
+        if (!plan.isSplit) {
+          const currentVerticals: string[] = Array.isArray(campaignRow.target_verticals) ? campaignRow.target_verticals : [];
+          const alreadyNarrow = currentVerticals.length === 1 && currentVerticals[0] === plan.vertical;
+          if (!alreadyNarrow) {
+            const knownPlanVerticals = new Set(PACKAGE_PLAN.map((p) => p.vertical));
+            const unexpected = currentVerticals.filter((v) => v !== plan.vertical && !knownPlanVerticals.has(v));
+            if (unexpected.length > 0) {
+              return { status: "skipped_needs_review" as const, reason: `campaign "${campaignRow.name}" (id=${campaignRow.id}) target_verticals includes unrecognized vertical(s) [${unexpected.join(", ")}] — refusing to auto-narrow` };
+            }
+            campaignRow = rows(await tx.execute(sql`
+              UPDATE campaigns
+                 SET target_verticals = ARRAY[${plan.vertical}]::text[], content_revision = COALESCE(content_revision, 0) + 1, updated_at = NOW()
+               WHERE id = ${Number(campaignRow.id)}
+              RETURNING id, name, status, content_revision, target_verticals
+            `))[0];
+          }
+        }
+
+        // Resolve/create sequence
+        let sequenceRow = rows(await tx.execute(sql`
+          SELECT id, name, status, total_steps FROM follow_up_sequences WHERE name = ${plan.targetSequenceName} LIMIT 1 FOR UPDATE
+        `))[0];
+        if (!sequenceRow) {
+          sequenceRow = rows(await tx.execute(sql`
+            INSERT INTO follow_up_sequences
+              (name, description, trigger_type, trigger_config, total_steps, status, created_by,
+               sequence_family, eligible_consent_tiers, channels_allowed, offer_routes, lifecycle_stages_allowed)
+            VALUES (${plan.targetSequenceName},
+                    ${`SFP ${plan.vertical} cold-outreach sequence (Task #2001), cloned from the W6 governance template. Paused until a later, separately authorized activation task.`},
+                    ${w6.trigger_type}, ${JSON.stringify(w6.trigger_config)}::jsonb, ${w6.total_steps ?? 0}, 'paused', ${opts.actorId},
+                    ${plan.sequenceFamily}, ${w6.eligible_consent_tiers}, ${w6.channels_allowed}, ${w6.offer_routes}, ${w6.lifecycle_stages_allowed})
+            RETURNING id, name, status, total_steps
+          `))[0];
+        }
+        if (sequenceRow.status !== "paused") {
+          return { status: "skipped_needs_review" as const, reason: `sequence "${sequenceRow.name}" (id=${sequenceRow.id}) status is "${sequenceRow.status}", not "paused" — refusing to pin a live sequence` };
+        }
+
+        const contentHash = await computeLivePackageContentHash(tx, Number(campaignRow.id), Number(sequenceRow.id));
+
+        const inserted = rows(await tx.execute(sql`
+          INSERT INTO sfp_campaign_package_versions
+            (package_key, vertical, campaign_id, campaign_name, sequence_id, sequence_name,
+             sequence_family, content_hash, lifecycle_state, effective_at, actor_id, notes)
+          VALUES (${plan.packageKey}, ${plan.vertical}, ${Number(campaignRow.id)}, ${campaignRow.name},
+                  ${Number(sequenceRow.id)}, ${sequenceRow.name}, ${plan.sequenceFamily}, ${contentHash},
+                  'current', NOW(), ${opts.actorId},
+                  'Created by Task #2001 configuration-convergence command')
+          RETURNING id
+        `))[0];
+
+        return {
+          status: "created" as const,
+          packageVersionId: String(inserted.id), campaignId: Number(campaignRow.id), sequenceId: Number(sequenceRow.id),
+        };
+      });
+      results.push({ packageKey: plan.packageKey, ...result } as ApplyResultRow);
+    } catch (err: any) {
+      results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `transaction failed: ${err?.message ?? String(err)}` });
     }
-    if (sequenceRow.status !== "paused") {
-      results.push({ packageKey: plan.packageKey, status: "skipped_needs_review", reason: `sequence "${sequenceRow.name}" (id=${sequenceRow.id}) status is "${sequenceRow.status}", not "paused" — refusing to pin a live sequence` });
-      continue;
-    }
-
-    const contentHash = await computeLivePackageContentHash(db, Number(campaignRow.id), Number(sequenceRow.id));
-
-    const inserted = rows(await db.execute(sql`
-      INSERT INTO sfp_campaign_package_versions
-        (package_key, vertical, campaign_id, campaign_name, sequence_id, sequence_name,
-         sequence_family, content_hash, lifecycle_state, effective_at, actor_id, notes)
-      VALUES (${plan.packageKey}, ${plan.vertical}, ${Number(campaignRow.id)}, ${campaignRow.name},
-              ${Number(sequenceRow.id)}, ${sequenceRow.name}, ${plan.sequenceFamily}, ${contentHash},
-              'current', NOW(), ${opts.actorId},
-              'Created by Task #2001 configuration-convergence command')
-      RETURNING id
-    `))[0];
-
-    results.push({
-      packageKey: plan.packageKey, status: "created",
-      packageVersionId: String(inserted.id), campaignId: Number(campaignRow.id), sequenceId: Number(sequenceRow.id),
-    });
   }
 
   return results;
@@ -364,17 +421,30 @@ export async function verifyPackageConvergence(): Promise<{ ok: boolean; issues:
   return { ok: issues.length === 0, issues };
 }
 
-/** Resolve the current package version for a given vertical name (fail-closed if none). */
+/**
+ * Resolve the current package version for a given vertical name (fail-closed
+ * if none). PM-09 correction: this used a bare `LIMIT 1` with no ORDER BY
+ * and no defense against more than one `current` row ever existing for the
+ * same vertical (only `package_key` uniqueness was enforced, not
+ * vertical uniqueness) — if that ever happened, the row returned would be
+ * whatever the query planner picked, not a deterministic choice. Now it
+ * orders deterministically AND throws instead of silently picking one when
+ * more than one exists, so an ambiguity is a loud failure, not a coin flip.
+ */
 export async function getCurrentPackageForVertical(vertical: string): Promise<{
   id: string; packageKey: SfpPackageKey; campaignId: number; sequenceId: number; contentHash: string;
 } | null> {
-  const row = rows(await db.execute(sql`
+  const matches = rows(await db.execute(sql`
     SELECT id, package_key, campaign_id, sequence_id, content_hash
     FROM sfp_campaign_package_versions
     WHERE vertical = ${vertical} AND lifecycle_state = 'current'
-    LIMIT 1
-  `))[0];
-  if (!row) return null;
+    ORDER BY id ASC
+  `));
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw new Error(`SFP_AMBIGUOUS_CURRENT_PACKAGE: ${matches.length} current package versions found for vertical "${vertical}" — expected exactly one`);
+  }
+  const row = matches[0];
   return {
     id: String(row.id), packageKey: row.package_key as SfpPackageKey,
     campaignId: Number(row.campaign_id), sequenceId: Number(row.sequence_id), contentHash: String(row.content_hash),

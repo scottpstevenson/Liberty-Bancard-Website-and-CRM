@@ -2072,6 +2072,20 @@
       "when": 1800000010800,
       "tag": "0291_sfp2001_corrective_patch",
       "breakpoints": true
+    },
+    {
+      "idx": 296,
+      "version": "7",
+      "when": 1800000010900,
+      "tag": "0292_sfp2001_command_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 297,
+      "version": "7",
+      "when": 1800000011000,
+      "tag": "0293_sfp2001_package_version_authority",
+      "breakpoints": true
     }
   ]
 }

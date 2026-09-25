@@ -47,13 +47,16 @@ marketing copy.
 1. In Lead Ops → South Florida Prospecting, review the eligible list and
    explicitly select the businesses to stage (max 25 per batch — there is no
    "select all" shortcut by design, see Defect 14).
-2. Preview: `POST /api/lead-ops/sfp/staging-v2/preview` with
+2. Preview: `POST /api/lead-ops/sfp/campaign-staging-v2/preview` with
    `{ cohortRunId, eligibilityIds }`. Review package assignment, blocked
    reasons, and the returned `snapshotHash`/`commandKey`.
-3. Execute: `POST /api/lead-ops/sfp/staging-v2/execute` with the exact
-   `commandKey`/`snapshotHash` from the preview. A drifted snapshot (policy,
-   package, or eligibility state changed since preview) fails closed with
-   HTTP 409 and requires a fresh preview — this is expected, not a bug.
+3. Execute: `POST /api/lead-ops/sfp/campaign-staging-v2/execute` with the
+   exact `commandKey`/`snapshotHash` from the preview. A drifted snapshot
+   (policy, package, or eligibility state changed since preview) fails
+   closed with HTTP 409 and requires a fresh preview — this is expected, not
+   a bug. The legacy `POST /api/lead-ops/sfp/runs/:runId/stage-for-campaign`
+   mutation is retired (returns HTTP 410) — it bypassed this contract
+   entirely and is not a supported alternative.
 4. Confirm the receipt shows `readyHeld` count matching your selection and
    `rejected` reasons make sense for any skipped rows.
 
@@ -77,8 +80,10 @@ Requirements, all of which must be true simultaneously:
   program.
 - `sfp_programs.schedule_config->>'campaignStaging'` is a positive integer
   (this is the per-tick batch size, capped at 25 regardless of the
-  configured value). Existing programs are backfilled to `10` by migration
-  0290; adjust via the standard program settings update path.
+  configured value). Per the corrected default-off contract (migration
+  0291), existing programs are backfilled to `0` (recurring campaign
+  staging off) — an operator must explicitly set a positive batch size to
+  turn it on; adjust via the standard program settings update path.
 
 With all four true, the worker ticks every ~15 minutes, claims one
 `sfp_stage_runs` row (`stage='campaign_staging'`) via `sfp_stage_runs`/
@@ -86,11 +91,18 @@ With all four true, the worker ticks every ~15 minutes, claims one
 the same `previewStagingV2`/`executeStagingV2` path used by the manual UI.
 
 ## 5. Telemetry
-Lead Ops SFP panel shows: schedule (batch size, whether recurring is
-enabled), worker capability status, backlog (eligible-but-unstaged count),
-next/last run, throughput, retries, stale leases, and dead-letter counts.
-Cost is reported as `0 / not applicable` — this stage makes no provider
-calls.
+Lead Ops SFP panel currently shows: schedule (batch size, whether recurring
+is enabled), background-profile capability *membership* (whether the
+`sfp-campaign-staging` group is in the active profile — this reflects
+configuration, not live worker/queue health), and backlog (eligible-but-
+unstaged count, currently global across all programs/cohorts rather than
+scoped to the program being viewed). Cost is reported as `0 / not
+applicable` — this stage makes no provider calls.
+
+Next-run/last-run time, throughput, retry counts, stale-lease detection, and
+dead-letter counts are **not yet surfaced** in the panel — do not rely on the
+UI for these; query `sfp_stage_runs`/`sfp_stage_items` directly (§7–§8) until
+that telemetry gap is closed.
 
 ## 6. Pause / kill-switch
 - To pause recurring processing only: set `sfp_programs.recurring_enabled =
@@ -109,16 +121,20 @@ A `sfp_stage_items` row reaches `dead_letter` after 5 failed attempts (fixed
 backoff: 1, 5, 15, 30 minutes). Dead letters are visible in the Lead Ops
 telemetry panel with their `outcome_code`.
 
-To retry a dead letter after fixing the underlying cause (e.g. a package
-mapping drifted back to `current`, or a transient DB issue resolved):
+There is no governed admin retry/cancel control for stage items yet (tracked
+as follow-up work) — until one exists, retrying a dead letter after fixing
+the underlying cause (e.g. a package mapping drifted back to `current`, or a
+transient DB issue resolved) requires a direct, audited SQL statement run by
+an operator with database access, not a self-service action:
 ```sql
 UPDATE sfp_stage_items
    SET state = 'pending', attempt_count = 0, outcome_code = NULL
  WHERE id = '<item-id>' AND state = 'dead_letter';
 ```
-The next worker tick will re-claim and reprocess it. To permanently cancel
-instead, leave it in `dead_letter` — no code path resurrects it
-automatically.
+Treat this as a break-glass step, not routine operations — log who ran it,
+when, and why alongside the item ID. The next worker tick will re-claim and
+reprocess it. To permanently cancel instead, leave it in `dead_letter` — no
+code path resurrects it automatically.
 
 ## 8. Reconciliation query
 Rows genuinely stuck (eligible, no intent, no stage item, not selected by a

@@ -156,3 +156,4 @@
 - [Disposable-DB VFC diff-isolation certs need a clean tree](sfp-vfc-diff-isolation-clean-tree.md) — some certification scripts assert the git diff is isolated to owned paths; running them with your own uncommitted WIP in the tree fails them even when unrelated — stash first.
 - [Legacy-value CHECK-constraint migrations](legacy-check-constraint-migration.md) — when narrowing a state/enum CHECK, prove a synthetic legacy row survives by inserting it against the real applied constraint, not a hand-reconstructed copy of it.
 - [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute with command-key idempotency + payload/snapshot-drift 409s is the reusable shape for any "prepare but never send" boundary.
+- [SFP2001 corrective patch scope](sfp2001-corrective-patch.md) — which of 15 post-merge audit findings got fixed-in-session vs deferred as follow-up tasks, and why the split.

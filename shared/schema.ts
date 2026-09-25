@@ -9802,10 +9802,17 @@ export const sfpCampaignStagingCommands = pgTable("sfp_campaign_staging_commands
   payloadHash: text("payload_hash").notNull(),
   snapshotHash: text("snapshot_hash").notNull(),
   actorId: text("actor_id").notNull(),
-  storedResult: jsonb("stored_result").notNull(),
+  storedResult: jsonb("stored_result"),
+  // PM-04 (Task #2001 post-merge audit): pending -> executing -> completed.
+  // Inserted 'pending' BEFORE any per-row work starts so a crash mid-command
+  // leaves durable evidence the command was claimed, and a retry can resume
+  // /reconcile against it instead of re-deriving a fresh (and possibly
+  // snapshot-drifted) preview.
+  state: text("state").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("sfp_campaign_staging_commands_cohort_idx").on(table.cohortRunId, table.createdAt),
+  check("sfp_campaign_staging_commands_state_check", sql`state IN ('pending', 'executing', 'completed')`),
 ]);
 
 export type SfpCampaignPackageVersion = typeof sfpCampaignPackageVersions.$inferSelect;

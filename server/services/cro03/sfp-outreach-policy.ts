@@ -76,9 +76,9 @@ export async function evaluateSfpMutableSafetyGates(input: {
   businessId: number;
   consentTier: string | null;
   policy: SfpActivePolicy;
-}): Promise<SfpEligibilityGateResult> {
+}, executor: { execute: (q: any) => Promise<any> } = db): Promise<SfpEligibilityGateResult> {
   // 1. Canonical DBPR lineage exclusion.
-  const dbprRow = rows(await db.execute(sql`
+  const dbprRow = rows(await executor.execute(sql`
     SELECT ${businessHasDbprLineageSql(sql`${input.businessId}::int`)} AS excluded
   `))[0];
   if (dbprRow?.excluded === true) {
@@ -90,7 +90,7 @@ export async function evaluateSfpMutableSafetyGates(input: {
   // cohort-time exclusion (getSfpBusinessHardExclusionReasons). Re-checked
   // here because a business can become an existing customer AFTER cohort
   // freeze but before (or between) validation executions.
-  const relationshipRow = rows(await db.execute(sql`
+  const relationshipRow = rows(await executor.execute(sql`
     SELECT EXISTS(
       SELECT 1 FROM sdr_merchants sm
        WHERE sm.business_id = ${input.businessId} AND sm.existing_customer_flag = TRUE
@@ -115,9 +115,12 @@ export async function evaluateSfpMutableSafetyGates(input: {
  * revision, kept as its own gate so it composes with the other policy gates
  * rather than being the only check performed).
  */
-export async function isCanonicallySuppressed(emailTokenHashes: string[]): Promise<boolean> {
+export async function isCanonicallySuppressed(
+  emailTokenHashes: string[],
+  executor: { execute: (q: any) => Promise<any> } = db,
+): Promise<boolean> {
   if (emailTokenHashes.length === 0) return false;
-  const row = rows(await db.execute(sql`
+  const row = rows(await executor.execute(sql`
     SELECT EXISTS(
       SELECT 1
       FROM contacts c
@@ -144,8 +147,11 @@ export async function isCanonicallySuppressed(emailTokenHashes: string[]): Promi
  * candidates are pre-CRM business contacts, so an absent contact row is
  * the common case, not an error.
  */
-export async function lookupConsentTierByEmailHash(emailTokenHash: string): Promise<string | null> {
-  const row = rows(await db.execute(sql`
+export async function lookupConsentTierByEmailHash(
+  emailTokenHash: string,
+  executor: { execute: (q: any) => Promise<any> } = db,
+): Promise<string | null> {
+  const row = rows(await executor.execute(sql`
     SELECT consent_tier FROM contacts WHERE email_token_hash = ${emailTokenHash} LIMIT 1
   `))[0];
   return row?.consent_tier ?? null;

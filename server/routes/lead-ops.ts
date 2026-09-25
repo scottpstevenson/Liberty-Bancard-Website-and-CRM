@@ -3572,35 +3572,28 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/sfp/runs/:runId/stage-for-campaign — legacy free-source staging
-  // Body: { idempotencyKey: string, businessIds: number[] } — explicit selection required (max 25).
-  app.post("/api/lead-ops/sfp/runs/:runId/stage-for-campaign", requireRole("admin"), async (req, res) => {
-    try {
-      const { stageForCampaign } = await import("../services/cro03/south-florida-prospecting");
-      const idempotencyKey = String(req.body?.idempotencyKey ?? "");
-      if (!idempotencyKey) {
-        return res.status(400).json({ error: "idempotencyKey is required" });
-      }
-      if (!Array.isArray(req.body?.businessIds) || req.body.businessIds.length === 0) {
-        return res.status(400).json({ error: "businessIds must be an explicit non-empty array" });
-      }
-      if (req.body.businessIds.length > 25) {
-        return res.status(400).json({ error: "businessIds must contain no more than 25 entries" });
-      }
-      const businessIds = req.body.businessIds.map(Number);
-      if (businessIds.some((id: number) => !Number.isInteger(id) || id <= 0)) {
-        return res.status(400).json({ error: "businessIds must contain positive integers" });
-      }
-      const result = await stageForCampaign({
-        cohortRunId: String(req.params.runId),
-        idempotencyKey,
-        actorId: `admin:${(req as any).user?.id ?? "system"}`,
-        businessIds,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message });
-    }
+  // POST /api/lead-ops/sfp/runs/:runId/stage-for-campaign — RETIRED (PM-11,
+  // Task #2001 post-merge audit). This endpoint used to call legacy
+  // `stageForCampaign()`, which writes an older staging representation that
+  // bypasses the package-pinned v2 state machine entirely — no preview/
+  // commandKey/snapshotHash contract, no package-version pin, no policy
+  // document hash, none of the mutable safety-gate or plaintext-confinement
+  // guarantees `campaign-staging-v2` provides. Once any provider is turned
+  // on, that bypass could send outreach that never went through the
+  // corrected authority. Rather than adapting it into a v2 shim (which would
+  // still need every v2 guarantee re-implemented behind a different route
+  // and just adds a second code path to keep in sync), the mutation is
+  // retired outright: callers must use the v2 preview/execute contract at
+  // POST /api/lead-ops/sfp/campaign-staging-v2/preview and .../execute.
+  app.post("/api/lead-ops/sfp/runs/:runId/stage-for-campaign", requireRole("admin"), async (_req, res) => {
+    res.status(410).json({
+      error: "This endpoint has been retired. Use the package-pinned v2 staging contract instead.",
+      code: "SFP_LEGACY_STAGING_RETIRED",
+      replacement: {
+        preview: "POST /api/lead-ops/sfp/campaign-staging-v2/preview",
+        execute: "POST /api/lead-ops/sfp/campaign-staging-v2/execute",
+      },
+    });
   });
 
   // ── POST /api/lead-ops/candidates/backfill-promotion ───────────────────────

@@ -213,28 +213,72 @@ export interface OpenSfpCandidatePlaintextInput {
   purpose: string;
 }
 
+export interface SfpExecutor {
+  execute: (query: any) => Promise<any>;
+}
+
+/**
+ * PM-03 corrective note (Task #2001 post-merge audit): this function's `use`
+ * callback is the ONLY place plaintext may exist. Every consumer MUST do all
+ * of its plaintext-dependent work (hashing, precheck, transport calls,
+ * writes) *inside* `use()` and resolve it to a sanitized value (a hash, an
+ * id, a boolean outcome) — never `return plaintext` or an object containing
+ * it. `resolveSfpCandidateReference` and this function's own bookkeeping
+ * (membership check, envelope read, audit insert) now accept an `executor`
+ * so a caller can bind them to its own transaction — needed so a
+ * transaction-bound consumer (e.g. campaign staging) can write its
+ * plaintext-derived row inside the *same* transaction as its evidence read,
+ * rather than observing a different DB snapshot through the global `db`
+ * handle.
+ */
 export async function openSfpCandidatePlaintext<T>(
   input: OpenSfpCandidatePlaintextInput,
   use: (plaintext: string, resolved: ResolvedSfpCandidateReference) => Promise<T>,
+  executor: SfpExecutor = db,
 ): Promise<T> {
-  const resolved = await resolveSfpCandidateReference(input.reference);
-  if (!resolved) throw new Error("SFP_CANDIDATE_REFERENCE_NOT_FOUND");
+  // Resolve via the executor-bound query directly (rather than delegating to
+  // resolveSfpCandidateReference(), which always uses the global `db`) so a
+  // transaction-bound caller reads the SAME snapshot it will write into.
+  const resolvedRow = input.reference.sourceKind === "free"
+    ? (await rows(await executor.execute(sql`
+        SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,created_at
+          FROM free_discovery_candidates WHERE id=${input.reference.freeDiscoveryCandidateId}::uuid LIMIT 1
+      `)))[0]
+    : (await rows(await executor.execute(sql`
+        SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
+          FROM sfp_paid_candidate_evidence WHERE id=${input.reference.paidCandidateEvidenceId}::uuid LIMIT 1
+      `)))[0];
+  const resolvedRef: ResolvedSfpCandidateReference | null = !resolvedRow ? null : input.reference.sourceKind === "free"
+    ? {
+        sourceKind: "free", evidenceId: String(resolvedRow.id), businessId: Number(resolvedRow.business_id),
+        field: String(resolvedRow.field), provider: String(resolvedRow.source ?? "free"), subjectType: String(resolvedRow.subject_type ?? "business"),
+        maskedValue: String(resolvedRow.masked_value), confidence: Number(resolvedRow.confidence), disposition: String(resolvedRow.disposition),
+        createdAt: String(resolvedRow.created_at),
+      }
+    : {
+        sourceKind: "paid", evidenceId: String(resolvedRow.id), businessId: Number(resolvedRow.business_id),
+        field: String(resolvedRow.field), provider: String(resolvedRow.provider), subjectType: String(resolvedRow.subject_type),
+        maskedValue: String(resolvedRow.masked_value), confidence: Number(resolvedRow.confidence), disposition: String(resolvedRow.disposition),
+        createdAt: String(resolvedRow.created_at),
+      };
+  if (!resolvedRef) throw new Error("SFP_CANDIDATE_REFERENCE_NOT_FOUND");
+  const resolved = resolvedRef;
   if (resolved.disposition === "suppressed" || resolved.disposition === "rejected") {
     throw new Error(`SFP_CANDIDATE_NOT_OPENABLE:disposition=${resolved.disposition}`);
   }
   // Frozen-cohort membership: the candidate's business must actually be a
   // member of the cohort run this decision belongs to.
-  const memberRow = rows(await db.execute(sql`
+  const memberRow = rows(await executor.execute(sql`
     SELECT 1 FROM sfp_cohort_members WHERE cohort_run_id=${input.cohortRunId}::uuid AND business_id=${resolved.businessId} LIMIT 1
   `))[0];
   if (!memberRow) throw new Error("SFP_CANDIDATE_BUSINESS_NOT_IN_COHORT");
 
   const envelopeRow = resolved.sourceKind === "free"
-    ? rows(await db.execute(sql`
+    ? rows(await executor.execute(sql`
         SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
           FROM free_discovery_candidates WHERE id=${resolved.evidenceId}::uuid LIMIT 1
       `))[0]
-    : rows(await db.execute(sql`
+    : rows(await executor.execute(sql`
         SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
           FROM sfp_paid_candidate_evidence WHERE id=${resolved.evidenceId}::uuid LIMIT 1
       `))[0];
@@ -247,12 +291,15 @@ export async function openSfpCandidatePlaintext<T>(
     keyVersion: Number(envelopeRow.envelope_key_version ?? 1),
   });
 
-  await db.execute(sql`
+  await executor.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_candidate_plaintext_opened', 'sfp_candidate_evidence', ${resolved.evidenceId}, 'user', ${input.actorId},
             ${JSON.stringify({ sourceKind: resolved.sourceKind, evidenceId: resolved.evidenceId, businessId: resolved.businessId, purpose: input.purpose, cohortRunId: input.cohortRunId })}::jsonb)
   `);
 
+  // The result of `use()` is trusted to be sanitized by the caller (see the
+  // corrective-patch note above); this function itself never inspects or
+  // forwards `plaintext` beyond this call.
   return use(plaintext, resolved);
 }
 
