@@ -1067,6 +1067,11 @@ function BusinessesTab({ userRole }: { userRole: string }) {
               }`}>
                 {backfillStatusQuery.data?.status ?? "idle"}
               </span>
+              {backfillStatusQuery.data?.status === "running" && backfillStatusQuery.data?.workerCapability?.active === false && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded bg-red-100 text-red-800" data-testid="badge-worker-capability-not-active">
+                  WORKER_CAPABILITY_NOT_ACTIVE
+                </span>
+              )}
               {backfillStatusQuery.data?.status === "running" ? (
                 <Button size="sm" variant="outline" disabled={backfillPauseMutation.isPending}
                   onClick={() => backfillPauseMutation.mutate()}>
@@ -1079,6 +1084,14 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                 </Button>
               )}
             </div>
+            {backfillStatusQuery.data?.status === "running" && backfillStatusQuery.data?.workerCapability?.active === false && (
+              <div className="text-[11px] text-red-600">
+                Marked running, but no worker can execute this queue right now (profile selects it: {String(backfillStatusQuery.data.workerCapability.selected)},
+                queue manager ready: {String(backfillStatusQuery.data.workerCapability.queueManagerReady)},
+                worker active: {String(backfillStatusQuery.data.workerCapability.workerActive)}). The corpus scan is NOT advancing —
+                add <code>sunbiz-backfill</code> to <code>BACKGROUND_JOB_PROFILE=selective:...</code> and restart, or use <code>full</code>.
+              </div>
+            )}
             <div className="text-[11px] text-muted-foreground">
               Cursor entity #{backfillStatusQuery.data?.highWaterEntityId ?? 0} ·
               processed {backfillStatusQuery.data?.processedCount ?? 0} ·

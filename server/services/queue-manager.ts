@@ -5,6 +5,8 @@ import {
   getSelectiveGroups,
   getQueuesForCapabilityGroups,
   CORE_QUEUE_ALLOWLIST,
+  type BackgroundProfile,
+  type WorkerCapabilityGroup,
 } from "./background-profile";
 import { createHash } from "node:crypto";
 import {
@@ -893,6 +895,49 @@ export function getQueueManagerProducers(): QueueManager | null {
   return _queueManager;
 }
 
+export interface WorkerCapabilityStatus {
+  /** Whether the current BACKGROUND_JOB_PROFILE selects this physical queue at all. */
+  selected: boolean;
+  /** Whether the QueueManager singleton has fully initialized (workers constructed). */
+  queueManagerReady: boolean;
+  /** Whether a live BullMQ Worker is actually instantiated for this queue right now. */
+  workerActive: boolean;
+  activeProfile: BackgroundProfile;
+  selectedGroups: WorkerCapabilityGroup[];
+}
+
+/**
+ * Truthful, read-only answer to "can this queue's recurring tick actually run
+ * right now" — combines profile/capability-group selection with the live
+ * QueueManager's actual worker registry, so an admin status endpoint never
+ * has to guess or infer from DB state alone.
+ *
+ * Safe to call before QueueManager initializes (returns queueManagerReady:false,
+ * workerActive:false rather than throwing).
+ */
+export function getWorkerCapabilityStatus(queueName: string): WorkerCapabilityStatus {
+  const activeProfile = getBackgroundProfile();
+  const selectedGroups = activeProfile === "selective" ? getSelectiveGroups() : [];
+
+  let selected: boolean;
+  if (activeProfile === "off") {
+    selected = false;
+  } else if (activeProfile === "core") {
+    selected = CORE_QUEUE_ALLOWLIST.includes(queueName);
+  } else if (activeProfile === "selective") {
+    selected = getQueuesForCapabilityGroups(selectedGroups).includes(queueName);
+  } else {
+    // "full" — every configured queue except the legacy-GHL-sync carve-out,
+    // which does not apply to this queue.
+    selected = QUEUE_CONFIGS.some((c) => c.name === queueName);
+  }
+
+  const queueManagerReady = isQueueManagerReady();
+  const workerActive = queueManagerReady ? (_queueManager?.isQueueWorkerActive(queueName) ?? false) : false;
+
+  return { selected, queueManagerReady, workerActive, activeProfile, selectedGroups };
+}
+
 /**
  * (#1532) Returns true if the QueueManager is fully initialized (queues + workers + schedules).
  */
@@ -953,6 +998,16 @@ class QueueManager {
   /** Expose underlying BullMQ Queue for one-off job enqueuing. */
   getQueue(name: string): Queue | undefined {
     return this.queues.get(name);
+  }
+
+  /**
+   * Truthful worker-capability check for a single physical queue name.
+   * Used by admin status surfaces (e.g. Task #2002's Sunbiz backfill Resume
+   * control) that must not report "running" when the runtime cannot
+   * actually execute the queue's recurring tick.
+   */
+  isQueueWorkerActive(queueName: string): boolean {
+    return this.workers.has(queueName);
   }
 
   private connection!: ConnectionOptions;

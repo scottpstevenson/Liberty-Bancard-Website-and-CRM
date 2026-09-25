@@ -33,7 +33,13 @@
  *                         side effects beyond writing/uploading a backup artifact)
  *   system-audit        — system-audit (split out from `heavy-maintenance`: sends a
  *                         Slack narrative on every run — a real external side effect)
+ *   sunbiz-backfill      — sunbiz-full-backfill only (Task #2002 corrective patch).
+ *                         The full Sunbiz corpus backfill worker is not owned by
+ *                         `enrichment` or any other group; without this group no
+ *                         selective profile can execute its recurring tick. Never
+ *                         implies outreach/sequences/GHL/SMS/voice/paid-provider.
  *
+
  * `heavy-maintenance` and the old 10-job `operations` group names no longer exist.
  * This is a deliberate breaking rename (Task #1955): the prior groupings let an
  * operator turn on `db-backup` only by also turning on `system-audit` (Slack), or
@@ -182,6 +188,20 @@ export const WORKER_CAPABILITY_GROUPS = {
    */
   "sfp-campaign-staging": [
     "sfp-campaign-staging",
+  ],
+  /**
+   * Task #2002 corrective patch: dedicated capability for the full Sunbiz
+   * corpus backfill worker (server/services/sunbiz-full-backfill.ts) ONLY.
+   * Deliberately its own group, not folded into `enrichment` or any other
+   * group: enabling it must never imply outreach, sequences, GHL, legacy
+   * discovery, SMS/voice, campaign dispatch, or any other maintenance/
+   * paid-provider job. The backfill worker itself makes no outbound
+   * provider/GHL calls and creates no contacts/deals — see
+   * sunbiz-full-backfill.ts for the DBPR-excluded, contact/deal/GHL-free
+   * materialization boundary this group merely lets run.
+   */
+  "sunbiz-backfill": [
+    "sunbiz-full-backfill",
   ],
 } as const satisfies Record<string, readonly string[]>;
 

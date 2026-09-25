@@ -30,6 +30,8 @@ import { sql } from "drizzle-orm";
 import crypto from "node:crypto";
 import { db } from "../db";
 import { selectSunbizBootstrapCandidates, runSunbizBootstrapBatch, SUNBIZ_BACKFILL_MAX_RETRIES } from "./sunbiz-bootstrap";
+import { getWorkerCapabilityStatus } from "./queue-manager";
+import { QUEUE_NAMES } from "./queue-names";
 
 function rows<T = any>(result: unknown): T[] {
   return (result as { rows?: T[] })?.rows ?? [];
@@ -49,6 +51,36 @@ export interface SunbizBackfillStatus {
   lastBatchAt: string | null;
   lastError: string | null;
   leaseHeld: boolean;
+  /**
+   * Task #2002 corrective patch: truthful worker-capability evidence.
+   * `status: 'running'` in the DB row means an admin has armed the backfill —
+   * it does NOT mean the corpus scan is actually advancing. Callers (the
+   * Lead Ops admin UI) must check `workerCapability.active` and surface
+   * WORKER_CAPABILITY_NOT_ACTIVE rather than implying progress when false.
+   */
+  workerCapability: {
+    active: boolean;
+    /** Machine-readable reason code when active=false; null when active=true. */
+    reasonCode: "WORKER_CAPABILITY_NOT_ACTIVE" | null;
+    /** BACKGROUND_JOB_PROFILE selects the sunbiz-full-backfill queue at all. */
+    selected: boolean;
+    /** The QueueManager singleton has finished initializing workers. */
+    queueManagerReady: boolean;
+    /** A live BullMQ Worker is actually instantiated for this queue right now. */
+    workerActive: boolean;
+  };
+}
+
+function computeWorkerCapability(): SunbizBackfillStatus["workerCapability"] {
+  const cap = getWorkerCapabilityStatus(QUEUE_NAMES.SUNBIZ_FULL_BACKFILL);
+  const active = cap.selected && cap.queueManagerReady && cap.workerActive;
+  return {
+    active,
+    reasonCode: active ? null : "WORKER_CAPABILITY_NOT_ACTIVE",
+    selected: cap.selected,
+    queueManagerReady: cap.queueManagerReady,
+    workerActive: cap.workerActive,
+  };
 }
 
 /** Truthful, live-read status for the Lead Ops admin surface. No caching. */
@@ -66,6 +98,7 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
     return {
       status: "idle", highWaterEntityId: 0, totalEntities: null, remainingEligible: 0,
       processedCount: 0, deadLetterCount: 0, lastBatchAt: null, lastError: null, leaseHeld: false,
+      workerCapability: computeWorkerCapability(),
     };
   }
 
@@ -100,6 +133,7 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
     lastBatchAt: run.last_batch_at ? new Date(run.last_batch_at).toISOString() : null,
     lastError: run.last_error ?? null,
     leaseHeld,
+    workerCapability: computeWorkerCapability(),
   };
 }
 
