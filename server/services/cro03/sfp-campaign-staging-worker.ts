@@ -188,6 +188,13 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
     // — it must be passed through unmodified. Suffixing it (e.g. with the
     // stage-run ID) makes executeStagingV2() reject every recurring batch
     // with SFP_STAGING_COMMAND_KEY_MISMATCH (see PM-01).
+    // Double-ledger fix: pass this worker's OWN stage_run_id through so
+    // executeStagingV2()/stageOneRowTransactional() write into the same
+    // sfp_stage_items rows this worker already inserted above (matched by
+    // stage_run_id + business_id + provider), instead of independently
+    // creating a second sfp_stage_runs/sfp_stage_items ledger keyed by
+    // commandKey. There is exactly one run and one item per attempted
+    // business for this recurring batch.
     const execution = await executeStagingV2({
       cohortRunId: String(run.cohort_run_id),
       eligibilityIds,
@@ -195,45 +202,38 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
       snapshotHash: preview.snapshotHash,
       actorId: String(run.actor_id),
       confirmPayloadHash: preview.payloadHash,
+      stageRunId: runId,
     });
 
-    const heldIds = new Set(rows(await db.execute(sql`
-      SELECT eligibility_id
-        FROM sfp_campaign_staging_intents
-       WHERE command_key=${preview.commandKey}
-         AND state='ready_held'
-    `)).map((item) => String(item.eligibility_id)));
+    // The authoritative completed/dead_letter state for every item in this
+    // batch was already written by executeStagingV2 above, into THIS run's
+    // items (same stage_run_id). The only worker-specific behavior layered
+    // on top is retry backoff: a dead-lettered item below MAX_ATTEMPTS is
+    // converted back to 'retry' with a delay instead of staying terminal.
+    const batchItems = rows(await db.execute(sql`
+      SELECT id, business_id, state, attempt_count FROM sfp_stage_items
+       WHERE stage_run_id=${runId}::uuid AND provider='campaign_staging'
+         AND business_id=ANY(ARRAY[${sql.join(eligible.map((item: any) => sql`${Number(item.business_id)}`), sql`, `)}]::int[])
+    `));
     let succeeded = 0;
     let failed = 0;
-    for (const item of eligible) {
-      const itemRow = rows(await db.execute(sql`
-        SELECT id, attempt_count FROM sfp_stage_items
-         WHERE stage_run_id=${runId}::uuid AND business_id=${Number(item.business_id)}
-           AND provider='campaign_staging'
-         LIMIT 1
-      `))[0];
-      if (heldIds.has(String(item.id))) {
-        succeeded++;
-        await db.execute(sql`
-          UPDATE sfp_stage_items SET state='completed', outcome_code='ready_held',
-                 completed_at=NOW(), updated_at=NOW(), lease_expires_at=NULL
-           WHERE id=${String(itemRow.id)}::uuid
-        `);
-        continue;
-      }
+    for (const item of batchItems) {
+      if (item.state === "completed") { succeeded++; continue; }
+      if (item.state !== "dead_letter") continue;
       failed++;
-      const nextAttempt = Number(itemRow.attempt_count ?? 0);
-      const terminal = nextAttempt >= MAX_ATTEMPTS;
-      const delay = RETRY_DELAYS_MINUTES[Math.min(nextAttempt - 1, RETRY_DELAYS_MINUTES.length - 1)];
-      await db.execute(sql`
-        UPDATE sfp_stage_items
-           SET attempt_count=${nextAttempt}, state=${terminal ? "dead_letter" : "retry"},
-               outcome_code=${terminal ? "max_attempts_exceeded" : (execution.reasons && Object.keys(execution.reasons)[0]) || "staging_not_ready"},
-               next_attempt_at=NOW()+(${delay} * INTERVAL '1 minute'),
-               completed_at=${terminal ? sql`NOW()` : sql`NULL`}, updated_at=NOW(), lease_expires_at=NULL
-         WHERE id=${String(itemRow.id)}::uuid
-      `);
+      const attemptCount = Number(item.attempt_count ?? 0);
+      const terminal = attemptCount >= MAX_ATTEMPTS;
+      if (!terminal) {
+        const delay = RETRY_DELAYS_MINUTES[Math.min(Math.max(attemptCount - 1, 0), RETRY_DELAYS_MINUTES.length - 1)];
+        await db.execute(sql`
+          UPDATE sfp_stage_items
+             SET state='retry', next_attempt_at=NOW()+(${delay} * INTERVAL '1 minute'),
+                 completed_at=NULL, updated_at=NOW(), lease_expires_at=NULL
+           WHERE id=${String(item.id)}::uuid
+        `);
+      }
     }
+    void execution;
     const deadLetters = rows(await db.execute(sql`
       SELECT COUNT(*)::int AS count FROM sfp_stage_items
        WHERE stage_run_id=${runId}::uuid AND state='dead_letter'

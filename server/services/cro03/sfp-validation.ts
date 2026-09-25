@@ -351,11 +351,6 @@ export async function executeSfpValidation(
   let validationAttempts = 0, validCount = 0, catchAllCount = 0, invalidCount = 0, failedCount = 0, eligibilityRowsCreated = 0;
 
   for (const [bizId, cand] of selectedEntries) {
-    let zbOutcome: SfpZbOutcome = "failed";
-    let status: OutreachEligibilityStatus = "invalid";
-    let decisionReason = "";
-    const reasonCodes: string[] = [];
-
     // Authoritative subject-type classification comes from the persisted
     // source row (free_discovery_candidates.subject_type /
     // sfp_paid_candidate_evidence.subject_type) — never inferred from
@@ -365,263 +360,281 @@ export async function executeSfpValidation(
     const subjectTypeForPrefilter: "business" | "person" = cand.subjectType === "person" ? "person" : "business";
 
     // ── Audited plaintext open (real email only — never masked_value) ──────
-    // Decryption itself makes no provider call and costs no provider money,
-    // so it is safe to decrypt before the syntax/MX prechecks below; those
-    // prechecks then run against the REAL address (never the heavily
-    // truncated masked_value, whose domain is masked down to 2 characters
-    // and is therefore not usable for a real MX/disposable-domain check).
-    // No ZeroBounce reservation or transport call happens until after every
-    // one of these zero-cost gates has passed.
-    let realEmail = "";
-    let contactEmailTokenHash = "";
+    // F-13 correction: EVERY plaintext-dependent step — prechecks, MX/DNS,
+    // suppression, safety-gate evaluation, freshness reuse, the ZeroBounce
+    // transport call, the eligibility decision, and the eligibility/business
+    // writes — now runs INSIDE this callback, using the decrypted address
+    // only as a local variable of the callback's own stack frame. Nothing
+    // plaintext-derived is ever returned across the boundary; the callback
+    // resolves to `true` and mutates only the outer numeric counters via
+    // closure. This replaces the prior `async (plaintext) => plaintext`
+    // call site, which handed the decrypted address back to this function's
+    // own scope — exactly the escape the audited boundary exists to
+    // prevent, and which openSfpCandidatePlaintext() itself now also
+    // refuses at runtime (see SFP_PLAINTEXT_ESCAPE_BLOCKED).
     try {
       const reference = cand.sourceKind === "free"
         ? { sourceKind: "free" as const, freeDiscoveryCandidateId: cand.evidenceId }
         : { sourceKind: "paid" as const, paidCandidateEvidenceId: cand.evidenceId };
-      realEmail = await openSfpCandidatePlaintext(
+      await openSfpCandidatePlaintext(
         { reference, cohortRunId, actorId: opts.actorId, purpose: "sfp_email_validation" },
-        async (plaintext) => plaintext,
+        async (realEmail) => {
+          const contactEmailTokenHash = createHash("sha256").update(realEmail.trim().toLowerCase()).digest("hex");
+
+          // Real-address rejection (placeholder/synthetic/disposable-domain/
+          // role-for-person), verified against the decrypted address before any
+          // spend — this is the SAME canonical filter used by the free-discovery
+          // winner-selection path (rejectEmailCandidate), never a second
+          // implementation.
+          const realRejection = rejectEmailCandidate(realEmail, subjectTypeForPrefilter);
+          if (realRejection) {
+            invalidCount++;
+            await writeEligibilityRow({
+              cohortRunId, bizId, cand, policyVersion: policy.version, status: "invalid",
+              decisionReason: `precheck_${realRejection}:zero_provider_spend`, reasonCodes: [`precheck_${realRejection}`],
+            });
+            eligibilityRowsCreated++;
+            return true;
+          }
+
+          // Authoritative MX/DNS check on the REAL domain, before any reservation.
+          const realDomain = realEmail.split("@")[1]?.toLowerCase() ?? "";
+          let mx: "ok" | "no_mx" | "dns_indeterminate" = "dns_indeterminate";
+          try {
+            mx = realDomain ? await checkMxRecord(realDomain) : "no_mx";
+          } catch {
+            mx = "dns_indeterminate";
+          }
+          if (mx === "no_mx") {
+            invalidCount++;
+            await writeEligibilityRow({
+              cohortRunId, bizId, cand, policyVersion: policy.version, status: "invalid",
+              decisionReason: "precheck_no_mx:authoritative_ineligible:zero_provider_spend", reasonCodes: ["precheck_no_mx"],
+            });
+            eligibilityRowsCreated++;
+            return true;
+          }
+          if (mx === "dns_indeterminate") {
+            // Retryable, not invalid, not ready for paid validation — stays pending.
+            failedCount++;
+            await writeEligibilityRow({
+              cohortRunId, bizId, cand, policyVersion: policy.version, status: "validation_pending",
+              decisionReason: "precheck_dns_indeterminate:retryable:zero_provider_spend", reasonCodes: ["precheck_dns_indeterminate"],
+            });
+            eligibilityRowsCreated++;
+            return true;
+          }
+
+          // Canonical suppression check.
+          const emailHash = createHash("sha256").update(`email\0${realEmail.toLowerCase().trim()}`).digest("hex");
+          if (await isCanonicallySuppressed([emailHash, contactEmailTokenHash])) {
+            await writeEligibilityRow({
+              cohortRunId, bizId, cand, policyVersion: policy.version, status: "validated_suppressed",
+              decisionReason: "canonical_suppression_match", reasonCodes: ["policy_suppressed"],
+              suppressionStatus: "suppressed",
+            });
+            eligibilityRowsCreated++;
+            return true;
+          }
+
+          const consentTier = await lookupConsentTierByEmailHash(contactEmailTokenHash);
+
+          // Mutable safety gates (DBPR / existing-customer / consent-tier) —
+          // re-run even on a freshness-reuse hit below.
+          const gate = await evaluateSfpMutableSafetyGates({ businessId: bizId, consentTier, policy });
+          if (!gate.eligible) {
+            await writeEligibilityRow({
+              cohortRunId, bizId, cand, policyVersion: policy.version, status: gate.status, decisionReason: gate.reasonCode,
+              reasonCodes: [gate.reasonCode], consentTier,
+            });
+            eligibilityRowsCreated++;
+            return true;
+          }
+
+          // ── Freshness reuse ──────────────────────────────────────────────────
+          const fresh = await findFreshProviderObservation({
+            businessId: bizId, emailTokenHash: contactEmailTokenHash, ttlDays: policy.validationTtlDays,
+          });
+
+          let zbOutcome: SfpZbOutcome = "failed";
+          let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
+          let rawStatus: string | null = null;
+          let rawSubstatus: string | null = null;
+          let reusedFromOperationId: string | null = null;
+          const reasonCodes: string[] = [];
+
+          if (fresh) {
+            reusedFromOperationId = fresh.operationId;
+            zbOutcome = fresh.outcome === "valid" ? "valid" : fresh.outcome === "invalid" ? "invalid" : "unknown";
+            reasonCodes.push("policy_stale_reused");
+          } else {
+            try {
+              if (opts.zbTransport) {
+                zbOutcome = await opts.zbTransport(String(cand.evidenceId), realEmail);
+                validationAttempts++;
+              } else {
+                reservation = await reserveSfpProviderOperation({
+                  stageRunId: String(stageRun.id), cohortRunId, businessId: bizId,
+                  candidateId: cand.sourceKind === "free" ? cand.evidenceId : undefined,
+                  provider: "zerobounce", purpose: "sfp_email_validation",
+                  idempotencyKey: `${opts.idempotencyKey}:zerobounce:${cand.evidenceId}`, actorId: opts.actorId,
+                });
+                await assertCurrentSfpProviderReservation(reservation);
+                const { verifyEmail } = await import("../sdr/zerobounce");
+                const result = await verifyEmail(realEmail);
+                validationAttempts++;
+                rawStatus = (result as any).status ?? null;
+                rawSubstatus = (result as any).subStatus ?? null;
+                if (result.skipped || result.outcome !== "completed") zbOutcome = "failed";
+                else if (result.status === "valid") zbOutcome = "valid";
+                else if (result.status === "invalid") zbOutcome = "invalid";
+                else if (result.status === "unsafe") zbOutcome = "do_not_mail";
+                else if (result.status === "unverified") zbOutcome = result.subStatus === "catch-all" ? "catch-all" : "unknown";
+                else zbOutcome = "unknown";
+              }
+            } catch {
+              zbOutcome = "failed";
+            }
+          }
+
+          const validationAt = new Date().toISOString();
+          // Role-inbox / named-contact decision is driven by the same persisted
+          // subject_type used for the pre-check above, never re-inferred from
+          // whether name evidence happens to be present.
+          const isNamedContact = subjectTypeForPrefilter === "person";
+          const isRoleInbox = !isNamedContact;
+          const roleEligibleForColdB2b = policy.roleInboxPolicy?.role_inbox_eligible_for_cold_b2b !== false;
+          const namedRequiresReview = policy.roleInboxPolicy?.named_or_unclassified_requires_review !== false;
+
+          // The active policy document's accepted/retryable outcome lists govern
+          // whether a given ZeroBounce outcome can ever produce eligibility —
+          // never a hardcoded switch independent of policy activation.
+          const isAccepted = policy.acceptedOutcomes.includes(zbOutcome);
+          const isRetryable = policy.retryableOutcomes.includes(zbOutcome);
+
+          let status: OutreachEligibilityStatus = "invalid";
+          let decisionReason = "";
+
+          if (zbOutcome === "valid" && isAccepted) {
+            const roleOk = isRoleInbox && roleEligibleForColdB2b;
+            status = roleOk ? "validated_outreach_eligible" : "validated_review_required";
+            decisionReason = roleOk
+              ? "zb_valid:first_party_role_inbox:policy_eligible"
+              : isRoleInbox
+                ? "zb_valid:role_inbox_not_policy_eligible:operator_review_required"
+                : namedRequiresReview
+                  ? "zb_valid:named_or_unclassified_address:operator_review_required"
+                  : "zb_valid:named_contact:policy_eligible";
+            reasonCodes.push(roleOk ? "zb_valid_role_inbox_eligible" : "zb_valid_review_required");
+            validCount++;
+          } else if (zbOutcome === "catch-all") {
+            status = "catch_all_review";
+            decisionReason = "zb_catch_all:operator_review_required";
+            reasonCodes.push("zb_catch_all_review");
+            catchAllCount++;
+          } else if (isRetryable) {
+            status = "validation_pending";
+            decisionReason = `zb_${zbOutcome}:retryable_per_policy`;
+            reasonCodes.push(`zb_${zbOutcome}_retryable`);
+            failedCount++;
+          } else if (zbOutcome === "unknown") {
+            status = "validated_review_required";
+            decisionReason = "zb_unknown:manual_review_required";
+            reasonCodes.push("zb_unknown_review_required");
+            catchAllCount++;
+          } else if (zbOutcome === "failed") {
+            status = "validation_pending";
+            decisionReason = "zb_transport_failed:retry_required";
+            reasonCodes.push("zb_transport_failed_retryable");
+            failedCount++;
+          } else {
+            // invalid, spamtrap, abuse, do_not_mail, or a 'valid' outcome the
+            // active policy does not (or no longer) accept.
+            status = "invalid";
+            decisionReason = `zb_${zbOutcome}:not_deliverable_per_policy`;
+            reasonCodes.push(`zb_${zbOutcome}_not_deliverable`);
+            invalidCount++;
+          }
+
+          // ── Atomic finalization: settlement + eligibility write + counters ────
+          // realEmail is written ONLY here, inside this same audited
+          // callback — it never leaves this stack frame.
+          await db.transaction(async (tx) => {
+            if (reservation) {
+              const obs = zbOutcome === "valid" ? "valid" : zbOutcome === "invalid" || zbOutcome === "spamtrap" || zbOutcome === "abuse" || zbOutcome === "do_not_mail" ? "invalid" : zbOutcome === "failed" ? "transport" : "unknown";
+              await settleSfpProviderOperation({
+                reservation, outcome: zbOutcome === "failed" ? "failed" : "completed", observation: obs,
+                businessId: bizId, emailTokenHash: contactEmailTokenHash,
+              }, tx);
+            }
+
+            const expiresAt = new Date(Date.now() + policy.validationTtlDays * 86_400_000).toISOString();
+            await tx.execute(sql`
+              INSERT INTO sfp_outreach_eligibility
+                (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, source_kind,
+                 policy_version, status, decision_reason, zb_outcome, validation_at, validation_expires_at,
+                 named_contact, role_inbox, masked_email, discovery_source, evidence_confidence,
+                 suppression_status, outreach_policy_version, outreach_policy_reason, validation_operation_id,
+                 normalized_value_hash, policy_document_id, policy_document_hash, consent_tier,
+                 raw_provider_status, raw_provider_substatus, reused_from_operation_id, reason_codes)
+              VALUES (
+                ${cohortRunId}::uuid, ${bizId},
+                ${cand.sourceKind === "free" ? cand.evidenceId : null}::uuid,
+                ${cand.sourceKind === "paid" ? cand.evidenceId : null}::uuid,
+                ${cand.sourceKind},
+                ${policy.version}, ${status}, ${decisionReason}, ${String(zbOutcome)},
+                ${validationAt}::timestamptz, ${expiresAt}::timestamptz,
+                ${isNamedContact}, ${isRoleInbox}, ${cand.maskedValue}, ${cand.provider ?? "free"}, ${cand.confidence},
+                'not_suppressed', ${policy.version}, ${decisionReason},
+                ${reservation?.operationId ?? null}::uuid,
+                ${contactEmailTokenHash}, ${policy.id}::uuid, ${policy.documentHash}, ${consentTier},
+                ${rawStatus}, ${rawSubstatus}, ${reusedFromOperationId}::uuid, ${JSON.stringify(reasonCodes)}::jsonb
+              )
+              ON CONFLICT (cohort_run_id, business_id, policy_version)
+              DO UPDATE SET
+                status = EXCLUDED.status, decision_reason = EXCLUDED.decision_reason,
+                zb_outcome = EXCLUDED.zb_outcome, validation_at = EXCLUDED.validation_at,
+                validation_expires_at = EXCLUDED.validation_expires_at,
+                masked_email = EXCLUDED.masked_email, evidence_confidence = EXCLUDED.evidence_confidence,
+                suppression_status = EXCLUDED.suppression_status, validation_operation_id = EXCLUDED.validation_operation_id,
+                source_kind = EXCLUDED.source_kind, paid_candidate_evidence_id = EXCLUDED.paid_candidate_evidence_id,
+                candidate_id = EXCLUDED.candidate_id, normalized_value_hash = EXCLUDED.normalized_value_hash,
+                policy_document_id = EXCLUDED.policy_document_id, policy_document_hash = EXCLUDED.policy_document_hash,
+                consent_tier = EXCLUDED.consent_tier, raw_provider_status = EXCLUDED.raw_provider_status,
+                raw_provider_substatus = EXCLUDED.raw_provider_substatus, reused_from_operation_id = EXCLUDED.reused_from_operation_id,
+                reason_codes = EXCLUDED.reason_codes, updated_at = NOW()
+            `);
+
+            if (zbOutcome === "valid") {
+              await tx.execute(sql`
+                UPDATE businesses
+                   SET main_email=${realEmail},email_discovery_status='provider_valid',
+                       email_validation_updated_at=NOW(),email_selected_candidate_hash=${emailHash},updated_at=NOW()
+                 WHERE id=${bizId}
+                   AND (main_email IS NULL OR email_selected_candidate_hash=${emailHash})
+              `);
+            }
+          });
+          eligibilityRowsCreated++;
+          return true;
+        },
       );
-      contactEmailTokenHash = createHash("sha256").update(realEmail.trim().toLowerCase()).digest("hex");
-    } catch (decErr: any) {
-      if (process.env.SFP_DEBUG_DECRYPT) console.error("SFP_DEBUG_DECRYPT", bizId, decErr);
+    } catch (err: any) {
+      // Only a failure to RESOLVE/decrypt the candidate reference itself is
+      // treated as candidate_decryption_failed — a real error thrown by the
+      // validation logic running inside the callback above must surface as
+      // itself, not be relabeled as a decryption failure.
+      const message = String(err?.message ?? "");
+      const isResolveFailure = /^SFP_CANDIDATE_(REFERENCE_NOT_FOUND|NOT_OPENABLE|BUSINESS_NOT_IN_COHORT|ENVELOPE_NOT_FOUND)/.test(message);
+      if (!isResolveFailure) throw err;
+      if (process.env.SFP_DEBUG_DECRYPT) console.error("SFP_DEBUG_DECRYPT", bizId, err);
       failedCount++;
       await writeEligibilityRow({
         cohortRunId, bizId, cand, policyVersion: policy.version, status: "validation_pending",
         decisionReason: "candidate_decryption_failed", reasonCodes: ["candidate_decryption_failed"],
       });
       eligibilityRowsCreated++;
-      continue;
     }
-
-    // Real-address rejection (placeholder/synthetic/disposable-domain/
-    // role-for-person), verified against the decrypted address before any
-    // spend — this is the SAME canonical filter used by the free-discovery
-    // winner-selection path (rejectEmailCandidate), never a second
-    // implementation.
-    const realRejection = rejectEmailCandidate(realEmail, subjectTypeForPrefilter);
-    if (realRejection) {
-      invalidCount++;
-      await writeEligibilityRow({
-        cohortRunId, bizId, cand, policyVersion: policy.version, status: "invalid",
-        decisionReason: `precheck_${realRejection}:zero_provider_spend`, reasonCodes: [`precheck_${realRejection}`],
-      });
-      eligibilityRowsCreated++;
-      continue;
-    }
-
-    // Authoritative MX/DNS check on the REAL domain, before any reservation.
-    const realDomain = realEmail.split("@")[1]?.toLowerCase() ?? "";
-    let mx: "ok" | "no_mx" | "dns_indeterminate" = "dns_indeterminate";
-    try {
-      mx = realDomain ? await checkMxRecord(realDomain) : "no_mx";
-    } catch {
-      mx = "dns_indeterminate";
-    }
-    if (mx === "no_mx") {
-      invalidCount++;
-      await writeEligibilityRow({
-        cohortRunId, bizId, cand, policyVersion: policy.version, status: "invalid",
-        decisionReason: "precheck_no_mx:authoritative_ineligible:zero_provider_spend", reasonCodes: ["precheck_no_mx"],
-      });
-      eligibilityRowsCreated++;
-      continue;
-    }
-    if (mx === "dns_indeterminate") {
-      // Retryable, not invalid, not ready for paid validation — stays pending.
-      failedCount++;
-      await writeEligibilityRow({
-        cohortRunId, bizId, cand, policyVersion: policy.version, status: "validation_pending",
-        decisionReason: "precheck_dns_indeterminate:retryable:zero_provider_spend", reasonCodes: ["precheck_dns_indeterminate"],
-      });
-      eligibilityRowsCreated++;
-      continue;
-    }
-
-    // Canonical suppression check.
-    const emailHash = createHash("sha256").update(`email\0${realEmail.toLowerCase().trim()}`).digest("hex");
-    if (await isCanonicallySuppressed([String(cand.evidenceId ? emailHash : emailHash), contactEmailTokenHash])) {
-      await writeEligibilityRow({
-        cohortRunId, bizId, cand, policyVersion: policy.version, status: "validated_suppressed",
-        decisionReason: "canonical_suppression_match", reasonCodes: ["policy_suppressed"],
-        suppressionStatus: "suppressed",
-      });
-      eligibilityRowsCreated++;
-      continue;
-    }
-
-    const consentTier = await lookupConsentTierByEmailHash(contactEmailTokenHash);
-
-    // Mutable safety gates (DBPR / existing-customer / consent-tier) —
-    // re-run even on a freshness-reuse hit below.
-    const gate = await evaluateSfpMutableSafetyGates({ businessId: bizId, consentTier, policy });
-    if (!gate.eligible) {
-      await writeEligibilityRow({
-        cohortRunId, bizId, cand, policyVersion: policy.version, status: gate.status, decisionReason: gate.reasonCode,
-        reasonCodes: [gate.reasonCode], consentTier,
-      });
-      eligibilityRowsCreated++;
-      continue;
-    }
-
-    // ── Freshness reuse ──────────────────────────────────────────────────
-    const fresh = await findFreshProviderObservation({
-      businessId: bizId, emailTokenHash: contactEmailTokenHash, ttlDays: policy.validationTtlDays,
-    });
-
-    let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
-    let rawStatus: string | null = null;
-    let rawSubstatus: string | null = null;
-    let reusedFromOperationId: string | null = null;
-
-    if (fresh) {
-      reusedFromOperationId = fresh.operationId;
-      zbOutcome = fresh.outcome === "valid" ? "valid" : fresh.outcome === "invalid" ? "invalid" : "unknown";
-      reasonCodes.push("policy_stale_reused");
-    } else {
-      try {
-        if (opts.zbTransport) {
-          zbOutcome = await opts.zbTransport(String(cand.evidenceId), realEmail);
-          validationAttempts++;
-        } else {
-          reservation = await reserveSfpProviderOperation({
-            stageRunId: String(stageRun.id), cohortRunId, businessId: bizId,
-            candidateId: cand.sourceKind === "free" ? cand.evidenceId : undefined,
-            provider: "zerobounce", purpose: "sfp_email_validation",
-            idempotencyKey: `${opts.idempotencyKey}:zerobounce:${cand.evidenceId}`, actorId: opts.actorId,
-          });
-          await assertCurrentSfpProviderReservation(reservation);
-          const { verifyEmail } = await import("../sdr/zerobounce");
-          const result = await verifyEmail(realEmail);
-          validationAttempts++;
-          rawStatus = (result as any).status ?? null;
-          rawSubstatus = (result as any).subStatus ?? null;
-          if (result.skipped || result.outcome !== "completed") zbOutcome = "failed";
-          else if (result.status === "valid") zbOutcome = "valid";
-          else if (result.status === "invalid") zbOutcome = "invalid";
-          else if (result.status === "unsafe") zbOutcome = "do_not_mail";
-          else if (result.status === "unverified") zbOutcome = result.subStatus === "catch-all" ? "catch-all" : "unknown";
-          else zbOutcome = "unknown";
-        }
-      } catch {
-        zbOutcome = "failed";
-      }
-    }
-
-    const validationAt = new Date().toISOString();
-    // Role-inbox / named-contact decision is driven by the same persisted
-    // subject_type used for the pre-check above, never re-inferred from
-    // whether name evidence happens to be present.
-    const isNamedContact = subjectTypeForPrefilter === "person";
-    const isRoleInbox = !isNamedContact;
-    const roleEligibleForColdB2b = policy.roleInboxPolicy?.role_inbox_eligible_for_cold_b2b !== false;
-    const namedRequiresReview = policy.roleInboxPolicy?.named_or_unclassified_requires_review !== false;
-
-    // The active policy document's accepted/retryable outcome lists govern
-    // whether a given ZeroBounce outcome can ever produce eligibility —
-    // never a hardcoded switch independent of policy activation.
-    const isAccepted = policy.acceptedOutcomes.includes(zbOutcome);
-    const isRetryable = policy.retryableOutcomes.includes(zbOutcome);
-
-    if (zbOutcome === "valid" && isAccepted) {
-      const roleOk = isRoleInbox && roleEligibleForColdB2b;
-      status = roleOk ? "validated_outreach_eligible" : "validated_review_required";
-      decisionReason = roleOk
-        ? "zb_valid:first_party_role_inbox:policy_eligible"
-        : isRoleInbox
-          ? "zb_valid:role_inbox_not_policy_eligible:operator_review_required"
-          : namedRequiresReview
-            ? "zb_valid:named_or_unclassified_address:operator_review_required"
-            : "zb_valid:named_contact:policy_eligible";
-      reasonCodes.push(roleOk ? "zb_valid_role_inbox_eligible" : "zb_valid_review_required");
-      validCount++;
-    } else if (zbOutcome === "catch-all") {
-      status = "catch_all_review";
-      decisionReason = "zb_catch_all:operator_review_required";
-      reasonCodes.push("zb_catch_all_review");
-      catchAllCount++;
-    } else if (isRetryable) {
-      status = "validation_pending";
-      decisionReason = `zb_${zbOutcome}:retryable_per_policy`;
-      reasonCodes.push(`zb_${zbOutcome}_retryable`);
-      failedCount++;
-    } else if (zbOutcome === "unknown") {
-      status = "validated_review_required";
-      decisionReason = "zb_unknown:manual_review_required";
-      reasonCodes.push("zb_unknown_review_required");
-      catchAllCount++;
-    } else if (zbOutcome === "failed") {
-      status = "validation_pending";
-      decisionReason = "zb_transport_failed:retry_required";
-      reasonCodes.push("zb_transport_failed_retryable");
-      failedCount++;
-    } else {
-      // invalid, spamtrap, abuse, do_not_mail, or a 'valid' outcome the
-      // active policy does not (or no longer) accept.
-      status = "invalid";
-      decisionReason = `zb_${zbOutcome}:not_deliverable_per_policy`;
-      reasonCodes.push(`zb_${zbOutcome}_not_deliverable`);
-      invalidCount++;
-    }
-
-    // ── Atomic finalization: settlement + eligibility write + counters ────
-    await db.transaction(async (tx) => {
-      if (reservation) {
-        const obs = zbOutcome === "valid" ? "valid" : zbOutcome === "invalid" || zbOutcome === "spamtrap" || zbOutcome === "abuse" || zbOutcome === "do_not_mail" ? "invalid" : zbOutcome === "failed" ? "transport" : "unknown";
-        await settleSfpProviderOperation({
-          reservation, outcome: zbOutcome === "failed" ? "failed" : "completed", observation: obs,
-          businessId: bizId, emailTokenHash: contactEmailTokenHash,
-        }, tx);
-      }
-
-      const expiresAt = new Date(Date.now() + policy.validationTtlDays * 86_400_000).toISOString();
-      await tx.execute(sql`
-        INSERT INTO sfp_outreach_eligibility
-          (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, source_kind,
-           policy_version, status, decision_reason, zb_outcome, validation_at, validation_expires_at,
-           named_contact, role_inbox, masked_email, discovery_source, evidence_confidence,
-           suppression_status, outreach_policy_version, outreach_policy_reason, validation_operation_id,
-           normalized_value_hash, policy_document_id, policy_document_hash, consent_tier,
-           raw_provider_status, raw_provider_substatus, reused_from_operation_id, reason_codes)
-        VALUES (
-          ${cohortRunId}::uuid, ${bizId},
-          ${cand.sourceKind === "free" ? cand.evidenceId : null}::uuid,
-          ${cand.sourceKind === "paid" ? cand.evidenceId : null}::uuid,
-          ${cand.sourceKind},
-          ${policy.version}, ${status}, ${decisionReason}, ${String(zbOutcome)},
-          ${validationAt}::timestamptz, ${expiresAt}::timestamptz,
-          ${isNamedContact}, ${isRoleInbox}, ${cand.maskedValue}, ${cand.provider ?? "free"}, ${cand.confidence},
-          'not_suppressed', ${policy.version}, ${decisionReason},
-          ${reservation?.operationId ?? null}::uuid,
-          ${contactEmailTokenHash}, ${policy.id}::uuid, ${policy.documentHash}, ${consentTier},
-          ${rawStatus}, ${rawSubstatus}, ${reusedFromOperationId}::uuid, ${JSON.stringify(reasonCodes)}::jsonb
-        )
-        ON CONFLICT (cohort_run_id, business_id, policy_version)
-        DO UPDATE SET
-          status = EXCLUDED.status, decision_reason = EXCLUDED.decision_reason,
-          zb_outcome = EXCLUDED.zb_outcome, validation_at = EXCLUDED.validation_at,
-          validation_expires_at = EXCLUDED.validation_expires_at,
-          masked_email = EXCLUDED.masked_email, evidence_confidence = EXCLUDED.evidence_confidence,
-          suppression_status = EXCLUDED.suppression_status, validation_operation_id = EXCLUDED.validation_operation_id,
-          source_kind = EXCLUDED.source_kind, paid_candidate_evidence_id = EXCLUDED.paid_candidate_evidence_id,
-          candidate_id = EXCLUDED.candidate_id, normalized_value_hash = EXCLUDED.normalized_value_hash,
-          policy_document_id = EXCLUDED.policy_document_id, policy_document_hash = EXCLUDED.policy_document_hash,
-          consent_tier = EXCLUDED.consent_tier, raw_provider_status = EXCLUDED.raw_provider_status,
-          raw_provider_substatus = EXCLUDED.raw_provider_substatus, reused_from_operation_id = EXCLUDED.reused_from_operation_id,
-          reason_codes = EXCLUDED.reason_codes, updated_at = NOW()
-      `);
-
-      if (zbOutcome === "valid") {
-        await tx.execute(sql`
-          UPDATE businesses
-             SET main_email=${realEmail},email_discovery_status='provider_valid',
-                 email_validation_updated_at=NOW(),email_selected_candidate_hash=${emailHash},updated_at=NOW()
-           WHERE id=${bizId}
-             AND (main_email IS NULL OR email_selected_candidate_hash=${emailHash})
-        `);
-      }
-    });
-    eligibilityRowsCreated++;
   }
 
   // Add discovery_required rows for businesses without a candidate

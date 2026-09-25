@@ -82,7 +82,7 @@ try {
 
   const program = rows(await db.execute(sql`
     INSERT INTO sfp_programs (name, county_fips, vertical_ids, max_cohort_size, policy_version, is_active, created_by)
-    VALUES (${`${runKey}-program`}, ARRAY['12086'], ARRAY['Med Spa'], 10, 1, TRUE, ${runKey})
+    VALUES ('south-florida-v1', ARRAY['12086'], ARRAY['Med Spa'], 10, 1, TRUE, ${runKey})
     RETURNING id
   `))[0];
   const cohortRunId = randomUUID();
@@ -186,8 +186,8 @@ try {
   // duplicate execution) must be registered as cohort members BEFORE the
   // freeze below — sfp_cohort_members has a trigger that rejects any INSERT
   // once the owning cohort run is frozen/voided/superseded.
-  const extraBusinessIds: Record<"mismatch" | "drift2" | "concurrent" | "workerOk", number> = { mismatch: 0, drift2: 0, concurrent: 0, workerOk: 0 };
-  for (const key of ["mismatch", "drift2", "concurrent", "workerOk"] as const) {
+  const extraBusinessIds: Record<"mismatch" | "drift2" | "concurrent" | "workerOk" | "crash", number> = { mismatch: 0, drift2: 0, concurrent: 0, workerOk: 0, crash: 0 };
+  for (const key of ["mismatch", "drift2", "concurrent", "workerOk", "crash"] as const) {
     const extraBusiness = rows(await db.execute(sql`
       INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
       VALUES (${`${runKey}-business-${key}`}, ${`${runKey}-business-${key}`.toLowerCase()}, 'Med Spa', 'FL', 'canonical', NOW())
@@ -621,6 +621,163 @@ try {
   check(Number(workerRunAfterSecondTick.processed_count) === Number(workerRun.processed_count) &&
     Number(workerRunAfterSecondTick.succeeded_count) === Number(workerRun.succeeded_count),
     "a second worker tick against an already-completed run with no new eligible rows leaves counters unchanged (no double counting on resumed ticks)");
+
+  // --- Corrective patch check 1: injected-crash / resume regression -------
+  // Simulate a process crash between "row A's intent committed" and "outer
+  // command marked completed": a row already carries staging_intent_id for
+  // THIS commandKey, but the sfp_campaign_staging_commands row is still
+  // 'executing' (never reached 'completed'). Without the fix, the fresh
+  // preview executeStagingV2() re-derives on resume would reclassify this
+  // row 'blocked: already_has_staging_intent', change the snapshot hash,
+  // and throw SFP_STAGING_SNAPSHOT_DRIFTED before the idempotent no-op
+  // check above ever runs.
+  const crashBusinessId = extraBusinessIds.crash;
+  const crashEmail = `crash-resume-${runKey}@example.org`;
+  const sealedCrash = seal("email", crashEmail);
+  const crashCandidate = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
+       disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
+       envelope_key_version, normalized_value_hash, masked_value, created_at)
+    VALUES (${String(generation.id)}::uuid, ${crashBusinessId}, 'email', 'business',
+      ${`${runKey}-crash.example.org`}, 'certification', 'role', 'staged', 90,
+      ${sealedCrash.ciphertext}, ${sealedCrash.nonce}, ${sealedCrash.tag}, 1,
+      ${sealedCrash.normalizedValueHash}, ${sealedCrash.maskedValue}, NOW())
+    RETURNING id
+  `))[0];
+  const crashEligibility = rows(await db.execute(sql`
+    INSERT INTO sfp_outreach_eligibility
+      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
+       decision_reason, validation_at, validation_expires_at, role_inbox,
+       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+    VALUES (${cohortRunId}::uuid, ${crashBusinessId}, ${String(crashCandidate.id)}::uuid, 'free',
+       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_crash',
+       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`crash-${runKey}`).digest("hex")},
+       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+    RETURNING id
+  `))[0];
+  const crashPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(crashEligibility.id)], actorId: runKey });
+  check(crashPreview.rows[0]?.disposition === "eligible", "crash-resume fixture previews as eligible before any staging occurs");
+
+  // Fabricate the crashed mid-command state directly: the row's intent is
+  // already committed (as a real row commit ahead of the crash would have
+  // left it) under crashPreview.commandKey, but the outer command row is
+  // still 'executing' — never reached 'completed'.
+  const crashIntent = rows(await db.execute(sql`
+    INSERT INTO sfp_campaign_staging_intents
+      (cohort_run_id, eligibility_id, business_id, candidate_id, source_kind,
+       idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage,
+       package_key, policy_document_hash, snapshot_hash, payload_hash, command_key,
+       operator_selected_at, operator_selected_by, ready_held_at)
+    VALUES (${cohortRunId}::uuid, ${String(crashEligibility.id)}::uuid, ${crashBusinessId},
+       ${String(crashCandidate.id)}::uuid, 'free', ${`${runKey}-crash-resume`}, ${runKey}, 'ready_held',
+       ${Number(policy.version)},
+       ${JSON.stringify({ status: "validated_outreach_eligible", pinnedPackageContentHash: crashPreview.rows[0]?.packageContentHash ?? null, pinnedPolicyHash: crashPreview.policyDocumentHash, validationExpiresAt: crashPreview.rows[0]?.validationExpiresAt ?? null })}::jsonb,
+       '{}'::jsonb, ${crashPreview.rows[0]?.packageKey ?? null}, ${crashPreview.policyDocumentHash},
+       ${crashPreview.snapshotHash}, ${crashPreview.payloadHash}, ${crashPreview.commandKey}, NOW(), ${runKey}, NOW())
+    RETURNING id
+  `))[0];
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility SET campaign_staged_at = NOW(), campaign_staged_by = ${runKey},
+      staging_intent_id = ${String(crashIntent.id)}::uuid WHERE id = ${String(crashEligibility.id)}::uuid
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_campaign_staging_commands (cohort_run_id, command_key, payload_hash, snapshot_hash, actor_id, state)
+    VALUES (${cohortRunId}::uuid, ${crashPreview.commandKey}, ${crashPreview.payloadHash}, ${crashPreview.snapshotHash}, ${runKey}, 'executing')
+  `);
+
+  const resumedPreview = await previewStagingV2({
+    cohortRunId, eligibilityIds: [String(crashEligibility.id)], actorId: runKey, resumeCommandKey: crashPreview.commandKey,
+  });
+  check(resumedPreview.rows[0]?.disposition === "eligible" && resumedPreview.snapshotHash === crashPreview.snapshotHash,
+    "resumed preview of a row already committed under the SAME commandKey reconstructs 'eligible' with the identical snapshot hash, not 'blocked'");
+
+  let resumeThrew: unknown;
+  let resumeResult: Awaited<ReturnType<typeof executeStagingV2>> | undefined;
+  try {
+    resumeResult = await executeStagingV2({
+      cohortRunId, eligibilityIds: [String(crashEligibility.id)], commandKey: crashPreview.commandKey,
+      snapshotHash: crashPreview.snapshotHash, actorId: runKey, confirmPayloadHash: crashPreview.payloadHash,
+    });
+  } catch (error) { resumeThrew = error; }
+  check(!resumeThrew, "resuming a crashed command (executing, row already committed) does NOT throw SFP_STAGING_SNAPSHOT_DRIFTED");
+  check(resumeResult?.readyHeld === 1 && resumeResult?.rejected === 0,
+    "the resumed command converges the already-committed row to readyHeld=1 via the idempotent no-op path, not a duplicate write");
+  const crashIntentCountAfterResume = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_campaign_staging_intents WHERE eligibility_id = ${String(crashEligibility.id)}::uuid
+  `))[0].count);
+  check(crashIntentCountAfterResume === 1, "crash-resume produces exactly one intent for the row, never a second one");
+
+  // --- Corrective patch check 2: plaintext boundary cannot be escaped -----
+  // openSfpCandidatePlaintext() itself must refuse to let a callback hand
+  // the decrypted plaintext (or a value containing it) back to the caller,
+  // independent of any one call site's own discipline.
+  const { openSfpCandidatePlaintext } = await import("../server/services/cro03/sfp-paid-evidence-writer");
+  let plaintextEscapeThrew: unknown;
+  try {
+    await openSfpCandidatePlaintext(
+      { reference: { sourceKind: "free", freeDiscoveryCandidateId: freeFixture.candidateId! }, cohortRunId, actorId: runKey, purpose: "sfp_email_validation" },
+      async (plaintext) => plaintext,
+    );
+  } catch (error) { plaintextEscapeThrew = error; }
+  check(plaintextEscapeThrew instanceof Error && /SFP_PLAINTEXT_ESCAPE_BLOCKED/.test((plaintextEscapeThrew as Error).message),
+    "openSfpCandidatePlaintext() structurally refuses a callback that returns the decrypted plaintext (SFP_PLAINTEXT_ESCAPE_BLOCKED)");
+  let plaintextSafeCallbackThrew: unknown;
+  try {
+    await openSfpCandidatePlaintext(
+      { reference: { sourceKind: "free", freeDiscoveryCandidateId: freeFixture.candidateId! }, cohortRunId, actorId: runKey, purpose: "sfp_email_validation" },
+      async () => true,
+    );
+  } catch (error) { plaintextSafeCallbackThrew = error; }
+  check(!plaintextSafeCallbackThrew, "a callback that never returns plaintext-derived data passes the guard normally");
+
+  // --- Corrective patch check 3: single-ledger regression for the         --
+  // recurring worker — exactly one sfp_stage_runs row and one item per     --
+  // attempted business for the batch just processed above, never two.     --
+  const workerLedgerRunCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_stage_runs
+     WHERE idempotency_key = (
+       SELECT command_key FROM sfp_campaign_staging_intents WHERE business_id = ${workerBusinessId} LIMIT 1
+     )
+  `))[0]?.count ?? 0);
+  check(workerLedgerRunCount === 0,
+    "executeStagingV2() called with a caller-owned stageRunId does NOT independently create a second sfp_stage_runs row keyed by commandKey");
+  // Any business the worker actually attempted in this run must have
+  // exactly one item row (the (stage_run_id, business_id, provider) unique
+  // constraint is the enforcement mechanism; this proves no second ledger
+  // ever manufactured a duplicate insert path around it).
+  const workerLedgerDuplicates = rows(await db.execute(sql`
+    SELECT business_id, COUNT(*)::int AS count FROM sfp_stage_items
+     WHERE stage_run_id = ${String(workerRun.id)}::uuid
+     GROUP BY business_id HAVING COUNT(*) > 1
+  `));
+  check(workerLedgerDuplicates.length === 0,
+    "no business processed by the worker's run has more than one sfp_stage_items row — no duplicate item from a second ledger");
+
+  // --- Corrective patch check 4: telemetry truthfully reports worker/     --
+  // queue health, next-run estimate, and a backlog ETA (not just counts).  --
+  const { QUEUE_NAMES } = await import("../server/services/queue-manager");
+  check(typeof QUEUE_NAMES.SFP_CAMPAIGN_STAGING === "string", "SFP campaign-staging has its own named BullMQ queue the telemetry endpoint can introspect");
+  const leadOpsSource = source("server/routes/lead-ops.ts");
+  check(/getSfpCampaignStagingWorkerHealth|repeatableJobRegistered/.test(leadOpsSource) && /nextRunEstimateAt/.test(leadOpsSource),
+    "campaign-staging telemetry route reports actual queue-manager/repeatable-job health and a next-run estimate, not just program-flag inference");
+  check(/campaignStagingBatchSize/.test(leadOpsSource) && /freshAwaitingStaging/.test(leadOpsSource),
+    "campaign-staging telemetry route exposes the batch size and fresh backlog count needed to derive a backlog ETA");
+
+  // --- Corrective patch check 5: PM-13 retry/cancel routes are registered --
+  // with an admin role guard (not left open to any authenticated caller).  --
+  check(/app\.post\(["']\/api\/lead-ops\/sfp\/campaign-staging\/items\/:itemId\/retry["'],\s*requireRole\(["']admin["']\)/.test(leadOpsSource),
+    "the item-retry route is registered with requireRole('admin')");
+  check(/app\.post\(["']\/api\/lead-ops\/sfp\/campaign-staging\/runs\/:runId\/cancel["'],\s*requireRole\(["']admin["']\)/.test(leadOpsSource),
+    "the run-cancel route is registered with requireRole('admin')");
+
+  // --- Corrective patch check 6: operator UI actually renders the retry/  --
+  // cancel controls and row-level confirmation detail, not just the API.  --
+  const uiSource = source("client/src/components/lead-ops/SouthFloridaProspectingPanel.tsx");
+  check(/campaign-staging\/items\/\$\{itemId\}\/retry/.test(uiSource), "Lead Ops UI wires a retry control to the item-retry route");
+  check(/campaign-staging\/runs\/\$\{runId\}\/cancel/.test(uiSource), "Lead Ops UI wires a cancel control to the run-cancel route");
+  check(/rowDetailLines/.test(uiSource) && /validationAgeSeconds/.test(uiSource),
+    "the staging confirmation dialog surfaces row-level package/policy/validation-freshness detail, not just aggregate counts");
 
   // --- PM-13: operator controls act on the ledger and are re-verified against real rows ---
   const deadLetterSeed = rows(await db.execute(sql`

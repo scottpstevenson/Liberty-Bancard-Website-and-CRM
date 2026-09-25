@@ -9,6 +9,46 @@ import { listInboundRequests } from "../services/inbound-request-authority";
 import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 
+/**
+ * Truthful worker/queue health for the SFP campaign-staging telemetry
+ * panel (Task #2001 corrective patch). Reports the ACTUAL BullMQ
+ * repeatable-job registration and next-run estimate rather than assuming
+ * the recurring tick is scheduled just because the program flags are on —
+ * a queue-manager outage or a never-registered repeatable job must show up
+ * here, not be silently indistinguishable from "healthy but idle".
+ */
+async function getSfpCampaignStagingWorkerHealth(lastCompletedRun: { completed_at?: string | Date | null } | null): Promise<{
+  queueManagerReady: boolean;
+  repeatableJobRegistered: boolean;
+  nextRunEstimateAt: string | null;
+  intervalMs: number | null;
+}> {
+  const INTERVAL_MS = 15 * 60 * 1000;
+  try {
+    const { getQueueManagerProducers, QUEUE_NAMES } = await import("../services/queue-manager");
+    const qm = getQueueManagerProducers();
+    if (!qm) {
+      return { queueManagerReady: false, repeatableJobRegistered: false, nextRunEstimateAt: null, intervalMs: INTERVAL_MS };
+    }
+    const queue = qm.getQueue(QUEUE_NAMES.SFP_CAMPAIGN_STAGING);
+    if (!queue) {
+      return { queueManagerReady: true, repeatableJobRegistered: false, nextRunEstimateAt: null, intervalMs: INTERVAL_MS };
+    }
+    const repeatables = await queue.getRepeatableJobs();
+    const registered = repeatables.length > 0;
+    // BullMQ exposes each repeatable job's next scheduled fire time in ms.
+    const nextMs = registered ? Math.min(...repeatables.map((r: any) => Number(r.next ?? Infinity))) : null;
+    return {
+      queueManagerReady: true,
+      repeatableJobRegistered: registered,
+      nextRunEstimateAt: nextMs && Number.isFinite(nextMs) ? new Date(nextMs).toISOString() : null,
+      intervalMs: INTERVAL_MS,
+    };
+  } catch (err: any) {
+    return { queueManagerReady: false, repeatableJobRegistered: false, nextRunEstimateAt: null, intervalMs: INTERVAL_MS };
+  }
+}
+
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 function getOpenAI() {
@@ -3569,6 +3609,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           })),
         },
         cost: { reportedCostMicros: 0, note: "not_applicable_staging_only" },
+        workerHealth: await getSfpCampaignStagingWorkerHealth(lastCompletedRun as any),
         capturedAt: new Date().toISOString(),
       });
     } catch (err: any) {

@@ -111,6 +111,22 @@ export async function previewStagingV2(opts: {
   cohortRunId: string;
   eligibilityIds: string[];
   actorId: string;
+  /**
+   * Crash-resumption fix: when executeStagingV2() re-derives a fresh
+   * preview on a resumed/retried attempt of a command that already
+   * committed some rows (crash between a row's commit and the outer
+   * command's 'completed' transition), a row it already staged now carries
+   * `staging_intent_id`. Without this, that row would flip from
+   * 'eligible' to 'blocked: already_has_staging_intent', change the
+   * snapshot hash, and force SFP_STAGING_SNAPSHOT_DRIFTED (409) before
+   * stageOneRowTransactional()'s own same-command idempotent-no-op check
+   * ever runs. When this commandKey is provided, a row whose existing
+   * intent was created by THIS exact command is reconstructed as
+   * 'eligible' with the same package/policy pin the intent already
+   * recorded — reproducing the original snapshot hash exactly — rather
+   * than reclassified as newly blocked.
+   */
+  resumeCommandKey?: string;
 }): Promise<StagingV2Preview> {
   if (!opts.eligibilityIds || opts.eligibilityIds.length === 0) {
     throw new SfpStagingV2Error("SFP_STAGING_NO_SELECTION", "eligibilityIds must be explicitly provided and non-empty", 400);
@@ -166,6 +182,42 @@ export async function previewStagingV2(opts: {
       continue;
     }
     if (row.staging_intent_id) {
+      // Crash-resumption reconstruction: if the existing intent belongs to
+      // the command currently being resumed, rebuild the SAME 'eligible'
+      // preview row (same package/policy pin the intent already recorded)
+      // instead of reclassifying it as blocked — this keeps the snapshot
+      // hash identical to the original preview so a resumed
+      // executeStagingV2() doesn't fail closed with a false-positive
+      // SFP_STAGING_SNAPSHOT_DRIFTED before its own idempotent-no-op check
+      // (in stageOneRowTransactional) ever gets a chance to run.
+      if (opts.resumeCommandKey) {
+        const existingIntent = rows(await db.execute(sql`
+          SELECT command_key, package_key, policy_document_hash, validation_snapshot
+          FROM sfp_campaign_staging_intents WHERE id = ${String(row.staging_intent_id)}::uuid LIMIT 1
+        `))[0];
+        if (existingIntent && existingIntent.command_key === opts.resumeCommandKey) {
+          const snapshot = (existingIntent.validation_snapshot ?? {}) as any;
+          const pinnedPackageContentHash: string | null = snapshot.pinnedPackageContentHash ?? null;
+          const validationExpiresAtIso: string | null = snapshot.validationExpiresAt ?? null;
+          previewRows.push({
+            ...base,
+            packageKey: existingIntent.package_key ?? null,
+            disposition: "eligible",
+            packageContentHash: pinnedPackageContentHash ?? undefined,
+            policyDocumentHash: existingIntent.policy_document_hash ?? undefined,
+            policyId: activePolicy.id,
+            policyVersion: activePolicy.version,
+            validationExpiresAt: validationExpiresAtIso ?? undefined,
+          });
+          hashInputRows.push({
+            id: String(row.id), disposition: "eligible",
+            packageKey: existingIntent.package_key ?? null,
+            packageContentHash: pinnedPackageContentHash,
+            effectiveExpiresAtIso: validationExpiresAtIso,
+          });
+          continue;
+        }
+      }
       previewRows.push({ ...base, disposition: "blocked", blockedReason: "already_has_staging_intent" });
       hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
       continue;
@@ -270,6 +322,17 @@ export async function executeStagingV2(opts: {
    * than silently executing against unconfirmed detail.
    */
   confirmPayloadHash: string;
+  /**
+   * Double-ledger fix: the recurring worker (sfp-campaign-staging-worker.ts)
+   * claims and owns its own `sfp_stage_runs` row before it ever calls this
+   * function. Without this, executeStagingV2() would independently call
+   * getOrCreateStageRun() keyed by commandKey and create a SECOND run (and
+   * a second sfp_stage_items row per business) for the same recurring
+   * batch. When the caller already owns a run, it passes that run's id
+   * here so ensureStageItem()/markStageItem*() write into the caller's own
+   * ledger row instead of manufacturing a parallel one.
+   */
+  stageRunId?: string;
 }): Promise<StagingV2ExecuteResult> {
   if (!opts.eligibilityIds || opts.eligibilityIds.length === 0) {
     throw new SfpStagingV2Error("SFP_STAGING_NO_SELECTION", "eligibilityIds must be explicitly provided and non-empty", 400);
@@ -349,7 +412,7 @@ export async function executeStagingV2(opts: {
   // out-of-date dispositions. Resumed same-command rows are reconciled as
   // idempotent no-ops inside stageOneRowTransactional(), not reclassified
   // as drift, because they carry this exact commandKey.
-  const freshPreview = await previewStagingV2({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds, actorId: opts.actorId });
+  const freshPreview = await previewStagingV2({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds, actorId: opts.actorId, resumeCommandKey: opts.commandKey });
   if (freshPreview.snapshotHash !== opts.snapshotHash) {
     throw new SfpStagingV2Error("SFP_STAGING_SNAPSHOT_DRIFTED", "snapshot has drifted since preview (policy/package/eligibility changed) — request a new preview", 409);
   }
@@ -360,7 +423,7 @@ export async function executeStagingV2(opts: {
   // item outcome, and the run's aggregate counters can never diverge, and
   // the same row/item ledger the recurring worker relies on for retries,
   // dead-letter tracking, and telemetry also covers manual staging.
-  const stageRunId = await getOrCreateStageRun({
+  const stageRunId = opts.stageRunId ?? await getOrCreateStageRun({
     cohortRunId: opts.cohortRunId,
     actorId: opts.actorId,
     idempotencyKey: opts.commandKey,

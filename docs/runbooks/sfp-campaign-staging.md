@@ -91,18 +91,25 @@ With all four true, the worker ticks every ~15 minutes, claims one
 the same `previewStagingV2`/`executeStagingV2` path used by the manual UI.
 
 ## 5. Telemetry
-Lead Ops SFP panel currently shows: schedule (batch size, whether recurring
-is enabled), background-profile capability *membership* (whether the
-`sfp-campaign-staging` group is in the active profile — this reflects
-configuration, not live worker/queue health), and backlog (eligible-but-
-unstaged count, currently global across all programs/cohorts rather than
-scoped to the program being viewed). Cost is reported as `0 / not
-applicable` — this stage makes no provider calls.
+Lead Ops SFP panel (`GET /api/lead-ops/sfp/campaign-staging/telemetry`) shows:
+schedule (batch size, whether recurring is enabled), background-profile
+capability *membership* (whether the `sfp-campaign-staging` group is in the
+active profile), backlog (eligible-but-unstaged count, currently global
+across all programs/cohorts rather than scoped to the program being viewed),
+last/last-completed/currently-running run state, throughput (completed/
+dead-lettered in the last 24h), retry counts, stale-lease detection, and a
+sample of dead-lettered items with one-click retry.
 
-Next-run/last-run time, throughput, retry counts, stale-lease detection, and
-dead-letter counts are **not yet surfaced** in the panel — do not rely on the
-UI for these; query `sfp_stage_runs`/`sfp_stage_items` directly (§7–§8) until
-that telemetry gap is closed.
+`workerHealth` additionally reports the **actual** BullMQ state — not an
+inference from program flags — so an operator can tell a genuine outage
+(queue manager down, or the recurring repeatable job never registered) apart
+from "healthy but idle": `queueManagerReady`, `repeatableJobRegistered`, and
+`nextRunEstimateAt` (read from BullMQ's own next-fire time for the
+repeatable job). A visible backlog-ETA estimate (`ceil(freshBacklog /
+batchSize)` ticks) is shown once a program with a positive batch size is
+active. If `queueManagerReady` or `repeatableJobRegistered` is false while
+recurring is supposed to be on, treat it as an incident — do not assume the
+worker is merely between ticks.
 
 ## 6. Pause / kill-switch
 - To pause recurring processing only: set `sfp_programs.recurring_enabled =
@@ -116,25 +123,32 @@ that telemetry gap is closed.
   can be paused separately by revoking the admin route's role grant if
   needed.
 
-## 7. Dead-letter recovery
+## 7. Dead-letter recovery and run cancellation
 A `sfp_stage_items` row reaches `dead_letter` after 5 failed attempts (fixed
 backoff: 1, 5, 15, 30 minutes). Dead letters are visible in the Lead Ops
-telemetry panel with their `outcome_code`.
+telemetry panel with their `outcome_code`, each with an inline **Retry**
+button.
 
-There is no governed admin retry/cancel control for stage items yet (tracked
-as follow-up work) — until one exists, retrying a dead letter after fixing
-the underlying cause (e.g. a package mapping drifted back to `current`, or a
-transient DB issue resolved) requires a direct, audited SQL statement run by
-an operator with database access, not a self-service action:
-```sql
-UPDATE sfp_stage_items
-   SET state = 'pending', attempt_count = 0, outcome_code = NULL
- WHERE id = '<item-id>' AND state = 'dead_letter';
-```
-Treat this as a break-glass step, not routine operations — log who ran it,
-when, and why alongside the item ID. The next worker tick will re-claim and
-reprocess it. To permanently cancel instead, leave it in `dead_letter` — no
-code path resurrects it automatically.
+Governed, role-gated (`admin`) controls exist for both actions — prefer
+these over direct SQL:
+- **Retry one dead-lettered item**: `POST
+  /api/lead-ops/sfp/campaign-staging/items/:itemId/retry` (or the Retry
+  button in the panel). Deliberately scoped to one item at a time — review
+  the `outcome_code` before retrying rather than bulk-retrying blind. Moves
+  the item back to `retry` (picked up on the worker's next tick) and
+  reopens its owning run if that run had already gone `failed`/`completed`.
+- **Cancel a stuck/no-longer-wanted run**: `POST
+  /api/lead-ops/sfp/campaign-staging/runs/:runId/cancel` (or the Cancel run
+  button, shown while a run is active). Only `pending`/`authorized`/
+  `stalled` runs, or a `running` run whose lease has already expired, can be
+  cancelled — an actively-leased running run is left alone to finish or
+  expire on its own.
+
+Both routes only ever move a row through the existing state machine; they
+never bypass `previewStagingV2`/`executeStagingV2`. Direct SQL against
+`sfp_stage_items`/`sfp_stage_runs` should now be treated as break-glass only,
+for cases the two routes above cannot express (e.g. bulk cleanup after an
+incident), and still logged (who/when/why) when used.
 
 ## 8. Reconciliation query
 Rows genuinely stuck (eligible, no intent, no stage item, not selected by a

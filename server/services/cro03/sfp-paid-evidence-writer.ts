@@ -297,10 +297,41 @@ export async function openSfpCandidatePlaintext<T>(
             ${JSON.stringify({ sourceKind: resolved.sourceKind, evidenceId: resolved.evidenceId, businessId: resolved.businessId, purpose: input.purpose, cohortRunId: input.cohortRunId })}::jsonb)
   `);
 
-  // The result of `use()` is trusted to be sanitized by the caller (see the
-  // corrective-patch note above); this function itself never inspects or
-  // forwards `plaintext` beyond this call.
-  return use(plaintext, resolved);
+  const result = await use(plaintext, resolved);
+
+  // Structural guard: the callback must never hand the decrypted plaintext
+  // (or a value that trivially contains it) back across this boundary. A
+  // callback that does `async (plaintext) => plaintext` — or builds an
+  // object/array with the plaintext embedded in it — is caught here and
+  // fails loudly instead of silently letting the address escape into the
+  // caller's own scope, where it could be used for spend-incurring work
+  // (MX/ZeroBounce/etc.) outside this function's audit log.
+  assertNoPlaintextEscape(result, plaintext);
+  return result;
+}
+
+/**
+ * Recursively scans a `use()` return value for the exact decrypted
+ * plaintext string (case-insensitively, since email comparisons elsewhere
+ * in this codebase are lowercase-normalized). Bounded depth/breadth so a
+ * malicious/huge return value cannot be used to stall this check.
+ */
+function assertNoPlaintextEscape(value: unknown, plaintext: string, depth = 0): void {
+  if (depth > 4 || value == null) return;
+  const needle = plaintext.trim().toLowerCase();
+  if (typeof value === "string") {
+    if (value.trim().toLowerCase() === needle || (needle.length > 3 && value.toLowerCase().includes(needle))) {
+      throw new Error("SFP_PLAINTEXT_ESCAPE_BLOCKED: openSfpCandidatePlaintext's use() callback returned the decrypted plaintext (or a value containing it) across the audited boundary");
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 50)) assertNoPlaintextEscape(item, plaintext, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const v of Object.values(value as Record<string, unknown>).slice(0, 50)) assertNoPlaintextEscape(v, plaintext, depth + 1);
+  }
 }
 
 export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<UnifiedSfpCandidateView[]> {

@@ -174,6 +174,7 @@ type SfpCampaignStagingTelemetry = {
   retries: { currentlyRetrying: number; staleLeases: number };
   deadLetters: { total: number; sample: Array<{ id: string; businessId: number; outcomeCode: string | null; attemptCount: number; completedAt: string | null }> };
   cost: { reportedCostMicros: number; note: string };
+  workerHealth: { queueManagerReady: boolean; repeatableJobRegistered: boolean; nextRunEstimateAt: string | null; intervalMs: number | null };
   capturedAt: string;
 };
 
@@ -531,6 +532,20 @@ export function SouthFloridaProspectingPanel() {
           return counts;
         }, {});
       const distribution = Object.entries(packageCounts).map(([key, count]) => `${key}: ${count}`).join("\n") || "No eligible package assignments";
+      // Corrective-patch: previewStagingV2() already returns row-level
+      // packageVersionId/packageContentHash/policyId/policyVersion/
+      // policyDocumentHash/validationExpiresAt/validationAgeSeconds per
+      // row — this was previously computed into the dialog but only
+      // surfaced as an aggregate count. An operator confirming a batch must
+      // be able to see EXACTLY which business/masked-address/source/
+      // package/validation-freshness each row is pinning, not just how
+      // many rows fall into each package bucket.
+      const rowDetailLines = preview.rows.map((row: any) => {
+        const label = row.disposition === "eligible"
+          ? `pkg=${row.packageKey ?? "?"} policy=v${row.policyVersion ?? "?"} validExp=${row.validationExpiresAt ? new Date(row.validationExpiresAt).toLocaleString() : "?"} (${row.validationAgeSeconds != null ? `${Math.round(row.validationAgeSeconds / 60)}m old` : "age unknown"})`
+          : `BLOCKED: ${row.blockedReason ?? "unknown"}`;
+        return `  • biz#${row.businessId} [${row.sourceKind}] ${row.maskedEmail ?? "no email on file"} — ${label}`;
+      }).join("\n");
       // PM-12: surface the exact policy version/hash and package-content
       // hash this confirmation is pinning to, plus the READY_HELD boundary
       // label the server returned — an operator confirming this dialog is
@@ -538,6 +553,7 @@ export function SouthFloridaProspectingPanel() {
       const confirmed = window.confirm(
         `Stage exactly ${selectedEligibilityIds.length} selected prospect${selectedEligibilityIds.length === 1 ? "" : "s"}?\n\n` +
         `Package distribution:\n${distribution}\n\n` +
+        `Row-level detail:\n${rowDetailLines}\n\n` +
         `Policy v${preview.policyVersion} (${String(preview.policyDocumentHash).slice(0, 12)}…)\n` +
         `${preview.blockedCount} selection(s) are blocked and will not be staged.\n\n` +
         `Outcome: ${preview.outcomeLabel} — rows are held in a package-pinned, review-only state. No message will be sent.`
@@ -579,6 +595,32 @@ export function SouthFloridaProspectingPanel() {
       }
       toast({ title: "Staging failed", description: detail, variant: "destructive" });
     },
+  });
+
+  // PM-13 correction: operator UI controls for the governed retry/cancel
+  // routes — these existed server-side (requireRole admin) but had no
+  // Lead Ops UI surface.
+  const retryStageItem = useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await apiRequest("POST", `/api/lead-ops/sfp/campaign-staging/items/${itemId}/retry`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Item requeued for retry" });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"] });
+    },
+    onError: (e: any) => toast({ title: "Retry failed", description: e?.message, variant: "destructive" }),
+  });
+  const cancelStageRun = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await apiRequest("POST", `/api/lead-ops/sfp/campaign-staging/runs/${runId}/cancel`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Run cancelled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"] });
+    },
+    onError: (e: any) => toast({ title: "Cancel failed", description: e?.message, variant: "destructive" }),
   });
 
   const program = programQuery.data;
@@ -1230,7 +1272,51 @@ export function SouthFloridaProspectingPanel() {
                     {stagingTelemetryQuery.data.currentlyRunning && (
                       <div className="text-blue-700">Currently running (lease expires {stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt ? new Date(stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt).toLocaleTimeString() : "—"})</div>
                     )}
+                    {/* Corrective-patch: truthful worker/queue health — never
+                        assume the recurring tick is scheduled just because
+                        the program flags are on. */}
+                    <div className={stagingTelemetryQuery.data.workerHealth?.queueManagerReady && stagingTelemetryQuery.data.workerHealth?.repeatableJobRegistered ? "text-muted-foreground" : "text-destructive"}>
+                      Queue: {stagingTelemetryQuery.data.workerHealth?.queueManagerReady ? "manager ready" : "manager NOT ready"}
+                      {", "}
+                      {stagingTelemetryQuery.data.workerHealth?.repeatableJobRegistered ? "recurring tick registered" : "recurring tick NOT registered"}
+                      {stagingTelemetryQuery.data.workerHealth?.nextRunEstimateAt
+                        ? ` — next run ~${new Date(stagingTelemetryQuery.data.workerHealth.nextRunEstimateAt).toLocaleTimeString()}`
+                        : ""}
+                    </div>
+                    {stagingTelemetryQuery.data.backlog.freshAwaitingStaging > 0 && stagingTelemetryQuery.data.program?.campaignStagingBatchSize && (
+                      <div className="text-muted-foreground">
+                        Backlog ETA: ~{Math.ceil(stagingTelemetryQuery.data.backlog.freshAwaitingStaging / stagingTelemetryQuery.data.program.campaignStagingBatchSize)} tick(s)
+                      </div>
+                    )}
                     <div className="text-muted-foreground">Cost: not applicable (staging only)</div>
+                    {stagingTelemetryQuery.data.deadLetters.sample.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t">
+                        <div className="font-medium text-destructive">Dead-lettered items</div>
+                        {stagingTelemetryQuery.data.deadLetters.sample.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between gap-2">
+                            <span className="truncate">biz#{item.businessId} — {item.outcomeCode ?? "unknown"} ({item.attemptCount} attempts)</span>
+                            <Button
+                              size="sm" variant="outline" className="h-6 px-2 text-[10px]"
+                              disabled={retryStageItem.isPending}
+                              onClick={() => retryStageItem.mutate(item.id)}
+                            >
+                              Retry
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {stagingTelemetryQuery.data.currentlyRunning && (
+                      <div className="pt-1">
+                        <Button
+                          size="sm" variant="outline" className="h-6 px-2 text-[10px]"
+                          disabled={cancelStageRun.isPending}
+                          onClick={() => cancelStageRun.mutate(stagingTelemetryQuery.data!.currentlyRunning!.id)}
+                        >
+                          Cancel run
+                        </Button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <span className="text-muted-foreground">Worker telemetry unavailable.</span>
