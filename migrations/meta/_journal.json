@@ -2086,6 +2086,13 @@
       "when": 1800000011000,
       "tag": "0293_sfp2001_package_version_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 298,
+      "version": "7",
+      "when": 1800000011100,
+      "tag": "0294_task2002_sunbiz_bootstrap_ledger",
+      "breakpoints": true
     }
   ]
 }

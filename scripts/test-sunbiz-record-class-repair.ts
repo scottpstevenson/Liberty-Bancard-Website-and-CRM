@@ -120,14 +120,14 @@ async function main() {
     // ── Case 2: matched_existing must NEVER have its record_class touched. ─
     const existingPhone = "9545551234";
     const [existingBiz] = rows<any>(await db.execute(sql`
-      INSERT INTO businesses (canonical_name, normalized_name, main_phone, record_class)
-      VALUES (${TAG + " Existing Business Inc"}, ${(TAG + " existing business inc").toLowerCase()}, ${existingPhone}, 'production')
+      INSERT INTO businesses (canonical_name, normalized_name, main_phone, city, state, record_class)
+      VALUES (${TAG + " Existing Business Inc"}, ${(TAG + " existing business inc").toLowerCase()}, ${existingPhone}, 'Fort Lauderdale', 'FL', 'production')
       RETURNING id, record_class
     `));
     const filingMatched = `${TAG}-matched-001`;
     await db.execute(sql`
-      INSERT INTO sunbiz_entities (filing_number, entity_name, phone, score)
-      VALUES (${filingMatched}, ${TAG + " Matched Bootstrap LLC"}, ${existingPhone}, 'hot')
+      INSERT INTO sunbiz_entities (filing_number, entity_name, phone, principal_city, principal_state, score)
+      VALUES (${filingMatched}, ${TAG + " Matched Bootstrap LLC"}, ${existingPhone}, 'Fort Lauderdale', 'FL', 'hot')
     `);
     const outcomesMatched = await runSunbizBootstrapBatch(5, { filingNumberLike: testFilingLike });
     const matchedOutcome = outcomesMatched.find((o) => o.filingNumber === filingMatched);

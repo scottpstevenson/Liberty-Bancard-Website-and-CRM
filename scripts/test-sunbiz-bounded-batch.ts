@@ -101,9 +101,9 @@ const fnIdx = storageSrc.indexOf("async getSunbizEntitiesByStatus");
 assert(fnIdx !== -1, "getSunbizEntitiesByStatus found in storage/sunbiz.ts");
 
 if (fnIdx !== -1) {
-  const fnBody = storageSrc.slice(fnIdx, fnIdx + 600);
+  const fnBody = storageSrc.slice(fnIdx, fnIdx + 1200);
   assert(fnBody.includes(".limit(limit)"), "Storage function applies .limit(limit) when provided");
-  assert(fnBody.includes("if (limit)"), "Storage function checks if limit is truthy before applying LIMIT");
+  assert(/if\s*\(limit\s*!=\s*null\s*&&\s*limit\s*>\s*0\)/.test(fnBody), "Storage function checks for a positive limit before applying LIMIT");
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

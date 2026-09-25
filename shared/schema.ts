@@ -4912,6 +4912,28 @@ export const sunbizBootstrapClaims = pgTable("sunbiz_bootstrap_claims", {
 export type SunbizBootstrapClaim = typeof sunbizBootstrapClaims.$inferSelect;
 export type InsertSunbizBootstrapClaim = typeof sunbizBootstrapClaims.$inferInsert;
 
+// ── Task 2002: append-only ledger of per-attempt bootstrap outcomes ───────────
+// Best-effort write after each filing_number's outcome is determined in a
+// runSunbizBootstrapBatch call. Never authoritative for state (sunbiz_bootstrap_claims
+// remains that); this is history/audit only. Carries no raw PII fields.
+export const sunbizBootstrapLedgerEvents = pgTable("sunbiz_bootstrap_ledger_events", {
+  id: serial("id").primaryKey(),
+  filingNumber: text("filing_number").notNull(),
+  runId: text("run_id").notNull(),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  outcome: text("outcome").notNull(),
+  deferredReasonCode: text("deferred_reason_code"),
+  businessId: integer("business_id"),
+  actor: text("actor").notNull().default("system"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sunbiz_bootstrap_ledger_events_filing_number_idx").on(table.filingNumber),
+  index("sunbiz_bootstrap_ledger_events_run_id_idx").on(table.runId),
+]);
+
+export type SunbizBootstrapLedgerEvent = typeof sunbizBootstrapLedgerEvents.$inferSelect;
+export type InsertSunbizBootstrapLedgerEvent = typeof sunbizBootstrapLedgerEvents.$inferInsert;
+
 // ── MI-03: canonical_conflict_evidence ────────────────────────────────────────
 // Append-only conflict log written by projectBusinessOnly() when resolveOrganization()
 // returns AMBIGUOUS_ORGANIZATION_MATCH. Admin resolution UI belongs to MI-07.

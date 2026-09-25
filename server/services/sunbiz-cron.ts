@@ -15,6 +15,63 @@ export const processSunbizEnrichmentQueue = _processSunbizEnrichmentQueue;
 
 const BATCH_SIZE = 10;
 
+export function getSunbizCronFeatureFlags(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    legacyPromotionEnabled: env.SUNBIZ_LEGACY_PROMOTION_ENABLED !== "false",
+    materializationEnabled: env.SUNBIZ_MATERIALIZATION_ENABLED === "true",
+  };
+}
+
+// ─── Write-boundary fencing shared by every legacy promotion entry point ─────
+//
+// A claim on sunbiz_bootstrap_claims is the single lock both this legacy
+// path and the sunbiz-bootstrap engine share. Taking it is not enough by
+// itself: every later write to that claim row must be conditioned on the
+// EXACT claimed_at value this call was granted (its lease token), the same
+// fencing-token pattern sunbiz-bootstrap.ts uses. Without that, the
+// bootstrap engine's stale-claim reclaim (STALE_CLAIM_MINUTES) can steal the
+// row out from under a slow legacy write, and this path's own "finalize"
+// step would then silently overwrite the reclaiming executor's result.
+
+/** Attempts to atomically claim filingNumber. Returns the lease token (claimed_at) or null if already held. */
+async function claimFilingForLegacyWrite(filingNumber: string, entityId: number): Promise<unknown | null> {
+  const claimRows = (await db.execute(sql`
+    INSERT INTO sunbiz_bootstrap_claims (filing_number, sunbiz_entity_id, status)
+    VALUES (${filingNumber}, ${entityId}, 'claimed')
+    ON CONFLICT (filing_number) DO NOTHING
+    RETURNING claimed_at
+  `)).rows as any[];
+  return claimRows.length === 0 ? null : claimRows[0].claimed_at;
+}
+
+/**
+ * Fenced finalize: re-locks the claim row FOR UPDATE and only writes if
+ * claimed_at still equals the lease token this caller was granted. Returns
+ * false (and writes nothing) if another executor already reclaimed the row —
+ * e.g. the bootstrap engine's stale-claim recovery kicked in mid-write.
+ */
+async function finalizeLegacyClaim(
+  filingNumber: string,
+  leaseToken: unknown,
+  status: "created" | "matched_existing" | "failed",
+  reasonCode: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const locked = (await tx.execute(sql`
+      SELECT id FROM sunbiz_bootstrap_claims
+      WHERE filing_number = ${filingNumber} AND claimed_at = ${leaseToken}
+      FOR UPDATE
+    `)).rows as any[];
+    if (locked.length === 0) return false;
+    await tx.execute(sql`
+      UPDATE sunbiz_bootstrap_claims
+      SET status = ${status}, deferred_reason_code = ${reasonCode}, completed_at = now()
+      WHERE filing_number = ${filingNumber} AND claimed_at = ${leaseToken}
+    `);
+    return true;
+  });
+}
+
 // ─── Area 5: Sunbiz → canonical businesses materialization ───────────────────
 //
 // Correction #5: The legacy scheduled path (autoConvertEnrichedEntities →
@@ -23,136 +80,40 @@ const BATCH_SIZE = 10;
 // with promotion (creating CRM records), bypassing the free-enrichment
 // candidate pipeline and the governed validation gates.
 //
-// The new path materializes each enriched Sunbiz entity as a canonical
-// `businesses` row first, then lets the FREE_ENRICHMENT_LANE pipeline
-// discover and validate its email/phone. Contact + deal creation happens
-// only after provider_valid evidence is returned (governed by projection-service).
+// The governed sunbiz-bootstrap engine now owns canonical materialization.
+// The old schema-mismatched materialization implementation below is disabled.
 //
 // The legacy path is gated behind SUNBIZ_LEGACY_PROMOTION_ENABLED (default:
-// 'true' to avoid breaking existing production deployments). New environments
-// should set SUNBIZ_LEGACY_PROMOTION_ENABLED=false and enable the materialization
-// path via SUNBIZ_MATERIALIZATION_ENABLED=true.
-
-const MATERIALIZATION_BATCH = 25;
+// 'true' to avoid breaking existing production deployments). The historical
+// SUNBIZ_MATERIALIZATION_ENABLED flag is retained for compatibility, but its
+// deprecated writer is a no-op.
 
 /**
- * Correction #5: materialize enriched Sunbiz entities as canonical `businesses`
- * rows, then enqueue them for free-enrichment rather than creating contacts/deals
- * directly.
- *
- * Gated behind SUNBIZ_MATERIALIZATION_ENABLED=true. Never activates paid providers,
- * outreach, campaigns, or recurring schedules.
+ * Deprecated schema-mismatched writer. Canonical Sunbiz materialization is
+ * owned by sunbiz-bootstrap.ts; keep this exported shim for older callers.
  */
 export async function materializeSunbizToCanonicalBusinesses(): Promise<{ materialized: number; alreadyExists: number; skipped: number }> {
-  let materialized = 0;
-  let alreadyExists = 0;
-  let skipped = 0;
+  console.warn("[Sunbiz Cron] Deprecated materialization disabled; use the governed sunbiz-bootstrap engine.");
+  return { materialized: 0, alreadyExists: 0, skipped: 0 };
+}
 
-  // Only process enriched entities that have a domain — domain is required for
-  // the free-enrichment pipeline to crawl.
-  const rows = ((await db.execute(sql`
-    SELECT id, entity_name, website, email, phone, owner_email, owner_phone,
-           owner_first_name, owner_last_name, address, city, state, zip,
-           vertical, enrichment_status
-    FROM sunbiz_entities
-    WHERE enrichment_status = 'enriched'
-      AND website IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM canonical_source_links csl
-        WHERE csl.source_system = 'sunbiz'
-          AND csl.source_external_id = sunbiz_entities.id::text
-      )
-    ORDER BY id
-    LIMIT ${MATERIALIZATION_BATCH}
-  `)) as any).rows ?? [];
+async function isClaimedByBootstrap(filingNumber: string | null | undefined): Promise<boolean> {
+  if (!filingNumber) return false;
+  const result = await db.execute(sql`
+    SELECT 1 FROM sunbiz_bootstrap_claims
+    WHERE filing_number = ${filingNumber}
+      AND status IN ('claimed', 'created', 'matched_existing')
+    LIMIT 1
+  `);
+  return ((result as any).rows ?? []).length > 0;
+}
 
-  for (const entity of rows) {
-    try {
-      const domain = String(entity.website ?? "").toLowerCase()
-        .replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
-      if (!domain) {
-        skipped++;
-        continue;
-      }
-
-      // Check if a canonical business for this domain already exists.
-      const existing = ((await db.execute(sql`
-        SELECT id FROM businesses WHERE website_domain = ${domain} AND record_class = 'canonical' LIMIT 1
-      `)) as any).rows?.[0];
-
-      if (existing) {
-        // Link the Sunbiz entity to the existing business so it isn't picked again.
-        await db.execute(sql`
-          INSERT INTO canonical_source_links (business_id, source_system, source_external_id)
-          VALUES (${existing.id}, 'sunbiz', ${String(entity.id)})
-          ON CONFLICT (source_system, source_external_id) DO NOTHING
-        `).catch(() => {});
-        alreadyExists++;
-        continue;
-      }
-
-      // Normalize entity name to a canonical business name.
-      const canonicalName = toProperCase(String(entity.entity_name ?? "")).trim() || null;
-      if (!canonicalName) {
-        skipped++;
-        continue;
-      }
-
-      // Create the canonical business row. Never writes contacts, deals, or prospects.
-      const insertedRows = ((await db.execute(sql`
-        INSERT INTO businesses (canonical_name, website_domain, record_class, free_enrichment_status, source_metadata)
-        VALUES (
-          ${canonicalName},
-          ${domain},
-          'canonical',
-          NULL,
-          ${JSON.stringify({
-            sunbizEntityId: entity.id,
-            rawVertical: entity.vertical ?? null,
-            rawCity: entity.city ?? null,
-            rawState: entity.state ?? null,
-            materialized_at: new Date().toISOString(),
-          })}::jsonb
-        )
-        ON CONFLICT (website_domain) WHERE record_class = 'canonical' DO NOTHING
-        RETURNING id
-      `)) as any).rows ?? [];
-
-      let businessId: number | null = null;
-      if (insertedRows.length > 0) {
-        businessId = Number(insertedRows[0].id);
-      } else {
-        // Lost INSERT race — fetch the winner.
-        const raced = ((await db.execute(sql`
-          SELECT id FROM businesses WHERE website_domain = ${domain} AND record_class = 'canonical' LIMIT 1
-        `)) as any).rows?.[0];
-        if (raced) businessId = Number(raced.id);
-      }
-
-      if (!businessId) {
-        skipped++;
-        continue;
-      }
-
-      // Link the Sunbiz entity to the new canonical business.
-      await db.execute(sql`
-        INSERT INTO canonical_source_links (business_id, source_system, source_external_id)
-        VALUES (${businessId}, 'sunbiz', ${String(entity.id)})
-        ON CONFLICT (source_system, source_external_id) DO NOTHING
-      `).catch(() => {});
-
-      materialized++;
-      console.log(`[Sunbiz] Materialized entity ${entity.id} → business ${businessId} (domain=${domain})`);
-    } catch (err: any) {
-      console.error(`[Sunbiz] Materialization failed for entity ${entity.id}:`, err?.message ?? err);
-      skipped++;
-    }
+export async function filterSunbizEntitiesOwnedByBootstrap<T extends { filingNumber?: string | null }>(entities: T[]): Promise<T[]> {
+  const eligible: T[] = [];
+  for (const entity of entities) {
+    if (!(await isClaimedByBootstrap(entity.filingNumber))) eligible.push(entity);
   }
-
-  if (materialized > 0 || alreadyExists > 0) {
-    console.log(`[Sunbiz Materialization] materialized=${materialized}, alreadyExists=${alreadyExists}, skipped=${skipped}`);
-  }
-  return { materialized, alreadyExists, skipped };
+  return eligible;
 }
 
 export async function runSunbizAutoConvert(): Promise<{ converted: number; promoted: number; estimated: number; qualified: number; retried: number; materialized?: number }> {
@@ -163,23 +124,19 @@ export async function runSunbizAutoConvert(): Promise<{ converted: number; promo
   let retried = 0;
   let materialized = 0;
 
-  // Correction #5: new materialization path replaces direct prospect/contact/deal creation.
-  // Enable via SUNBIZ_MATERIALIZATION_ENABLED=true. Default off — operators switch from
-  // legacy to materialization path explicitly.
-  if (process.env.SUNBIZ_MATERIALIZATION_ENABLED === "true") {
-    try {
-      const result = await materializeSunbizToCanonicalBusinesses();
-      materialized = result.materialized;
-    } catch (err) {
-      console.error("[Sunbiz Cron] Materialization error:", err);
-    }
+  // The historical materialization flag now only emits a deprecation warning;
+  // canonical entity writes go through the governed bootstrap engine.
+  const featureFlags = getSunbizCronFeatureFlags();
+  if (featureFlags.materializationEnabled) {
+    const result = await materializeSunbizToCanonicalBusinesses();
+    materialized = result.materialized;
   }
 
   // Legacy path: direct prospect → contact → deal creation.
   // Gated behind SUNBIZ_LEGACY_PROMOTION_ENABLED (default 'true' to preserve
   // existing production behavior; set to 'false' once materialization path is
   // confirmed working in your deployment).
-  const legacyEnabled = process.env.SUNBIZ_LEGACY_PROMOTION_ENABLED !== "false";
+  const legacyEnabled = featureFlags.legacyPromotionEnabled;
   if (legacyEnabled) {
     try {
       converted = await autoConvertEnrichedEntities();
@@ -232,7 +189,8 @@ async function autoConvertEnrichedEntities(): Promise<number> {
     (e.email || e.phone || e.ownerEmail || e.ownerPhone)
   );
 
-  if (qualifiedEntities.length === 0) return 0;
+  const bootstrapFilteredEntities = await filterSunbizEntitiesOwnedByBootstrap(qualifiedEntities);
+  if (bootstrapFilteredEntities.length === 0) return 0;
 
   // Load the dedup sets ONCE, before the loop.
   // Previously this query ran inside each iteration — for 10 entities that was
@@ -246,7 +204,7 @@ async function autoConvertEnrichedEntities(): Promise<number> {
   );
 
   let converted = 0;
-  for (const entity of qualifiedEntities.slice(0, BATCH_SIZE)) {
+  for (const entity of bootstrapFilteredEntities.slice(0, BATCH_SIZE)) {
     try {
       const emailKey = entity.email?.trim().toLowerCase();
       const nameKey = entity.entityName?.trim().toLowerCase();
@@ -292,7 +250,7 @@ async function autoPromoteProspects(): Promise<number> {
            p.owner_first_name, p.owner_last_name, p.website, p.dba, p.address,
            p.city, p.state, p.zip, p.vertical, p.estimated_volume, p.estimated_avg_ticket,
            p.estimated_residual, p.volume_confidence, p.ai_summary, p.ai_pitch_angle,
-           p.notes, p.tags, p.merchant_tier
+           p.notes, p.tags, p.merchant_tier, se.filing_number AS sunbiz_filing_number, se.id AS sunbiz_entity_id
     FROM prospects p
     INNER JOIN sunbiz_entities se ON se.prospect_id = p.id
     WHERE p.contact_id IS NULL
@@ -305,12 +263,19 @@ async function autoPromoteProspects(): Promise<number> {
       AND (p.email IS NOT NULL OR p.owner_email IS NOT NULL)
       AND (p.phone IS NOT NULL OR p.owner_phone IS NOT NULL)
       AND p.company_name IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM sunbiz_bootstrap_claims c
+        WHERE c.filing_number = se.filing_number
+          AND c.status IN ('claimed', 'created', 'matched_existing')
+      )
     ORDER BY p.created_at DESC
     LIMIT ${BATCH_SIZE}
   `)).rows as any[];
 
   const qualified = qualifiedRows.map(r => ({
     id: Number(r.id),
+    sunbizFilingNumber: r.sunbiz_filing_number ?? null,
+    sunbizEntityId: r.sunbiz_entity_id != null ? Number(r.sunbiz_entity_id) : null,
     ownerEmail: r.owner_email ?? null,
     email: r.email ?? null,
     ownerPhone: r.owner_phone ?? null,
@@ -354,6 +319,21 @@ async function autoPromoteProspects(): Promise<number> {
   let promoted = 0;
 
   for (const prospect of qualified) {  // SQL already caps to BATCH_SIZE
+    // Write-boundary fencing: the batch-level query above filtered out
+    // filings already claimed/handled by the bootstrap engine, but that
+    // check is not atomic with the writes below — a bootstrap run can claim
+    // this exact filing between the SELECT and this point. Atomically claim
+    // it here, immediately before any contact/deal write, so exactly one of
+    // {this legacy path, a concurrent bootstrap run} ever proceeds for a
+    // given filing_number. If the claim fails (0 rows), another engine
+    // already holds it; skip this prospect entirely rather than writing.
+    let legacyLeaseToken: unknown = null;
+    if (prospect.sunbizFilingNumber && prospect.sunbizEntityId != null) {
+      legacyLeaseToken = await claimFilingForLegacyWrite(prospect.sunbizFilingNumber, prospect.sunbizEntityId);
+      if (legacyLeaseToken === null) {
+        continue;
+      }
+    }
     try {
       const email = prospect.ownerEmail || prospect.email || "";
       const phone = prospect.ownerPhone || prospect.phone || "";
@@ -369,6 +349,9 @@ async function autoPromoteProspects(): Promise<number> {
 
       if (existingContact) {
         await finalizeLegacyProspectContactLink(prospect.id, existingContact.id);
+        if (legacyLeaseToken !== null && prospect.sunbizFilingNumber) {
+          await finalizeLegacyClaim(prospect.sunbizFilingNumber, legacyLeaseToken, "matched_existing", "legacy_contact_deal_promotion");
+        }
         continue;
       }
 
@@ -501,9 +484,21 @@ async function autoPromoteProspects(): Promise<number> {
         );
       });
 
+      if (legacyLeaseToken !== null && prospect.sunbizFilingNumber) {
+        await finalizeLegacyClaim(prospect.sunbizFilingNumber, legacyLeaseToken, "created", "legacy_contact_deal_promotion");
+      }
+
       promoted++;
     } catch (err) {
       console.error(`[Sunbiz Cron] Promote prospect ${prospect.id} failed:`, err);
+      // Release the fencing claim on failure so this filing_number can be
+      // retried by either this legacy path or the bootstrap engine, rather
+      // than staying stuck as a permanently-blocking 'claimed' row. Fenced:
+      // if the bootstrap engine already reclaimed this filing as stale and
+      // moved on, this no-ops instead of overwriting its result.
+      if (legacyLeaseToken !== null && prospect.sunbizFilingNumber) {
+        await finalizeLegacyClaim(prospect.sunbizFilingNumber, legacyLeaseToken, "failed", "legacy_promotion_failed").catch(() => {});
+      }
     }
   }
 
@@ -682,6 +677,11 @@ export async function runSunbizCanaryForEntityIds(
     if (verifiedSuccessCount >= maxSuccessful) break;
     if (attemptedPromotions >= maxSuccessful * 2) break;
 
+    // Hoisted so the catch block below can release a claim taken inside the
+    // try block — a const declared inside try is not visible in its catch.
+    let claimedFilingNumberForCatch: string | null = null;
+    let claimedLeaseTokenForCatch: unknown = null;
+
     try {
       const entity = await storage.getSunbizEntity(entityId);
       if (!entity) {
@@ -753,6 +753,26 @@ export async function runSunbizCanaryForEntityIds(
         continue;
       }
 
+      // Write-boundary fencing (same interlock as autoPromoteProspects): atomically
+      // claim this filing_number BEFORE any legacy write — including the
+      // "link to an existing contact" write below, not just new contact/deal
+      // creation — so a concurrent bootstrap run can never materialize the
+      // same filing while this canary is acting on it, and vice versa.
+      let canaryLeaseToken: unknown = null;
+      if (entity.filingNumber) {
+        canaryLeaseToken = await claimFilingForLegacyWrite(entity.filingNumber, entity.id);
+        if (canaryLeaseToken === null) {
+          results.push({
+            entityId, entityName: String(entity.entityName ?? ""),
+            outcome: "skipped_duplicate",
+            error: "Filing already claimed by the bootstrap engine",
+          });
+          continue;
+        }
+        claimedFilingNumberForCatch = entity.filingNumber;
+        claimedLeaseTokenForCatch = canaryLeaseToken;
+      }
+
       // Step 3: Dedup check (no side effects yet)
       const existingByEmail = email ? await storage.getContactByEmail(email) : undefined;
       const existingByCompany = !existingByEmail && prospect.companyName
@@ -761,6 +781,9 @@ export async function runSunbizCanaryForEntityIds(
       const existingContact = existingByEmail || existingByCompany;
       if (existingContact) {
         await finalizeLegacyProspectContactLink(prospectId, existingContact.id);
+        if (canaryLeaseToken !== null && entity.filingNumber) {
+          await finalizeLegacyClaim(entity.filingNumber, canaryLeaseToken, "matched_existing", "legacy_canary_promotion");
+        }
         // Existing contact: only count as success if it already meets strict criteria
         results.push({
           entityId, entityName: String(entity.entityName ?? ""),
@@ -882,6 +905,10 @@ export async function runSunbizCanaryForEntityIds(
       };
       results.push(entry);
 
+      if (canaryLeaseToken !== null && entity.filingNumber) {
+        await finalizeLegacyClaim(entity.filingNumber, canaryLeaseToken, "created", "legacy_canary_promotion").catch(() => {});
+      }
+
       // Count toward success only if BOTH production-classified AND canonical vertical set
       if (classificationOutcome === "promoted" && finalRecordClass === "production" && finalVertical) {
         verifiedSuccessCount++;
@@ -893,6 +920,12 @@ export async function runSunbizCanaryForEntityIds(
         outcome: "error",
         error: err?.message ?? String(err),
       });
+      // Release the fencing claim taken for this entity above so a failed
+      // canary attempt does not permanently block the bootstrap engine from
+      // ever processing this filing_number.
+      if (claimedFilingNumberForCatch && claimedLeaseTokenForCatch !== null) {
+        await finalizeLegacyClaim(claimedFilingNumberForCatch, claimedLeaseTokenForCatch, "failed", "legacy_canary_promotion_failed").catch(() => {});
+      }
     }
   }
 

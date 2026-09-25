@@ -131,6 +131,109 @@ function toResolverInput(candidate: SunbizBootstrapCandidate) {
   };
 }
 
+function normalizedIdentityName(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Generic legal-form/entity-type tokens carry zero corroborating identity
+// signal — "llc", "inc", "corp" etc. appear on huge numbers of unrelated
+// Sunbiz filings. Without stripping these, two entirely unrelated
+// "... LLC" businesses that happen to share a domain or phone (shared
+// registered agent, franchise hub) could pass token-overlap matching on the
+// "llc" token alone. Every identity-name comparison in this module must
+// strip these before comparing tokens.
+const GENERIC_LEGAL_FORM_TOKENS = new Set([
+  "llc", "inc", "incorporated", "corp", "corporation", "co", "company",
+  "ltd", "limited", "llp", "lllp", "lp", "pa", "pc", "pllc", "plc",
+  "group", "holdings", "enterprises", "services", "solutions", "the",
+]);
+
+function meaningfulTokens(normalized: string): Set<string> {
+  return new Set(
+    normalized
+      .split(" ")
+      .filter((token) => token.length > 2 && !GENERIC_LEGAL_FORM_TOKENS.has(token)),
+  );
+}
+
+function compatibleIdentityName(a: string, b: string): boolean {
+  const left = normalizedIdentityName(a);
+  const right = normalizedIdentityName(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const leftTokens = meaningfulTokens(left);
+  const rightTokens = meaningfulTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return false;
+  // A pure substring match ("joes pizza" within "joes pizza llc") is only
+  // trusted once legal-form/stopword tokens are stripped from both sides —
+  // otherwise "llc" alone would satisfy this branch for two unrelated "...
+  // LLC" businesses.
+  const leftCore = [...leftTokens].sort().join(" ");
+  const rightCore = [...rightTokens].sort().join(" ");
+  if (leftCore === rightCore) return true;
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return overlap / Math.max(leftTokens.size, rightTokens.size) >= 0.6;
+}
+
+function compatibleCityState(candidate: SunbizBootstrapCandidate, business: any): boolean {
+  return !!candidate.principalCity && !!candidate.principalState &&
+    candidate.principalCity.trim().toLowerCase() === String(business.city ?? "").trim().toLowerCase() &&
+    candidate.principalState.trim().toLowerCase() === String(business.state ?? "").trim().toLowerCase();
+}
+
+/**
+ * True only when both names are present and share literally no meaningful
+ * token overlap (e.g. "Joe's Pizza LLC" vs "City Nail Salon Inc") — a
+ * stronger signal than "not compatible", used to stop a same-city/state
+ * coincidence from overriding an outright unrelated business name. A
+ * same-city match on two genuinely unrelated businesses (shared registered
+ * agent address, franchise hub, etc.) must not auto-link just because the
+ * city/state happens to match.
+ */
+function namesClearlyConflict(a: string, b: string): boolean {
+  const left = normalizedIdentityName(a);
+  const right = normalizedIdentityName(b);
+  if (!left || !right) return false;
+  const leftTokens = meaningfulTokens(left);
+  const rightTokens = meaningfulTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return false;
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return overlap === 0;
+}
+
+async function wasPromotedByLegacySunbiz(filingNumber: string): Promise<boolean> {
+  const result = await db.execute(sql`
+    SELECT 1
+    FROM sunbiz_entities se
+    LEFT JOIN prospects p ON p.id = se.prospect_id
+    WHERE se.filing_number = ${filingNumber}
+      AND (
+        p.id IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM canonical_source_links csl
+          WHERE csl.stable_key = ${filingNumber}
+            AND NOT (csl.source_system = 'sunbiz' AND csl.source_type = 'sunbiz_entity')
+            AND NOT (csl.source_system = 'sunbiz_entities' AND csl.source_type = 'sunbiz_filing')
+        )
+      )
+    LIMIT 1
+  `);
+  return rows(result).length > 0;
+}
+
+async function findCRO03BCrosswalkBusiness(filingNumber: string): Promise<number | null> {
+  const result = await db.execute(sql`
+    SELECT business_id
+    FROM canonical_source_links
+    WHERE source_system = 'sunbiz_entities'
+      AND source_type = 'sunbiz_filing'
+      AND stable_key = ${filingNumber}
+    LIMIT 1
+  `);
+  const found = rows(result)[0] as { business_id: number } | undefined;
+  return found ? Number(found.business_id) : null;
+}
+
 /**
  * Single source of truth for the typed-confirmation phrase, derived from the
  * actual candidate count (never the requested limit). Both the preview route
@@ -268,6 +371,12 @@ export async function previewSunbizBootstrap(limit = DEFAULT_BATCH_LIMIT, opts: 
     if (peek.kind === "would_create") {
       result.wouldCreate++;
       result.candidates.push({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "would_create" });
+    } else if (peek.kind === "matched" &&
+        !compatibleIdentityName(candidate.entityName, peek.business.canonicalName) &&
+        (!compatibleCityState(candidate, peek.business) ||
+          namesClearlyConflict(candidate.entityName, peek.business.canonicalName))) {
+      result.wouldDefer++;
+      result.candidates.push({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "deferred" });
     } else if (peek.kind === "matched") {
       result.wouldMatchExisting++;
       result.candidates.push({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "matched" });
@@ -416,7 +525,7 @@ export async function runSunbizRecordClassRepair(expectedBusinessIds: number[]):
 export interface SunbizBootstrapRunOutcome {
   filingNumber: string;
   entityName: string;
-  outcome: "created" | "matched_existing" | "deferred_collision" | "already_claimed" | "failed" | "lost_lease";
+  outcome: "created" | "matched_existing" | "deferred_collision" | "identity_review" | "already_claimed" | "failed" | "lost_lease";
   businessId?: number;
   error?: string;
 }
@@ -553,6 +662,36 @@ export async function runSunbizBootstrapBatch(
   }
 
   const outcomes: SunbizBootstrapRunOutcome[] = [];
+  const runId = crypto.randomUUID();
+  const recordOutcome = async (outcome: SunbizBootstrapRunOutcome) => {
+    outcomes.push(outcome);
+    try {
+      const attempt = rows(await db.execute(sql`
+        SELECT COALESCE(MAX(attempt_number), 0)::int + 1 AS attempt_number
+        FROM sunbiz_bootstrap_ledger_events
+        WHERE filing_number = ${outcome.filingNumber}
+      `))[0] as { attempt_number: number } | undefined;
+      const reasonCode = outcome.outcome === "identity_review"
+        ? "identity_review_required"
+        : outcome.outcome === "deferred_collision"
+          ? "deferred_collision"
+          : outcome.outcome === "failed"
+            ? "processing_failed"
+            : null;
+      await db.execute(sql`
+        INSERT INTO sunbiz_bootstrap_ledger_events
+          (filing_number, run_id, attempt_number, outcome, deferred_reason_code, business_id, actor)
+        VALUES (
+          ${outcome.filingNumber}, ${runId}, ${Number(attempt?.attempt_number ?? 1)},
+          ${outcome.outcome}, ${reasonCode}, ${outcome.businessId ?? null}, 'system'
+        )
+      `);
+    } catch {
+      // Ledger is observational only; its failure must never affect business
+      // or source-link writes.
+      console.warn(`[Sunbiz Bootstrap] Ledger insert failed for filing ${outcome.filingNumber}; outcome=${outcome.outcome}`);
+    }
+  };
 
   for (const candidate of candidates) {
     let myLeaseToken: unknown;
@@ -573,7 +712,7 @@ export async function runSunbizBootstrapBatch(
       `)).rows as any[];
 
       if (claimRows.length === 0) {
-        outcomes.push({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "already_claimed" });
+        await recordOutcome({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "already_claimed" });
         continue;
       }
 
@@ -585,7 +724,72 @@ export async function runSunbizBootstrapBatch(
       myLeaseToken = claimRows[0].claimed_at;
     }
 
-    let resolution: Awaited<ReturnType<typeof resolveOrganization>>;
+    if (await wasPromotedByLegacySunbiz(candidate.filingNumber)) {
+      const won = await db.transaction(async (tx) => {
+        const locked = rows(await tx.execute(sql`
+          SELECT id FROM sunbiz_bootstrap_claims
+          WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+          FOR UPDATE
+        `));
+        if (!locked.length) return false;
+        await tx.execute(sql`
+          UPDATE sunbiz_bootstrap_claims
+          SET status = 'deferred_collision', deferred_reason_code = 'legacy_sunbiz_promotion_exists', completed_at = now()
+          WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+        `);
+        return true;
+      });
+      await recordOutcome({
+        filingNumber: candidate.filingNumber,
+        entityName: candidate.entityName,
+        outcome: won ? "deferred_collision" : "lost_lease",
+      });
+      continue;
+    }
+
+    const crosswalkBusinessId = await findCRO03BCrosswalkBusiness(candidate.filingNumber);
+    if (crosswalkBusinessId != null) {
+      const won = await db.transaction(async (tx) => {
+        const locked = rows(await tx.execute(sql`
+          SELECT id FROM sunbiz_bootstrap_claims
+          WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+          FOR UPDATE
+        `));
+        if (!locked.length) return false;
+        await tx.execute(sql`
+          INSERT INTO canonical_source_links (business_id, source_system, source_type, stable_key, registry_id)
+          VALUES (${crosswalkBusinessId}, 'sunbiz', 'sunbiz_entity', ${candidate.filingNumber}, NULL)
+          ON CONFLICT (source_system, source_type, stable_key) DO NOTHING
+        `);
+        await tx.execute(sql`
+          UPDATE sunbiz_bootstrap_claims
+          SET status = 'matched_existing', business_id = ${crosswalkBusinessId}, completed_at = now()
+          WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+        `);
+        return true;
+      });
+      await recordOutcome({
+        filingNumber: candidate.filingNumber,
+        entityName: candidate.entityName,
+        outcome: won ? "matched_existing" : "lost_lease",
+        ...(won ? { businessId: crosswalkBusinessId } : {}),
+      });
+      continue;
+    }
+
+    let identityReview = false;
+    const priorClaimBusinessRows = rows(await db.execute(sql`
+      SELECT business_id FROM sunbiz_bootstrap_claims
+      WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+    `)) as Array<{ business_id: number | null }>;
+    const previouslyAssociatedBusinessId = priorClaimBusinessRows[0]?.business_id == null
+      ? null
+      : Number(priorClaimBusinessRows[0].business_id);
+    let resolution: Awaited<ReturnType<typeof resolveOrganization>> | {
+      kind: "deferred";
+      reasonCode: "IDENTITY_REVIEW_REQUIRED";
+      candidateIds: number[];
+    };
     try {
       // Explicitly classify newly created businesses as 'canonical'. Without
       // this, resolveOrganization()'s insert falls through to the
@@ -599,6 +803,18 @@ export async function runSunbizBootstrapBatch(
         ...toResolverInput(candidate),
         create: { recordClass: "canonical" },
       });
+      if (resolution.kind === "matched" &&
+          resolution.business.id !== previouslyAssociatedBusinessId &&
+          !compatibleIdentityName(candidate.entityName, resolution.business.canonicalName) &&
+          (!compatibleCityState(candidate, resolution.business) ||
+            namesClearlyConflict(candidate.entityName, resolution.business.canonicalName))) {
+        identityReview = true;
+        resolution = {
+          kind: "deferred",
+          reasonCode: "IDENTITY_REVIEW_REQUIRED",
+          candidateIds: [resolution.business.id],
+        };
+      }
     } catch (err: any) {
       const fenced = (await db.execute(sql`
         UPDATE sunbiz_bootstrap_claims
@@ -606,7 +822,7 @@ export async function runSunbizBootstrapBatch(
         WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         RETURNING id
       `)).rows as any[];
-      outcomes.push(
+      await recordOutcome(
         fenced.length === 0
           ? { filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "lost_lease" }
           : { filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "failed", error: String(err?.message ?? err) },
@@ -657,7 +873,9 @@ export async function runSunbizBootstrapBatch(
       } else {
         await tx.execute(sql`
           UPDATE sunbiz_bootstrap_claims
-          SET status = 'deferred_collision', deferred_reason_code = ${resolution.reasonCode}, completed_at = now()
+          SET status = 'deferred_collision',
+              deferred_reason_code = ${identityReview ? "identity_review_required" : resolution.reasonCode},
+              completed_at = now()
           WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         `);
       }
@@ -665,19 +883,23 @@ export async function runSunbizBootstrapBatch(
     });
 
     if (!won) {
-      outcomes.push({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "lost_lease" });
+      await recordOutcome({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "lost_lease" });
       continue;
     }
 
     if (resolution.kind === "created" || resolution.kind === "matched") {
-      outcomes.push({
+      await recordOutcome({
         filingNumber: candidate.filingNumber,
         entityName: candidate.entityName,
         outcome: resolution.kind === "created" ? "created" : "matched_existing",
         businessId,
       });
     } else {
-      outcomes.push({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "deferred_collision" });
+      await recordOutcome({
+        filingNumber: candidate.filingNumber,
+        entityName: candidate.entityName,
+        outcome: identityReview ? "identity_review" : "deferred_collision",
+      });
     }
   }
 
