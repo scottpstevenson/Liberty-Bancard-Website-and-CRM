@@ -71,7 +71,7 @@ export function registerAiMemoryRoutes(app: Express) {
   // ── AI Decisions ─────────────────────────────────────────────────────────────
 
   // POST /api/ai-memory/decisions
-  app.post("/api/ai-memory/decisions", isAuthenticated, async (req, res) => {
+  app.post("/api/ai-memory/decisions", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const id = await recordAiDecision(req.body);
       res.json({ id });
@@ -81,7 +81,7 @@ export function registerAiMemoryRoutes(app: Express) {
   // ── AI Corrections ───────────────────────────────────────────────────────────
 
   // POST /api/ai-memory/corrections
-  app.post("/api/ai-memory/corrections", isAuthenticated, async (req, res) => {
+  app.post("/api/ai-memory/corrections", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const correctedBy = (req.user as any)?.email ?? (req.user as any)?.id ?? "unknown";
       const id = await recordAiCorrection({ ...req.body, correctedBy });

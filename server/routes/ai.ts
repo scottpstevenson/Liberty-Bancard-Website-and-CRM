@@ -11,7 +11,26 @@ import type { ProposalData, ProposalPlan } from "./helpers";
 import { buildVerticalSystemPromptBlock, isVerticalSupported } from "../services/vertical-advisor-prompts";
 import { serverError } from "../utils/server-error";
 import { z } from "zod";
+import { rateLimit } from "express-rate-limit";
+import { createHash } from "crypto";
 import { assistantChat, getOrCreateSession, type Audience } from "../services/chat-assistant";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import { authorizeTicketScope } from "./tickets-tasks";
+
+// Public proposal token endpoints are bearer-token authenticated with no session —
+// bound to per-IP to blunt brute-force token guessing (#2021).
+const publicProposalRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests. Please try again later." },
+});
+
+// One-way fingerprint so a proposal bearer token never appears in audit_logs (#2021).
+function fingerprintProposalToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 export function registerAiRoutes(app: Express) {
   /**
@@ -90,7 +109,9 @@ export function registerAiRoutes(app: Express) {
 
 
   // === AI DASHBOARD COPILOT ===
-  app.post("/api/ai/insights", isAuthenticated, async (req, res) => {
+  // Company-wide read across all deals/tickets/contacts/prospects — no agent-scoped
+  // implementation exists, so this stays admin/manager-only (#2021).
+  app.post("/api/ai/insights", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const [dealsR, ticketsR, contactsR, allTasks, prospectsR] = await Promise.all([
         storage.getDeals({ limit: 500 }),
@@ -181,9 +202,22 @@ RULES:
 
 
   // === AI EMAIL COMPOSER ===
-  app.post("/api/ai/compose-email", isAuthenticated, async (req, res) => {
+  app.post("/api/ai/compose-email", isDashboardUser, async (req, res) => {
     try {
       const { contactId, prospectId, context, tone, vertical: verticalParam } = req.body;
+
+      // Body-supplied IDs bypass crmObjectAccessGuard (URL-path only), so enforce
+      // ownership here before any AI call or data read (#2021).
+      if (contactId) {
+        if (!await authorizeContactAccess(req, res, Number(contactId))) return;
+      } else if (prospectId) {
+        // Prospects have no per-agent ownership model (see /api/prospects gating);
+        // restrict prospect-linked composition to admin/manager.
+        const role = (req.user as any)?.role;
+        if (!["admin", "manager"].includes(role)) {
+          return res.status(403).json({ message: "Insufficient permissions" });
+        }
+      }
 
       let recipientData = "";
       let resolvedVertical: string | null = verticalParam && isVerticalSupported(verticalParam) ? verticalParam : null;
@@ -257,7 +291,9 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
 
 
   // === AI SMART TASK GENERATOR ===
-  app.post("/api/ai/generate-tasks", isAuthenticated, async (req, res) => {
+  // Company-wide scan across all deals/tickets/contacts — no agent-scoped
+  // implementation exists, so this stays admin/manager-only (#2021).
+  app.post("/api/ai/generate-tasks", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const [dealsR2, ticketsR2, allTasks, contactsR2] = await Promise.all([
         storage.getDeals({ limit: 500 }),
@@ -342,12 +378,13 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
 
 
   // === AI TICKET CLASSIFICATION ===
-  app.post("/api/ai/classify-ticket", isAuthenticated, async (req, res) => {
+  app.post("/api/ai/classify-ticket", isDashboardUser, async (req, res) => {
     try {
       const { ticketId } = req.body;
       if (!ticketId) return res.status(400).json({ message: "ticketId required" });
       const ticket = await storage.getTicket(Number(ticketId));
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      if (!await authorizeTicketScope(req, res, ticket)) return;
 
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -572,10 +609,15 @@ Respond ONLY with valid JSON.`
   });
 
   // === AI STATEMENT ANALYSIS ===
-  app.post("/api/ai/analyze-statement", isAuthenticated, async (req, res) => {
+  app.post("/api/ai/analyze-statement", isDashboardUser, async (req, res) => {
     try {
       const { contactId, dealId, statementData, vertical: verticalParam } = req.body;
       if (!statementData) return res.status(400).json({ message: "statementData required" });
+
+      // Body-supplied IDs bypass crmObjectAccessGuard (URL-path only) — enforce
+      // ownership here before any AI call, read, or mutation (#2021).
+      if (contactId && !await authorizeContactAccess(req, res, Number(contactId))) return;
+      if (dealId && !await authorizeDealAccess(req, res, Number(dealId))) return;
 
       let resolvedVertical: string | null = verticalParam && isVerticalSupported(verticalParam) ? verticalParam : null;
 
@@ -669,6 +711,10 @@ Return JSON with:
     try {
       const { dealId, statementData } = req.body;
       if (!dealId) return res.status(400).json({ message: "dealId required" });
+
+      // dealId is body-supplied and bypasses crmObjectAccessGuard — enforce
+      // ownership before any AI call, read, or mutation (#2021).
+      if (!await authorizeDealAccess(req, res, Number(dealId))) return;
 
       const deal = await storage.getDeal(Number(dealId));
       if (!deal) return res.status(404).json({ message: "Deal not found" });
@@ -916,10 +962,11 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
-  app.get("/api/public/proposal/:token", async (req, res) => {
+  app.get("/api/public/proposal/:token", publicProposalRateLimit, async (req, res) => {
     try {
-      const token = req.params.token;
+      const token = String(req.params.token || "");
       if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
+      const tokenFingerprint = fingerprintProposalToken(token);
 
       // Direct indexed lookup — avoids the limit-500 scan that silently misses deals.
       const { db } = await import("../db");
@@ -940,7 +987,7 @@ Notes: ${deal.notes || "None"}`
           entityType: "deal",
           entityId: deal.id,
           actorType: "system",
-          details: { token, contactId: deal.contactId },
+          details: { tokenFingerprint, contactId: deal.contactId },
         }).catch(() => {}); // fire-and-forget; never fail the response
       }
 
@@ -985,10 +1032,11 @@ Notes: ${deal.notes || "None"}`
   });
 
   // Proposal acceptance endpoint — merchant clicks "Accept" on the public proposal page (#1402)
-  app.post("/api/public/proposal/:token/accept", async (req, res) => {
+  app.post("/api/public/proposal/:token/accept", publicProposalRateLimit, async (req, res) => {
     try {
-      const token = req.params.token;
+      const token = String(req.params.token || "");
       if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
+      const tokenFingerprint = fingerprintProposalToken(token);
 
       const { db } = await import("../db");
       const { deals } = await import("@shared/schema");
@@ -1022,7 +1070,7 @@ Notes: ${deal.notes || "None"}`
         entityType: "deal",
         entityId: deal.id,
         actorType: "system",
-        details: { token, contactId: deal.contactId, acceptedAt: new Date().toISOString(), previousStage: deal.stage, nextStage },
+        details: { tokenFingerprint, contactId: deal.contactId, acceptedAt: new Date().toISOString(), previousStage: deal.stage, nextStage },
       }).catch(() => {});
 
       res.json({ message: "Thank you! A Liberty Bancard representative will be in touch shortly to finalize your account setup." });
@@ -1034,7 +1082,9 @@ Notes: ${deal.notes || "None"}`
   app.put("/api/deals/:id/edit-proposal", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!['admin', 'manager', 'sales'].includes(userRole)) {
+      // "sales" is a stale role that no longer exists; object-level ownership for
+      // agents is already enforced upstream by crmObjectAccessGuard (#2021).
+      if (!['admin', 'manager', 'agent'].includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const dealId = Number(req.params.id);
@@ -1080,7 +1130,9 @@ Notes: ${deal.notes || "None"}`
   app.post("/api/deals/:id/send-proposal", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!['admin', 'manager', 'sales'].includes(userRole)) {
+      // "sales" is a stale role that no longer exists; object-level ownership for
+      // agents is already enforced upstream by crmObjectAccessGuard (#2021).
+      if (!['admin', 'manager', 'agent'].includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const dealId = Number(req.params.id);
@@ -1099,7 +1151,7 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
-  app.get("/api/settings/proposal-auto-send", isAuthenticated, async (req, res) => {
+  app.get("/api/settings/proposal-auto-send", isDashboardUser, async (req, res) => {
     try {
       const setting = await storage.getSystemSetting("proposal_auto_send");
       res.json({ enabled: setting?.enabled === true });
@@ -1108,11 +1160,8 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
-  app.put("/api/settings/proposal-auto-send", isAuthenticated, async (req, res) => {
+  app.put("/api/settings/proposal-auto-send", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      if (!['admin', 'manager'].includes((req.user as any)?.role)) {
-        return res.status(403).json({ message: "Admin/Manager only" });
-      }
       const { enabled } = req.body;
       await storage.setSystemSetting("proposal_auto_send", { enabled: enabled === true });
       res.json({ success: true, enabled: enabled === true });
@@ -1123,7 +1172,9 @@ Notes: ${deal.notes || "None"}`
 
 
   // === AI ONBOARDING STATUS ===
-  app.get("/api/ai/onboarding-status", isAuthenticated, async (req, res) => {
+  // Company-wide read across all onboarding deals/tasks/contacts — no agent-scoped
+  // implementation exists, so this stays admin/manager-only (#2021).
+  app.get("/api/ai/onboarding-status", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const [{ data: allDeals }, allTasks] = await Promise.all([
         storage.getDeals({ limit: 500 }),
@@ -1367,6 +1418,14 @@ Notes: ${deal.notes || "None"}`
       const chargebackId = Number(req.params.id);
       const cb = await storage.getChargeback(chargebackId);
       if (!cb) return res.status(404).json({ message: "Chargeback not found" });
+      // Chargeback objects carry no path-based ownership signal for
+      // crmObjectAccessGuard — enforce ownership via every linked contact/deal,
+      // not just one, or an agent could reach an unauthorized linked object (#2021).
+      if (cb.dealId && !await authorizeDealAccess(req, res, cb.dealId)) return;
+      if (cb.contactId && !await authorizeContactAccess(req, res, cb.contactId)) return;
+      if (!cb.dealId && !cb.contactId && (req.user as any)?.role === "agent") {
+        return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+      }
 
       const { db } = await import("../db");
       const { midDailyStats } = await import("@shared/schema");
@@ -1594,6 +1653,12 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       const { editedRebuttal, editedChecklist } = req.body;
       const cb = await storage.getChargeback(chargebackId);
       if (!cb) return res.status(404).json({ message: "Not found" });
+      // Check every populated link, not just one (#2021).
+      if (cb.dealId && !await authorizeDealAccess(req, res, cb.dealId)) return;
+      if (cb.contactId && !await authorizeContactAccess(req, res, cb.contactId)) return;
+      if (!cb.dealId && !cb.contactId && (req.user as any)?.role === "agent") {
+        return res.status(404).json({ message: "Not found", code: "CRM_OBJECT_NOT_FOUND" });
+      }
 
       const existing = cb.aiEvidencePacket as any;
       if (!existing) return res.status(400).json({ message: "No AI packet exists for this chargeback. Generate one first." });
@@ -1637,7 +1702,9 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
 
 
   // === AI AUDIT LOGS ===
-  app.get("/api/operator/ai-audit", isDashboardUser, async (req, res) => {
+  // Company-wide AI prompt/response audit trail — admin/manager only, matching
+  // the detail endpoint below (#2021).
+  app.get("/api/operator/ai-audit", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const { triggerType, startDate, endDate, limit, offset, flaggedOnly } = req.query;
       const filters: Parameters<typeof storage.getAiAuditLogs>[0] = {

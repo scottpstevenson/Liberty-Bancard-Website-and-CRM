@@ -29,7 +29,7 @@ function legacyTicketStatusToAuthorityState(status: string | null | undefined): 
   }
 }
 
-async function authorizeTicketScope(req: any, res: any, ticket: { contactId: number | null }) {
+export async function authorizeTicketScope(req: any, res: any, ticket: { contactId: number | null }) {
   if (!ticket.contactId) return req.user?.role === "agent" ? denyCrmObject(res) : true;
   return !!await authorizeContactAccess(req, res, ticket.contactId);
 }

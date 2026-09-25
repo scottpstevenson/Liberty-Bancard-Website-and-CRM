@@ -138,6 +138,27 @@ const CASES: GuardCase[] = [
   // The role gate is still enforced; this test validates the unauthenticated 401.
   { method: "POST", path: "/api/operator/ai-audit/9999999/replay", anon: [401], merchant: [403], admin: [403], description: "AI audit replay (admin/manager only; CSRF required for POST)" },
 
+  // ── #2021: P0 AI/CRM authorization closure ──
+  // Company-wide AI endpoints with no agent-scoped implementation → admin/manager only.
+  { method: "POST", path: "/api/ai/insights",           anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI dashboard insights (admin/manager only, company-wide read; CSRF required)" },
+  { method: "POST", path: "/api/ai/generate-tasks",     anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI smart task generator (admin/manager only, company-wide scan; CSRF required)" },
+  // Body-supplied contactId/dealId/ticketId/prospectId now enforce ownership before any AI call.
+  { method: "POST", path: "/api/ai/compose-email",      anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI email composer (isAuthenticated; CSRF required for POST)" },
+  { method: "POST", path: "/api/ai/classify-ticket",    anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI ticket classifier (isAuthenticated + ticket ownership; CSRF required for POST)" },
+  { method: "POST", path: "/api/ai/analyze-statement",  anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI statement analysis (isAuthenticated + contact/deal ownership; CSRF required for POST)" },
+  { method: "POST", path: "/api/ai/generate-proposal",  anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI proposal generation (isAuthenticated + deal ownership; CSRF required for POST)" },
+  { method: "POST", path: "/api/ai/chargeback-copilot/9999999",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI chargeback copilot (isDashboardUser + linked contact/deal ownership; CSRF required for POST)" },
+  { method: "PATCH", path: "/api/ai/chargeback-copilot/9999999/finalize", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI chargeback copilot finalize (isDashboardUser + linked contact/deal ownership; CSRF required for PATCH)" },
+  // Prospects have no per-agent ownership model — routing matches /api/prospects gate.
+  { method: "POST", path: "/api/ai/route-prospect",       anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "prospect auto-routing (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  { method: "POST", path: "/api/ai/route-prospects-bulk", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "prospect bulk auto-routing (requireRole admin/manager; CSRF required — agent blocked by role gate)" },
+  // Company-wide search now scopes agents to their own owned contacts/deals/tickets/tasks server-side.
+  { method: "GET",  path: "/api/search?q=ab",             anon: [401], merchant: [403], admin: [200], description: "universal search (isAuthenticated; agent results server-scoped to owned CRM objects)" },
+  { method: "GET",  path: "/api/search/advanced?q=ab",    anon: [401], merchant: [403], admin: [200], description: "advanced search (isAuthenticated; agent results server-scoped to owned CRM objects)" },
+  // AI memory decision/correction logging is an internal AI-audit surface — admin/manager only.
+  { method: "POST", path: "/api/ai-memory/decisions",     anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI decision log write (requireRole admin/manager; CSRF required for POST)" },
+  { method: "POST", path: "/api/ai-memory/corrections",   anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI correction log write (requireRole admin/manager; CSRF required for POST)" },
+
   // ── Wave 12: Merchant Document Vault — role gates ─────────────────────
   // Global admin index requires admin/manager; access-token endpoint is
   // authenticated-only (all roles can attempt, ownership enforced per-doc).

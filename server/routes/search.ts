@@ -1,17 +1,22 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { serverError } from "../utils/server-error";
 
 export function registerSearchRoutes(app: Express) {
   // === UNIVERSAL SMART SEARCH ===
-  app.get("/api/search", isAuthenticated, async (req, res) => {
+  app.get("/api/search", isDashboardUser, async (req, res) => {
     try {
       const q = (req.query.q as string || "").toLowerCase().trim();
       if (!q || q.length < 2) return res.json({ results: [] });
 
-      const canSearchProspects = ["admin", "manager"].includes((req.user as any)?.role);
+      const user = req.user as any;
+      const role = user?.role;
+      const isPrivileged = role === "admin" || role === "manager";
+      const canSearchProspects = isPrivileged;
+      // Agents get object-level filtering on every entity type; prospects have no
+      // per-agent ownership model so they're excluded from agent search entirely (#2021).
       const [contactsResult, dealsResult, ticketsResult, tasks, prospectsResult] = await Promise.all([
         storage.getContacts({ limit: 500 }),
         storage.getDeals({ limit: 500 }),
@@ -19,10 +24,27 @@ export function registerSearchRoutes(app: Express) {
         storage.getTasks(),
         canSearchProspects ? storage.getProspects(undefined, { limit: 500 }) : Promise.resolve({ data: [] }),
       ]);
-      const contacts = contactsResult.data;
-      const deals = dealsResult.data;
-      const tickets = ticketsResult.data;
+      let contacts = contactsResult.data;
+      let deals = dealsResult.data;
+      let tickets = ticketsResult.data;
+      let allTasks: any[] = tasks;
       const prospects = prospectsResult.data;
+
+      if (!isPrivileged && role === "agent") {
+        const email = user?.email;
+        contacts = contacts.filter(c => c.assignedTo === email || c.assignedTo == null);
+        deals = deals.filter(d => !d.archivedAt && d.owner === email);
+        const contactMap = new Map(contacts.map(c => [c.id, c]));
+        tickets = tickets.filter(t => t.contactId != null && contactMap.has(t.contactId));
+        allTasks = allTasks.filter((t: any) => {
+          if (t.contactId) return contactMap.has(t.contactId);
+          if (t.dealId) return deals.some(d => d.id === t.dealId);
+          return false;
+        });
+      } else if (!isPrivileged) {
+        // Unknown/other staff roles get no CRM object visibility from search.
+        contacts = []; deals = []; tickets = []; allTasks = [];
+      }
 
       const results: Array<{ type: string; id: number; title: string; subtitle: string; href: string }> = [];
 
@@ -41,7 +63,7 @@ export function registerSearchRoutes(app: Express) {
         if (searchStr.includes(q)) results.push({ type: "ticket", id: t.id, title: t.subject, subtitle: `${t.status} - ${t.category || "General"}`, href: "/dashboard/tickets" });
       });
 
-      tasks.forEach((t: any) => {
+      allTasks.forEach((t: any) => {
         const searchStr = `${t.title} ${t.description || ""} ${t.status}`.toLowerCase();
         if (searchStr.includes(q)) results.push({ type: "task", id: t.id, title: t.title, subtitle: t.status || "pending", href: "/dashboard/tasks" });
       });
@@ -58,14 +80,40 @@ export function registerSearchRoutes(app: Express) {
   });
 
   // === ADVANCED SEARCH ===
-  app.get("/api/search/advanced", isAuthenticated, async (req, res) => {
+  app.get("/api/search/advanced", isDashboardUser, async (req, res) => {
     const { q, dateFrom, dateTo, assignedTo, entityType, tags } = req.query;
     const query = String(q || '').toLowerCase().trim();
     const results: any = { contacts: [], deals: [], tickets: [], tasks: [] };
 
-    if (!entityType || entityType === 'contact') {
+    const user = req.user as any;
+    const role = user?.role;
+    const isPrivileged = role === "admin" || role === "manager";
+    // An agent can never widen scope past their own email via the assignedTo
+    // query param — object-level ownership is enforced server-side (#2021).
+    const effectiveAssignedTo = role === "agent" ? user?.email : (assignedTo ? String(assignedTo) : undefined);
+    const agentBlocked = !isPrivileged && role !== "agent";
+
+    // Ownership sets are derived independently of query/entityType/pagination so
+    // agent visibility never depends on what a search happens to match (#2021).
+    let ownedContactIds: Set<number> | null = null; // null = unrestricted (privileged)
+    let ownedDealIds: Set<number> | null = null;
+    if (role === "agent") {
+      const [{ data: ownedContacts }, { data: ownedDeals }] = await Promise.all([
+        storage.getContacts({ limit: 5000 }),
+        storage.getDeals({ limit: 5000 }),
+      ]);
+      ownedContactIds = new Set(
+        ownedContacts.filter(c => c.assignedTo === user?.email).map(c => c.id)
+      );
+      ownedDealIds = new Set(
+        ownedDeals.filter(d => !d.archivedAt && d.owner === user?.email).map(d => d.id)
+      );
+    }
+
+    if (!agentBlocked && (!entityType || entityType === 'contact')) {
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
       results.contacts = allContacts.filter(c => {
+        if (ownedContactIds && !ownedContactIds.has(c.id)) return false;
         if (query && !`${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ''}`.toLowerCase().includes(query)) return false;
         if (dateFrom && new Date(c.createdAt!) < new Date(String(dateFrom))) return false;
         if (dateTo && new Date(c.createdAt!) > new Date(String(dateTo))) return false;
@@ -77,33 +125,41 @@ export function registerSearchRoutes(app: Express) {
       }).slice(0, 50);
     }
 
-    if (!entityType || entityType === 'deal') {
+    if (!agentBlocked && (!entityType || entityType === 'deal')) {
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
       results.deals = allDeals.filter(d => {
+        if (d.archivedAt) return false;
+        if (ownedDealIds && !ownedDealIds.has(d.id)) return false;
         if (query && !`${d.stage} ${d.pipeline} ${d.notes || ''} ${d.owner || ''}`.toLowerCase().includes(query)) return false;
-        if (assignedTo && d.owner !== String(assignedTo)) return false;
+        if (effectiveAssignedTo && d.owner !== effectiveAssignedTo) return false;
         if (dateFrom && new Date(d.createdAt!) < new Date(String(dateFrom))) return false;
         if (dateTo && new Date(d.createdAt!) > new Date(String(dateTo))) return false;
         return true;
       }).slice(0, 50);
     }
 
-    if (!entityType || entityType === 'ticket') {
+    if (!agentBlocked && (!entityType || entityType === 'ticket')) {
       const { data: allTickets } = await storage.getTickets({ limit: 500 });
       results.tickets = allTickets.filter(t => {
+        if (ownedContactIds && !(t.contactId != null && ownedContactIds.has(t.contactId))) return false;
         if (query && !`${t.subject} ${t.description} ${t.category || ''}`.toLowerCase().includes(query)) return false;
-        if (assignedTo && t.assignedTo !== String(assignedTo)) return false;
+        if (effectiveAssignedTo && t.assignedTo !== effectiveAssignedTo) return false;
         if (dateFrom && new Date(t.createdAt!) < new Date(String(dateFrom))) return false;
         if (dateTo && new Date(t.createdAt!) > new Date(String(dateTo))) return false;
         return true;
       }).slice(0, 50);
     }
 
-    if (!entityType || entityType === 'task') {
+    if (!agentBlocked && (!entityType || entityType === 'task')) {
       const allTasks = await storage.getTasks();
       results.tasks = allTasks.filter((t: any) => {
+        if (ownedContactIds && ownedDealIds) {
+          const linkedToOwnedContact = t.contactId != null && ownedContactIds.has(t.contactId);
+          const linkedToOwnedDeal = t.dealId != null && ownedDealIds.has(t.dealId);
+          if (!linkedToOwnedContact && !linkedToOwnedDeal) return false;
+        }
         if (query && !`${t.title} ${t.description || ''}`.toLowerCase().includes(query)) return false;
-        if (assignedTo && t.assignedTo !== String(assignedTo)) return false;
+        if (effectiveAssignedTo && t.assignedTo !== effectiveAssignedTo) return false;
         if (dateFrom && new Date(t.createdAt!) < new Date(String(dateFrom))) return false;
         if (dateTo && new Date(t.createdAt!) > new Date(String(dateTo))) return false;
         return true;
@@ -115,7 +171,9 @@ export function registerSearchRoutes(app: Express) {
 
 
   // === AUTO-LEAD ROUTING ===
-  app.post("/api/ai/route-prospect", isAuthenticated, async (req, res) => {
+  // Prospects have no per-agent ownership model — match the admin/manager gate
+  // used by /api/prospects and /api/prospects/:id (#2021).
+  app.post("/api/ai/route-prospect", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       const { prospectId } = req.body;
       if (!prospectId) return res.status(400).json({ message: "prospectId required" });
@@ -156,7 +214,7 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ai/route-prospects-bulk", isAuthenticated, async (req, res) => {
+  app.post("/api/ai/route-prospects-bulk", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     try {
       let { prospectIds } = req.body;
       if (prospectIds !== undefined && !Array.isArray(prospectIds)) {
