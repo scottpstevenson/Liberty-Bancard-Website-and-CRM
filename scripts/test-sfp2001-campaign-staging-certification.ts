@@ -186,8 +186,8 @@ try {
   // duplicate execution) must be registered as cohort members BEFORE the
   // freeze below — sfp_cohort_members has a trigger that rejects any INSERT
   // once the owning cohort run is frozen/voided/superseded.
-  const extraBusinessIds: Record<"mismatch" | "drift2" | "concurrent" | "workerOk" | "crash", number> = { mismatch: 0, drift2: 0, concurrent: 0, workerOk: 0, crash: 0 };
-  for (const key of ["mismatch", "drift2", "concurrent", "workerOk", "crash"] as const) {
+  const extraBusinessIds: Record<"mismatch" | "drift2" | "concurrent" | "workerOk" | "crash" | "suppressed", number> = { mismatch: 0, drift2: 0, concurrent: 0, workerOk: 0, crash: 0, suppressed: 0 };
+  for (const key of ["mismatch", "drift2", "concurrent", "workerOk", "crash", "suppressed"] as const) {
     const extraBusiness = rows(await db.execute(sql`
       INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
       VALUES (${`${runKey}-business-${key}`}, ${`${runKey}-business-${key}`.toLowerCase()}, 'Med Spa', 'FL', 'canonical', NOW())
@@ -595,9 +595,16 @@ try {
   const tick1 = await processSfpCampaignStagingTick();
   check(tick1.enabled === true, "recurring campaign-staging tick runs when the capability and schedule are both configured on");
 
+  // Filter by cohort_run_id + the worker's own deterministic actor_id, not
+  // just "latest created_at" — the manual PM-10 ledger run immediately
+  // above can share the same created_at timestamp (sub-millisecond test
+  // execution) as this recurring run, making a bare ORDER BY created_at
+  // DESC LIMIT 1 pick the wrong row.
   const workerRun = rows(await db.execute(sql`
     SELECT id, state, selected_count, processed_count, succeeded_count, failed_count
-      FROM sfp_stage_runs WHERE stage='campaign_staging' ORDER BY created_at DESC LIMIT 1
+      FROM sfp_stage_runs
+     WHERE stage='campaign_staging' AND cohort_run_id=${cohortRunId}::uuid AND actor_id='system:sfp-campaign-staging'
+     ORDER BY created_at DESC LIMIT 1
   `))[0];
   check(!!workerRun, "recurring worker tick created/advanced a sfp_stage_runs row");
   const workerItemStates = rows(await db.execute(sql`
@@ -610,17 +617,35 @@ try {
   check(Number(workerRun.succeeded_count) === (workerItemStates.find((r: any) => r.state === "completed")?.count ?? 0),
     "succeeded_count exactly equals COUNT(*) of completed items, not an incremented tally");
 
-  // Run a second tick against the SAME run without adding new eligible
-  // rows (simulating a resumed/re-triggered tick). If counters were still
-  // `+=` based, processed/succeeded would double here; with the ledger fix
-  // they must stay identical because no new items exist to reconcile.
+  // Run a second tick against the SAME run. The worker's eligible-row query
+  // scans the whole shared cohort by created_at, so this tick may legitimately
+  // pick up other fixtures' still-eligible leftover rows too (e.g. mismatch/
+  // drift, which never reached an intent) — that is correct recurring-worker
+  // behavior, not a bug, so the run's AGGREGATE counters are expected to
+  // grow. What must never happen is a tick-1 'completed' item's own row
+  // being reprocessed/double-counted by a later tick.
+  const completedBeforeSecondTick = rows(await db.execute(sql`
+    SELECT id, updated_at FROM sfp_stage_items WHERE stage_run_id = ${String(workerRun.id)}::uuid AND state='completed'
+  `));
+  check(completedBeforeSecondTick.length > 0, "at least one item is completed after the first worker tick");
   await processSfpCampaignStagingTick();
+  const completedItemsAfterSecondTick = new Map(rows(await db.execute(sql`
+    SELECT id, state, updated_at FROM sfp_stage_items WHERE stage_run_id = ${String(workerRun.id)}::uuid
+  `)).map((r: any) => [String(r.id), r]));
+  const anyCompletedItemTouched = completedBeforeSecondTick.some((before: any) => {
+    const after = completedItemsAfterSecondTick.get(String(before.id));
+    return !after || after.state !== "completed" || String(after.updated_at) !== String(before.updated_at);
+  });
+  check(!anyCompletedItemTouched,
+    "a second worker tick leaves every already-completed item's own row untouched (no double counting on resumed ticks)");
   const workerRunAfterSecondTick = rows(await db.execute(sql`
     SELECT processed_count, succeeded_count, failed_count FROM sfp_stage_runs WHERE id = ${String(workerRun.id)}::uuid
   `))[0];
-  check(Number(workerRunAfterSecondTick.processed_count) === Number(workerRun.processed_count) &&
-    Number(workerRunAfterSecondTick.succeeded_count) === Number(workerRun.succeeded_count),
-    "a second worker tick against an already-completed run with no new eligible rows leaves counters unchanged (no double counting on resumed ticks)");
+  const workerRunItemTotalAfterSecondTick = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_stage_items WHERE stage_run_id = ${String(workerRun.id)}::uuid
+  `))[0].count);
+  check(Number(workerRunAfterSecondTick.processed_count) === workerRunItemTotalAfterSecondTick,
+    "the run's counters after a resumed tick still equal the real item-row count, not a double-incremented tally");
 
   // --- Corrective patch check 1: injected-crash / resume regression -------
   // Simulate a process crash between "row A's intent committed" and "outer
@@ -778,6 +803,268 @@ try {
   check(/campaign-staging\/runs\/\$\{runId\}\/cancel/.test(uiSource), "Lead Ops UI wires a cancel control to the run-cancel route");
   check(/rowDetailLines/.test(uiSource) && /validationAgeSeconds/.test(uiSource),
     "the staging confirmation dialog surfaces row-level package/policy/validation-freshness detail, not just aggregate counts");
+
+  // ==========================================================================
+  // Corrective patch (round 2): retry-lifecycle ownership, tx-bound
+  // suppression re-check, and cancel-button/API contract parity.
+  // ==========================================================================
+
+  // --- Issue 1: worker-owned run must remain authoritative for its own    --
+  // pending/completed/failed transition after executeStagingV2() writes    --
+  // item outcomes — a real recurring failure must retry AND the run must   --
+  // actually come back 'pending' (not stuck 'completed' by the shared      --
+  // executor), and the SAME item must be reclaimed by a later tick. -------
+  const retryProgram = rows(await db.execute(sql`SELECT id FROM sfp_programs WHERE name = 'south-florida-v1' LIMIT 1`))[0];
+  const retryCohortRunId = randomUUID();
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs
+      (id, program_id, idempotency_key, status, cohort_size, cohort_hash, release_sha, actor_id,
+       cohort_state, frozen_at)
+    VALUES (${retryCohortRunId}::uuid, ${String(retryProgram.id)}::uuid, ${`${runKey}-retry-cohort`},
+      'freezing', 1, ${createHash("sha256").update(`retry-${runKey}`).digest("hex")},
+      ${"0".repeat(40)}, ${runKey}, 'freezing', NULL)
+  `);
+  const retryBusiness = rows(await db.execute(sql`
+    INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
+    VALUES (${`${runKey}-business-retry`}, ${`${runKey}-business-retry`.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
+    RETURNING id
+  `))[0];
+  const retryBusinessId = Number(retryBusiness.id);
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_members
+      (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
+    VALUES (${retryCohortRunId}::uuid, ${retryBusinessId}, 50, 'verified', 'fips', '12086', NULL)
+  `);
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW()
+     WHERE id=${retryCohortRunId}::uuid
+  `);
+  const retryEmail = `retry-lifecycle-${runKey}@example.org`;
+  const sealedRetry = seal("email", retryEmail);
+  const retryCandidate = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
+       disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
+       envelope_key_version, normalized_value_hash, masked_value, created_at)
+    VALUES (${String(generation.id)}::uuid, ${retryBusinessId}, 'email', 'business',
+      ${`${runKey}-retry.example.org`}, 'certification', 'role', 'staged', 90,
+      ${sealedRetry.ciphertext}, ${sealedRetry.nonce}, ${sealedRetry.tag}, 1,
+      ${sealedRetry.normalizedValueHash}, ${sealedRetry.maskedValue}, NOW())
+    RETURNING id
+  `))[0];
+  // vertical is deliberately NULL on this business so previewStagingV2()
+  // blocks the row with 'vertical_unresolved' every attempt — a
+  // deterministic, repeatable per-tick failure without needing to inject a
+  // real transport/network fault.
+  await db.execute(sql`
+    INSERT INTO sfp_outreach_eligibility
+      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
+       decision_reason, validation_at, validation_expires_at, role_inbox,
+       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+    VALUES (${retryCohortRunId}::uuid, ${retryBusinessId}, ${String(retryCandidate.id)}::uuid, 'free',
+       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_retry',
+       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`retry-${runKey}`).digest("hex")},
+       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+  `);
+
+  const retryTick1 = await processSfpCampaignStagingTick();
+  check(retryTick1.enabled === true, "retry-lifecycle tick runs with the capability/schedule on");
+  const retryRun = rows(await db.execute(sql`
+    SELECT id, state FROM sfp_stage_runs WHERE cohort_run_id = ${retryCohortRunId}::uuid ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  check(!!retryRun, "a dedicated sfp_stage_runs row was created for the retry-lifecycle cohort");
+  const retryItemAfterTick1 = rows(await db.execute(sql`
+    SELECT id, state, attempt_count, next_attempt_at FROM sfp_stage_items
+     WHERE stage_run_id = ${String(retryRun.id)}::uuid AND business_id = ${retryBusinessId}
+  `))[0];
+  check(retryItemAfterTick1?.state === "retry" && Number(retryItemAfterTick1?.attempt_count ?? 0) < 5,
+    "a recurring item that fails below MAX_ATTEMPTS becomes 'retry', not stuck 'dead_letter' or silently dropped");
+  const retryRunAfterTick1 = rows(await db.execute(sql`SELECT state FROM sfp_stage_runs WHERE id = ${String(retryRun.id)}::uuid`))[0];
+  check(retryRunAfterTick1?.state === "pending",
+    "the worker-owned run returns to 'pending' after a retryable failure — proves executeStagingV2() no longer terminalizes a caller-owned run to 'completed' out from under the worker's own state machine");
+
+  // Force the retry to be immediately due (rather than waiting on real
+  // wall-clock backoff) and confirm the very next tick actually reclaims
+  // it — attempt_count must advance again, proving the item was picked up,
+  // not left orphaned on a run the worker could no longer transition.
+  //
+  // A same-batch preview/execute call is itself idempotent by commandKey:
+  // if a later tick's eligibleIds set hashes to the exact same commandKey
+  // as an already-'completed' command (nothing else in the cohort changed),
+  // executeStagingV2() correctly replays the stored receipt rather than
+  // redoing the mutation — that replay guarantee is intentional and is not
+  // part of this fix. To exercise genuinely repeated real attempts (as a
+  // production batch naturally would, since its eligible-row set shifts
+  // tick to tick), each reclaim below adds one fresh decoy row to the same
+  // cohort so the batch's commandKey differs from the prior tick's.
+  let decoySeq = 0;
+  async function addDecoyBlockedRow(): Promise<void> {
+    decoySeq++;
+    const decoyBusiness = rows(await db.execute(sql`
+      INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
+      VALUES (${`${runKey}-business-retry-decoy-${decoySeq}`}, ${`${runKey}-business-retry-decoy-${decoySeq}`.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
+      RETURNING id
+    `))[0];
+    const decoyBusinessId = Number(decoyBusiness.id);
+    // NOTE: sfp_cohort_members is not consulted by previewStagingV2()'s
+    // eligibility query (it joins sfp_outreach_eligibility directly), and
+    // the owning cohort run is already frozen by this point in the test —
+    // a real member-insert trigger would reject a post-freeze insert here,
+    // so this decoy intentionally skips it.
+    const sealedDecoy = seal("email", `retry-decoy-${decoySeq}-${runKey}@example.org`);
+    const decoyCandidate = rows(await db.execute(sql`
+      INSERT INTO free_discovery_candidates
+        (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
+         disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
+         envelope_key_version, normalized_value_hash, masked_value, created_at)
+      VALUES (${String(generation.id)}::uuid, ${decoyBusinessId}, 'email', 'business',
+        ${`${runKey}-retry-decoy-${decoySeq}.example.org`}, 'certification', 'role', 'staged', 90,
+        ${sealedDecoy.ciphertext}, ${sealedDecoy.nonce}, ${sealedDecoy.tag}, 1,
+        ${sealedDecoy.normalizedValueHash}, ${sealedDecoy.maskedValue}, NOW())
+      RETURNING id
+    `))[0];
+    await db.execute(sql`
+      INSERT INTO sfp_outreach_eligibility
+        (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
+         decision_reason, validation_at, validation_expires_at, role_inbox,
+         normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+      VALUES (${retryCohortRunId}::uuid, ${decoyBusinessId}, ${String(decoyCandidate.id)}::uuid, 'free',
+         ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_retry_decoy',
+         NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`retry-decoy-${decoySeq}-${runKey}`).digest("hex")},
+         ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+    `);
+  }
+
+  await addDecoyBlockedRow();
+  await db.execute(sql`UPDATE sfp_stage_items SET next_attempt_at = NOW() - INTERVAL '1 minute' WHERE id = ${String(retryItemAfterTick1.id)}::uuid`);
+  await processSfpCampaignStagingTick();
+  const retryItemAfterTick2 = rows(await db.execute(sql`
+    SELECT state, attempt_count FROM sfp_stage_items WHERE id = ${String(retryItemAfterTick1.id)}::uuid
+  `))[0];
+  check(Number(retryItemAfterTick2.attempt_count) > Number(retryItemAfterTick1.attempt_count),
+    "a later worker tick actually reclaims a due 'retry' item (attempt_count advances again), it is not stranded on an unreclaimable run");
+  check(retryItemAfterTick2.state === "retry" || retryItemAfterTick2.state === "dead_letter",
+    "the reclaimed item is genuinely re-processed (retry or terminal dead_letter), not left stuck 'claimed' by a stale replay");
+
+  // Drive attempts to MAX_ATTEMPTS to prove the item eventually goes
+  // terminal (dead_letter) and the owning run reports 'failed'.
+  for (let i = 0; i < 3; i++) {
+    await addDecoyBlockedRow();
+    await db.execute(sql`
+      UPDATE sfp_stage_items SET next_attempt_at = NOW() - INTERVAL '1 minute'
+       WHERE id = ${String(retryItemAfterTick1.id)}::uuid AND state = 'retry'
+    `);
+    await processSfpCampaignStagingTick();
+  }
+  const retryItemFinal = rows(await db.execute(sql`
+    SELECT state, attempt_count FROM sfp_stage_items WHERE id = ${String(retryItemAfterTick1.id)}::uuid
+  `))[0];
+  const retryRunFinal = rows(await db.execute(sql`SELECT state FROM sfp_stage_runs WHERE id = ${String(retryRun.id)}::uuid`))[0];
+  check(retryItemFinal?.state === "dead_letter" && Number(retryItemFinal.attempt_count) >= 5,
+    "a terminal retry (attempt_count reaching MAX_ATTEMPTS) becomes 'dead_letter', not left cycling in 'retry' forever");
+  check(retryRunFinal?.state === "failed",
+    "the owning run reports 'failed' once its item exhausts all retry attempts");
+
+  // --- Issue 2: the real-address suppression check inside the plaintext   --
+  // callback is bound to the staging transaction, not the global db pool.  --
+  const stagingV2Source = source("server/services/cro03/sfp-campaign-staging-v2.ts");
+  check(/isCanonicallySuppressed\(\[contactEmailTokenHash\],\s*tx\)/.test(stagingV2Source),
+    "the real-address suppression re-check inside openSfpCandidatePlaintext() is bound to the staging transaction (tx), not the ambient db pool");
+  // Functional proof: a real (decrypted) address that is suppressed must
+  // fail closed with SFP_STAGING_SUPPRESSED even though the eligibility
+  // row's own masked/normalized hash was clean at preview time — this is
+  // exactly the scenario the tx-bound recheck exists to catch.
+  const suppressedEmail = `suppressed-real-${runKey}@example.org`;
+  const suppressedTokenHash = createHash("sha256").update(suppressedEmail.trim().toLowerCase()).digest("hex");
+  await db.execute(sql`
+    INSERT INTO contacts (email, phone, email_token_hash, opted_out_email, first_name, last_name)
+    VALUES (${suppressedEmail}, ${`+1305555${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`}, ${suppressedTokenHash}, TRUE, 'Cert', 'Suppressed')
+    ON CONFLICT DO NOTHING
+  `);
+  // The candidate/evidence business-membership check inside
+  // openSfpCandidatePlaintext() requires this business to already be a
+  // registered sfp_cohort_members row — and cohortRunId is frozen by this
+  // point in the script, so this fixture reuses the pre-freeze
+  // extraBusinessIds.suppressed business rather than inserting a new one
+  // now (which would trip the frozen-cohort membership trigger).
+  const suppressedBusinessId = extraBusinessIds.suppressed;
+  const sealedSuppressed = seal("email", suppressedEmail);
+  const suppressedCandidate = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
+       disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
+       envelope_key_version, normalized_value_hash, masked_value, created_at)
+    VALUES (${String(generation.id)}::uuid, ${suppressedBusinessId}, 'email', 'business',
+      ${`${runKey}-suppressed.example.org`}, 'certification', 'role', 'staged', 90,
+      ${sealedSuppressed.ciphertext}, ${sealedSuppressed.nonce}, ${sealedSuppressed.tag}, 1,
+      ${sealedSuppressed.normalizedValueHash}, ${sealedSuppressed.maskedValue}, NOW())
+    RETURNING id
+  `))[0];
+  const suppressedEligibility = rows(await db.execute(sql`
+    INSERT INTO sfp_outreach_eligibility
+      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
+       decision_reason, validation_at, validation_expires_at, role_inbox,
+       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+    VALUES (${cohortRunId}::uuid, ${suppressedBusinessId}, ${String(suppressedCandidate.id)}::uuid, 'free',
+       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_suppressed_real_address',
+       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`suppressed-real-${runKey}`).digest("hex")},
+       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+    RETURNING id
+  `))[0];
+  const suppressedPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(suppressedEligibility.id)], actorId: runKey });
+  const suppressedResult = await executeStagingV2({
+    cohortRunId, eligibilityIds: [String(suppressedEligibility.id)], commandKey: suppressedPreview.commandKey,
+    snapshotHash: suppressedPreview.snapshotHash, actorId: runKey, confirmPayloadHash: suppressedPreview.payloadHash,
+  });
+  check(suppressedResult.readyHeld === 0 && suppressedResult.rejected === 1 && "SFP_STAGING_SUPPRESSED" in suppressedResult.reasons,
+    "a real (decrypted) address matching a suppressed contact is rejected inside the transaction, even though its masked/normalized hash looked clean at preview time");
+  const suppressedLead = rows(await db.execute(sql`
+    SELECT id FROM master_leads WHERE canonical_business_id=${suppressedBusinessId} AND pipeline_origin='sfp_pipeline'
+  `))[0];
+  check(!suppressedLead, "no master lead is created for a business whose real address is suppressed");
+
+  // --- Issue 3: the cancel button must match the API's exact acceptance   --
+  // predicate — never offered for an actively-leased running run, offered  --
+  // for a genuinely cancellable one. --------------------------------------
+  const leasedRun = rows(await db.execute(sql`
+    INSERT INTO sfp_stage_runs (cohort_run_id, stage, idempotency_key, actor_id, state, max_items, provider_keys, estimated_cost_micros, lease_expires_at, claim_token)
+    VALUES (${cohortRunId}::uuid, 'campaign_staging', ${`${runKey}-leased-run`}, ${runKey}, 'running', 1, '[]'::jsonb, 0, NOW()+INTERVAL '30 minutes', gen_random_uuid())
+    RETURNING id
+  `))[0];
+  const stalledRun = rows(await db.execute(sql`
+    INSERT INTO sfp_stage_runs (cohort_run_id, stage, idempotency_key, actor_id, state, max_items, provider_keys, estimated_cost_micros)
+    VALUES (${cohortRunId}::uuid, 'campaign_staging', ${`${runKey}-stalled-run`}, ${runKey}, 'stalled', 1, '[]'::jsonb, 0)
+    RETURNING id
+  `))[0];
+  // Mirrors the API's own acceptance predicate exactly (pending/authorized/
+  // stalled, OR running with an expired lease) — reused as the telemetry
+  // route's cancellableRun derivation.
+  const runsForCancelCheck = rows(await db.execute(sql`
+    SELECT id, state, lease_expires_at FROM sfp_stage_runs WHERE id = ANY(ARRAY[${String(leasedRun.id)}, ${String(stalledRun.id)}]::uuid[])
+  `));
+  const cancellableIds = runsForCancelCheck
+    .filter((r: any) => ["pending", "authorized", "stalled"].includes(String(r.state)) ||
+      (r.state === "running" && r.lease_expires_at && new Date(String(r.lease_expires_at)).getTime() < Date.now()))
+    .map((r: any) => String(r.id));
+  check(!cancellableIds.includes(String(leasedRun.id)) && cancellableIds.includes(String(stalledRun.id)),
+    "the telemetry route's cancellableRun predicate excludes an actively-leased running run and includes a stalled one");
+  // Confirm the actual cancel route's SQL predicate (unchanged) agrees:
+  // an actively-leased running run is refused, a stalled one is accepted.
+  const leasedCancelAttempt = rows(await db.execute(sql`
+    UPDATE sfp_stage_runs SET state='cancelled', terminal_reason='operator_cancelled', completed_at=NOW(), lease_expires_at=NULL, claim_token=NULL, updated_at=NOW()
+     WHERE id=${String(leasedRun.id)}::uuid AND (state IN ('pending','authorized','stalled') OR (state='running' AND lease_expires_at<NOW()))
+    RETURNING id
+  `));
+  check(leasedCancelAttempt.length === 0, "the cancel route's own predicate refuses an actively-leased running run — the UI must never have offered it");
+  const stalledCancelAttempt = rows(await db.execute(sql`
+    UPDATE sfp_stage_runs SET state='cancelled', terminal_reason='operator_cancelled', completed_at=NOW(), lease_expires_at=NULL, claim_token=NULL, updated_at=NOW()
+     WHERE id=${String(stalledRun.id)}::uuid AND (state IN ('pending','authorized','stalled') OR (state='running' AND lease_expires_at<NOW()))
+    RETURNING id
+  `));
+  check(stalledCancelAttempt.length === 1, "the cancel route's own predicate accepts a genuinely cancellable (stalled) run — the UI's cancellableRun-gated button matches this exactly");
+  check(/cancellableRun\b/.test(leadOpsSource), "the telemetry route response includes a cancellableRun field distinct from currentlyRunning");
+  check(/stagingTelemetryQuery\.data\.cancellableRun/.test(uiSource) && !/onClick=\{\(\) => cancelStageRun\.mutate\(stagingTelemetryQuery\.data!\.currentlyRunning!\.id\)\}/.test(uiSource),
+    "the UI's Cancel button is gated on cancellableRun, not on currentlyRunning (which may be actively leased and API-refused)");
 
   // --- PM-13: operator controls act on the ledger and are re-verified against real rows ---
   const deadLetterSeed = rows(await db.execute(sql`

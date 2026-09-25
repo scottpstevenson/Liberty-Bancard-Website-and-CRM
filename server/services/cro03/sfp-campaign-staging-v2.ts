@@ -468,7 +468,22 @@ export async function executeStagingV2(opts: {
   // Counters are recomputed FROM the item rows just written, never
   // incremented ad hoc — the run row can never disagree with what the
   // items actually show, including on a resumed/retried command.
-  await reconcileStageRunCounters(stageRunId, { setState: "completed" });
+  //
+  // Retry-lifecycle fix: when the caller (the recurring worker) passed its
+  // own stageRunId, that run is worker-owned — the worker still has retry
+  // backoff and dead-letter-vs-pending decisions to make on top of these
+  // item rows, and it applies its own final pending/completed/failed
+  // transition afterward. Terminalizing the run here would leave the
+  // worker's later `state='running'`-guarded UPDATE matching zero rows
+  // (the run already reads 'completed'), silently discarding retry state
+  // and attaching new 'retry' items to a run no future tick will reclaim.
+  // Only a manual (non-worker-owned) run — created above via
+  // getOrCreateStageRun — is terminalized here, since nothing else will.
+  if (opts.stageRunId) {
+    await reconcileStageRunCounters(stageRunId);
+  } else {
+    await reconcileStageRunCounters(stageRunId, { setState: "completed" });
+  }
 
   const result: StagingV2ExecuteResult = {
     commandKey: opts.commandKey,
@@ -673,7 +688,7 @@ async function stageOneRowTransactional(opts: {
           throw new SfpStagingV2Error("SFP_STAGING_EVIDENCE_BUSINESS_MISMATCH", "candidate/paid evidence resolves to a different business than this eligibility row", 422);
         }
         const contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
-        const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash]);
+        const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash], tx);
         if (stillSuppressed) throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "resolved address is suppressed", 422);
         // Master-lead insert happens HERE, inside this callback, using the
         // plaintext directly — it never leaves this stack frame. `tx` is

@@ -169,6 +169,7 @@ type SfpCampaignStagingTelemetry = {
   lastRun: { id: string; state: string; selected: number; processed: number; succeeded: number; failed: number; terminalReason: string | null; createdAt: string; startedAt: string | null; completedAt: string | null } | null;
   lastCompletedRun: { id: string; state: string; completedAt: string | null } | null;
   currentlyRunning: { id: string; leaseExpiresAt: string | null; lastHeartbeatAt: string | null } | null;
+  cancellableRun: { id: string; state: string; leaseExpiresAt: string | null } | null;
   backlog: { eligibleAwaitingStaging: number; freshAwaitingStaging: number };
   throughput: { completedLast24h: number; deadLetteredLast24h: number };
   retries: { currentlyRetrying: number; staleLeases: number };
@@ -1270,7 +1271,10 @@ export function SouthFloridaProspectingPanel() {
                       </div>
                     )}
                     {stagingTelemetryQuery.data.currentlyRunning && (
-                      <div className="text-blue-700">Currently running (lease expires {stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt ? new Date(stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt).toLocaleTimeString() : "—"})</div>
+                      <div className="text-blue-700">
+                        Currently running (lease expires {stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt ? new Date(stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt).toLocaleTimeString() : "—"})
+                        {stagingTelemetryQuery.data.cancellableRun?.id !== stagingTelemetryQuery.data.currentlyRunning.id && " — actively leased, not cancellable"}
+                      </div>
                     )}
                     {/* Corrective-patch: truthful worker/queue health — never
                         assume the recurring tick is scheduled just because
@@ -1306,14 +1310,14 @@ export function SouthFloridaProspectingPanel() {
                         ))}
                       </div>
                     )}
-                    {stagingTelemetryQuery.data.currentlyRunning && (
+                    {stagingTelemetryQuery.data.cancellableRun && (
                       <div className="pt-1">
                         <Button
                           size="sm" variant="outline" className="h-6 px-2 text-[10px]"
                           disabled={cancelStageRun.isPending}
-                          onClick={() => cancelStageRun.mutate(stagingTelemetryQuery.data!.currentlyRunning!.id)}
+                          onClick={() => cancelStageRun.mutate(stagingTelemetryQuery.data!.cancellableRun!.id)}
                         >
-                          Cancel run
+                          Cancel run ({stagingTelemetryQuery.data.cancellableRun.state})
                         </Button>
                       </div>
                     )}

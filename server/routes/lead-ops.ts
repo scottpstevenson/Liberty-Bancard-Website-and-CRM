@@ -3533,6 +3533,16 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const lastRun = runRows[0] ?? null;
       const lastCompletedRun = runRows.find((r: any) => r.state === "completed" || r.state === "failed") ?? null;
       const runningRun = runRows.find((r: any) => r.state === "running") ?? null;
+      // Corrective-patch fix (issue 3): mirror the cancel route's exact
+      // acceptance predicate — pending/authorized/stalled, OR a 'running'
+      // run whose lease has already expired (no worker actively holds it).
+      // An actively-leased running run must never be reported as
+      // cancellable; the UI's "Cancel run" button relies on this to decide
+      // whether to render at all.
+      const cancellableRun = runRows.find((r: any) =>
+        ["pending", "authorized", "stalled"].includes(String(r.state)) ||
+        (r.state === "running" && r.lease_expires_at && new Date(String(r.lease_expires_at)).getTime() < Date.now())
+      ) ?? null;
 
       const backlogRow = rows(await db.execute(sql`
         SELECT
@@ -3588,6 +3598,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         } : null,
         currentlyRunning: runningRun ? {
           id: String(runningRun.id), leaseExpiresAt: runningRun.lease_expires_at, lastHeartbeatAt: runningRun.last_heartbeat_at,
+        } : null,
+        cancellableRun: cancellableRun ? {
+          id: String(cancellableRun.id), state: String(cancellableRun.state), leaseExpiresAt: cancellableRun.lease_expires_at,
         } : null,
         backlog: {
           eligibleAwaitingStaging: Number(backlogRow?.backlog_eligible ?? 0),
