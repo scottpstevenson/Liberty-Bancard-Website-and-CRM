@@ -44,7 +44,7 @@
 - [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.
 - [CAN-SPAM footer injection](can-spam-footer-injection.md) — HMAC secrets diverge between test/server processes; contacts schema column must match DB; worker channel gate fail-closes before custom gates.
 - [Drizzle out-of-order journal when](drizzle-out-of-order-journal.md) — a journal entry's `when` below any already-applied entry is silently skipped; fix `when` above high-water mark + insert hash.
-- [Sequence compliance Case 27 lock race](sequence-case27-lock-race.md) — flaps when the live BullMQ sequence worker races for the job lock during the test; test isolation issue, not a worker bug.
+- [Sequence/coordinator test-isolation flakes](sequence-case27-lock-race.md) — live BullMQ workers racing for job locks or stale pause holds during tests cause flaps; not product bugs (see coordinator-holds-test-isolation.md, test-nba-hold-isolation.md).
 - [Dashboard header shrink-0 sibling overlap](header-shrink0-overlap.md) — shrink-0 right header group forced left group to 0 width on mobile; search input silently ate its taps.
 - [Collateral packet manual override](collateral-packet-override.md) — override precedence (explicit > auto-match > fallback); watch for "resolved name left null on failure" truthful-state bugs.
 - [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — two route files can both register the same param path; earlier-registered wins silently — verify via curl, not code reading.
@@ -60,7 +60,7 @@
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all intake paths wired.
 - [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding routes must use isAuthenticated+ownership, not isDashboardUser.
-- [GHL fetch timeout](ghl-fetch-timeout.md) — AbortController per fetch attempt (20s default); clearTimeout in both success and catch; AbortError is retryable.
+- [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch attempt (20s default, retryable AbortError); email-422s sanitize to terminal skips (ghl-invalid-contact-skip.md); pause enforced at each client's fetch helper, audit_logs sanitized (ghl-failfast-transport.md).
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes may 404 until a full server restart; probe with curl and restart to confirm.
 - [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — SQL files in migrations/ root without journal entries hang drizzle-kit generate; journal them or move to migrations/guarded/.
 - [Test phone/EIN isolation](test-phone-isolation.md) — hardcoded phones/EINs collide across test runs; always generate uniquely (uniquePhone(), Date.now()%10000000) (see test-ein-uniqueness.md).
@@ -90,12 +90,10 @@
 - [GHL test-contact cleanup](ghl-test-contact-cleanup.md) — sdr_lead_events double-FK order; probe starvation on lowest-id skip contact; multiple test-family prefixes to clean.
 - [Coordinator/pause holds test isolation](coordinator-holds-test-isolation.md) — use correlation-scoped clearTestHolds; prefer setTestPauseState over applyPauseMutation in tests (see test-nba-hold-isolation.md).
 - [Serper gateway, cooldown & identity lookup](serper-gateway.md) — all calls via SerperGateway+serper_control singleton (fail-closed); see serper-zero-yield-cooldown.md, serper-business-identity.md.
-- [GHL invalid-contact skip boundary](ghl-invalid-contact-skip.md) — upsertGhlContact sanitizes email-422s into terminal skips; never log ghl_sync_failed for them.
 - [Drizzle execute timestamp strings](drizzle-execute-timestamp-strings.md) — tx.execute returns timestamptz as strings vs pg-pool Dates; audit_logs is append-only.
 - [Identity Crosswalk Gen-1](identity-crosswalk-gen1.md) — read-only evidence sweep; fail-close guards block deal creation + contact promotion; users.id is varchar not int.
 - [Pause-cycle test DB setup](pause-cycle-test-db.md) — throwaway DB + env guards for test-pause-cycle-unit.ts; schema drift breaks seeding.
 - [ZB pre-enrollment gate ordering](zb-preenroll-gate-ordering.md) — ZB pre-enrollment fires BEFORE all other sequence-worker gates; test contacts need emailStatus="valid".
-- [GHL fail-fast transport & audit redaction](ghl-failfast-transport.md) — provider isolation = real fetch interception; pause enforced at each GHL client's fetch helper; audit_logs sanitized.
 - [Coordinator hold integrity timing](coordinator-hold-integrity-timing.md) — pause-authority holds temporarily absent right after teardown; assertNonTestHoldsIntact must not hard-fail on them.
 - [Consent Authority & Channel State](consent-authority-channel-state.md) — canonical facts use the reducer; legacy fields are compatibility outputs only, never regain authority.
 - [Statement upload idempotency contract](statement-upload-idempotency.md) — all statement-upload routes require UUIDv4 Idempotency-Key or 400.
@@ -157,3 +155,4 @@
 - [Legacy-value CHECK-constraint migrations](legacy-check-constraint-migration.md) — when narrowing a state/enum CHECK, prove a synthetic legacy row survives by inserting it against the real applied constraint, not a hand-reconstructed copy of it.
 - [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute with command-key idempotency + payload/snapshot-drift 409s is the reusable shape for any "prepare but never send" boundary.
 - [SFP2001 corrective patch scope](sfp2001-corrective-patch.md) — which of 15 post-merge audit findings got fixed-in-session vs deferred as follow-up tasks, and why the split.
+- [Shared-cohort recurring-worker test assertions](sfp-shared-cohort-worker-test-assertions.md) — fixing a run-state-ownership bug can make a worker legitimately re-scan and process older leftover fixture rows; assert on a specific item's own row, not aggregate run counters, and fetch a run by its deterministic actor_id/cohort_run_id, never by bare `ORDER BY created_at DESC LIMIT 1` (timestamp ties pick the wrong run).
