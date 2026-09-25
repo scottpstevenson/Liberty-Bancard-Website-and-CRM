@@ -3417,6 +3417,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         commandKey: String(req.body?.commandKey ?? ""),
         snapshotHash: String(req.body?.snapshotHash ?? ""),
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
+        // PM-12: the operator/UI must echo back the exact payloadHash the
+        // preview reported, proving the confirmation is against that
+        // preview's row-level detail, not just a stale ID list.
+        confirmPayloadHash: String(req.body?.confirmPayloadHash ?? ""),
       });
       res.json(result);
     } catch (err: any) {
@@ -3569,6 +3573,71 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       });
     } catch (err: any) {
       res.status(400).json({ code: "SFP_CAMPAIGN_STAGING_TELEMETRY_ERROR", message: err?.message ?? "Unable to load campaign-staging worker telemetry" });
+    }
+  });
+
+  // PM-13 correction: governed operator controls for the campaign-staging
+  // stage. Previously there was no way to act on the telemetry above — an
+  // operator could SEE a dead-lettered item or a stalled run but not do
+  // anything about it. These routes are the only mutation surface for the
+  // stage ledger besides the worker/executeStagingV2() themselves, and each
+  // one only ever moves a row through the same state machine the worker
+  // uses (retry/cancelled), never bypasses it.
+
+  // Requeue a single dead-lettered item for one more attempt. Deliberately
+  // scoped to ONE item at a time (no bulk "retry all") so an operator must
+  // look at each dead letter's outcome_code before deciding to retry it.
+  app.post("/api/lead-ops/sfp/campaign-staging/items/:itemId/retry", requireRole("admin"), async (req, res) => {
+    try {
+      const itemId = String(req.params.itemId);
+      const updated = rows(await db.execute(sql`
+        UPDATE sfp_stage_items
+           SET state = 'retry', next_attempt_at = NOW(), completed_at = NULL,
+               outcome_code = NULL, lease_expires_at = NULL, updated_at = NOW()
+         WHERE id = ${itemId}::uuid AND state = 'dead_letter'
+        RETURNING id, stage_run_id
+      `))[0];
+      if (!updated) {
+        return res.status(409).json({ code: "SFP_STAGE_ITEM_NOT_DEAD_LETTER", message: "item not found or not in dead_letter state" });
+      }
+      // Re-open the owning run so the recurring worker picks the item back
+      // up on its next tick; a run left 'failed'/'completed' never gets
+      // scanned again.
+      await db.execute(sql`
+        UPDATE sfp_stage_runs SET state = 'pending', terminal_reason = NULL, completed_at = NULL, updated_at = NOW()
+         WHERE id = ${String(updated.stage_run_id)}::uuid AND state IN ('failed', 'completed')
+      `);
+      const { reconcileStageRunCounters } = await import("../services/cro03/sfp-stage-ledger");
+      await reconcileStageRunCounters(String(updated.stage_run_id));
+      res.json({ itemId, requeued: true, stageRunId: String(updated.stage_run_id) });
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_STAGE_ITEM_RETRY_ERROR", message: err?.message ?? "Unable to retry item" });
+    }
+  });
+
+  // Cancel a stuck/no-longer-wanted run outright. Only pending/authorized/
+  // stalled runs, or a running run whose lease has already expired
+  // (meaning no worker is actively holding it), can be cancelled — an
+  // actively-leased running run must be left alone to finish or expire on
+  // its own rather than racing the worker.
+  app.post("/api/lead-ops/sfp/campaign-staging/runs/:runId/cancel", requireRole("admin"), async (req, res) => {
+    try {
+      const runId = String(req.params.runId);
+      const updated = rows(await db.execute(sql`
+        UPDATE sfp_stage_runs
+           SET state = 'cancelled', terminal_reason = 'operator_cancelled', completed_at = NOW(),
+               lease_expires_at = NULL, claim_token = NULL, updated_at = NOW()
+         WHERE id = ${runId}::uuid
+           AND (state IN ('pending', 'authorized', 'stalled')
+                OR (state = 'running' AND lease_expires_at < NOW()))
+        RETURNING id
+      `))[0];
+      if (!updated) {
+        return res.status(409).json({ code: "SFP_STAGE_RUN_NOT_CANCELLABLE", message: "run not found, or is actively leased/already terminal" });
+      }
+      res.json({ runId, cancelled: true });
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_STAGE_RUN_CANCEL_ERROR", message: err?.message ?? "Unable to cancel run" });
     }
   });
 

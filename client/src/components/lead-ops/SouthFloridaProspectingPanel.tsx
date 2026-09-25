@@ -531,8 +531,16 @@ export function SouthFloridaProspectingPanel() {
           return counts;
         }, {});
       const distribution = Object.entries(packageCounts).map(([key, count]) => `${key}: ${count}`).join("\n") || "No eligible package assignments";
+      // PM-12: surface the exact policy version/hash and package-content
+      // hash this confirmation is pinning to, plus the READY_HELD boundary
+      // label the server returned — an operator confirming this dialog is
+      // confirming these specific pins, not just a row count.
       const confirmed = window.confirm(
-        `Stage exactly ${selectedEligibilityIds.length} selected prospect${selectedEligibilityIds.length === 1 ? "" : "s"}?\n\nPackage distribution:\n${distribution}\n\n${preview.blockedCount} selection(s) are blocked and will not be staged. No message will be sent.`
+        `Stage exactly ${selectedEligibilityIds.length} selected prospect${selectedEligibilityIds.length === 1 ? "" : "s"}?\n\n` +
+        `Package distribution:\n${distribution}\n\n` +
+        `Policy v${preview.policyVersion} (${String(preview.policyDocumentHash).slice(0, 12)}…)\n` +
+        `${preview.blockedCount} selection(s) are blocked and will not be staged.\n\n` +
+        `Outcome: ${preview.outcomeLabel} — rows are held in a package-pinned, review-only state. No message will be sent.`
       );
       if (!confirmed) return { cancelled: true };
       const executeResponse = await apiRequest("POST", "/api/lead-ops/sfp/campaign-staging-v2/execute", {
@@ -540,6 +548,10 @@ export function SouthFloridaProspectingPanel() {
         eligibilityIds: selectedEligibilityIds,
         commandKey: preview.commandKey,
         snapshotHash: preview.snapshotHash,
+        // The server requires this exact payloadHash back — it re-derives a
+        // fresh preview and rejects (409) if it no longer matches, so the
+        // confirmation above can never be replayed against changed content.
+        confirmPayloadHash: preview.payloadHash,
       });
       return executeResponse.json();
     },

@@ -8,6 +8,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { getBackgroundProfile, getSelectiveGroups } from "../background-profile";
 import { SfpStagingV2Error, executeStagingV2, previewStagingV2 } from "./sfp-campaign-staging-v2";
+import { reconcileStageRunCounters } from "./sfp-stage-ledger";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const MAX_BATCH_SIZE = 25;
@@ -142,18 +143,18 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
          WHERE stage_run_id=${runId}::uuid AND state='retry' AND next_attempt_at>NOW()
       `))[0];
       if (Number(delayed?.count ?? 0) > 0) {
+        await reconcileStageRunCounters(runId);
         await db.execute(sql`
           UPDATE sfp_stage_runs SET state='pending', lease_expires_at=NULL, updated_at=NOW()
            WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
         `);
         return { processed: 0, succeeded: 0, failed: 0 };
       }
-      await db.execute(sql`
-        UPDATE sfp_stage_runs SET state='completed', processed_count=0, succeeded_count=0,
-               failed_count=0, skipped_count=0, completed_at=NOW(), lease_expires_at=NULL,
-               updated_at=NOW()
-         WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
-      `);
+      // PM-10: recompute counters from the item ledger rather than hardcoding
+      // zeros — a run can reach "no more eligible rows" after some items were
+      // already completed/dead-lettered in an earlier tick, and those must
+      // still be reflected in the final counters.
+      await reconcileStageRunCounters(runId, { setState: "completed" });
       return { processed: 0, succeeded: 0, failed: 0 };
     }
 
@@ -193,6 +194,7 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
       commandKey: preview.commandKey,
       snapshotHash: preview.snapshotHash,
       actorId: String(run.actor_id),
+      confirmPayloadHash: preview.payloadHash,
     });
 
     const heldIds = new Set(rows(await db.execute(sql`
@@ -236,18 +238,33 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
       SELECT COUNT(*)::int AS count FROM sfp_stage_items
        WHERE stage_run_id=${runId}::uuid AND state='dead_letter'
     `))[0];
-    await db.execute(sql`
-      UPDATE sfp_stage_runs
-         SET state=${Number(deadLetters?.count ?? 0) > 0 ? "failed" : (failed > 0 ? "pending" : "completed")},
-             selected_count=selected_count+${eligible.length},
-             processed_count=processed_count+${eligible.length},
-             succeeded_count=succeeded_count+${succeeded},
-             failed_count=failed_count+${failed},
-             terminal_reason=${Number(deadLetters?.count ?? 0) > 0 ? "campaign_staging_max_attempts_exceeded" : null},
-             completed_at=CASE WHEN ${Number(deadLetters?.count ?? 0) > 0 || failed === 0} THEN NOW() ELSE NULL END,
-             lease_expires_at=NULL, updated_at=NOW()
-       WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
-    `);
+    const hasDeadLetters = Number(deadLetters?.count ?? 0) > 0;
+    // PM-10 correction: counters are recomputed from the authoritative item
+    // rows for this ENTIRE run (not just this tick's batch) rather than
+    // incremented by this tick's eligible.length/succeeded/failed — a run
+    // that stalls and is resumed across multiple ticks would otherwise
+    // double count items processed in an earlier tick.
+    await reconcileStageRunCounters(runId);
+    if (hasDeadLetters) {
+      await db.execute(sql`
+        UPDATE sfp_stage_runs
+           SET state='failed', terminal_reason='campaign_staging_max_attempts_exceeded',
+               completed_at=NOW(), lease_expires_at=NULL, updated_at=NOW()
+         WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
+      `);
+    } else if (failed > 0) {
+      await db.execute(sql`
+        UPDATE sfp_stage_runs
+           SET state='pending', terminal_reason=NULL, completed_at=NULL, lease_expires_at=NULL, updated_at=NOW()
+         WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
+      `);
+    } else {
+      await db.execute(sql`
+        UPDATE sfp_stage_runs
+           SET state='completed', terminal_reason=NULL, completed_at=NOW(), lease_expires_at=NULL, updated_at=NOW()
+         WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
+      `);
+    }
     return { processed: eligible.length, succeeded, failed };
   } catch (error: any) {
     const message = String(error?.message ?? error);
@@ -274,9 +291,13 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
          WHERE id=${String(item.id)}::uuid
       `);
     }
+    // PM-10: recompute from the item ledger instead of an ad hoc
+    // failed_count += delta, which could double count against whatever this
+    // run's counters already reflected from a prior tick.
+    await reconcileStageRunCounters(runId);
     if (terminal) await failRun(runId, claimToken, `campaign_staging_dead_letter:${reason}`);
     else await db.execute(sql`
-      UPDATE sfp_stage_runs SET state='pending', failed_count=failed_count+${items.length},
+      UPDATE sfp_stage_runs SET state='pending',
              terminal_reason=${reason.slice(0, 500)}, lease_expires_at=NULL, updated_at=NOW()
        WHERE id=${runId}::uuid AND claim_token=${claimToken}::uuid AND state='running'
     `);

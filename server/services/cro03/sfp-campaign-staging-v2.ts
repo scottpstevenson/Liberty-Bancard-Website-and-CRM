@@ -23,6 +23,7 @@ import { businessLacksDbprLineageSql } from "../dbpr";
 import { getCurrentPackageForVertical, computeLivePackageContentHash } from "./sfp-campaign-packages";
 import { openSfpCandidatePlaintext } from "./sfp-paid-evidence-writer";
 import { evaluateSfpMutableSafetyGates, lookupConsentTierByEmailHash } from "./sfp-outreach-policy";
+import { getOrCreateStageRun, ensureStageItem, markStageItemCompletedInTx, markStageItemDeadLetter, reconcileStageRunCounters } from "./sfp-stage-ledger";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const MAX_BATCH_SIZE = 25;
@@ -47,16 +48,41 @@ export interface StagingV2PreviewRow {
   disposition: "eligible" | "blocked";
   blockedReason?: string;
   maskedEmail: string | null;
+  // PM-12 correction: an operator confirming a batch must be able to see —
+  // per row, not just in aggregate — exactly which package version and
+  // policy this row will be pinned to, and how much validation-freshness
+  // margin it has, before committing. These fields are what
+  // stageOneRowTransactional() will actually pin if this row executes.
+  packageVersionId?: string;
+  packageContentHash?: string;
+  policyId?: string;
+  policyVersion?: number;
+  policyDocumentHash?: string;
+  validationExpiresAt?: string;
+  validationAgeSeconds?: number;
 }
 
 export interface StagingV2Preview {
   cohortRunId: string;
   snapshotHash: string;
   commandKey: string;
+  /**
+   * Confirmation binding for execute() (PM-12): execute() requires this
+   * exact payloadHash back, not just a commandKey/snapshotHash pair, so an
+   * operator (or the UI on their behalf) must be looking at THIS preview's
+   * exact row selection to confirm it — a stale UI holding an older
+   * commandKey for the same ID set cannot silently execute a different
+   * payloadHash without the caller explicitly re-deriving it.
+   */
+  payloadHash: string;
   policyDocumentHash: string;
+  policyId: string;
+  policyVersion: number;
   rows: StagingV2PreviewRow[];
   eligibleCount: number;
   blockedCount: number;
+  /** Truthful terminal-state label surfaced to operators/UI (PM-12). */
+  outcomeLabel: "READY_HELD_PENDING_CONFIRMATION";
   capturedAt: string;
 }
 
@@ -165,13 +191,27 @@ export async function previewStagingV2(opts: {
       hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
       continue;
     }
-    previewRows.push({ ...base, packageKey: pkg.packageKey, disposition: "eligible" });
+    // PM-12: surface the exact package version / policy pin / validation
+    // freshness an operator needs to review THIS row before confirming —
+    // not just the aggregate counts previously shown.
+    previewRows.push({
+      ...base,
+      packageKey: pkg.packageKey,
+      disposition: "eligible",
+      packageVersionId: pkg.id,
+      packageContentHash: pkg.contentHash,
+      policyId: activePolicy.id,
+      policyVersion: activePolicy.version,
+      policyDocumentHash: activePolicy.documentHash,
+      validationExpiresAt: effectiveExpiresAt.toISOString(),
+      validationAgeSeconds: row.validation_at ? Math.max(0, Math.round((Date.now() - new Date(String(row.validation_at)).getTime()) / 1000)) : undefined,
+    });
     hashInputRows.push({ id: String(row.id), disposition: "eligible", packageKey: pkg.packageKey, packageContentHash: pkg.contentHash, effectiveExpiresAtIso: effectiveExpiresAt.toISOString() });
   }
 
   const eligibleCount = previewRows.filter((r) => r.disposition === "eligible").length;
   const blockedCount = previewRows.length - eligibleCount;
-  const policyDocumentHash = sha256(activePolicy);
+  const policyDocumentHash = activePolicy.documentHash;
 
   const snapshotHash = sha256({
     cohortRunId: opts.cohortRunId,
@@ -180,15 +220,20 @@ export async function previewStagingV2(opts: {
     rows: hashInputRows,
   });
   const commandKey = `sfp-stage-v2:${opts.cohortRunId}:${snapshotHash}`;
+  const payloadHash = sha256({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds });
 
   return {
     cohortRunId: opts.cohortRunId,
     snapshotHash,
     commandKey,
+    payloadHash,
     policyDocumentHash,
+    policyId: activePolicy.id,
+    policyVersion: activePolicy.version,
     rows: previewRows,
     eligibleCount,
     blockedCount,
+    outcomeLabel: "READY_HELD_PENDING_CONFIRMATION",
     capturedAt: new Date().toISOString(),
   };
 }
@@ -215,6 +260,16 @@ export async function executeStagingV2(opts: {
   commandKey: string;
   snapshotHash: string;
   actorId: string;
+  /**
+   * PM-12 correction: the caller must echo back the exact payloadHash the
+   * preview it is confirming reported. commandKey/snapshotHash alone bind
+   * to the ID *set*, but a UI holding a stale render of the same preview
+   * object could otherwise re-submit execute without the operator having
+   * actually seen (or re-fetched) the row-level package/policy detail this
+   * payloadHash was computed over. A mismatch fails closed with 409 rather
+   * than silently executing against unconfirmed detail.
+   */
+  confirmPayloadHash: string;
 }): Promise<StagingV2ExecuteResult> {
   if (!opts.eligibilityIds || opts.eligibilityIds.length === 0) {
     throw new SfpStagingV2Error("SFP_STAGING_NO_SELECTION", "eligibilityIds must be explicitly provided and non-empty", 400);
@@ -236,6 +291,9 @@ export async function executeStagingV2(opts: {
 
   const orderedIds = canonicalizeEligibilityIds(opts.eligibilityIds);
   const payloadHash = sha256({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds });
+  if (!opts.confirmPayloadHash || opts.confirmPayloadHash !== payloadHash) {
+    throw new SfpStagingV2Error("SFP_STAGING_PAYLOAD_NOT_CONFIRMED", "confirmPayloadHash does not match the payload derived from cohortRunId/eligibilityIds — re-fetch preview and confirm its exact payloadHash", 409);
+  }
 
   // PM-04 correction: claim the command as 'pending' BEFORE any per-row work
   // starts, and only ever transition it forward (pending -> executing ->
@@ -296,14 +354,30 @@ export async function executeStagingV2(opts: {
     throw new SfpStagingV2Error("SFP_STAGING_SNAPSHOT_DRIFTED", "snapshot has drifted since preview (policy/package/eligibility changed) — request a new preview", 409);
   }
 
+  // PM-10 correction: every command — manual or recurring — gets its own
+  // durable sfp_stage_runs row (keyed 1:1 to this commandKey) and one
+  // sfp_stage_items row per business attempted, so a staging mutation, its
+  // item outcome, and the run's aggregate counters can never diverge, and
+  // the same row/item ledger the recurring worker relies on for retries,
+  // dead-letter tracking, and telemetry also covers manual staging.
+  const stageRunId = await getOrCreateStageRun({
+    cohortRunId: opts.cohortRunId,
+    actorId: opts.actorId,
+    idempotencyKey: opts.commandKey,
+    maxItems: freshPreview.rows.length,
+  });
+
   let readyHeld = 0;
   let rejected = 0;
   const reasons: Record<string, number> = {};
 
   for (const previewRow of freshPreview.rows) {
+    const itemId = await ensureStageItem(stageRunId, previewRow.businessId);
     if (previewRow.disposition === "blocked") {
       rejected++;
-      reasons[previewRow.blockedReason ?? "blocked"] = (reasons[previewRow.blockedReason ?? "blocked"] ?? 0) + 1;
+      const reason = previewRow.blockedReason ?? "blocked";
+      reasons[reason] = (reasons[reason] ?? 0) + 1;
+      await markStageItemDeadLetter(itemId, reason);
       continue;
     }
     try {
@@ -317,14 +391,21 @@ export async function executeStagingV2(opts: {
         commandKey: opts.commandKey,
         payloadHash,
         snapshotHash: opts.snapshotHash,
+        stageItemId: itemId,
       });
       readyHeld++;
     } catch (err: any) {
       rejected++;
       const code = err instanceof SfpStagingV2Error ? err.code : "staging_transaction_failed";
       reasons[code] = (reasons[code] ?? 0) + 1;
+      await markStageItemDeadLetter(itemId, code);
     }
   }
+
+  // Counters are recomputed FROM the item rows just written, never
+  // incremented ad hoc — the run row can never disagree with what the
+  // items actually show, including on a resumed/retried command.
+  await reconcileStageRunCounters(stageRunId, { setState: "completed" });
 
   const result: StagingV2ExecuteResult = {
     commandKey: opts.commandKey,
@@ -360,6 +441,7 @@ export async function executeStagingV2(opts: {
 async function stageOneRowTransactional(opts: {
   cohortRunId: string; eligibilityId: string; businessId: number; sourceKind: "free" | "paid";
   packageKey: string; actorId: string; commandKey: string; payloadHash: string; snapshotHash: string;
+  stageItemId: string;
 }): Promise<void> {
   const activePolicy = await getActiveSfpOutreachPolicy();
   await db.transaction(async (tx) => {
@@ -411,6 +493,7 @@ async function stageOneRowTransactional(opts: {
         SELECT command_key, state FROM sfp_campaign_staging_intents WHERE id = ${String(eligRow.staging_intent_id)}::uuid
       `))[0];
       if (existingIntent && existingIntent.command_key === opts.commandKey && existingIntent.state === "ready_held") {
+        await markStageItemCompletedInTx(tx, opts.stageItemId);
         return;
       }
       throw new SfpStagingV2Error("SFP_STAGING_ALREADY_HAS_INTENT", "eligibility already has a staging intent", 409);
@@ -594,5 +677,12 @@ async function stageOneRowTransactional(opts: {
       UPDATE sfp_campaign_staging_intents SET master_lead_id = ${String(masterLead.id)}::uuid, updated_at = NOW()
       WHERE id = ${String(intent.id)}::uuid
     `);
+
+    // PM-10 correction: the item's completion is written in THIS SAME
+    // transaction as the intent/master-lead/eligibility mutation above, not
+    // as a separate follow-up statement — so a crash cannot leave a
+    // ready_held intent whose stage item still reads pending/claimed, and
+    // no separate reconciliation step is needed to catch that split state.
+    await markStageItemCompletedInTx(tx, opts.stageItemId);
   });
 }

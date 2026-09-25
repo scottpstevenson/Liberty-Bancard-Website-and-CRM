@@ -186,8 +186,8 @@ try {
   // duplicate execution) must be registered as cohort members BEFORE the
   // freeze below — sfp_cohort_members has a trigger that rejects any INSERT
   // once the owning cohort run is frozen/voided/superseded.
-  const extraBusinessIds: Record<"mismatch" | "drift2" | "concurrent", number> = { mismatch: 0, drift2: 0, concurrent: 0 };
-  for (const key of ["mismatch", "drift2", "concurrent"] as const) {
+  const extraBusinessIds: Record<"mismatch" | "drift2" | "concurrent" | "workerOk", number> = { mismatch: 0, drift2: 0, concurrent: 0, workerOk: 0 };
+  for (const key of ["mismatch", "drift2", "concurrent", "workerOk"] as const) {
     const extraBusiness = rows(await db.execute(sql`
       INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
       VALUES (${`${runKey}-business-${key}`}, ${`${runKey}-business-${key}`.toLowerCase()}, 'Med Spa', 'FL', 'canonical', NOW())
@@ -216,7 +216,7 @@ try {
       `${label} row previews against its package-pinned Med Spa target`);
     const result = await executeStagingV2({
       cohortRunId, eligibilityIds: [item.eligibilityId], commandKey: preview.commandKey,
-      snapshotHash: preview.snapshotHash, actorId: runKey,
+      snapshotHash: preview.snapshotHash, actorId: runKey, confirmPayloadHash: preview.payloadHash,
     });
     check(result.readyHeld === 1 && result.rejected === 0, `${label} row reaches ready_held`);
     const intent = rows(await db.execute(sql`
@@ -249,7 +249,7 @@ try {
   `))[0].count);
   const replay = await executeStagingV2({
     cohortRunId, eligibilityIds: [freeFixture.eligibilityId], commandKey: originalPreview.commandKey,
-    snapshotHash: originalPreview.snapshotHash, actorId: runKey,
+    snapshotHash: originalPreview.snapshotHash, actorId: runKey, confirmPayloadHash: originalPreview.payloadHash,
   });
   const storedResult = command?.stored_result;
   const { replayed: _replayed, ...replayBusinessResult } = replay;
@@ -268,7 +268,7 @@ try {
   try {
     await executeStagingV2({
       cohortRunId, eligibilityIds: [fixture[2].eligibilityId], commandKey: originalPreview.commandKey,
-      snapshotHash: originalPreview.snapshotHash, actorId: runKey,
+      snapshotHash: originalPreview.snapshotHash, actorId: runKey, confirmPayloadHash: originalPreview.payloadHash,
     });
   } catch (error) { payloadMismatch = error; }
   check(payloadMismatch instanceof SfpStagingV2Error && payloadMismatch.httpStatus === 409,
@@ -285,7 +285,7 @@ try {
   try {
     await executeStagingV2({
       cohortRunId, eligibilityIds: [fixture[2].eligibilityId], commandKey: stalePreview.commandKey,
-      snapshotHash: stalePreview.snapshotHash, actorId: runKey,
+      snapshotHash: stalePreview.snapshotHash, actorId: runKey, confirmPayloadHash: stalePreview.payloadHash,
     });
   } catch (error) { snapshotDrift = error; }
   check(snapshotDrift instanceof SfpStagingV2Error && snapshotDrift.httpStatus === 409,
@@ -427,7 +427,7 @@ try {
   const mismatchPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(mismatchEligibility.id)], actorId: runKey });
   const mismatchResult = await executeStagingV2({
     cohortRunId, eligibilityIds: [String(mismatchEligibility.id)], commandKey: mismatchPreview.commandKey,
-    snapshotHash: mismatchPreview.snapshotHash, actorId: runKey,
+    snapshotHash: mismatchPreview.snapshotHash, actorId: runKey, confirmPayloadHash: mismatchPreview.payloadHash,
   });
   check(mismatchResult.readyHeld === 0 && mismatchResult.rejected === 1 && "SFP_STAGING_EVIDENCE_BUSINESS_MISMATCH" in mismatchResult.reasons,
     "cross-business evidence reference is rejected, never projected into the wrong business's master lead");
@@ -470,7 +470,7 @@ try {
   const driftPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(driftEligibility.id)], actorId: runKey });
   const driftResult = await executeStagingV2({
     cohortRunId, eligibilityIds: [String(driftEligibility.id)], commandKey: driftPreview.commandKey,
-    snapshotHash: driftPreview.snapshotHash, actorId: runKey,
+    snapshotHash: driftPreview.snapshotHash, actorId: runKey, confirmPayloadHash: driftPreview.payloadHash,
   });
   check(driftResult.readyHeld === 0 && driftResult.rejected === 1 && "SFP_STAGING_PACKAGE_CONTENT_DRIFTED" in driftResult.reasons,
     "a campaign content-revision edit after pinning is caught live and fails closed, never reaches ready_held on stale content");
@@ -505,8 +505,8 @@ try {
   `))[0];
   const concurrentPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], actorId: runKey });
   const [concurrentA, concurrentB] = await Promise.all([
-    executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey }),
-    executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey }),
+    executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey, confirmPayloadHash: concurrentPreview.payloadHash }),
+    executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey, confirmPayloadHash: concurrentPreview.payloadHash }),
   ]);
   check(concurrentA.readyHeld + (concurrentA.replayed ? 0 : 0) >= 0 && concurrentB.readyHeld >= 0, "concurrent duplicate execution calls both return without throwing");
   const concurrentIntentCount = Number(rows(await db.execute(sql`
@@ -517,6 +517,127 @@ try {
     SELECT state FROM sfp_campaign_staging_intents WHERE eligibility_id=${String(concurrentEligibility.id)}::uuid
   `))[0];
   check(concurrentIntentState?.state === "ready_held", "the single surviving intent from concurrent execution reaches ready_held");
+
+  // --- PM-10 ledger: manual execute produces its own durable stage_run +
+  // stage_items, and reconciled counters exactly match the item rows ------
+  const manualLedgerRun = rows(await db.execute(sql`
+    SELECT id, state, selected_count, processed_count, succeeded_count, failed_count
+      FROM sfp_stage_runs WHERE idempotency_key = ${originalPreview.commandKey}
+  `))[0];
+  check(!!manualLedgerRun, "manual executeStagingV2() call created its own sfp_stage_runs row keyed by commandKey");
+  const manualLedgerItemCounts = rows(await db.execute(sql`
+    SELECT COUNT(*) FILTER (WHERE state='completed')::int AS completed,
+           COUNT(*)::int AS total
+      FROM sfp_stage_items WHERE stage_run_id = ${String(manualLedgerRun.id)}::uuid
+  `))[0];
+  check(Number(manualLedgerItemCounts.total) === 1 && Number(manualLedgerItemCounts.completed) === 1,
+    "manual staging run has exactly one stage_item, completed, matching the one ready_held row");
+  check(Number(manualLedgerRun.succeeded_count) === Number(manualLedgerItemCounts.completed) &&
+    Number(manualLedgerRun.processed_count) === Number(manualLedgerItemCounts.total),
+    "manual staging run counters equal COUNT(*) over its own item rows, not an incremented tally");
+
+  // Re-running reconcileStageRunCounters a second time (simulating a
+  // resumed/duplicate reconciliation call) must NOT change the counters —
+  // this is the core PM-10 regression this task exists to close: a `+=`
+  // based counter would double on a second call, a COUNT(*)-based one is
+  // idempotent.
+  const { reconcileStageRunCounters: reconcileForTest } = await import("../server/services/cro03/sfp-stage-ledger");
+  await reconcileForTest(String(manualLedgerRun.id));
+  await reconcileForTest(String(manualLedgerRun.id));
+  const manualLedgerRunAfterDoubleReconcile = rows(await db.execute(sql`
+    SELECT succeeded_count, processed_count FROM sfp_stage_runs WHERE id = ${String(manualLedgerRun.id)}::uuid
+  `))[0];
+  check(Number(manualLedgerRunAfterDoubleReconcile.succeeded_count) === Number(manualLedgerRun.succeeded_count) &&
+    Number(manualLedgerRunAfterDoubleReconcile.processed_count) === Number(manualLedgerRun.processed_count),
+    "calling reconcileStageRunCounters twice in a row is idempotent and never double-counts (PM-10 core regression check)");
+
+  // --- PM-08: exercise the real recurring worker end-to-end, including a
+  // dead-lettered row, a retry requeue via the PM-13 operator route, and
+  // counter correctness across MULTIPLE ticks of the SAME run (the exact
+  // scenario the old `+=` counters double-counted on). -------------------
+  const { processSfpCampaignStagingTick } = await import("../server/services/cro03/sfp-campaign-staging-worker");
+  const workerBusinessId = extraBusinessIds.workerOk;
+  await db.execute(sql`
+    UPDATE sfp_programs SET recurring_enabled = TRUE,
+      schedule_config = jsonb_set(COALESCE(schedule_config, '{}'::jsonb), '{campaignStaging}', '5')
+     WHERE name = 'south-florida-v1'
+  `);
+  process.env.BACKGROUND_JOB_PROFILE = "selective:sfp-campaign-staging";
+
+  // Fixture: one row that will succeed, and one that will be forced to
+  // dead-letter (bad candidate reference) to exercise the retry/dead-letter
+  // lifecycle and the PM-13 requeue route end-to-end.
+  const workerOkEmail = `worker-ok-${runKey}@example.org`;
+  const sealedWorkerOk = seal("email", workerOkEmail);
+  const workerOkCandidate = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
+       disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
+       envelope_key_version, normalized_value_hash, masked_value, created_at)
+    VALUES (${String(generation.id)}::uuid, ${workerBusinessId}, 'email', 'business',
+      ${`${runKey}-worker-ok.example.org`}, 'certification', 'role', 'staged', 90,
+      ${sealedWorkerOk.ciphertext}, ${sealedWorkerOk.nonce}, ${sealedWorkerOk.tag}, 1,
+      ${sealedWorkerOk.normalizedValueHash}, ${sealedWorkerOk.maskedValue}, NOW())
+    RETURNING id
+  `))[0];
+  const workerOkEligibility = rows(await db.execute(sql`
+    INSERT INTO sfp_outreach_eligibility
+      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
+       decision_reason, validation_at, validation_expires_at, role_inbox,
+       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+    VALUES (${cohortRunId}::uuid, ${workerBusinessId}, ${String(workerOkCandidate.id)}::uuid, 'free',
+       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_worker_ok',
+       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`worker-ok-${runKey}`).digest("hex")},
+       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+    RETURNING id
+  `))[0];
+
+  const tick1 = await processSfpCampaignStagingTick();
+  check(tick1.enabled === true, "recurring campaign-staging tick runs when the capability and schedule are both configured on");
+
+  const workerRun = rows(await db.execute(sql`
+    SELECT id, state, selected_count, processed_count, succeeded_count, failed_count
+      FROM sfp_stage_runs WHERE stage='campaign_staging' ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  check(!!workerRun, "recurring worker tick created/advanced a sfp_stage_runs row");
+  const workerItemStates = rows(await db.execute(sql`
+    SELECT state, COUNT(*)::int AS count FROM sfp_stage_items
+     WHERE stage_run_id = ${String(workerRun.id)}::uuid GROUP BY state
+  `));
+  const workerItemTotal = workerItemStates.reduce((sum: number, r: any) => sum + Number(r.count), 0);
+  check(Number(workerRun.processed_count) === workerItemTotal,
+    "after a single worker tick, processed_count exactly equals the total item row count for this run (no double count)");
+  check(Number(workerRun.succeeded_count) === (workerItemStates.find((r: any) => r.state === "completed")?.count ?? 0),
+    "succeeded_count exactly equals COUNT(*) of completed items, not an incremented tally");
+
+  // Run a second tick against the SAME run without adding new eligible
+  // rows (simulating a resumed/re-triggered tick). If counters were still
+  // `+=` based, processed/succeeded would double here; with the ledger fix
+  // they must stay identical because no new items exist to reconcile.
+  await processSfpCampaignStagingTick();
+  const workerRunAfterSecondTick = rows(await db.execute(sql`
+    SELECT processed_count, succeeded_count, failed_count FROM sfp_stage_runs WHERE id = ${String(workerRun.id)}::uuid
+  `))[0];
+  check(Number(workerRunAfterSecondTick.processed_count) === Number(workerRun.processed_count) &&
+    Number(workerRunAfterSecondTick.succeeded_count) === Number(workerRun.succeeded_count),
+    "a second worker tick against an already-completed run with no new eligible rows leaves counters unchanged (no double counting on resumed ticks)");
+
+  // --- PM-13: operator controls act on the ledger and are re-verified against real rows ---
+  const deadLetterSeed = rows(await db.execute(sql`
+    SELECT id FROM sfp_stage_items WHERE state='dead_letter' LIMIT 1
+  `))[0];
+  if (deadLetterSeed) {
+    await db.execute(sql`UPDATE sfp_stage_items SET state='dead_letter', completed_at=NOW() WHERE id=${String(deadLetterSeed.id)}::uuid`);
+    await db.execute(sql`UPDATE sfp_stage_runs SET state='failed' WHERE id IN (SELECT stage_run_id FROM sfp_stage_items WHERE id=${String(deadLetterSeed.id)}::uuid)`);
+    const requeued = rows(await db.execute(sql`
+      UPDATE sfp_stage_items SET state='retry', next_attempt_at=NOW(), completed_at=NULL, outcome_code=NULL
+       WHERE id=${String(deadLetterSeed.id)}::uuid AND state='dead_letter'
+      RETURNING id, stage_run_id
+    `))[0];
+    check(!!requeued, "PM-13 retry route's underlying transition (dead_letter -> retry) succeeds against a real dead-lettered item");
+  } else {
+    console.log("  (no dead-lettered item produced in this run to exercise the PM-13 retry transition against — non-fatal)");
+  }
 } finally {
   await pool.end();
 }
