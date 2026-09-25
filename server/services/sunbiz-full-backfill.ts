@@ -41,6 +41,37 @@ const RUN_ID = "default";
 const MICROBATCH_LIMIT = 25;
 const LEASE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Pure cursor-advance calculation, extracted so it can be unit-tested without
+ * a live database. Given the cursor position the batch started from, the
+ * candidate rows it examined, and the per-filing outcomes produced by
+ * runSunbizBootstrapBatch(), returns the next high_water_entity_id.
+ *
+ * Correctness requirement: the cursor must never advance past the id of a
+ * row whose outcome is retryable ("failed", not yet "dead_letter") --
+ * selectSunbizBootstrapCandidates() only re-offers a retryable-failed
+ * filing_number when its id is still > high_water_entity_id, so advancing
+ * past it would make that row permanently unreachable even though its claim
+ * row says it should be retried. Terminal outcomes (created, matched_existing,
+ * deferred_collision, identity_review, already_claimed, dead_letter,
+ * lost_lease) never block the advance.
+ */
+export function computeNextHighWaterEntityId(
+  afterId: number,
+  candidates: Array<{ id: number; filingNumber: string }>,
+  outcomes: Array<{ filingNumber: string; outcome: string }>,
+): number {
+  const idByFilingNumber = new Map(candidates.map((c) => [c.filingNumber, c.id]));
+  const retryableFailedIds = outcomes
+    .filter((o) => o.outcome === "failed")
+    .map((o) => idByFilingNumber.get(o.filingNumber))
+    .filter((id): id is number => typeof id === "number");
+
+  const candidateMaxId = candidates.length === 0 ? afterId : Math.max(afterId, ...candidates.map((c) => c.id));
+  if (retryableFailedIds.length === 0) return candidateMaxId;
+  return Math.min(candidateMaxId, Math.min(...retryableFailedIds) - 1);
+}
+
 export interface SunbizBackfillStatus {
   status: "idle" | "running" | "paused" | "completed" | "failed";
   highWaterEntityId: number;
@@ -137,8 +168,43 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
   };
 }
 
-/** Admin-triggered: arms the recurring worker to start (or continue) advancing the cursor. */
-export async function resumeSunbizFullBackfill(): Promise<void> {
+/**
+ * Thrown by resumeSunbizFullBackfill() when no worker can actually execute
+ * the queue right now. The caller (route handler) must surface this as a
+ * rejected resume, never as a silent success -- the DB status is NOT changed
+ * to 'running' in this case, so the admin UI can never show "running" while
+ * zero workers exist to advance the cursor.
+ */
+export class WorkerCapabilityInactiveError extends Error {
+  readonly reasonCode = "WORKER_CAPABILITY_NOT_ACTIVE" as const;
+  readonly capability: SunbizBackfillStatus["workerCapability"];
+  constructor(capability: SunbizBackfillStatus["workerCapability"]) {
+    super("Cannot resume sunbiz-full-backfill: no active worker can execute the sunbiz-full-backfill queue right now.");
+    this.name = "WorkerCapabilityInactiveError";
+    this.capability = capability;
+  }
+}
+
+/**
+ * Admin-triggered: arms the recurring worker to start (or continue) advancing
+ * the cursor. Refuses (throws WorkerCapabilityInactiveError) and leaves the
+ * DB status untouched when no worker can actually consume the queue right
+ * now -- Resume must never be able to put the run into a 'running' state
+ * that the runtime cannot make true.
+ *
+ * `skipCapabilityCheck` exists ONLY for disposable-DB certification scripts
+ * that verify cursor/lease/retry logic without a live QueueManager/Redis --
+ * worker-capability wiring itself is covered separately by
+ * test-2002-fix-sunbiz-backfill-capability.ts. The admin route never passes
+ * this flag.
+ */
+export async function resumeSunbizFullBackfill(opts: { skipCapabilityCheck?: boolean } = {}): Promise<void> {
+  if (!opts.skipCapabilityCheck) {
+    const capability = computeWorkerCapability();
+    if (!capability.active) {
+      throw new WorkerCapabilityInactiveError(capability);
+    }
+  }
   await db.execute(sql`
     INSERT INTO sunbiz_bootstrap_runs (id, status)
     VALUES (${RUN_ID}, 'running')
@@ -199,8 +265,11 @@ export async function runSunbizBackfillMicrobatch(): Promise<{ skipped: boolean;
     }
 
     const outcomes = await runSunbizBootstrapBatch(MICROBATCH_LIMIT, { afterId });
-    const maxIdSeen = Math.max(afterId, ...candidates.map((c) => c.id));
     const deadLettered = outcomes.filter((o) => o.outcome === "dead_letter").length;
+    // See computeNextHighWaterEntityId() doc comment: the cursor must never
+    // advance past a still-retryable ("failed") row, or it becomes
+    // permanently unreachable even though it's eligible for retry.
+    const maxIdSeen = computeNextHighWaterEntityId(afterId, candidates, outcomes);
 
     await db.execute(sql`
       UPDATE sunbiz_bootstrap_runs

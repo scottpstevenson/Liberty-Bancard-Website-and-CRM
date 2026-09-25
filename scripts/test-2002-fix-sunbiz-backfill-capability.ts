@@ -150,6 +150,46 @@ test("5e. getWorkerCapabilityStatus never throws before QueueManager initializes
   });
 });
 
+const { computeNextHighWaterEntityId } = await import("../server/services/sunbiz-full-backfill.js");
+
+test("6a. cursor does not skip a retryable-failed row (reported regression)", () => {
+  // afterId=0; batch examines ids 5 (fails, retryable) and 9 (succeeds).
+  // Before the fix, maxIdSeen = max(0,5,9) = 9, permanently burying id 5.
+  const next = computeNextHighWaterEntityId(
+    0,
+    [{ id: 5, filingNumber: "A" }, { id: 9, filingNumber: "B" }],
+    [{ filingNumber: "A", outcome: "failed" }, { filingNumber: "B", outcome: "created" }],
+  );
+  assert.equal(next, 4, "cursor must stop just before the retryable-failed row's id (5), not advance to 9");
+});
+
+test("6b. cursor advances fully when no retryable failure occurred", () => {
+  const next = computeNextHighWaterEntityId(
+    0,
+    [{ id: 5, filingNumber: "A" }, { id: 9, filingNumber: "B" }],
+    [{ filingNumber: "A", outcome: "created" }, { filingNumber: "B", outcome: "matched_existing" }],
+  );
+  assert.equal(next, 9, "cursor advances to the batch max id when nothing is retryable");
+});
+
+test("6c. dead_letter (terminal, no more retries) does not block the cursor", () => {
+  const next = computeNextHighWaterEntityId(
+    0,
+    [{ id: 5, filingNumber: "A" }, { id: 9, filingNumber: "B" }],
+    [{ filingNumber: "A", outcome: "dead_letter" }, { filingNumber: "B", outcome: "created" }],
+  );
+  assert.equal(next, 9, "dead_letter is terminal, so the cursor may advance past it");
+});
+
+test("6d. multiple retryable failures: cursor stops before the lowest one", () => {
+  const next = computeNextHighWaterEntityId(
+    0,
+    [{ id: 5, filingNumber: "A" }, { id: 7, filingNumber: "B" }, { id: 9, filingNumber: "C" }],
+    [{ filingNumber: "A", outcome: "created" }, { filingNumber: "B", outcome: "failed" }, { filingNumber: "C", outcome: "failed" }],
+  );
+  assert.equal(next, 6, "cursor stops before the lowest still-retryable id (7)");
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) {
   console.error("Failures:", failures);

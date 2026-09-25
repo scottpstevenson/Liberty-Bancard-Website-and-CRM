@@ -81,7 +81,7 @@ try {
   {
     const fx1 = await insertFixtureEntity(10);
     const fx2 = await insertFixtureEntity(11);
-    await backfill.resumeSunbizFullBackfill();
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
     const statusAfterResume = await backfill.getSunbizFullBackfillStatus();
     check(statusAfterResume.status === "running", "T2002-02a", "resume sets run status to running");
 
@@ -106,7 +106,7 @@ try {
   await resetRun();
   {
     const fx = await insertFixtureEntity(20);
-    await backfill.resumeSunbizFullBackfill();
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
     await backfill.pauseSunbizFullBackfill();
     const status = await backfill.getSunbizFullBackfillStatus();
     check(status.status === "paused", "T2002-05a", "pause sets status to paused");
@@ -120,7 +120,7 @@ try {
   await resetRun();
   {
     for (let i = 0; i < 5; i++) await insertFixtureEntity(30 + i);
-    await backfill.resumeSunbizFullBackfill();
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
     const [a, b] = await Promise.all([
       backfill.runSunbizBackfillMicrobatch(),
       backfill.runSunbizBackfillMicrobatch(),
@@ -146,7 +146,7 @@ try {
       INSERT INTO sunbiz_bootstrap_claims (filing_number, sunbiz_entity_id, status, completed_at)
       VALUES (${fx.filingNumber}, ${fx.id}, 'created', now())
     `);
-    await backfill.resumeSunbizFullBackfill();
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
     // afterId starts at 0, so this terminal-claimed fixture is within range
     // but must be excluded by the NOT EXISTS predicate on eligible claims.
     const { selectSunbizBootstrapCandidates } = await import("../server/services/sunbiz-bootstrap");
@@ -181,7 +181,7 @@ try {
     `))[0];
     await resetRun();
     await insertFixtureEntity(60);
-    await backfill.resumeSunbizFullBackfill();
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
     await backfill.runSunbizBackfillMicrobatch();
     const after = rows(await db.execute(sql`
       SELECT

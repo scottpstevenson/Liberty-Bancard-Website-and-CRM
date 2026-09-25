@@ -610,8 +610,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
   app.post("/api/lead-ops/sunbiz-bootstrap/backfill/resume", requireRole("admin"), async (req, res) => {
     try {
-      const { resumeSunbizFullBackfill, getSunbizFullBackfillStatus } = await import("../services/sunbiz-full-backfill");
-      await resumeSunbizFullBackfill();
+      const { resumeSunbizFullBackfill, getSunbizFullBackfillStatus, WorkerCapabilityInactiveError } = await import("../services/sunbiz-full-backfill");
+      try {
+        await resumeSunbizFullBackfill();
+      } catch (err: any) {
+        if (err instanceof WorkerCapabilityInactiveError) {
+          await storage.createAuditLog({
+            action: "sunbiz_full_backfill_resume_rejected",
+            entityType: "system",
+            entityId: 0,
+            details: { adminUserId: (req as any).user?.id ?? null, reasonCode: err.reasonCode, capability: err.capability },
+          });
+          return res.status(409).json({
+            error: err.message,
+            reasonCode: err.reasonCode,
+            workerCapability: err.capability,
+          });
+        }
+        throw err;
+      }
       await storage.createAuditLog({
         action: "sunbiz_full_backfill_resumed",
         entityType: "system",
