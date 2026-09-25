@@ -9431,11 +9431,13 @@ export const sfpOutreachPolicyDocuments = pgTable("sfp_outreach_policy_documents
 });
 
 export const sfpOutreachPolicyControl = pgTable("sfp_outreach_policy_control", {
-  singleton: boolean("singleton").primaryKey().default(true),
+  singleton: boolean("singleton").notNull().default(true),
   activePolicyId: uuid("active_policy_id").notNull().references(() => sfpOutreachPolicyDocuments.id),
   activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
   activatedBy: text("activated_by").notNull(),
-});
+}, (table) => [
+  primaryKey({ columns: [table.singleton] }),
+]);
 
 export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   id: uuid("id").primaryKey().defaultRandom(),

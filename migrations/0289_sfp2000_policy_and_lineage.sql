@@ -33,10 +33,11 @@ CREATE TRIGGER sfp_outreach_policy_documents_immutable_trg
 
 -- ── Singleton active-policy pointer ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sfp_outreach_policy_control (
-  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  singleton BOOLEAN NOT NULL DEFAULT TRUE,
   active_policy_id UUID NOT NULL REFERENCES sfp_outreach_policy_documents(id),
   activated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  activated_by TEXT NOT NULL
+  activated_by TEXT NOT NULL,
+  PRIMARY KEY (singleton)
 );
 
 -- Seed policy v1 (30-day TTL). Idempotent: only inserts if version 1 absent.
