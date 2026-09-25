@@ -14,9 +14,7 @@
 - [Login rate limiter behavior](login-rate-limiter.md) — 401 "Invalid email or password" returned for BOTH wrong password AND rate-limit hits — indistinguishable from logs.
 - [Admin password sync](admin-password-sync.md) — seedAdminUser re-hashes and updates DB password on every startup; use env vars to control it.
 - [Playwright test user](playwright-test-user.md) — dedicated test user exists in DB; avoid using admin user (2FA risk, rate limiter).
-- [SEO audit regex fix](seo-audit-apostrophe.md) — seo-audit.ts meta-description regex broken by apostrophes; fixed to `content="([^"]*)"`.
-- [Tasks page crash](tasks-page-crash.md) — ResponsiveTable used as children wrapper (invalid); use overflow-x-auto div instead.
-- [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat, not /dashboard/ai-advisors.
+- [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat, not /dashboard/ai-advisors; ResponsiveTable can't wrap children (overflow-x-auto div instead).
 - [Sequence control policy](sequence-control-policy.md) — all sequences default to `paused`; storage layer blocks enrollment into non-active sequences.
 - [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent (singleton IORedis); maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first (see redis-bullmq-smoketest.md, bullmq-commandtimeout-removal.md).
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, must regenerate in GHL settings; circuit breaker persists closed/open/half-open via classifyGhlSyncError() (see ghl-circuit-state-machine.md).
@@ -34,8 +32,6 @@
 - [Audit-only approval-gate pattern](audit-only-approval-gate.md) — approval endpoints must re-verify checklist server-side, write only to an audit-log table, never touch process.env/Secrets APIs directly.
 - [CSRF for manual API testing](csrf-manual-api-testing.md) — curl POST needs session cookie + `x-csrf-token` from `/api/csrf-token` (`token` field); PEWC checklist needs disclosureVersion+consentedPhone too.
 - [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — gpt-5 needs `max_completion_tokens`, and a big enough budget or reasoning tokens silently eat all output.
-- [Sidebar CSS vars missing](sidebar-css-vars-missing.md) — tailwind.config.ts can reference `--sidebar*` vars that don't exist in index.css, silently breaking bg-sidebar (invisible mobile drawer).
-- [TabsList wrap/overlap convention](tabs-wrap-convention.md) — fixed h-10 TabsList + flex-wrap without h-auto causes wrapped tab rows to overlap; use `flex-wrap h-auto gap-1`.
 - [CSV import row accounting](csv-import-row-accounting.md) — onConflictDoNothing() silently drops rows without throwing; diff batch vs result length to count it.
 - [Secret rotation restart](secret-rotation-restart.md) — new/changed secrets need a workflow restart; stale in-process secrets cause false live-HTTP failures right after a merge.
 - [AI Command Center run tracking](ai-command-center-run-tracking.md) — run-count/last-run reads audit_logs by action string; every branch (incl. no-op) must write a row.
@@ -158,3 +154,5 @@
 - [Schema.ts check constraint without a migration](schema-check-constraint-unmigrated.md) — a `check()` added to a Drizzle table definition enforces nothing until a real migration creates it; `drizzle-kit check` won't catch this, only a live disposable-DB run will.
 - [SFP paid-provider manifest gaps & reserved-keyword SQL](sfp-paid-provider-manifest-and-reserved-keyword.md) — approvedCallers must list every file in a shared operations chain, not just the new adapter; unquoted `authorization` column breaks raw SQL.
 - [Disposable-DB VFC diff-isolation certs need a clean tree](sfp-vfc-diff-isolation-clean-tree.md) — some certification scripts assert the git diff is isolated to owned paths; running them with your own uncommitted WIP in the tree fails them even when unrelated — stash first.
+- [Legacy-value CHECK-constraint migrations](legacy-check-constraint-migration.md) — when narrowing a state/enum CHECK, prove a synthetic legacy row survives by inserting it against the real applied constraint, not a hand-reconstructed copy of it.
+- [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute with command-key idempotency + payload/snapshot-drift 409s is the reusable shape for any "prepare but never send" boundary.

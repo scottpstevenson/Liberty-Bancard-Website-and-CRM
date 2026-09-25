@@ -41,6 +41,7 @@ const localRole = () => process.env.USER || process.env.LOGNAME || os.userInfo()
 const SCRIPTS = [
   "scripts/sfp-certification.ts",
   "scripts/test-sfp2000-disposable-certification.ts",
+  "scripts/test-sfp2001-campaign-staging-certification.ts",
 ];
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {

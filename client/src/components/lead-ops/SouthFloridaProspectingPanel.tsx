@@ -7,7 +7,7 @@
  * No outreach is sent automatically.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -129,6 +129,7 @@ type SfpValidationResult = {
 
 type SfpProspects = {
   prospects: Array<{
+    eligibilityId: string | null;
     businessId: number;
     businessName: string | null;
     normalizedVertical: string | null;
@@ -159,6 +160,21 @@ type CampaignStagingPreview = {
   willStageCount: number;
   ineligibleCount: number;
   ineligibleReasons: Record<string, number>;
+};
+
+type SfpCampaignStagingTelemetry = {
+  capability: { profile: string; selectiveGroups: string[]; active: boolean };
+  program: { name: string; isActive: boolean; recurringEnabled: boolean; campaignStagingBatchSize: number } | null;
+  effectiveEnablement: boolean;
+  lastRun: { id: string; state: string; selected: number; processed: number; succeeded: number; failed: number; terminalReason: string | null; createdAt: string; startedAt: string | null; completedAt: string | null } | null;
+  lastCompletedRun: { id: string; state: string; completedAt: string | null } | null;
+  currentlyRunning: { id: string; leaseExpiresAt: string | null; lastHeartbeatAt: string | null } | null;
+  backlog: { eligibleAwaitingStaging: number; freshAwaitingStaging: number };
+  throughput: { completedLast24h: number; deadLetteredLast24h: number };
+  retries: { currentlyRetrying: number; staleLeases: number };
+  deadLetters: { total: number; sample: Array<{ id: string; businessId: number; outcomeCode: string | null; attemptCount: number; completedAt: string | null }> };
+  cost: { reportedCostMicros: number; note: string };
+  capturedAt: string;
 };
 
 type PaidWaterfallPreview = {
@@ -213,6 +229,7 @@ export function SouthFloridaProspectingPanel() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [showProspects, setShowProspects] = useState(false);
   const [stagingResult, setStagingResult] = useState<{ created: number; skipped: number; rejected: number; reasons: Record<string, number> } | null>(null);
+  const [selectedEligibilityIds, setSelectedEligibilityIds] = useState<string[]>([]);
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
@@ -244,6 +261,10 @@ export function SouthFloridaProspectingPanel() {
   });
   const [voidReason, setVoidReason] = useState("");
   const [confirmingVoid, setConfirmingVoid] = useState(false);
+
+  useEffect(() => {
+    setSelectedEligibilityIds([]);
+  }, [activeRunId]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -297,6 +318,17 @@ export function SouthFloridaProspectingPanel() {
   const stagingPreviewQuery = useQuery<CampaignStagingPreview>({
     queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/campaign-staging-preview`],
     enabled: !!activeRunId,
+    retry: false,
+  });
+
+  const packageVerificationQuery = useQuery<{ ok: boolean; issues: string[] }>({
+    queryKey: ["/api/lead-ops/sfp/campaign-packages/verify"],
+    retry: false,
+  });
+
+  const stagingTelemetryQuery = useQuery<SfpCampaignStagingTelemetry>({
+    queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"],
+    refetchInterval: 30_000,
     retry: false,
   });
 
@@ -485,20 +517,56 @@ export function SouthFloridaProspectingPanel() {
   const stageForCampaign = useMutation({
     mutationFn: async () => {
       if (!activeRunId) throw new Error("No active run");
-      return (await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/stage-for-campaign`, {
-        idempotencyKey: `sfp-stage-${activeRunId}`,
-      })).json();
+      if (selectedEligibilityIds.length === 0) throw new Error("Select at least one eligible prospect");
+      const previewResponse = await apiRequest("POST", "/api/lead-ops/sfp/campaign-staging-v2/preview", {
+        cohortRunId: activeRunId,
+        eligibilityIds: selectedEligibilityIds,
+      });
+      const preview = await previewResponse.json();
+      const packageCounts = preview.rows
+        .filter((row: any) => row.disposition === "eligible")
+        .reduce((counts: Record<string, number>, row: any) => {
+          const key = row.packageKey ?? "unassigned";
+          counts[key] = (counts[key] ?? 0) + 1;
+          return counts;
+        }, {});
+      const distribution = Object.entries(packageCounts).map(([key, count]) => `${key}: ${count}`).join("\n") || "No eligible package assignments";
+      const confirmed = window.confirm(
+        `Stage exactly ${selectedEligibilityIds.length} selected prospect${selectedEligibilityIds.length === 1 ? "" : "s"}?\n\nPackage distribution:\n${distribution}\n\n${preview.blockedCount} selection(s) are blocked and will not be staged. No message will be sent.`
+      );
+      if (!confirmed) return { cancelled: true };
+      const executeResponse = await apiRequest("POST", "/api/lead-ops/sfp/campaign-staging-v2/execute", {
+        cohortRunId: activeRunId,
+        eligibilityIds: selectedEligibilityIds,
+        commandKey: preview.commandKey,
+        snapshotHash: preview.snapshotHash,
+      });
+      return executeResponse.json();
     },
     onSuccess: (data: any) => {
+      if (data?.cancelled) return;
       setStagingResult(data);
       toast({
         title: "Campaign staging complete",
-        description: `${data.created} staged · ${data.skipped} skipped · ${data.rejected} rejected. No outreach sent.`,
+        description: `${data.readyHeld} ready_held · ${data.rejected} rejected. No outreach sent.`,
       });
+      setSelectedEligibilityIds([]);
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/prospects`] });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/campaign-staging-preview`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-packages/verify"] });
     },
-    onError: (e: any) => toast({ title: "Staging failed", description: e?.message, variant: "destructive" }),
+    onError: (e: any) => {
+      const rawMessage = String(e?.message ?? "Unable to stage selected prospects");
+      const jsonStart = rawMessage.indexOf("{");
+      let detail = rawMessage;
+      if (jsonStart >= 0) {
+        try {
+          const body = JSON.parse(rawMessage.slice(jsonStart));
+          if (body?.message) detail = String(body.message);
+        } catch { /* preserve the API error text */ }
+      }
+      toast({ title: "Staging failed", description: detail, variant: "destructive" });
+    },
   });
 
   const program = programQuery.data;
@@ -996,6 +1064,19 @@ export function SouthFloridaProspectingPanel() {
                     {prospectsQuery.data.prospects.map((p) => (
                       <div key={p.businessId} className="flex flex-col gap-1 p-2 bg-muted/30 rounded text-xs">
                         <div className="flex items-center justify-between gap-2">
+                          <input
+                            aria-label={`Select ${p.businessName ?? `business ${p.businessId}`} for campaign staging`}
+                            type="checkbox"
+                            className="h-4 w-4 accent-primary"
+                            checked={Boolean(p.eligibilityId && selectedEligibilityIds.includes(p.eligibilityId))}
+                            disabled={!p.eligibilityId || p.validationStatus !== "validated_outreach_eligible" || Boolean(p.campaignStagedAt) || (selectedEligibilityIds.length >= 25 && !selectedEligibilityIds.includes(p.eligibilityId ?? ""))}
+                            onChange={(event) => {
+                              if (!p.eligibilityId) return;
+                              setSelectedEligibilityIds((current) => event.target.checked
+                                ? [...new Set([...current, p.eligibilityId!])]
+                                : current.filter((id) => id !== p.eligibilityId));
+                            }}
+                          />
                           <div className="flex-1 min-w-0">
                             <span className="font-medium truncate">{p.businessName ?? `Biz #${p.businessId}`}</span>
                             {p.normalizedVertical && <span className="text-muted-foreground ml-1">· {p.normalizedVertical}</span>}
@@ -1076,11 +1157,73 @@ export function SouthFloridaProspectingPanel() {
               <Button
                 size="sm"
                 onClick={() => stageForCampaign.mutate()}
-                disabled={stageForCampaign.isPending || (stagingPreviewQuery.data?.willStageCount ?? 0) === 0}
+                disabled={stageForCampaign.isPending || selectedEligibilityIds.length === 0 || selectedEligibilityIds.length > 25}
               >
                 {stageForCampaign.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <ShieldCheck className="h-3 w-3 mr-1" />}
-                Stage Selected Eligible Prospects
+                Stage Selected Eligible Prospects ({selectedEligibilityIds.length})
               </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {selectedEligibilityIds.length === 0
+                ? "Select eligible prospects in the validated-prospects list to enable staging."
+                : selectedEligibilityIds.length > 25
+                  ? "A maximum of 25 eligibility rows can be staged per command."
+                : `${selectedEligibilityIds.length} eligibility row${selectedEligibilityIds.length === 1 ? "" : "s"} selected (maximum 25 per command).`}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded border p-2 text-xs">
+                <div className="font-medium">Current package mapping</div>
+                {packageVerificationQuery.isLoading ? (
+                  <span className="text-muted-foreground">Checking package mappings…</span>
+                ) : packageVerificationQuery.data?.ok ? (
+                  <span className="text-green-700">Verified — all current campaigns are draft and sequences paused.</span>
+                ) : packageVerificationQuery.data ? (
+                  <div className="text-destructive">{packageVerificationQuery.data.issues.join("; ")}</div>
+                ) : (
+                  <span className="text-muted-foreground">Verification unavailable.</span>
+                )}
+              </div>
+              <div className="rounded border p-2 text-xs space-y-1">
+                <div className="font-medium">SFP staging worker telemetry</div>
+                {stagingTelemetryQuery.isLoading ? (
+                  <span className="text-muted-foreground">Loading worker telemetry…</span>
+                ) : stagingTelemetryQuery.data ? (
+                  <>
+                    <div className="flex items-center gap-1">
+                      <span className={stagingTelemetryQuery.data.effectiveEnablement ? "text-amber-700" : "text-muted-foreground"}>
+                        {stagingTelemetryQuery.data.effectiveEnablement ? "Recurring worker enabled" : "Recurring worker disabled"}
+                      </span>
+                      <span className="text-muted-foreground">
+                        (capability {stagingTelemetryQuery.data.capability.active ? "running" : "not running"}
+                        {stagingTelemetryQuery.data.program ? `, batch=${stagingTelemetryQuery.data.program.campaignStagingBatchSize}` : ", no program"})
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+                      <span>Backlog (fresh): {stagingTelemetryQuery.data.backlog.freshAwaitingStaging}</span>
+                      <span>Backlog (total): {stagingTelemetryQuery.data.backlog.eligibleAwaitingStaging}</span>
+                      <span>Completed (24h): {stagingTelemetryQuery.data.throughput.completedLast24h}</span>
+                      <span>Retrying: {stagingTelemetryQuery.data.retries.currentlyRetrying}</span>
+                      <span>Stale leases: {stagingTelemetryQuery.data.retries.staleLeases}</span>
+                      <span className={stagingTelemetryQuery.data.deadLetters.total > 0 ? "text-destructive" : ""}>
+                        Dead letters: {stagingTelemetryQuery.data.deadLetters.total}
+                      </span>
+                    </div>
+                    {stagingTelemetryQuery.data.lastRun && (
+                      <div className="text-muted-foreground">
+                        Last run: {stagingTelemetryQuery.data.lastRun.state}
+                        {" "}({stagingTelemetryQuery.data.lastRun.succeeded}/{stagingTelemetryQuery.data.lastRun.selected} succeeded)
+                        {stagingTelemetryQuery.data.lastRun.completedAt ? ` at ${new Date(stagingTelemetryQuery.data.lastRun.completedAt).toLocaleString()}` : ""}
+                      </div>
+                    )}
+                    {stagingTelemetryQuery.data.currentlyRunning && (
+                      <div className="text-blue-700">Currently running (lease expires {stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt ? new Date(stagingTelemetryQuery.data.currentlyRunning.leaseExpiresAt).toLocaleTimeString() : "—"})</div>
+                    )}
+                    <div className="text-muted-foreground">Cost: not applicable (staging only)</div>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">Worker telemetry unavailable.</span>
+                )}
+              </div>
             </div>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Lock className="h-3 w-3" />

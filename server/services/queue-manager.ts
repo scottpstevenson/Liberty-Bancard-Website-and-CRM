@@ -473,6 +473,17 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 0, // scheduled via NAMED_QUEUE_SCHEDULES only
     jobName: "process",
   },
+  {
+    // Task #2001: isolated SFP held-staging tick. It is assigned only to the
+    // sfp-campaign-staging capability group and checks program/stage controls
+    // in the processor before discovering or executing any work.
+    name: QUEUE_NAMES.SFP_CAMPAIGN_STAGING,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 60_000,
+    repeatEveryMs: 15 * 60 * 1000,
+    jobName: "tick",
+  },
 ];
 
 /**
@@ -2411,6 +2422,14 @@ class QueueManager {
           const result = await processCro08aOccurrence({ extendLock });
           if (result.claimed) {
             console.log(`[Queue:cro08a-processor] processed occurrence ${result.occurrenceId}: ${result.enumeratedCount} enumerated, reconciled=${result.reconciled}`);
+          }
+          break;
+        }
+        case QUEUE_NAMES.SFP_CAMPAIGN_STAGING: {
+          const { processSfpCampaignStagingTick } = await import("./cro03/sfp-campaign-staging-worker");
+          const result = await processSfpCampaignStagingTick();
+          if (result.processed > 0) {
+            console.log(`[SfpCampaignStaging] held ${result.succeeded}/${result.processed}; failed=${result.failed}`);
           }
           break;
         }

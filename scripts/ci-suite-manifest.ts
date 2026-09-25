@@ -161,6 +161,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "requires TEST_DATABASE_URL disposable database with a network-denied fake provider boundary; ZeroBounce validated via injected transport only; proves unified free+paid candidate consumption, real-vs-masked decryption, freshness reuse, snapshot-bound execute, atomic finalization, and the Task-2001 staging fence; no live provider or outreach calls",
   },
   {
+    name: "Task #2001 SFP Campaign Staging Certification",
+    script: "scripts/test-sfp2001-campaign-staging-certification.ts",
+    capability: "deterministic-integration",
+    providerDenial: "requires TEST_DATABASE_URL disposable database; validates free/paid ready_held staging, exact command replay, payload mismatch, stale-snapshot rejection, migration-state compatibility, and no-send import boundaries; no live provider, outreach, or GHL calls",
+  },
+  {
     name: "Task #1999 Final Closeout Guard",
     script: "scripts/test-sfp1999-final-closeout.mjs",
     capability: "deterministic-static",

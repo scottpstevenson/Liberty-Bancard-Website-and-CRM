@@ -7327,7 +7327,10 @@ export const masterLeads = pgTable("master_leads", {
   createdAt: timestamp("created_at").defaultNow(),
 
   // ── MI-07: Pipeline columns (added in migration 0257) ──────────────────────
-  // Discriminator: 'manual_import' (default) | 'cro03_pipeline'
+  // Discriminator: 'manual_import' (default) | 'cro03_pipeline' | 'sfp_pipeline'
+  // (Task #2001: 'sfp_pipeline' rows are written by stageForCampaign() and are
+  // structurally excluded from the MI-07 cro03_pipeline promotion path — see
+  // server/services/master-leads/pipeline-promotion.ts.)
   pipelineOrigin: text("pipeline_origin").notNull().default("manual_import"),
   // FK to businesses.id — set only for cro03_pipeline rows
   canonicalBusinessId: integer("canonical_business_id"),
@@ -9232,7 +9235,7 @@ export const sfpPrograms = pgTable("sfp_programs", {
   activatedAt: timestamp("activated_at", { withTimezone: true }),
   activatedBy: text("activated_by"),
   recurringEnabled: boolean("recurring_enabled").notNull().default(false),
-  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25 }),
+  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 10 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: text("created_by").notNull(),
 }, (table) => [
@@ -9683,29 +9686,77 @@ export const sfpPaidCandidateEvidence = pgTable("sfp_paid_candidate_evidence", {
 ]);
 export type SfpPaidCandidateEvidence = typeof sfpPaidCandidateEvidence.$inferSelect;
 
+export const sfpCampaignPackageVersions = pgTable("sfp_campaign_package_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  packageKey: text("package_key").notNull(),
+  vertical: text("vertical").notNull(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "restrict" }),
+  campaignName: text("campaign_name").notNull(),
+  sequenceId: integer("sequence_id").notNull().references(() => followUpSequences.id, { onDelete: "restrict" }),
+  sequenceName: text("sequence_name").notNull(),
+  sequenceFamily: text("sequence_family").notNull(),
+  contentHash: text("content_hash").notNull(),
+  lifecycleState: text("lifecycle_state").notNull().default("draft"),
+  effectiveAt: timestamp("effective_at", { withTimezone: true }),
+  supersededAt: timestamp("superseded_at", { withTimezone: true }),
+  actorId: text("actor_id").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_campaign_package_versions_current_uidx").on(table.packageKey).where(sql`lifecycle_state = 'current'`),
+  index("sfp_campaign_package_versions_key_idx").on(table.packageKey, table.createdAt),
+]);
 export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents", {
   id: uuid("id").primaryKey().defaultRandom(),
   cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
   eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
-  candidateId: uuid("candidate_id").notNull().references(() => freeDiscoveryCandidates.id, { onDelete: "restrict" }),
+  // Legacy free-candidate FK — nullable as of Task #2001 (Defect 5). Exactly
+  // one of candidateId / paidCandidateEvidenceId is set, enforced by the
+  // sourceKind-driven CHECK (see migration 0290).
+  candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "restrict" }),
+  paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "restrict" }),
+  sourceKind: text("source_kind"),
   idempotencyKey: text("idempotency_key").notNull(), actorId: text("actor_id").notNull(),
   state: text("state").notNull().default("staged"), policyVersion: integer("policy_version").notNull(),
   validationSnapshot: jsonb("validation_snapshot").notNull(), lineage: jsonb("lineage").notNull(),
   masterLeadId: uuid("master_lead_id").references(() => masterLeads.id, { onDelete: "set null" }),
+  packageVersionId: uuid("package_version_id").references(() => sfpCampaignPackageVersions.id, { onDelete: "restrict" }),
+  packageKey: text("package_key"),
+  policyDocumentHash: text("policy_document_hash"),
+  snapshotHash: text("snapshot_hash"),
+  payloadHash: text("payload_hash"),
+  commandKey: text("command_key"),
+  operatorSelectedAt: timestamp("operator_selected_at", { withTimezone: true }),
+  operatorSelectedBy: text("operator_selected_by"),
+  readyHeldAt: timestamp("ready_held_at", { withTimezone: true }),
+  terminalCode: text("terminal_code"),
+  terminalReasonDetail: text("terminal_reason_detail"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("sfp_campaign_intent_cohort_business_candidate_uidx").on(table.cohortRunId, table.businessId, table.candidateId),
+  uniqueIndex("sfp_campaign_intent_eligibility_live_uidx").on(table.eligibilityId)
+    .where(sql`state NOT IN ('rejected','cancelled','superseded')`),
   uniqueIndex("sfp_campaign_intent_key_business_uidx").on(table.idempotencyKey, table.businessId),
   index("sfp_campaign_staging_intents_state_idx").on(table.state, table.createdAt),
+  index("sfp_campaign_staging_intents_package_idx").on(table.packageVersionId, table.state),
+  check(
+    "sfp_campaign_staging_intents_source_ref_one_of_chk",
+    sql`
+      (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
+      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL)
+    `,
+  ),
+  // 'promoted' is a retained LEGACY-ONLY value (pre-migration-0290 rows only).
+  // No code path in this task or after it ever writes 'promoted' again.
+  check(
+    "sfp_campaign_staging_intents_state_check",
+    sql`state IN ('staged','operator_selected','ready_held','rejected','cancelled','superseded','promoted')`,
+  ),
 ]);
 
-// Cross-run domain crawl cache. Cached role-inbox evidence is reusable without
-// recrawling; named-person evidence is NEVER cached/copied here — it stays
-// scoped to the one free_discovery_candidates row that has the supporting
-// name/title evidence, so it can never leak onto a different contact sharing
-// the same domain.
+export type SfpCampaignStagingIntent = typeof sfpCampaignStagingIntents.$inferSelect;
 export const emailDiscoveryDomainCache = pgTable("email_discovery_domain_cache", {
   domain: text("domain").primaryKey(),
   firstCrawledAt: timestamp("first_crawled_at", { withTimezone: true }).notNull().defaultNow(),
@@ -9733,3 +9784,20 @@ export const businessesEnrichmentProvenance = pgTable("businesses_enrichment_pro
   index("businesses_enrichment_provenance_generation_idx").on(table.generationId),
 ]);
 export type BusinessesEnrichmentProvenance = typeof businessesEnrichmentProvenance.$inferSelect;
+
+export type SfpCampaignStagingCommand = typeof sfpCampaignStagingCommands.$inferSelect;
+
+export const sfpCampaignStagingCommands = pgTable("sfp_campaign_staging_commands", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
+  commandKey: text("command_key").notNull().unique(),
+  payloadHash: text("payload_hash").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  actorId: text("actor_id").notNull(),
+  storedResult: jsonb("stored_result").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_campaign_staging_commands_cohort_idx").on(table.cohortRunId, table.createdAt),
+]);
+
+export type SfpCampaignPackageVersion = typeof sfpCampaignPackageVersions.$inferSelect;

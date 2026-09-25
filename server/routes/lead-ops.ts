@@ -3357,7 +3357,22 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         limit: req.query.limit ? Number(req.query.limit) : 50,
         offset: req.query.offset ? Number(req.query.offset) : 0,
       });
-      res.json(result);
+      const businessIds = [...new Set(result.prospects.map((prospect) => prospect.businessId))];
+      const eligibilityRows = businessIds.length
+        ? rows(await db.execute(sql`
+            SELECT id, business_id FROM sfp_outreach_eligibility
+            WHERE cohort_run_id = ${String(req.params.runId)}::uuid
+              AND business_id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}::int`), sql`, `)}])
+          `))
+        : [];
+      const eligibilityIdByBusiness = new Map(eligibilityRows.map((row: any) => [Number(row.business_id), String(row.id)]));
+      res.json({
+        ...result,
+        prospects: result.prospects.map((prospect) => ({
+          ...prospect,
+          eligibilityId: eligibilityIdByBusiness.get(prospect.businessId) ?? null,
+        })),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
@@ -3374,8 +3389,191 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/sfp/runs/:runId/stage-for-campaign — stage eligible prospects
-  // Body: { idempotencyKey: string, businessIds?: number[] }
+  // Snapshot-bound campaign staging preview; selection is always explicit.
+  app.post("/api/lead-ops/sfp/campaign-staging-v2/preview", requireRole("admin"), async (req, res) => {
+    try {
+      const { previewStagingV2, SfpStagingV2Error } = await import("../services/cro03/sfp-campaign-staging-v2");
+      const result = await previewStagingV2({
+        cohortRunId: String(req.body?.cohortRunId ?? ""),
+        eligibilityIds: Array.isArray(req.body?.eligibilityIds) ? req.body.eligibilityIds.map(String) : [],
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      if (err instanceof (await import("../services/cro03/sfp-campaign-staging-v2")).SfpStagingV2Error) {
+        return res.status(err.httpStatus).json({ code: err.code, message: err.message });
+      }
+      res.status(400).json({ code: "SFP_STAGING_PREVIEW_ERROR", message: "Unable to create staging preview" });
+    }
+  });
+
+  // Execute only the exact selection and snapshot returned by preview.
+  app.post("/api/lead-ops/sfp/campaign-staging-v2/execute", requireRole("admin"), async (req, res) => {
+    try {
+      const { executeStagingV2, SfpStagingV2Error } = await import("../services/cro03/sfp-campaign-staging-v2");
+      const result = await executeStagingV2({
+        cohortRunId: String(req.body?.cohortRunId ?? ""),
+        eligibilityIds: Array.isArray(req.body?.eligibilityIds) ? req.body.eligibilityIds.map(String) : [],
+        commandKey: String(req.body?.commandKey ?? ""),
+        snapshotHash: String(req.body?.snapshotHash ?? ""),
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      if (err instanceof (await import("../services/cro03/sfp-campaign-staging-v2")).SfpStagingV2Error) {
+        return res.status(err.httpStatus).json({ code: err.code, message: err.message });
+      }
+      const status = [400, 409, 422].includes(Number(err?.httpStatus ?? err?.status)) ? Number(err.httpStatus ?? err.status) : 400;
+      res.status(status).json({ code: "SFP_STAGING_EXECUTION_ERROR", message: "Unable to execute staging command" });
+    }
+  });
+
+  // Read-only configuration convergence preview; admin only.
+  app.get("/api/lead-ops/sfp/campaign-packages/preview", requireRole("admin"), async (_req, res) => {
+    try {
+      const { previewPackageConvergence } = await import("../services/cro03/sfp-campaign-packages");
+      res.json(await previewPackageConvergence());
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_PACKAGE_PREVIEW_ERROR", message: err?.message ?? "Unable to preview package mappings" });
+    }
+  });
+
+  app.post("/api/lead-ops/sfp/campaign-packages/apply", requireRole("admin"), async (req, res) => {
+    try {
+      const { applyPackageConvergence } = await import("../services/cro03/sfp-campaign-packages");
+      res.json(await applyPackageConvergence({ actorId: `admin:${(req as any).user?.id ?? "system"}` }));
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_PACKAGE_APPLY_ERROR", message: err?.message ?? "Unable to apply package mappings" });
+    }
+  });
+
+  app.get("/api/lead-ops/sfp/campaign-packages/verify", requireRole("admin"), async (_req, res) => {
+    try {
+      const { verifyPackageConvergence } = await import("../services/cro03/sfp-campaign-packages");
+      res.json(await verifyPackageConvergence());
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_PACKAGE_VERIFY_ERROR", message: err?.message ?? "Unable to verify package mappings" });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/campaign-staging/telemetry — real read-only surface
+  // for the isolated recurring campaign-staging worker (Defect 15). Never
+  // starts or influences the worker; purely reports its current state.
+  app.get("/api/lead-ops/sfp/campaign-staging/telemetry", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getBackgroundProfile, getSelectiveGroups } = await import("../services/background-profile");
+      const profile = getBackgroundProfile();
+      const selectiveGroups = profile === "selective" ? getSelectiveGroups() : [];
+      const capabilityActive = profile === "full" || (profile === "selective" && selectiveGroups.includes("sfp-campaign-staging"));
+
+      const programRows = rows(await db.execute(sql`
+        SELECT p.id, p.name, p.is_active, p.recurring_enabled,
+               COALESCE((p.schedule_config->>'campaignStaging')::int, 0) AS campaign_staging_batch
+          FROM sfp_programs p
+         WHERE p.name = 'south-florida-v1'
+         LIMIT 1
+      `));
+      const program = programRows[0] ?? null;
+      const scheduleEnabled = !!program && program.is_active === true && program.recurring_enabled === true
+        && Number(program.campaign_staging_batch) >= 1;
+
+      const runRows = rows(await db.execute(sql`
+        SELECT id, state, selected_count, processed_count, succeeded_count, failed_count,
+               skipped_count, terminal_reason, claim_token, lease_expires_at,
+               created_at, started_at, completed_at, last_heartbeat_at
+          FROM sfp_stage_runs
+         WHERE stage = 'campaign_staging'
+         ORDER BY created_at DESC
+         LIMIT 10
+      `));
+      const lastRun = runRows[0] ?? null;
+      const lastCompletedRun = runRows.find((r: any) => r.state === "completed" || r.state === "failed") ?? null;
+      const runningRun = runRows.find((r: any) => r.state === "running") ?? null;
+
+      const backlogRow = rows(await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE e.status = 'validated_outreach_eligible' AND e.staging_intent_id IS NULL)::int AS backlog_eligible,
+          COUNT(*) FILTER (WHERE e.status = 'validated_outreach_eligible' AND e.staging_intent_id IS NULL
+            AND (e.validation_expires_at IS NULL OR e.validation_expires_at > NOW()))::int AS backlog_fresh
+          FROM sfp_outreach_eligibility e
+      `))[0];
+
+      const itemStats = rows(await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE i.state = 'retry')::int AS retrying,
+          COUNT(*) FILTER (WHERE i.state = 'dead_letter')::int AS dead_letter,
+          COUNT(*) FILTER (WHERE i.state = 'claimed' AND i.lease_expires_at < NOW())::int AS stale_leases,
+          COUNT(*) FILTER (WHERE i.state = 'completed' AND i.completed_at > NOW() - INTERVAL '24 hours')::int AS completed_24h,
+          COUNT(*) FILTER (WHERE i.state = 'dead_letter' AND i.completed_at > NOW() - INTERVAL '24 hours')::int AS dead_letter_24h
+          FROM sfp_stage_items i
+          JOIN sfp_stage_runs r ON r.id = i.stage_run_id
+         WHERE r.stage = 'campaign_staging'
+      `))[0];
+
+      const deadLetterSample = rows(await db.execute(sql`
+        SELECT i.id, i.business_id, i.outcome_code, i.attempt_count, i.completed_at
+          FROM sfp_stage_items i
+          JOIN sfp_stage_runs r ON r.id = i.stage_run_id
+         WHERE r.stage = 'campaign_staging' AND i.state = 'dead_letter'
+         ORDER BY i.completed_at DESC NULLS LAST
+         LIMIT 10
+      `));
+
+      res.json({
+        capability: {
+          profile,
+          selectiveGroups,
+          active: capabilityActive,
+        },
+        program: program ? {
+          name: String(program.name),
+          isActive: program.is_active === true,
+          recurringEnabled: program.recurring_enabled === true,
+          campaignStagingBatchSize: Number(program.campaign_staging_batch),
+        } : null,
+        effectiveEnablement: capabilityActive && scheduleEnabled,
+        lastRun: lastRun ? {
+          id: String(lastRun.id), state: String(lastRun.state),
+          selected: Number(lastRun.selected_count), processed: Number(lastRun.processed_count),
+          succeeded: Number(lastRun.succeeded_count), failed: Number(lastRun.failed_count),
+          terminalReason: lastRun.terminal_reason ?? null,
+          createdAt: lastRun.created_at, startedAt: lastRun.started_at, completedAt: lastRun.completed_at,
+        } : null,
+        lastCompletedRun: lastCompletedRun ? {
+          id: String(lastCompletedRun.id), state: String(lastCompletedRun.state), completedAt: lastCompletedRun.completed_at,
+        } : null,
+        currentlyRunning: runningRun ? {
+          id: String(runningRun.id), leaseExpiresAt: runningRun.lease_expires_at, lastHeartbeatAt: runningRun.last_heartbeat_at,
+        } : null,
+        backlog: {
+          eligibleAwaitingStaging: Number(backlogRow?.backlog_eligible ?? 0),
+          freshAwaitingStaging: Number(backlogRow?.backlog_fresh ?? 0),
+        },
+        throughput: {
+          completedLast24h: Number(itemStats?.completed_24h ?? 0),
+          deadLetteredLast24h: Number(itemStats?.dead_letter_24h ?? 0),
+        },
+        retries: {
+          currentlyRetrying: Number(itemStats?.retrying ?? 0),
+          staleLeases: Number(itemStats?.stale_leases ?? 0),
+        },
+        deadLetters: {
+          total: Number(itemStats?.dead_letter ?? 0),
+          sample: deadLetterSample.map((row: any) => ({
+            id: String(row.id), businessId: Number(row.business_id), outcomeCode: row.outcome_code,
+            attemptCount: Number(row.attempt_count), completedAt: row.completed_at,
+          })),
+        },
+        cost: { reportedCostMicros: 0, note: "not_applicable_staging_only" },
+        capturedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_CAMPAIGN_STAGING_TELEMETRY_ERROR", message: err?.message ?? "Unable to load campaign-staging worker telemetry" });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/runs/:runId/stage-for-campaign — legacy free-source staging
+  // Body: { idempotencyKey: string, businessIds: number[] } — explicit selection required (max 25).
   app.post("/api/lead-ops/sfp/runs/:runId/stage-for-campaign", requireRole("admin"), async (req, res) => {
     try {
       const { stageForCampaign } = await import("../services/cro03/south-florida-prospecting");
@@ -3383,11 +3581,21 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!idempotencyKey) {
         return res.status(400).json({ error: "idempotencyKey is required" });
       }
+      if (!Array.isArray(req.body?.businessIds) || req.body.businessIds.length === 0) {
+        return res.status(400).json({ error: "businessIds must be an explicit non-empty array" });
+      }
+      if (req.body.businessIds.length > 25) {
+        return res.status(400).json({ error: "businessIds must contain no more than 25 entries" });
+      }
+      const businessIds = req.body.businessIds.map(Number);
+      if (businessIds.some((id: number) => !Number.isInteger(id) || id <= 0)) {
+        return res.status(400).json({ error: "businessIds must contain positive integers" });
+      }
       const result = await stageForCampaign({
         cohortRunId: String(req.params.runId),
         idempotencyKey,
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
-        businessIds: Array.isArray(req.body?.businessIds) ? req.body.businessIds.map(Number) : undefined,
+        businessIds,
       });
       res.json(result);
     } catch (err: any) {

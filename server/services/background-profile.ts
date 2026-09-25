@@ -171,6 +171,18 @@ export const WORKER_CAPABILITY_GROUPS = {
     "cro08a-scheduler",
     "cro08a-processor",
   ],
+  /**
+   * Task #2001: isolated SFP campaign/sequence staging worker. Reuses
+   * sfp_stage_runs/sfp_stage_items (stage='campaign_staging'). Writes only
+   * to sfp_campaign_staging_intents/master_leads at the `ready_held`
+   * boundary — never sequence_enrollments, campaign_queue_*, or any
+   * GHL/outbound write. Deliberately NOT included in `outreach` or any
+   * other group so enabling it never starts sequence/GHL/paid-provider
+   * workers.
+   */
+  "sfp-campaign-staging": [
+    "sfp-campaign-staging",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 export type WorkerCapabilityGroup = keyof typeof WORKER_CAPABILITY_GROUPS;

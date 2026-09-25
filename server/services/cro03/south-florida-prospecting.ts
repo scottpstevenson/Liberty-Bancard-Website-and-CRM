@@ -1714,15 +1714,27 @@ export async function stageForCampaign(opts: {
     }
     // Create a real, durable staging intent. This is intentionally still a
     // no-send boundary: campaign/GHL workers do not consume this table.
+    //
+    // Conflict target: migration 0290 (Task #2001) dropped the old
+    // (cohort_run_id,business_id,candidate_id) unique index — it could never
+    // hold for paid-source rows, where candidate_id is NULL — and replaced
+    // it with sfp_campaign_intent_eligibility_live_uidx, a partial unique
+    // index on (eligibility_id) WHERE state NOT IN
+    // ('rejected','cancelled','superseded'). ON CONFLICT against a partial
+    // index must repeat its exact predicate here, or Postgres cannot infer
+    // the arbiter index and this insert would raise
+    // "there is no unique or exclusion constraint matching the ON CONFLICT
+    // specification" for every row.
     const intent = rows(await db.execute(sql`
       INSERT INTO sfp_campaign_staging_intents
-        (cohort_run_id,eligibility_id,business_id,candidate_id,idempotency_key,actor_id,
+        (cohort_run_id,eligibility_id,business_id,candidate_id,source_kind,idempotency_key,actor_id,
          state,policy_version,validation_snapshot,lineage)
       VALUES (${cohortRunId}::uuid,${String(row.id)}::uuid,${Number(row.business_id)},
-              ${String(row.candidate_id)}::uuid,${idempotencyKey},${actorId},'staged',${SFP_POLICY_VERSION},
+              ${String(row.candidate_id)}::uuid,'free',${idempotencyKey},${actorId},'staged',${SFP_POLICY_VERSION},
               ${JSON.stringify({ zbOutcome: row.zb_outcome, validationAt: row.validation_at, status: row.status })}::jsonb,
               ${JSON.stringify({ source: "sfp", cohortRunId, eligibilityId: String(row.id) })}::jsonb)
-      ON CONFLICT (cohort_run_id,business_id,candidate_id) DO UPDATE SET updated_at=NOW()
+      ON CONFLICT (eligibility_id) WHERE state NOT IN ('rejected','cancelled','superseded')
+      DO UPDATE SET updated_at=NOW()
       RETURNING id
     `))[0];
     const masterLead = rows(await db.execute(sql`

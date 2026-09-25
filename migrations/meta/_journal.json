@@ -2058,6 +2058,13 @@
       "when": 1800000010600,
       "tag": "0289_sfp2000_policy_and_lineage",
       "breakpoints": true
+    },
+    {
+      "idx": 294,
+      "version": "7",
+      "when": 1800000010700,
+      "tag": "0290_sfp2001_campaign_package_staging",
+      "breakpoints": true
     }
   ]
 }

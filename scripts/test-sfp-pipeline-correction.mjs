@@ -33,10 +33,13 @@ const lacks = (src, needle) => assert.ok(!src.includes(needle), `forbidden: ${ne
 console.log("\nSFP pipeline correction regression suite\n");
 
 test("candidate decryption uses the matching evidence envelope", () => {
-  has(files.validation, 'unsealCandidateEvidence("email"');
-  has(files.sfp, 'unsealCandidateEvidence("email"');
+  has(files.validation, "openSfpCandidatePlaintext");
+  has(files.validation, "await openSfpCandidatePlaintext(");
+  has(files.validation, 'purpose: "sfp_email_validation"');
+  has(read("server/services/cro03/sfp-paid-evidence-writer.ts"), "export async function openSfpCandidatePlaintext");
+  lacks(files.validation, "unsealCandidateEvidence(");
+  lacks(files.validation, "decryptCandidateEmail(");
   lacks(files.validation, "openCandidate(");
-  lacks(files.sfp, "openCandidate(");
 });
 test("free promotion uses canonical suppression state", () => {
   has(files.freeEvidence, "CANDIDATE_DECRYPTION_FAILED");
@@ -47,12 +50,17 @@ test("free promotion uses canonical suppression state", () => {
 });
 test("SFP validation checks both candidate and contact hashes", () => {
   has(files.validation, "contactEmailTokenHash");
-  has(files.validation, "c.email_token_hash IN");
+  has(files.validation, "isCanonicallySuppressed");
+  assert.match(files.validation, /isCanonicallySuppressed\(\s*\[String\(cand\.evidenceId \? emailHash : emailHash\),\s*contactEmailTokenHash\]\s*\)/);
   has(files.validation, "canonical_suppression_match");
   lacks(files.validation, "zerobounce_suppressions");
 });
 test("provider-valid does not make named email automatically eligible", () => {
-  has(files.validation, 'status = isRoleInbox ? "validated_outreach_eligible" : "validated_review_required"');
+  has(files.validation, "policy.roleInboxPolicy?.role_inbox_eligible_for_cold_b2b");
+  has(files.validation, "policy.roleInboxPolicy?.named_or_unclassified_requires_review");
+  has(files.validation, "isNamedContact");
+  has(files.validation, '"validated_review_required"');
+  has(files.validation, "namedRequiresReview");
   has(files.validation, "operator_review_required");
 });
 test("campaign staging rechecks suppression and uses contact hash", () => {

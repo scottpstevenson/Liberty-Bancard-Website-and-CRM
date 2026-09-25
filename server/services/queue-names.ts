@@ -35,6 +35,9 @@ export const QUEUE_NAMES = {
   MASTER_LEAD_STAGER: "master-lead-stager",
   CRO08A_SCHEDULER: "cro08a-scheduler",
   CRO08A_PROCESSOR: "cro08a-processor",
+  // Task #2001: isolated, no-send SFP campaign/sequence staging worker. Never
+  // implies outreach, sequences, GHL, or any paid-provider capability.
+  SFP_CAMPAIGN_STAGING: "sfp-campaign-staging",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
