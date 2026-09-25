@@ -158,6 +158,19 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     jobName: "ghl-sync-tick",
   },
   {
+    // Task #2002 completion: ticks the resumable Sunbiz full-backlog cursor.
+    // concurrency=1 + the run row's own fenced lease means an overlapping
+    // tick (or a manual "run now" trigger) always safely no-ops rather than
+    // double-advancing the cursor. No-op unless an admin has set the run to
+    // 'running' -- disabled by default in every environment including prod.
+    name: QUEUE_NAMES.SUNBIZ_FULL_BACKFILL,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 30000,
+    repeatEveryMs: 60_000,
+    jobName: "tick",
+  },
+  {
     name: QUEUE_NAMES.SLA_CHECKS,
     // concurrency=1: correctness-sensitive; concurrent SLA passes could double-fire alerts.
     concurrency: 1,
@@ -1772,6 +1785,11 @@ class QueueManager {
         }
         case QUEUE_NAMES.SLA_CHECKS: {
           await runSlaCheckTick();
+          break;
+        }
+        case QUEUE_NAMES.SUNBIZ_FULL_BACKFILL: {
+          const { runSunbizBackfillMicrobatch } = await import("./sunbiz-full-backfill");
+          await runSunbizBackfillMicrobatch();
           break;
         }
         case QUEUE_NAMES.SEQUENCES: {

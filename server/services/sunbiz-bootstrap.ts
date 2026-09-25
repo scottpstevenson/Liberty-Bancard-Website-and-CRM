@@ -36,6 +36,11 @@ const MAX_BATCH_LIMIT = 25;
 // and becomes eligible for reclaim by a later run, same as a 'failed' claim.
 const STALE_CLAIM_MINUTES = 15;
 
+// A filing that has failed resolution this many times is moved to the
+// terminal 'dead_letter' claim status instead of being retried forever by
+// the full-backfill worker (see runSunbizBackfillMicrobatch below).
+export const SUNBIZ_BACKFILL_MAX_RETRIES = 5;
+
 export interface SunbizBootstrapCandidate {
   id: number;
   filingNumber: string;
@@ -55,7 +60,7 @@ export interface SunbizBootstrapCandidate {
  */
 export async function selectSunbizBootstrapCandidates(
   limit = DEFAULT_BATCH_LIMIT,
-  opts: { filingNumberLike?: string } = {},
+  opts: { filingNumberLike?: string; afterId?: number } = {},
 ): Promise<SunbizBootstrapCandidate[]> {
   const boundedLimit = Math.min(MAX_BATCH_LIMIT, Math.max(1, Math.floor(limit)));
 
@@ -90,11 +95,14 @@ export async function selectSunbizBootstrapCandidates(
            OR (se.principal_city IS NOT NULL AND se.principal_state IS NOT NULL))
       AND (${opts.filingNumberLike ?? null}::text IS NULL OR se.filing_number LIKE ${opts.filingNumberLike ?? null}::text)
       AND (${filingNumberRangeClause})
+      AND (${opts.afterId ?? null}::int IS NULL OR se.id > ${opts.afterId ?? null}::int)
       AND NOT EXISTS (
         SELECT 1 FROM sunbiz_bootstrap_claims c
         WHERE c.filing_number = se.filing_number
-          AND c.status <> 'failed'
-          AND NOT (c.status = 'claimed' AND c.claimed_at < now() - (${STALE_CLAIM_MINUTES} || ' minutes')::interval)
+          AND NOT (
+            (c.status = 'failed' AND c.retry_count < ${SUNBIZ_BACKFILL_MAX_RETRIES})
+            OR (c.status = 'claimed' AND c.claimed_at < now() - (${STALE_CLAIM_MINUTES} || ' minutes')::interval)
+          )
       )
     ORDER BY se.id ASC
     LIMIT ${boundedLimit}
@@ -525,7 +533,7 @@ export async function runSunbizRecordClassRepair(expectedBusinessIds: number[]):
 export interface SunbizBootstrapRunOutcome {
   filingNumber: string;
   entityName: string;
-  outcome: "created" | "matched_existing" | "deferred_collision" | "identity_review" | "already_claimed" | "failed" | "lost_lease";
+  outcome: "created" | "matched_existing" | "deferred_collision" | "identity_review" | "already_claimed" | "failed" | "dead_letter" | "lost_lease";
   businessId?: number;
   error?: string;
 }
@@ -567,7 +575,7 @@ export interface SunbizBootstrapRunOutcome {
  */
 export async function runSunbizBootstrapBatch(
   limit = DEFAULT_BATCH_LIMIT,
-  opts: { filingNumberLike?: string } = {},
+  opts: { filingNumberLike?: string; afterId?: number } = {},
   expectedFilingNumbers?: string[],
 ): Promise<SunbizBootstrapRunOutcome[]> {
   let candidates: SunbizBootstrapCandidate[];
@@ -816,16 +824,28 @@ export async function runSunbizBootstrapBatch(
         };
       }
     } catch (err: any) {
+      // Retry/dead-letter: bump retry_count; once it reaches the threshold
+      // this filing becomes permanently terminal (dead_letter) so it stops
+      // being re-selected by both the bounded admin route and the full
+      // backfill worker, instead of retrying the same failure forever.
       const fenced = (await db.execute(sql`
         UPDATE sunbiz_bootstrap_claims
-        SET status = 'failed', deferred_reason_code = ${String(err?.message ?? err).slice(0, 250)}, completed_at = now()
+        SET status = CASE WHEN retry_count + 1 >= ${SUNBIZ_BACKFILL_MAX_RETRIES} THEN 'dead_letter' ELSE 'failed' END,
+            retry_count = retry_count + 1,
+            deferred_reason_code = ${String(err?.message ?? err).slice(0, 250)},
+            completed_at = now()
         WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
-        RETURNING id
+        RETURNING id, status
       `)).rows as any[];
       await recordOutcome(
         fenced.length === 0
           ? { filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "lost_lease" }
-          : { filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "failed", error: String(err?.message ?? err) },
+          : {
+              filingNumber: candidate.filingNumber,
+              entityName: candidate.entityName,
+              outcome: fenced[0].status === "dead_letter" ? "dead_letter" : "failed",
+              error: String(err?.message ?? err),
+            },
       );
       continue;
     }

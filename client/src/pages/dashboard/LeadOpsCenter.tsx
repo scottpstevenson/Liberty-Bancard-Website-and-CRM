@@ -836,6 +836,29 @@ function BusinessesTab({ userRole }: { userRole: string }) {
     refetchInterval: 15_000,
   });
 
+  // Task #2002 completion: truthful corpus-level backfill run status, driven
+  // by the recurring worker in server/services/sunbiz-full-backfill.ts.
+  // Distinct from bootstrapStatusQuery above (which reports claim totals,
+  // not run/cursor state).
+  const backfillStatusQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/sunbiz-bootstrap/backfill-status"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/sunbiz-bootstrap/backfill-status", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: userRole === "admin",
+    refetchInterval: 10_000,
+  });
+  const backfillResumeMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/lead-ops/sunbiz-bootstrap/backfill/resume", {})).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/backfill-status"] }),
+  });
+  const backfillPauseMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/lead-ops/sunbiz-bootstrap/backfill/pause", {})).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sunbiz-bootstrap/backfill-status"] }),
+  });
+
   // One-time correction: businesses the Sunbiz bootstrap created before the
   // create.recordClass fix was published landed with record_class='unknown'
   // instead of 'canonical', making them invisible to this page, the
@@ -1020,6 +1043,51 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                   Recovery: failed claims are eligible for a later bounded rerun; successful claims are never duplicated.
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {userRole === "admin" && (
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Sunbiz Full Backfill — resumable corpus scan</CardTitle>
+            <CardDescription className="text-xs">
+              Recurring worker tick (every 60s), disabled by default. Resume to let it advance through the
+              whole hot/warm backlog in bounded microbatches; pause halts new batches (in-flight ones finish).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                backfillStatusQuery.data?.status === "running" ? "bg-green-100 text-green-800" :
+                backfillStatusQuery.data?.status === "paused" ? "bg-amber-100 text-amber-800" :
+                backfillStatusQuery.data?.status === "completed" ? "bg-blue-100 text-blue-800" :
+                backfillStatusQuery.data?.status === "failed" ? "bg-red-100 text-red-800" :
+                "bg-muted text-muted-foreground"
+              }`}>
+                {backfillStatusQuery.data?.status ?? "idle"}
+              </span>
+              {backfillStatusQuery.data?.status === "running" ? (
+                <Button size="sm" variant="outline" disabled={backfillPauseMutation.isPending}
+                  onClick={() => backfillPauseMutation.mutate()}>
+                  {backfillPauseMutation.isPending ? "Pausing…" : "Pause"}
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" disabled={backfillResumeMutation.isPending}
+                  onClick={() => backfillResumeMutation.mutate()}>
+                  {backfillResumeMutation.isPending ? "Resuming…" : "Resume"}
+                </Button>
+              )}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              Cursor entity #{backfillStatusQuery.data?.highWaterEntityId ?? 0} ·
+              processed {backfillStatusQuery.data?.processedCount ?? 0} ·
+              dead-lettered {backfillStatusQuery.data?.deadLetterCount ?? 0} ·
+              remaining eligible ~{backfillStatusQuery.data?.remainingEligible ?? "—"} ·
+              last batch {backfillStatusQuery.data?.lastBatchAt ? new Date(backfillStatusQuery.data.lastBatchAt).toLocaleString() : "—"}.
+            </div>
+            {backfillStatusQuery.data?.lastError && (
+              <div className="text-[11px] text-red-600">Last error: {backfillStatusQuery.data.lastError}</div>
             )}
           </CardContent>
         </Card>

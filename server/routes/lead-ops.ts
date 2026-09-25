@@ -594,6 +594,52 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // ── Task #2002 completion: resumable full-backlog backfill status/controls.
+  // Distinct from the bounded /sunbiz-bootstrap/preview+run pair above — this
+  // surface reports the corpus-level cursor and drives the recurring worker
+  // (server/services/sunbiz-full-backfill.ts), which is disabled by default
+  // (run status starts 'idle') until an admin explicitly resumes it.
+  app.get("/api/lead-ops/sunbiz-bootstrap/backfill-status", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getSunbizFullBackfillStatus } = await import("../services/sunbiz-full-backfill");
+      res.json(await getSunbizFullBackfillStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to read backfill status" });
+    }
+  });
+
+  app.post("/api/lead-ops/sunbiz-bootstrap/backfill/resume", requireRole("admin"), async (req, res) => {
+    try {
+      const { resumeSunbizFullBackfill, getSunbizFullBackfillStatus } = await import("../services/sunbiz-full-backfill");
+      await resumeSunbizFullBackfill();
+      await storage.createAuditLog({
+        action: "sunbiz_full_backfill_resumed",
+        entityType: "system",
+        entityId: 0,
+        details: { adminUserId: (req as any).user?.id ?? null },
+      });
+      res.json(await getSunbizFullBackfillStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to resume backfill" });
+    }
+  });
+
+  app.post("/api/lead-ops/sunbiz-bootstrap/backfill/pause", requireRole("admin"), async (req, res) => {
+    try {
+      const { pauseSunbizFullBackfill, getSunbizFullBackfillStatus } = await import("../services/sunbiz-full-backfill");
+      await pauseSunbizFullBackfill();
+      await storage.createAuditLog({
+        action: "sunbiz_full_backfill_paused",
+        entityType: "system",
+        entityId: 0,
+        details: { adminUserId: (req as any).user?.id ?? null },
+      });
+      res.json(await getSunbizFullBackfillStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to pause backfill" });
+    }
+  });
+
   app.post("/api/lead-ops/sunbiz-bootstrap/run", requireRole("admin"), async (req, res) => {
     try {
       const limit = Math.min(25, Math.max(1, Math.floor(Number(req.body?.limit) || 25)));

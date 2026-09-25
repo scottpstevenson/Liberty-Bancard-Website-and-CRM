@@ -4899,9 +4899,13 @@ export const sunbizBootstrapClaims = pgTable("sunbiz_bootstrap_claims", {
   id: serial("id").primaryKey(),
   filingNumber: text("filing_number").notNull(),
   sunbizEntityId: integer("sunbiz_entity_id").references(() => sunbizEntities.id),
-  status: text("status").notNull().default("claimed"), // claimed | created | matched_existing | deferred_collision | failed
+  status: text("status").notNull().default("claimed"), // claimed | created | matched_existing | deferred_collision | failed | dead_letter
   businessId: integer("business_id").references(() => businesses.id),
   deferredReasonCode: text("deferred_reason_code"),
+  // Task #2002 full-backfill: count of 'failed' resolutions for this filing.
+  // Once it reaches SUNBIZ_BACKFILL_MAX_RETRIES the claim is moved to the
+  // terminal 'dead_letter' status instead of staying retryable 'failed'.
+  retryCount: integer("retry_count").notNull().default(0),
   claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => [
