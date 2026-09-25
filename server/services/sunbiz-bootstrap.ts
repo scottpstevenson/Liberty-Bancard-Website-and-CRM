@@ -23,6 +23,7 @@ import {
   resolveOrganization,
   peekOrganizationResolution,
 } from "./organization-resolver";
+import { evaluateSouthFloridaGeography, CRO03A_GEOGRAPHY_REFERENCE_VERSION } from "./cro03a/geography";
 
 function rows<T = any>(result: unknown): T[] {
   return (result as { rows?: T[] })?.rows ?? [];
@@ -49,6 +50,7 @@ export interface SunbizBootstrapCandidate {
   phone: string | null;
   principalCity: string | null;
   principalState: string | null;
+  principalZip?: string | null;
 }
 
 /**
@@ -60,9 +62,28 @@ export interface SunbizBootstrapCandidate {
  */
 export async function selectSunbizBootstrapCandidates(
   limit = DEFAULT_BATCH_LIMIT,
-  opts: { filingNumberLike?: string; afterId?: number } = {},
+  opts: { filingNumberLike?: string; afterId?: number; geography?: "south_florida" | "any" } = {},
 ): Promise<SunbizBootstrapCandidate[]> {
+  return (await selectSunbizBootstrapCandidateWindow(limit, opts)).candidates;
+}
+
+/**
+ * Same selection as selectSunbizBootstrapCandidates(), but also reports the
+ * highest sunbiz_entities.id actually examined in the underlying scan window
+ * (which, for geography=="south_florida", can be higher than the highest
+ * *eligible* candidate id, since ineligible rows are fetched and filtered
+ * out in-process). The full-backfill phase cursor (sunbiz-full-backfill.ts)
+ * needs this to advance past a long run of non-South-Florida ids without
+ * re-scanning the same ineligible window on every tick, while still never
+ * advancing past a still-retryable id (handled by the caller via the
+ * returned candidates + outcomes, not via maxIdExamined).
+ */
+export async function selectSunbizBootstrapCandidateWindow(
+  limit = DEFAULT_BATCH_LIMIT,
+  opts: { filingNumberLike?: string; afterId?: number; geography?: "south_florida" | "any" } = {},
+): Promise<{ candidates: SunbizBootstrapCandidate[]; maxIdExamined: number | null }> {
   const boundedLimit = Math.min(MAX_BATCH_LIMIT, Math.max(1, Math.floor(limit)));
+  const geography = opts.geography ?? "any";
 
   // filingNumberLike is test-only (never passed by the production routes).
   // When it IS set, the query must not rely on the id-ordered hot/warm partial
@@ -84,9 +105,23 @@ export async function selectSunbizBootstrapCandidates(
     }
   }
 
+  // South Florida prioritization (Task #2002 corrective patch) filters using
+  // the same versioned CRO-03A geography reference the rest of the CRM's
+  // qualification pipeline uses (evaluateSouthFloridaGeography()), not an ad
+  // hoc principal_city/principal_state string check. Because the evaluator's
+  // rules (county > ZIP > city, ambiguous/unknown never eligible) are richer
+  // than a plain SQL predicate, geography=="south_florida" over-fetches a
+  // wider candidate window from Postgres (still bounded, still id-ordered,
+  // still governed by the same claim/retry NOT EXISTS predicate) and then
+  // evaluates + filters in-process, returning at most `boundedLimit` rows.
+  // This never treats ambiguous/unknown geography as eligible: only
+  // evidenceClass in {verified, zip_inferred, city_inferred} with
+  // eligible===true passes through.
+  const geographyOverfetchLimit = geography === "south_florida" ? boundedLimit * 40 : boundedLimit;
+
   const rows = (await db.execute(sql`
     SELECT se.id, se.filing_number, se.entity_name, se.website, se.phone,
-           se.principal_city, se.principal_state
+           se.principal_city, se.principal_state, se.principal_zip
     FROM sunbiz_entities se
     WHERE se.filing_number IS NOT NULL
       AND se.entity_name IS NOT NULL
@@ -105,10 +140,10 @@ export async function selectSunbizBootstrapCandidates(
           )
       )
     ORDER BY se.id ASC
-    LIMIT ${boundedLimit}
+    LIMIT ${geographyOverfetchLimit}
   `)).rows as any[];
 
-  return rows.map((r) => ({
+  const mapped: SunbizBootstrapCandidate[] = rows.map((r) => ({
     id: Number(r.id),
     filingNumber: String(r.filing_number),
     entityName: String(r.entity_name),
@@ -116,8 +151,41 @@ export async function selectSunbizBootstrapCandidates(
     phone: r.phone ?? null,
     principalCity: r.principal_city ?? null,
     principalState: r.principal_state ?? null,
+    principalZip: r.principal_zip ?? null,
   }));
+
+  const maxIdExamined = mapped.length === 0 ? null : Math.max(...mapped.map((c) => c.id));
+
+  if (geography !== "south_florida") {
+    return { candidates: mapped.slice(0, boundedLimit), maxIdExamined };
+  }
+
+  const eligible = mapped.filter((c) => isSouthFloridaEligible(c));
+  return { candidates: eligible.slice(0, boundedLimit), maxIdExamined };
 }
+
+/**
+ * True only when the CRO-03A versioned geography reference resolves this
+ * candidate's operating-location evidence to an eligible South Florida
+ * county (Miami-Dade, Broward, Palm Beach) with evidenceClass in
+ * {verified, zip_inferred, city_inferred}. Ambiguous ("conflicting") and
+ * unresolved ("unknown") evidence are never treated as confirmed South
+ * Florida -- they fall through to the remaining-universe pass instead.
+ */
+export function isSouthFloridaEligible(candidate: {
+  principalState: string | null;
+  principalCity: string | null;
+  principalZip?: string | null;
+}): boolean {
+  const result = evaluateSouthFloridaGeography({
+    state: candidate.principalState,
+    zip: candidate.principalZip ?? null,
+    city: candidate.principalCity,
+  });
+  return result.eligible;
+}
+
+export { CRO03A_GEOGRAPHY_REFERENCE_VERSION };
 
 function domainFromWebsite(website: string | null): string | null {
   if (!website) return null;
@@ -644,7 +712,7 @@ export async function runSunbizBootstrapBatch(
 
     const entityIds = acquired.map((a) => a.entityId);
     const detailRows = (await db.execute(sql`
-      SELECT id, filing_number, entity_name, website, phone, principal_city, principal_state
+      SELECT id, filing_number, entity_name, website, phone, principal_city, principal_state, principal_zip
       FROM sunbiz_entities
       WHERE id = ANY(${sql.raw(`ARRAY[${entityIds.join(",")}]::int[]`)})
     `)).rows as any[];
@@ -659,6 +727,7 @@ export async function runSunbizBootstrapBatch(
           phone: r.phone ?? null,
           principalCity: r.principal_city ?? null,
           principalState: r.principal_state ?? null,
+          principalZip: r.principal_zip ?? null,
         } as SunbizBootstrapCandidate,
       ]),
     );

@@ -2100,6 +2100,13 @@
       "when": 1800000011200,
       "tag": "0295_task2002_sunbiz_full_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 300,
+      "version": "7",
+      "when": 1800000011300,
+      "tag": "0296_task2002_soflo_priority",
+      "breakpoints": true
     }
   ]
 }

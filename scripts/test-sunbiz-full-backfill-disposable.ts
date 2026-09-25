@@ -47,11 +47,11 @@ try {
 
   const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
-  async function insertFixtureEntity(idxSeed: number, opts: { score?: string } = {}) {
+  async function insertFixtureEntity(idxSeed: number, opts: { score?: string; city?: string; state?: string; zip?: string | null } = {}) {
     const filingNumber = `T2002-${nonce}-${idxSeed}`;
     const result = rows(await db.execute(sql`
-      INSERT INTO sunbiz_entities (filing_number, entity_name, phone, principal_city, principal_state, score)
-      VALUES (${filingNumber}, ${"Test Co " + filingNumber}, ${"555-000-" + String(idxSeed).padStart(4, "0")}, 'Miami', 'FL', ${opts.score ?? "hot"})
+      INSERT INTO sunbiz_entities (filing_number, entity_name, phone, principal_city, principal_state, principal_zip, score)
+      VALUES (${filingNumber}, ${"Test Co " + filingNumber}, ${"555-000-" + String(idxSeed).padStart(4, "0")}, ${opts.city ?? "Miami"}, ${opts.state ?? "FL"}, ${opts.zip ?? null}, ${opts.score ?? "hot"})
       RETURNING id, filing_number
     `));
     return { id: Number(result[0].id), filingNumber: String(result[0].filing_number) };
@@ -59,10 +59,19 @@ try {
 
   async function resetRun() {
     await db.execute(sql`
-      INSERT INTO sunbiz_bootstrap_runs (id, status, high_water_entity_id, processed_count, dead_letter_count, lease_owner, lease_expires_at, last_error)
-      VALUES ('default', 'idle', 0, 0, 0, NULL, NULL, NULL)
-      ON CONFLICT (id) DO UPDATE SET status = 'idle', high_water_entity_id = 0, processed_count = 0,
-        dead_letter_count = 0, lease_owner = NULL, lease_expires_at = NULL, last_error = NULL
+      INSERT INTO sunbiz_bootstrap_runs (
+        id, status, phase, high_water_entity_id, processed_count, dead_letter_count,
+        soflo_high_water_entity_id, remaining_high_water_entity_id,
+        soflo_processed_count, soflo_dead_letter_count,
+        remaining_processed_count, remaining_dead_letter_count,
+        lease_owner, lease_expires_at, last_error
+      )
+      VALUES ('default', 'idle', 'south_florida', 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL)
+      ON CONFLICT (id) DO UPDATE SET status = 'idle', phase = 'south_florida', high_water_entity_id = 0, processed_count = 0,
+        dead_letter_count = 0, soflo_high_water_entity_id = 0, remaining_high_water_entity_id = 0,
+        soflo_processed_count = 0, soflo_dead_letter_count = 0,
+        remaining_processed_count = 0, remaining_dead_letter_count = 0,
+        lease_owner = NULL, lease_expires_at = NULL, last_error = NULL
     `);
   }
 
@@ -170,6 +179,107 @@ try {
     await db.execute(sql`UPDATE sunbiz_bootstrap_claims SET retry_count = ${SUNBIZ_BACKFILL_MAX_RETRIES}, status = 'dead_letter' WHERE filing_number = ${fx.filingNumber}`);
     const noLongerRetryable = (await selectSunbizBootstrapCandidates(25, { afterId: 0 })).some((c) => c.filingNumber === fx.filingNumber);
     check(!noLongerRetryable, "T2002-09b", "once dead_letter, a filing is permanently excluded (not retried forever)");
+  }
+
+  // ── SoFlo-1. South Florida rows appearing AFTER other rows in source id
+  // order are still processed before them (priority pass, not id order) ──
+  await resetRun();
+  {
+    const other = await insertFixtureEntity(100, { city: "Austin", state: "TX" }); // lower id, NOT South Florida
+    const soflo = await insertFixtureEntity(101, { city: "Miami", state: "FL" });  // higher id, South Florida
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
+    const statusBefore = await backfill.getSunbizFullBackfillStatus();
+    check(statusBefore.phase === "south_florida", "T2002-SF-01", "run starts in the south_florida phase");
+
+    const r1 = await backfill.runSunbizBackfillMicrobatch();
+    check(r1.skipped === false, "T2002-SF-02", "first tick in south_florida phase processes");
+
+    const claims = rows(await db.execute(sql`
+      SELECT filing_number, status FROM sunbiz_bootstrap_claims
+      WHERE filing_number IN (${soflo.filingNumber}, ${other.filingNumber})
+    `));
+    const sofloClaim = claims.find((c: any) => c.filing_number === soflo.filingNumber);
+    const otherClaim = claims.find((c: any) => c.filing_number === other.filingNumber);
+    check(!!sofloClaim, "T2002-SF-03", "the higher-id South Florida row was claimed during the south_florida phase despite appearing after the non-SoFlo row in id order");
+    check(!otherClaim, "T2002-SF-04", "the lower-id non-South-Florida row was NOT claimed yet during the south_florida phase");
+
+    // Drain the south_florida phase until it transitions to 'remaining'.
+    let phase = (await backfill.getSunbizFullBackfillStatus()).phase;
+    let guard = 0;
+    while (phase === "south_florida" && guard++ < 20) {
+      await backfill.runSunbizBackfillMicrobatch();
+      phase = (await backfill.getSunbizFullBackfillStatus()).phase;
+    }
+    check(phase === "remaining" || phase === "completed", "T2002-SF-05", "south_florida phase eventually exhausts and transitions to remaining");
+
+    // Drain remaining phase and confirm the non-SoFlo row is picked up too --
+    // nothing is silently skipped, it just runs in the second pass.
+    guard = 0;
+    while (phase === "remaining" && guard++ < 20) {
+      await backfill.runSunbizBackfillMicrobatch();
+      phase = (await backfill.getSunbizFullBackfillStatus()).phase;
+    }
+    const finalClaims = rows(await db.execute(sql`
+      SELECT filing_number FROM sunbiz_bootstrap_claims WHERE filing_number = ${other.filingNumber}
+    `));
+    check(finalClaims.length === 1, "T2002-SF-06", "the non-South-Florida row is fully processed by the end of the remaining phase (no silent skip)");
+    check(phase === "completed", "T2002-SF-07", "both phases report completed once the full universe is processed");
+  }
+
+  // ── SoFlo-2. Mixed/ambiguous geography is never treated as South Florida ──
+  await resetRun();
+  {
+    const { isSouthFloridaEligible } = await import("../server/services/sunbiz-bootstrap");
+    const unknown = isSouthFloridaEligible({ principalState: null, principalCity: null, principalZip: null });
+    check(unknown === false, "T2002-SF-08", "unknown geography (no state/city/zip) is never eligible for the South Florida priority pass");
+
+    const conflicting = isSouthFloridaEligible({ principalState: "FL", principalCity: "Key West", principalZip: "33040" });
+    check(conflicting === false, "T2002-SF-09", "Monroe County (disabled, not one of Miami-Dade/Broward/Palm Beach) is never eligible");
+
+    const outOfState = isSouthFloridaEligible({ principalState: "TX", principalCity: "Austin", principalZip: null });
+    check(outOfState === false, "T2002-SF-10", "a different state is never eligible");
+
+    const verified = isSouthFloridaEligible({ principalState: "FL", principalCity: "Miami", principalZip: null });
+    check(verified === true, "T2002-SF-11", "a recognized South Florida city with FL state is eligible");
+
+    // End-to-end: an ambiguous/unknown-geography fixture must NOT be claimed
+    // during the south_florida phase, only during the remaining phase.
+    const ambiguous = await insertFixtureEntity(110, { city: "Nowhere City Not In Reference", state: "FL" });
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
+    let phase = (await backfill.getSunbizFullBackfillStatus()).phase;
+    let guard = 0;
+    while (phase === "south_florida" && guard++ < 20) {
+      await backfill.runSunbizBackfillMicrobatch();
+      const claimed = rows(await db.execute(sql`SELECT 1 FROM sunbiz_bootstrap_claims WHERE filing_number = ${ambiguous.filingNumber}`));
+      check(claimed.length === 0, "T2002-SF-12", "an unknown-geography row stays unclaimed throughout the entire south_florida phase");
+      phase = (await backfill.getSunbizFullBackfillStatus()).phase;
+    }
+    guard = 0;
+    while (phase === "remaining" && guard++ < 20) {
+      await backfill.runSunbizBackfillMicrobatch();
+      phase = (await backfill.getSunbizFullBackfillStatus()).phase;
+    }
+    const finalClaim = rows(await db.execute(sql`SELECT 1 FROM sunbiz_bootstrap_claims WHERE filing_number = ${ambiguous.filingNumber}`));
+    check(finalClaim.length === 1, "T2002-SF-13", "the unknown-geography row IS eventually processed, in the remaining-universe phase");
+  }
+
+  // ── SoFlo-3. Retry within the South Florida lane, restart/resume of the
+  // lane-specific cursor ──
+  await resetRun();
+  {
+    const { SUNBIZ_BACKFILL_MAX_RETRIES } = await import("../server/services/sunbiz-bootstrap");
+    const fx = await insertFixtureEntity(120, { city: "Fort Lauderdale", state: "FL" });
+    await db.execute(sql`
+      INSERT INTO sunbiz_bootstrap_claims (filing_number, sunbiz_entity_id, status, retry_count, completed_at)
+      VALUES (${fx.filingNumber}, ${fx.id}, 'failed', ${SUNBIZ_BACKFILL_MAX_RETRIES - 1}, now())
+    `);
+    await backfill.resumeSunbizFullBackfill({ skipCapabilityCheck: true });
+    const statusBefore = await backfill.getSunbizFullBackfillStatus();
+    check(statusBefore.southFlorida.highWaterEntityId === 0, "T2002-SF-14", "south florida lane cursor starts at 0 (restart-safe read of a fresh run)");
+
+    const { selectSunbizBootstrapCandidates } = await import("../server/services/sunbiz-bootstrap");
+    const stillRetryable = (await selectSunbizBootstrapCandidates(25, { afterId: 0, geography: "south_florida" })).some((c) => c.filingNumber === fx.filingNumber);
+    check(stillRetryable, "T2002-SF-15", "a 'failed' South Florida claim below the retry threshold remains eligible within the south_florida-filtered selection");
   }
 
   // ── 7. Zero side effects on contacts/deals/GHL/outreach-adjacent tables ──

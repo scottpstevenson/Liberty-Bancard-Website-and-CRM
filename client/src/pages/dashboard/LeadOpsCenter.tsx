@@ -1092,11 +1092,33 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                 add <code>sunbiz-backfill</code> to <code>BACKGROUND_JOB_PROFILE=selective:...</code> and restart, or use <code>full</code>.
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                backfillStatusQuery.data?.phase === "south_florida" ? "bg-sky-100 text-sky-800" :
+                backfillStatusQuery.data?.phase === "remaining" ? "bg-indigo-100 text-indigo-800" :
+                "bg-blue-100 text-blue-800"
+              }`} data-testid="badge-backfill-phase">
+                {backfillStatusQuery.data?.phase === "south_florida" ? "Pass 1/2: South Florida" :
+                 backfillStatusQuery.data?.phase === "remaining" ? "Pass 2/2: Remaining universe" :
+                 "Both passes complete"}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted-foreground" data-testid="text-backfill-soflo-lane">
+              South Florida — cursor #{backfillStatusQuery.data?.southFlorida?.highWaterEntityId ?? 0} ·
+              processed {backfillStatusQuery.data?.southFlorida?.processedCount ?? 0} ·
+              dead-lettered {backfillStatusQuery.data?.southFlorida?.deadLetterCount ?? 0} ·
+              remaining eligible ~{backfillStatusQuery.data?.southFlorida?.remainingEligible ?? "—"}.
+            </div>
+            <div className="text-[11px] text-muted-foreground" data-testid="text-backfill-remaining-lane">
+              Remaining universe — cursor #{backfillStatusQuery.data?.remainingUniverse?.highWaterEntityId ?? 0} ·
+              processed {backfillStatusQuery.data?.remainingUniverse?.processedCount ?? 0} ·
+              dead-lettered {backfillStatusQuery.data?.remainingUniverse?.deadLetterCount ?? 0} ·
+              remaining eligible ~{backfillStatusQuery.data?.remainingUniverse?.remainingEligible ?? "—"}.
+            </div>
             <div className="text-[11px] text-muted-foreground">
-              Cursor entity #{backfillStatusQuery.data?.highWaterEntityId ?? 0} ·
-              processed {backfillStatusQuery.data?.processedCount ?? 0} ·
-              dead-lettered {backfillStatusQuery.data?.deadLetterCount ?? 0} ·
-              remaining eligible ~{backfillStatusQuery.data?.remainingEligible ?? "—"} ·
+              Total processed {backfillStatusQuery.data?.processedCount ?? 0} ·
+              total dead-lettered {backfillStatusQuery.data?.deadLetterCount ?? 0} ·
+              geography reference {backfillStatusQuery.data?.geographyReferenceVersion ?? "—"} ·
               last batch {backfillStatusQuery.data?.lastBatchAt ? new Date(backfillStatusQuery.data.lastBatchAt).toLocaleString() : "—"}.
             </div>
             {backfillStatusQuery.data?.lastError && (
