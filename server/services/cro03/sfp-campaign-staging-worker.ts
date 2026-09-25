@@ -177,10 +177,16 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
          AND state IN ('pending','retry')
          AND (state='pending' OR next_attempt_at<=NOW())
     `);
+    // Retry-contract correction: salt the preview/execute snapshot with this
+    // tick's claim token so an unchanged eligibility selection produces a
+    // genuinely new commandKey on a genuine retry attempt, instead of
+    // replaying the previous attempt's stored (possibly failed) receipt —
+    // see previewStagingV2's attemptSalt doc.
     const preview = await previewStagingV2({
       cohortRunId: String(run.cohort_run_id),
       eligibilityIds,
       actorId: String(run.actor_id),
+      attemptSalt: claimToken,
     });
     await renewStageRunClaim(runId, claimToken);
     // The command key is server-issued by previewStagingV2() and validated
@@ -203,6 +209,7 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
       actorId: String(run.actor_id),
       confirmPayloadHash: preview.payloadHash,
       stageRunId: runId,
+      attemptSalt: claimToken,
     });
 
     // The authoritative completed/dead_letter state for every item in this

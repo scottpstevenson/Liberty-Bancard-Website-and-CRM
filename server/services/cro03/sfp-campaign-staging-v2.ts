@@ -127,6 +127,22 @@ export async function previewStagingV2(opts: {
    * than reclassified as newly blocked.
    */
   resumeCommandKey?: string;
+  /**
+   * Retry-contract correction: the recurring worker passes its current
+   * stage-run claim token here so a genuine new attempt at an UNCHANGED
+   * eligibility selection (same IDs, same snapshot) produces a genuinely
+   * different commandKey than the prior attempt. Without this, retrying the
+   * exact same selection reproduces the exact same snapshotHash, so
+   * executeStagingV2() finds its own prior 'completed' command row for that
+   * commandKey and replays the stored receipt instead of ever touching the
+   * stage item again — the item is claimed but never actually reprocessed.
+   * The claim token is stable for the lifetime of one worker tick (renewals
+   * do not change it) and changes on every fresh claim of the stage run, so
+   * it salts the hash once per real attempt, not once per call. Manual
+   * (non-worker) callers never pass this, so ordinary manual command replay
+   * (protecting a double-submit from re-running side effects) is untouched.
+   */
+  attemptSalt?: string;
 }): Promise<StagingV2Preview> {
   if (!opts.eligibilityIds || opts.eligibilityIds.length === 0) {
     throw new SfpStagingV2Error("SFP_STAGING_NO_SELECTION", "eligibilityIds must be explicitly provided and non-empty", 400);
@@ -270,6 +286,7 @@ export async function previewStagingV2(opts: {
     eligibilityIds: [...opts.eligibilityIds].sort(),
     policyDocumentHash,
     rows: hashInputRows,
+    attemptSalt: opts.attemptSalt ?? null,
   });
   const commandKey = `sfp-stage-v2:${opts.cohortRunId}:${snapshotHash}`;
   const payloadHash = sha256({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds });
@@ -333,6 +350,14 @@ export async function executeStagingV2(opts: {
    * ledger row instead of manufacturing a parallel one.
    */
   stageRunId?: string;
+  /**
+   * Retry-contract correction: must be the exact same value the paired
+   * previewStagingV2() call used to derive commandKey/snapshotHash — see
+   * previewStagingV2's attemptSalt doc. Threaded through to the internal
+   * freshness re-derivation below so it reproduces the identical
+   * snapshotHash rather than false-positive SFP_STAGING_SNAPSHOT_DRIFTED.
+   */
+  attemptSalt?: string;
 }): Promise<StagingV2ExecuteResult> {
   if (!opts.eligibilityIds || opts.eligibilityIds.length === 0) {
     throw new SfpStagingV2Error("SFP_STAGING_NO_SELECTION", "eligibilityIds must be explicitly provided and non-empty", 400);
@@ -412,7 +437,7 @@ export async function executeStagingV2(opts: {
   // out-of-date dispositions. Resumed same-command rows are reconciled as
   // idempotent no-ops inside stageOneRowTransactional(), not reclassified
   // as drift, because they carry this exact commandKey.
-  const freshPreview = await previewStagingV2({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds, actorId: opts.actorId, resumeCommandKey: opts.commandKey });
+  const freshPreview = await previewStagingV2({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds, actorId: opts.actorId, resumeCommandKey: opts.commandKey, attemptSalt: opts.attemptSalt });
   if (freshPreview.snapshotHash !== opts.snapshotHash) {
     throw new SfpStagingV2Error("SFP_STAGING_SNAPSHOT_DRIFTED", "snapshot has drifted since preview (policy/package/eligibility changed) — request a new preview", 409);
   }
@@ -433,6 +458,11 @@ export async function executeStagingV2(opts: {
   let readyHeld = 0;
   let rejected = 0;
   const reasons: Record<string, number> = {};
+  // Retry-contract correction: a worker-owned run already bumped
+  // attempt_count once at claim time (sfp-campaign-staging-worker.ts) for
+  // every item in this batch. Bumping it again here on completion/dead-letter
+  // would count one real attempt twice against MAX_ATTEMPTS.
+  const isWorkerOwnedAttempt = !!opts.stageRunId;
 
   for (const previewRow of freshPreview.rows) {
     const itemId = await ensureStageItem(stageRunId, previewRow.businessId);
@@ -440,7 +470,7 @@ export async function executeStagingV2(opts: {
       rejected++;
       const reason = previewRow.blockedReason ?? "blocked";
       reasons[reason] = (reasons[reason] ?? 0) + 1;
-      await markStageItemDeadLetter(itemId, reason);
+      await markStageItemDeadLetter(itemId, reason, { incrementAttempt: !isWorkerOwnedAttempt });
       continue;
     }
     try {
@@ -455,13 +485,14 @@ export async function executeStagingV2(opts: {
         payloadHash,
         snapshotHash: opts.snapshotHash,
         stageItemId: itemId,
+        incrementAttempt: !isWorkerOwnedAttempt,
       });
       readyHeld++;
     } catch (err: any) {
       rejected++;
       const code = err instanceof SfpStagingV2Error ? err.code : "staging_transaction_failed";
       reasons[code] = (reasons[code] ?? 0) + 1;
-      await markStageItemDeadLetter(itemId, code);
+      await markStageItemDeadLetter(itemId, code, { incrementAttempt: !isWorkerOwnedAttempt });
     }
   }
 
@@ -519,7 +550,7 @@ export async function executeStagingV2(opts: {
 async function stageOneRowTransactional(opts: {
   cohortRunId: string; eligibilityId: string; businessId: number; sourceKind: "free" | "paid";
   packageKey: string; actorId: string; commandKey: string; payloadHash: string; snapshotHash: string;
-  stageItemId: string;
+  stageItemId: string; incrementAttempt?: boolean;
 }): Promise<void> {
   const activePolicy = await getActiveSfpOutreachPolicy();
   await db.transaction(async (tx) => {
@@ -571,7 +602,7 @@ async function stageOneRowTransactional(opts: {
         SELECT command_key, state FROM sfp_campaign_staging_intents WHERE id = ${String(eligRow.staging_intent_id)}::uuid
       `))[0];
       if (existingIntent && existingIntent.command_key === opts.commandKey && existingIntent.state === "ready_held") {
-        await markStageItemCompletedInTx(tx, opts.stageItemId);
+        await markStageItemCompletedInTx(tx, opts.stageItemId, "ready_held", { incrementAttempt: opts.incrementAttempt ?? true });
         return;
       }
       throw new SfpStagingV2Error("SFP_STAGING_ALREADY_HAS_INTENT", "eligibility already has a staging intent", 409);
@@ -761,6 +792,6 @@ async function stageOneRowTransactional(opts: {
     // as a separate follow-up statement — so a crash cannot leave a
     // ready_held intent whose stage item still reads pending/claimed, and
     // no separate reconciliation step is needed to catch that split state.
-    await markStageItemCompletedInTx(tx, opts.stageItemId);
+    await markStageItemCompletedInTx(tx, opts.stageItemId, "ready_held", { incrementAttempt: opts.incrementAttempt ?? true });
   });
 }

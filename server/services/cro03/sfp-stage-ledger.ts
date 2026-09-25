@@ -73,20 +73,33 @@ export async function ensureStageItem(stageRunId: string, businessId: number): P
  * in, so the item's completion and the mutation are one atomic commit.
  * Idempotent against a resumed retry that already completed this item.
  */
-export async function markStageItemCompletedInTx(tx: any, itemId: string, outcomeCode = "ready_held"): Promise<void> {
+/**
+ * Retry-contract correction: `incrementAttempt` defaults to true for the
+ * manual flow, which never claims a stage item (no prior attempt_count bump
+ * exists to account for). The recurring worker DOES bump attempt_count once
+ * at claim time (see sfp-campaign-staging-worker.ts) to mark that a real
+ * attempt has started, so it passes `incrementAttempt: false` here — a
+ * second bump on completion/dead-letter would silently count every actual
+ * worker attempt twice against MAX_ATTEMPTS.
+ */
+export async function markStageItemCompletedInTx(tx: any, itemId: string, outcomeCode = "ready_held", opts?: { incrementAttempt?: boolean }): Promise<void> {
+  const incrementAttempt = opts?.incrementAttempt ?? true;
   await tx.execute(sql`
     UPDATE sfp_stage_items
-       SET state = 'completed', outcome_code = ${outcomeCode}, attempt_count = attempt_count + 1,
+       SET state = 'completed', outcome_code = ${outcomeCode},
+           attempt_count = attempt_count ${incrementAttempt ? sql`+ 1` : sql``},
            completed_at = NOW(), updated_at = NOW(), lease_expires_at = NULL
      WHERE id = ${itemId}::uuid AND state <> 'completed'
   `);
 }
 
 /** Manual-flow items are single-attempt: a rejection or a thrown mutation error goes straight to dead_letter (no retry schedule). */
-export async function markStageItemDeadLetter(itemId: string, outcomeCode: string): Promise<void> {
+export async function markStageItemDeadLetter(itemId: string, outcomeCode: string, opts?: { incrementAttempt?: boolean }): Promise<void> {
+  const incrementAttempt = opts?.incrementAttempt ?? true;
   await db.execute(sql`
     UPDATE sfp_stage_items
-       SET state = 'dead_letter', outcome_code = ${outcomeCode.slice(0, 200)}, attempt_count = attempt_count + 1,
+       SET state = 'dead_letter', outcome_code = ${outcomeCode.slice(0, 200)},
+           attempt_count = attempt_count ${incrementAttempt ? sql`+ 1` : sql``},
            completed_at = NOW(), updated_at = NOW(), lease_expires_at = NULL
      WHERE id = ${itemId}::uuid AND state NOT IN ('completed', 'dead_letter')
   `);

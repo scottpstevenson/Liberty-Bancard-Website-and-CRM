@@ -884,86 +884,58 @@ try {
     "the worker-owned run returns to 'pending' after a retryable failure — proves executeStagingV2() no longer terminalizes a caller-owned run to 'completed' out from under the worker's own state machine");
 
   // Force the retry to be immediately due (rather than waiting on real
-  // wall-clock backoff) and confirm the very next tick actually reclaims
-  // it — attempt_count must advance again, proving the item was picked up,
-  // not left orphaned on a run the worker could no longer transition.
-  //
-  // A same-batch preview/execute call is itself idempotent by commandKey:
-  // if a later tick's eligibleIds set hashes to the exact same commandKey
-  // as an already-'completed' command (nothing else in the cohort changed),
-  // executeStagingV2() correctly replays the stored receipt rather than
-  // redoing the mutation — that replay guarantee is intentional and is not
-  // part of this fix. To exercise genuinely repeated real attempts (as a
-  // production batch naturally would, since its eligible-row set shifts
-  // tick to tick), each reclaim below adds one fresh decoy row to the same
-  // cohort so the batch's commandKey differs from the prior tick's.
-  let decoySeq = 0;
-  async function addDecoyBlockedRow(): Promise<void> {
-    decoySeq++;
-    const decoyBusiness = rows(await db.execute(sql`
-      INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
-      VALUES (${`${runKey}-business-retry-decoy-${decoySeq}`}, ${`${runKey}-business-retry-decoy-${decoySeq}`.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
-      RETURNING id
-    `))[0];
-    const decoyBusinessId = Number(decoyBusiness.id);
-    // NOTE: sfp_cohort_members is not consulted by previewStagingV2()'s
-    // eligibility query (it joins sfp_outreach_eligibility directly), and
-    // the owning cohort run is already frozen by this point in the test —
-    // a real member-insert trigger would reject a post-freeze insert here,
-    // so this decoy intentionally skips it.
-    const sealedDecoy = seal("email", `retry-decoy-${decoySeq}-${runKey}@example.org`);
-    const decoyCandidate = rows(await db.execute(sql`
-      INSERT INTO free_discovery_candidates
-        (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
-         disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
-         envelope_key_version, normalized_value_hash, masked_value, created_at)
-      VALUES (${String(generation.id)}::uuid, ${decoyBusinessId}, 'email', 'business',
-        ${`${runKey}-retry-decoy-${decoySeq}.example.org`}, 'certification', 'role', 'staged', 90,
-        ${sealedDecoy.ciphertext}, ${sealedDecoy.nonce}, ${sealedDecoy.tag}, 1,
-        ${sealedDecoy.normalizedValueHash}, ${sealedDecoy.maskedValue}, NOW())
-      RETURNING id
-    `))[0];
+  // wall-clock backoff) and confirm the very next tick actually reprocesses
+  // it — with the SAME eligibility selection, the SAME cohort, and no
+  // decoy rows added. Retry-contract correction: the worker now salts its
+  // preview/execute snapshot with the current tick's stage-run claim token
+  // (see previewStagingV2's attemptSalt doc), so an unchanged selection
+  // still produces a genuinely new commandKey per real attempt instead of
+  // replaying the prior attempt's stored (failed) receipt and leaving the
+  // claimed item stranded.
+  check(Number(retryItemAfterTick1?.attempt_count ?? 0) === 1,
+    "exactly one real worker attempt registers as attempt_count = 1 (not double-counted by claim + completion/dead-letter)");
+
+  async function forceDueAndTick(itemId: string): Promise<{ state: string; attempt_count: number }> {
     await db.execute(sql`
-      INSERT INTO sfp_outreach_eligibility
-        (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-         decision_reason, validation_at, validation_expires_at, role_inbox,
-         normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
-      VALUES (${retryCohortRunId}::uuid, ${decoyBusinessId}, ${String(decoyCandidate.id)}::uuid, 'free',
-         ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_retry_decoy',
-         NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`retry-decoy-${decoySeq}-${runKey}`).digest("hex")},
-         ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+      UPDATE sfp_stage_items SET next_attempt_at = NOW() - INTERVAL '1 minute'
+       WHERE id = ${itemId}::uuid AND state = 'retry'
     `);
+    await processSfpCampaignStagingTick();
+    return rows(await db.execute(sql`
+      SELECT state, attempt_count FROM sfp_stage_items WHERE id = ${itemId}::uuid
+    `))[0] as any;
   }
 
-  await addDecoyBlockedRow();
-  await db.execute(sql`UPDATE sfp_stage_items SET next_attempt_at = NOW() - INTERVAL '1 minute' WHERE id = ${String(retryItemAfterTick1.id)}::uuid`);
-  await processSfpCampaignStagingTick();
-  const retryItemAfterTick2 = rows(await db.execute(sql`
-    SELECT state, attempt_count FROM sfp_stage_items WHERE id = ${String(retryItemAfterTick1.id)}::uuid
-  `))[0];
-  check(Number(retryItemAfterTick2.attempt_count) > Number(retryItemAfterTick1.attempt_count),
-    "a later worker tick actually reclaims a due 'retry' item (attempt_count advances again), it is not stranded on an unreclaimable run");
+  const retryItemAfterTick2 = await forceDueAndTick(String(retryItemAfterTick1.id));
+  check(Number(retryItemAfterTick2.attempt_count) === 2,
+    "a later worker tick genuinely reprocesses the SAME unchanged eligibility selection — attempt_count advances by exactly one real attempt (2), not zero (stranded replay) or two (double count)");
   check(retryItemAfterTick2.state === "retry" || retryItemAfterTick2.state === "dead_letter",
     "the reclaimed item is genuinely re-processed (retry or terminal dead_letter), not left stuck 'claimed' by a stale replay");
 
-  // Drive attempts to MAX_ATTEMPTS to prove the item eventually goes
-  // terminal (dead_letter) and the owning run reports 'failed'.
-  for (let i = 0; i < 3; i++) {
-    await addDecoyBlockedRow();
-    await db.execute(sql`
-      UPDATE sfp_stage_items SET next_attempt_at = NOW() - INTERVAL '1 minute'
-       WHERE id = ${String(retryItemAfterTick1.id)}::uuid AND state = 'retry'
-    `);
-    await processSfpCampaignStagingTick();
+  // Continue unchanged through exactly five actual attempts — no decoy
+  // rows, no cohort changes — proving the fifth ACTUAL failed attempt (not
+  // the third attempt counted twice) is what reaches dead_letter.
+  let lastItem = retryItemAfterTick2;
+  for (let attempt = 3; attempt <= 5; attempt++) {
+    lastItem = await forceDueAndTick(String(retryItemAfterTick1.id));
+    if (attempt < 5) {
+      check(Number(lastItem.attempt_count) === attempt && lastItem.state === "retry",
+        `attempt ${attempt}: the same unchanged item is reclaimed and genuinely retried (attempt_count = ${attempt}, state 'retry')`);
+    }
   }
-  const retryItemFinal = rows(await db.execute(sql`
-    SELECT state, attempt_count FROM sfp_stage_items WHERE id = ${String(retryItemAfterTick1.id)}::uuid
-  `))[0];
+  check(lastItem.state === "dead_letter" && Number(lastItem.attempt_count) === 5,
+    "the fifth ACTUAL failed attempt — attempt_count exactly 5, not a lower count double-incremented to look like 5 — moves the item to 'dead_letter'");
+
   const retryRunFinal = rows(await db.execute(sql`SELECT state FROM sfp_stage_runs WHERE id = ${String(retryRun.id)}::uuid`))[0];
-  check(retryItemFinal?.state === "dead_letter" && Number(retryItemFinal.attempt_count) >= 5,
-    "a terminal retry (attempt_count reaching MAX_ATTEMPTS) becomes 'dead_letter', not left cycling in 'retry' forever");
   check(retryRunFinal?.state === "failed",
     "the owning run reports 'failed' once its item exhausts all retry attempts");
+
+  const claimedStragglers = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_stage_items
+     WHERE stage_run_id = ${String(retryRun.id)}::uuid AND state = 'claimed'
+  `))[0];
+  check(Number(claimedStragglers?.count ?? 0) === 0,
+    "no item remains 'claimed' after a completed worker tick on this run — the retry contract never strands a claimed item behind a replayed command receipt");
 
   // --- Issue 2: the real-address suppression check inside the plaintext   --
   // callback is bound to the staging transaction, not the global db pool.  --
