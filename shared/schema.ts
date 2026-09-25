@@ -9434,19 +9434,25 @@ export const sfpOutreachPolicyDocuments = pgTable("sfp_outreach_policy_documents
 });
 
 export const sfpOutreachPolicyControl = pgTable("sfp_outreach_policy_control", {
-  // NOT chained with .primaryKey() on the column builder: drizzle-kit
-  // 0.31.10's push generation for a boolean primaryKey column double-wraps
-  // its auto-generated CHECK ("CHECK (CHECK (singleton))"), which Postgres
-  // rejects on a fresh install. The primary key and the singleton-enforcing
-  // CHECK are declared explicitly below instead, matching migration 0289's
-  // hand-written DDL exactly (see PM-07 in the Task #2001 corrective audit).
+  // No declarative check() here on purpose: drizzle-kit 0.31.10's push-based
+  // generator (used by Replit Publish to diff dev vs production schemas)
+  // introspects this table's CHECK constraint from Postgres — where
+  // pg_get_constraintdef already returns the full "CHECK (singleton)" text —
+  // and then wraps that stored text in another "CHECK (...)" when emitting a
+  // fresh CREATE TABLE for production, producing invalid SQL
+  // ("CHECK (CHECK (singleton))"). This happens purely because the table is
+  // new to production; declaring the check in schema.ts cannot avoid it as
+  // long as the constraint also exists in dev. The singleton-enforcing CHECK
+  // is instead applied out-of-band via ensureSfpOutreachPolicyControlCheckConstraint()
+  // (server/services/cro03/sfp-outreach-policy.ts), matching migration
+  // 0289/0291's hand-written DDL exactly (see PM-07 in the Task #2001
+  // corrective audit, and the Publish CHECK-doubling bug found afterward).
   singleton: boolean("singleton").notNull().default(true),
   activePolicyId: uuid("active_policy_id").notNull().references(() => sfpOutreachPolicyDocuments.id),
   activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
   activatedBy: text("activated_by").notNull(),
 }, (table) => [
   primaryKey({ columns: [table.singleton] }),
-  check("sfp_outreach_policy_control_singleton_check", sql`singleton`),
 ]);
 
 export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {

@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
 import { runProductionSeedConvergence, convergeContactRecordClassBackfill } from "./services/production-seed-convergence";
+import { ensureSfpOutreachPolicyControlCheckConstraint } from "./services/cro03/sfp-outreach-policy";
 // W13: Ceremony removed from startup — use scripts/cro03d-run-ceremony.ts offline.
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -303,6 +304,10 @@ app.use((req, _res, next) => {
   // target here is insert-only and fails closed (throws, blocking startup)
   // on any conflict with canonical content.
   await runProductionSeedConvergence();
+  // Applies sfp_outreach_policy_control's singleton CHECK constraint
+  // out-of-band — see ensureSfpOutreachPolicyControlCheckConstraint's doc
+  // comment for why it cannot be declared in shared/schema.ts.
+  await ensureSfpOutreachPolicyControlCheckConstraint();
   // W13: Ceremony artifacts no longer run at startup — use scripts/cro03d-run-ceremony.ts offline.
   await assertCro02PurposePolicies();
   await registerRoutes(httpServer, app);

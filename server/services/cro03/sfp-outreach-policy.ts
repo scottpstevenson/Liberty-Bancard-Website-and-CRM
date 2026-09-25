@@ -30,6 +30,37 @@ export interface SfpActivePolicy {
 
 let _cachedActivePolicy: SfpActivePolicy | null = null;
 
+/**
+ * Applies the singleton-enforcing CHECK constraint out-of-band, on startup,
+ * instead of declaring it in shared/schema.ts. Replit Publish diffs
+ * schema.ts against production with drizzle-kit push; once this table's
+ * CHECK constraint exists in dev, drizzle-kit introspects its Postgres
+ * definition (which pg_get_constraintdef already renders as
+ * "CHECK (singleton)") and re-wraps that text in another "CHECK (...)" when
+ * generating a fresh CREATE TABLE for production, producing invalid SQL
+ * ("CHECK (CHECK (singleton))"). Declaring the constraint here instead lets
+ * Publish create the plain table, and this function adds the real
+ * constraint afterward. Idempotent: checks pg_constraint before adding, and
+ * tolerates a concurrent duplicate_object race.
+ */
+export async function ensureSfpOutreachPolicyControlCheckConstraint(): Promise<void> {
+  const existing = rows(await db.execute(sql`
+    SELECT 1 FROM pg_constraint WHERE conname = 'sfp_outreach_policy_control_singleton_check'
+  `))[0];
+  if (existing) return;
+  try {
+    await db.execute(sql`
+      ALTER TABLE sfp_outreach_policy_control
+        ADD CONSTRAINT sfp_outreach_policy_control_singleton_check CHECK (singleton)
+    `);
+  } catch (err: any) {
+    // 42710 = duplicate_object (constraint added concurrently by another
+    // instance); 42P01 = undefined_table (table not yet created by Publish
+    // on this boot — safe to skip, a later boot will converge it).
+    if (err?.code !== "42710" && err?.code !== "42P01") throw err;
+  }
+}
+
 /** Reads the singleton active policy pointer. Never writes/seeds — that is migration-owned. */
 export async function getActiveSfpOutreachPolicy(opts: { bypassCache?: boolean } = {}): Promise<SfpActivePolicy> {
   if (_cachedActivePolicy && !opts.bypassCache) return _cachedActivePolicy;
