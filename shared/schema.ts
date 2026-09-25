@@ -9447,7 +9447,6 @@ export const sfpOutreachPolicyControl = pgTable("sfp_outreach_policy_control", {
 }, (table) => [
   primaryKey({ columns: [table.singleton] }),
   check("sfp_outreach_policy_control_singleton_check", sql`singleton`),
-  primaryKey({ columns: [table.singleton] }),
 ]);
 
 export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
