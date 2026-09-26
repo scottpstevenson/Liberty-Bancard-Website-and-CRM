@@ -468,6 +468,246 @@ function SerperControlPanel() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <SerperUsageLogPanel />
+    </div>
+  );
+}
+
+interface SerperUsageDayRow {
+  day: string;
+  successes: string | number;
+  provider_errors: string | number;
+  blocked: string | number;
+  total: string | number;
+}
+
+interface SerperUsageCallSiteRow {
+  call_site: string | null;
+  successes: string | number;
+  provider_errors: string | number;
+  blocked: string | number;
+  total: string | number;
+}
+
+interface SerperUsageBlockReasonRow {
+  block_reason: string | null;
+  total: string | number;
+}
+
+interface SerperUsageLogResponse {
+  days: number;
+  byDay: SerperUsageDayRow[];
+  byCallSite: SerperUsageCallSiteRow[];
+  byBlockReason: SerperUsageBlockReasonRow[];
+}
+
+function SerperUsageLogPanel() {
+  const [days, setDays] = useState("14");
+
+  const { data, isLoading, isError, error, refetch } = useQuery<SerperUsageLogResponse>({
+    queryKey: ["/api/admin/serper/usage-log", days],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/serper/usage-log?days=${encodeURIComponent(days)}`, { credentials: "include" });
+      if (!res.ok) {
+        if (res.status === 404) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.message ?? "serper_call_log table missing — run migrations");
+        }
+        throw new Error("Failed to fetch Serper usage log");
+      }
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  const num = (v: string | number | null | undefined) => Number(v ?? 0);
+  const failRate = (row: { total: string | number; provider_errors: string | number; blocked: string | number }) => {
+    const total = num(row.total);
+    if (total === 0) return 0;
+    return (num(row.provider_errors) + num(row.blocked)) / total;
+  };
+
+  // Day buckets come back as UTC midnight timestamps (date_trunc('day', ...)). Format the
+  // calendar date directly from the UTC fields so it never shifts to the prior day in
+  // timezones behind UTC (e.g. all US timezones).
+  const formatUtcDay = (iso: string, opts?: Intl.DateTimeFormatOptions) =>
+    new Date(iso).toLocaleDateString(undefined, { ...opts, timeZone: "UTC" });
+
+  const chartData = (data?.byDay ?? [])
+    .slice()
+    .reverse()
+    .map((row) => ({
+      day: formatUtcDay(row.day, { month: "short", day: "numeric" }),
+      Successes: num(row.successes),
+      "Provider Errors": num(row.provider_errors),
+      Blocked: num(row.blocked),
+    }));
+
+  return (
+    <div className="space-y-4" data-testid="section-serper-usage-log">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h3 className="text-lg font-semibold">Serper Usage by Day &amp; Feature</h3>
+        <div className="flex items-center gap-2">
+          <Select value={days} onValueChange={setDays}>
+            <SelectTrigger className="w-32" data-testid="select-serper-usage-range">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="14">Last 14 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-refresh-serper-usage-log">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="serper-usage-log-error">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+          <p className="text-sm text-muted-foreground">
+            {(error as Error)?.message || "Failed to load Serper usage log"}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
+        </div>
+      ) : !data || (data.byDay.length === 0 && data.byCallSite.length === 0) ? (
+        <p className="text-sm text-muted-foreground py-6 text-center" data-testid="serper-usage-log-empty">
+          No Serper calls logged in this window.
+        </p>
+      ) : (
+        <>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-xs text-muted-foreground mb-2">Calls per day</div>
+              <div style={{ width: "100%", height: 220 }}>
+                <ResponsiveContainer>
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="day" fontSize={11} />
+                    <YAxis fontSize={11} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="Successes" stackId="a" fill="#16a34a" />
+                    <Bar dataKey="Provider Errors" stackId="a" fill="#ea580c" />
+                    <Bar dataKey="Blocked" stackId="a" fill="#dc2626" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">Usage by call site (feature)</div>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-2 font-medium">Call Site</th>
+                    <th className="text-right p-2 font-medium">Total</th>
+                    <th className="text-right p-2 font-medium">Successes</th>
+                    <th className="text-right p-2 font-medium">Provider Errors</th>
+                    <th className="text-right p-2 font-medium">Blocked</th>
+                    <th className="text-right p-2 font-medium">Fail Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byCallSite.map((row) => {
+                    const rate = failRate(row);
+                    const highFail = rate > 0.2 && num(row.total) >= 5;
+                    return (
+                      <tr key={row.call_site ?? "unknown"} className="border-t" data-testid={`row-serper-callsite-${row.call_site ?? "unknown"}`}>
+                        <td className="p-2">{row.call_site ?? "unknown"}</td>
+                        <td className="p-2 text-right">{num(row.total)}</td>
+                        <td className="p-2 text-right text-green-600">{num(row.successes)}</td>
+                        <td className="p-2 text-right text-orange-600">{num(row.provider_errors)}</td>
+                        <td className="p-2 text-right text-red-600">{num(row.blocked)}</td>
+                        <td className="p-2 text-right">
+                          <span className={cn(highFail && "font-semibold text-red-600")}>
+                            {(rate * 100).toFixed(0)}%
+                          </span>
+                          {highFail && (
+                            <Badge variant="destructive" className="ml-2" data-testid={`badge-high-fail-${row.call_site ?? "unknown"}`}>
+                              High
+                            </Badge>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {data.byBlockReason.length > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-2">Block reasons</div>
+              <div className="flex flex-wrap gap-2">
+                {data.byBlockReason.map((row) => (
+                  <Badge
+                    key={row.block_reason ?? "unspecified"}
+                    variant="outline"
+                    data-testid={`badge-block-reason-${row.block_reason ?? "unspecified"}`}
+                  >
+                    {(row.block_reason ?? "unspecified")}: {num(row.total)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">Usage by day</div>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-2 font-medium">Day</th>
+                    <th className="text-right p-2 font-medium">Total</th>
+                    <th className="text-right p-2 font-medium">Successes</th>
+                    <th className="text-right p-2 font-medium">Provider Errors</th>
+                    <th className="text-right p-2 font-medium">Blocked</th>
+                    <th className="text-right p-2 font-medium">Fail Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byDay.map((row) => {
+                    const rate = failRate(row);
+                    const highFail = rate > 0.2 && num(row.total) >= 5;
+                    return (
+                      <tr key={row.day} className="border-t" data-testid={`row-serper-day-${row.day}`}>
+                        <td className="p-2">{formatUtcDay(row.day)}</td>
+                        <td className="p-2 text-right">{num(row.total)}</td>
+                        <td className="p-2 text-right text-green-600">{num(row.successes)}</td>
+                        <td className="p-2 text-right text-orange-600">{num(row.provider_errors)}</td>
+                        <td className="p-2 text-right text-red-600">{num(row.blocked)}</td>
+                        <td className="p-2 text-right">
+                          <span className={cn(highFail && "font-semibold text-red-600")}>
+                            {(rate * 100).toFixed(0)}%
+                          </span>
+                          {highFail && (
+                            <Badge variant="destructive" className="ml-2">High</Badge>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
