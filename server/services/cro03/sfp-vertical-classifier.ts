@@ -32,6 +32,26 @@ import { createHash } from "crypto";
 /** Bump whenever the alias/synonym/non-target tables or the decision logic change. */
 export const CLASSIFIER_VERSION = 1 as const;
 
+/**
+ * SFP South Florida target-vertical taxonomy v2 (2026-09). Replaces the
+ * original five-package taxonomy (Med Spa, Dental, Auto Repair, Restaurant,
+ * Retail) for the South Florida program only -- the v1 tables above are left
+ * untouched so any other program still configured with the old five-package
+ * target list keeps its existing behavior byte-for-byte. Restaurants, food
+ * trucks, and DBPR-licensed categories are explicitly excluded here; DBPR
+ * lineage is also independently enforced upstream in the cohort selector.
+ */
+export const TAXONOMY_VERSION_V2 = 2 as const;
+
+export const SFP_TARGET_VERTICALS_V2 = [
+  "Automotive",
+  "Healthcare",
+  "Beauty/Spa",
+  "Construction/Trades/Home Services",
+  "Fitness/Recreation",
+] as const;
+export type SfpTargetVerticalV2 = typeof SFP_TARGET_VERTICALS_V2[number];
+
 export type ClassifierOutcome =
   | "resolved_high"
   | "resolved_medium"
@@ -41,6 +61,7 @@ export type ClassifierOutcome =
 
 export interface ClassifierResult {
   version: typeof CLASSIFIER_VERSION;
+  taxonomyVersion: 1 | 2;
   outcome: ClassifierOutcome;
   /** 0..1. Deterministic per outcome tier, not a probabilistic model score. */
   confidence: number;
@@ -105,23 +126,87 @@ const NOT_TARGET_LABELS = new Set([
   "church", "nonprofit", "government office", "pharmacy", "veterinary clinic",
 ]);
 
+// ── v2 taxonomy tables (South Florida program). Same structure/semantics as
+// the v1 tables above, scoped to the five new broader groups. ──
+const EXACT_ALIASES_V2: Record<string, string[]> = {
+  "Automotive": [
+    "auto repair", "automotive repair", "auto repair shop", "car repair",
+    "automotive", "auto service", "auto body shop", "tire shop", "auto shop",
+  ],
+  "Healthcare": [
+    "dental", "dentist", "dental office", "dentistry", "med spa", "medspa",
+    "medical spa", "med-spa", "medical clinic", "doctor's office",
+    "physician office", "urgent care", "chiropractor", "physical therapy",
+  ],
+  "Beauty/Spa": [
+    "hair salon", "salon", "spa", "nail salon", "beauty salon", "barber shop",
+    "barbershop", "day spa",
+  ],
+  "Construction/Trades/Home Services": [
+    "construction", "general contractor", "plumbing", "plumber", "roofing",
+    "electrician", "hvac", "landscaping", "home services", "handyman",
+  ],
+  "Fitness/Recreation": [
+    "gym", "fitness center", "yoga studio", "crossfit", "martial arts",
+    "personal training", "recreation center",
+  ],
+};
+
+const STRONG_SYNONYMS_V2: Record<string, string[]> = {
+  "Automotive": ["transmission repair", "brake shop", "auto mechanic", "auto service center", "car wash", "detailing shop"],
+  "Healthcare": ["orthodontist", "dental clinic", "family dentistry", "aesthetics clinic", "cosmetic med spa", "botox clinic", "wellness clinic", "urgent care clinic"],
+  "Beauty/Spa": ["nail bar", "blow dry bar", "waxing studio", "lash studio", "massage therapy"],
+  "Construction/Trades/Home Services": ["home remodeling", "home improvement", "pest control", "cleaning service", "painting contractor"],
+  "Fitness/Recreation": ["boxing gym", "pilates studio", "dance studio", "sports club"],
+};
+
+const AMBIGUOUS_LABELS_V2: Record<string, string[]> = {
+  "wellness": ["Healthcare", "Beauty/Spa"],
+  "clinic": ["Healthcare"],
+  "salon/spa": ["Beauty/Spa"],
+  "health": ["Healthcare"],
+  "trades": ["Construction/Trades/Home Services"],
+  "recreation": ["Fitness/Recreation"],
+  "services": ["Construction/Trades/Home Services"],
+};
+
+// Explicitly excludes restaurants/food trucks/food service and DBPR-licensed
+// categories (restaurant, hotel/motel, bar) per the South Florida program
+// scope. DBPR lineage itself is enforced independently upstream.
+const NOT_TARGET_LABELS_V2 = new Set([
+  "restaurant", "restaurants", "diner", "eatery", "bistro", "pizzeria",
+  "steakhouse", "food truck", "food trucks", "catering", "cafe", "coffee shop",
+  "bar", "nightclub", "legal services", "law firm", "attorney", "real estate",
+  "real estate agency", "insurance agency", "insurance", "grocery store",
+  "grocery", "liquor store", "gas station", "hotel", "motel", "bank",
+  "credit union", "accounting firm", "cpa", "daycare", "school", "church",
+  "nonprofit", "government office", "pharmacy", "veterinary clinic", "retail",
+  "retail store", "clothing store", "gift shop", "boutique", "shopping", "store",
+]);
+
 function normalize(value: string | null | undefined): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function findAliasTarget(normalizedLabel: string, targetIds: string[]): string | null {
+function tablesFor(taxonomyVersion: 1 | 2) {
+  return taxonomyVersion === 2
+    ? { aliases: EXACT_ALIASES_V2, synonyms: STRONG_SYNONYMS_V2, ambiguous: AMBIGUOUS_LABELS_V2, notTarget: NOT_TARGET_LABELS_V2 }
+    : { aliases: EXACT_ALIASES, synonyms: STRONG_SYNONYMS, ambiguous: AMBIGUOUS_LABELS, notTarget: NOT_TARGET_LABELS };
+}
+
+function findAliasTarget(normalizedLabel: string, targetIds: string[], aliases: Record<string, string[]>): string | null {
   for (const targetId of targetIds) {
     if (normalize(targetId) === normalizedLabel) return targetId;
-    const aliases = EXACT_ALIASES[targetId];
-    if (aliases?.some((a) => a === normalizedLabel)) return targetId;
+    const targetAliases = aliases[targetId];
+    if (targetAliases?.some((a) => a === normalizedLabel)) return targetId;
   }
   return null;
 }
 
-function findSynonymTarget(normalizedLabel: string, targetIds: string[]): string | null {
+function findSynonymTarget(normalizedLabel: string, targetIds: string[], synonymTable: Record<string, string[]>): string | null {
   for (const targetId of targetIds) {
-    const synonyms = STRONG_SYNONYMS[targetId];
+    const synonyms = synonymTable[targetId];
     if (synonyms?.some((s) => s === normalizedLabel)) return targetId;
   }
   return null;
@@ -129,6 +214,7 @@ function findSynonymTarget(normalizedLabel: string, targetIds: string[]): string
 
 function computeEvidenceHash(input: {
   version: number;
+  taxonomyVersion: 1 | 2;
   targetIds: string[];
   rawVertical: string | null;
   outcome: ClassifierOutcome;
@@ -138,6 +224,7 @@ function computeEvidenceHash(input: {
 }): string {
   const canonical = JSON.stringify({
     version: input.version,
+    taxonomyVersion: input.taxonomyVersion,
     targetIds: [...input.targetIds].sort(),
     rawVertical: input.rawVertical,
     outcome: input.outcome,
@@ -151,58 +238,71 @@ function computeEvidenceHash(input: {
 function finish(
   rawVertical: string | null,
   targetIds: string[],
+  taxonomyVersion: 1 | 2,
   outcome: ClassifierOutcome,
   confidence: number,
   matchedTargetId: string | null,
   reasons: string[],
 ): ClassifierResult {
   const evidenceHash = computeEvidenceHash({
-    version: CLASSIFIER_VERSION, targetIds, rawVertical, outcome, matchedTargetId, confidence, reasons,
+    version: CLASSIFIER_VERSION, taxonomyVersion, targetIds, rawVertical, outcome, matchedTargetId, confidence, reasons,
   });
-  return { version: CLASSIFIER_VERSION, outcome, confidence, matchedTargetId, rawVertical, reasons, evidenceHash };
+  return { version: CLASSIFIER_VERSION, taxonomyVersion, outcome, confidence, matchedTargetId, rawVertical, reasons, evidenceHash };
 }
 
 /**
  * Classify a business's raw vertical label against the program's configured
  * target vertical IDs. Pure function — same inputs always produce the same
  * output, including the evidence hash.
+ *
+ * `taxonomyVersion` selects which alias/synonym/non-target tables to use:
+ *   1 (default) — legacy five-package taxonomy (Med Spa, Dental, Auto Repair,
+ *      Restaurant, Retail). Unchanged from before this taxonomy existed, so
+ *      any caller that omits this argument keeps its exact prior behavior.
+ *   2 — South Florida program's five-group taxonomy (Automotive, Healthcare,
+ *      Beauty/Spa, Construction/Trades/Home Services, Fitness/Recreation).
  */
-export function classifyVertical(rawVertical: string | null | undefined, targetIds: string[]): ClassifierResult {
+export function classifyVertical(
+  rawVertical: string | null | undefined,
+  targetIds: string[],
+  taxonomyVersion: 1 | 2 = 1,
+): ClassifierResult {
   const normalized = normalize(rawVertical);
   const raw = typeof rawVertical === "string" ? rawVertical : null;
+  const { aliases, synonyms, ambiguous, notTarget } = tablesFor(taxonomyVersion);
 
   if (!normalized) {
-    return finish(raw, targetIds, "unresolved", 0, null, ["EMPTY_VERTICAL_LABEL"]);
+    return finish(raw, targetIds, taxonomyVersion, "unresolved", 0, null, ["EMPTY_VERTICAL_LABEL"]);
   }
 
-  const aliasTarget = findAliasTarget(normalized, targetIds);
+  const aliasTarget = findAliasTarget(normalized, targetIds, aliases);
   if (aliasTarget) {
-    return finish(raw, targetIds, "resolved_high", 0.95, aliasTarget, [`EXACT_ALIAS_MATCH:${aliasTarget}`]);
+    return finish(raw, targetIds, taxonomyVersion, "resolved_high", 0.95, aliasTarget, [`EXACT_ALIAS_MATCH:${aliasTarget}`]);
   }
 
-  const synonymTarget = findSynonymTarget(normalized, targetIds);
+  const synonymTarget = findSynonymTarget(normalized, targetIds, synonyms);
   if (synonymTarget) {
-    return finish(raw, targetIds, "resolved_medium", 0.75, synonymTarget, [`STRONG_SYNONYM_MATCH:${synonymTarget}`]);
+    return finish(raw, targetIds, taxonomyVersion, "resolved_medium", 0.75, synonymTarget, [`STRONG_SYNONYM_MATCH:${synonymTarget}`]);
   }
 
-  const ambiguousMatches = AMBIGUOUS_LABELS[normalized];
+  const ambiguousMatches = ambiguous[normalized];
   if (ambiguousMatches) {
     const relevantTargets = ambiguousMatches.filter((t) => targetIds.includes(t));
     if (relevantTargets.length > 0) {
-      return finish(raw, targetIds, "review_required", 0.4, null, [
+      return finish(raw, targetIds, taxonomyVersion, "review_required", 0.4, null, [
         `AMBIGUOUS_LABEL_OVERLAPS:${relevantTargets.join(",")}`,
       ]);
     }
     // Ambiguous label but none of its possible targets are in this program's
     // configured target set — treat as not_target for THIS program.
-    return finish(raw, targetIds, "not_target", 0.6, null, ["AMBIGUOUS_LABEL_NO_CONFIGURED_TARGET_OVERLAP"]);
+    return finish(raw, targetIds, taxonomyVersion, "not_target", 0.6, null, ["AMBIGUOUS_LABEL_NO_CONFIGURED_TARGET_OVERLAP"]);
   }
 
-  if (NOT_TARGET_LABELS.has(normalized)) {
-    return finish(raw, targetIds, "not_target", 0.9, null, ["CURATED_NON_TARGET_CATEGORY"]);
+  if (notTarget.has(normalized)) {
+    return finish(raw, targetIds, taxonomyVersion, "not_target", 0.9, null, ["CURATED_NON_TARGET_CATEGORY"]);
   }
 
-  return finish(raw, targetIds, "unresolved", 0, null, ["LABEL_NOT_IN_TAXONOMY"]);
+  return finish(raw, targetIds, taxonomyVersion, "unresolved", 0, null, ["LABEL_NOT_IN_TAXONOMY"]);
 }
 
 /** Exported for the disposable certification suite and future taxonomy audits. */
@@ -211,4 +311,8 @@ export const _TAXONOMY_FOR_TEST = {
   STRONG_SYNONYMS,
   AMBIGUOUS_LABELS,
   NOT_TARGET_LABELS,
+  EXACT_ALIASES_V2,
+  STRONG_SYNONYMS_V2,
+  AMBIGUOUS_LABELS_V2,
+  NOT_TARGET_LABELS_V2,
 };

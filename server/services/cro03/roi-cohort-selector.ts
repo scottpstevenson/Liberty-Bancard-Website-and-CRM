@@ -359,18 +359,32 @@ export async function selectRoiCohort(opts: {
   executor?: { execute: (q: any) => Promise<any> };
   /** Active Phase-A evidence policy. Missing evidence is intentionally neutral. */
   classificationPolicyVersion?: number;
+  /** Program's classification policy version. Preferred name; classificationPolicyVersion is kept for back-compat. */
+  policyVersion?: number;
+  /**
+   * Which vertical taxonomy this program's verticalIds are drawn from — 1
+   * (legacy five-package) or 2 (South Florida's five-group taxonomy).
+   * Selects both the live-text classifyVertical() tables AND which
+   * sfp_classification_evidence rows (scoped by classifier_version) are
+   * eligible to corroborate or contest that live-text result. Defaults to 1
+   * so every pre-existing caller keeps its exact prior behavior.
+   */
+  taxonomyVersion?: 1 | 2;
 } = {}): Promise<RoiCohortSelection> {
   const exec = opts.executor ?? db;
   const now = opts.now ?? new Date();
   const maxCohort = opts.maxCohort ?? 25;
   const countyFips = opts.countyFips ?? [...SOUTH_FLORIDA_FIPS];
   const verticalIds = opts.verticalIds ?? await loadPilotVerticalIds();
-  const classificationPolicyVersion = opts.classificationPolicyVersion ?? 1;
+  const taxonomyVersion: 1 | 2 = opts.taxonomyVersion === 2 ? 2 : 1;
+  const classificationPolicyVersion = opts.policyVersion ?? opts.classificationPolicyVersion ?? 1;
   const phaseAEvidenceRows = rows(await exec.execute(sql`
     SELECT DISTINCT ON (business_id) business_id,outcome,id,evidence_hash,policy_version,
-           classifier_version,model_version,prompt_version,confidence,reason_codes
+           classifier_version,model_version,prompt_version,confidence,reason_codes,
+           resolved_vertical_id,admission_tier
       FROM sfp_classification_evidence
-     WHERE policy_version=${classificationPolicyVersion} AND terminal_state='completed'
+     WHERE policy_version=${classificationPolicyVersion} AND classifier_version=${taxonomyVersion}
+       AND terminal_state='completed'
      ORDER BY business_id,created_at DESC,evidence_hash ASC
   `));
   const phaseAEvidenceByBusiness = new Map<number, any>(
@@ -816,52 +830,138 @@ export async function selectRoiCohort(opts: {
 
       if (geoEligible) funnel.southFlorida++;
 
-      // Phase-A decisions are authoritative exclusions for the active policy:
-      // target may proceed through the independent deterministic classifier,
-      // while non-target/review-required remain out pending a new decision.
       const phaseAEvidence = phaseAEvidenceByBusiness.get(bizId);
-      if (phaseAEvidence?.outcome === "non_target" || phaseAEvidence?.outcome === "review_required") {
-        funnel.verticalUnresolved++;
-        excluded.push(_buildCandidate(
-          bizId, row, verticalIds, countyFips, fipsLocationMap,
-          `excluded:classification_${String(phaseAEvidence.outcome)}`,
-          false, geoSource, geoClass, geoResolution, null,
-        ));
-        continue;
-      }
+      let classifierResult: ClassifierResult | null = null;
 
-      // ── Vertical filter (real five-target classifier — VFC-01) ───────────────
-      // Correction (post-merge audit): a prior "target" Phase-A classification
-      // evidence row must never override a negative result from the CURRENT
-      // deterministic classifier run against THIS call's verticalIds. Phase-A
-      // evidence is written by /api/lead-ops/sfp/classification/run, whose
-      // caller-supplied `targetIds` is independent of — and can diverge from —
-      // this program's own configured `verticalIds` (see sfp-classification-
-      // bridge.ts). Evidence rows are keyed only by business_id+policy_version,
-      // not by which targetIds produced them, so a "target" outcome recorded
-      // under one targetIds set previously bled into cohort eligibility for
-      // ANY other program/config sharing the same policy_version — silently
-      // admitting businesses whose vertical does not match this program's
-      // configured verticals at all. The doc comment above the exclusion
-      // branch below states the intended contract precisely: Phase-A can only
-      // ever be authoritative for EXCLUSIONS (non_target/review_required);
-      // a "target" outcome must always re-prove itself against the current
-      // verticalIds via the independent deterministic classifier, never
-      // short-circuit it.
-      const classifierResult = classifyVertical(vertical, verticalIds);
-      if (classifierResult.outcome === "not_target" || classifierResult.outcome === "unresolved") {
-        funnel.verticalUnresolved++;
-        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${classifierResult.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, classifierResult));
-        continue;
+      if (taxonomyVersion === 2) {
+        // ── South Florida v2 vertical gate (VFC-01, hardened) ─────────────
+        // Every independent axis already evaluated above (geography, DBPR
+        // lineage, suppression, identity) stays in force unchanged — this
+        // gate only ever narrows further, never bypasses them. Two
+        // independent signals feed the decision:
+        //   1. liveResult — classifyVertical() run THIS call, against the
+        //      live businesses.vertical text, using the v2 taxonomy tables.
+        //   2. evidence — the latest COMPLETED sfp_classification_evidence
+        //      row for this business at the program's current policy_version
+        //      AND classifier_version=2 (never a stale/legacy-version row).
+        // A business may only be admitted via evidence alone when that
+        // evidence resolved at the deterministic resolved_high tier
+        // (admission_tier='resolved_high') — resolved_medium and anything
+        // reached via website-evidence promotion or OpenAI escalation is not
+        // trustworthy enough to admit without a corroborating live-text
+        // match. When live text and evidence both resolve but DISAGREE on
+        // which of the five groups the business belongs to, the business is
+        // sent to review — never admitted through whichever branch happens
+        // to pass.
+        const liveResult = classifyVertical(vertical, verticalIds, 2);
+        const liveVerticalId = (liveResult.outcome === "resolved_high" || liveResult.outcome === "resolved_medium")
+          ? liveResult.matchedTargetId : null;
+        const evidenceQualifies = phaseAEvidence
+          && phaseAEvidence.outcome === "target"
+          && phaseAEvidence.admission_tier === "resolved_high"
+          && phaseAEvidence.resolved_vertical_id
+          && verticalIds.includes(String(phaseAEvidence.resolved_vertical_id));
+        const evidenceVerticalId = evidenceQualifies ? String(phaseAEvidence.resolved_vertical_id) : null;
+
+        if (phaseAEvidence) {
+          if (liveVerticalId && evidenceVerticalId) {
+            if (liveVerticalId === evidenceVerticalId) {
+              funnel.inTargetVertical++;
+              funnel.eligibleAfterExclusions++;
+              classifierResult = liveResult;
+            } else {
+              funnel.verticalUnresolved++;
+              excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
+                `excluded:vertical_conflict_live_vs_evidence:${liveVerticalId}_vs_${evidenceVerticalId}`,
+                false, geoSource, geoClass, geoResolution, liveResult));
+              continue;
+            }
+          } else if (liveVerticalId && !evidenceVerticalId) {
+            // Live text resolves but the current evidence does not
+            // corroborate it (non_target, review_required, or a target
+            // reached below the resolved_high tier) — treat as a
+            // disagreement rather than admitting on live text alone once
+            // evidence exists for the current policy/classifier version.
+            funnel.verticalUnresolved++;
+            excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
+              `excluded:vertical_conflict_live_resolved_evidence_${String(phaseAEvidence.outcome)}`,
+              false, geoSource, geoClass, geoResolution, liveResult));
+            continue;
+          } else if (!liveVerticalId && evidenceVerticalId) {
+            funnel.inTargetVertical++;
+            funnel.eligibleAfterExclusions++;
+            classifierResult = {
+              ...liveResult,
+              outcome: "resolved_high",
+              confidence: 0.95,
+              matchedTargetId: evidenceVerticalId,
+              reasons: [...liveResult.reasons, "EVIDENCE_RESOLVED_HIGH_NO_LIVE_TEXT_MATCH"],
+            };
+          } else {
+            // Neither live text nor evidence resolves to an admissible
+            // target — excluded per the evidence's own outcome.
+            funnel.verticalUnresolved++;
+            excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
+              `excluded:classification_${String(phaseAEvidence.outcome)}`,
+              false, geoSource, geoClass, geoResolution, liveResult));
+            continue;
+          }
+        } else {
+          // No evidence row yet for this business at the current
+          // policy/classifier version — fall back to live-text-only
+          // resolution (unchanged from the pre-evidence-pipeline behavior).
+          if (liveResult.outcome === "not_target" || liveResult.outcome === "unresolved") {
+            funnel.verticalUnresolved++;
+            excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${liveResult.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, liveResult));
+            continue;
+          }
+          if (liveResult.outcome === "review_required") {
+            funnel.verticalUnresolved++;
+            excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_review_required:${vertical}`, false, geoSource, geoClass, geoResolution, liveResult));
+            continue;
+          }
+          funnel.inTargetVertical++;
+          funnel.eligibleAfterExclusions++;
+          classifierResult = liveResult;
+        }
+      } else {
+        // ── Legacy v1 vertical filter (unchanged behavior) ────────────────
+        // Phase-A decisions are authoritative exclusions for the active policy:
+        // target may proceed through the independent deterministic classifier,
+        // while non-target/review-required remain out pending a new decision.
+        if (phaseAEvidence?.outcome === "non_target" || phaseAEvidence?.outcome === "review_required") {
+          funnel.verticalUnresolved++;
+          excluded.push(_buildCandidate(
+            bizId, row, verticalIds, countyFips, fipsLocationMap,
+            `excluded:classification_${String(phaseAEvidence.outcome)}`,
+            false, geoSource, geoClass, geoResolution, null,
+          ));
+          continue;
+        }
+
+        // Correction (post-merge audit): a prior "target" Phase-A classification
+        // evidence row must never override a negative result from the CURRENT
+        // deterministic classifier run against THIS call's verticalIds — see
+        // sfp-classification-bridge.ts. Phase-A can only ever be authoritative
+        // for EXCLUSIONS (non_target/review_required); a "target" outcome must
+        // always re-prove itself against the current verticalIds via the
+        // independent deterministic classifier, never short-circuit it.
+        const v1Result = classifyVertical(vertical, verticalIds, 1);
+        if (v1Result.outcome === "not_target" || v1Result.outcome === "unresolved") {
+          funnel.verticalUnresolved++;
+          excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${v1Result.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, v1Result));
+          continue;
+        }
+        if (v1Result.outcome === "review_required") {
+          funnel.verticalUnresolved++;
+          excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_review_required:${vertical}`, false, geoSource, geoClass, geoResolution, v1Result));
+          continue;
+        }
+        // resolved_high or resolved_medium — admitted.
+        funnel.inTargetVertical++;
+        funnel.eligibleAfterExclusions++;
+        classifierResult = v1Result;
       }
-      if (classifierResult.outcome === "review_required") {
-        funnel.verticalUnresolved++;
-        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_review_required:${vertical}`, false, geoSource, geoClass, geoResolution, classifierResult));
-        continue;
-      }
-      // resolved_high or resolved_medium — admitted.
-      funnel.inTargetVertical++;
-      funnel.eligibleAfterExclusions++;
 
       // ── Score and classify ────────────────────────────────────────────────────
       const emailStatus = String(row.email_status ?? "unvalidated");

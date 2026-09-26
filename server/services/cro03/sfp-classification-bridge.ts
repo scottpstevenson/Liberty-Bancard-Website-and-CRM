@@ -11,7 +11,7 @@ import {
   getBusinessWideSuppressionExclusions,
   getSfpBusinessHardExclusionReasons,
 } from "./roi-cohort-selector";
-import { classifyVertical, CLASSIFIER_VERSION } from "./sfp-vertical-classifier";
+import { classifyVertical, CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
 import {
   extractWebsiteClassificationEvidence,
   type WebsiteClassificationEvidence,
@@ -340,15 +340,30 @@ function hasWebsiteTargetOverlap(evidence: WebsiteClassificationEvidence, target
   });
 }
 
-function mapClassification(rawVertical: string | null, targetIds: string[]) {
-  const result = classifyVertical(rawVertical, targetIds);
+function mapClassification(rawVertical: string | null, targetIds: string[], taxonomyVersion: 1 | 2) {
+  const result = classifyVertical(rawVertical, targetIds, taxonomyVersion);
+  // Only a deterministic resolved_high match is trustworthy enough for a
+  // selector to admit a business on this evidence alone, with no
+  // corroborating live-text match. resolved_medium and any target reached
+  // via website-evidence promotion or OpenAI escalation (handled by the
+  // caller, after this function returns) get admissionTier=null.
+  const admissionTier = result.outcome === "resolved_high" ? ("resolved_high" as const) : null;
   if (result.outcome === "resolved_high" || result.outcome === "resolved_medium") {
-    return { outcome: "target" as const, confidence: result.confidence, reasonCodes: result.reasons };
+    return {
+      outcome: "target" as const, confidence: result.confidence, reasonCodes: result.reasons,
+      resolvedVerticalId: result.matchedTargetId, admissionTier,
+    };
   }
   if (result.outcome === "not_target") {
-    return { outcome: "non_target" as const, confidence: result.confidence, reasonCodes: result.reasons };
+    return {
+      outcome: "non_target" as const, confidence: result.confidence, reasonCodes: result.reasons,
+      resolvedVerticalId: null, admissionTier: null,
+    };
   }
-  return { outcome: "review_required" as const, confidence: result.confidence, reasonCodes: result.reasons };
+  return {
+    outcome: "review_required" as const, confidence: result.confidence, reasonCodes: result.reasons,
+    resolvedVerticalId: null, admissionTier: null,
+  };
 }
 
 function rowCounts(run: any) {
@@ -395,6 +410,8 @@ export async function runPreCohortClassificationBridge(
      */
     businessIdFilter?: number[];
     previewSnapshotHash?: string;
+    /** Selects live-text + evidence taxonomy tables. Defaults to 1 (legacy). */
+    taxonomyVersion?: 1 | 2;
   },
   deps: PreCohortClassificationBridgeDeps = {},
 ): Promise<{
@@ -412,6 +429,7 @@ export async function runPreCohortClassificationBridge(
     throw new Error("SFP_CLASSIFICATION_INVALID_CONFIG");
   }
   const targetIds = [...input.targetIds].map(String).sort();
+  const taxonomyVersion: 1 | 2 = input.taxonomyVersion === 2 ? 2 : 1;
   if (input.previewSnapshotHash) {
     const currentPreview = await previewPreCohortClassification(input.programId, {
       businessIdFilter: input.businessIdFilter, maxBusinesses, targetIds,
@@ -424,7 +442,7 @@ export async function runPreCohortClassificationBridge(
     : null;
   const configHash = sha256(canonicalJson({
     programId: input.programId, maxBusinesses, targetIds, policyVersion: input.policyVersion,
-    businessIdFilter: businessIdFilterForHash, classifierVersion: CLASSIFIER_VERSION,
+    businessIdFilter: businessIdFilterForHash, classifierVersion: CLASSIFIER_VERSION, taxonomyVersion,
     modelVersion: SFP_OPENAI_MODEL, promptVersion: SFP_OPENAI_PROMPT_VERSION,
     allowGovernedSerperDomainDiscovery: input.allowGovernedSerperDomainDiscovery === true,
     previewSnapshotHash: input.previewSnapshotHash ?? null,
@@ -459,7 +477,7 @@ export async function runPreCohortClassificationBridge(
           (program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,config_hash,payload_hash,
            claim_token,lease_expires_at,started_at)
       VALUES (${input.programId}::uuid,${input.idempotencyKey},${input.actorId},'running',${maxBusinesses},
-               ${input.policyVersion},${CLASSIFIER_VERSION},${configHash},${configHash},gen_random_uuid(),NOW()+INTERVAL '30 minutes',NOW())
+               ${input.policyVersion},${taxonomyVersion},${configHash},${configHash},gen_random_uuid(),NOW()+INTERVAL '30 minutes',NOW())
       RETURNING *
     `))[0];
     return { row: inserted, replayed: false };
@@ -496,6 +514,7 @@ export async function runPreCohortClassificationBridge(
        AND NOT EXISTS (
          SELECT 1 FROM sfp_classification_evidence e
           WHERE e.business_id=b.id AND e.policy_version=${input.policyVersion}
+            AND e.classifier_version=${taxonomyVersion}
             AND e.outcome IN ('target','non_target')
        )
      ORDER BY b.id ASC
@@ -641,12 +660,14 @@ export async function runPreCohortClassificationBridge(
         targetIds,
         policyVersion: input.policyVersion,
         classifierVersion: CLASSIFIER_VERSION,
+        taxonomyVersion,
       }));
 
       const cached = rows(await db.execute(sql`
         SELECT * FROM sfp_classification_evidence
          WHERE business_id=${businessId} AND evidence_hash=${evidenceHash}
-           AND policy_version=${input.policyVersion} AND terminal_state='completed'
+           AND policy_version=${input.policyVersion} AND classifier_version=${taxonomyVersion}
+           AND terminal_state='completed'
          ORDER BY created_at DESC,evidence_hash ASC LIMIT 1
       `))[0] as EvidenceRow | undefined;
       if (cached) {
@@ -662,17 +683,27 @@ export async function runPreCohortClassificationBridge(
         continue;
       }
 
-      const deterministic = mapClassification(rawVertical, targetIds);
+      const deterministic = mapClassification(rawVertical, targetIds, taxonomyVersion);
       let outcome = deterministic.outcome;
       let confidence = deterministic.confidence;
       let reasonCodes = [...deterministic.reasonCodes];
       let modelVersion: string | null = null;
       let promptVersion: string | null = null;
       let itemCost = 0;
+      // resolvedVerticalId/admissionTier travel with the deterministic result
+      // only. Any later promotion (website-evidence overlap or OpenAI
+      // escalation) reaches outcome='target' through a NON-deterministic
+      // path, so it must never be treated as a resolved_high admission tier —
+      // it still counts as 'target' for reporting, but a selector may not
+      // admit a business on this evidence alone.
+      let resolvedVerticalId: string | null = deterministic.resolvedVerticalId;
+      let admissionTier: "resolved_high" | "resolved_medium" | null = deterministic.admissionTier;
       if (outcome === "review_required" && websiteEvidence && hasWebsiteTargetOverlap(websiteEvidence, targetIds)) {
         outcome = "target";
         confidence = Math.min(0.65, Math.max(0.45, deterministic.confidence || 0.5));
         reasonCodes.push("WEBSITE_EVIDENCE_TARGET_OVERLAP", `WEBSITE_CONTENT_HASH:${websiteEvidence.contentHash}`);
+        resolvedVerticalId = null;
+        admissionTier = null;
       }
       if (outcome === "review_required") {
         try {
@@ -687,6 +718,8 @@ export async function runPreCohortClassificationBridge(
             modelVersion = openAiResult.modelVersion;
             promptVersion = openAiResult.promptVersion;
             itemCost = Math.max(0, Number(openAiResult.costMicros) || 0);
+            resolvedVerticalId = null;
+            admissionTier = null;
           } else {
             reasonCodes.push("OPENAI_UNAVAILABLE");
           }
@@ -701,6 +734,10 @@ export async function runPreCohortClassificationBridge(
           reasonCodes.push(message.startsWith("OPENAI_ESCALATION_NOT_CONFIGURED:") ? "OPENAI_ESCALATION_NOT_CONFIGURED" : "OPENAI_UNAVAILABLE");
         }
       }
+      if (outcome !== "target") {
+        resolvedVerticalId = null;
+        admissionTier = null;
+      }
       if (discoveryReason) reasonCodes.push(discoveryReason);
       itemCost += discoveryCostMicros;
       const sourceRefs = [
@@ -711,10 +748,11 @@ export async function runPreCohortClassificationBridge(
       const insertedEvidence = rows(await db.execute(sql`
         INSERT INTO sfp_classification_evidence
           (business_id,evidence_hash,source_refs,classifier_version,model_version,prompt_version,policy_version,
-           outcome,confidence,reason_codes,idempotency_key,cost_micros,terminal_state)
-        VALUES (${businessId},${evidenceHash},${JSON.stringify(sourceRefs)}::jsonb,${CLASSIFIER_VERSION},
+           outcome,confidence,reason_codes,idempotency_key,cost_micros,terminal_state,resolved_vertical_id,admission_tier)
+        VALUES (${businessId},${evidenceHash},${JSON.stringify(sourceRefs)}::jsonb,${taxonomyVersion},
                 ${modelVersion},${promptVersion},${input.policyVersion},${outcome},${confidence},
-                ${JSON.stringify(reasonCodes)}::jsonb,${idempotencyKey},${itemCost},'completed')
+                ${JSON.stringify(reasonCodes)}::jsonb,${idempotencyKey},${itemCost},'completed',
+                ${resolvedVerticalId},${admissionTier})
         ON CONFLICT (idempotency_key) DO NOTHING
         RETURNING id
       `))[0];
@@ -760,11 +798,16 @@ export async function runPreCohortClassificationBridge(
 export async function getLatestAdmissibleClassificationEvidence(
   businessId: number,
   policyVersion: number,
-): Promise<{ id: string; evidenceHash: string; outcome: string; policyVersion: number; classifierVersion: number } | null> {
+  taxonomyVersion: 1 | 2 = 1,
+): Promise<{
+  id: string; evidenceHash: string; outcome: string; policyVersion: number; classifierVersion: number;
+  resolvedVerticalId: string | null; admissionTier: "resolved_high" | "resolved_medium" | null;
+} | null> {
   const evidence = rows(await db.execute(sql`
-    SELECT id,evidence_hash,outcome,policy_version,classifier_version
+    SELECT id,evidence_hash,outcome,policy_version,classifier_version,resolved_vertical_id,admission_tier
       FROM sfp_classification_evidence
-     WHERE business_id=${businessId} AND policy_version=${policyVersion} AND terminal_state='completed'
+     WHERE business_id=${businessId} AND policy_version=${policyVersion}
+       AND classifier_version=${taxonomyVersion} AND terminal_state='completed'
      ORDER BY created_at DESC,evidence_hash ASC LIMIT 1
   `))[0];
   return evidence ? {
@@ -773,6 +816,8 @@ export async function getLatestAdmissibleClassificationEvidence(
     outcome: String(evidence.outcome),
     policyVersion: Number(evidence.policy_version),
     classifierVersion: Number(evidence.classifier_version),
+    resolvedVerticalId: evidence.resolved_vertical_id ? String(evidence.resolved_vertical_id) : null,
+    admissionTier: (evidence.admission_tier as "resolved_high" | "resolved_medium" | null) ?? null,
   } : null;
 }
 
@@ -784,10 +829,11 @@ export async function previewPreCohortClassification(programId: string, options:
   allowGovernedSerperDomainDiscovery?: boolean;
 } = {}) {
   const program = rows(await db.execute(sql`
-    SELECT id,county_fips,vertical_ids,policy_version,is_active
+    SELECT id,county_fips,vertical_ids,policy_version,is_active,taxonomy_version
       FROM sfp_programs WHERE id=${programId}::uuid
   `))[0];
   if (!program) throw new Error("SFP_PROGRAM_NOT_FOUND");
+  const taxonomyVersion: 1 | 2 = Number(program.taxonomy_version) === 2 ? 2 : 1;
   const businessFilter = options.businessIdFilter?.length ? options.businessIdFilter.map(Number).filter(Number.isInteger) : null;
   const candidates = rows(await db.execute(sql`
     SELECT id,canonical_name,city,state,postal_code,street_address,website_domain,vertical
@@ -827,7 +873,8 @@ export async function previewPreCohortClassification(programId: string, options:
   const currentEvidence = idsLocal.length ? rows(await db.execute(sql`
     SELECT DISTINCT ON (business_id) business_id,outcome,evidence_hash
       FROM sfp_classification_evidence
-     WHERE policy_version=${Number(program.policy_version)} AND terminal_state='completed'
+     WHERE policy_version=${Number(program.policy_version)} AND classifier_version=${taxonomyVersion}
+       AND terminal_state='completed'
        AND business_id=ANY(ARRAY[${sql.join(idsLocal.map((id) => sql`${id}`), sql`, `)}]::integer[])
      ORDER BY business_id,created_at DESC,evidence_hash ASC
   `)) : [];
@@ -841,7 +888,7 @@ export async function previewPreCohortClassification(programId: string, options:
     const id = Number(business.id);
     if (hardExclusions.has(id) || businessSuppression.has(id)) continue;
     const prior = evidenceById.get(id);
-    const result = prior ? String((prior as any).outcome) : mapClassification(business.vertical ?? null, targets).outcome;
+    const result = prior ? String((prior as any).outcome) : mapClassification(business.vertical ?? null, targets, taxonomyVersion).outcome;
     if (result === "target") counts.target++;
     else if (result === "non_target") counts.nonTarget++;
     else counts.reviewRequired++;

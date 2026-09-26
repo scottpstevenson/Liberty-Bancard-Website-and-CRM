@@ -30,7 +30,7 @@ import { randomUUID } from "crypto";
 import { selectRoiCohort, loadPilotVerticalIds, ROI_SCORE_VERSION, type RoiCohortSelection } from "./roi-cohort-selector";
 import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service";
 import { CRO03A_COUNTY_FIPS } from "../cro03a/geography";
-import { CLASSIFIER_VERSION } from "./sfp-vertical-classifier";
+import { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
 import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 // Task #1999 (Architecture correction 1 / C1): freeze pins the exact latest-admissible
 // pre-cohort classification evidence row into the immutable cohort/decision snapshot.
@@ -96,6 +96,7 @@ export interface SfpProgram {
   verticalIds: string[];
   maxCohortSize: number;
   policyVersion: number;
+  taxonomyVersion: 1 | 2;
   isActive: boolean;
   recurringEnabled: boolean;
   activatedAt: string | null;
@@ -118,6 +119,15 @@ export interface SfpProgram {
 const SFP_DEFAULT_VERTICAL_IDS = ["Med Spa", "Dental", "Auto Repair", "Restaurant", "Retail"];
 
 /**
+ * South Florida program target-vertical taxonomy v2 defaults (Automotive,
+ * Healthcare, Beauty/Spa, Construction/Trades/Home Services,
+ * Fitness/Recreation). Used for brand-new program creation only — an
+ * existing program row is never silently reconverged; see
+ * migrateProgramToTargetVerticalsV2 for the explicit, audited one-time move.
+ */
+const SFP_DEFAULT_VERTICAL_IDS_V2 = [...SFP_TARGET_VERTICALS_V2];
+
+/**
  * Idempotent program definition. Creates the program with SFP-owned defaults
  * on first call and returns the existing row on every subsequent call.
  * Unlike earlier revisions, this NEVER reconverges county_fips/vertical_ids/
@@ -137,17 +147,23 @@ export async function ensureProgram(opts: {
   if (existing) return _mapProgram(existing);
 
   const countyFips = [...SOUTH_FLORIDA_FIPS];
-  const verticalIds = [...SFP_DEFAULT_VERTICAL_IDS];
+  // Brand-new South Florida programs default to the v2 target-vertical
+  // taxonomy (Automotive, Healthcare, Beauty/Spa, Construction/Trades/Home
+  // Services, Fitness/Recreation). An existing program row is never
+  // reconverged here — see migrateProgramToTargetVerticalsV2 for moving a
+  // pre-existing v1 program over explicitly.
+  const verticalIds = [...SFP_DEFAULT_VERTICAL_IDS_V2];
 
   const created = rows(await db.execute(sql`
     INSERT INTO sfp_programs
-      (name, county_fips, vertical_ids, max_cohort_size, policy_version, is_active, created_by)
+      (name, county_fips, vertical_ids, max_cohort_size, policy_version, taxonomy_version, is_active, created_by)
     VALUES (
       ${PROGRAM_NAME},
       ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
       ARRAY[${sql.join(verticalIds.map((v) => sql`${v}`), sql`, `)}],
       ${Math.max(1, Math.min(100, opts.maxCohortSize ?? 100))},
       ${SFP_POLICY_VERSION},
+      ${TAXONOMY_VERSION_V2},
       false,
       ${opts.createdBy ?? "system:sfp"}
     )
@@ -222,6 +238,56 @@ export async function initializeProgramFromLegacyConfig(opts: {
 }
 
 /**
+ * Explicit, audited, one-time move of an EXISTING South Florida program from
+ * the legacy v1 target-vertical taxonomy to v2 (Automotive, Healthcare,
+ * Beauty/Spa, Construction/Trades/Home Services, Fitness/Recreation).
+ * Bumps policy_version so every classification-evidence and cohort-scoring
+ * consumer keyed on (policy_version, classifier_version) treats this as a
+ * distinct configuration — no v1-classified business can silently bleed
+ * into v2 admission decisions or vice versa. No-ops (returns
+ * migrated:false) if the program is already on v2, so it is safe to call
+ * repeatedly. Does not touch the Sunbiz South Florida discovery worker's
+ * own cursor — this only changes SFP's classification/cohort configuration.
+ */
+export async function migrateProgramToTargetVerticalsV2(opts: {
+  actorId: string;
+}): Promise<{ program: SfpProgram; migrated: boolean; reason?: string }> {
+  const existing = rows(await db.execute(sql`
+    SELECT * FROM sfp_programs WHERE name = ${PROGRAM_NAME} LIMIT 1
+  `))[0];
+  if (!existing) throw new Error("SFP_PROGRAM_NOT_FOUND");
+  if (Number(existing.taxonomy_version) === 2) {
+    return { program: _mapProgram(existing), migrated: false, reason: "SFP_PROGRAM_ALREADY_ON_TAXONOMY_V2" };
+  }
+  const newVerticalIds = [...SFP_DEFAULT_VERTICAL_IDS_V2];
+  const previousVerticalIds = Array.isArray(existing.vertical_ids) ? existing.vertical_ids : [];
+  const previousPolicyVersion = Number(existing.policy_version ?? 1);
+  const updated = rows(await db.execute(sql`
+    UPDATE sfp_programs
+       SET vertical_ids = ARRAY[${sql.join(newVerticalIds.map((v) => sql`${v}`), sql`, `)}],
+           taxonomy_version = ${TAXONOMY_VERSION_V2},
+           policy_version = policy_version + 1
+     WHERE id = ${String(existing.id)}::uuid AND taxonomy_version = 1
+     RETURNING *
+  `))[0];
+  if (!updated) {
+    // Lost the race to a concurrent migration call.
+    const winner = rows(await db.execute(sql`SELECT * FROM sfp_programs WHERE id = ${String(existing.id)}::uuid`))[0];
+    return { program: _mapProgram(winner), migrated: false, reason: "SFP_PROGRAM_MIGRATED_CONCURRENTLY" };
+  }
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_program_migrated_taxonomy_v2', 'sfp_program', ${String(updated.id)}, 'user', ${opts.actorId},
+            ${JSON.stringify({
+              previousVerticalIds, previousPolicyVersion,
+              newVerticalIds, newPolicyVersion: Number(updated.policy_version),
+              taxonomyVersion: TAXONOMY_VERSION_V2,
+            })}::jsonb)
+  `);
+  return { program: _mapProgram(updated), migrated: true };
+}
+
+/**
  * Read-only program lookup. Never inserts or converges the program row —
  * safe to call from GET/preview paths. Returns null when no program has been
  * explicitly created yet (via ensureProgram/POST .../program/ensure).
@@ -241,6 +307,7 @@ function _mapProgram(row: any): SfpProgram {
     verticalIds: Array.isArray(row.vertical_ids) ? row.vertical_ids : JSON.parse(row.vertical_ids ?? "[]"),
     maxCohortSize: Number(row.max_cohort_size ?? 100),
     policyVersion: Number(row.policy_version ?? 1),
+    taxonomyVersion: Number(row.taxonomy_version) === 2 ? 2 : 1,
     isActive: Boolean(row.is_active),
     recurringEnabled: Boolean(row.recurring_enabled),
     activatedAt: row.activated_at ? String(row.activated_at) : null,
@@ -318,6 +385,8 @@ export async function previewFunnel(opts: {
     countyFips: program.countyFips,
     persistScores: false,
     includeGeographyUnresolved: false,
+    taxonomyVersion: program.taxonomyVersion,
+    policyVersion: program.policyVersion,
   });
 
   return {
@@ -591,7 +660,7 @@ async function freezeCohortLocked(opts: {
 async function freezeCohortTx(
   tx: any,
   opts: { idempotencyKey: string; actorId: string; maxCohortSize?: number; releaseSha?: string },
-  program: { id: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number; policyVersion: number },
+  program: { id: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number; policyVersion: number; taxonomyVersion: 1 | 2 },
   maxCohortSize: number,
   requestPayload: { programId: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number },
   requestHash: string,
@@ -688,6 +757,8 @@ async function freezeCohortTx(
         persistScores: true,
         actorId: opts.actorId,
         executor: tx,
+        taxonomyVersion: program.taxonomyVersion,
+        policyVersion: program.policyVersion,
       });
 
       if (result.eligible.length === 0) {
@@ -792,7 +863,7 @@ async function freezeCohortTx(
         let classificationPolicyVersion: number | null = c.classificationEvidence?.policyVersion ?? null;
         if (!classificationEvidenceId) {
           try {
-            const admissible = await getLatestAdmissibleClassificationEvidence(c.canonicalBusinessId, SFP_POLICY_VERSION);
+            const admissible = await getLatestAdmissibleClassificationEvidence(c.canonicalBusinessId, program.policyVersion, program.taxonomyVersion);
             if (admissible) {
               classificationEvidenceId = admissible.id;
               classificationPolicyVersion = admissible.policyVersion;

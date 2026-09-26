@@ -9284,6 +9284,14 @@ export const sfpPrograms = pgTable("sfp_programs", {
   activatedBy: text("activated_by"),
   recurringEnabled: boolean("recurring_enabled").notNull().default(false),
   scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 10 }),
+  /**
+   * Which vertical taxonomy version (see sfp-vertical-classifier.ts) this
+   * program's `verticalIds` are drawn from, and which the classification
+   * bridge and cohort selector must use for both live-text classification
+   * and evidence admission. Defaults to 1 (legacy five-package taxonomy) so
+   * every pre-existing program is unaffected.
+   */
+  taxonomyVersion: integer("taxonomy_version").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: text("created_by").notNull(),
 }, (table) => [
@@ -9293,6 +9301,7 @@ export const sfpPrograms = pgTable("sfp_programs", {
   // configure as the program's ceiling, never a value borrowed from the run
   // table. See migrations/0285_sfp_program_max_cohort_size_range.sql.
   check("sfp_programs_max_cohort_size_range", sql`max_cohort_size BETWEEN 1 AND 100`),
+  check("sfp_programs_taxonomy_version_chk", sql`taxonomy_version IN (1, 2)`),
 ]);
 
 export const sfpCohortRuns = pgTable("sfp_cohort_runs", {
@@ -9705,12 +9714,31 @@ export const sfpClassificationEvidence = pgTable("sfp_classification_evidence", 
   idempotencyKey: text("idempotency_key").notNull().unique(),
   costMicros: bigint("cost_micros", { mode: "number" }).notNull().default(0),
   terminalState: text("terminal_state").notNull().default("completed"),
+  /** Canonical target vertical ID this evidence resolved to, when outcome='target'. Null otherwise. */
+  resolvedVerticalId: text("resolved_vertical_id"),
+  /**
+   * Which classifier confidence tier produced the target resolution.
+   * Only 'resolved_high' may be used by a selector to admit a business on
+   * evidence alone (no corroborating live-text match); 'resolved_medium'
+   * and any target reached via website-evidence promotion or OpenAI
+   * escalation leave this null and require independent corroboration.
+   */
+  admissionTier: text("admission_tier"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("sfp_classification_evidence_business_idx").on(table.businessId, table.policyVersion, table.createdAt),
+  index("sfp_classification_evidence_resolved_vertical_idx").on(table.businessId, table.classifierVersion, table.policyVersion, table.resolvedVerticalId),
   check(
     "sfp_classification_evidence_outcome_chk",
     sql`outcome IN ('target', 'non_target', 'review_required')`,
+  ),
+  check(
+    "sfp_classification_evidence_admission_tier_chk",
+    sql`admission_tier IS NULL OR admission_tier IN ('resolved_high', 'resolved_medium')`,
+  ),
+  check(
+    "sfp_classification_evidence_resolved_vertical_target_chk",
+    sql`resolved_vertical_id IS NULL OR outcome = 'target'`,
   ),
 ]);
 
