@@ -100,7 +100,7 @@
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repo access alone may be insufficient.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
-- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — local socket/role/port forcing; launcher-minted-only sinks (disposable-database-capabilities.md); cross-DB BullMQ Redis-namespace collisions (cross-db-bullmq-test-isolation.md); replacement-env child processes (certification-process-isolation.md); per-suite Redis prefixes (certification-capability-isolation.md).
+- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — local socket/role/port forcing; launcher-minted-only sinks; cross-DB BullMQ Redis-namespace collisions; replacement-env child processes; per-suite Redis prefixes.
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial resolution authority](commercial-resolution-authority.md) — five-value class stays separate from provenance/identity/link axes; shadow never replaces legacy before cutover.
 - [Channel cohort authority](channel-cohort-authority.md) — channel qualification freezes immutable evidence; never implies activation/consumption.
@@ -157,3 +157,4 @@
 - [Serper aggregate-only usage tracking](serper-usage-tracking-gap.md) — serper_control only had a monthly aggregate counter, no per-call/per-day log; added serper_call_log table + admin usage-log endpoint.
 - [SFP production admin-route trigger pattern](sfp-production-admin-route-trigger.md) — production writes go through admin HTTP routes (curl login+CSRF), not executeSql; classification/run's `targetIds` = vertical names, `businessIdFilter` = business IDs, and its preview-hash check requires the exact same options (no filter) as the GET preview call.
 - [SFP dual-taxonomy vertical classification](sfp-dual-taxonomy-classification.md) — classifier_version column now means "taxonomy version"; evidence-only admission requires admission_tier='resolved_high'; live-vs-evidence disagreement always forces review.
+- [SFP frozen classification snapshot](sfp-frozen-classification-snapshot.md) — preview/run hash flapped because it hashed a full live-pool scan; fix freezes the caller's exact selection + facts instead of scoping the hash tighter.

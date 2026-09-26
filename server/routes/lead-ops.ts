@@ -3401,6 +3401,57 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/classification/snapshot/freeze — bounded frozen-snapshot
+  // execution, phase 1: pin an exact business-id set + decision-relevant facts.
+  // Body: { programId, businessIds (1-25), targetIds, policyVersion, taxonomyVersion, maxUnits?, ttlMinutes? }
+  app.post("/api/lead-ops/sfp/classification/snapshot/freeze", requireRole("admin"), async (req, res) => {
+    try {
+      const programId = String(req.body?.programId ?? "");
+      if (!programId) return res.status(400).json({ error: "programId is required" });
+      const businessIds = Array.isArray(req.body?.businessIds)
+        ? req.body.businessIds.map(Number).filter((n: number) => Number.isInteger(n)) : [];
+      if (businessIds.length === 0 || businessIds.length > 25) {
+        return res.status(400).json({ error: "businessIds must be a non-empty array of at most 25 integers" });
+      }
+      const targetIds = Array.isArray(req.body?.targetIds) ? req.body.targetIds.map(String) : [];
+      if (targetIds.length === 0) return res.status(400).json({ error: "targetIds must be a non-empty array" });
+      const policyVersion = Number(req.body?.policyVersion);
+      if (!Number.isInteger(policyVersion) || policyVersion < 1) {
+        return res.status(400).json({ error: "policyVersion must be a positive integer" });
+      }
+      const taxonomyVersion = Number(req.body?.taxonomyVersion) === 2 ? 2 : 1;
+      const maxUnits = req.body?.maxUnits == null ? 4000 : Number(req.body.maxUnits);
+      const { freezeClassificationSnapshot } = await import("../services/cro03/sfp-classification-bridge");
+      const result = await freezeClassificationSnapshot({
+        programId, actorId: `admin:${(req as any).user?.id ?? "system"}`, businessIds, targetIds, policyVersion,
+        taxonomyVersion, allowedProvider: "openai_classification", maxUnits,
+        ttlMinutes: req.body?.ttlMinutes == null ? undefined : Number(req.body.ttlMinutes),
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("INVALID_BUSINESS_COUNT") ? 400 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/classification/snapshot/:snapshotId/run — bounded
+  // frozen-snapshot execution, phase 2: one-time claim + per-business recheck
+  // + classification against exactly the surviving frozen businesses.
+  app.post("/api/lead-ops/sfp/classification/snapshot/:snapshotId/run", requireRole("admin"), async (req, res) => {
+    try {
+      const { runFrozenClassificationSnapshot } = await import("../services/cro03/sfp-classification-bridge");
+      const result = await runFrozenClassificationSnapshot({
+        snapshotId: String(req.params.snapshotId), actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      const status = err?.message?.includes("NOT_FOUND") ? 404
+        : err?.message?.includes("EXPIRED") || err?.message?.includes("ALREADY_CLAIMED") ? 409 : 500;
+      res.status(status).json({ error: err?.message });
+    }
+  });
+
   // POST /api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity — Apollo/Outscraper waterfall (bounded, manual)
   // Body: { idempotencyKey, maxBusinesses? }
   app.post("/api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity", requireRole("admin"), async (req, res) => {

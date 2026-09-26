@@ -833,6 +833,262 @@ export async function getLatestAdmissibleClassificationEvidence(
   } : null;
 }
 
+// ── Bounded frozen-snapshot execution ───────────────────────────────────────
+// See shared/schema.ts sfpClassificationSnapshots for the design rationale.
+// A snapshot pins the exact business set + decision-relevant facts used to
+// admit them; run-time only re-verifies THOSE businesses (never re-scans the
+// general pool), so unrelated background churn (Sunbiz/geography resolution
+// adding or mutating OTHER businesses) can never invalidate this snapshot.
+
+export interface SfpFrozenBusinessFacts {
+  identityFingerprint: string;
+  countyFips: string | null;
+  geographyResolved: boolean;
+  rawVertical: string | null;
+  hardExclusionReason: string | null;
+  suppressed: boolean;
+}
+
+async function computeFrozenBusinessFacts(businessIds: number[]): Promise<Map<number, SfpFrozenBusinessFacts>> {
+  const out = new Map<number, SfpFrozenBusinessFacts>();
+  if (businessIds.length === 0) return out;
+  const rowsData = rows(await db.execute(sql`
+    SELECT id,canonical_name,city,state,postal_code,street_address,website_domain,vertical
+      FROM businesses WHERE id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+  `));
+  const locationRows = rows(await db.execute(sql`
+    SELECT id,business_id,is_primary,city,state,postal_code,county_fips
+      FROM business_locations
+     WHERE business_id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY business_id,id
+  `));
+  const locationsByBusiness = new Map<number, LocationCandidateInput[]>();
+  for (const location of locationRows) {
+    const list = locationsByBusiness.get(Number(location.business_id)) ?? [];
+    list.push({ locationId: Number(location.id), isPrimary: Boolean(location.is_primary),
+      city: location.city ?? null, state: location.state ?? null, postalCode: location.postal_code ?? null,
+      countyFips: location.county_fips ?? null });
+    locationsByBusiness.set(Number(location.business_id), list);
+  }
+  const hardExclusions = await getSfpBusinessHardExclusionReasons(businessIds);
+  const suppression = await getBusinessWideSuppressionExclusions(businessIds);
+  for (const business of rowsData) {
+    const id = Number(business.id);
+    const facts = [...(locationsByBusiness.get(id) ?? []), {
+      locationId: null, isPrimary: false, city: business.city ?? null, state: business.state ?? null,
+      postalCode: business.postal_code ?? null, countyFips: null,
+    }];
+    const geography = resolveGeographyFromCandidates(facts);
+    const identityFingerprint = sha256(canonicalJson({
+      canonicalName: business.canonical_name ?? null, city: business.city ?? null, state: business.state ?? null,
+      postalCode: business.postal_code ?? null, streetAddress: business.street_address ?? null,
+      websiteDomain: business.website_domain ?? null,
+    }));
+    out.set(id, {
+      identityFingerprint,
+      countyFips: geography.outcome === "resolved" ? String(geography.countyFips) : null,
+      geographyResolved: geography.outcome === "resolved",
+      rawVertical: business.vertical == null ? null : String(business.vertical),
+      hardExclusionReason: hardExclusions.get(id) ?? null,
+      suppressed: suppression.has(id),
+    });
+  }
+  return out;
+}
+
+/**
+ * Freeze an exact, bounded set of business IDs into a snapshot that a later
+ * run executes against verbatim (subject only to its own per-business
+ * recheck). Rejects up front any business that is not geography-resolved
+ * into the program's counties, or already hard-excluded/suppressed — those
+ * are reported but never included in the frozen set.
+ */
+export async function freezeClassificationSnapshot(input: {
+  programId: string;
+  actorId: string;
+  businessIds: number[];
+  targetIds: string[];
+  policyVersion: number;
+  taxonomyVersion: 1 | 2;
+  allowedProvider: "openai_classification";
+  maxUnits: number;
+  ttlMinutes?: number;
+}): Promise<{
+  snapshotId: string;
+  snapshotHash: string;
+  businessIds: number[];
+  rejectedAtFreeze: Array<{ businessId: number; reason: string }>;
+  expiresAt: string;
+}> {
+  const requested = [...new Set(input.businessIds.map((id) => Math.trunc(Number(id))))]
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (requested.length === 0 || requested.length > 25) {
+    throw new Error("SFP_SNAPSHOT_INVALID_BUSINESS_COUNT:must_provide_1_to_25_business_ids");
+  }
+  const program = rows(await db.execute(sql`
+    SELECT id,county_fips,is_active FROM sfp_programs WHERE id=${input.programId}::uuid
+  `))[0];
+  if (!program) throw new Error("SFP_PROGRAM_NOT_FOUND");
+  const counties: string[] = Array.isArray(program.county_fips) ? program.county_fips : [];
+  const facts = await computeFrozenBusinessFacts(requested);
+
+  const rejectedAtFreeze: Array<{ businessId: number; reason: string }> = [];
+  const frozenIds: number[] = [];
+  const perBusinessFacts: Record<string, SfpFrozenBusinessFacts> = {};
+  for (const id of requested) {
+    const f = facts.get(id);
+    if (!f) { rejectedAtFreeze.push({ businessId: id, reason: "BUSINESS_NOT_FOUND" }); continue; }
+    if (!f.geographyResolved || !counties.includes(String(f.countyFips))) {
+      rejectedAtFreeze.push({ businessId: id, reason: "GEOGRAPHY_NOT_RESOLVED_TO_PROGRAM_COUNTIES" }); continue;
+    }
+    if (f.hardExclusionReason) {
+      rejectedAtFreeze.push({ businessId: id, reason: `HARD_EXCLUDED:${f.hardExclusionReason}` }); continue;
+    }
+    if (f.suppressed) { rejectedAtFreeze.push({ businessId: id, reason: "BUSINESS_WIDE_SUPPRESSION" }); continue; }
+    frozenIds.push(id);
+    perBusinessFacts[String(id)] = f;
+  }
+  const maxUnits = Math.max(1, Math.min(4000, Math.trunc(Number(input.maxUnits))));
+  const targetIds = [...input.targetIds].map(String).sort();
+  const snapshotHash = sha256(canonicalJson({
+    businessIds: [...frozenIds].sort((a, b) => a - b), perBusinessFacts, taxonomyVersion: input.taxonomyVersion,
+    policyVersion: input.policyVersion, targetIds, allowedProvider: input.allowedProvider, maxUnits,
+  }));
+  const ttlMinutes = Math.max(1, Math.min(60, Math.trunc(Number(input.ttlMinutes ?? 20))));
+  const inserted = rows(await db.execute(sql`
+    INSERT INTO sfp_classification_snapshots
+      (program_id,actor_id,taxonomy_version,policy_version,target_ids,allowed_provider,max_units,
+       business_ids,per_business_facts,snapshot_hash,state,expires_at)
+    VALUES (${input.programId}::uuid,${input.actorId},${input.taxonomyVersion},${input.policyVersion},
+            ${JSON.stringify(targetIds)}::jsonb,${input.allowedProvider},${maxUnits},
+            ${JSON.stringify(frozenIds)}::jsonb,${JSON.stringify(perBusinessFacts)}::jsonb,
+            ${snapshotHash},'pending',NOW()+ (${ttlMinutes}||' minutes')::interval)
+    RETURNING id, expires_at
+  `))[0];
+  return {
+    snapshotId: String(inserted.id), snapshotHash, businessIds: frozenIds, rejectedAtFreeze,
+    expiresAt: new Date(inserted.expires_at).toISOString(),
+  };
+}
+
+/**
+ * Execute a previously-frozen snapshot. Claims it exactly once (one-time,
+ * idempotent via the pending->claimed transition), re-verifies each frozen
+ * business's identity/geography/vertical-input/hard-exclusion/suppression
+ * state against what was pinned at freeze time, drops any business whose
+ * facts changed (never substitutes a new candidate in its place), and then
+ * runs classification only on the surviving frozen businesses via the
+ * existing bridge — bypassing its full-pool preview-hash check, since this
+ * function's own recheck is the safety gate for a frozen set.
+ */
+export async function runFrozenClassificationSnapshot(input: {
+  snapshotId: string;
+  actorId: string;
+}, deps: PreCohortClassificationBridgeDeps = {}): Promise<{
+  snapshotId: string;
+  runId: string | null;
+  replayed: boolean;
+  survivingBusinessIds: number[];
+  rejectedAtRun: Array<{ businessId: number; reason: string }>;
+  processed: number;
+  targetCount: number;
+  nonTargetCount: number;
+  reviewRequiredCount: number;
+  skippedCount: number;
+  costMicros: number;
+}> {
+  const claimed = rows(await db.execute(sql`
+    UPDATE sfp_classification_snapshots
+       SET state='claimed', claim_token=gen_random_uuid(), claimed_at=NOW(), updated_at=NOW()
+     WHERE id=${input.snapshotId}::uuid AND state='pending' AND expires_at>NOW()
+     RETURNING *
+  `))[0];
+  if (!claimed) {
+    const existing = rows(await db.execute(sql`
+      SELECT state, expires_at, run_id FROM sfp_classification_snapshots WHERE id=${input.snapshotId}::uuid
+    `))[0];
+    if (!existing) throw new Error("SFP_SNAPSHOT_NOT_FOUND");
+    if (existing.state === "completed") {
+      return {
+        snapshotId: input.snapshotId, runId: existing.run_id ? String(existing.run_id) : null, replayed: true,
+        survivingBusinessIds: [], rejectedAtRun: [], processed: 0, targetCount: 0, nonTargetCount: 0,
+        reviewRequiredCount: 0, skippedCount: 0, costMicros: 0,
+      };
+    }
+    if (new Date(existing.expires_at).getTime() <= Date.now()) throw new Error("SFP_SNAPSHOT_EXPIRED");
+    throw new Error("SFP_SNAPSHOT_ALREADY_CLAIMED");
+  }
+
+  const frozenIds: number[] = Array.isArray(claimed.business_ids) ? claimed.business_ids.map(Number) : [];
+  const frozenFacts: Record<string, SfpFrozenBusinessFacts> = claimed.per_business_facts ?? {};
+  const targetIds: string[] = Array.isArray(claimed.target_ids) ? claimed.target_ids.map(String) : [];
+  const taxonomyVersion: 1 | 2 = Number(claimed.taxonomy_version) === 2 ? 2 : 1;
+  const policyVersion = Number(claimed.policy_version);
+
+  const currentFacts = await computeFrozenBusinessFacts(frozenIds);
+  const rejectedAtRun: Array<{ businessId: number; reason: string }> = [];
+  const survivingBusinessIds: number[] = [];
+  for (const id of frozenIds) {
+    const frozen = frozenFacts[String(id)];
+    const current = currentFacts.get(id);
+    if (!frozen || !current) { rejectedAtRun.push({ businessId: id, reason: "BUSINESS_NOT_FOUND_AT_RUN_TIME" }); continue; }
+    if (current.identityFingerprint !== frozen.identityFingerprint) {
+      rejectedAtRun.push({ businessId: id, reason: "IDENTITY_CHANGED_SINCE_FREEZE" }); continue;
+    }
+    if (!current.geographyResolved || current.countyFips !== frozen.countyFips) {
+      rejectedAtRun.push({ businessId: id, reason: "GEOGRAPHY_CHANGED_SINCE_FREEZE" }); continue;
+    }
+    if (current.rawVertical !== frozen.rawVertical) {
+      rejectedAtRun.push({ businessId: id, reason: "VERTICAL_INPUT_CHANGED_SINCE_FREEZE" }); continue;
+    }
+    if (current.hardExclusionReason) {
+      rejectedAtRun.push({ businessId: id, reason: `HARD_EXCLUDED_AT_RUN_TIME:${current.hardExclusionReason}` }); continue;
+    }
+    if (current.suppressed) { rejectedAtRun.push({ businessId: id, reason: "SUPPRESSED_AT_RUN_TIME" }); continue; }
+    survivingBusinessIds.push(id);
+  }
+
+  if (survivingBusinessIds.length === 0) {
+    await db.execute(sql`
+      UPDATE sfp_classification_snapshots SET state='completed', updated_at=NOW() WHERE id=${input.snapshotId}::uuid
+    `);
+    return {
+      snapshotId: input.snapshotId, runId: null, replayed: false, survivingBusinessIds, rejectedAtRun,
+      processed: 0, targetCount: 0, nonTargetCount: 0, reviewRequiredCount: 0, skippedCount: rejectedAtRun.length,
+      costMicros: 0,
+    };
+  }
+
+  const result = await runPreCohortClassificationBridge({
+    programId: String(claimed.program_id),
+    idempotencyKey: `sfp_frozen_snapshot:${input.snapshotId}`,
+    actorId: input.actorId,
+    maxBusinesses: survivingBusinessIds.length,
+    targetIds,
+    policyVersion,
+    businessIdFilter: survivingBusinessIds,
+    taxonomyVersion,
+    allowGovernedSerperDomainDiscovery: false,
+    // Intentionally no previewSnapshotHash: this function's own per-business
+    // recheck above is the safety gate for this frozen set, so the bridge's
+    // full-pool preview-hash comparison (which reacts to unrelated
+    // background churn elsewhere in the candidate pool) is bypassed here.
+  }, deps);
+
+  await db.execute(sql`
+    UPDATE sfp_classification_snapshots
+       SET state='completed', run_id=${result.runId}::uuid, updated_at=NOW()
+     WHERE id=${input.snapshotId}::uuid
+  `);
+
+  return {
+    snapshotId: input.snapshotId, runId: result.runId, replayed: result.replayed, survivingBusinessIds,
+    rejectedAtRun, processed: result.processed, targetCount: result.targetCount,
+    nonTargetCount: result.nonTargetCount, reviewRequiredCount: result.reviewRequiredCount,
+    skippedCount: result.skippedCount + rejectedAtRun.length, costMicros: result.costMicros,
+  };
+}
+
 /** Read-only Phase-A preview: no run, reservation, evidence, or provider I/O. */
 export async function previewPreCohortClassification(programId: string, options: {
   businessIdFilter?: number[];

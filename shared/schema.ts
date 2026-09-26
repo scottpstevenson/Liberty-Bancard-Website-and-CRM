@@ -9742,6 +9742,46 @@ export const sfpClassificationEvidence = pgTable("sfp_classification_evidence", 
   ),
 ]);
 
+/**
+ * Bounded frozen-snapshot execution for Phase A classification (South
+ * Florida enrichment). A snapshot pins an exact set of business IDs plus
+ * every decision-relevant fact used to admit them (identity fingerprint,
+ * geography, vertical/taxonomy decision inputs, hard-exclusion/suppression
+ * state, DBPR lineage) at freeze time. New businesses entering the general
+ * candidate pool can never invalidate an already-frozen snapshot — only a
+ * change to one of THIS snapshot's own frozen businesses can, and that is
+ * re-verified at run time (see runFrozenClassificationSnapshot), removing
+ * only the changed business rather than rejecting the whole snapshot.
+ * One-time claim (claimed_at) + expiry make execution idempotent and bounded.
+ */
+export const sfpClassificationSnapshots = pgTable("sfp_classification_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programId: uuid("program_id").notNull().references(() => sfpPrograms.id, { onDelete: "restrict" }),
+  actorId: text("actor_id").notNull(),
+  taxonomyVersion: integer("taxonomy_version").notNull(),
+  policyVersion: integer("policy_version").notNull(),
+  targetIds: jsonb("target_ids").notNull().default([]),
+  allowedProvider: text("allowed_provider").notNull(),
+  maxUnits: integer("max_units").notNull(),
+  businessIds: jsonb("business_ids").notNull().default([]),
+  /** Per-business decision-relevant facts captured at freeze time, keyed by business id (as string). */
+  perBusinessFacts: jsonb("per_business_facts").notNull().default({}),
+  snapshotHash: text("snapshot_hash").notNull(),
+  state: text("state").notNull().default("pending"),
+  claimToken: uuid("claim_token"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  runId: uuid("run_id").references(() => sfpClassificationRuns.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_classification_snapshots_program_idx").on(table.programId, table.createdAt),
+  check(
+    "sfp_classification_snapshots_state_chk",
+    sql`state IN ('pending', 'claimed', 'completed', 'expired')`,
+  ),
+]);
+
 /** Task #1999 (C3): additive, encrypted, provider-neutral evidence table for
  *  Outscraper/Apollo/paid-Serper-sourced candidates. Physically separate from
  *  free_discovery_candidates (free-only) and cro03c_candidate_evidence (whose

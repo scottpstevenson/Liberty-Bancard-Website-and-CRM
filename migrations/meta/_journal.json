@@ -2128,6 +2128,13 @@
       "when": 1800000011600,
       "tag": "0299_sfp_soflo_target_v2_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 304,
+      "version": "7",
+      "when": 1800000011700,
+      "tag": "0300_sfp_classification_snapshots",
+      "breakpoints": true
     }
   ]
 }
