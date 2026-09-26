@@ -44,7 +44,7 @@
 - [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.
 - [CAN-SPAM footer injection](can-spam-footer-injection.md) — HMAC secrets diverge between test/server processes; contacts schema column must match DB; worker channel gate fail-closes before custom gates.
 - [Drizzle out-of-order journal when](drizzle-out-of-order-journal.md) — a journal entry's `when` below any already-applied entry is silently skipped; fix `when` above high-water mark + insert hash.
-- [Sequence/coordinator test-isolation flakes](sequence-case27-lock-race.md) — live BullMQ workers racing for job locks or stale pause holds during tests cause flaps; not product bugs (see coordinator-holds-test-isolation.md, test-nba-hold-isolation.md).
+- [Sequence/coordinator test-isolation flakes](sequence-case27-lock-race.md) — live BullMQ workers racing for job locks or stale/absent pause holds during/after tests cause flaps, not product bugs (see coordinator-holds-test-isolation.md, test-nba-hold-isolation.md, coordinator-hold-integrity-timing.md).
 - [Dashboard header shrink-0 sibling overlap](header-shrink0-overlap.md) — shrink-0 right header group forced left group to 0 width on mobile; search input silently ate its taps.
 - [Collateral packet manual override](collateral-packet-override.md) — override precedence (explicit > auto-match > fallback); watch for "resolved name left null on failure" truthful-state bugs.
 - [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — two route files can both register the same param path; earlier-registered wins silently — verify via curl, not code reading.
@@ -88,13 +88,11 @@
 - [Queue Coordinator & Hold Ledger (#1532)](queue-coordinator-hold-ledger.md) — logical_job_control_holds; unpause sweeps deferred enrollments; physical actuation WINBACK_OUTREACH only.
 - [ZeroBounce validation safety](zerobounce-validation-safety.md) — canonical predicates + retryable-failure guard; campaign engine attempts table is claim+source of truth (see zerobounce-campaign-engine.md).
 - [GHL test-contact cleanup](ghl-test-contact-cleanup.md) — sdr_lead_events double-FK order; probe starvation on lowest-id skip contact; multiple test-family prefixes to clean.
-- [Coordinator/pause holds test isolation](coordinator-holds-test-isolation.md) — use correlation-scoped clearTestHolds; prefer setTestPauseState over applyPauseMutation in tests (see test-nba-hold-isolation.md).
 - [Serper gateway, cooldown & identity lookup](serper-gateway.md) — all calls via SerperGateway+serper_control singleton (fail-closed); see serper-zero-yield-cooldown.md, serper-business-identity.md.
 - [Drizzle execute timestamp strings](drizzle-execute-timestamp-strings.md) — tx.execute returns timestamptz as strings vs pg-pool Dates; audit_logs is append-only.
 - [Identity Crosswalk Gen-1](identity-crosswalk-gen1.md) — read-only evidence sweep; fail-close guards block deal creation + contact promotion; users.id is varchar not int.
 - [Pause-cycle test DB setup](pause-cycle-test-db.md) — throwaway DB + env guards for test-pause-cycle-unit.ts; schema drift breaks seeding.
 - [ZB pre-enrollment gate ordering](zb-preenroll-gate-ordering.md) — ZB pre-enrollment fires BEFORE all other sequence-worker gates; test contacts need emailStatus="valid".
-- [Coordinator hold integrity timing](coordinator-hold-integrity-timing.md) — pause-authority holds temporarily absent right after teardown; assertNonTestHoldsIntact must not hard-fail on them.
 - [Consent Authority & Channel State](consent-authority-channel-state.md) — canonical facts use the reducer; legacy fields are compatibility outputs only, never regain authority.
 - [Statement upload idempotency contract](statement-upload-idempotency.md) — all statement-upload routes require UUIDv4 Idempotency-Key or 400.
 - [New-lead enrollment scan timeout](new-lead-enrollment-timeout.md) — _fetchNewLeadDeals() hits pool 30s statement_timeout under load; wrap in tx with SET LOCAL statement_timeout='0'.
@@ -158,3 +156,4 @@
 - [Sunbiz bootstrap engine hardening](sunbiz-bootstrap-hardening.md) — dual-writer interlocks need fencing at every write boundary, not a batch-level pre-filter; weak-signal identity matches need corroboration even when combined.
 - [Shared-cohort recurring-worker test assertions](sfp-shared-cohort-worker-test-assertions.md) — fixing a run-state-ownership bug can make a worker legitimately re-scan and process older leftover fixture rows; assert on a specific item's own row, not aggregate run counters, and fetch a run by its deterministic actor_id/cohort_run_id, never by bare `ORDER BY created_at DESC LIMIT 1` (timestamp ties pick the wrong run).
 - [Pre-deploy gate cascade & baseline noise](pre-deploy-gate-notes.md) — new migration files need a journal entry or integrity check cascades broadly; a large pre-existing unrelated-failure baseline exists in this gate.
+- [Serper aggregate-only usage tracking](serper-usage-tracking-gap.md) — serper_control only had a monthly aggregate counter, no per-call/per-day log; added serper_call_log table + admin usage-log endpoint.
