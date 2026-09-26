@@ -2114,6 +2114,13 @@
       "when": 1800000011400,
       "tag": "0297_task2002_soflo_cursor_rewind",
       "breakpoints": true
+    },
+    {
+      "idx": 302,
+      "version": "7",
+      "when": 1800000011500,
+      "tag": "0298_task2003_serper_call_log",
+      "breakpoints": true
     }
   ]
 }

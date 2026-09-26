@@ -6214,6 +6214,58 @@ export function registerAdminRoutes(app: Express) {
     }
   })(); }
 
+  // === SERPER USAGE LOG BREAKDOWN (Task #2003) ===
+  // Aggregates serper_call_log by day and by call site so admins can see
+  // where credits went and the success rate, unlike serper_control's single
+  // aggregate counter for the current billing window.
+  app.get("/api/admin/serper/usage-log", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? "10"), 10) || 10));
+
+      const byDay = (await pool.query(
+        `SELECT date_trunc('day', created_at) AS day,
+                count(*) FILTER (WHERE outcome = 'success') AS successes,
+                count(*) FILTER (WHERE outcome = 'provider_error') AS provider_errors,
+                count(*) FILTER (WHERE outcome = 'blocked') AS blocked,
+                count(*) AS total
+           FROM serper_call_log
+          WHERE created_at >= now() - ($1 || ' days')::interval
+          GROUP BY 1
+          ORDER BY 1 DESC`,
+        [days],
+      )).rows;
+
+      const byCallSite = (await pool.query(
+        `SELECT call_site,
+                count(*) FILTER (WHERE outcome = 'success') AS successes,
+                count(*) FILTER (WHERE outcome = 'provider_error') AS provider_errors,
+                count(*) FILTER (WHERE outcome = 'blocked') AS blocked,
+                count(*) AS total
+           FROM serper_call_log
+          WHERE created_at >= now() - ($1 || ' days')::interval
+          GROUP BY 1
+          ORDER BY total DESC`,
+        [days],
+      )).rows;
+
+      const byBlockReason = (await pool.query(
+        `SELECT block_reason, count(*) AS total
+           FROM serper_call_log
+          WHERE created_at >= now() - ($1 || ' days')::interval AND outcome = 'blocked'
+          GROUP BY 1
+          ORDER BY total DESC`,
+        [days],
+      )).rows;
+
+      res.json({ days, byDay, byCallSite, byBlockReason });
+    } catch (err: any) {
+      if (/relation "serper_call_log" does not exist/i.test(err?.message ?? "")) {
+        return res.status(404).json({ message: "serper_call_log table missing — run migrations", byDay: [], byCallSite: [], byBlockReason: [] });
+      }
+      serverError(res, err);
+    }
+  });
+
   // === SERPER GATEWAY CONTROL (#1600) ===
   app.get("/api/admin/serper/control", isDashboardUser, requireRole('admin'), async (_req, res) => {
     try {

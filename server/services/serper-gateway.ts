@@ -163,17 +163,42 @@ export class SerperGateway {
 
   // ── The single network entry point ──────────────────────────────────────
 
+  /**
+   * Best-effort per-call usage log (Task #2003). Never throws and never
+   * blocks/slows the caller's result — a logging failure must not affect
+   * whether a search succeeds or fails.
+   */
+  private logCall(
+    callSite: string,
+    endpoint: SerperEndpoint,
+    outcome: "success" | "provider_error" | "blocked",
+    opts: { blockReason?: string; httpStatus?: number; errorText?: string } = {},
+  ): void {
+    this.pool
+      .query(
+        `INSERT INTO serper_call_log (call_site, endpoint, outcome, block_reason, http_status, error_text)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [callSite, endpoint, outcome, opts.blockReason ?? null, opts.httpStatus ?? null, opts.errorText?.slice(0, 500) ?? null],
+      )
+      .catch((err) => {
+        console.error(`[SerperGateway] Call log write failed (${callSite}):`, err);
+      });
+  }
+
   async executeSearch(
     endpoint: SerperEndpoint,
     payload: object,
     callSite: string,
   ): Promise<SerperGatewayResult> {
-    const blocked = (blockReason: SerperBlockReason): SerperGatewayResult => ({
-      ok: false,
-      blocked: true,
-      blockReason,
-      callSite,
-    });
+    const blocked = (blockReason: SerperBlockReason): SerperGatewayResult => {
+      this.logCall(callSite, endpoint, "blocked", { blockReason });
+      return {
+        ok: false,
+        blocked: true,
+        blockReason,
+        callSite,
+      };
+    };
 
     if (!process.env.SERPER_API_KEY) return blocked("no_api_key");
 
@@ -263,6 +288,7 @@ export class SerperGateway {
     if (!response) {
       // Timeout / network error → threshold counter.
       await this.recordFailure("timeout_or_network", false, wasHalfOpenProbe);
+      this.logCall(callSite, endpoint, "provider_error", { errorText: fetchError });
       return { ok: false, blocked: false, error: fetchError, callSite };
     }
 
@@ -274,10 +300,12 @@ export class SerperGateway {
         data = await response.json();
       } catch {
         await this.recordFailure("malformed_response", false, wasHalfOpenProbe);
+        this.logCall(callSite, endpoint, "provider_error", { httpStatus: status, errorText: "malformed_response_body" });
         return { ok: false, blocked: false, status, error: "malformed_response_body", callSite };
       }
       // 200 with zero results is a provider SUCCESS with zero yield.
       await this.recordSuccess(wasHalfOpenProbe);
+      this.logCall(callSite, endpoint, "success", { httpStatus: status });
       return { ok: true, blocked: false, status, data, callSite };
     }
 
@@ -285,6 +313,7 @@ export class SerperGateway {
 
     if (status === 401 || status === 403) {
       await this.recordFailure("auth_error", true, wasHalfOpenProbe);
+      this.logCall(callSite, endpoint, "provider_error", { httpStatus: status, errorText: `auth error ${status}` });
       return { ok: false, blocked: false, status, error: `auth error ${status}`, callSite };
     }
 
@@ -292,20 +321,24 @@ export class SerperGateway {
       const quotaExhausted = /credit|quota|balance|limit exceeded|not enough/i.test(bodyText);
       if (quotaExhausted) {
         await this.recordFailure("quota_exhausted", true, wasHalfOpenProbe);
+        this.logCall(callSite, endpoint, "provider_error", { httpStatus: status, errorText: "quota_exhausted" });
         return { ok: false, blocked: false, status, error: "quota_exhausted", callSite };
       }
       await this.recordFailure("rate_limited", false, wasHalfOpenProbe);
+      this.logCall(callSite, endpoint, "provider_error", { httpStatus: status, errorText: "rate_limited" });
       return { ok: false, blocked: false, status, error: "rate_limited", callSite };
     }
 
     if (status >= 400 && status < 500) {
       // Query/validation error — recorded separately, never counts toward the circuit.
       await this.recordValidationError();
+      this.logCall(callSite, endpoint, "provider_error", { httpStatus: status, errorText: `validation error ${status}: ${bodyText.slice(0, 200)}` });
       return { ok: false, blocked: false, status, error: `validation error ${status}: ${bodyText.slice(0, 200)}`, callSite };
     }
 
     // 5xx → threshold counter.
     await this.recordFailure("provider_5xx", false, wasHalfOpenProbe);
+    this.logCall(callSite, endpoint, "provider_error", { httpStatus: status, errorText: `provider error ${status}` });
     return { ok: false, blocked: false, status, error: `provider error ${status}`, callSite };
   }
 

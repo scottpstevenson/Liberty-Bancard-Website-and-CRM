@@ -7935,6 +7935,28 @@ export const serperControl = pgTable("serper_control", {
 
 export type SerperControl = typeof serperControl.$inferSelect;
 
+// ─── Serper Per-Call Usage Log (Task #2003) ──────────────────────────────────
+// One row per SerperGateway.executeSearch() attempt (success, provider
+// failure, or gateway block). Written best-effort from inside the gateway —
+// a logging failure must never block or fail the underlying search call.
+// Lets usage be broken down by day and by caller, unlike the single
+// aggregate serper_control row which only tracks the current billing window.
+export const serperCallLog = pgTable("serper_call_log", {
+  id:          serial("id").primaryKey(),
+  callSite:    text("call_site").notNull(),
+  endpoint:    text("endpoint").notNull(), // '/search' | '/places'
+  outcome:     text("outcome").notNull(), // 'success' | 'provider_error' | 'blocked'
+  blockReason: text("block_reason"), // set only when outcome = 'blocked'
+  httpStatus:  integer("http_status"),
+  errorText:   text("error_text"),
+  createdAt:   timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  createdAtIdx: index("serper_call_log_created_at_idx").on(table.createdAt),
+  callSiteIdx:  index("serper_call_log_call_site_idx").on(table.callSite, table.createdAt),
+}));
+
+export type SerperCallLog = typeof serperCallLog.$inferSelect;
+
 export const outboundPauseAudit = pgTable("outbound_pause_audit", {
   id:            serial("id").primaryKey(),
   epoch:         bigint("epoch", { mode: "bigint" }).notNull(),
