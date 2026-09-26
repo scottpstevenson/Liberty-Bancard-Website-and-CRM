@@ -3006,6 +3006,34 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/program/migrate-v2 — explicit, audited, one-time
+  // move of the South Florida program from the legacy v1 target-vertical
+  // taxonomy to v2 (Automotive, Healthcare, Beauty/Spa,
+  // Construction/Trades/Home Services, Fitness/Recreation). No-ops
+  // (migrated:false) if already on v2. Returns before/after program state
+  // and a before/after funnel snapshot so the caller has evidence of the
+  // effect without needing a separate script or DB access.
+  app.post("/api/lead-ops/sfp/program/migrate-v2", requireRole("admin"), async (req, res) => {
+    try {
+      const { getProgramReadOnly, previewFunnel, migrateProgramToTargetVerticalsV2 } = await import("../services/cro03/south-florida-prospecting");
+      const before = await getProgramReadOnly();
+      if (!before) return res.status(404).json({ error: "SFP_PROGRAM_NOT_CONFIGURED" });
+      const beforeFunnel = await previewFunnel({ maxPreview: 25 });
+      const migration = await migrateProgramToTargetVerticalsV2({
+        actorId: `admin:${(req as any).user?.id ?? "system"}`,
+      });
+      const afterFunnel = await previewFunnel({ maxPreview: 25 });
+      res.json({
+        migrated: migration.migrated,
+        reason: migration.reason ?? null,
+        before: { program: before, funnel: beforeFunnel.funnel },
+        after: { program: migration.program, funnel: afterFunnel.funnel },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // GET /api/lead-ops/sfp/funnel — read-only funnel preview with truthful counts
   app.get("/api/lead-ops/sfp/funnel", requireRole("admin"), async (req, res) => {
     try {
@@ -3019,6 +3047,95 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       }
       const preview = await previewFunnel({ maxPreview });
       res.json(preview);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/sfp/serper/single-probe — bounded, governed, single-call
+  // Serper verification probe (task: SFP South Florida enrichment Stage 2).
+  // Hard-caps the SHARED serper_control billing window to at most one more
+  // atomic budget claim before making the call, so this endpoint can never
+  // let a concurrent recurring backlog tick (or another caller) consume more
+  // than the one call this request itself accounts for. Targets exactly one
+  // eligible v2-cohort business (from the live funnel preview, excluding
+  // anything already resolved) so the call proves real signal, not a no-op.
+  // Never mutates program config or freezes a cohort.
+  app.post("/api/lead-ops/sfp/serper/single-probe", requireRole("admin"), async (req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const { getProgramReadOnly, previewFunnel } = await import("../services/cro03/south-florida-prospecting");
+      const { serperGateway } = await import("../services/serper-gateway");
+      const { serperAuthorityPermits } = await import("../services/sdr/serper-enrichment");
+
+      const program = await getProgramReadOnly();
+      if (!program) return res.status(404).json({ error: "SFP_PROGRAM_NOT_CONFIGURED" });
+
+      const authority = await serperAuthorityPermits(serperGateway);
+      if (!authority.permitted) {
+        return res.status(422).json({ error: "SERPER_AUTHORITY_BLOCKED", reason: authority.reason });
+      }
+
+      const businessId = Number(req.body?.businessId);
+      if (!Number.isInteger(businessId) || businessId <= 0) {
+        return res.status(400).json({ error: "businessId (integer) is required — pick one from GET /api/lead-ops/sfp/funnel topCandidates" });
+      }
+      const preview = await previewFunnel({ maxPreview: 25 });
+      const candidate = preview.topCandidates.find((c) => c.businessId === businessId);
+      if (!candidate) {
+        return res.status(404).json({ error: "BUSINESS_NOT_IN_CURRENT_ELIGIBLE_V2_COHORT", businessId });
+      }
+      const bizRow = (await db.execute(sql`
+        SELECT id, canonical_name, city, state FROM businesses WHERE id = ${businessId} LIMIT 1
+      `)).rows?.[0] as any;
+      if (!bizRow) return res.status(404).json({ error: "BUSINESS_NOT_FOUND" });
+
+      // Hard-cap the shared billing window to exactly one more claim before
+      // making the call. Concurrent callers (including the recurring
+      // existing-contact backlog tick) can claim at most this one slot;
+      // whichever request wins it is on the operator to reconcile.
+      const controlBefore = await serperGateway.getControl();
+      if (!controlBefore) return res.status(500).json({ error: "SERPER_CONTROL_MISSING" });
+      await db.execute(sql`
+        UPDATE serper_control SET local_budget = window_calls + 1 WHERE id = 1
+      `);
+
+      const CALLER = "sfp_stage2_single_probe";
+      const response = await serperGateway.executeSearch(
+        "/search",
+        { q: `${bizRow.canonical_name} ${bizRow.city ?? ""} ${bizRow.state ?? ""}`.trim() },
+        CALLER,
+      );
+
+      const controlAfter = await serperGateway.getControl();
+      // Restore the original budget ceiling now that the bounded window has
+      // closed — this endpoint must never leave the shared window
+      // permanently constrained for unrelated callers.
+      await db.execute(sql`
+        UPDATE serper_control SET local_budget = ${controlBefore.local_budget} WHERE id = 1
+      `);
+
+      await db.execute(sql`
+        INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+        VALUES ('sfp_stage2_serper_single_probe', 'business', ${String(businessId)}, 'user',
+                ${`admin:${(req as any).user?.id ?? "system"}`},
+                ${JSON.stringify({
+                  businessId, blocked: response.blocked, ok: response.ok, status: (response as any).status ?? null,
+                  windowCallsBefore: controlBefore.window_calls, windowCallsAfter: controlAfter?.window_calls ?? null,
+                })}::jsonb)
+      `);
+
+      res.json({
+        businessId,
+        blocked: response.blocked,
+        ok: response.ok,
+        status: (response as any).status ?? null,
+        hasResult: !!(response as any).data,
+        windowCallsBefore: controlBefore.window_calls,
+        windowCallsAfter: controlAfter?.window_calls ?? null,
+        providerBalance: controlAfter?.provider_balance ?? null,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
