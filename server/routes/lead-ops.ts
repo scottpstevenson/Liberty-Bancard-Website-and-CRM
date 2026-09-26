@@ -3091,15 +3091,34 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       `)).rows?.[0] as any;
       if (!bizRow) return res.status(404).json({ error: "BUSINESS_NOT_FOUND" });
 
-      // Hard-cap the shared billing window to exactly one more claim before
-      // making the call. Concurrent callers (including the recurring
-      // existing-contact backlog tick) can claim at most this one slot;
-      // whichever request wins it is on the operator to reconcile.
+      // Do NOT mutate the shared serper_control.local_budget ceiling here.
+      // A read-then-restore of that column races any concurrent operator
+      // change or the recurring existing-contact backlog tick — whichever
+      // writer runs last silently clobbers the other's value. Exclusivity
+      // for "exactly one call" instead comes from a dedicated, uniquely
+      // keyed provider_operations reservation: the INSERT below can only
+      // ever succeed once per idempotencyKey (unique index), so a second
+      // concurrent invocation of this route for the same business+run is
+      // rejected before it reaches the gateway, while the gateway's own
+      // atomic window_calls claim (unchanged, unrestricted) still protects
+      // the shared budget from being exceeded by this call.
       const controlBefore = await serperGateway.getControl();
       if (!controlBefore) return res.status(500).json({ error: "SERPER_CONTROL_MISSING" });
-      await db.execute(sql`
-        UPDATE serper_control SET local_budget = window_calls + 1 WHERE id = 1
-      `);
+
+      const probeIdempotencyKey = `sfp_stage2_single_probe:${businessId}`;
+      const claim = (await db.execute(sql`
+        INSERT INTO provider_operations
+          (provider, operation_type, purpose, idempotency_key, actor_type, actor_id, target_fingerprint,
+           state, requested_units, reserved_units, billing_state, attempt_count, claim_token, lease_expires_at, started_at)
+        VALUES ('serper', 'sfp_stage2_single_probe', 'sfp_stage2_verification', ${probeIdempotencyKey}, 'user',
+                ${`admin:${(req as any).user?.id ?? "system"}`}, ${`business:${businessId}`},
+                'running', 1, 1, 'reserved', 1, gen_random_uuid(), NOW() + INTERVAL '5 minutes', NOW())
+        ON CONFLICT (provider, idempotency_key) DO NOTHING
+        RETURNING id
+      `).catch(() => ({ rows: [] } as any))).rows?.[0];
+      if (!claim) {
+        return res.status(409).json({ error: "SFP_STAGE2_PROBE_ALREADY_CLAIMED", businessId, hint: "This business already has a single-probe reservation in flight or completed; pick a different businessId or inspect the existing provider_operations row." });
+      }
 
       const CALLER = "sfp_stage2_single_probe";
       const response = await serperGateway.executeSearch(
@@ -3109,11 +3128,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       );
 
       const controlAfter = await serperGateway.getControl();
-      // Restore the original budget ceiling now that the bounded window has
-      // closed — this endpoint must never leave the shared window
-      // permanently constrained for unrelated callers.
       await db.execute(sql`
-        UPDATE serper_control SET local_budget = ${controlBefore.local_budget} WHERE id = 1
+        UPDATE provider_operations SET state = 'completed', billing_state = 'settled', updated_at = NOW()
+         WHERE provider = 'serper' AND idempotency_key = ${probeIdempotencyKey}
       `);
 
       await db.execute(sql`

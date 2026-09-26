@@ -698,7 +698,19 @@ export async function runPreCohortClassificationBridge(
       // admit a business on this evidence alone.
       let resolvedVerticalId: string | null = deterministic.resolvedVerticalId;
       let admissionTier: "resolved_high" | "resolved_medium" | null = deterministic.admissionTier;
-      if (outcome === "review_required" && websiteEvidence && hasWebsiteTargetOverlap(websiteEvidence, targetIds)) {
+      // The lexical alias table backing hasWebsiteTargetOverlap was written
+      // for the v1 taxonomy (dental/med spa/auto repair/restaurant/retail)
+      // and produced a confirmed false positive under v2: a restaurant's
+      // generic website boilerplate contained the bare word "healthcare"
+      // (an unrelated benefits mention), which the substring match promoted
+      // straight to outcome="target" — exactly the "manufactured eligible
+      // target" this program must never produce, especially since
+      // restaurants are explicitly excluded from v2. Until the alias table
+      // is rebuilt and re-verified against the v2 vertical names, v2 runs
+      // skip this heuristic entirely and let ambiguous cases fall through to
+      // the governed OpenAI escalation below (or stay review_required if
+      // that is also unavailable) rather than trust a loose keyword match.
+      if (taxonomyVersion !== 2 && outcome === "review_required" && websiteEvidence && hasWebsiteTargetOverlap(websiteEvidence, targetIds)) {
         outcome = "target";
         confidence = Math.min(0.65, Math.max(0.45, deterministic.confidence || 0.5));
         reasonCodes.push("WEBSITE_EVIDENCE_TARGET_OVERLAP", `WEBSITE_CONTENT_HASH:${websiteEvidence.contentHash}`);
