@@ -798,6 +798,59 @@ async function convergeCro08aCandidateFreshnessRefreshSchedule(): Promise<SeedTa
   return { id, classification: "immutable_revision_seed", tables, outcome: "already_present", detail: `definition present: id=${result.id} version=${result.definitionVersion} hash=${result.definitionHash}` };
 }
 
+// ── Target: soflo_high_water_entity_id cursor rewind (Task #2002 corrective
+// patch, migrations/0297_task2002_soflo_cursor_rewind.sql) ─────────────────
+// The migration file's plain UPDATE never runs against production (Drizzle
+// migrate() is never pointed at it — see production-schema-ownership.md), so
+// the one-time cursor rewind that fixes the South Florida overflow-skip bug
+// (selectSunbizBootstrapCandidateWindow previously advanced maxIdExamined
+// past eligible-but-unprocessed rows when a scan window held more eligible
+// candidates than the microbatch limit) must converge here instead.
+//
+// Classified historical_backfill: this is a one-time correction of state
+// left behind by the buggy selector, not a fixed seed row. It is naturally
+// idempotent — the WHERE clause matches only soflo_high_water_entity_id > 0
+// while phase='south_florida' and status='paused'; after it rewinds the
+// cursor to 0 once, the condition can never match again for this run, so
+// repeat boots are a safe no-op. It intentionally does NOT require
+// status='paused' to already be true before running (unlike the migration
+// file, which was written and reviewed against a verified-paused production
+// run) — by the time this runs at boot, an operator may have resumed the
+// run, and gating it on a specific status here would make convergence flaky.
+// Rewinding the read-only cursor is safe regardless of run status: the
+// worst case is one extra re-scan of already-claimed rows, which the
+// existing sunbiz_bootstrap_claims NOT EXISTS predicate makes a no-op.
+async function convergeSofloCursorRewind(): Promise<SeedTargetResult> {
+  const id = "sunbiz_soflo_cursor_rewind_task2002";
+  const tables = ["sunbiz_bootstrap_runs"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "sunbiz_bootstrap_runs", {
+      phase: "text",
+      soflo_high_water_entity_id: "integer",
+      remaining_high_water_entity_id: "integer",
+      high_water_entity_id: "integer",
+    });
+    const result = await tx.execute(sql`
+      UPDATE sunbiz_bootstrap_runs
+      SET soflo_high_water_entity_id = 0,
+          high_water_entity_id = GREATEST(remaining_high_water_entity_id, 0),
+          updated_at = now()
+      WHERE id = 'default'
+        AND phase = 'south_florida'
+        AND soflo_high_water_entity_id > 0
+      RETURNING id
+    `);
+    const rewound = (result as any)?.rowCount ?? 0;
+    return {
+      id, classification: "historical_backfill", tables,
+      outcome: rewound > 0 ? "backfilled" : "already_present",
+      detail: rewound > 0
+        ? "rewound soflo_high_water_entity_id to 0 to re-scan past the overflow-skip bug window"
+        : "no rewind needed (south_florida phase not active with a nonzero cursor, or already rewound)",
+    };
+  });
+}
+
 /**
  * Registry of every production-required seed/backfill target this module
  * owns. `write` performs the insert-only convergence (used at startup);
@@ -857,6 +910,7 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
     tables: ["cro08a_schedule_definitions"], write: convergeCro08aCandidateFreshnessRefreshSchedule,
     seedKeys: { columns: ["logical_key", "created_by"], values: [["candidate_freshness_refresh", CRO08A_SCHEDULE_CREATED_BY]] },
   },
+  { id: "sunbiz_soflo_cursor_rewind_task2002", classification: "historical_backfill", tables: ["sunbiz_bootstrap_runs"], write: convergeSofloCursorRewind },
 ];
 
 /**
@@ -1124,6 +1178,23 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
       const tables = ["cro08a_schedule_definitions"];
       const row = rows(await db.execute(sql`SELECT id, active, budgets FROM cro08a_schedule_definitions WHERE logical_key = 'candidate_freshness_refresh' AND created_by = ${CRO08A_SCHEDULE_CREATED_BY} ORDER BY definition_version DESC LIMIT 1`))[0];
       return { id, classification: "immutable_revision_seed", tables, outcome: row ? "already_present" : "unexpected", detail: row ? `definition present: id=${row.id} active=${row.active}` : "no canonical candidate_freshness_refresh definition found" };
+    },
+    async () => {
+      const id = "sunbiz_soflo_cursor_rewind_task2002";
+      const tables = ["sunbiz_bootstrap_runs"];
+      const row = rows(await db.execute(sql`
+        SELECT phase, soflo_high_water_entity_id FROM sunbiz_bootstrap_runs WHERE id = 'default'
+      `))[0];
+      // Not provisioned yet, or convergence already ran (or was never
+      // needed): either way there is nothing left for it to rewind.
+      const stillNeedsRewind = row && row.phase === "south_florida" && Number(row.soflo_high_water_entity_id) > 0;
+      return {
+        id, classification: "historical_backfill", tables,
+        outcome: stillNeedsRewind ? "unexpected" : "already_present",
+        detail: stillNeedsRewind
+          ? `south_florida phase cursor still at ${row.soflo_high_water_entity_id} — convergence rewind has not run yet`
+          : "no pending rewind (row absent, past south_florida phase, or already rewound)",
+      };
     },
   ];
   for (const check of checks) {

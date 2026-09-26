@@ -19,6 +19,7 @@
  *     independent of whether a live QueueManager/Redis exists.
  */
 import assert from "node:assert/strict";
+import { boundSouthFloridaCandidateWindow, isSouthFloridaEligible, type SunbizBootstrapCandidate } from "../server/services/sunbiz-bootstrap.js";
 
 let passed = 0;
 let failed = 0;
@@ -58,6 +59,74 @@ const {
 const { getWorkerCapabilityStatus, QUEUE_NAMES } = await import("../server/services/queue-manager.js");
 
 const BACKFILL_QUEUE = QUEUE_NAMES.SUNBIZ_FULL_BACKFILL;
+
+test("0a. South Florida overflow window: 35 eligible rows in one scan, limit 25 -> all 35 selected across consecutive batches", () => {
+  const scanned: SunbizBootstrapCandidate[] = Array.from({ length: 35 }, (_, index) => ({
+    id: index + 1,
+    filingNumber: `fixture-soflo-${index}`,
+    entityName: `Fixture ${index}`,
+    website: null,
+    phone: null,
+    principalCity: "Miami",
+    principalState: "FL",
+  }));
+  for (const c of scanned) {
+    assert.ok(isSouthFloridaEligible(c), `fixture ${c.filingNumber} must be South Florida eligible`);
+  }
+
+  const seenFilingNumbers = new Set<string>();
+  let afterId = 0;
+  let iterations = 0;
+  while (seenFilingNumbers.size < scanned.length) {
+    iterations++;
+    assert.ok(iterations <= 10, "must converge in a small number of batches, not loop forever");
+    const remaining = scanned.filter((c) => c.id > afterId);
+    const { candidates, maxIdExamined } = boundSouthFloridaCandidateWindow(remaining, 25);
+    for (const c of candidates) seenFilingNumbers.add(c.filingNumber);
+    assert.ok(maxIdExamined !== null || remaining.length === 0, "maxIdExamined must not be null while rows remain");
+    if (maxIdExamined !== null) {
+      assert.ok(maxIdExamined > afterId || remaining.length === 0, "cursor must make forward progress");
+      afterId = maxIdExamined;
+    }
+  }
+  assert.equal(seenFilingNumbers.size, 35, "all 35 eligible records must eventually be selected");
+});
+
+test("0b. South Florida overflow window: first batch does not advance cursor past unprocessed eligible rows", () => {
+  const scanned: SunbizBootstrapCandidate[] = Array.from({ length: 35 }, (_, index) => ({
+    id: index + 1,
+    filingNumber: `fixture-${index}`,
+    entityName: `Fixture ${index}`,
+    website: null,
+    phone: null,
+    principalCity: "Miami",
+    principalState: "FL",
+  }));
+  const first = boundSouthFloridaCandidateWindow(scanned, 25);
+  assert.equal(first.candidates.length, 25);
+  // Regression check: previously this returned 35 (last scanned id), which
+  // would let the cursor skip the 10 eligible-but-unprocessed rows above id 25.
+  assert.equal(first.maxIdExamined, 25);
+  const second = boundSouthFloridaCandidateWindow(scanned.filter((row) => row.id > first.maxIdExamined!), 25);
+  assert.equal(second.candidates.length, 10);
+  assert.equal(second.maxIdExamined, 35);
+});
+
+test("0c. South Florida window advances across fully examined non-eligible rows", () => {
+  const scanned: SunbizBootstrapCandidate[] = Array.from({ length: 35 }, (_, index) => ({
+    id: index + 1,
+    filingNumber: `fixture-${index}`,
+    entityName: `Fixture ${index}`,
+    website: null,
+    phone: null,
+    principalCity: index < 25 ? "Miami" : "Austin",
+    principalState: index < 25 ? "FL" : "TX",
+  }));
+  const selected = boundSouthFloridaCandidateWindow(scanned, 25);
+  assert.equal(selected.candidates.length, 25);
+  assert.equal(selected.maxIdExamined, 35);
+  assert.deepEqual(boundSouthFloridaCandidateWindow([], 25), { candidates: [], maxIdExamined: null });
+});
 
 test("1. WORKER_CAPABILITY_GROUPS['sunbiz-backfill'] exists and contains only sunbiz-full-backfill", () => {
   const queues = WORKER_CAPABILITY_GROUPS["sunbiz-backfill" as keyof typeof WORKER_CAPABILITY_GROUPS];

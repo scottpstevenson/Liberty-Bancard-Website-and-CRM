@@ -154,14 +154,52 @@ export async function selectSunbizBootstrapCandidateWindow(
     principalZip: r.principal_zip ?? null,
   }));
 
-  const maxIdExamined = mapped.length === 0 ? null : Math.max(...mapped.map((c) => c.id));
+  // mapped is already ordered by se.id ASC (see ORDER BY above), so the last
+  // element is the highest id in the scanned window.
+  const maxIdExamined = mapped.length === 0 ? null : mapped[mapped.length - 1].id;
 
   if (geography !== "south_florida") {
     return { candidates: mapped.slice(0, boundedLimit), maxIdExamined };
   }
 
-  const eligible = mapped.filter((c) => isSouthFloridaEligible(c));
-  return { candidates: eligible.slice(0, boundedLimit), maxIdExamined };
+  return boundSouthFloridaCandidateWindow(mapped, boundedLimit);
+}
+
+/**
+ * Bounds a South-Florida-eligible candidate window to at most `limit` rows,
+ * and reports the cursor-safe maxIdExamined for that window.
+ *
+ * Bug this fixes (Task #2002 corrective patch): a scan window can contain
+ * MORE eligible rows than fit in one microbatch (e.g. 35 eligible rows in a
+ * 1000-row overfetch window, but boundedLimit=25). The previous
+ * implementation reported maxIdExamined as the highest id in the ENTIRE
+ * scanned window regardless of how many eligible rows were actually
+ * returned as candidates -- so once the batch for the first 25 succeeded,
+ * the cursor advanced past the id of the other 10 eligible-but-unprocessed
+ * rows. Those 10 are not retryable-failures (they were never claimed or
+ * attempted), so computeNextHighWaterEntityId's retryable-failure guard in
+ * sunbiz-full-backfill.ts cannot protect them -- they would be silently and
+ * permanently skipped for the South Florida lane.
+ *
+ * Fix: only advance maxIdExamined past the whole scanned window when EVERY
+ * eligible row in it fit inside `limit`. When there are more eligible rows
+ * than fit, maxIdExamined stops at the last row actually returned as a
+ * candidate, so the next call (with afterId = that id) re-scans and finds
+ * the remaining eligible rows.
+ */
+export function boundSouthFloridaCandidateWindow(
+  scanned: SunbizBootstrapCandidate[],
+  limit: number,
+): { candidates: SunbizBootstrapCandidate[]; maxIdExamined: number | null } {
+  const eligible = scanned.filter((c) => isSouthFloridaEligible(c));
+  const candidates = eligible.slice(0, limit);
+  const maxIdExamined =
+    eligible.length > limit
+      ? candidates[candidates.length - 1].id
+      : scanned.length > 0
+        ? scanned[scanned.length - 1].id
+        : null;
+  return { candidates, maxIdExamined };
 }
 
 /**

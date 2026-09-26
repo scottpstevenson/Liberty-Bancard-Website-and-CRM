@@ -2107,6 +2107,13 @@
       "when": 1800000011300,
       "tag": "0296_task2002_soflo_priority",
       "breakpoints": true
+    },
+    {
+      "idx": 301,
+      "version": "7",
+      "when": 1800000011400,
+      "tag": "0297_task2002_soflo_cursor_rewind",
+      "breakpoints": true
     }
   ]
 }
