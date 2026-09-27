@@ -3452,26 +3452,29 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/sfp/classification/evidence/repair-non-attempts — one-time
-  // corrective backfill: evidence rows recorded terminal_state='completed' even
-  // when OpenAI escalation was never actually attempted (transport disabled,
-  // credential missing, or the paid-budget authorization gate not yet granted),
-  // reason_codes carrying OPENAI_UNAVAILABLE/OPENAI_ESCALATION_NOT_CONFIGURED.
-  // Those rows were wrongly cacheable and would replay the non-attempt forever
-  // even after the underlying gap is fixed. Flips them to 'provisional' so a
-  // later run with the same evidence_hash retries the escalation. Idempotent —
-  // safe to call repeatedly; only ever touches rows matching the exact bug shape.
-  app.post("/api/lead-ops/sfp/classification/evidence/repair-non-attempts", requireRole("admin"), async (req, res) => {
+  // GET /api/lead-ops/sfp/classification/evidence/non-attempts — diagnostic
+  // read of evidence rows recorded terminal_state='completed' even when the
+  // OpenAI escalation was never actually attempted (transport disabled,
+  // credential missing, or the paid-budget authorization gate not yet
+  // granted), reason_codes carrying OPENAI_UNAVAILABLE/
+  // OPENAI_ESCALATION_NOT_CONFIGURED. sfp_classification_evidence is
+  // insert-only -- a DB trigger rejects any UPDATE/DELETE on it -- so these
+  // historical rows can never be repaired in place; there is no mutating
+  // counterpart to this route. The cache lookup in
+  // runFrozenClassificationSnapshot() already excludes rows matching this
+  // exact shape from being treated as a valid cache hit, so a later run for
+  // the same business/evidence_hash retries for real and inserts a fresh,
+  // correctly-terminal-stated row -- this endpoint exists only to see how
+  // many legacy rows still carry the stale shape.
+  app.get("/api/lead-ops/sfp/classification/evidence/non-attempts", requireRole("admin"), async (req, res) => {
     try {
-      const updated = rows(await db.execute(sql`
-        UPDATE sfp_classification_evidence
-           SET terminal_state='provisional'
+      const found = rows(await db.execute(sql`
+        SELECT id, business_id FROM sfp_classification_evidence
          WHERE terminal_state='completed'
            AND (reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb
                 OR reason_codes @> '["OPENAI_ESCALATION_NOT_CONFIGURED"]'::jsonb)
-        RETURNING id, business_id
       `));
-      res.json({ repairedCount: updated.length, businessIds: updated.map((r: any) => Number(r.business_id)) });
+      res.json({ count: found.length, businessIds: found.map((r: any) => Number(r.business_id)) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }

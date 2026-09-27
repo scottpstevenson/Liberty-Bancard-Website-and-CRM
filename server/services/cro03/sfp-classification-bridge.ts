@@ -663,11 +663,22 @@ export async function runPreCohortClassificationBridge(
         taxonomyVersion,
       }));
 
+      // sfp_classification_evidence is insert-only (a DB trigger rejects any
+      // UPDATE/DELETE), so a bad row can never be repaired in place -- the
+      // only lever is which rows this lookup is willing to treat as a valid
+      // cache hit. A 'completed' row whose reason_codes show the OpenAI
+      // escalation was never actually attempted (transport disabled,
+      // credential missing, or the paid-budget gate not yet granted) is not
+      // a real classification result; excluding it here is what lets a
+      // later run with the same evidence_hash retry for real once the
+      // underlying gap is fixed, without ever mutating the historical row.
       const cached = rows(await db.execute(sql`
         SELECT * FROM sfp_classification_evidence
          WHERE business_id=${businessId} AND evidence_hash=${evidenceHash}
            AND policy_version=${input.policyVersion} AND classifier_version=${taxonomyVersion}
            AND terminal_state='completed'
+           AND NOT (reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb
+                     OR reason_codes @> '["OPENAI_ESCALATION_NOT_CONFIGURED"]'::jsonb)
          ORDER BY created_at DESC,evidence_hash ASC LIMIT 1
       `))[0] as EvidenceRow | undefined;
       if (cached) {

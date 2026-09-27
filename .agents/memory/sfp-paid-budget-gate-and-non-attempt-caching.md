@@ -31,6 +31,14 @@ provider call is attempted.
 **How to apply:** a review_required outcome caused by `OPENAI_UNAVAILABLE` or
 `OPENAI_ESCALATION_NOT_CONFIGURED` must be written with `terminal_state='provisional'`
 (not `'completed'`), so a later run with the same evidence_hash retries the escalation.
-Any *existing* rows written before this fix stay stuck as `'completed'` and must be
-corrected via an admin route (never raw `executeSql` writes against production) before a
-retry can succeed — a code fix alone does not unstick already-cached non-attempts.
+
+`sfp_classification_evidence` also has a DB trigger (`sfp_reject_evidence_mutation`,
+migration 0288) that rejects ANY UPDATE/DELETE — it is insert-only by design. An admin
+repair route that tries to `UPDATE ... SET terminal_state='provisional'` on existing bad
+rows will always 500 in production with a generic "Failed query" message (the jsonb
+operator, `?` vs `@>`, is a red herring — the trigger fires regardless of operator choice).
+Check `pg_trigger` for a table before writing any repair route that mutates existing rows.
+The correct fix for already-cached non-attempts is to exclude the bad shape from the
+*cache lookup* query itself (`AND NOT (reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb OR
+...)`), never to try to mutate the historical rows — a later run then simply misses the
+cache and inserts a fresh, correctly-terminal-stated row.
