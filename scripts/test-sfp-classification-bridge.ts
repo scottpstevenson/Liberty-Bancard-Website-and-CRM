@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { pool } from "../server/db";
 import { runPreCohortClassificationBridge, getLatestAdmissibleClassificationEvidence } from "../server/services/cro03/sfp-classification-bridge";
+import { selectRoiCohort } from "../server/services/cro03/roi-cohort-selector";
+import { CLASSIFIER_VERSION } from "../server/services/cro03/sfp-vertical-classifier";
 
 const nonce = randomUUID();
 const programName = `sfp-c1-bridge-${nonce}`;
@@ -245,6 +247,45 @@ async function main() {
   check(ambiguousFreeReasons.includes("FREE_ONLY_NO_ESCALATION"), "free-only non-attempt records FREE_ONLY_NO_ESCALATION reason code");
   check(ambiguousFreeEvidence?.terminal_state === "provisional", "free-only non-attempt is terminal_state=provisional so a later paid run can retry");
   check(Number(ambiguousFreeEvidence?.cost_micros) === 0, "free-only non-attempt records zero cost");
+
+  // ── Stale classifier version must never masquerade as current evidence ──
+  // even when it is the NEWEST row by timestamp. An old-classifier row
+  // inserted after a current-classifier row is exactly the production
+  // defect: "current" selection must be classifier_version-scoped, not just
+  // most-recent-by-timestamp.
+  // Live text is deliberately ambiguous ("services") so the ONLY thing that
+  // could wrongly admit this business is a stale evidence row.
+  const staleClassifierId = await addBusiness("Stale Classifier Ambiguous Co", "services");
+  // An old-classifier-version row claiming a resolved_high TARGET outcome --
+  // this is the shape a pre-fix classifier bug would have produced -- and it
+  // is the NEWEST row by timestamp, so a timestamp-only "latest wins" lookup
+  // would wrongly treat it as current.
+  await pool.query(
+    `INSERT INTO sfp_classification_evidence
+       (business_id,evidence_hash,source_refs,classifier_version,policy_version,taxonomy_version,outcome,confidence,reason_codes,idempotency_key,terminal_state,admission_tier,resolved_vertical_id,created_at)
+     VALUES ($1,$2,'[]'::jsonb,$3,20,2,'target',0.9,'[]'::jsonb,$4,'completed','resolved_high','Construction/Trades/Home Services',NOW())`,
+    [staleClassifierId, `old-classifier-newer-ts-${nonce}`, CLASSIFIER_VERSION - 1, `old-classifier-newer-ts-${nonce}`],
+  );
+  // An older-by-timestamp row at the CURRENT classifier version, correctly
+  // review_required -- the row that should actually govern.
+  await pool.query(
+    `INSERT INTO sfp_classification_evidence
+       (business_id,evidence_hash,source_refs,classifier_version,policy_version,taxonomy_version,outcome,confidence,reason_codes,idempotency_key,terminal_state,created_at)
+     VALUES ($1,$2,'[]'::jsonb,$3,20,2,'review_required',0.4,'[]'::jsonb,$4,'completed',NOW()-INTERVAL '2 hours')`,
+    [staleClassifierId, `current-classifier-older-ts-${nonce}`, CLASSIFIER_VERSION, `current-classifier-older-ts-${nonce}`],
+  );
+  const staleSelection = await selectRoiCohort({
+    verticalIds: ["Construction/Trades/Home Services"], countyFips: ["12086"], maxCohort: 100,
+    policyVersion: 20, taxonomyVersion: 2,
+  });
+  const staleEligible = staleSelection.eligible.find((c: any) => c.canonicalBusinessId === staleClassifierId);
+  const staleExcluded = staleSelection.excluded.find((c: any) => c.canonicalBusinessId === staleClassifierId);
+  check(!staleEligible, "a newer-by-timestamp old-classifier-version 'target' row never admits an otherwise-ambiguous business");
+  check(!!staleExcluded, "the business is excluded, governed by the current-classifier-version review_required row instead");
+  check(
+    staleExcluded?.classificationEvidence?.classifierVersion === CLASSIFIER_VERSION,
+    "attached classificationEvidence (when present) is always scoped to the current classifier version, never the stale one",
+  );
 
   console.log(`\nSFP classification bridge: ${assertionCount} assertions passed.`);
 }

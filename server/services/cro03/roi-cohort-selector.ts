@@ -402,6 +402,7 @@ export async function selectRoiCohort(opts: {
            resolved_vertical_id,admission_tier
       FROM sfp_classification_evidence
      WHERE policy_version=${classificationPolicyVersion} AND taxonomy_version=${taxonomyVersion}
+       AND classifier_version=${CLASSIFIER_VERSION}
        AND terminal_state='completed'
      ORDER BY business_id,created_at DESC,evidence_hash ASC
   `));

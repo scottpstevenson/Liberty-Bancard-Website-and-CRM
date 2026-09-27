@@ -44,7 +44,13 @@ type SfpFunnel = {
     outsideGeography: number;
     geographyUnresolved: number;
     inTargetVertical: number;
+    /** Sum of noVerticalEvidence + explicitNonTarget + reviewRequired + verticalConflict below — never render this alone as "needs review". */
     verticalUnresolved: number;
+    noVerticalEvidence: number;
+    explicitNonTarget: number;
+    reviewRequired: number;
+    verticalConflict: number;
+    staleEvidence: number;
     dbprExcluded: number;
     existingCustomer: number;
     testDemoInternal: number;
@@ -266,6 +272,7 @@ export function SouthFloridaProspectingPanel() {
   const [candidateIdOverride, setCandidateIdOverride] = useState("");
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
   const [freeOnlySnapshotId, setFreeOnlySnapshotId] = useState<string | null>(null);
+  const [freeOnlyFreezeResult, setFreeOnlyFreezeResult] = useState<{ businessIds: number[]; rejectedAtFreeze: Array<{ businessId: number; reason: string }> } | null>(null);
   const [freeOnlyRunResult, setFreeOnlyRunResult] = useState<{ processed: number; targetCount: number; nonTargetCount: number; reviewRequiredCount: number; costMicros: number } | null>(null);
 
   useEffect(() => {
@@ -354,7 +361,19 @@ export function SouthFloridaProspectingPanel() {
     retry: false,
   });
 
-  const highConfidenceCandidatesQuery = useQuery<{ candidates: Array<{ businessId: number; rawVertical: string | null; confidence: number }> }>({
+  type SfpHighConfidenceCandidate = {
+    businessId: number;
+    canonicalName: string;
+    countyFips: string | null;
+    geographySource: string;
+    proposedVerticalId: string;
+    confidence: number;
+    reasonCodes: string[];
+    source: "structured_vertical_field" | "name_derived_signal";
+    exclusionStatus: string | null;
+  };
+
+  const highConfidenceCandidatesQuery = useQuery<{ candidates: SfpHighConfidenceCandidate[] }>({
     queryKey: [
       `/api/lead-ops/sfp/programs/${programQuery.data?.id}/high-confidence-candidates`,
       candidateIdOverride.trim(),
@@ -369,6 +388,14 @@ export function SouthFloridaProspectingPanel() {
     enabled: false,
     retry: false,
   });
+
+  // Selections must never survive a change to the underlying candidate set
+  // (a fresh preview load or a new explicit ID override) — otherwise a
+  // stale businessId, or one that a new preview reclassified as excluded,
+  // could ride along into a freeze request unnoticed.
+  useEffect(() => {
+    setSelectedCandidateIds([]);
+  }, [highConfidenceCandidatesQuery.data, candidateIdOverride]);
 
   const freezeFreeOnlySnapshot = useMutation({
     mutationFn: async () => {
@@ -385,8 +412,14 @@ export function SouthFloridaProspectingPanel() {
     },
     onSuccess: (data: any) => {
       setFreeOnlySnapshotId(data?.snapshotId ?? null);
+      setFreeOnlyFreezeResult({
+        businessIds: Array.isArray(data?.businessIds) ? data.businessIds : [],
+        rejectedAtFreeze: Array.isArray(data?.rejectedAtFreeze) ? data.rejectedAtFreeze : [],
+      });
       setFreeOnlyRunResult(null);
-      toast({ title: "Free-only batch frozen", description: `${selectedCandidateIds.length} businesses pinned, provider calls disabled` });
+      const frozenCount = Array.isArray(data?.businessIds) ? data.businessIds.length : 0;
+      const rejectedCount = Array.isArray(data?.rejectedAtFreeze) ? data.rejectedAtFreeze.length : 0;
+      toast({ title: "Free-only batch frozen", description: `${frozenCount} businesses pinned${rejectedCount ? `, ${rejectedCount} rejected at freeze` : ""} — provider calls disabled` });
     },
     onError: (e: any) => toast({ title: "Freeze failed", description: e?.message, variant: "destructive" }),
   });
@@ -769,7 +802,11 @@ export function SouthFloridaProspectingPanel() {
                 ["Outside geo", funnel.outsideGeography, "text-orange-500"],
                 ["Geo unresolved", funnel.geographyUnresolved, "text-yellow-600"],
                 ["In target vertical", funnel.inTargetVertical, "text-green-600"],
-                ["Vertical unresolved", funnel.verticalUnresolved, "text-yellow-600"],
+                ["No vertical evidence", funnel.noVerticalEvidence, "text-yellow-600"],
+                ["Explicit non-target", funnel.explicitNonTarget, "text-gray-500"],
+                ["Review required", funnel.reviewRequired, "text-yellow-600"],
+                ["Vertical conflict", funnel.verticalConflict, "text-orange-500"],
+                ["Stale evidence", funnel.staleEvidence, "text-yellow-600"],
                 ["DBPR excluded", funnel.dbprExcluded, "text-red-500"],
                 ["Existing customer", funnel.existingCustomer, "text-red-500"],
                 ["Suppressed", funnel.suppressed, "text-red-500"],
@@ -799,7 +836,7 @@ export function SouthFloridaProspectingPanel() {
               <span>{phaseAPreviewQuery.data?.candidateCount ?? "—"} businesses</span>
               <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.target ?? 0} target</span>
               <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.nonTarget ?? 0} non-target</span>
-              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.reviewRequired ?? 0} review-required</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.reviewRequired ?? 0} without evidence at current policy</span>
               <Button size="sm" onClick={() => runPhaseAClassification.mutate()}
                 disabled={!phaseAPreviewQuery.data?.snapshotHash || runPhaseAClassification.isPending}>
                 {runPhaseAClassification.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
@@ -839,35 +876,49 @@ export function SouthFloridaProspectingPanel() {
               />
             </div>
             {highConfidenceCandidatesQuery.data && (
-              <div className="max-h-48 overflow-y-auto rounded border">
+              <div className="max-h-64 overflow-y-auto rounded border">
                 <table className="w-full text-xs">
                   <thead className="bg-muted/50 sticky top-0">
                     <tr>
                       <th className="p-1 text-left w-8"></th>
                       <th className="p-1 text-left">ID</th>
-                      <th className="p-1 text-left">Vertical</th>
+                      <th className="p-1 text-left">Business</th>
+                      <th className="p-1 text-left">Proposed group</th>
+                      <th className="p-1 text-left">Evidence source</th>
+                      <th className="p-1 text-left">Geography</th>
                       <th className="p-1 text-left">Confidence</th>
+                      <th className="p-1 text-left">Exclusion</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {highConfidenceCandidatesQuery.data.candidates.map((c: any) => (
-                      <tr key={c.businessId} className="border-t">
-                        <td className="p-1">
-                          <input
-                            type="checkbox"
-                            checked={selectedCandidateIds.includes(c.businessId)}
-                            onChange={(e) => setSelectedCandidateIds((prev) =>
-                              e.target.checked ? [...prev, c.businessId] : prev.filter((id) => id !== c.businessId))}
-                            aria-label={`Select business ${c.businessId}`}
-                          />
-                        </td>
-                        <td className="p-1 font-mono">{c.businessId}</td>
-                        <td className="p-1">{c.rawVertical ?? "—"}</td>
-                        <td className="p-1">{Number(c.confidence).toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {highConfidenceCandidatesQuery.data.candidates.map((c) => {
+                      const excluded = c.exclusionStatus != null;
+                      return (
+                        <tr key={c.businessId} className={`border-t ${excluded ? "opacity-50" : ""}`}>
+                          <td className="p-1">
+                            <input
+                              type="checkbox"
+                              checked={selectedCandidateIds.includes(c.businessId)}
+                              disabled={excluded}
+                              onChange={(e) => setSelectedCandidateIds((prev) =>
+                                e.target.checked ? [...prev, c.businessId] : prev.filter((id) => id !== c.businessId))}
+                              aria-label={`Select business ${c.businessId}`}
+                            />
+                          </td>
+                          <td className="p-1 font-mono">{c.businessId}</td>
+                          <td className="p-1">{c.canonicalName}</td>
+                          <td className="p-1">{c.proposedVerticalId}</td>
+                          <td className="p-1">{c.source === "structured_vertical_field" ? "Structured field" : "Name-derived"}</td>
+                          <td className="p-1">{c.countyFips ?? "—"} ({c.geographySource})</td>
+                          <td className="p-1">{Number(c.confidence).toFixed(2)}</td>
+                          <td className="p-1">
+                            {excluded ? <Badge variant="destructive" className="text-xs">{c.exclusionStatus}</Badge> : <span className="text-muted-foreground">none</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {highConfidenceCandidatesQuery.data.candidates.length === 0 && (
-                      <tr><td colSpan={4} className="p-2 text-center text-muted-foreground">No candidates found</td></tr>
+                      <tr><td colSpan={8} className="p-2 text-center text-muted-foreground">No candidates found</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -894,6 +945,16 @@ export function SouthFloridaProspectingPanel() {
                 </Button>
               )}
             </div>
+            {freeOnlyFreezeResult && (
+              <div className="text-xs text-muted-foreground">
+                Frozen IDs: {freeOnlyFreezeResult.businessIds.join(", ") || "none"}
+                {freeOnlyFreezeResult.rejectedAtFreeze.length > 0 && (
+                  <div className="text-amber-600 mt-1">
+                    Rejected at freeze: {freeOnlyFreezeResult.rejectedAtFreeze.map((r) => `${r.businessId} (${r.reason})`).join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
             {freeOnlyRunResult && (
               <div className="text-xs text-muted-foreground">
                 Processed {freeOnlyRunResult.processed} · {freeOnlyRunResult.targetCount} target ·{" "}
