@@ -2142,6 +2142,13 @@
       "when": 1800000011800,
       "tag": "0301_sfp_taxonomy_version_and_ready_held_bridge",
       "breakpoints": true
+    },
+    {
+      "idx": 306,
+      "version": "7",
+      "when": 1800000012800,
+      "tag": "0302_sfp_v2_package_key_check",
+      "breakpoints": true
     }
   ]
 }

@@ -24,6 +24,21 @@ import { SFP_TARGET_VERTICALS_V2 } from "./sfp-vertical-classifier";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
+/**
+ * Build a genuine Postgres `ARRAY[...]::text[]` literal instead of
+ * interpolating a JS array directly into a drizzle sql`` template. Drizzle's
+ * node-postgres driver expands `${arr}` as a parenthesized comma list of
+ * scalar params (`($1)`), not an array literal — for a single-element array
+ * this produces `($1)` (a valid but wrong scalar-in-parens expression) and
+ * for an empty array it produces `()`, which is invalid SQL. See also the
+ * `ANY(${arr}::type[])` variant of this same bug (drizzle-array-param-bug).
+ */
+function textArrayLiteral(values: unknown): ReturnType<typeof sql> {
+  const arr = Array.isArray(values) ? values : [];
+  if (arr.length === 0) return sql`ARRAY[]::text[]`;
+  return sql`ARRAY[${sql.join(arr.map((v) => sql`${String(v)}`), sql`, `)}]::text[]`;
+}
+
 export type SfpPackageKey =
   | "sfp.restaurant.v1"
   | "sfp.med_spa.v1"
@@ -368,7 +383,7 @@ export async function applyPackageConvergence(opts: { actorId: string }): Promis
             VALUES (${plan.targetSequenceName},
                     ${`SFP ${plan.vertical} cold-outreach sequence (Task #2001), cloned from the W6 governance template. Paused until a later, separately authorized activation task.`},
                     ${w6.trigger_type}, ${JSON.stringify(w6.trigger_config)}::jsonb, ${w6.total_steps ?? 0}, 'paused', ${opts.actorId},
-                    ${plan.sequenceFamily}, ${w6.eligible_consent_tiers}, ${w6.channels_allowed}, ${w6.offer_routes}, ${w6.lifecycle_stages_allowed})
+                    ${plan.sequenceFamily}, ${textArrayLiteral(w6.eligible_consent_tiers)}, ${textArrayLiteral(w6.channels_allowed)}, ${textArrayLiteral(w6.offer_routes)}, ${textArrayLiteral(w6.lifecycle_stages_allowed)})
             RETURNING id, name, status, total_steps
           `))[0];
         }
@@ -611,7 +626,7 @@ export async function applyPackageConvergenceV2(opts: { actorId: string }): Prom
             VALUES (${plan.targetSequenceName},
                     ${`SFP v2 ${plan.vertical} cold-outreach sequence, cloned from the W6 governance template. Paused until a later, separately authorized activation task.`},
                     ${w6.trigger_type}, ${JSON.stringify(w6.trigger_config)}::jsonb, ${w6.total_steps ?? 0}, 'paused', ${opts.actorId},
-                    ${plan.sequenceFamily}, ${w6.eligible_consent_tiers}, ${w6.channels_allowed}, ${w6.offer_routes}, ${w6.lifecycle_stages_allowed})
+                    ${plan.sequenceFamily}, ${textArrayLiteral(w6.eligible_consent_tiers)}, ${textArrayLiteral(w6.channels_allowed)}, ${textArrayLiteral(w6.offer_routes)}, ${textArrayLiteral(w6.lifecycle_stages_allowed)})
             RETURNING id, name, status, total_steps
           `))[0];
         }
@@ -634,7 +649,8 @@ export async function applyPackageConvergenceV2(opts: { actorId: string }): Prom
       });
       results.push({ packageKey: plan.packageKey as any, ...result } as ApplyResultRow);
     } catch (err: any) {
-      results.push({ packageKey: plan.packageKey as any, status: "skipped_needs_review", reason: `transaction failed: ${err?.message ?? String(err)}` });
+      const detail = err?.cause?.message ?? err?.message ?? String(err);
+      results.push({ packageKey: plan.packageKey as any, status: "skipped_needs_review", reason: `transaction failed: ${detail}` });
     }
   }
   return results;

@@ -12,26 +12,57 @@
  * GHL/email/SMS/voice action. Every enrollment this module creates lands
  * paused and stays paused until a later, separately authorized task acts on
  * it.
+ *
+ * Identity/eligibility rules (see review that flagged the earlier version):
+ *  - No synthetic-email contact is ever created here. An intent with no
+ *    corroborated real-email identity is left `ready_held` and reported as
+ *    `left_held`, not silently force-matched or force-created.
+ *  - An email match alone is not enough to attach an existing contact: the
+ *    match must be corroborated by phone or company-name agreement with the
+ *    business record, or it is treated as ambiguous and left held.
+ *  - Before creating a paused enrollment, evaluateContactDecisions()'s
+ *    `promotion` dimension (DBPR lineage / existing-customer / suppression)
+ *    must be eligible; a blocked dimension leaves the intent held.
+ *  - A pre-existing ACTIVE sequence_enrollments row for the same
+ *    (contact, sequence) is a hard rejection, never a reused "success" —
+ *    this bridge must never touch or claim credit for a live enrollment.
+ *  - Concurrent calls that would resolve to the same email are serialized
+ *    with a session-level pg_advisory_lock keyed on the email, held across
+ *    both the writeContact() call and the enrollment/ledger insert, so two
+ *    concurrent callers for the same email can never both create a contact,
+ *    and a failure between the two steps cannot leave a silently-orphaned
+ *    contact with no ledger/enrollment trace (the second caller, once it
+ *    acquires the lock, will find and reuse what the first created, or find
+ *    nothing and retry cleanly if the first failed before creating anything).
  */
 import { sql } from "drizzle-orm";
-import { db } from "../../db";
+import { db, pool } from "../../db";
 import { writeContact } from "../contact-writer";
+import { evaluateContactDecisions } from "../contactability";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
+export type BridgeStatus = "created" | "already_bridged" | "left_held";
+
 export interface ReadyHeldEnrollmentResult {
   stagingIntentId: string;
-  status: "created" | "already_bridged";
-  contactId: number;
-  contactResolution: "matched_existing" | "created_new";
-  sequenceEnrollmentId: number;
-  enrollmentStatus: string;
+  status: BridgeStatus;
+  contactId: number | null;
+  contactResolution: "matched_existing" | "created_new" | null;
+  sequenceEnrollmentId: number | null;
+  enrollmentStatus: string | null;
+  heldReason?: string;
+}
+
+function normalizeCompanyToken(name: string | null | undefined): string {
+  return String(name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /**
  * Resolves and enrolls a single `ready_held` staging intent. Idempotent: a
  * second call for the same intent returns the existing bridge row rather
- * than creating a duplicate contact or enrollment.
+ * than creating a duplicate contact or enrollment. Never creates or accepts
+ * an ACTIVE enrollment — that is always a hard rejection (thrown error).
  */
 export async function bridgeReadyHeldIntentToPausedEnrollment(
   stagingIntentId: string,
@@ -78,79 +109,130 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     : null;
 
   const candidateEmail = String(masterLead?.email ?? business.main_email ?? "").trim().toLowerCase();
-  const candidatePhone = String(masterLead?.phone ?? business.main_phone ?? "").trim();
+  const candidatePhone = String(masterLead?.phone ?? business.main_phone ?? "").replace(/[^0-9]/g, "");
+  const businessNameToken = normalizeCompanyToken(business.canonical_name);
 
-  let contactId: number;
-  let contactResolution: "matched_existing" | "created_new";
-
-  // Identity-safe match: only ever match by a real, non-placeholder email —
-  // never guess a contact from a name/phone fuzzy match, and never silently
-  // merge into an unrelated existing record.
-  const matched = candidateEmail
-    ? rows(await db.execute(sql`
-        SELECT id FROM contacts
-         WHERE lower(email) = ${candidateEmail} AND archived_at IS NULL
-         ORDER BY id ASC LIMIT 1
-      `))[0]
-    : null;
-
-  if (matched) {
-    contactId = Number(matched.id);
-    contactResolution = "matched_existing";
-  } else {
-    const nameParts = String(masterLead?.contact_name ?? "").trim().split(/\s+/).filter(Boolean);
-    const firstName = nameParts[0] || String(business.canonical_name ?? "Business").slice(0, 60);
-    const lastName = nameParts.slice(1).join(" ") || "Contact";
-    const email = candidateEmail || `no-email-${stagingIntentId}@no-email.libertybancard.internal`;
-    const created = await writeContact({
-      mode: "local_only",
-      mutation: {
-        firstName, lastName, email, phone: candidatePhone,
-        companyName: business.canonical_name ?? null,
-        vertical: packageVersion.vertical ?? business.vertical ?? null,
-        status: "New",
-      } as any,
-      provenance: {
-        sourceCategory: "discovery", sourceType: "cro03",
-        eventKey: `sfp_ready_held_bridge:${stagingIntentId}`,
-        actorType: "system", actorId,
-        metadata: { stagingIntentId, businessId: Number(business.id) },
-      },
-      actor: { actorType: "system", actorId },
-    });
-    contactId = created.id;
-    contactResolution = "created_new";
+  // No corroborated real-email identity at all -> leave held. We never
+  // fabricate a synthetic-placeholder-email contact here; that would create
+  // an unreviewable, effectively unreachable "contact" purely to satisfy the
+  // NOT NULL constraint, which is exactly the silent-authority failure mode
+  // this bridge exists to avoid.
+  if (!candidateEmail || !candidateEmail.includes("@")) {
+    return {
+      stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+      sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "NO_REAL_EMAIL_IDENTITY",
+    };
   }
 
-  // Insert the paused enrollment and the bridge ledger row in one
-  // transaction; if the contact is already actively/paused-enrolled in this
-  // exact sequence via some other route, the partial unique index on
-  // sequence_enrollments rejects the insert and that existing enrollment is
-  // reused instead of creating a duplicate.
-  const result = await db.transaction(async (tx) => {
-    let enrollmentRow = rows(await tx.execute(sql`
-      SELECT id, status FROM sequence_enrollments
-       WHERE contact_id=${contactId} AND sequence_id=${sequenceId} AND status IN ('active','paused')
-       LIMIT 1
-    `))[0];
-    if (!enrollmentRow) {
-      enrollmentRow = rows(await tx.execute(sql`
-        INSERT INTO sequence_enrollments (sequence_id, contact_id, current_step, status, metadata)
-        VALUES (${sequenceId}, ${contactId}, 0, 'paused', ${JSON.stringify({ source: "sfp_ready_held_bridge", stagingIntentId })}::jsonb)
-        RETURNING id, status
-      `))[0];
-    }
-    await tx.execute(sql`
-      INSERT INTO sfp_ready_held_enrollments
-        (staging_intent_id, contact_id, sequence_enrollment_id, contact_resolution, actor_id)
-      VALUES (${stagingIntentId}::uuid, ${contactId}, ${Number(enrollmentRow.id)}, ${contactResolution}, ${actorId})
-      ON CONFLICT (staging_intent_id) DO NOTHING
-    `);
-    return enrollmentRow;
-  });
+  // Session-level advisory lock keyed on the email, held across the entire
+  // match-or-create + enrollment sequence, so two concurrent callers
+  // resolving to the same email can never both create a contact, and one
+  // caller's mid-sequence failure can't leave the other holding a stale
+  // "no contact yet" read.
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [`sfp-enrollment-bridge-email:${candidateEmail}`]);
 
-  return {
-    stagingIntentId, status: "created", contactId, contactResolution,
-    sequenceEnrollmentId: Number(result.id), enrollmentStatus: String(result.status),
-  };
+    const matchCandidates = rows(await db.execute(sql`
+      SELECT id, phone, company_name FROM contacts
+       WHERE lower(email) = ${candidateEmail} AND archived_at IS NULL
+       ORDER BY id ASC
+    `));
+    // Corroborate an email match with at least one more independent signal
+    // (phone or company name) before trusting it as the same real-world
+    // entity — a bare email match is not enough to silently attach an
+    // unrelated contact record to this business/intent.
+    const corroborated = matchCandidates.find((c: any) => {
+      const phoneMatches = candidatePhone && String(c.phone ?? "").replace(/[^0-9]/g, "") === candidatePhone;
+      const companyMatches = businessNameToken && normalizeCompanyToken(c.company_name) === businessNameToken;
+      return phoneMatches || companyMatches;
+    });
+
+    if (matchCandidates.length > 0 && !corroborated) {
+      return {
+        stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+        sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "EMAIL_MATCH_UNCORROBORATED",
+      };
+    }
+
+    let contactId: number;
+    let contactResolution: "matched_existing" | "created_new";
+
+    if (corroborated) {
+      contactId = Number(corroborated.id);
+      contactResolution = "matched_existing";
+    } else {
+      const nameParts = String(masterLead?.contact_name ?? "").trim().split(/\s+/).filter(Boolean);
+      const firstName = nameParts[0] || String(business.canonical_name ?? "Business").slice(0, 60);
+      const lastName = nameParts.slice(1).join(" ") || "Contact";
+      const created = await writeContact({
+        mode: "local_only",
+        mutation: {
+          firstName, lastName, email: candidateEmail, phone: candidatePhone || "",
+          companyName: business.canonical_name ?? null,
+          vertical: packageVersion.vertical ?? business.vertical ?? null,
+          status: "New",
+        } as any,
+        provenance: {
+          sourceCategory: "discovery", sourceType: "cro03",
+          eventKey: `sfp_ready_held_bridge:${stagingIntentId}`,
+          actorType: "system", actorId,
+          metadata: { stagingIntentId, businessId: Number(business.id) },
+        },
+        actor: { actorType: "system", actorId },
+      });
+      contactId = created.id;
+      contactResolution = "created_new";
+    }
+
+    // Eligibility gate: promotion dimension covers DBPR lineage, existing-
+    // customer status, and suppression — the same authority every other
+    // enumerated consumer (enrollment included) must call. A blocked
+    // dimension leaves the intent held rather than pausing an enrollment
+    // for a contact this authority says is not eligible.
+    const decisions = await evaluateContactDecisions({ contactId, businessId: Number(business.id) });
+    if (decisions.promotion.status === "blocked") {
+      return {
+        stagingIntentId, status: "left_held", contactId, contactResolution,
+        sequenceEnrollmentId: null, enrollmentStatus: null,
+        heldReason: `PROMOTION_BLOCKED:${decisions.promotion.reasonCodes.join(",")}`,
+      };
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const activeOrPaused = rows(await tx.execute(sql`
+        SELECT id, status FROM sequence_enrollments
+         WHERE contact_id=${contactId} AND sequence_id=${sequenceId} AND status IN ('active','paused')
+         LIMIT 1
+      `))[0];
+      if (activeOrPaused && activeOrPaused.status === "active") {
+        // Hard rejection: this bridge must never create, touch, or claim
+        // credit for an ACTIVE enrollment — only ever a fresh paused one.
+        throw new Error(`SFP_EXISTING_ACTIVE_ENROLLMENT_CONFLICT:${activeOrPaused.id}`);
+      }
+      let enrollmentRow = activeOrPaused;
+      if (!enrollmentRow) {
+        enrollmentRow = rows(await tx.execute(sql`
+          INSERT INTO sequence_enrollments (sequence_id, contact_id, current_step, status, metadata)
+          VALUES (${sequenceId}, ${contactId}, 0, 'paused', ${JSON.stringify({ source: "sfp_ready_held_bridge", stagingIntentId })}::jsonb)
+          RETURNING id, status
+        `))[0];
+      }
+      await tx.execute(sql`
+        INSERT INTO sfp_ready_held_enrollments
+          (staging_intent_id, contact_id, sequence_enrollment_id, contact_resolution, actor_id)
+        VALUES (${stagingIntentId}::uuid, ${contactId}, ${Number(enrollmentRow.id)}, ${contactResolution}, ${actorId})
+        ON CONFLICT (staging_intent_id) DO NOTHING
+      `);
+      return enrollmentRow;
+    });
+
+    return {
+      stagingIntentId, status: "created", contactId, contactResolution,
+      sequenceEnrollmentId: Number(result.id), enrollmentStatus: String(result.status),
+    };
+  } finally {
+    await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [`sfp-enrollment-bridge-email:${candidateEmail}`]).catch(() => {});
+    lockClient.release();
+  }
 }

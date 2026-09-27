@@ -609,6 +609,7 @@ CREATE TABLE "contacts" (
 	"location_name" text,
 	"email_status" text DEFAULT 'active' NOT NULL,
 	"bounced_at" timestamp,
+	"contact_bounced_at" timestamp,
 	"is_decision_maker" boolean DEFAULT false NOT NULL,
 	"decision_maker_confidence" integer DEFAULT 0 NOT NULL,
 	"management_type" text DEFAULT 'unknown' NOT NULL,
