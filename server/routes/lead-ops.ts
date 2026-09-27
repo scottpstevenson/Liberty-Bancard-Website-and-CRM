@@ -3489,15 +3489,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // invalid_output and settled the reservation as 'failed'. Because the
   // reservation idempotency key is deterministic (businessId + sha256(prompt)),
   // those stale 'failed' rows permanently block any retry with the same
-  // input, even after the validator bug is fixed in code. provider_operations
-  // has no immutability trigger (unlike sfp_classification_evidence), but per
-  // this project's production-write discipline this must go through an
-  // explicit, scoped admin route -- never a raw SQL UPDATE/DELETE -- and only
-  // deletes rows that are state='failed' (never 'running' or 'completed') for
-  // the caller-specified businessIds under the openai control provider and
-  // the sfp_precohort_vertical_classification purpose. No refund/ledger
-  // change is needed: a 'failed' reservation was already released back to
-  // provider_controls at settlement time, and no cost was ever settled.
+  // input, even after the validator bug is fixed in code. Several tables
+  // reference provider_operations.id with onDelete:'restrict', so a DELETE
+  // is unsafe here even for a row with no known referencing children -- we
+  // UPDATE instead: append a '#superseded:<timestamp>' suffix to the stored
+  // idempotency_key of the stale failed row so it no longer collides with a
+  // fresh reservation attempt using the original key, and stamp failure_code
+  // for traceability. The row itself is preserved intact for audit. No
+  // refund/ledger change is needed: a 'failed' reservation already released
+  // its hold back to provider_controls at settlement time, and no cost was
+  // ever settled. Scoped to explicit businessIds, provider='openai', purpose
+  // ='sfp_precohort_vertical_classification', state='failed' only.
   app.post("/api/lead-ops/sfp/classification/provider-operations/clear-failed", requireRole("admin"), async (req, res) => {
     try {
       const businessIds = Array.isArray(req.body?.businessIds)
@@ -3506,14 +3508,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         return res.status(400).json({ error: "businessIds must be a non-empty array of at most 25 integers" });
       }
       const fingerprints = businessIds.map((id: number) => `business:${id}`);
-      const deleted = rows(await db.execute(sql`
-        DELETE FROM provider_operations
+      const updated = rows(await db.execute(sql`
+        UPDATE provider_operations
+           SET idempotency_key = idempotency_key || '#superseded:' || extract(epoch from now())::text,
+               failure_code = coalesce(failure_code, '') || ' [cleared_for_retry_after_validator_fix]',
+               updated_at = now()
          WHERE provider='openai' AND purpose='sfp_precohort_vertical_classification'
            AND state='failed' AND billing_state='released'
            AND target_fingerprint = ANY(ARRAY[${sql.join(fingerprints.map((f: string) => sql`${f}`), sql`,`)}]::text[])
         RETURNING id, target_fingerprint
       `));
-      res.json({ clearedCount: deleted.length, targetFingerprints: deleted.map((r: any) => r.target_fingerprint) });
+      res.json({ clearedCount: updated.length, targetFingerprints: updated.map((r: any) => r.target_fingerprint) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
