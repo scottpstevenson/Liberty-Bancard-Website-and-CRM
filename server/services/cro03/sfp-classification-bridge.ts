@@ -756,6 +756,18 @@ export async function runPreCohortClassificationBridge(
         ...(rawVertical !== null ? ["raw_vertical_field"] : []),
         ...(websiteEvidence ? [websiteEvidence.sourceUrl] : []),
       ];
+      // A review_required outcome that fell back to OPENAI_UNAVAILABLE or
+      // OPENAI_ESCALATION_NOT_CONFIGURED means the OpenAI escalation was
+      // never actually attempted (transport disabled, credential missing, or
+      // the paid-budget authorization gate hadn't been granted yet) -- it is
+      // not a real classification result and must not be cached as
+      // terminal_state='completed', or the cache lookup above would keep
+      // replaying that non-attempt forever, even after the underlying
+      // config/authorization gap is fixed. Record it as 'provisional' so a
+      // later run with the same evidence_hash retries the escalation.
+      const escalationNeverAttempted =
+        reasonCodes.includes("OPENAI_UNAVAILABLE") || reasonCodes.includes("OPENAI_ESCALATION_NOT_CONFIGURED");
+      const terminalState = escalationNeverAttempted ? "provisional" : "completed";
       const idempotencyKey = `${input.idempotencyKey}:eval:${businessId}:${evidenceHash}`;
       const insertedEvidence = rows(await db.execute(sql`
         INSERT INTO sfp_classification_evidence
@@ -763,7 +775,7 @@ export async function runPreCohortClassificationBridge(
            outcome,confidence,reason_codes,idempotency_key,cost_micros,terminal_state,resolved_vertical_id,admission_tier)
         VALUES (${businessId},${evidenceHash},${JSON.stringify(sourceRefs)}::jsonb,${taxonomyVersion},
                 ${modelVersion},${promptVersion},${input.policyVersion},${outcome},${confidence},
-                ${JSON.stringify(reasonCodes)}::jsonb,${idempotencyKey},${itemCost},'completed',
+                ${JSON.stringify(reasonCodes)}::jsonb,${idempotencyKey},${itemCost},${terminalState},
                 ${resolvedVerticalId},${admissionTier})
         ON CONFLICT (idempotency_key) DO NOTHING
         RETURNING id

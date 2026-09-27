@@ -3452,6 +3452,30 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/classification/evidence/repair-non-attempts — one-time
+  // corrective backfill: evidence rows recorded terminal_state='completed' even
+  // when OpenAI escalation was never actually attempted (transport disabled,
+  // credential missing, or the paid-budget authorization gate not yet granted),
+  // reason_codes carrying OPENAI_UNAVAILABLE/OPENAI_ESCALATION_NOT_CONFIGURED.
+  // Those rows were wrongly cacheable and would replay the non-attempt forever
+  // even after the underlying gap is fixed. Flips them to 'provisional' so a
+  // later run with the same evidence_hash retries the escalation. Idempotent —
+  // safe to call repeatedly; only ever touches rows matching the exact bug shape.
+  app.post("/api/lead-ops/sfp/classification/evidence/repair-non-attempts", requireRole("admin"), async (req, res) => {
+    try {
+      const updated = rows(await db.execute(sql`
+        UPDATE sfp_classification_evidence
+           SET terminal_state='provisional'
+         WHERE terminal_state='completed'
+           AND (reason_codes ? 'OPENAI_UNAVAILABLE' OR reason_codes ? 'OPENAI_ESCALATION_NOT_CONFIGURED')
+        RETURNING id, business_id
+      `));
+      res.json({ repairedCount: updated.length, businessIds: updated.map((r: any) => Number(r.business_id)) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // POST /api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity — Apollo/Outscraper waterfall (bounded, manual)
   // Body: { idempotencyKey, maxBusinesses? }
   app.post("/api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity", requireRole("admin"), async (req, res) => {

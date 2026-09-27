@@ -16,11 +16,11 @@
 - [Playwright test user](playwright-test-user.md) — dedicated test user exists in DB; avoid using admin user (2FA risk, rate limiter).
 - [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat, not /dashboard/ai-advisors; ResponsiveTable can't wrap children (overflow-x-auto div instead).
 - [Sequence control policy](sequence-control-policy.md) — all sequences default to `paused`; storage layer blocks enrollment into non-active sequences.
-- [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent (singleton IORedis); maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first (see redis-bullmq-smoketest.md, bullmq-commandtimeout-removal.md).
+- [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent (singleton IORedis); maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first.
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, must regenerate in GHL settings; circuit breaker persists closed/open/half-open via classifyGhlSyncError() (see ghl-circuit-state-machine.md).
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first.
 - [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — ternary else-branch fragment must close before the first sibling Card's </CardContent>, not inside a later one.
-- [Master audit + 12-wave plan](master-audit-2026.md) — full compliance/conversion audit; 6 kill lines; 12 build waves; see contactability-engine.md (Wave1A), pewc-consent-pattern.md (Wave2), ghl-sync-authority-guard.md (Wave7), wave8-analytics.md, wave12-qa-scripts.md.
+- [Master audit + 12-wave plan](master-audit-2026.md) — full compliance/conversion audit; 6 kill lines; 12 build waves across contactability, consent, GHL sync authority, analytics, QA.
 - [isWithinBusinessHours currentTime threading](is-within-business-hours.md) — function hardcoded new Date(); added optional `now` param; tests must pass fixed weekday/hour or asserts flap.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
 - [Broken Tailwind value patterns](tailwind-arbitrary-values.md) — `opacity-15` and `from-[hsl(...)/0.92]` are NOT valid utilities; silently no-op. Use `opacity-[0.15]` and solid bg + overlay.
@@ -53,8 +53,7 @@
 - [SLA AI ops cycle timing](sla-ai-ops-cycle-timing.md) — FULL_LOOP_AI_OPS_EVERY_N=2 means runScheduledAiOps fires every 2nd BullMQ tick; two audit entries needed to prove clean cycles.
 - [Drizzle partial-index ON CONFLICT](drizzle-partial-index-on-conflict.md) — onConflictDoNothing({targetWhere}) does NOT emit the WHERE clause for partial indexes; use raw sql INSERT...ON CONFLICT...WHERE.
 - [SLA task idempotency design](sla-task-idempotency.md) — source/automationKey identity columns + partial unique index; phased backfill-before-index rollout.
-- [Migration timestamp collisions](migration-when-collision.md) — new journal entries must use `when` above the current high-water mark (PHASE3_INDEX_WHEN=1784700000000) or migrate() skips them silently.
-- [CI Migration & CSRF Authority](ci-migration-csrf-authority.md) — migration-integrity checker + CSRF scanner (scan-csrf-fetch.ts) + suite manifest (ci-suite-manifest.ts) run in CI static job.
+- [Migration timestamp collisions & CI authority](migration-when-collision.md) — new journal entries need `when` above the high-water mark or migrate() skips them silently; CI static job runs migration-integrity + CSRF scanner (ci-migration-csrf-authority.md).
 - [executeSql DDL timeout + migration lock contention](executesql-ddl-timeout.md) — executeSql times out on DDL against large tables; a crashed startup migration leaves exclusive locks; terminate blocking pids.
 - [Partial index scope for zero-migration uniqueness](partial-index-new-rows-only.md) — scope a new UNIQUE index to `new_col IS NOT NULL` to avoid deduping existing rows; index builds instantly.
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all intake paths wired.
@@ -158,3 +157,4 @@
 - [SFP production admin-route trigger pattern](sfp-production-admin-route-trigger.md) — production writes go through admin HTTP routes (curl login+CSRF), not executeSql; classification/run's `targetIds` = vertical names, `businessIdFilter` = business IDs, and its preview-hash check requires the exact same options (no filter) as the GET preview call.
 - [SFP dual-taxonomy vertical classification](sfp-dual-taxonomy-classification.md) — classifier_version column now means "taxonomy version"; evidence-only admission requires admission_tier='resolved_high'; live-vs-evidence disagreement always forces review.
 - [SFP frozen classification snapshot](sfp-frozen-classification-snapshot.md) — preview/run hash flapped because it hashed a full live-pool scan; fix freezes the caller's exact selection + facts instead of scoping the hash tighter.
+- [SFP paid-budget gate & non-attempt caching](sfp-paid-budget-gate-and-non-attempt-caching.md) — $50 typed-confirmation gate is separate from transport/credential/manifest checks; non-attempts were wrongly cached as terminal, blocking retries after the gate is fixed.
