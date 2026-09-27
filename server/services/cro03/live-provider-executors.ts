@@ -44,7 +44,16 @@ export interface OpenAiClassificationInput {
   system: string;
   prompt: string;
   maxCompletionTokens: number;
-  schema?: typeof CRO03C_OPENAI_RESPONSE_SCHEMA;
+  schema?: typeof CRO03C_OPENAI_RESPONSE_SCHEMA | Record<string, unknown>;
+  // Callers that pass a non-CRO03C `schema` MUST also pass a matching
+  // `validate` for that schema's shape. Without this, the server-side
+  // re-validation gate below silently fell back to the CRO03C
+  // {category,confidence,summary} validator regardless of which schema was
+  // actually requested from the model -- a real completion matching the
+  // caller's own schema (e.g. SFP's {outcome,confidence,reasonCodes}) was
+  // always rejected as invalid_output, permanently masquerading as "the
+  // model produced bad output" when the model was never wrong at all.
+  validate?: (value: unknown) => unknown | null;
 }
 
 export type OpenAiClassificationResult =
@@ -52,7 +61,7 @@ export type OpenAiClassificationResult =
     outcome: "success";
     model: string;
     usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number };
-    classification: NonNullable<ReturnType<typeof validateCro03cOpenAiClassification>>;
+    classification: NonNullable<ReturnType<typeof validateCro03cOpenAiClassification>> | unknown;
   }
   | {
     outcome: "invalid_output";
@@ -79,7 +88,7 @@ export async function performOpenAiClassification(
     max_completion_tokens: input.maxCompletionTokens,
     response_format: {
       type: "json_schema",
-      json_schema: input.schema ?? CRO03C_OPENAI_RESPONSE_SCHEMA,
+      json_schema: (input.schema ?? CRO03C_OPENAI_RESPONSE_SCHEMA) as typeof CRO03C_OPENAI_RESPONSE_SCHEMA,
     },
   });
   const tokens = completion.usage?.total_tokens;
@@ -96,7 +105,9 @@ export async function performOpenAiClassification(
   if (typeof rawContent === "string") {
     try { parsedContent = JSON.parse(rawContent); } catch { parsedContent = null; }
   }
-  const classification = validateCro03cOpenAiClassification(parsedContent);
+  const classification = input.validate
+    ? input.validate(parsedContent)
+    : validateCro03cOpenAiClassification(parsedContent);
   if (!classification) return { outcome: "invalid_output", model: completion.model, usage };
   return { outcome: "success", model: completion.model, usage, classification };
 }

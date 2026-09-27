@@ -64,6 +64,11 @@ export interface SfpOpenAiClassificationInput {
   text: string;
   maxCompletionTokens: number;
   schema?: OpenAiClassificationInput["schema"];
+  // Must match the shape of `schema` above -- see the doc comment on
+  // OpenAiClassificationInput.validate for why a mismatched/missing
+  // validator here silently rejects every real, correctly-shaped
+  // completion as invalid_output.
+  validate?: OpenAiClassificationInput["validate"];
 }
 
 export async function executeSfpOpenAiClassification(
@@ -79,5 +84,6 @@ export async function executeSfpOpenAiClassification(
     prompt: input.text,
     maxCompletionTokens: input.maxCompletionTokens,
     schema: input.schema,
+    validate: input.validate,
   }, deps);
 }

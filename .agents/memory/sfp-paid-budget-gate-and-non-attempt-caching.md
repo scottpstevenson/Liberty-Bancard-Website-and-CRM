@@ -1,44 +1,57 @@
 ---
-name: SFP paid-budget authorization gate & non-attempt evidence caching
-description: Why OpenAI/Serper/etc. escalation calls in the SFP classification bridge can silently never fire, and why fixing the gate alone isn't enough once evidence rows exist.
+name: SFP paid-budget gate, non-attempt caching & shared-validator schema mismatch
+description: sfp_classification_evidence is insert-only; non-attempt cache exclusion pattern; a shared OpenAI helper that hardcodes one caller's output validator silently breaks every other caller's schema.
 ---
 
-## The gate
-`assertPaidBudgetAuthorized()` (server/services/mi09-pilot-authority.ts) requires a
-`system_settings` row keyed `mi09_pilot_paid_budget_authorization`, written only by
-`POST /api/lead-ops/pilot/authorize-paid-budget` after an admin submits the exact typed
-string `AUTHORIZE $50 PAID PILOT`. This sits in front of every paid-provider reservation
-in `sfp-provider-operations.ts` (`reservePreCohortSfpProviderOperation` /
-`reserveSfpProviderOperation`), independent of `provider_controls.enabled`/`circuit_state`
-and independent of the provider-manifest `approvedCallers` check. All three gates must be
-green (transport enabled, credential present, budget authorized) or the call never reaches
-the provider — it fails at reservation time with a distinguishable `..._NOT_CONFIGURED`
-reason code, not a real provider error.
+# SFP paid-budget gate, non-attempt caching & OpenAI schema/validator binding
 
-**Why:** deliberate one-time human consent boundary for real money spend, separate from
-the routine "no need to stop for sign-off" latitude — do not submit the typed confirmation
-without asking the user first.
+## sfp_classification_evidence is insert-only
+A DB trigger rejects all UPDATE/DELETE on `sfp_classification_evidence`. A bad
+cached row (e.g. one recorded when the OpenAI escalation was never actually
+attempted) can never be repaired in place. The fix is always at the
+cache-lookup query: exclude rows whose `reason_codes` show a non-attempt
+(`OPENAI_UNAVAILABLE`, `OPENAI_ESCALATION_NOT_CONFIGURED`) from being treated
+as a valid `terminal_state='completed'` hit, and record such rows as
+`terminal_state='provisional'` going forward so a later run retries for real.
 
-## The caching trap this exposed
-Before the fix, `sfp-classification-bridge.ts` inserted evidence with
-`terminal_state='completed'` even when the OpenAI escalation was never attempted
-(reservation-time failure, reason codes `OPENAI_UNAVAILABLE` /
-`OPENAI_ESCALATION_NOT_CONFIGURED`). The classification loop's own cache lookup
-(`WHERE evidence_hash=... AND terminal_state='completed'`) then replays that non-attempt
-forever — even after fixing the gate above — because the SQL match succeeds before any new
-provider call is attempted.
+## Reservation-time gates vs. a shared transport bug
+`OPENAI_ESCALATION_NOT_CONFIGURED` is thrown when `reservePreCohortSfpProviderOperation`
+fails at reservation time (transport disabled via `CRO03_PROVIDER_TRANSPORT_ENABLED`,
+missing credential, paid-budget authorization not granted, or provider_controls
+budget/circuit gate). All of these are visible read-only in production:
+`system_settings` key `mi09_pilot_paid_budget_authorization`, `provider_controls`
+row keyed by the CONTROL_KEY mapping (e.g. `openai_classification` -> `openai`,
+not the paid-provider's own name), and the `CRO03_PROVIDER_TRANSPORT_ENABLED` /
+credential secret.
 
-**How to apply:** a review_required outcome caused by `OPENAI_UNAVAILABLE` or
-`OPENAI_ESCALATION_NOT_CONFIGURED` must be written with `terminal_state='provisional'`
-(not `'completed'`), so a later run with the same evidence_hash retries the escalation.
+**But** the same reason code also fires when the OpenAI call itself never
+"succeeds" for an unrelated reason and the caller (`sfp-classification-bridge.ts`)
+folds that into the same non-attempt basket. Root cause found once: all four
+real gates were green, yet every classification came back `invalid_output`.
+The shared transport `performOpenAiClassification()` in `live-provider-executors.ts`
+originally hardcoded server-side re-validation of the model's JSON output to
+its own CRO03C shape (`{category, confidence, summary}`) regardless of which
+`schema` was actually requested from the model via `response_format`. A
+different caller (SFP's `{outcome, confidence, reasonCodes}`) got a
+perfectly-shaped, correct completion back from OpenAI, but it was validated
+against the wrong shape and always rejected as `invalid_output` -- silently
+masquerading as either "OpenAI produced bad output" or, one layer up, as a
+non-attempt/not-configured gate failure. **Fix: any shared OpenAI transport
+helper that accepts a custom `schema` must also accept and use a matching
+custom `validate` function from the same caller** -- never assume one
+hardcoded validator is safe for every schema passed through it. When
+diagnosing a "gate says not configured" mystery, reproduce the raw OpenAI
+call standalone (real API key, real model, real schema) before assuming the
+budget/transport/credential layer is at fault -- an `invalid_output` from a
+shared transport can come from a validator mismatch instead of the gates.
 
-`sfp_classification_evidence` also has a DB trigger (`sfp_reject_evidence_mutation`,
-migration 0288) that rejects ANY UPDATE/DELETE — it is insert-only by design. An admin
-repair route that tries to `UPDATE ... SET terminal_state='provisional'` on existing bad
-rows will always 500 in production with a generic "Failed query" message (the jsonb
-operator, `?` vs `@>`, is a red herring — the trigger fires regardless of operator choice).
-Check `pg_trigger` for a table before writing any repair route that mutates existing rows.
-The correct fix for already-cached non-attempts is to exclude the bad shape from the
-*cache lookup* query itself (`AND NOT (reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb OR
-...)`), never to try to mutate the historical rows — a later run then simply misses the
-cache and inserts a fresh, correctly-terminal-stated row.
+## Failed provider_operations rows block retries forever by design
+`provider_operations` (unlike the evidence table) has no immutability trigger,
+but its idempotency key is deterministic (business + prompt hash), and a
+`state='failed'` row for that exact key permanently blocks any future
+reservation attempt with `SFP_PAID_BLOCKED:OPERATION_FAILED` -- there is no
+automatic retry/reset. If a class of failures turns out to be a real code bug
+(not a legitimate terminal failure), fixing the code alone is not enough;
+existing `failed` rows for the affected idempotency keys still block retries
+and need an explicit, deliberate remediation decision (not a blanket
+mutation) once the underlying bug is confirmed fixed.

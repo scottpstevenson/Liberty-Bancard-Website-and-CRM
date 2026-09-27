@@ -139,6 +139,7 @@ async function defaultOpenAiClassify(input: {
         businessId: input.businessId, model: SFP_OPENAI_MODEL, system: SFP_OPENAI_SYSTEM_PROMPT,
         text: prompt, maxCompletionTokens: SFP_OPENAI_MAX_COMPLETION_TOKENS,
         schema: SFP_OPENAI_RESPONSE_SCHEMA as any,
+        validate: validateSfpOpenAiClassification as any,
       }));
     if (completion.outcome === "invalid_output") {
       await settlePreCohortSfpProviderOperation({
