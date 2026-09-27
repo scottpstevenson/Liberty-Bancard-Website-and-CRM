@@ -412,7 +412,8 @@ export async function previewFunnel(opts: {
 
 const ZERO_FUNNEL: RoiCohortSelection["funnel"] = {
   totalScanned: 0, southFlorida: 0, outsideGeography: 0, geographyUnresolved: 0,
-  inTargetVertical: 0, verticalUnresolved: 0, dbprExcluded: 0, existingCustomer: 0,
+  inTargetVertical: 0, verticalUnresolved: 0, noVerticalEvidence: 0, explicitNonTarget: 0,
+  reviewRequired: 0, verticalConflict: 0, staleEvidence: 0, dbprExcluded: 0, existingCustomer: 0,
   testDemoInternal: 0, suppressed: 0, bouncedInvalidOnly: 0, inactiveEntity: 0,
   eligibleAfterExclusions: 0,
 };
@@ -459,6 +460,12 @@ function _mapFunnelSnapshot(f: any): RoiCohortSelection["funnel"] {
     geographyUnresolved: Number(f.geography_unresolved ?? 0),
     inTargetVertical: Number(f.in_target_vertical ?? 0),
     verticalUnresolved: Number(f.vertical_unresolved ?? 0),
+    // These finer-grained buckets are not persisted in the frozen-cohort
+    // snapshot row (that table predates this breakdown) -- they only exist
+    // on a live, freshly-computed RoiCohortSelection. A historical snapshot
+    // read back through this mapper reports 0 for each rather than
+    // fabricating a split of its single stored vertical_unresolved total.
+    noVerticalEvidence: 0, explicitNonTarget: 0, reviewRequired: 0, verticalConflict: 0, staleEvidence: 0,
     dbprExcluded: Number(f.dbpr_excluded ?? 0),
     existingCustomer: Number(f.existing_customer ?? 0),
     testDemoInternal: Number(f.test_demo_internal ?? 0),

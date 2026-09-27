@@ -263,6 +263,10 @@ export function SouthFloridaProspectingPanel() {
   });
   const [voidReason, setVoidReason] = useState("");
   const [confirmingVoid, setConfirmingVoid] = useState(false);
+  const [candidateIdOverride, setCandidateIdOverride] = useState("");
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
+  const [freeOnlySnapshotId, setFreeOnlySnapshotId] = useState<string | null>(null);
+  const [freeOnlyRunResult, setFreeOnlyRunResult] = useState<{ processed: number; targetCount: number; nonTargetCount: number; reviewRequiredCount: number; costMicros: number } | null>(null);
 
   useEffect(() => {
     setSelectedEligibilityIds([]);
@@ -348,6 +352,57 @@ export function SouthFloridaProspectingPanel() {
     queryKey: [`/api/lead-ops/sfp/programs/${programQuery.data?.id}/classification-preview`],
     enabled: !!programQuery.data?.id,
     retry: false,
+  });
+
+  const highConfidenceCandidatesQuery = useQuery<{ candidates: Array<{ businessId: number; rawVertical: string | null; confidence: number }> }>({
+    queryKey: [
+      `/api/lead-ops/sfp/programs/${programQuery.data?.id}/high-confidence-candidates`,
+      candidateIdOverride.trim(),
+    ],
+    queryFn: async () => {
+      const idFilter = candidateIdOverride.split(",").map((s) => s.trim()).filter(Boolean).join(",");
+      const basePath = `/api/lead-ops/sfp/programs/${programQuery.data?.id}/high-confidence-candidates`;
+      const query = idFilter ? `?businessIds=${encodeURIComponent(idFilter)}` : "";
+      const res = await apiRequest("GET", basePath + query);
+      return res.json();
+    },
+    enabled: false,
+    retry: false,
+  });
+
+  const freezeFreeOnlySnapshot = useMutation({
+    mutationFn: async () => {
+      const currentProgram = programQuery.data;
+      if (!currentProgram?.id) throw new Error("No active program");
+      const res = await apiRequest("POST", "/api/lead-ops/sfp/classification/snapshot/freeze", {
+        programId: currentProgram.id,
+        businessIds: selectedCandidateIds,
+        targetIds: currentProgram.verticalIds,
+        policyVersion: currentProgram.policyVersion ?? 1,
+        freeOnly: true,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setFreeOnlySnapshotId(data?.snapshotId ?? null);
+      setFreeOnlyRunResult(null);
+      toast({ title: "Free-only batch frozen", description: `${selectedCandidateIds.length} businesses pinned, provider calls disabled` });
+    },
+    onError: (e: any) => toast({ title: "Freeze failed", description: e?.message, variant: "destructive" }),
+  });
+
+  const runFreeOnlySnapshot = useMutation({
+    mutationFn: async () => {
+      if (!freeOnlySnapshotId) throw new Error("No frozen free-only snapshot");
+      const res = await apiRequest("POST", `/api/lead-ops/sfp/classification/snapshot/${freeOnlySnapshotId}/run`, {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setFreeOnlyRunResult(data);
+      toast({ title: "Free-only batch complete", description: `${data.processed} processed, $0 spent` });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/funnel"] });
+    },
+    onError: (e: any) => toast({ title: "Free-only run failed", description: e?.message, variant: "destructive" }),
   });
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -755,6 +810,97 @@ export function SouthFloridaProspectingPanel() {
               <input type="checkbox" checked={false} disabled aria-label="Recurring discovery authorization (off)" />
               Recurring discovery authorization: OFF (scheduler unavailable in this workflow)
             </label>
+          </CardContent>
+        </Card>
+      )}
+
+      {program && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">High-Confidence Candidates &amp; Free-Only Batch</CardTitle>
+            <CardDescription className="text-xs">
+              Deterministic-signal businesses only (no OpenAI/Serper/Outscraper/Apollo/ZeroBounce calls). Freezing in
+              free-only mode is a server-enforced setting on the frozen snapshot — it cannot be overridden at run time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-3">
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => highConfidenceCandidatesQuery.refetch()} disabled={highConfidenceCandidatesQuery.isFetching}>
+                {highConfidenceCandidatesQuery.isFetching ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Load candidates
+              </Button>
+              <input
+                type="text"
+                placeholder="Override: explicit business ID(s), comma-separated"
+                value={candidateIdOverride}
+                onChange={(e) => setCandidateIdOverride(e.target.value)}
+                className="flex-1 min-w-[220px] h-8 rounded border px-2 text-xs bg-background"
+                aria-label="Explicit business ID override"
+              />
+            </div>
+            {highConfidenceCandidatesQuery.data && (
+              <div className="max-h-48 overflow-y-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50 sticky top-0">
+                    <tr>
+                      <th className="p-1 text-left w-8"></th>
+                      <th className="p-1 text-left">ID</th>
+                      <th className="p-1 text-left">Vertical</th>
+                      <th className="p-1 text-left">Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {highConfidenceCandidatesQuery.data.candidates.map((c: any) => (
+                      <tr key={c.businessId} className="border-t">
+                        <td className="p-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedCandidateIds.includes(c.businessId)}
+                            onChange={(e) => setSelectedCandidateIds((prev) =>
+                              e.target.checked ? [...prev, c.businessId] : prev.filter((id) => id !== c.businessId))}
+                            aria-label={`Select business ${c.businessId}`}
+                          />
+                        </td>
+                        <td className="p-1 font-mono">{c.businessId}</td>
+                        <td className="p-1">{c.rawVertical ?? "—"}</td>
+                        <td className="p-1">{Number(c.confidence).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {highConfidenceCandidatesQuery.data.candidates.length === 0 && (
+                      <tr><td colSpan={4} className="p-2 text-center text-muted-foreground">No candidates found</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="flex items-center gap-3 text-xs">
+              <span>{selectedCandidateIds.length} selected (max 25)</span>
+              <Button
+                size="sm"
+                onClick={() => freezeFreeOnlySnapshot.mutate()}
+                disabled={
+                  freezeFreeOnlySnapshot.isPending ||
+                  selectedCandidateIds.length === 0 ||
+                  selectedCandidateIds.length > 25
+                }
+              >
+                {freezeFreeOnlySnapshot.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
+                Freeze free-only batch
+              </Button>
+              {freeOnlySnapshotId && (
+                <Button size="sm" variant="outline" onClick={() => runFreeOnlySnapshot.mutate()} disabled={runFreeOnlySnapshot.isPending}>
+                  {runFreeOnlySnapshot.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                  Run frozen free-only batch
+                </Button>
+              )}
+            </div>
+            {freeOnlyRunResult && (
+              <div className="text-xs text-muted-foreground">
+                Processed {freeOnlyRunResult.processed} · {freeOnlyRunResult.targetCount} target ·{" "}
+                {freeOnlyRunResult.nonTargetCount} non-target · {freeOnlyRunResult.reviewRequiredCount} review-required ·
+                cost ${(freeOnlyRunResult.costMicros / 1_000_000).toFixed(4)}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

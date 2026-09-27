@@ -3433,10 +3433,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       }
       const taxonomyVersion = Number(req.body?.taxonomyVersion) === 2 ? 2 : 1;
       const maxUnits = req.body?.maxUnits == null ? 4000 : Number(req.body.maxUnits);
+      // freeOnly is the server-enforced gate: when true, the frozen
+      // snapshot's allowed_provider is pinned to 'none', which
+      // runFrozenClassificationSnapshot() turns into freeOnly:true on the
+      // bridge call -- ZERO provider calls at run time regardless of any
+      // other input. There is no client-supplied flag at run time that can
+      // override this; it is set once, here, at freeze time.
+      const allowedProvider: "openai_classification" | "none" = req.body?.freeOnly === true ? "none" : "openai_classification";
       const { freezeClassificationSnapshot } = await import("../services/cro03/sfp-classification-bridge");
       const result = await freezeClassificationSnapshot({
         programId, actorId: `admin:${(req as any).user?.id ?? "system"}`, businessIds, targetIds, policyVersion,
-        taxonomyVersion, allowedProvider: "openai_classification", maxUnits,
+        taxonomyVersion, allowedProvider, maxUnits,
         ttlMinutes: req.body?.ttlMinutes == null ? undefined : Number(req.body.ttlMinutes),
       });
       res.json(result);
@@ -3444,6 +3451,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const status = err?.message?.includes("NOT_FOUND") ? 404
         : err?.message?.includes("INVALID_BUSINESS_COUNT") ? 400 : 500;
       res.status(status).json({ error: err?.message });
+    }
+  });
+
+  // GET /api/lead-ops/sfp/programs/:programId/high-confidence-candidates —
+  // read-only, provider-free preview of deterministic high-confidence South
+  // Florida businesses still awaiting classification, prioritized by
+  // confidence. Optional `businessIds` query param (comma-separated) scopes
+  // to an explicit operator-chosen set (e.g. a single confirmed business)
+  // instead of scanning the whole pool.
+  app.get("/api/lead-ops/sfp/programs/:programId/high-confidence-candidates", requireRole("admin"), async (req, res) => {
+    try {
+      const businessIdFilter = typeof req.query.businessIds === "string" && req.query.businessIds.length > 0
+        ? req.query.businessIds.split(",").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n))
+        : undefined;
+      const limit = req.query.limit == null ? undefined : Number(req.query.limit);
+      const { previewHighConfidenceClassificationCandidates } = await import("../services/cro03/sfp-classification-bridge");
+      res.json(await previewHighConfidenceClassificationCandidates(String(req.params.programId), { businessIdFilter, limit }));
+    } catch (err: any) {
+      res.status(err?.message?.includes("NOT_FOUND") ? 404 : 500).json({ error: err?.message });
     }
   });
 

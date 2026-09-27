@@ -254,7 +254,25 @@ export interface RoiCohortSelection {
     outsideGeography: number;
     geographyUnresolved: number;
     inTargetVertical: number;
+    /**
+     * @deprecated Conflated "no evidence yet" (unresolved), "explicit
+     * non-target", and "genuinely ambiguous review-required" into one
+     * bucket. Kept only for callers that have not migrated yet — its value
+     * is the sum of noVerticalEvidence + explicitNonTarget + reviewRequired
+     * + verticalConflict below, so no information is lost, but it must
+     * never again be read as a single meaningful count on its own.
+     */
     verticalUnresolved: number;
+    /** No live-text or evidence signal at all — genuinely unclassified. */
+    noVerticalEvidence: number;
+    /** Live text or evidence deterministically resolved to a non-target vertical. */
+    explicitNonTarget: number;
+    /** Ambiguous evidence (weak/conflicting name signal, or unresolved review_required outcome). */
+    reviewRequired: number;
+    /** Live-text result and stored evidence for the current policy/classifier/taxonomy version disagree. */
+    verticalConflict: number;
+    /** Evidence exists for this business but not at the currently active policy/classifier/taxonomy version. */
+    staleEvidence: number;
     dbprExcluded: number;
     existingCustomer: number;
     testDemoInternal: number;
@@ -399,6 +417,11 @@ export async function selectRoiCohort(opts: {
     geographyUnresolved: 0,
     inTargetVertical: 0,
     verticalUnresolved: 0,
+    noVerticalEvidence: 0,
+    explicitNonTarget: 0,
+    reviewRequired: 0,
+    verticalConflict: 0,
+    staleEvidence: 0,
     dbprExcluded: 0,
     existingCustomer: 0,
     testDemoInternal: 0,
@@ -871,6 +894,7 @@ export async function selectRoiCohort(opts: {
               classifierResult = liveResult;
             } else {
               funnel.verticalUnresolved++;
+              funnel.verticalConflict++;
               excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
                 `excluded:vertical_conflict_live_vs_evidence:${liveVerticalId}_vs_${evidenceVerticalId}`,
                 false, geoSource, geoClass, geoResolution, liveResult));
@@ -883,6 +907,7 @@ export async function selectRoiCohort(opts: {
             // disagreement rather than admitting on live text alone once
             // evidence exists for the current policy/classifier version.
             funnel.verticalUnresolved++;
+            funnel.verticalConflict++;
             excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
               `excluded:vertical_conflict_live_resolved_evidence_${String(phaseAEvidence.outcome)}`,
               false, geoSource, geoClass, geoResolution, liveResult));
@@ -899,8 +924,12 @@ export async function selectRoiCohort(opts: {
             };
           } else {
             // Neither live text nor evidence resolves to an admissible
-            // target — excluded per the evidence's own outcome.
+            // target — excluded per the evidence's own outcome, which is
+            // either an explicit non-target determination or a genuinely
+            // ambiguous review-required outcome. Never counted together.
             funnel.verticalUnresolved++;
+            if (phaseAEvidence.outcome === "non_target") funnel.explicitNonTarget++;
+            else funnel.reviewRequired++;
             excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
               `excluded:classification_${String(phaseAEvidence.outcome)}`,
               false, geoSource, geoClass, geoResolution, liveResult));
@@ -912,11 +941,14 @@ export async function selectRoiCohort(opts: {
           // resolution (unchanged from the pre-evidence-pipeline behavior).
           if (liveResult.outcome === "not_target" || liveResult.outcome === "unresolved") {
             funnel.verticalUnresolved++;
+            if (liveResult.outcome === "not_target") funnel.explicitNonTarget++;
+            else funnel.noVerticalEvidence++;
             excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${liveResult.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, liveResult));
             continue;
           }
           if (liveResult.outcome === "review_required") {
             funnel.verticalUnresolved++;
+            funnel.reviewRequired++;
             excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_review_required:${vertical}`, false, geoSource, geoClass, geoResolution, liveResult));
             continue;
           }
@@ -931,6 +963,8 @@ export async function selectRoiCohort(opts: {
         // while non-target/review-required remain out pending a new decision.
         if (phaseAEvidence?.outcome === "non_target" || phaseAEvidence?.outcome === "review_required") {
           funnel.verticalUnresolved++;
+          if (phaseAEvidence.outcome === "non_target") funnel.explicitNonTarget++;
+          else funnel.reviewRequired++;
           excluded.push(_buildCandidate(
             bizId, row, verticalIds, countyFips, fipsLocationMap,
             `excluded:classification_${String(phaseAEvidence.outcome)}`,
@@ -949,11 +983,14 @@ export async function selectRoiCohort(opts: {
         const v1Result = classifyVertical(vertical, verticalIds, 1);
         if (v1Result.outcome === "not_target" || v1Result.outcome === "unresolved") {
           funnel.verticalUnresolved++;
+          if (v1Result.outcome === "not_target") funnel.explicitNonTarget++;
+          else funnel.noVerticalEvidence++;
           excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_${v1Result.outcome}:${vertical}`, false, geoSource, geoClass, geoResolution, v1Result));
           continue;
         }
         if (v1Result.outcome === "review_required") {
           funnel.verticalUnresolved++;
+          funnel.reviewRequired++;
           excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, `excluded:vertical_review_required:${vertical}`, false, geoSource, geoClass, geoResolution, v1Result));
           continue;
         }
@@ -1035,6 +1072,33 @@ export async function selectRoiCohort(opts: {
   }
   if (opts.persistScores && allScored.length > 0) {
     await persistRoiScores(allScored, opts.actorId ?? "system:roi-cohort-selector", exec);
+  }
+
+  // ── Stale-evidence reclassification ─────────────────────────────────────────
+  // A business excluded above as "noVerticalEvidence" (no signal for the
+  // CURRENT policy/classifier/taxonomy version) may still have a real
+  // sfp_classification_evidence row from an earlier version. That is not the
+  // same fact as "never classified" — surface it distinctly so a stale
+  // backlog is never mistaken for a virgin one.
+  const noEvidenceBizIds = excluded
+    .filter((c) => c.dispositionReason.startsWith("excluded:vertical_unresolved"))
+    .map((c) => c.canonicalBusinessId);
+  if (noEvidenceBizIds.length > 0) {
+    const staleRows = rows(await exec.execute(sql`
+      SELECT DISTINCT business_id FROM sfp_classification_evidence
+       WHERE business_id = ANY(ARRAY[${sql.join(noEvidenceBizIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+         AND NOT (policy_version=${classificationPolicyVersion} AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion})
+    `));
+    const staleIds = new Set(staleRows.map((r: any) => Number(r.business_id)));
+    if (staleIds.size > 0) {
+      funnel.noVerticalEvidence -= staleIds.size;
+      funnel.staleEvidence += staleIds.size;
+      for (const candidate of excluded) {
+        if (staleIds.has(candidate.canonicalBusinessId) && candidate.dispositionReason.startsWith("excluded:vertical_unresolved")) {
+          candidate.dispositionReason = `excluded:stale_evidence:${candidate.dispositionReason.slice("excluded:vertical_unresolved:".length)}`;
+        }
+      }
+    }
   }
 
   return {

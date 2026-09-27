@@ -413,6 +413,20 @@ export async function runPreCohortClassificationBridge(
     previewSnapshotHash?: string;
     /** Selects live-text + evidence taxonomy tables. Defaults to 1 (legacy). */
     taxonomyVersion?: 1 | 2;
+    /**
+     * Server-enforced free-only mode. When true, this run makes ZERO
+     * OpenAI/Serper/Outscraper/Apollo/ZeroBounce calls, regardless of
+     * `allowGovernedSerperDomainDiscovery` or any other input — that flag,
+     * and any deps.openAiClassify/serperDomainLookup dependency injection,
+     * is ignored entirely for the duration of this run. Businesses that
+     * would otherwise escalate to OpenAI are left as `review_required`
+     * with reason code `FREE_ONLY_NO_ESCALATION` and a `provisional`
+     * terminal state so a later, explicitly paid run can still attempt
+     * real escalation. This is the only chokepoint that decides whether a
+     * provider is ever reached — it is not a client-supplied checkbox
+     * layered on top of provider calls that already happen by default.
+     */
+    freeOnly?: boolean;
   },
   deps: PreCohortClassificationBridgeDeps = {},
 ): Promise<{
@@ -431,10 +445,16 @@ export async function runPreCohortClassificationBridge(
   }
   const targetIds = [...input.targetIds].map(String).sort();
   const taxonomyVersion: 1 | 2 = input.taxonomyVersion === 2 ? 2 : 1;
+  // Free-only is the single authoritative gate on every provider call this
+  // run can make. It is resolved once, here, and used everywhere below
+  // instead of re-reading input.freeOnly, so no later branch can
+  // accidentally see a different value.
+  const freeOnly = input.freeOnly === true;
+  const allowGovernedSerperDomainDiscovery = !freeOnly && input.allowGovernedSerperDomainDiscovery === true;
   if (input.previewSnapshotHash) {
     const currentPreview = await previewPreCohortClassification(input.programId, {
       businessIdFilter: input.businessIdFilter, maxBusinesses, targetIds,
-      allowGovernedSerperDomainDiscovery: input.allowGovernedSerperDomainDiscovery === true,
+      allowGovernedSerperDomainDiscovery,
     });
     if (currentPreview.snapshotHash !== input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
   }
@@ -445,7 +465,7 @@ export async function runPreCohortClassificationBridge(
     programId: input.programId, maxBusinesses, targetIds, policyVersion: input.policyVersion,
     businessIdFilter: businessIdFilterForHash, classifierVersion: CLASSIFIER_VERSION, taxonomyVersion,
     modelVersion: SFP_OPENAI_MODEL, promptVersion: SFP_OPENAI_PROMPT_VERSION,
-    allowGovernedSerperDomainDiscovery: input.allowGovernedSerperDomainDiscovery === true,
+    allowGovernedSerperDomainDiscovery, freeOnly,
     previewSnapshotHash: input.previewSnapshotHash ?? null,
   }));
 
@@ -631,7 +651,7 @@ export async function runPreCohortClassificationBridge(
       let domain = extractDomain(business.website_domain);
       let discoveryReason: string | null = null;
       let discoveryCostMicros = 0;
-      if (!domain && input.allowGovernedSerperDomainDiscovery) {
+      if (!domain && allowGovernedSerperDomainDiscovery) {
          const lookupInput = {
           businessId, idempotencyKey: `${input.idempotencyKey}:serper-domain:${businessId}`, actorId: input.actorId,
           canonicalName: String(business.canonical_name), city: business.city ?? null, state: business.state ?? null,
@@ -738,7 +758,13 @@ export async function runPreCohortClassificationBridge(
         resolvedVerticalId = null;
         admissionTier = null;
       }
-      if (outcome === "review_required") {
+      if (outcome === "review_required" && freeOnly) {
+        // Free-only mode never reaches the OpenAI escalation call at all --
+        // not "reaches it and gets denied", but never attempts it. Marked
+        // as a non-attempt (like OPENAI_UNAVAILABLE) so a later, explicitly
+        // paid run can still retry real escalation for this business.
+        reasonCodes.push("FREE_ONLY_NO_ESCALATION");
+      } else if (outcome === "review_required") {
         try {
            const classifyInput = { businessId, rawVertical, websiteEvidence, targetIds };
            const openAiResult = deps.openAiClassify
@@ -793,7 +819,8 @@ export async function runPreCohortClassificationBridge(
       // config/authorization gap is fixed. Record it as 'provisional' so a
       // later run with the same evidence_hash retries the escalation.
       const escalationNeverAttempted =
-        reasonCodes.includes("OPENAI_UNAVAILABLE") || reasonCodes.includes("OPENAI_ESCALATION_NOT_CONFIGURED");
+        reasonCodes.includes("OPENAI_UNAVAILABLE") || reasonCodes.includes("OPENAI_ESCALATION_NOT_CONFIGURED")
+        || reasonCodes.includes("FREE_ONLY_NO_ESCALATION");
       const terminalState = escalationNeverAttempted ? "provisional" : "completed";
       const idempotencyKey = `${input.idempotencyKey}:eval:${businessId}:${evidenceHash}`;
       // classifier_version is the RULESET version (CLASSIFIER_VERSION);
@@ -961,7 +988,13 @@ export async function freezeClassificationSnapshot(input: {
   targetIds: string[];
   policyVersion: number;
   taxonomyVersion: 1 | 2;
-  allowedProvider: "openai_classification";
+  /**
+   * "none" freezes a strictly free-only snapshot: execution makes zero
+   * provider calls of any kind (see `freeOnly` on
+   * runPreCohortClassificationBridge). "openai_classification" freezes a
+   * snapshot allowed to escalate ambiguous cases to OpenAI at run time.
+   */
+  allowedProvider: "openai_classification" | "none";
   maxUnits: number;
   ttlMinutes?: number;
 }): Promise<{
@@ -1077,9 +1110,10 @@ export async function runFrozenClassificationSnapshot(input: {
   const policyVersion = Number(claimed.policy_version);
   const maxUnits = Math.max(1, Math.min(4000, Math.trunc(Number(claimed.max_units))));
   const allowedProvider = String(claimed.allowed_provider);
-  if (allowedProvider !== "openai_classification") {
+  if (allowedProvider !== "openai_classification" && allowedProvider !== "none") {
     throw new Error(`SFP_SNAPSHOT_UNSUPPORTED_PROVIDER:${allowedProvider}`);
   }
+  const freeOnly = allowedProvider === "none";
 
   const currentFacts = await computeFrozenBusinessFacts(frozenIds, taxonomyVersion);
   const rejectedAtRun: Array<{ businessId: number; reason: string }> = [];
@@ -1136,6 +1170,7 @@ export async function runFrozenClassificationSnapshot(input: {
     businessIdFilter: dispatchable,
     taxonomyVersion,
     allowGovernedSerperDomainDiscovery: false,
+    freeOnly,
     // Intentionally no previewSnapshotHash: this function's own per-business
     // recheck above is the safety gate for this frozen set, so the bridge's
     // full-pool preview-hash comparison (which reacts to unrelated
@@ -1153,6 +1188,119 @@ export async function runFrozenClassificationSnapshot(input: {
     rejectedAtRun, processed: result.processed, targetCount: result.targetCount,
     nonTargetCount: result.nonTargetCount, reviewRequiredCount: result.reviewRequiredCount,
     skippedCount: result.skippedCount + rejectedAtRun.length, costMicros: result.costMicros,
+  };
+}
+
+/**
+ * Read-only, provider-free preview of deterministic high-confidence
+ * candidates for a South Florida program: canonical businesses inside the
+ * program's counties with no admissible current-version evidence yet, whose
+ * live structured vertical or business name deterministically resolves
+ * (resolved_high only — never resolved_medium/review_required/AI-derived)
+ * to one of the program's target verticals. Ordered by confidence
+ * descending, not by business ID, so an operator can see and select the
+ * strongest real candidates instead of always hitting the same low-ID
+ * backlog. `businessIdFilter` lets an operator target specific known
+ * businesses (e.g. a diagnostic run against one confirmed roofing company)
+ * without scanning the whole pool.
+ */
+export async function previewHighConfidenceClassificationCandidates(programId: string, options: {
+  businessIdFilter?: number[];
+  limit?: number;
+} = {}): Promise<{
+  programId: string;
+  taxonomyVersion: 1 | 2;
+  classifierVersion: number;
+  policyVersion: number;
+  targetIds: string[];
+  candidates: Array<{
+    businessId: number;
+    canonicalName: string;
+    countyFips: string | null;
+    geographySource: string;
+    proposedVerticalId: string;
+    confidence: number;
+    reasonCodes: string[];
+    source: "structured_vertical_field" | "name_derived_signal";
+    exclusionStatus: string | null;
+  }>;
+}> {
+  const program = rows(await db.execute(sql`
+    SELECT id,county_fips,vertical_ids,policy_version,taxonomy_version
+      FROM sfp_programs WHERE id=${programId}::uuid
+  `))[0];
+  if (!program) throw new Error("SFP_PROGRAM_NOT_FOUND");
+  const taxonomyVersion: 1 | 2 = Number(program.taxonomy_version) === 2 ? 2 : 1;
+  const policyVersion = Number(program.policy_version);
+  const targetIds: string[] = Array.isArray(program.vertical_ids) ? program.vertical_ids.map(String) : [];
+  const counties: string[] = Array.isArray(program.county_fips) ? program.county_fips : [];
+  const businessFilter = options.businessIdFilter?.length
+    ? options.businessIdFilter.map(Number).filter(Number.isInteger) : null;
+  const limit = Math.max(1, Math.min(200, Math.trunc(Number(options.limit ?? 50))));
+
+  const candidateRows = rows(await db.execute(sql`
+    SELECT id,canonical_name,city,state,postal_code,vertical
+      FROM businesses
+     WHERE record_class='canonical'
+       ${businessFilter ? sql`AND id=ANY(ARRAY[${sql.join(businessFilter.map((id) => sql`${id}`), sql`, `)}]::integer[])` : sql``}
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_classification_evidence e
+          WHERE e.business_id=businesses.id AND e.policy_version=${policyVersion}
+            AND e.classifier_version=${CLASSIFIER_VERSION} AND e.taxonomy_version=${taxonomyVersion}
+            AND e.outcome IN ('target','non_target')
+       )
+     ORDER BY id
+  `));
+  const ids = candidateRows.map((r: any) => Number(r.id));
+  const locationRows = ids.length ? rows(await db.execute(sql`
+    SELECT id,business_id,is_primary,city,state,postal_code,county_fips
+      FROM business_locations
+     WHERE business_id=ANY(ARRAY[${sql.join(ids.map((id: number) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY business_id,id
+  `)) : [];
+  const locationsByBusiness = new Map<number, LocationCandidateInput[]>();
+  for (const location of locationRows) {
+    const list = locationsByBusiness.get(Number(location.business_id)) ?? [];
+    list.push({ locationId: Number(location.id), isPrimary: Boolean(location.is_primary),
+      city: location.city ?? null, state: location.state ?? null, postalCode: location.postal_code ?? null,
+      countyFips: location.county_fips ?? null });
+    locationsByBusiness.set(Number(location.business_id), list);
+  }
+  const hardExclusions = await getSfpBusinessHardExclusionReasons(ids);
+  const suppression = await getBusinessWideSuppressionExclusions(ids);
+
+  const candidates: Array<{
+    businessId: number; canonicalName: string; countyFips: string | null; geographySource: string;
+    proposedVerticalId: string; confidence: number; reasonCodes: string[];
+    source: "structured_vertical_field" | "name_derived_signal"; exclusionStatus: string | null;
+  }> = [];
+  for (const business of candidateRows) {
+    const id = Number(business.id);
+    const facts = [...(locationsByBusiness.get(id) ?? []), {
+      locationId: null, isPrimary: false, city: business.city ?? null, state: business.state ?? null,
+      postalCode: business.postal_code ?? null, countyFips: null,
+    }];
+    const geography = resolveGeographyFromCandidates(facts);
+    if (geography.outcome !== "resolved" || !counties.includes(String(geography.countyFips))) continue;
+    const structuredVertical = business.vertical == null ? null : String(business.vertical);
+    const nameSignal = structuredVertical == null ? inferVerticalNameSignal(business.canonical_name, taxonomyVersion) : null;
+    const rawVertical = structuredVertical ?? (nameSignal && !nameSignal.conflicting ? nameSignal.rawVertical : null);
+    if (rawVertical === null) continue;
+    const classification = mapClassification(rawVertical, targetIds, taxonomyVersion);
+    if (classification.admissionTier !== "resolved_high" || !classification.resolvedVerticalId) continue;
+    const exclusionStatus = hardExclusions.get(id) ?? (suppression.has(id) ? "business_wide_suppression" : null);
+    candidates.push({
+      businessId: id, canonicalName: String(business.canonical_name), countyFips: String(geography.countyFips),
+      geographySource: geography.evidenceClass ?? "unknown", proposedVerticalId: classification.resolvedVerticalId,
+      confidence: classification.confidence, reasonCodes: classification.reasonCodes,
+      source: structuredVertical !== null ? "structured_vertical_field" : "name_derived_signal",
+      exclusionStatus,
+    });
+  }
+  candidates.sort((a, b) => b.confidence - a.confidence || a.businessId - b.businessId);
+  return {
+    programId, taxonomyVersion, classifierVersion: CLASSIFIER_VERSION, policyVersion, targetIds,
+    candidates: candidates.slice(0, limit),
   };
 }
 

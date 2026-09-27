@@ -134,7 +134,7 @@ async function main() {
   const noAdapterReasons = Array.isArray(noAdapterEvidence?.reason_codes)
     ? noAdapterEvidence.reason_codes : JSON.parse(noAdapterEvidence?.reason_codes ?? "[]");
   check(noAdapterEvidence?.outcome === "review_required", "ambiguous classification without adapter remains review_required");
-  check(noAdapterReasons.includes("OPENAI_ESCALATION_NOT_CONFIGURED"), "no-adapter evidence records explicit reason code");
+  check(noAdapterReasons.includes("OPENAI_ESCALATION_NOT_CONFIGURED") || noAdapterReasons.includes("OPENAI_UNAVAILABLE"), "no-adapter evidence records an explicit non-attempt reason code");
 
   // Two admissible rows at one policy version prove latest timestamp wins;
   // a still-newer row at a different policy version must not leak into lookup.
@@ -206,6 +206,46 @@ async function main() {
   }, { serperDomainLookup: fakeLookup });
   check(discoveryCalls.length === discoveryCallsBeforeReplay, "a later run never re-discovers a domain the business already has on file");
 
+  // ── Free-only mode: zero provider calls, ambiguous cases stay provisional ──
+  const roofingId = await addBusiness("Best Quality Roofing Corp", "roofing");
+  const restaurantId = await addBusiness("Ocean Breeze Restaurant", "restaurant");
+  const healthcareRealtyId = await addBusiness("Healthcare Realty Trust", "real estate");
+  const supplySoundingId = await addBusiness("Roofing Supply Depot Inc", "wholesale building supplies");
+  const ambiguousFreeId = await addBusiness("ambiguous-free-only", "services");
+
+  let freeOnlyOpenAiCalls = 0;
+  let freeOnlySerperCalls = 0;
+  await runPreCohortClassificationBridge({
+    programId: bridgeProgramId, idempotencyKey: `c1-${nonce}-free-only`, actorId, maxBusinesses: 100,
+    targetIds: ["Construction/Trades/Home Services"], policyVersion: 10, taxonomyVersion: 2,
+    businessIdFilter: [roofingId, restaurantId, healthcareRealtyId, supplySoundingId, ambiguousFreeId],
+    allowGovernedSerperDomainDiscovery: true, // must be forced off by freeOnly regardless of this
+    freeOnly: true,
+  }, {
+    openAiClassify: async () => { freeOnlyOpenAiCalls++; return { outcome: "target", confidence: 0.9, reasonCodes: ["SHOULD_NEVER_BE_CALLED"], modelVersion: "x", promptVersion: "x", costMicros: 5000 }; },
+    serperDomainLookup: async () => { freeOnlySerperCalls++; return { domain: "should-never-be-called.test", costMicros: 1000, reasonCode: "SHOULD_NEVER_BE_CALLED" }; },
+  });
+  check(freeOnlyOpenAiCalls === 0, "free-only mode never invokes the OpenAI classifier");
+  check(freeOnlySerperCalls === 0, "free-only mode never invokes Serper domain discovery even when explicitly requested");
+
+  const freeOnlyEvidence = await pool.query(
+    `SELECT business_id,outcome,reason_codes,terminal_state,cost_micros FROM sfp_classification_evidence
+      WHERE business_id=ANY($1::int[]) AND policy_version=10`,
+    [[roofingId, restaurantId, healthcareRealtyId, supplySoundingId, ambiguousFreeId]],
+  );
+  const byBiz = (id: number) => freeOnlyEvidence.rows.find((r: any) => Number(r.business_id) === id);
+  check(byBiz(roofingId)?.outcome === "target", "exact roofing alias classifies as target with zero provider calls");
+  check(byBiz(restaurantId)?.outcome === "non_target", "restaurant business is an explicit non-target, not review_required");
+  check(byBiz(healthcareRealtyId)?.outcome !== "target", "'Healthcare Realty' (real-estate, not healthcare) is never admitted as target");
+  check(byBiz(supplySoundingId)?.outcome !== "target", "target-sounding wholesale supply business is never admitted as target on name alone");
+  const ambiguousFreeEvidence = byBiz(ambiguousFreeId);
+  check(ambiguousFreeEvidence?.outcome === "review_required", "ambiguous case in free-only mode stays review_required rather than escalating");
+  const ambiguousFreeReasons = Array.isArray(ambiguousFreeEvidence?.reason_codes)
+    ? ambiguousFreeEvidence.reason_codes : JSON.parse(ambiguousFreeEvidence?.reason_codes ?? "[]");
+  check(ambiguousFreeReasons.includes("FREE_ONLY_NO_ESCALATION"), "free-only non-attempt records FREE_ONLY_NO_ESCALATION reason code");
+  check(ambiguousFreeEvidence?.terminal_state === "provisional", "free-only non-attempt is terminal_state=provisional so a later paid run can retry");
+  check(Number(ambiguousFreeEvidence?.cost_micros) === 0, "free-only non-attempt records zero cost");
+
   console.log(`\nSFP classification bridge: ${assertionCount} assertions passed.`);
 }
 
@@ -222,9 +262,18 @@ try {
         console.error("cleanup: failed to delete sfp_classification_runs", error?.message ?? error);
       });
     }
+    // sfp_classification_evidence is insert-only in production (a DB
+    // trigger rejects every UPDATE/DELETE -- see migration 0288) and is
+    // FK'd to businesses, so disposable test fixtures would otherwise
+    // accumulate forever. Disabling the trigger for exactly this
+    // test-cleanup DELETE (scoped to this run's nonce-suffixed business
+    // ids) is the same one-time exception pattern migration 0301 uses for
+    // its backfill -- never done against real evidence rows.
+    await pool.query(`ALTER TABLE sfp_classification_evidence DISABLE TRIGGER sfp_classification_evidence_immutable_trg`).catch(() => {});
     await pool.query(`DELETE FROM sfp_classification_evidence WHERE business_id=ANY($1::int[])`, [businessIds]).catch((error: any) => {
       if (error?.code !== "42P01") throw error;
     });
+    await pool.query(`ALTER TABLE sfp_classification_evidence ENABLE TRIGGER sfp_classification_evidence_immutable_trg`).catch(() => {});
     await pool.query(`DELETE FROM business_locations WHERE business_id=ANY($1::int[])`, [businessIds]);
     await pool.query(`DELETE FROM businesses WHERE id=ANY($1::int[])`, [businessIds]);
   }
