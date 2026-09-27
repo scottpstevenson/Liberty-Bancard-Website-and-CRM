@@ -456,12 +456,39 @@ export async function runDrizzleMigrations(): Promise<void> {
   }
 }
 
+/**
+ * drizzle-orm wraps every failed migration statement in a DrizzleQueryError
+ * whose own `.message` is just "Failed query: <sql text>" — the actual
+ * Postgres failure (code, detail, hint, position) lives on `.cause` and was
+ * previously dropped on the floor, leaving deploy logs with no way to tell
+ * *why* a migration failed. Log every field we can find so a future failure
+ * is diagnosable from the deployment log alone.
+ */
+export function logUnderlyingDbError(error: any): void {
+  const cause = error?.cause;
+  if (!cause) return;
+  const fields = ["code", "detail", "hint", "position", "table", "column", "constraint", "schema", "routine"];
+  const present = fields
+    .map((f) => (cause?.[f] !== undefined ? `${f}=${cause[f]}` : null))
+    .filter(Boolean);
+  if (cause?.message) {
+    console.error("[DB Migrate] Underlying DB error:", cause.message);
+  }
+  if (present.length > 0) {
+    console.error("[DB Migrate] Underlying DB error detail:", present.join(" "));
+  }
+  if (cause?.stack) {
+    console.error("[DB Migrate] Underlying DB error stack:", cause.stack);
+  }
+}
+
 const directEntryPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 const canonicalEntryPath = path.resolve(process.cwd(), "server", "db-migrate.ts");
 if (directEntryPath === canonicalEntryPath) {
   runDrizzleMigrations()
     .catch((error: any) => {
       console.error("[DB Migrate] Migration failed:", error?.message ?? error);
+      logUnderlyingDbError(error);
       process.exitCode = 1;
     })
     .finally(async () => {

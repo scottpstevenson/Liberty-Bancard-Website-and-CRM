@@ -14,7 +14,7 @@
  * ones are applied.
  */
 
-import { runDrizzleMigrations } from "../server/db-migrate";
+import { runDrizzleMigrations, logUnderlyingDbError } from "../server/db-migrate";
 import { pool } from "../server/db";
 
 const DEPLOY_MIGRATION_LOCK = "liberty-bancard:production-deploy-migrations";
@@ -41,6 +41,7 @@ async function main() {
     console.log("[migrate] Done.");
   } catch (err: any) {
     console.error("[migrate] Migration failed:", err.message ?? err);
+    logUnderlyingDbError(err);
     process.exitCode = 1;
   } finally {
     await lockClient
