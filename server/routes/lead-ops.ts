@@ -3867,18 +3867,19 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // no contact_id, but sequence_enrollments requires one). Resolves a
   // contact identity-safely and creates a PAUSED enrollment only -- never
   // dispatches, sends, or unpauses. Idempotent per staging intent.
-  app.post("/api/lead-ops/sfp/staging-intents/:intentId/bridge-to-paused-enrollment", requireRole("admin"), async (req, res) => {
-    try {
-      const { bridgeReadyHeldIntentToPausedEnrollment } = await import("../services/cro03/sfp-enrollment-bridge");
-      const result = await bridgeReadyHeldIntentToPausedEnrollment(
-        String(req.params.intentId), `admin:${(req as any).user?.id ?? "system"}`,
-      );
-      res.json(result);
-    } catch (err: any) {
-      const msg = String(err?.message ?? "");
-      const status = /NOT_FOUND/.test(msg) ? 404 : /NOT_READY_HELD|NO_PACKAGE_VERSION/.test(msg) ? 409 : 400;
-      res.status(status).json({ code: "SFP_READY_HELD_BRIDGE_ERROR", message: msg || "Unable to bridge staging intent to a paused enrollment" });
-    }
+  //
+  // DISABLED for this release: bridgeReadyHeldIntentToPausedEnrollment() still
+  // commits writeContact() before the enrollment transaction. The current
+  // eligibility pre-check only closes one orphan path -- a later contact
+  // decision or a failed enrollment insert can still leave the written
+  // contact behind with no compensating rollback, and no test forces a
+  // failure at that point to prove otherwise. Re-enable only after that
+  // bridge transaction/failure path has its own test coverage.
+  app.post("/api/lead-ops/sfp/staging-intents/:intentId/bridge-to-paused-enrollment", requireRole("admin"), async (_req, res) => {
+    res.status(403).json({
+      code: "SFP_READY_HELD_BRIDGE_DISABLED",
+      message: "The ready_held-to-paused-enrollment bridge is disabled pending a fix to its contact/enrollment transaction boundary (orphan-contact risk on a later failure). It will be re-enabled in a follow-up patch.",
+    });
   });
 
   // GET /api/lead-ops/sfp/campaign-staging/telemetry — real read-only surface
