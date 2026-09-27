@@ -519,3 +519,32 @@ if (directEntryPath === canonicalEntryPath) {
       await pool.end();
     });
 }
+
+// See scripts/migrate.ts's drainStdio() for why this exists: a forced
+// process.exit() right after a burst of console.error() output can race the
+// platform's async log shipper and truncate the deploy log before the
+// underlying-DB-error detail is captured.
+export function drainStdio(): Promise<void> {
+  return new Promise((resolve) => {
+    let pending = 0;
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      pending -= 1;
+      if (pending <= 0) {
+        resolved = true;
+        resolve();
+      }
+    };
+    for (const stream of [process.stdout, process.stderr]) {
+      pending += 1;
+      stream.write("", done);
+    }
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve();
+      }
+    }, 2000);
+  });
+}

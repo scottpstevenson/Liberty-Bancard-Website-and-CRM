@@ -51,8 +51,44 @@ async function main() {
   }
 
   // Force exit: pool.end() can hang when a checked-out connection or an
-  // outbound socket (e.g. OpenAI indexing call) is still open.
+  // outbound socket (e.g. OpenAI indexing call) is still open. But
+  // process.exit() tears down the process immediately, and the platform's
+  // log shipper reads stdout/stderr asynchronously — calling it right after
+  // a burst of console.error() output (e.g. the full underlying-DB-error
+  // dump) can truncate the deploy log before the trailing lines are
+  // captured, which is exactly what happened here: only the first
+  // "Migration failed" line ever reached the log, never the detail after
+  // it. Explicitly wait for both streams to drain before exiting.
+  await drainStdio();
   process.exit(process.exitCode ?? 0);
+}
+
+function drainStdio(): Promise<void> {
+  return new Promise((resolve) => {
+    let pending = 0;
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      pending -= 1;
+      if (pending <= 0) {
+        resolved = true;
+        resolve();
+      }
+    };
+    for (const stream of [process.stdout, process.stderr]) {
+      pending += 1;
+      // A zero-length write's callback fires only after everything
+      // previously queued on the stream has actually been flushed.
+      stream.write("", done);
+    }
+    // Safety net in case a stream never calls back (e.g. already closed).
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve();
+      }
+    }, 2000);
+  });
 }
 
 main().catch((err: any) => {
