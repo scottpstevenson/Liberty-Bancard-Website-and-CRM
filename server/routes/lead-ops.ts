@@ -3431,7 +3431,26 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!Number.isInteger(policyVersion) || policyVersion < 1) {
         return res.status(400).json({ error: "policyVersion must be a positive integer" });
       }
-      const taxonomyVersion = Number(req.body?.taxonomyVersion) === 2 ? 2 : 1;
+      // A missing taxonomy version previously defaulted to v1. The v2
+      // candidate preview could then freeze and classify a roofing business
+      // as a v1 non-target. Pin the current program contract at the server.
+      const requestedTaxonomyVersion = Number(req.body?.taxonomyVersion);
+      if (requestedTaxonomyVersion !== 1 && requestedTaxonomyVersion !== 2) {
+        return res.status(400).json({ error: "taxonomyVersion must be 1 or 2" });
+      }
+      const configured = rows(await db.execute(sql`
+        SELECT taxonomy_version, policy_version, vertical_ids
+          FROM sfp_programs WHERE id=${programId}::uuid LIMIT 1
+      `))[0];
+      if (!configured) return res.status(404).json({ error: "SFP_PROGRAM_NOT_FOUND" });
+      const configuredTargets: string[] = Array.isArray(configured.vertical_ids)
+        ? configured.vertical_ids.map(String) : JSON.parse(String(configured.vertical_ids));
+      if (requestedTaxonomyVersion !== Number(configured.taxonomy_version)
+          || policyVersion !== Number(configured.policy_version)
+          || JSON.stringify([...targetIds].sort()) !== JSON.stringify([...configuredTargets].sort())) {
+        return res.status(409).json({ error: "SFP_SNAPSHOT_PROGRAM_CONFIG_CHANGED" });
+      }
+      const taxonomyVersion = requestedTaxonomyVersion;
       const maxUnits = req.body?.maxUnits == null ? 4000 : Number(req.body.maxUnits);
       // freeOnly is the server-enforced gate: when true, the frozen
       // snapshot's allowed_provider is pinned to 'none', which

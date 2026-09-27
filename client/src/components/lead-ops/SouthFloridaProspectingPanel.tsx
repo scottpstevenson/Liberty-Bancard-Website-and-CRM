@@ -35,6 +35,7 @@ type SfpProgram = {
   recurringEnabled: boolean;
   activatedAt: string | null;
   policyVersion?: number;
+  taxonomyVersion: 1 | 2;
 };
 
 type SfpFunnel = {
@@ -406,6 +407,7 @@ export function SouthFloridaProspectingPanel() {
         businessIds: selectedCandidateIds,
         targetIds: currentProgram.verticalIds,
         policyVersion: currentProgram.policyVersion ?? 1,
+        taxonomyVersion: currentProgram.taxonomyVersion,
         freeOnly: true,
       });
       return res.json();
