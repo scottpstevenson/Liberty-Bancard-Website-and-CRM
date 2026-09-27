@@ -466,19 +466,43 @@ export async function runDrizzleMigrations(): Promise<void> {
  */
 export function logUnderlyingDbError(error: any): void {
   const cause = error?.cause;
-  if (!cause) return;
   const fields = ["code", "detail", "hint", "position", "table", "column", "constraint", "schema", "routine"];
-  const present = fields
-    .map((f) => (cause?.[f] !== undefined ? `${f}=${cause[f]}` : null))
-    .filter(Boolean);
-  if (cause?.message) {
-    console.error("[DB Migrate] Underlying DB error:", cause.message);
-  }
-  if (present.length > 0) {
-    console.error("[DB Migrate] Underlying DB error detail:", present.join(" "));
-  }
-  if (cause?.stack) {
-    console.error("[DB Migrate] Underlying DB error stack:", cause.stack);
+  if (cause) {
+    const present = fields
+      .map((f) => (cause?.[f] !== undefined ? `${f}=${cause[f]}` : null))
+      .filter(Boolean);
+    if (cause?.message) {
+      console.error("[DB Migrate] Underlying DB error:", cause.message);
+    }
+    if (present.length > 0) {
+      console.error("[DB Migrate] Underlying DB error detail:", present.join(" "));
+    }
+    if (cause?.stack) {
+      console.error("[DB Migrate] Underlying DB error stack:", cause.stack);
+    }
+  } else {
+    // No .cause was attached at all — the thrown error may not be a
+    // DrizzleQueryError, or drizzle-orm's wrapping didn't preserve it. Dump
+    // every own/enumerable property (including non-enumerable Error fields
+    // like code/detail from the pg driver, if this error itself IS the raw
+    // driver error) so the deploy log still shows something diagnosable.
+    console.error("[DB Migrate] No .cause on thrown error; raw error dump:");
+    try {
+      const util = require("node:util");
+      console.error(util.inspect(error, { depth: 6, showHidden: false, breakLength: 200 }));
+    } catch {
+      try {
+        console.error(JSON.stringify(error, Object.getOwnPropertyNames(error ?? {})));
+      } catch {
+        console.error(String(error));
+      }
+    }
+    const directFields = fields
+      .map((f) => (error?.[f] !== undefined ? `${f}=${error[f]}` : null))
+      .filter(Boolean);
+    if (directFields.length > 0) {
+      console.error("[DB Migrate] Direct error fields:", directFields.join(" "));
+    }
   }
 }
 
