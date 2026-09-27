@@ -3938,18 +3938,23 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // contact identity-safely and creates a PAUSED enrollment only -- never
   // dispatches, sends, or unpauses. Idempotent per staging intent.
   //
-  // DISABLED for this release: bridgeReadyHeldIntentToPausedEnrollment() still
-  // commits writeContact() before the enrollment transaction. The current
-  // eligibility pre-check only closes one orphan path -- a later contact
-  // decision or a failed enrollment insert can still leave the written
-  // contact behind with no compensating rollback, and no test forces a
-  // failure at that point to prove otherwise. Re-enable only after that
-  // bridge transaction/failure path has its own test coverage.
-  app.post("/api/lead-ops/sfp/staging-intents/:intentId/bridge-to-paused-enrollment", requireRole("admin"), async (_req, res) => {
-    res.status(403).json({
-      code: "SFP_READY_HELD_BRIDGE_DISABLED",
-      message: "The ready_held-to-paused-enrollment bridge is disabled pending a fix to its contact/enrollment transaction boundary (orphan-contact risk on a later failure). It will be re-enabled in a follow-up patch.",
-    });
+  // Contact creation, source/audit evidence, paused enrollment and bridge
+  // ledger now share a single transaction. A failed later insert cannot
+  // strand a contact; no unpause/send path is invoked by this route.
+  app.post("/api/lead-ops/sfp/staging-intents/:intentId/bridge-to-paused-enrollment", requireRole("admin"), async (req, res) => {
+    try {
+      const { bridgeReadyHeldIntentToPausedEnrollment } = await import("../services/cro03/sfp-enrollment-bridge");
+      const result = await bridgeReadyHeldIntentToPausedEnrollment(
+        String(req.params.intentId), `admin:${(req as any).user?.id ?? "system"}`,
+      );
+      res.json(result);
+    } catch (err: any) {
+      const message = String(err?.message ?? err);
+      const status = message.includes("NOT_FOUND") ? 404
+        : message.includes("NOT_READY_HELD") || message.includes("CONFLICT") || message.includes("NOT_PAUSED") || message.includes("BLOCKED") ? 409
+        : 500;
+      res.status(status).json({ code: "SFP_READY_HELD_BRIDGE_ERROR", message });
+    }
   });
 
   // GET /api/lead-ops/sfp/campaign-staging/telemetry — real read-only surface

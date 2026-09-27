@@ -27,16 +27,12 @@
  *    (contact, sequence) is a hard rejection, never a reused "success" —
  *    this bridge must never touch or claim credit for a live enrollment.
  *  - Concurrent calls that would resolve to the same email are serialized
- *    with a session-level pg_advisory_lock keyed on the email, held across
- *    both the writeContact() call and the enrollment/ledger insert, so two
- *    concurrent callers for the same email can never both create a contact,
- *    and a failure between the two steps cannot leave a silently-orphaned
- *    contact with no ledger/enrollment trace (the second caller, once it
- *    acquires the lock, will find and reuse what the first created, or find
- *    nothing and retry cleanly if the first failed before creating anything).
+ *    with a transaction-level advisory lock keyed on the email. The contact
+ *    writer, enrollment, and ledger use that same transaction; an error at
+ *    any point rolls back every write and releases the lock.
  */
 import { sql } from "drizzle-orm";
-import { db, pool } from "../../db";
+import { db } from "../../db";
 import { writeContact } from "../contact-writer";
 import { evaluateContactDecisions, evaluateBusinessPromotionEligibility } from "../contactability";
 
@@ -67,43 +63,45 @@ function normalizeCompanyToken(name: string | null | undefined): string {
 export async function bridgeReadyHeldIntentToPausedEnrollment(
   stagingIntentId: string,
   actorId: string,
+  _testFaultInjector?: (stage: "after_contact_before_enrollment" | "after_enrollment_before_ledger") => void,
 ): Promise<ReadyHeldEnrollmentResult> {
-  const existing = rows(await db.execute(sql`
+  return db.transaction(async (tx) => {
+  const intent = rows(await tx.execute(sql`
+    SELECT id, business_id, master_lead_id, package_version_id, state
+      FROM sfp_campaign_staging_intents WHERE id=${stagingIntentId}::uuid FOR UPDATE
+  `))[0];
+  if (!intent) throw new Error("SFP_STAGING_INTENT_NOT_FOUND");
+  if (intent.state !== "ready_held") throw new Error(`SFP_STAGING_INTENT_NOT_READY_HELD:${intent.state}`);
+  const existing = rows(await tx.execute(sql`
     SELECT contact_id, sequence_enrollment_id, contact_resolution
       FROM sfp_ready_held_enrollments WHERE staging_intent_id=${stagingIntentId}::uuid
   `))[0];
   if (existing) {
-    const enrollment = rows(await db.execute(sql`
+    const enrollment = rows(await tx.execute(sql`
       SELECT status FROM sequence_enrollments WHERE id=${Number(existing.sequence_enrollment_id)}
     `))[0];
+    if (enrollment?.status !== "paused") throw new Error("SFP_BRIDGED_ENROLLMENT_NOT_PAUSED");
     return {
       stagingIntentId, status: "already_bridged", contactId: Number(existing.contact_id),
       contactResolution: existing.contact_resolution, sequenceEnrollmentId: Number(existing.sequence_enrollment_id),
-      enrollmentStatus: enrollment ? String(enrollment.status) : "unknown",
+      enrollmentStatus: "paused",
     };
   }
-
-  const intent = rows(await db.execute(sql`
-    SELECT id, business_id, master_lead_id, package_version_id, state
-      FROM sfp_campaign_staging_intents WHERE id=${stagingIntentId}::uuid
-  `))[0];
-  if (!intent) throw new Error("SFP_STAGING_INTENT_NOT_FOUND");
-  if (intent.state !== "ready_held") throw new Error(`SFP_STAGING_INTENT_NOT_READY_HELD:${intent.state}`);
   if (!intent.package_version_id) throw new Error("SFP_STAGING_INTENT_NO_PACKAGE_VERSION");
 
-  const packageVersion = rows(await db.execute(sql`
+  const packageVersion = rows(await tx.execute(sql`
     SELECT sequence_id, vertical FROM sfp_campaign_package_versions WHERE id=${intent.package_version_id}::uuid
   `))[0];
   if (!packageVersion) throw new Error("SFP_PACKAGE_VERSION_NOT_FOUND");
   const sequenceId = Number(packageVersion.sequence_id);
 
-  const business = rows(await db.execute(sql`
+  const business = rows(await tx.execute(sql`
     SELECT id, canonical_name, main_email, main_phone, vertical FROM businesses WHERE id=${Number(intent.business_id)}
   `))[0];
   if (!business) throw new Error("SFP_BUSINESS_NOT_FOUND");
 
   const masterLead = intent.master_lead_id
-    ? rows(await db.execute(sql`
+    ? rows(await tx.execute(sql`
         SELECT email, phone, contact_name FROM master_leads WHERE id=${intent.master_lead_id}::uuid
       `))[0]
     : null;
@@ -138,16 +136,11 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     };
   }
 
-  // Session-level advisory lock keyed on the email, held across the entire
-  // match-or-create + enrollment sequence, so two concurrent callers
-  // resolving to the same email can never both create a contact, and one
-  // caller's mid-sequence failure can't leave the other holding a stale
-  // "no contact yet" read.
-  const lockClient = await pool.connect();
-  try {
-    await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [`sfp-enrollment-bridge-email:${candidateEmail}`]);
+  // The intent row lock fences same-intent callers; the email lock fences
+  // two DIFFERENT intents that resolve to the same contact identity.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`sfp-enrollment-bridge-email:${candidateEmail}`}))`);
 
-    const matchCandidates = rows(await db.execute(sql`
+    const matchCandidates = rows(await tx.execute(sql`
       SELECT id, phone, company_name FROM contacts
        WHERE lower(email) = ${candidateEmail} AND archived_at IS NULL
        ORDER BY id ASC
@@ -176,15 +169,10 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       contactId = Number(corroborated.id);
       contactResolution = "matched_existing";
     } else {
-      // Eligibility gate BEFORE creating anything: writeContact() commits
-      // immediately, so if we created the contact first and only checked
-      // eligibility afterward, a blocked business (DBPR lineage / existing
-      // customer) would leave a real, permanent contact row behind with no
-      // enrollment and no sfp_ready_held_enrollments record pointing at it —
-      // an orphan. A brand-new contact can't yet be doNotContact-flagged or
-      // otherwise contact-level-blocked, so the business-scoped check alone
-      // is authoritative here and doesn't require a contact to exist first.
-      const businessDecision = await evaluateBusinessPromotionEligibility(Number(business.id));
+      // Early business-scoped gate avoids unnecessary contact writes. The
+      // transaction below remains the real rollback boundary if a later
+      // contact-level decision or enrollment/ledger insert rejects the work.
+      const businessDecision = await evaluateBusinessPromotionEligibility(Number(business.id), tx);
       if (businessDecision.status === "blocked") {
         return {
           stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
@@ -197,6 +185,9 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       const lastName = nameParts.slice(1).join(" ") || "Contact";
       const created = await writeContact({
         mode: "local_only",
+        transaction: tx,
+        hookPolicy: { source:"cro03",deferValidation:true,deferReadiness:true,
+          deferLeadScoring:true,suppressProviderProjection:true },
         mutation: {
           firstName, lastName, email: candidateEmail, phone: candidatePhone || "",
           companyName: business.canonical_name ?? null,
@@ -211,8 +202,13 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
         },
         actor: { actorType: "system", actorId },
       });
+      if (created._intakeOutcome !== "created") {
+        const phoneMatches = candidatePhone && String(created.phone ?? "").replace(/[^0-9]/g, "") === candidatePhone;
+        const companyMatches = businessNameToken && normalizeCompanyToken(created.companyName) === businessNameToken;
+        if (!phoneMatches && !companyMatches) throw new Error("SFP_CONTACT_MATCH_UNCORROBORATED_AT_WRITE");
+      }
       contactId = created.id;
-      contactResolution = "created_new";
+      contactResolution = created._intakeOutcome === "created" ? "created_new" : "matched_existing";
     }
 
     // Eligibility gate: promotion dimension covers DBPR lineage, existing-
@@ -220,8 +216,13 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     // enumerated consumer (enrollment included) must call. A blocked
     // dimension leaves the intent held rather than pausing an enrollment
     // for a contact this authority says is not eligible.
-    const decisions = await evaluateContactDecisions({ contactId, businessId: Number(business.id) });
+    const decisions = await evaluateContactDecisions({ contactId, businessId: Number(business.id) }, tx);
     if (decisions.promotion.status === "blocked") {
+      // A newly created contact exists only in this transaction. Returning
+      // would commit an orphan; throw to roll the canonical write back.
+      if (contactResolution === "created_new") {
+        throw new Error(`SFP_PROMOTION_BLOCKED_AFTER_CONTACT_WRITE:${decisions.promotion.reasonCodes.join(",")}`);
+      }
       return {
         stagingIntentId, status: "left_held", contactId, contactResolution,
         sequenceEnrollmentId: null, enrollmentStatus: null,
@@ -229,7 +230,8 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       };
     }
 
-    const result = await db.transaction(async (tx) => {
+    _testFaultInjector?.("after_contact_before_enrollment");
+    const result = await (async () => {
       const activeOrPaused = rows(await tx.execute(sql`
         SELECT id, status FROM sequence_enrollments
          WHERE contact_id=${contactId} AND sequence_id=${sequenceId} AND status IN ('active','paused')
@@ -240,6 +242,14 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
         // credit for an ACTIVE enrollment — only ever a fresh paused one.
         throw new Error(`SFP_EXISTING_ACTIVE_ENROLLMENT_CONFLICT:${activeOrPaused.id}`);
       }
+      if (activeOrPaused && activeOrPaused.status === "paused") {
+        const metadata = rows(await tx.execute(sql`
+          SELECT metadata FROM sequence_enrollments WHERE id=${Number(activeOrPaused.id)}
+        `))[0]?.metadata;
+        if (metadata?.stagingIntentId !== stagingIntentId) {
+          throw new Error(`SFP_EXISTING_PAUSED_ENROLLMENT_CONFLICT:${activeOrPaused.id}`);
+        }
+      }
       let enrollmentRow = activeOrPaused;
       if (!enrollmentRow) {
         enrollmentRow = rows(await tx.execute(sql`
@@ -248,21 +258,20 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
           RETURNING id, status
         `))[0];
       }
-      await tx.execute(sql`
+      _testFaultInjector?.("after_enrollment_before_ledger");
+      const ledger = rows(await tx.execute(sql`
         INSERT INTO sfp_ready_held_enrollments
           (staging_intent_id, contact_id, sequence_enrollment_id, contact_resolution, actor_id)
         VALUES (${stagingIntentId}::uuid, ${contactId}, ${Number(enrollmentRow.id)}, ${contactResolution}, ${actorId})
-        ON CONFLICT (staging_intent_id) DO NOTHING
-      `);
+        RETURNING id
+      `));
+      if (ledger.length !== 1) throw new Error("SFP_BRIDGE_LEDGER_INSERT_FAILED");
       return enrollmentRow;
-    });
+    })();
 
     return {
       stagingIntentId, status: "created", contactId, contactResolution,
       sequenceEnrollmentId: Number(result.id), enrollmentStatus: String(result.status),
     };
-  } finally {
-    await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [`sfp-enrollment-bridge-email:${candidateEmail}`]).catch(() => {});
-    lockClient.release();
-  }
+  });
 }

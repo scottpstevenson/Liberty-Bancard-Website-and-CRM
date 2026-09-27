@@ -372,6 +372,44 @@ async function makeReadyHeldFixture(opts: {
   const concContactCount = rows(await db.execute(sql`SELECT COUNT(*)::int AS c FROM contacts WHERE email=${concurrentEmail}`))[0];
   check(Number(concContactCount.c) === 1, `${RUN_ID}-I4-O`, "exactly one contact row exists in the DB for the concurrently-resolved email");
   check(concResultA.sequenceEnrollmentId !== concResultB.sequenceEnrollmentId, `${RUN_ID}-I4-P`, "each intent still gets its own enrollment (different sequences), sharing one contact");
+
+  // #2029: force an exception AFTER the canonical contact writer has inserted
+  // contact/source/audit rows but BEFORE enrollment. The whole transaction
+  // must roll back, and a retry must produce exactly one paused enrollment.
+  for (const stage of ["after_contact_before_enrollment", "after_enrollment_before_ledger"] as const) {
+    const suffix = stage === "after_contact_before_enrollment" ? "rollback-before" : "rollback-ledger";
+    const email = `${RUN_ID}-${suffix}@example.com`;
+    const fixture = await makeReadyHeldFixture({ suffix, email, phone:"3055554488" });
+    const auditBefore = Number(rows(await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM audit_logs WHERE actor_id=${`${RUN_ID}-actor`} AND action='contact_created'
+    `))[0].n);
+    let injected = false;
+    try {
+      await bridgeReadyHeldIntentToPausedEnrollment(fixture.intentId,`${RUN_ID}-actor`,(point) => {
+        if (point === stage) throw new Error(`SFP_TEST_FORCED_${stage}`);
+      });
+    } catch (e: any) { injected = String(e?.message ?? e).includes(`SFP_TEST_FORCED_${stage}`); }
+    check(injected,`${RUN_ID}-I4-${suffix}-A`,`${stage} fault was reached after the contact write`);
+    const rolledBack = rows(await db.execute(sql`
+      SELECT (SELECT COUNT(*)::int FROM contacts WHERE email=${email}) AS contacts,
+             (SELECT COUNT(*)::int FROM contact_source_events WHERE event_key=${`sfp_ready_held_bridge:${fixture.intentId}`}) AS source_events,
+             (SELECT COUNT(*)::int FROM sequence_enrollments WHERE sequence_id=${fixture.sequenceId}
+                 AND metadata->>'stagingIntentId'=${fixture.intentId}) AS enrollments,
+             (SELECT COUNT(*)::int FROM sfp_ready_held_enrollments WHERE staging_intent_id=${fixture.intentId}::uuid) AS bridge_rows
+    `))[0];
+    check(Object.values(rolledBack).every((n) => Number(n) === 0),`${RUN_ID}-I4-${suffix}-B`,
+      `${stage} rolled back contact, provenance, enrollment and bridge ledger atomically`);
+    const auditAfter = Number(rows(await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM audit_logs WHERE actor_id=${`${RUN_ID}-actor`} AND action='contact_created'
+    `))[0].n);
+    check(auditAfter === auditBefore,`${RUN_ID}-I4-${suffix}-B2`,"contact audit row rolled back with the failed bridge");
+    const retry = await bridgeReadyHeldIntentToPausedEnrollment(fixture.intentId,`${RUN_ID}-actor`);
+    check(retry.status === "created" && retry.contactResolution === "created_new" && retry.enrollmentStatus === "paused",
+      `${RUN_ID}-I4-${suffix}-C`,"retry after fault creates one real contact and paused enrollment");
+    const replay = await bridgeReadyHeldIntentToPausedEnrollment(fixture.intentId,`${RUN_ID}-actor`);
+    check(replay.status === "already_bridged" && replay.sequenceEnrollmentId === retry.sequenceEnrollmentId,
+      `${RUN_ID}-I4-${suffix}-D`,"replay after retry is idempotent");
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

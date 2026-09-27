@@ -162,6 +162,9 @@ export async function writeContact(args: {
   provenance: ProvenanceInput;
   actor: ActorCtx;
   hookPolicy?: ContactWriterHookPolicy;
+  /** Caller-owned transaction for compound local-only mutations. All hooks
+   * must be deferred, because they cannot run before the caller commits. */
+  transaction?: any;
   /** CSV receipt written in the same local transaction as the contact. */
   rowDisposition?: { createdReasonCode: string; matchedReasonCode: string };
 }): Promise<Contact & {
@@ -170,6 +173,10 @@ export async function writeContact(args: {
   _sourceEventId: number;
 }> {
   const { mode, provenance, actor, rowDisposition, hookPolicy } = args;
+  if (args.transaction && (mode !== "local_only" || !hookPolicy?.deferValidation ||
+      !hookPolicy.deferReadiness || !hookPolicy.deferLeadScoring || !hookPolicy.suppressProviderProjection)) {
+    throw new Error("CONTACT_WRITE_EXTERNAL_TRANSACTION_REQUIRES_DEFERRED_LOCAL_ONLY_HOOKS");
+  }
   const mutation = stripContactAuthorityFields(args.mutation);
 
   assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
@@ -199,7 +206,7 @@ export async function writeContact(args: {
   // The DEFERRABLE INITIALLY DEFERRED FK on primarySourceEventId allows A before B.
   const { auditChange } = await import("./audit-change");
 
-  const result = await db.transaction(async (tx) => {
+  const writeInsideTransaction = async (tx: any) => {
     if (hookPolicy?.authorityCheck && !(await hookPolicy.authorityCheck(tx))) {
       throw new Error("CONTACT_WRITE_AUTHORITY_FENCE_LOST");
     }
@@ -391,7 +398,10 @@ export async function writeContact(args: {
       }).onConflictDoNothing();
     }
     return { contact: updatedContact, outcome: "created" as const, pending, sourceEventId: sourceEvent.id };
-  });
+  };
+  const result = args.transaction
+    ? await writeInsideTransaction(args.transaction)
+    : await db.transaction(writeInsideTransaction);
   const contact = result.contact;
 
   if (contact.emailMutationGeneration > 0 && !hookPolicy?.deferValidation) {

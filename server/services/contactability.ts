@@ -1130,13 +1130,14 @@ function blockedDimension(reasonCode: string, reason: string): DimensionDecision
  */
 async function hasDbprLineage(
   contact: Pick<typeof contacts.$inferSelect, "leadSource" | "sourceCategory">,
-  businessId: number | null | undefined
+  businessId: number | null | undefined,
+  executor: any = db,
 ): Promise<boolean> {
   if (isDbprSourceSystem(contact.leadSource) || isDbprSourceSystem(contact.sourceCategory)) {
     return true;
   }
   if (businessId == null) return false;
-  const rows = (await db.execute(sql`
+  const rows = (await executor.execute(sql`
     SELECT ${businessHasDbprLineageSql(sql`${businessId}::integer`)} AS has_dbpr
   `) as any).rows ?? [];
   return Boolean(rows[0]?.has_dbpr);
@@ -1147,9 +1148,9 @@ async function hasDbprLineage(
  * (businesses.status = 'customer'). Master-lead promotion must not re-promote
  * an existing customer as a fresh cold lead.
  */
-async function isExistingCustomerBusiness(businessId: number | null | undefined): Promise<boolean> {
+async function isExistingCustomerBusiness(businessId: number | null | undefined, executor: any = db): Promise<boolean> {
   if (businessId == null) return false;
-  const rows = (await db.execute(sql`
+  const rows = (await executor.execute(sql`
     SELECT 1 FROM businesses WHERE id = ${businessId}::integer AND status = 'customer' LIMIT 1
   `) as any).rows ?? [];
   return rows.length > 0;
@@ -1239,11 +1240,12 @@ export async function evaluateBusinessEnrichmentEligibility(
  * relationship both permanently block promotion.
  */
 export async function evaluateBusinessPromotionEligibility(
-  businessId: number
+  businessId: number,
+  executor: any = db,
 ): Promise<DimensionDecision> {
   const [dbprLineage, existingCustomer] = await Promise.all([
-    hasDbprLineage({ leadSource: null, sourceCategory: null }, businessId),
-    isExistingCustomerBusiness(businessId),
+    hasDbprLineage({ leadSource: null, sourceCategory: null }, businessId, executor),
+    isExistingCustomerBusiness(businessId, executor),
   ]);
   if (dbprLineage) {
     return blockedDimension("DBPR_LINEAGE", "DBPR-family records are permanently excluded from promotion");
@@ -1263,9 +1265,13 @@ export async function evaluateBusinessPromotionEligibility(
  * locally.
  */
 export async function evaluateContactDecisions(
-  input: ContactDecisionsInput
+  input: ContactDecisionsInput,
+  executor: any = db,
 ): Promise<ContactDecisions> {
-  const [contact] = await db
+  if (executor !== db && input.channel) {
+    throw new Error("CONTACT_DECISIONS_TRANSACTIONAL_SEND_CHECK_UNSUPPORTED");
+  }
+  const [contact] = await executor
     .select()
     .from(contacts)
     .where(eq(contacts.id, input.contactId))
@@ -1278,8 +1284,8 @@ export async function evaluateContactDecisions(
 
   const businessId = input.businessId ?? contact.businessId ?? null;
   const [dbprLineage, existingCustomer] = await Promise.all([
-    hasDbprLineage(contact, businessId),
-    isExistingCustomerBusiness(businessId),
+    hasDbprLineage(contact, businessId, executor),
+    isExistingCustomerBusiness(businessId, executor),
   ]);
 
   const dataHygiene = evaluateDataHygieneDecision(contact, dbprLineage);
