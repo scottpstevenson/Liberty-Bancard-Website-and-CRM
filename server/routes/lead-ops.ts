@@ -3128,8 +3128,19 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       );
 
       const controlAfter = await serperGateway.getControl();
+      // The call is only a real, successful probe when the gateway actually
+      // reached Serper and did not block/error — settle the reservation
+      // accordingly instead of always marking it 'completed'/'settled', or a
+      // blocked/failed attempt would be indistinguishable from a real one in
+      // provider_operations and would permanently occupy this business's
+      // idempotency key with a false-success row.
+      const succeeded = response.ok === true && response.blocked !== true;
       await db.execute(sql`
-        UPDATE provider_operations SET state = 'completed', billing_state = 'settled', updated_at = NOW()
+        UPDATE provider_operations
+           SET state = ${succeeded ? "completed" : "failed"},
+               billing_state = ${succeeded ? "settled" : "released"},
+               failure_code = ${succeeded ? null : `blocked=${String(response.blocked)},status=${String((response as any).status ?? "unknown")}`},
+               updated_at = NOW()
          WHERE provider = 'serper' AND idempotency_key = ${probeIdempotencyKey}
       `);
 
@@ -3138,13 +3149,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         VALUES ('sfp_stage2_serper_single_probe', 'business', ${String(businessId)}, 'user',
                 ${`admin:${(req as any).user?.id ?? "system"}`},
                 ${JSON.stringify({
-                  businessId, blocked: response.blocked, ok: response.ok, status: (response as any).status ?? null,
+                  businessId, succeeded, blocked: response.blocked, ok: response.ok, status: (response as any).status ?? null,
                   windowCallsBefore: controlBefore.window_calls, windowCallsAfter: controlAfter?.window_calls ?? null,
                 })}::jsonb)
       `);
 
       res.json({
         businessId,
+        succeeded,
         blocked: response.blocked,
         ok: response.ok,
         status: (response as any).status ?? null,
@@ -3817,6 +3829,55 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       res.json(await verifyPackageConvergence());
     } catch (err: any) {
       res.status(400).json({ code: "SFP_PACKAGE_VERIFY_ERROR", message: err?.message ?? "Unable to verify package mappings" });
+    }
+  });
+
+  // South Florida v2 taxonomy packages (Automotive, Healthcare, Beauty/Spa,
+  // Construction/Trades/Home Services, Fitness/Recreation). Always creates
+  // brand-new placeholder draft campaigns/paused sequences -- never narrows
+  // or reuses a v1/legacy campaign. See sfp-campaign-packages.ts for why.
+  app.get("/api/lead-ops/sfp/campaign-packages-v2/preview", requireRole("admin"), async (_req, res) => {
+    try {
+      const { previewPackageConvergenceV2 } = await import("../services/cro03/sfp-campaign-packages");
+      res.json(await previewPackageConvergenceV2());
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_PACKAGE_V2_PREVIEW_ERROR", message: err?.message ?? "Unable to preview v2 package mappings" });
+    }
+  });
+
+  app.post("/api/lead-ops/sfp/campaign-packages-v2/apply", requireRole("admin"), async (req, res) => {
+    try {
+      const { applyPackageConvergenceV2 } = await import("../services/cro03/sfp-campaign-packages");
+      res.json(await applyPackageConvergenceV2({ actorId: `admin:${(req as any).user?.id ?? "system"}` }));
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_PACKAGE_V2_APPLY_ERROR", message: err?.message ?? "Unable to apply v2 package mappings" });
+    }
+  });
+
+  app.get("/api/lead-ops/sfp/campaign-packages-v2/verify", requireRole("admin"), async (_req, res) => {
+    try {
+      const { verifyPackageConvergenceV2 } = await import("../services/cro03/sfp-campaign-packages");
+      res.json(await verifyPackageConvergenceV2());
+    } catch (err: any) {
+      res.status(400).json({ code: "SFP_PACKAGE_V2_VERIFY_ERROR", message: err?.message ?? "Unable to verify v2 package mappings" });
+    }
+  });
+
+  // The ready_held -> paused-enrollment bridge (Defect: staging intents have
+  // no contact_id, but sequence_enrollments requires one). Resolves a
+  // contact identity-safely and creates a PAUSED enrollment only -- never
+  // dispatches, sends, or unpauses. Idempotent per staging intent.
+  app.post("/api/lead-ops/sfp/staging-intents/:intentId/bridge-to-paused-enrollment", requireRole("admin"), async (req, res) => {
+    try {
+      const { bridgeReadyHeldIntentToPausedEnrollment } = await import("../services/cro03/sfp-enrollment-bridge");
+      const result = await bridgeReadyHeldIntentToPausedEnrollment(
+        String(req.params.intentId), `admin:${(req as any).user?.id ?? "system"}`,
+      );
+      res.json(result);
+    } catch (err: any) {
+      const msg = String(err?.message ?? "");
+      const status = /NOT_FOUND/.test(msg) ? 404 : /NOT_READY_HELD|NO_PACKAGE_VERSION/.test(msg) ? 409 : 400;
+      res.status(status).json({ code: "SFP_READY_HELD_BRIDGE_ERROR", message: msg || "Unable to bridge staging intent to a paused enrollment" });
     }
   });
 

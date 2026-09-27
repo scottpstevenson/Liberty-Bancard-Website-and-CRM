@@ -20,6 +20,7 @@
 import { sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { db } from "../../db";
+import { SFP_TARGET_VERTICALS_V2 } from "./sfp-vertical-classifier";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -449,4 +450,211 @@ export async function getCurrentPackageForVertical(vertical: string): Promise<{
     id: String(row.id), packageKey: row.package_key as SfpPackageKey,
     campaignId: Number(row.campaign_id), sequenceId: Number(row.sequence_id), contentHash: String(row.content_hash),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// South Florida v2 taxonomy packages (Automotive, Healthcare, Beauty/Spa,
+// Construction/Trades/Home Services, Fitness/Recreation).
+//
+// Deliberately separate from PACKAGE_PLAN above: v1's five legacy packages
+// (Restaurant, Med Spa, Dental, Retail, Auto Repair) are untouched — their
+// rows, campaign history, and content hashes are never read or mutated by
+// this section. A v2 package is ALWAYS a brand-new draft campaign + paused
+// sequence, never a narrowed or reused existing campaign — there is no
+// reviewed content mapping yet from any current campaign (including the
+// SDR-10 Salon/Spa/Beauty campaign) onto the v2 taxonomy, so narrowing or
+// reusing one here would silently ship unreviewed content/consent
+// assumptions under a new vertical label. A human must separately review
+// and repoint `targetCampaignName` once real content exists; until then this
+// creates clearly-labeled placeholder drafts that can never send (draft
+// campaign + paused sequence, verified below).
+// ─────────────────────────────────────────────────────────────────────────
+
+export type SfpPackageKeyV2 =
+  | "sfp.automotive.v2"
+  | "sfp.healthcare.v2"
+  | "sfp.beauty_spa.v2"
+  | "sfp.construction_trades_home_services.v2"
+  | "sfp.fitness_recreation.v2";
+
+export const SFP_PACKAGE_KEYS_V2: SfpPackageKeyV2[] = [
+  "sfp.automotive.v2",
+  "sfp.healthcare.v2",
+  "sfp.beauty_spa.v2",
+  "sfp.construction_trades_home_services.v2",
+  "sfp.fitness_recreation.v2",
+];
+
+interface PackagePlanV2 {
+  packageKey: SfpPackageKeyV2;
+  vertical: string;
+  targetCampaignName: string;
+  targetSequenceName: string;
+  sequenceFamily: string;
+}
+
+const PACKAGE_PLAN_V2: PackagePlanV2[] = [
+  { packageKey: "sfp.automotive.v2", vertical: "Automotive", targetCampaignName: "SFP-V2: Automotive (draft, unreviewed)", targetSequenceName: "SFP Cold Outreach — Automotive (v2)", sequenceFamily: "sfp-v2-cold-automotive" },
+  { packageKey: "sfp.healthcare.v2", vertical: "Healthcare", targetCampaignName: "SFP-V2: Healthcare (draft, unreviewed)", targetSequenceName: "SFP Cold Outreach — Healthcare (v2)", sequenceFamily: "sfp-v2-cold-healthcare" },
+  { packageKey: "sfp.beauty_spa.v2", vertical: "Beauty/Spa", targetCampaignName: "SFP-V2: Beauty/Spa (draft, unreviewed)", targetSequenceName: "SFP Cold Outreach — Beauty/Spa (v2)", sequenceFamily: "sfp-v2-cold-beauty-spa" },
+  { packageKey: "sfp.construction_trades_home_services.v2", vertical: "Construction/Trades/Home Services", targetCampaignName: "SFP-V2: Construction/Trades/Home Services (draft, unreviewed)", targetSequenceName: "SFP Cold Outreach — Construction/Trades/Home Services (v2)", sequenceFamily: "sfp-v2-cold-construction-trades" },
+  { packageKey: "sfp.fitness_recreation.v2", vertical: "Fitness/Recreation", targetCampaignName: "SFP-V2: Fitness/Recreation (draft, unreviewed)", targetSequenceName: "SFP Cold Outreach — Fitness/Recreation (v2)", sequenceFamily: "sfp-v2-cold-fitness-recreation" },
+];
+
+// Guardrail: a v2 plan must exactly match the classifier's own v2 taxonomy
+// (never silently drift from it), and must never reuse a v1 package's
+// campaign/sequence name or the salon/spa source campaign.
+if (JSON.stringify([...PACKAGE_PLAN_V2.map((p) => p.vertical)].sort()) !== JSON.stringify([...SFP_TARGET_VERTICALS_V2].sort())) {
+  throw new Error("SFP_PACKAGE_PLAN_V2_INVALID: verticals must exactly match SFP_TARGET_VERTICALS_V2");
+}
+if (PACKAGE_PLAN_V2.some((p) => p.targetCampaignName.includes("SDR-10") || PACKAGE_PLAN.some((v1) => v1.targetCampaignName === p.targetCampaignName || v1.sourceCampaignName === p.targetCampaignName))) {
+  throw new Error("SFP_PACKAGE_PLAN_V2_INVALID: must never reuse SDR-10 or a v1 package's campaign name");
+}
+
+export interface PackageConvergencePreviewRowV2 {
+  packageKey: SfpPackageKeyV2;
+  vertical: string;
+  action: "noop_current" | "create_campaign" | "create_sequence" | "reuse_sequence" | "reuse_campaign";
+  detail: string;
+}
+
+/** Read-only preview of what applyPackageConvergenceV2 would do. No writes. */
+export async function previewPackageConvergenceV2(): Promise<{ rows: PackageConvergencePreviewRowV2[]; wouldChangeCount: number; capturedAt: string }> {
+  const previewRows: PackageConvergencePreviewRowV2[] = [];
+  const currentVersions = rows(await db.execute(sql`
+    SELECT package_key, campaign_name, sequence_name FROM sfp_campaign_package_versions
+    WHERE lifecycle_state = 'current' AND package_key = ANY(ARRAY[${sql.join(SFP_PACKAGE_KEYS_V2.map((k) => sql`${k}`), sql`,`)}]::text[])
+  `));
+  const currentByKey = new Map(currentVersions.map((r) => [String(r.package_key), r]));
+
+  for (const plan of PACKAGE_PLAN_V2) {
+    const existingCurrent = currentByKey.get(plan.packageKey);
+    if (existingCurrent) {
+      previewRows.push({ packageKey: plan.packageKey, vertical: plan.vertical, action: "noop_current", detail: `Already current: campaign="${existingCurrent.campaign_name}" sequence="${existingCurrent.sequence_name}"` });
+      continue;
+    }
+    const campaignRow = rows(await db.execute(sql`SELECT id, name, status FROM campaigns WHERE name = ${plan.targetCampaignName} LIMIT 1`))[0];
+    previewRows.push(campaignRow
+      ? { packageKey: plan.packageKey, vertical: plan.vertical, action: "reuse_campaign", detail: `Existing placeholder campaign "${campaignRow.name}" (id=${campaignRow.id}, status=${campaignRow.status}) would be reused` }
+      : { packageKey: plan.packageKey, vertical: plan.vertical, action: "create_campaign", detail: `Would create new draft, unreviewed campaign "${plan.targetCampaignName}"` });
+    const sequenceRow = rows(await db.execute(sql`SELECT id, name, status FROM follow_up_sequences WHERE name = ${plan.targetSequenceName} LIMIT 1`))[0];
+    previewRows.push(sequenceRow
+      ? { packageKey: plan.packageKey, vertical: plan.vertical, action: "reuse_sequence", detail: `Existing sequence "${sequenceRow.name}" (id=${sequenceRow.id}, status=${sequenceRow.status}) would be reused` }
+      : { packageKey: plan.packageKey, vertical: plan.vertical, action: "create_sequence", detail: `Would create new paused sequence "${plan.targetSequenceName}" (family=${plan.sequenceFamily}) cloning W6 governance shape` });
+  }
+  return { rows: previewRows, wouldChangeCount: previewRows.filter((r) => r.action !== "noop_current" && r.action !== "reuse_sequence" && r.action !== "reuse_campaign").length, capturedAt: new Date().toISOString() };
+}
+
+/**
+ * Apply the v2 configuration convergence: exactly one current package
+ * version per v2 vertical, each pinned to a brand-new draft campaign and a
+ * brand-new paused sequence (cloned from the same W6 governance shape v1
+ * uses). Never narrows or repoints an existing campaign — a v2 package
+ * whose target campaign name does not yet exist always creates a fresh one.
+ */
+export async function applyPackageConvergenceV2(opts: { actorId: string }): Promise<ApplyResultRow[]> {
+  const results: ApplyResultRow[] = [];
+  const w6 = rows(await db.execute(sql`
+    SELECT id, description, trigger_type, trigger_config, total_steps, eligible_consent_tiers,
+           channels_allowed, offer_routes, lifecycle_stages_allowed
+    FROM follow_up_sequences WHERE sequence_family = 'cold-email-manual-call' ORDER BY id ASC LIMIT 1
+  `))[0];
+  if (!w6) throw new Error("SFP_W6_GOVERNANCE_TEMPLATE_NOT_FOUND: cannot clone sequence governance shape");
+
+  for (const plan of PACKAGE_PLAN_V2) {
+    const existingCurrent = rows(await db.execute(sql`
+      SELECT v.id, v.vertical, c.status AS campaign_status, s.status AS sequence_status
+      FROM sfp_campaign_package_versions v
+      JOIN campaigns c ON c.id = v.campaign_id
+      JOIN follow_up_sequences s ON s.id = v.sequence_id
+      WHERE v.package_key = ${plan.packageKey} AND v.lifecycle_state = 'current' LIMIT 1
+    `))[0];
+    if (existingCurrent) {
+      if (String(existingCurrent.vertical) !== plan.vertical) {
+        results.push({ packageKey: plan.packageKey as any, status: "skipped_needs_review", reason: `current package version targets vertical "${existingCurrent.vertical}", expected "${plan.vertical}"` });
+        continue;
+      }
+      if (existingCurrent.campaign_status !== "draft" || existingCurrent.sequence_status !== "paused") {
+        results.push({ packageKey: plan.packageKey as any, status: "skipped_needs_review", reason: `pinned campaign/sequence is no longer draft/paused (campaign=${existingCurrent.campaign_status}, sequence=${existingCurrent.sequence_status})` });
+        continue;
+      }
+      results.push({ packageKey: plan.packageKey as any, status: "already_current", packageVersionId: String(existingCurrent.id) });
+      continue;
+    }
+
+    try {
+      const result = await db.transaction(async (tx) => {
+        let campaignRow = rows(await tx.execute(sql`
+          SELECT id, name, status, content_revision, target_verticals FROM campaigns WHERE name = ${plan.targetCampaignName} LIMIT 1 FOR UPDATE
+        `))[0];
+        if (!campaignRow) {
+          campaignRow = rows(await tx.execute(sql`
+            INSERT INTO campaigns (name, description, target_verticals, status, total_steps, created_by, content_revision)
+            VALUES (${plan.targetCampaignName},
+                    ${`Placeholder draft campaign for the South Florida v2 taxonomy vertical "${plan.vertical}". No reviewed content or channel/consent mapping exists yet — this exists only so a package version can be pinned; a human must author and review real content before this campaign can ever leave draft.`},
+                    ARRAY[${plan.vertical}]::text[], 'draft', 3, ${opts.actorId}, 1)
+            RETURNING id, name, status, content_revision, target_verticals
+          `))[0];
+        }
+        if (campaignRow.status !== "draft") {
+          return { status: "skipped_needs_review" as const, reason: `campaign "${campaignRow.name}" (id=${campaignRow.id}) status is "${campaignRow.status}", not "draft" — refusing to pin an active/approved campaign without explicit review` };
+        }
+
+        let sequenceRow = rows(await tx.execute(sql`
+          SELECT id, name, status, total_steps FROM follow_up_sequences WHERE name = ${plan.targetSequenceName} LIMIT 1 FOR UPDATE
+        `))[0];
+        if (!sequenceRow) {
+          sequenceRow = rows(await tx.execute(sql`
+            INSERT INTO follow_up_sequences
+              (name, description, trigger_type, trigger_config, total_steps, status, created_by,
+               sequence_family, eligible_consent_tiers, channels_allowed, offer_routes, lifecycle_stages_allowed)
+            VALUES (${plan.targetSequenceName},
+                    ${`SFP v2 ${plan.vertical} cold-outreach sequence, cloned from the W6 governance template. Paused until a later, separately authorized activation task.`},
+                    ${w6.trigger_type}, ${JSON.stringify(w6.trigger_config)}::jsonb, ${w6.total_steps ?? 0}, 'paused', ${opts.actorId},
+                    ${plan.sequenceFamily}, ${w6.eligible_consent_tiers}, ${w6.channels_allowed}, ${w6.offer_routes}, ${w6.lifecycle_stages_allowed})
+            RETURNING id, name, status, total_steps
+          `))[0];
+        }
+        if (sequenceRow.status !== "paused") {
+          return { status: "skipped_needs_review" as const, reason: `sequence "${sequenceRow.name}" (id=${sequenceRow.id}) status is "${sequenceRow.status}", not "paused" — refusing to pin a live sequence` };
+        }
+
+        const contentHash = await computeLivePackageContentHash(tx, Number(campaignRow.id), Number(sequenceRow.id));
+        const inserted = rows(await tx.execute(sql`
+          INSERT INTO sfp_campaign_package_versions
+            (package_key, vertical, campaign_id, campaign_name, sequence_id, sequence_name,
+             sequence_family, content_hash, lifecycle_state, effective_at, actor_id, notes)
+          VALUES (${plan.packageKey}, ${plan.vertical}, ${Number(campaignRow.id)}, ${campaignRow.name},
+                  ${Number(sequenceRow.id)}, ${sequenceRow.name}, ${plan.sequenceFamily}, ${contentHash},
+                  'current', NOW(), ${opts.actorId},
+                  'Created by South Florida v2 package configuration-convergence command; placeholder content pending review')
+          RETURNING id
+        `))[0];
+        return { status: "created" as const, packageVersionId: String(inserted.id), campaignId: Number(campaignRow.id), sequenceId: Number(sequenceRow.id) };
+      });
+      results.push({ packageKey: plan.packageKey as any, ...result } as ApplyResultRow);
+    } catch (err: any) {
+      results.push({ packageKey: plan.packageKey as any, status: "skipped_needs_review", reason: `transaction failed: ${err?.message ?? String(err)}` });
+    }
+  }
+  return results;
+}
+
+/** Verify step: every v2 package key has exactly one `current` version pinned to a draft campaign + paused sequence. */
+export async function verifyPackageConvergenceV2(): Promise<{ ok: boolean; issues: string[] }> {
+  const issues: string[] = [];
+  for (const key of SFP_PACKAGE_KEYS_V2) {
+    const row = rows(await db.execute(sql`
+      SELECT v.id, v.campaign_id, v.sequence_id, c.status AS campaign_status, s.status AS sequence_status
+      FROM sfp_campaign_package_versions v
+      JOIN campaigns c ON c.id = v.campaign_id
+      JOIN follow_up_sequences s ON s.id = v.sequence_id
+      WHERE v.package_key = ${key} AND v.lifecycle_state = 'current'
+      LIMIT 1
+    `))[0];
+    if (!row) { issues.push(`${key}: no current package version`); continue; }
+    if (row.campaign_status !== "draft") issues.push(`${key}: campaign status is "${row.campaign_status}", expected "draft"`);
+    if (row.sequence_status !== "paused") issues.push(`${key}: sequence status is "${row.sequence_status}", expected "paused"`);
+  }
+  return { ok: issues.length === 0, issues };
 }

@@ -2135,6 +2135,13 @@
       "when": 1800000011700,
       "tag": "0300_sfp_classification_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 305,
+      "version": "7",
+      "when": 1800000011800,
+      "tag": "0301_sfp_taxonomy_version_and_ready_held_bridge",
+      "breakpoints": true
     }
   ]
 }

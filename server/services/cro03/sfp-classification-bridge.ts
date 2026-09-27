@@ -11,7 +11,7 @@ import {
   getBusinessWideSuppressionExclusions,
   getSfpBusinessHardExclusionReasons,
 } from "./roi-cohort-selector";
-import { classifyVertical, inferRawVerticalFromName, CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
+import { classifyVertical, inferVerticalNameSignal, CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
 import {
   extractWebsiteClassificationEvidence,
   type WebsiteClassificationEvidence,
@@ -515,7 +515,7 @@ export async function runPreCohortClassificationBridge(
        AND NOT EXISTS (
          SELECT 1 FROM sfp_classification_evidence e
           WHERE e.business_id=b.id AND e.policy_version=${input.policyVersion}
-            AND e.classifier_version=${taxonomyVersion}
+            AND e.classifier_version=${CLASSIFIER_VERSION} AND e.taxonomy_version=${taxonomyVersion}
             AND e.outcome IN ('target','non_target')
        )
      ORDER BY b.id ASC
@@ -619,7 +619,15 @@ export async function runPreCohortClassificationBridge(
       }
       itemClaimToken = String(claimedItem.claim_token);
       const structuredVertical = business.vertical == null ? null : String(business.vertical);
-      const rawVertical = structuredVertical ?? inferRawVerticalFromName(business.canonical_name, taxonomyVersion);
+      const nameSignal = structuredVertical == null
+        ? inferVerticalNameSignal(business.canonical_name, taxonomyVersion)
+        : null;
+      // A conflicting name signal (matched phrases resolve to more than one
+      // bucket, e.g. a target-associated term AND a non-target term) is
+      // never used as an authoritative rawVertical -- it falls through to
+      // website evidence / OpenAI escalation / review instead, but the
+      // conflicting phrases are still recorded below for audit provenance.
+      const rawVertical = structuredVertical ?? (nameSignal && !nameSignal.conflicting ? nameSignal.rawVertical : null);
       let domain = extractDomain(business.website_domain);
       let discoveryReason: string | null = null;
       let discoveryCostMicros = 0;
@@ -677,7 +685,7 @@ export async function runPreCohortClassificationBridge(
       const cached = rows(await db.execute(sql`
         SELECT * FROM sfp_classification_evidence
          WHERE business_id=${businessId} AND evidence_hash=${evidenceHash}
-           AND policy_version=${input.policyVersion} AND classifier_version=${taxonomyVersion}
+           AND policy_version=${input.policyVersion} AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion}
            AND terminal_state='completed'
            AND NOT (reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb
                      OR reason_codes @> '["OPENAI_ESCALATION_NOT_CONFIGURED"]'::jsonb)
@@ -764,11 +772,15 @@ export async function runPreCohortClassificationBridge(
         admissionTier = null;
       }
       if (discoveryReason) reasonCodes.push(discoveryReason);
-      if (structuredVertical == null && rawVertical !== null) reasonCodes.push("NAME_DERIVED_VERTICAL_SIGNAL");
+      if (structuredVertical == null && nameSignal) {
+        if (nameSignal.conflicting) reasonCodes.push(`NAME_SIGNAL_CONFLICTING:${nameSignal.matchedPhrases.join("|")}`);
+        else if (rawVertical !== null) reasonCodes.push("NAME_DERIVED_VERTICAL_SIGNAL");
+      }
       itemCost += discoveryCostMicros;
       const sourceRefs = [
         ...(structuredVertical !== null ? ["raw_vertical_field"] : []),
-        ...(structuredVertical == null && rawVertical !== null ? ["name_derived_vertical_signal"] : []),
+        ...(structuredVertical == null && nameSignal && !nameSignal.conflicting && rawVertical !== null ? ["name_derived_vertical_signal"] : []),
+        ...(structuredVertical == null && nameSignal?.conflicting ? [`name_derived_conflicting:${nameSignal.matchedPhrases.join("|")}`] : []),
         ...(websiteEvidence ? [websiteEvidence.sourceUrl] : []),
       ];
       // A review_required outcome that fell back to OPENAI_UNAVAILABLE or
@@ -784,11 +796,15 @@ export async function runPreCohortClassificationBridge(
         reasonCodes.includes("OPENAI_UNAVAILABLE") || reasonCodes.includes("OPENAI_ESCALATION_NOT_CONFIGURED");
       const terminalState = escalationNeverAttempted ? "provisional" : "completed";
       const idempotencyKey = `${input.idempotencyKey}:eval:${businessId}:${evidenceHash}`;
+      // classifier_version is the RULESET version (CLASSIFIER_VERSION);
+      // taxonomy_version is which target-vertical list was used. These were
+      // previously conflated (classifier_version held the taxonomy value) --
+      // both are now written explicitly and distinctly.
       const insertedEvidence = rows(await db.execute(sql`
         INSERT INTO sfp_classification_evidence
-          (business_id,evidence_hash,source_refs,classifier_version,model_version,prompt_version,policy_version,
+          (business_id,evidence_hash,source_refs,classifier_version,taxonomy_version,model_version,prompt_version,policy_version,
            outcome,confidence,reason_codes,idempotency_key,cost_micros,terminal_state,resolved_vertical_id,admission_tier)
-        VALUES (${businessId},${evidenceHash},${JSON.stringify(sourceRefs)}::jsonb,${taxonomyVersion},
+        VALUES (${businessId},${evidenceHash},${JSON.stringify(sourceRefs)}::jsonb,${CLASSIFIER_VERSION},${taxonomyVersion},
                 ${modelVersion},${promptVersion},${input.policyVersion},${outcome},${confidence},
                 ${JSON.stringify(reasonCodes)}::jsonb,${idempotencyKey},${itemCost},${terminalState},
                 ${resolvedVerticalId},${admissionTier})
@@ -846,7 +862,7 @@ export async function getLatestAdmissibleClassificationEvidence(
     SELECT id,evidence_hash,outcome,policy_version,classifier_version,resolved_vertical_id,admission_tier
       FROM sfp_classification_evidence
      WHERE business_id=${businessId} AND policy_version=${policyVersion}
-       AND classifier_version=${taxonomyVersion} AND terminal_state='completed'
+       AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion} AND terminal_state='completed'
      ORDER BY created_at DESC,evidence_hash ASC LIMIT 1
   `))[0];
   return evidence ? {
@@ -919,7 +935,10 @@ async function computeFrozenBusinessFacts(
       countyFips: geography.outcome === "resolved" ? String(geography.countyFips) : null,
       geographyResolved: geography.outcome === "resolved",
       rawVertical: business.vertical == null
-        ? inferRawVerticalFromName(business.canonical_name, taxonomyVersion)
+        ? (() => {
+            const sig = inferVerticalNameSignal(business.canonical_name, taxonomyVersion);
+            return sig.conflicting ? null : sig.rawVertical;
+          })()
         : String(business.vertical),
       hardExclusionReason: hardExclusions.get(id) ?? null,
       suppressed: suppression.has(id),
@@ -1056,6 +1075,11 @@ export async function runFrozenClassificationSnapshot(input: {
   const targetIds: string[] = Array.isArray(claimed.target_ids) ? claimed.target_ids.map(String) : [];
   const taxonomyVersion: 1 | 2 = Number(claimed.taxonomy_version) === 2 ? 2 : 1;
   const policyVersion = Number(claimed.policy_version);
+  const maxUnits = Math.max(1, Math.min(4000, Math.trunc(Number(claimed.max_units))));
+  const allowedProvider = String(claimed.allowed_provider);
+  if (allowedProvider !== "openai_classification") {
+    throw new Error(`SFP_SNAPSHOT_UNSUPPORTED_PROVIDER:${allowedProvider}`);
+  }
 
   const currentFacts = await computeFrozenBusinessFacts(frozenIds, taxonomyVersion);
   const rejectedAtRun: Array<{ businessId: number; reason: string }> = [];
@@ -1080,12 +1104,23 @@ export async function runFrozenClassificationSnapshot(input: {
     survivingBusinessIds.push(id);
   }
 
-  if (survivingBusinessIds.length === 0) {
+  // The frozen snapshot's advertised max_units is a real dispatch cap, not
+  // just a display field: any surviving business beyond it must be reported
+  // as rejected-for-this-run (never silently dropped, and never silently
+  // processed anyway). Order deterministically by business ID so a capped
+  // run is reproducible.
+  const sortedSurviving = [...survivingBusinessIds].sort((a, b) => a - b);
+  const dispatchable = sortedSurviving.slice(0, maxUnits);
+  for (const id of sortedSurviving.slice(maxUnits)) {
+    rejectedAtRun.push({ businessId: id, reason: `UNIT_CAP_EXCEEDED_AT_RUN:max_units=${maxUnits}` });
+  }
+
+  if (dispatchable.length === 0) {
     await db.execute(sql`
       UPDATE sfp_classification_snapshots SET state='completed', updated_at=NOW() WHERE id=${input.snapshotId}::uuid
     `);
     return {
-      snapshotId: input.snapshotId, runId: null, replayed: false, survivingBusinessIds, rejectedAtRun,
+      snapshotId: input.snapshotId, runId: null, replayed: false, survivingBusinessIds: dispatchable, rejectedAtRun,
       processed: 0, targetCount: 0, nonTargetCount: 0, reviewRequiredCount: 0, skippedCount: rejectedAtRun.length,
       costMicros: 0,
     };
@@ -1095,10 +1130,10 @@ export async function runFrozenClassificationSnapshot(input: {
     programId: String(claimed.program_id),
     idempotencyKey: `sfp_frozen_snapshot:${input.snapshotId}`,
     actorId: input.actorId,
-    maxBusinesses: survivingBusinessIds.length,
+    maxBusinesses: dispatchable.length,
     targetIds,
     policyVersion,
-    businessIdFilter: survivingBusinessIds,
+    businessIdFilter: dispatchable,
     taxonomyVersion,
     allowGovernedSerperDomainDiscovery: false,
     // Intentionally no previewSnapshotHash: this function's own per-business
@@ -1114,7 +1149,7 @@ export async function runFrozenClassificationSnapshot(input: {
   `);
 
   return {
-    snapshotId: input.snapshotId, runId: result.runId, replayed: result.replayed, survivingBusinessIds,
+    snapshotId: input.snapshotId, runId: result.runId, replayed: result.replayed, survivingBusinessIds: dispatchable,
     rejectedAtRun, processed: result.processed, targetCount: result.targetCount,
     nonTargetCount: result.nonTargetCount, reviewRequiredCount: result.reviewRequiredCount,
     skippedCount: result.skippedCount + rejectedAtRun.length, costMicros: result.costMicros,
@@ -1173,7 +1208,7 @@ export async function previewPreCohortClassification(programId: string, options:
   const currentEvidence = idsLocal.length ? rows(await db.execute(sql`
     SELECT DISTINCT ON (business_id) business_id,outcome,evidence_hash
       FROM sfp_classification_evidence
-     WHERE policy_version=${Number(program.policy_version)} AND classifier_version=${taxonomyVersion}
+     WHERE policy_version=${Number(program.policy_version)} AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion}
        AND terminal_state='completed'
        AND business_id=ANY(ARRAY[${sql.join(idsLocal.map((id) => sql`${id}`), sql`, `)}]::integer[])
      ORDER BY business_id,created_at DESC,evidence_hash ASC

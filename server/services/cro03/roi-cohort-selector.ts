@@ -383,7 +383,7 @@ export async function selectRoiCohort(opts: {
            classifier_version,model_version,prompt_version,confidence,reason_codes,
            resolved_vertical_id,admission_tier
       FROM sfp_classification_evidence
-     WHERE policy_version=${classificationPolicyVersion} AND classifier_version=${taxonomyVersion}
+     WHERE policy_version=${classificationPolicyVersion} AND taxonomy_version=${taxonomyVersion}
        AND terminal_state='completed'
      ORDER BY business_id,created_at DESC,evidence_hash ASC
   `));
@@ -843,7 +843,7 @@ export async function selectRoiCohort(opts: {
         //      live businesses.vertical text, using the v2 taxonomy tables.
         //   2. evidence — the latest COMPLETED sfp_classification_evidence
         //      row for this business at the program's current policy_version
-        //      AND classifier_version=2 (never a stale/legacy-version row).
+        //      AND taxonomy_version=2 (never a stale/legacy-taxonomy row).
         // A business may only be admitted via evidence alone when that
         // evidence resolved at the deterministic resolved_high tier
         // (admission_tier='resolved_high') — resolved_medium and anything

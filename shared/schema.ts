@@ -9704,7 +9704,16 @@ export const sfpClassificationEvidence = pgTable("sfp_classification_evidence", 
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   evidenceHash: text("evidence_hash").notNull(),
   sourceRefs: jsonb("source_refs").notNull().default([]),
+  /**
+   * RULESET version (matches CLASSIFIER_VERSION in sfp-vertical-classifier.ts)
+   * as of migration 0301. Rows created before that migration hold the
+   * TAXONOMY version in this column (a pre-existing naming/write bug) — see
+   * `taxonomyVersion` below, which was backfilled from this column's old
+   * values and is the column callers should trust for "which target list".
+   */
   classifierVersion: integer("classifier_version").notNull(),
+  /** Which target-vertical taxonomy (1 = legacy five-package, 2 = South Florida v2) this evidence was produced against. Independent of classifierVersion. */
+  taxonomyVersion: integer("taxonomy_version").notNull().default(1),
   modelVersion: text("model_version"),
   promptVersion: text("prompt_version"),
   policyVersion: integer("policy_version").notNull(),
@@ -9727,7 +9736,7 @@ export const sfpClassificationEvidence = pgTable("sfp_classification_evidence", 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("sfp_classification_evidence_business_idx").on(table.businessId, table.policyVersion, table.createdAt),
-  index("sfp_classification_evidence_resolved_vertical_idx").on(table.businessId, table.classifierVersion, table.policyVersion, table.resolvedVerticalId),
+  index("sfp_classification_evidence_resolved_vertical_idx").on(table.businessId, table.classifierVersion, table.taxonomyVersion, table.policyVersion, table.resolvedVerticalId),
   check(
     "sfp_classification_evidence_outcome_chk",
     sql`outcome IN ('target', 'non_target', 'review_required')`,
@@ -9886,6 +9895,34 @@ export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents",
 ]);
 
 export type SfpCampaignStagingIntent = typeof sfpCampaignStagingIntents.$inferSelect;
+
+/**
+ * ready_held -> paused-enrollment bridge (migration 0301). Records exactly
+ * one attempt to resolve a `ready_held` staging intent to a contact and
+ * create a paused sequence_enrollments row for it. This is a pure audit +
+ * idempotency ledger — it never itself dispatches, sends, syncs to GHL, or
+ * unpauses anything; `sequence_enrollments.status` is always written as
+ * 'paused' by the writer that inserts into this table.
+ */
+export const sfpReadyHeldEnrollments = pgTable("sfp_ready_held_enrollments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stagingIntentId: uuid("staging_intent_id").notNull().references(() => sfpCampaignStagingIntents.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  sequenceEnrollmentId: integer("sequence_enrollment_id").notNull().references(() => sequenceEnrollments.id, { onDelete: "restrict" }),
+  contactResolution: text("contact_resolution").notNull(),
+  actorId: text("actor_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("sfp_ready_held_enrollments_intent_uidx").on(table.stagingIntentId),
+  index("sfp_ready_held_enrollments_contact_idx").on(table.contactId),
+  check(
+    "sfp_ready_held_enrollments_resolution_chk",
+    sql`contact_resolution IN ('matched_existing', 'created_new')`,
+  ),
+]);
+
+export type SfpReadyHeldEnrollment = typeof sfpReadyHeldEnrollments.$inferSelect;
+
 export const emailDiscoveryDomainCache = pgTable("email_discovery_domain_cache", {
   domain: text("domain").primaryKey(),
   firstCrawledAt: timestamp("first_crawled_at", { withTimezone: true }).notNull().defaultNow(),

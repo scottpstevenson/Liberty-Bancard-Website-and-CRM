@@ -29,8 +29,20 @@
 
 import { createHash } from "crypto";
 
-/** Bump whenever the alias/synonym/non-target tables or the decision logic change. */
-export const CLASSIFIER_VERSION = 1 as const;
+/**
+ * Bump whenever the alias/synonym/non-target tables or the decision logic
+ * change. This is the RULESET version and is intentionally independent of
+ * `taxonomyVersion` (which target-vertical group a program uses, e.g. the
+ * legacy five-package taxonomy vs the South Florida v2 taxonomy). Bridge
+ * code must store both separately — never conflate "which target list" with
+ * "which classification rules" when writing evidence/cache columns.
+ *
+ * v2 (2026-09): inferVerticalNameSignal() replaces the single-longest-match
+ * name inference with conflict detection, so a legal name containing both a
+ * target-associated term and a non-target/other-target term can no longer
+ * silently resolve to an authoritative outcome from name alone.
+ */
+export const CLASSIFIER_VERSION = 2 as const;
 
 /**
  * SFP South Florida target-vertical taxonomy v2 (2026-09). Replaces the
@@ -216,12 +228,53 @@ function normalize(value: string | null | undefined): string {
  * a real `vertical` column value of "insurance agency" would: not_target at
  * 0.9 confidence, same as any other curated non-target hit.
  */
-export function inferRawVerticalFromName(
+export interface VerticalNameSignal {
+  /** The single longest matched phrase, but ONLY when it is non-conflicting. Null when conflicting or no match. */
+  rawVertical: string | null;
+  /**
+   * True when the legal name matched two or more phrases that resolve to
+   * different classification buckets (e.g. one target-associated term and
+   * one unrelated/non-target term, or two different targets). A conflicting
+   * name is deliberately NOT collapsed to a single "best" phrase — doing so
+   * previously let a name like "Coastal Healthcare Realty LLC" resolve
+   * straight to a high-confidence outcome from whichever keyword happened to
+   * be longest, even though the name itself is genuinely ambiguous.
+   */
+  conflicting: boolean;
+  /** Every matched phrase (unique, longest first), kept for audit provenance regardless of conflict. */
+  matchedPhrases: string[];
+}
+
+/** Returns which classification bucket a single curated phrase belongs to, or null if it has no bucket of its own (e.g. an ambiguous-label key, which is already safely routed to review by classifyVertical itself). */
+function bucketForPhrase(
+  phrase: string,
+  aliases: Record<string, string[]>,
+  synonyms: Record<string, string[]>,
+  notTarget: Set<string>,
+): string | null {
+  if (notTarget.has(phrase)) return "NOT_TARGET";
+  for (const [targetId, list] of Object.entries(aliases)) if (list.includes(phrase)) return targetId;
+  for (const [targetId, list] of Object.entries(synonyms)) if (list.includes(phrase)) return targetId;
+  return null;
+}
+
+/**
+ * Free, deterministic fallback evidence source for `rawVertical` when a
+ * business's structured `vertical` column is empty. Scans the canonical
+ * name for whole-word/phrase matches against the same curated tables
+ * `classifyVertical` trusts. Unlike a naive "longest match wins" approach,
+ * this detects when multiple matched phrases disagree about which target
+ * (or non-target) the name belongs to, and refuses to pick one over the
+ * other in that case — conflicting names must fall through to website
+ * evidence / OpenAI escalation / review, never a silently authoritative
+ * resolved_high or terminal not_target from name text alone.
+ */
+export function inferVerticalNameSignal(
   canonicalName: string | null | undefined,
   taxonomyVersion: 1 | 2 = 1,
-): string | null {
+): VerticalNameSignal {
   const name = normalize(canonicalName);
-  if (!name) return null;
+  if (!name) return { rawVertical: null, conflicting: false, matchedPhrases: [] };
   const { aliases, synonyms, ambiguous, notTarget } = tablesFor(taxonomyVersion);
   const candidatePhrases = new Set<string>([
     ...Object.values(aliases).flat(),
@@ -229,15 +282,28 @@ export function inferRawVerticalFromName(
     ...Object.keys(ambiguous),
     ...notTarget,
   ]);
-  let best: string | null = null;
+  const matched: string[] = [];
   for (const phrase of candidatePhrases) {
     if (!phrase) continue;
     const pattern = new RegExp(`(?:^|[^a-z0-9])${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`);
-    if (pattern.test(` ${name} `) && (!best || phrase.length > best.length)) {
-      best = phrase;
-    }
+    if (pattern.test(` ${name} `)) matched.push(phrase);
   }
-  return best;
+  matched.sort((a, b) => b.length - a.length);
+  if (matched.length === 0) return { rawVertical: null, conflicting: false, matchedPhrases: [] };
+
+  const buckets = new Set(
+    matched.map((p) => bucketForPhrase(p, aliases, synonyms, notTarget)).filter((b): b is string => b !== null),
+  );
+  const conflicting = buckets.size > 1;
+  return { rawVertical: conflicting ? null : matched[0], conflicting, matchedPhrases: matched };
+}
+
+/** @deprecated Use inferVerticalNameSignal() so callers can distinguish a genuine match from a conflicting one instead of silently collapsing to the longest phrase. Kept only for any caller that has not been migrated. */
+export function inferRawVerticalFromName(
+  canonicalName: string | null | undefined,
+  taxonomyVersion: 1 | 2 = 1,
+): string | null {
+  return inferVerticalNameSignal(canonicalName, taxonomyVersion).rawVertical;
 }
 
 function tablesFor(taxonomyVersion: 1 | 2) {
