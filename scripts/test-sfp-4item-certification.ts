@@ -61,7 +61,7 @@ async function insertBusiness(name: string, vertical: string | null): Promise<nu
   const { inferVerticalNameSignal, CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } = await import(
     "../server/services/cro03/sfp-vertical-classifier"
   );
-  check(CLASSIFIER_VERSION === 2, `${RUN_ID}-I1-A`, "CLASSIFIER_VERSION is 2 (ruleset bump)");
+  check(CLASSIFIER_VERSION === 3, `${RUN_ID}-I1-A`, "CLASSIFIER_VERSION is 3 (conservative name-admission ruleset)");
   check(TAXONOMY_VERSION_V2 === 2, `${RUN_ID}-I1-B`, "TAXONOMY_VERSION_V2 is 2 (independent of ruleset version)");
 
   // Genuine target name — should resolve, non-conflicting.
@@ -88,7 +88,7 @@ async function insertBusiness(name: string, vertical: string | null): Promise<nu
   const evidenceRow = rows(await db.execute(sql`
     SELECT classifier_version, taxonomy_version FROM sfp_classification_evidence WHERE idempotency_key=${`idem-${RUN_ID}`}
   `))[0];
-  check(Number(evidenceRow.classifier_version) === 2, `${RUN_ID}-I1-G`, "evidence row stores real CLASSIFIER_VERSION, not taxonomy value");
+  check(Number(evidenceRow.classifier_version) === CLASSIFIER_VERSION, `${RUN_ID}-I1-G`, "evidence row stores real CLASSIFIER_VERSION, not taxonomy value");
   check(Number(evidenceRow.taxonomy_version) === 2, `${RUN_ID}-I1-H`, "evidence row stores taxonomy_version distinctly");
 }
 

@@ -361,6 +361,26 @@ export function SouthFloridaProspectingPanel() {
     enabled: !!programQuery.data?.id,
     retry: false,
   });
+  const continuationPath = `/api/lead-ops/sfp/programs/${programQuery.data?.id}/free-classification-continuation`;
+  const continuationQuery = useQuery<{ continuation: {
+    state: string; high_water_business_id: number; stop_business_id: number;
+    scanned_count: string; processed_count: string; target_count: string;
+    rejected_count: string; last_error: string | null; last_tick_at: string | null;
+  } | null }>({
+    queryKey: [continuationPath],
+    enabled: !!programQuery.data?.id,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const continuationControl = useMutation({
+    mutationFn: async (action: "start" | "pause") =>
+      (await apiRequest("POST", `${continuationPath}/${action}`, {})).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [continuationPath] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/funnel"] });
+    },
+    onError: (e: any) => toast({ title: "Free classification control failed", description: e?.message, variant: "destructive" }),
+  });
 
   type SfpHighConfidenceCandidate = {
     businessId: number;
@@ -845,10 +865,30 @@ export function SouthFloridaProspectingPanel() {
                 Run Phase A (max 25)
               </Button>
             </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={false} disabled aria-label="Recurring discovery authorization (off)" />
-              Recurring discovery authorization: OFF (scheduler unavailable in this workflow)
-            </label>
+            <div className="border rounded p-3 space-y-2 text-xs">
+              <div className="font-semibold">Free-only backlog continuation: {continuationQuery.data?.continuation?.state ?? "idle"}</div>
+              <div className="text-muted-foreground">
+                Cursor {continuationQuery.data?.continuation?.high_water_business_id ?? 0} / {continuationQuery.data?.continuation?.stop_business_id ?? 0}
+                {" · "}{continuationQuery.data?.continuation?.processed_count ?? 0} classified
+                {" · "}{continuationQuery.data?.continuation?.target_count ?? 0} target.
+                Scans at most 250 records and classifies at most 25 per tick; paid providers and outbound remain off.
+              </div>
+              {continuationQuery.data?.continuation?.state === "running" &&
+                <div className="text-amber-700">
+                  Last worker tick: {continuationQuery.data.continuation.last_tick_at
+                    ? new Date(continuationQuery.data.continuation.last_tick_at).toLocaleString()
+                    : "none yet — verify the sfp-free-classification worker is selected in the deployed profile"}
+                </div>}
+              {continuationQuery.data?.continuation?.last_error &&
+                <div className="text-red-600">Last error: {continuationQuery.data.continuation.last_error}</div>}
+              {continuationQuery.data?.continuation?.state === "running" ?
+                <Button size="sm" variant="outline" onClick={() => continuationControl.mutate("pause")}
+                  disabled={continuationControl.isPending}>Pause free classification</Button> :
+                <Button size="sm" variant="outline" onClick={() => continuationControl.mutate("start")}
+                  disabled={!program.isActive || program.taxonomyVersion !== 2 || continuationControl.isPending}>
+                  {continuationQuery.data?.continuation?.state === "paused" ? "Resume" : "Start"} free-only backlog
+                </Button>}
+            </div>
           </CardContent>
         </Card>
       )}

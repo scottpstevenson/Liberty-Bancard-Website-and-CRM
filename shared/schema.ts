@@ -9791,6 +9791,30 @@ export const sfpClassificationSnapshots = pgTable("sfp_classification_snapshots"
   ),
 ]);
 
+/** Explicit, leased cursor for recurring provider-free Phase A classification.
+ * It is separate from cohort/staging state and does not grant send authority. */
+export const sfpFreeClassificationContinuations = pgTable("sfp_free_classification_continuations", {
+  programId: uuid("program_id").primaryKey().references(() => sfpPrograms.id, { onDelete: "restrict" }),
+  state: text("state").notNull().default("idle"),
+  highWaterBusinessId: integer("high_water_business_id").notNull().default(0),
+  stopBusinessId: integer("stop_business_id").notNull().default(0),
+  policyVersion: integer("policy_version").notNull(),
+  taxonomyVersion: integer("taxonomy_version").notNull(),
+  classifierVersion: integer("classifier_version").notNull(),
+  scannedCount: bigint("scanned_count", { mode: "number" }).notNull().default(0),
+  processedCount: bigint("processed_count", { mode: "number" }).notNull().default(0),
+  targetCount: bigint("target_count", { mode: "number" }).notNull().default(0),
+  rejectedCount: bigint("rejected_count", { mode: "number" }).notNull().default(0),
+  leaseToken: uuid("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  lastTickAt: timestamp("last_tick_at", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, () => [
+  check("sfp_free_classification_continuations_state_chk", sql`state IN ('idle','running','paused','completed')`),
+]);
+
 /** Task #1999 (C3): additive, encrypted, provider-neutral evidence table for
  *  Outscraper/Apollo/paid-Serper-sourced candidates. Physically separate from
  *  free_discovery_candidates (free-only) and cro03c_candidate_evidence (whose

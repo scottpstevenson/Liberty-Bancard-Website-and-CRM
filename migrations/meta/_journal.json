@@ -2149,6 +2149,13 @@
       "when": 1800000012800,
       "tag": "0302_sfp_v2_package_key_check",
       "breakpoints": true
+    },
+    {
+      "idx": 307,
+      "version": "7",
+      "when": 1800000012900,
+      "tag": "0303_sfp_free_classification_continuation",
+      "breakpoints": true
     }
   ]
 }

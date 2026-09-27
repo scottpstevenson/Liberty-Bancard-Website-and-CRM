@@ -23,7 +23,7 @@
  * All paid stages require explicit operator authorization; no automatic sending.
  */
 
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db, pool } from "../../db";
 import { createHash } from "crypto";
 import { randomUUID } from "crypto";
@@ -32,9 +32,8 @@ import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service"
 import { CRO03A_COUNTY_FIPS } from "../cro03a/geography";
 import { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
 import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
-// Task #1999 (Architecture correction 1 / C1): freeze pins the exact latest-admissible
-// pre-cohort classification evidence row into the immutable cohort/decision snapshot.
-import { getLatestAdmissibleClassificationEvidence } from "./sfp-classification-bridge";
+// The selector loads latest admissible evidence for the complete census in the
+// same transaction snapshot and attaches it to each decision candidate.
 import { getActiveSfpOutreachPolicy } from "./sfp-outreach-policy";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -823,8 +822,32 @@ async function freezeCohortTx(
       // (both selected and excluded), so sum(all dispositions) reconciles
       // exactly against total scanned canonical businesses.
       const allDecided = [...result.eligible, ...result.excluded];
+      const selectedIds = new Set(result.eligible.map((c) => c.canonicalBusinessId));
+      const decisionValues: SQL[] = [];
+      // One multi-row statement per bounded chunk keeps the immutable ledger
+      // complete without a separate database round trip for every excluded
+      // business. 100 rows x 33 columns stays below PostgreSQL's parameter cap.
+      const flushDecisions = async () => {
+        if (decisionValues.length === 0) return;
+        await tx.execute(sql`
+          INSERT INTO sfp_cohort_decisions
+            (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
+             suppression_subject_hash, suppression_authority, suppression_reason_code,
+             suppression_evidence_ref, suppression_channel, suppression_subjects,
+             suppression_business_wide_rule_applied,
+             geography_class, geography_source, vertical, roi_score, selected,
+             classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
+             classifier_reasons, classifier_evidence_hash,
+             geography_resolver_version, geography_outcome, geography_location_id, geography_reasons,
+             classification_evidence_id, classification_policy_version, classification_evidence_hash,
+             classification_model_version, classification_prompt_version, classification_classifier_version)
+          VALUES ${sql.join(decisionValues, sql`, `)}
+          ON CONFLICT (cohort_run_id, business_id) DO NOTHING
+        `);
+        decisionValues.length = 0;
+      };
       for (const c of allDecided) {
-        const isSelected = result.eligible.some((e) => e.canonicalBusinessId === c.canonicalBusinessId);
+        const isSelected = selectedIds.has(c.canonicalBusinessId);
         const disposition = c.dispositionReason.startsWith("excluded:")
           ? c.dispositionReason.split(":")[1]
           : (isSelected ? "selected" : "excluded:cohort_cap");
@@ -862,34 +885,13 @@ async function freezeCohortTx(
         // row for this same business can never retroactively change what this
         // already-frozen decision meant, because this FK points at one specific
         // evidence row id, not at "the latest row for this business" at read time.
-        // Best-effort: a business with no classification evidence yet (e.g. the
-        // pre-cohort bridge has not run for it) simply pins null — freeze itself
-        // does not depend on the bridge having run, since roi-cohort-selector's
-        // own classifyVertical call already independently gates admission.
-        let classificationEvidenceId: string | null = c.classificationEvidence?.id ?? null;
-        let classificationPolicyVersion: number | null = c.classificationEvidence?.policyVersion ?? null;
-        if (!classificationEvidenceId) {
-          try {
-            const admissible = await getLatestAdmissibleClassificationEvidence(c.canonicalBusinessId, program.policyVersion, program.taxonomyVersion);
-            if (admissible) {
-              classificationEvidenceId = admissible.id;
-              classificationPolicyVersion = admissible.policyVersion;
-            }
-          } catch { /* evidence may not have been produced for this business */ }
-        }
-        await tx.execute(sql`
-          INSERT INTO sfp_cohort_decisions
-            (cohort_run_id, business_id, disposition, disposition_detail, suppression_scope,
-             suppression_subject_hash, suppression_authority, suppression_reason_code,
-             suppression_evidence_ref, suppression_channel, suppression_subjects,
-             suppression_business_wide_rule_applied,
-             geography_class, geography_source, vertical, roi_score, selected,
-             classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
-             classifier_reasons, classifier_evidence_hash,
-             geography_resolver_version, geography_outcome, geography_location_id, geography_reasons,
-              classification_evidence_id, classification_policy_version,classification_evidence_hash,
-              classification_model_version,classification_prompt_version,classification_classifier_version)
-          VALUES (${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
+        // Best-effort: null when no current-policy evidence exists. The selector
+        // already loaded the complete current evidence map under this same
+        // REPEATABLE READ snapshot, so a per-business fallback query would be
+        // redundant and turn a 33k-row freeze into 33k extra round trips.
+        const classificationEvidenceId = c.classificationEvidence?.id ?? null;
+        const classificationPolicyVersion = c.classificationEvidence?.policyVersion ?? null;
+        decisionValues.push(sql`(${runId}::uuid, ${c.canonicalBusinessId}, ${disposition}, ${c.dispositionReason},
                   ${suppressionScope}, ${suppressionSubjectHash}, ${suppressionAuthority}, ${suppressionReasonCode},
                   ${suppressionEvidenceRef}, ${suppressionChannel}, ${suppressionSubjectsJson}::jsonb,
                   ${suppressionBusinessWideRuleApplied},
@@ -901,10 +903,10 @@ async function freezeCohortTx(
                   ${geo ? JSON.stringify(geo.reasons) : null}::jsonb,
                    ${classificationEvidenceId}::uuid, ${classificationPolicyVersion},
                    ${c.classificationEvidence?.evidenceHash ?? null},${c.classificationEvidence?.modelVersion ?? null},
-                   ${c.classificationEvidence?.promptVersion ?? null},${c.classificationEvidence?.classifierVersion ?? null})
-          ON CONFLICT (cohort_run_id, business_id) DO NOTHING
-        `);
+                   ${c.classificationEvidence?.promptVersion ?? null},${c.classificationEvidence?.classifierVersion ?? null})`);
+        if (decisionValues.length === 100) await flushDecisions();
       }
+      await flushDecisions();
 
       // Correction 3 second fault-injection checkpoint: after the full
       // decision ledger has been written (but still inside the open,

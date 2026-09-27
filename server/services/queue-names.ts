@@ -38,6 +38,7 @@ export const QUEUE_NAMES = {
   // Task #2001: isolated, no-send SFP campaign/sequence staging worker. Never
   // implies outreach, sequences, GHL, or any paid-provider capability.
   SFP_CAMPAIGN_STAGING: "sfp-campaign-staging",
+  SFP_FREE_CLASSIFICATION: "sfp-free-classification",
   // Task #2002 completion: recurring driver for the resumable Sunbiz
   // full-backlog microbatch processor. Registered unconditionally but the
   // handler is a no-op unless an admin has set the run status to 'running'

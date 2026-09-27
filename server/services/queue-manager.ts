@@ -499,6 +499,14 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 15 * 60 * 1000,
     jobName: "tick",
   },
+  {
+    name: QUEUE_NAMES.SFP_FREE_CLASSIFICATION,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 60_000,
+    repeatEveryMs: 2 * 60 * 1000,
+    jobName: "tick",
+  },
 ];
 
 /**
@@ -2504,6 +2512,12 @@ class QueueManager {
           if (result.processed > 0) {
             console.log(`[SfpCampaignStaging] held ${result.succeeded}/${result.processed}; failed=${result.failed}`);
           }
+          break;
+        }
+        case QUEUE_NAMES.SFP_FREE_CLASSIFICATION: {
+          const { processSfpFreeClassificationTick } = await import("./cro03/sfp-free-classification-continuation");
+          const result = await processSfpFreeClassificationTick();
+          if (result.claimed) console.log(`[SfpFreeClassification] ${JSON.stringify(result)}`);
           break;
         }
         case QUEUE_NAMES.MASTER_LEAD_STAGER: {

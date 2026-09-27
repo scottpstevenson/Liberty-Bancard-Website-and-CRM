@@ -3,7 +3,7 @@
  * taxonomy v2 classifier (sfp-vertical-classifier.ts). Pure-function tests
  * only — no network, no database. Run with: npx tsx scripts/test-sfp-vertical-classifier-v2.ts
  */
-import { classifyVertical, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from "../server/services/cro03/sfp-vertical-classifier";
+import { classifyVertical, inferVerticalNameSignal, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from "../server/services/cro03/sfp-vertical-classifier";
 
 const targetIds = [...SFP_TARGET_VERTICALS_V2];
 let failures = 0;
@@ -92,6 +92,22 @@ function check(name: string, cond: boolean, detail?: string) {
 {
   const r = classifyVertical(null, targetIds, 2);
   check("empty input -> unresolved", r.outcome === "unresolved", JSON.stringify(r));
+}
+
+// 9. Legal names are weaker than structured verticals. The v3 name rule
+// admits specific service descriptions and rejects generic supplier/advisory
+// contexts before they can create resolved_high evidence.
+for (const name of ["Coastal Roofing LLC", "Sunshine Auto Repair LLC", "Miami Barber Shop LLC"]) {
+  const signal = inferVerticalNameSignal(name, 2);
+  check(`safe name: ${name}`, signal.rawVertical !== null && !signal.conflicting, JSON.stringify(signal));
+}
+for (const name of ["Acme Automotive Finishes", "Computer Solutions for Construction", "Automotive Salvage Parts", "Construction Consulting Enterprises", "Roofing Materials Supply"]) {
+  const signal = inferVerticalNameSignal(name, 2);
+  check(`unsafe name: ${name}`, signal.rawVertical === null && signal.conflicting, JSON.stringify(signal));
+}
+{
+  const signal = inferVerticalNameSignal("Healthcare Realty LLC", 2);
+  check("non-target name: Healthcare Realty", signal.rawVertical === "realty" && !signal.conflicting, JSON.stringify(signal));
 }
 
 console.log(`\n${failures === 0 ? "ALL PASSED" : `${failures} FAILURE(S)`}`);

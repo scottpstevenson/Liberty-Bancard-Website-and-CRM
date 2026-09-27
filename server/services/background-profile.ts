@@ -189,6 +189,10 @@ export const WORKER_CAPABILITY_GROUPS = {
   "sfp-campaign-staging": [
     "sfp-campaign-staging",
   ],
+  /** Isolated, explicitly activated free-only SFP classification cursor. */
+  "sfp-free-classification": [
+    "sfp-free-classification",
+  ],
   /**
    * Task #2002 corrective patch: dedicated capability for the full Sunbiz
    * corpus backfill worker (server/services/sunbiz-full-backfill.ts) ONLY.

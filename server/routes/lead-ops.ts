@@ -3362,6 +3362,31 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // The recurring free-only Phase A cursor is inert until explicitly started.
+  // These controls never enable providers, outreach, or the separate held
+  // staging worker; status remains readable while the queue is not selected.
+  app.get("/api/lead-ops/sfp/programs/:programId/free-classification-continuation", requireRole("admin"), async (req, res) => {
+    try {
+      const { getSfpFreeClassificationContinuation } = await import("../services/cro03/sfp-free-classification-continuation");
+      res.json({ continuation: await getSfpFreeClassificationContinuation(String(req.params.programId)) });
+    } catch (err: any) { res.status(500).json({ error: err?.message }); }
+  });
+  app.post("/api/lead-ops/sfp/programs/:programId/free-classification-continuation/start", requireRole("admin"), async (req, res) => {
+    try {
+      const { startSfpFreeClassificationContinuation } = await import("../services/cro03/sfp-free-classification-continuation");
+      res.json({ continuation: await startSfpFreeClassificationContinuation(String(req.params.programId)) });
+    } catch (err: any) {
+      res.status(err?.message?.includes("REQUIRES") || err?.message?.includes("ACTIVE") || err?.message?.includes("CHANGED") ? 409 : 500)
+        .json({ error: err?.message });
+    }
+  });
+  app.post("/api/lead-ops/sfp/programs/:programId/free-classification-continuation/pause", requireRole("admin"), async (req, res) => {
+    try {
+      const { pauseSfpFreeClassificationContinuation } = await import("../services/cro03/sfp-free-classification-continuation");
+      res.json({ continuation: await pauseSfpFreeClassificationContinuation(String(req.params.programId)) });
+    } catch (err: any) { res.status(500).json({ error: err?.message }); }
+  });
+
   // POST /api/lead-ops/sfp/classification/run — Phase A pre-cohort classification bridge (bounded, manual)
   app.get("/api/lead-ops/sfp/programs/:programId/classification-preview", requireRole("admin"), async (req, res) => {
     try {

@@ -149,8 +149,8 @@ async function main() {
   const newer = await pool.query(
     `INSERT INTO sfp_classification_evidence
        (business_id,evidence_hash,source_refs,classifier_version,policy_version,outcome,confidence,reason_codes,idempotency_key,created_at)
-     VALUES ($1,$2,'[]'::jsonb,2,7,'target',0.9,'[]'::jsonb,$3,NOW()) RETURNING id,evidence_hash`,
-    [dentalId, `newer-${nonce}`, `newer-${nonce}`],
+     VALUES ($1,$2,'[]'::jsonb,$4,7,'target',0.9,'[]'::jsonb,$3,NOW()) RETURNING id,evidence_hash`,
+    [dentalId, `newer-${nonce}`, `newer-${nonce}`, CLASSIFIER_VERSION],
   );
   await pool.query(
     `INSERT INTO sfp_classification_evidence

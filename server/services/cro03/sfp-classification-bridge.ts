@@ -1236,7 +1236,7 @@ export async function previewHighConfidenceClassificationCandidates(programId: s
   const counties: string[] = Array.isArray(program.county_fips) ? program.county_fips : [];
   const businessFilter = options.businessIdFilter?.length
     ? options.businessIdFilter.map(Number).filter(Number.isInteger) : null;
-  const limit = Math.max(1, Math.min(200, Math.trunc(Number(options.limit ?? 50))));
+  const limit = Math.max(1, Math.min(250, Math.trunc(Number(options.limit ?? 50))));
 
   const candidateRows = rows(await db.execute(sql`
     SELECT id,canonical_name,city,state,postal_code,vertical

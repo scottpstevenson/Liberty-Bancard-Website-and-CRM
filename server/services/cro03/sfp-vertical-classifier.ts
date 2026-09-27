@@ -42,7 +42,10 @@ import { createHash } from "crypto";
  * target-associated term and a non-target/other-target term can no longer
  * silently resolve to an authoritative outcome from name alone.
  */
-export const CLASSIFIER_VERSION = 2 as const;
+// v3: legal-name target inference requires a specific service phrase and
+// rejects supplier/advisory contexts. Existing v2 evidence is intentionally
+// stale for admission; it must be reclassified under these rules.
+export const CLASSIFIER_VERSION = 3 as const;
 
 /**
  * SFP South Florida target-vertical taxonomy v2 (2026-09). Replaces the
@@ -245,6 +248,22 @@ export interface VerticalNameSignal {
   matchedPhrases: string[];
 }
 
+// A legal name is not a structured business category. Broad words such as
+// "construction" or "automotive" also occur in suppliers and consultants.
+// Only service-specific names may provide target evidence, and even those
+// fail closed when a name explicitly describes a different business model.
+const NAME_TARGET_SERVICES_V2 = new Set([
+  "auto repair", "automotive repair", "auto repair shop", "car repair",
+  "auto body shop", "tire shop", "brake shop", "auto mechanic",
+  "dentist", "dental office", "dentistry", "med spa", "medspa",
+  "medical spa", "medical clinic", "chiropractor", "physical therapy",
+  "hair salon", "nail salon", "beauty salon", "barber shop", "barbershop",
+  "general contractor", "plumbing", "plumber", "roofing", "electrician",
+  "hvac", "landscaping", "handyman", "gym", "fitness center",
+  "yoga studio", "martial arts", "pilates studio", "boxing gym",
+]);
+const NAME_NON_SERVICE_CONTEXT_V2 = /\b(?:suppl(?:y|ies|ier|iers)|distribut(?:ion|or|ors)|wholesale|manufactur(?:er|ing)|parts|salvage|finishes|materials|equipment|software|computer|consult(?:ing|ant|ants)|staffing|recruit(?:ing|ment)|insurance|realty|real estate|property management|financ(?:e|ing|ial)|holdings|investment|research)\b/;
+
 /** Returns which classification bucket a single curated phrase belongs to, or null if it has no bucket of its own (e.g. an ambiguous-label key, which is already safely routed to review by classifyVertical itself). */
 function bucketForPhrase(
   phrase: string,
@@ -294,7 +313,11 @@ export function inferVerticalNameSignal(
   const buckets = new Set(
     matched.map((p) => bucketForPhrase(p, aliases, synonyms, notTarget)).filter((b): b is string => b !== null),
   );
-  const conflicting = buckets.size > 1;
+  const targetMatch = matched.some((p) =>
+    bucketForPhrase(p, aliases, synonyms, notTarget) !== "NOT_TARGET" &&
+    bucketForPhrase(p, aliases, synonyms, notTarget) !== null);
+  const safeTargetName = matched.some((p) => NAME_TARGET_SERVICES_V2.has(p)) && !NAME_NON_SERVICE_CONTEXT_V2.test(name);
+  const conflicting = buckets.size > 1 || (taxonomyVersion === 2 && targetMatch && !safeTargetName);
   return { rawVertical: conflicting ? null : matched[0], conflicting, matchedPhrases: matched };
 }
 
