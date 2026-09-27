@@ -156,3 +156,4 @@
 - [SFP frozen classification snapshot](sfp-frozen-classification-snapshot.md) — preview/run hash flapped because it hashed a full live-pool scan; fix freezes the caller's exact selection + facts instead of scoping the hash tighter.
 - [SFP paid-budget gate & non-attempt caching](sfp-paid-budget-gate-and-non-attempt-caching.md) — $50 gate is separate from transport/credential/manifest checks; evidence table is insert-only (trigger blocks UPDATE/DELETE) — repair via cache-lookup exclusion, never mutation.
 - [Paid-batch runs execute the published build, not workspace edits](sfp-paid-batch-runs-published-build.md) — a code fix isn't live in a paid production run until published/redeployed; verify before spending budget.
+- [Drizzle migration errors swallow the real Postgres cause](drizzle-migration-error-swallowed-cause.md) — err.message is just "Failed query: <sql>"; the real error is on err.cause and was never logged.
