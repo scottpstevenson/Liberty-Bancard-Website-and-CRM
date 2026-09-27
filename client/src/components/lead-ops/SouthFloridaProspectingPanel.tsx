@@ -243,6 +243,7 @@ export function SouthFloridaProspectingPanel() {
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
   const [lastPaidResult, setLastPaidResult] = useState<any>(null);
+  const [serperBatchSize, setSerperBatchSize] = useState(1);
   // Generated once per logical freeze attempt and retained across
   // retry/reload via localStorage (VFC-06) — a plain useState initializer
   // resets on every page reload, which silently turned every post-reload
@@ -336,7 +337,7 @@ export function SouthFloridaProspectingPanel() {
   });
 
   const packageVerificationQuery = useQuery<{ ok: boolean; issues: string[] }>({
-    queryKey: ["/api/lead-ops/sfp/campaign-packages/verify"],
+    queryKey: ["/api/lead-ops/sfp/campaign-packages-v2/verify"],
     retry: false,
   });
 
@@ -561,7 +562,9 @@ export function SouthFloridaProspectingPanel() {
     onSuccess: (data: any) => {
       toast({
         title: "Free discovery completed",
-        description: `${data.enriched} enriched · ${data.failed} failed · ${data.skipped} skipped`,
+        description: data.selected === 0
+          ? "0 selected: free crawling requires a known website domain. Use the bounded domain-discovery pilot."
+          : `${data.selected} selected · ${data.enriched} enriched · ${data.failed} failed · ${data.skipped} skipped`,
       });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`] });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/validation-preview`] });
@@ -569,17 +572,36 @@ export function SouthFloridaProspectingPanel() {
     onError: (e: any) => toast({ title: "Free discovery failed", description: e?.message, variant: "destructive" }),
   });
 
+  const armSerperPilot = useMutation({
+    mutationFn: async () => {
+      if (!activeRunId) throw new Error("No frozen cohort selected");
+      const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/serper/arm-pilot`, {
+        maxBusinesses: serperBatchSize,
+        reason: "Bounded SFP domain-discovery pilot for frozen cohort",
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Serper pilot armed", description: `At most ${data.maxAdditionalRequests} additional requests. No call made yet.` });
+      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`] });
+    },
+    onError: (e: any) => toast({ title: "Serper pilot blocked", description: e?.message, variant: "destructive" }),
+  });
+
   const runSerperDiscovery = useMutation({
     mutationFn: async () => {
       if(!activeRunId) throw new Error("No active run");
       const res=await apiRequest("POST",`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/serper`,{
-        idempotencyKey:`sfp-serper-${discoveryIdempotencyKey}`,maxBusinesses:10,
+        idempotencyKey:`sfp-serper-${discoveryIdempotencyKey}`,maxBusinesses:serperBatchSize,
         previewSnapshotHash:cohortCostPreviewQuery.data?.snapshotHash,
       });
       return res.json();
     },
     onSuccess:(data:any)=>{
       toast({title:"Serper discovery completed",description:`${data.succeeded} matched · ${data.noResult} no result · ${data.failed} failed`});
+      const nextKey = crypto.randomUUID();
+      try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, nextKey); } catch { /* best-effort */ }
+      setDiscoveryIdempotencyKey(nextKey);
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`]});
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`]});
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`]});
@@ -598,6 +620,9 @@ export function SouthFloridaProspectingPanel() {
     onSuccess: (data: any) => {
       setLastPaidResult(data);
       toast({ title: "Paid waterfall completed", description: `${data.succeeded} succeeded · ${data.failed} failed · ${data.skipped} skipped` });
+      const nextKey = crypto.randomUUID();
+      try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, nextKey); } catch { /* best-effort */ }
+      setDiscoveryIdempotencyKey(nextKey);
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`] });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/candidates`] });
     },
@@ -692,7 +717,7 @@ export function SouthFloridaProspectingPanel() {
       setSelectedEligibilityIds([]);
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/prospects`] });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/campaign-staging-preview`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-packages/verify"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-packages-v2/verify"] });
     },
     onError: (e: any) => {
       const rawMessage = String(e?.message ?? "Unable to stage selected prospects");
@@ -1240,10 +1265,18 @@ export function SouthFloridaProspectingPanel() {
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <span className="text-xs font-medium">{paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery</span>
+              <label className="text-xs" htmlFor="sfp-serper-batch-size">Pilot businesses</label>
+              <input id="sfp-serper-batch-size" type="number" min={1} max={10} value={serperBatchSize}
+                onChange={(e) => setSerperBatchSize(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
+                className="border rounded px-2 py-1 text-xs w-16" />
+              <Button size="sm" variant="outline" onClick={() => armSerperPilot.mutate()}
+                disabled={armSerperPilot.isPending || !activeRunId}>
+                Arm Serper pilot (at most {serperBatchSize * 4} requests)
+              </Button>
               <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
                 disabled={runSerperDiscovery.isPending || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
                 {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
-                Authorize Serper batch (max 10)
+                Run Serper discovery ({serperBatchSize} business{serperBatchSize === 1 ? "" : "es"})
               </Button>
               <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
                 disabled={runPaidWaterfall.isPending || !cohortCostPreviewQuery.data?.snapshotHash}>
@@ -1272,6 +1305,10 @@ export function SouthFloridaProspectingPanel() {
             )}
             <p className="text-xs text-muted-foreground mt-2">
               {paidPreviewQuery.data?.note ?? "Loading provider controls…"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Arm sets the canonical Serper control to allow at most the selected batch's requests beyond current spent and reserved units; it makes no provider call.
+              A completed or no-result business is skipped on later batches of this cohort.
             </p>
           </CardContent>
         </Card>

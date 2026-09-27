@@ -3334,6 +3334,60 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // Arm only a bounded Serper domain-discovery pilot for a frozen SFP cohort.
+  // The canonical provider control is separate from the legacy contact Serper
+  // gateway. Never reset spent/reserved units or open a tripped circuit; the
+  // local cap permits at most four new reservations per selected business.
+  app.post("/api/lead-ops/sfp/runs/:runId/serper/arm-pilot", requireRole("admin"), async (req, res) => {
+    try {
+      const maxBusinesses = Number(req.body?.maxBusinesses);
+      if (!Number.isInteger(maxBusinesses) || maxBusinesses < 1 || maxBusinesses > 10) {
+        return res.status(400).json({ error: "maxBusinesses must be an integer from 1 to 10" });
+      }
+      const reason = String(req.body?.reason ?? "").trim();
+      if (reason.length < 8 || reason.length > 200) {
+        return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
+      }
+      const { assertSfpRuntimeAuthority } = await import("../services/cro03/sfp-provider-operations");
+      const cohortRunId = String(req.params.runId);
+      await assertSfpRuntimeAuthority(cohortRunId);
+      if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" || !process.env.SERPER_API_KEY) {
+        return res.status(422).json({ error: "SFP_SERPER_TRANSPORT_OR_CREDENTIAL_UNAVAILABLE" });
+      }
+      const result = await db.transaction(async (tx) => {
+        const gateway = rows(await tx.execute(sql`
+          SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1 FOR UPDATE
+        `))[0];
+        if (!gateway?.enabled || gateway.state !== "closed" ||
+            Number(gateway.window_calls) + 4 * maxBusinesses > Number(gateway.local_budget)) {
+          throw new Error("SFP_SERPER_GATEWAY_NOT_READY");
+        }
+        const control = rows(await tx.execute(sql`
+          SELECT enabled,circuit_state,consumed_units,reserved_units,version
+            FROM provider_controls WHERE provider='serper' FOR UPDATE
+        `))[0];
+        if (!control || control.circuit_state !== "closed") throw new Error("SFP_SERPER_CONTROL_NOT_READY");
+        const cap = Number(control.consumed_units) + Number(control.reserved_units) + 4 * maxBusinesses;
+        const updated = rows(await tx.execute(sql`
+          UPDATE provider_controls SET enabled=TRUE,local_budget_units=${cap},version=version+1,updated_at=NOW()
+           WHERE provider='serper' RETURNING provider,enabled,circuit_state,local_budget_units,
+             reserved_units,consumed_units,version
+        `))[0];
+        await tx.execute(sql`
+          INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
+          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_serper_pilot_armed','provider_control','serper',
+                  ${JSON.stringify({ cohortRunId, maxBusinesses, maxAdditionalRequests: maxBusinesses * 4, reason })}::jsonb,
+                  ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
+        `);
+        return updated;
+      });
+      res.json({ control: result, maxBusinesses, maxAdditionalRequests: maxBusinesses * 4 });
+    } catch (err: any) {
+      const message = String(err?.message ?? err);
+      res.status(/NOT_READY|NO_LIVE_RUNTIME_AUTHORITY/.test(message) ? 409 : 500).json({ error: message });
+    }
+  });
+
   app.get("/api/lead-ops/sfp/runs/:runId/paid-waterfall-preview", requireRole("admin"), async (req, res) => {
     try {
       const { previewSfpPaidWaterfall } = await import("../services/cro03/sfp-paid-waterfall");

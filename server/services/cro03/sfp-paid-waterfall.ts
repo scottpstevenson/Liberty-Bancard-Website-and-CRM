@@ -523,6 +523,11 @@ export async function executeSfpSerperDiscovery(input: {
      WHERE m.cohort_run_id=${input.cohortRunId}::uuid
        AND b.website_domain IS NULL
        AND NOT EXISTS (SELECT 1 FROM free_discovery_candidates c WHERE c.business_id=b.id AND c.disposition IN ('staged','validation_admitted'))
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_stage_items i JOIN sfp_stage_runs prior ON prior.id=i.stage_run_id
+          WHERE prior.cohort_run_id=m.cohort_run_id AND i.business_id=b.id
+            AND i.provider='serper' AND i.state IN ('completed','no_result')
+       )
      ORDER BY m.roi_score DESC,b.id ASC LIMIT ${maxBusinesses}
   `));
   await db.execute(sql`UPDATE sfp_stage_runs SET selected_count=${targets.length},updated_at=NOW() WHERE id=${String(stage.id)}::uuid`);
