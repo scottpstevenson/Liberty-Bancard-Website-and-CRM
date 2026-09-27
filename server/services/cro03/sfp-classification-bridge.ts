@@ -11,7 +11,7 @@ import {
   getBusinessWideSuppressionExclusions,
   getSfpBusinessHardExclusionReasons,
 } from "./roi-cohort-selector";
-import { classifyVertical, CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
+import { classifyVertical, inferRawVerticalFromName, CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
 import {
   extractWebsiteClassificationEvidence,
   type WebsiteClassificationEvidence,
@@ -618,7 +618,8 @@ export async function runPreCohortClassificationBridge(
         continue;
       }
       itemClaimToken = String(claimedItem.claim_token);
-      const rawVertical = business.vertical == null ? null : String(business.vertical);
+      const structuredVertical = business.vertical == null ? null : String(business.vertical);
+      const rawVertical = structuredVertical ?? inferRawVerticalFromName(business.canonical_name, taxonomyVersion);
       let domain = extractDomain(business.website_domain);
       let discoveryReason: string | null = null;
       let discoveryCostMicros = 0;
@@ -763,9 +764,11 @@ export async function runPreCohortClassificationBridge(
         admissionTier = null;
       }
       if (discoveryReason) reasonCodes.push(discoveryReason);
+      if (structuredVertical == null && rawVertical !== null) reasonCodes.push("NAME_DERIVED_VERTICAL_SIGNAL");
       itemCost += discoveryCostMicros;
       const sourceRefs = [
-        ...(rawVertical !== null ? ["raw_vertical_field"] : []),
+        ...(structuredVertical !== null ? ["raw_vertical_field"] : []),
+        ...(structuredVertical == null && rawVertical !== null ? ["name_derived_vertical_signal"] : []),
         ...(websiteEvidence ? [websiteEvidence.sourceUrl] : []),
       ];
       // A review_required outcome that fell back to OPENAI_UNAVAILABLE or
@@ -873,7 +876,10 @@ export interface SfpFrozenBusinessFacts {
   suppressed: boolean;
 }
 
-async function computeFrozenBusinessFacts(businessIds: number[]): Promise<Map<number, SfpFrozenBusinessFacts>> {
+async function computeFrozenBusinessFacts(
+  businessIds: number[],
+  taxonomyVersion: 1 | 2 = 1,
+): Promise<Map<number, SfpFrozenBusinessFacts>> {
   const out = new Map<number, SfpFrozenBusinessFacts>();
   if (businessIds.length === 0) return out;
   const rowsData = rows(await db.execute(sql`
@@ -912,7 +918,9 @@ async function computeFrozenBusinessFacts(businessIds: number[]): Promise<Map<nu
       identityFingerprint,
       countyFips: geography.outcome === "resolved" ? String(geography.countyFips) : null,
       geographyResolved: geography.outcome === "resolved",
-      rawVertical: business.vertical == null ? null : String(business.vertical),
+      rawVertical: business.vertical == null
+        ? inferRawVerticalFromName(business.canonical_name, taxonomyVersion)
+        : String(business.vertical),
       hardExclusionReason: hardExclusions.get(id) ?? null,
       suppressed: suppression.has(id),
     });
@@ -954,7 +962,7 @@ export async function freezeClassificationSnapshot(input: {
   `))[0];
   if (!program) throw new Error("SFP_PROGRAM_NOT_FOUND");
   const counties: string[] = Array.isArray(program.county_fips) ? program.county_fips : [];
-  const facts = await computeFrozenBusinessFacts(requested);
+  const facts = await computeFrozenBusinessFacts(requested, input.taxonomyVersion);
 
   const rejectedAtFreeze: Array<{ businessId: number; reason: string }> = [];
   const frozenIds: number[] = [];
@@ -1049,7 +1057,7 @@ export async function runFrozenClassificationSnapshot(input: {
   const taxonomyVersion: 1 | 2 = Number(claimed.taxonomy_version) === 2 ? 2 : 1;
   const policyVersion = Number(claimed.policy_version);
 
-  const currentFacts = await computeFrozenBusinessFacts(frozenIds);
+  const currentFacts = await computeFrozenBusinessFacts(frozenIds, taxonomyVersion);
   const rejectedAtRun: Array<{ businessId: number; reason: string }> = [];
   const survivingBusinessIds: number[] = [];
   for (const id of frozenIds) {

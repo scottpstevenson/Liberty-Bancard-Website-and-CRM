@@ -182,11 +182,62 @@ const NOT_TARGET_LABELS_V2 = new Set([
   "credit union", "accounting firm", "cpa", "daycare", "school", "church",
   "nonprofit", "government office", "pharmacy", "veterinary clinic", "retail",
   "retail store", "clothing store", "gift shop", "boutique", "shopping", "store",
+  // Additional unambiguous exclusions found while auditing name-derived
+  // evidence: these are specific financial/professional-services or
+  // transportation categories that never plausibly overlap Automotive,
+  // Healthcare, Beauty/Spa, Construction/Trades/Home Services, or
+  // Fitness/Recreation, so a curated exact match here carries the same
+  // 0.9-confidence "unambiguous exclusion" guarantee as the entries above.
+  "realty", "mortgage", "title insurance", "title company", "trust company",
+  "aircraft", "aviation", "attorneys", "attorneys at law", "law offices",
 ]);
 
 function normalize(value: string | null | undefined): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Free, deterministic fallback evidence source for `rawVertical` when a
+ * business's structured `vertical` column is empty (the normal case for the
+ * vast majority of Sunbiz-sourced canonical businesses — filing data alone
+ * doesn't populate it). Rather than send every such business straight to
+ * paid OpenAI escalation with zero signal, scan its legal/canonical name for
+ * a whole-word/phrase match against the SAME curated alias/synonym/non-target
+ * tables `classifyVertical` already trusts, and return the matched phrase
+ * verbatim so it flows through the identical exact-match path afterward.
+ *
+ * This is intentionally conservative: only a whole-word/phrase substring
+ * match counts (word-boundary regex, not naive `.includes`), and the longest
+ * matching phrase across all tables wins so a broader ambiguous label never
+ * shadows a more specific curated one. It is a source-of-evidence
+ * improvement only — it does not lower any confidence gate. A name-derived
+ * "insurance agency" still resolves through `classifyVertical` exactly like
+ * a real `vertical` column value of "insurance agency" would: not_target at
+ * 0.9 confidence, same as any other curated non-target hit.
+ */
+export function inferRawVerticalFromName(
+  canonicalName: string | null | undefined,
+  taxonomyVersion: 1 | 2 = 1,
+): string | null {
+  const name = normalize(canonicalName);
+  if (!name) return null;
+  const { aliases, synonyms, ambiguous, notTarget } = tablesFor(taxonomyVersion);
+  const candidatePhrases = new Set<string>([
+    ...Object.values(aliases).flat(),
+    ...Object.values(synonyms).flat(),
+    ...Object.keys(ambiguous),
+    ...notTarget,
+  ]);
+  let best: string | null = null;
+  for (const phrase of candidatePhrases) {
+    if (!phrase) continue;
+    const pattern = new RegExp(`(?:^|[^a-z0-9])${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`);
+    if (pattern.test(` ${name} `) && (!best || phrase.length > best.length)) {
+      best = phrase;
+    }
+  }
+  return best;
 }
 
 function tablesFor(taxonomyVersion: 1 | 2) {
