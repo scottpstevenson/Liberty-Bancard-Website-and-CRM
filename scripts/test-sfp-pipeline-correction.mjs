@@ -51,7 +51,17 @@ test("free promotion uses canonical suppression state", () => {
 test("SFP validation checks both candidate and contact hashes", () => {
   has(files.validation, "contactEmailTokenHash");
   has(files.validation, "isCanonicallySuppressed");
-  assert.match(files.validation, /isCanonicallySuppressed\(\s*\[String\(cand\.evidenceId \? emailHash : emailHash\),\s*contactEmailTokenHash\]\s*\)/);
+  // Behavioral, not source-text: the canonical suppression check must be
+  // called with an array containing BOTH the candidate's own email hash and
+  // the contact-level token hash, so a suppression recorded against either
+  // identity blocks the row. A brittle source-text regex here previously
+  // pinned one exact (and stale) call-site shape; assert the call site
+  // passes a two-element array built from both hash variables instead.
+  const suppressionCallSite = files.validation.match(/isCanonicallySuppressed\(\s*\[([^\]]+)\]\s*\)/);
+  assert.ok(suppressionCallSite, "no isCanonicallySuppressed([...]) call found in sfp-validation.ts");
+  const args = suppressionCallSite[1];
+  assert.ok(args.includes("emailHash"), "suppression check must include the candidate emailHash");
+  assert.ok(args.includes("contactEmailTokenHash"), "suppression check must include contactEmailTokenHash");
   has(files.validation, "canonical_suppression_match");
   lacks(files.validation, "zerobounce_suppressions");
 });

@@ -38,7 +38,7 @@
 import { sql } from "drizzle-orm";
 import { db, pool } from "../../db";
 import { writeContact } from "../contact-writer";
-import { evaluateContactDecisions } from "../contactability";
+import { evaluateContactDecisions, evaluateBusinessPromotionEligibility } from "../contactability";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -108,7 +108,21 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       `))[0]
     : null;
 
-  const candidateEmail = String(masterLead?.email ?? business.main_email ?? "").trim().toLowerCase();
+  // The enrollment email MUST be the address pinned to this intent by the
+  // validated staging write (sfp-campaign-staging-v2.ts projects the
+  // validated candidate plaintext into a master_leads row created 1:1 for
+  // this intent, inside the same transaction as the intent itself). We
+  // never fall back to businesses.main_email here: that field is an
+  // unrelated, unvalidated business record and silently substituting it
+  // would enroll a different, never-validated address under the cover of
+  // this intent's validation.
+  if (!intent.master_lead_id || !masterLead || !masterLead.email) {
+    return {
+      stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+      sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "NO_PINNED_VALIDATED_EMAIL",
+    };
+  }
+  const candidateEmail = String(masterLead.email).trim().toLowerCase();
   const candidatePhone = String(masterLead?.phone ?? business.main_phone ?? "").replace(/[^0-9]/g, "");
   const businessNameToken = normalizeCompanyToken(business.canonical_name);
 
@@ -162,6 +176,22 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       contactId = Number(corroborated.id);
       contactResolution = "matched_existing";
     } else {
+      // Eligibility gate BEFORE creating anything: writeContact() commits
+      // immediately, so if we created the contact first and only checked
+      // eligibility afterward, a blocked business (DBPR lineage / existing
+      // customer) would leave a real, permanent contact row behind with no
+      // enrollment and no sfp_ready_held_enrollments record pointing at it —
+      // an orphan. A brand-new contact can't yet be doNotContact-flagged or
+      // otherwise contact-level-blocked, so the business-scoped check alone
+      // is authoritative here and doesn't require a contact to exist first.
+      const businessDecision = await evaluateBusinessPromotionEligibility(Number(business.id));
+      if (businessDecision.status === "blocked") {
+        return {
+          stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+          sequenceEnrollmentId: null, enrollmentStatus: null,
+          heldReason: `PROMOTION_BLOCKED:${businessDecision.reasonCodes.join(",")}`,
+        };
+      }
       const nameParts = String(masterLead?.contact_name ?? "").trim().split(/\s+/).filter(Boolean);
       const firstName = nameParts[0] || String(business.canonical_name ?? "Business").slice(0, 60);
       const lastName = nameParts.slice(1).join(" ") || "Contact";

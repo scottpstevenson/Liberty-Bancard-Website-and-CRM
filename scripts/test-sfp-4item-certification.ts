@@ -189,11 +189,15 @@ async function insertBusiness(name: string, vertical: string | null): Promise<nu
 // ─────────────────────────────────────────────────────────────────────────
 async function makeReadyHeldFixture(opts: {
   suffix: string; email: string | null; phone?: string | null; companyName?: string | null;
+  // When true, the business row itself carries a DIFFERENT email/phone than
+  // the pinned master_leads row, so tests can prove the bridge never falls
+  // back to the unvalidated business record.
+  decoyBusinessEmail?: string;
 }): Promise<{ intentId: string; businessId: number; sequenceId: number }> {
   const { ensureProgram } = await import("../server/services/cro03/south-florida-prospecting");
   const businessId = await insertBusiness(`${RUN_ID}-item4-biz-${opts.suffix}`, "Automotive Sales & Repair");
-  if (opts.email) {
-    await db.execute(sql`UPDATE businesses SET main_email=${opts.email}, main_phone=${opts.phone ?? null} WHERE id=${businessId}`);
+  if (opts.decoyBusinessEmail) {
+    await db.execute(sql`UPDATE businesses SET main_email=${opts.decoyBusinessEmail}, main_phone=${opts.phone ?? null} WHERE id=${businessId}`);
   }
   const program = await ensureProgram({ createdBy: `${RUN_ID}-item4` });
   const cohortRun = rows(await db.execute(sql`
@@ -253,13 +257,25 @@ async function makeReadyHeldFixture(opts: {
       'x', 'x', 'x', 1, ${`hash-${RUN_ID}-${opts.suffix}`}, 'm***@example.org')
     RETURNING id
   `))[0];
+  // The pinned, validated address lives on a master_leads row created
+  // specifically for this intent (mirroring the real staging-v2 projection
+  // path) — never on the business record, which is unrelated/unvalidated.
+  let masterLeadId: string | null = null;
+  if (opts.email) {
+    const masterLead = rows(await db.execute(sql`
+      INSERT INTO master_leads (status, company, email, phone, contact_name, source)
+      VALUES ('staged', ${`Item4 Fixture ${opts.suffix}`}, ${opts.email}, ${opts.phone ?? null}, 'Item4 Contact', 'certification_fixture')
+      RETURNING id
+    `))[0];
+    masterLeadId = String(masterLead.id);
+  }
   const intent = rows(await db.execute(sql`
     INSERT INTO sfp_campaign_staging_intents
       (cohort_run_id, eligibility_id, business_id, candidate_id, source_kind, idempotency_key, actor_id, state, policy_version,
-       validation_snapshot, lineage, package_version_id, package_key)
+       validation_snapshot, lineage, package_version_id, package_key, master_lead_id)
     VALUES (${cohortRunId}::uuid, ${String(eligibility.id)}::uuid, ${businessId}, ${String(candidate.id)}::uuid, 'free',
             ${`${RUN_ID}-intent-${opts.suffix}`}, ${`${RUN_ID}-actor`}, 'ready_held', 1,
-            '{}'::jsonb, '{}'::jsonb, ${String(pkgVersion.id)}::uuid, ${packageKey})
+            '{}'::jsonb, '{}'::jsonb, ${String(pkgVersion.id)}::uuid, ${packageKey}, ${masterLeadId}::uuid)
     RETURNING id
   `))[0];
   return { intentId: String(intent.id), businessId, sequenceId };
@@ -271,8 +287,28 @@ async function makeReadyHeldFixture(opts: {
   // 4a. No real email at all -> left held, no contact/enrollment created.
   const noEmail = await makeReadyHeldFixture({ suffix: "noemail", email: null });
   const heldResult = await bridgeReadyHeldIntentToPausedEnrollment(noEmail.intentId, `${RUN_ID}-actor`);
-  check(heldResult.status === "left_held" && heldResult.heldReason === "NO_REAL_EMAIL_IDENTITY", `${RUN_ID}-I4-A`, "intent with no real email is left held, not force-created with a synthetic address");
+  check(heldResult.status === "left_held" && heldResult.heldReason === "NO_PINNED_VALIDATED_EMAIL", `${RUN_ID}-I4-A`, "intent with no pinned master_lead email is left held, not force-created with a synthetic address");
   check(heldResult.contactId === null, `${RUN_ID}-I4-B`, "no contact was created for a held intent");
+
+  // 4a2. Intent HAS a pinned master_lead row, but its email is blank ('') ->
+  // still left held on the real "no usable email" reason, never silently
+  // treated as a valid address.
+  const blankEmail = await makeReadyHeldFixture({ suffix: "blankemail", email: "" });
+  const blankResult = await bridgeReadyHeldIntentToPausedEnrollment(blankEmail.intentId, `${RUN_ID}-actor`);
+  check(blankResult.status === "left_held", `${RUN_ID}-I4-A2`, "a pinned master_lead row with a blank email is left held");
+  check(blankResult.contactId === null, `${RUN_ID}-I4-B2`, "no contact was created for a blank-pinned-email intent");
+
+  // 4a3. The bridge must NEVER fall back to businesses.main_email as the
+  // enrollment address, even when it's present and looks valid — only the
+  // master_leads row pinned to this intent is trusted. No master_lead here,
+  // decoy business email present -> still left held, not silently enrolled
+  // under the unvalidated decoy address.
+  const decoyOnly = await makeReadyHeldFixture({ suffix: "decoyonly", email: null, decoyBusinessEmail: `${RUN_ID}-decoy@example.com` });
+  const decoyResult = await bridgeReadyHeldIntentToPausedEnrollment(decoyOnly.intentId, `${RUN_ID}-actor`);
+  check(decoyResult.status === "left_held" && decoyResult.heldReason === "NO_PINNED_VALIDATED_EMAIL", `${RUN_ID}-I4-A3`, "an intent with only an unvalidated business.main_email (no pinned master_lead) is left held, never silently enrolled under that address");
+  check(decoyResult.contactId === null, `${RUN_ID}-I4-B3`, "no contact was created from the decoy business email");
+  const decoyContactCheck = rows(await db.execute(sql`SELECT 1 FROM contacts WHERE email=${`${RUN_ID}-decoy@example.com`}`));
+  check(decoyContactCheck.length === 0, `${RUN_ID}-I4-B4`, "the decoy business email was never used to create a contact");
 
   // 4b. Success path: real email, no pre-existing contact -> created_new + paused enrollment.
   const success = await makeReadyHeldFixture({ suffix: "success", email: `${RUN_ID}-success@example.com`, phone: "3055551111" });
