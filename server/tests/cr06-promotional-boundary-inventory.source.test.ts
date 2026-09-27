@@ -51,6 +51,7 @@ const enrollmentMutationCounts: Record<string, number> = {
   "server/services/abandoned-statement-worker.ts": 1,
   "server/services/bulk-enrollment-job.ts": 1,
   "server/services/churn-score.ts": 1,
+  "server/services/cro03/sfp-enrollment-bridge.ts": 1,
   "server/services/merchant-attrition-monitor.ts": 1,
   "server/services/merchant-success-sequences.ts": 1,
   "server/services/merchant-welcome.ts": 1,
