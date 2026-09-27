@@ -3467,7 +3467,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         UPDATE sfp_classification_evidence
            SET terminal_state='provisional'
          WHERE terminal_state='completed'
-           AND (reason_codes ? 'OPENAI_UNAVAILABLE' OR reason_codes ? 'OPENAI_ESCALATION_NOT_CONFIGURED')
+           AND (reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb
+                OR reason_codes @> '["OPENAI_ESCALATION_NOT_CONFIGURED"]'::jsonb)
         RETURNING id, business_id
       `));
       res.json({ repairedCount: updated.length, businessIds: updated.map((r: any) => Number(r.business_id)) });

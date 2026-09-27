@@ -16,8 +16,8 @@
 - [Playwright test user](playwright-test-user.md) — dedicated test user exists in DB; avoid using admin user (2FA risk, rate limiter).
 - [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat, not /dashboard/ai-advisors; ResponsiveTable can't wrap children (overflow-x-auto div instead).
 - [Sequence control policy](sequence-control-policy.md) — all sequences default to `paused`; storage layer blocks enrollment into non-active sequences.
-- [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent (singleton IORedis); maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first.
-- [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, must regenerate in GHL settings; circuit breaker persists closed/open/half-open via classifyGhlSyncError() (see ghl-circuit-state-machine.md).
+- [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent; maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first.
+- [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, regenerate in GHL settings; breaker persists closed/open/half-open via classifyGhlSyncError().
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first.
 - [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — ternary else-branch fragment must close before the first sibling Card's </CardContent>, not inside a later one.
 - [Master audit + 12-wave plan](master-audit-2026.md) — full compliance/conversion audit; 6 kill lines; 12 build waves across contactability, consent, GHL sync authority, analytics, QA.
@@ -44,7 +44,7 @@
 - [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.
 - [CAN-SPAM footer injection](can-spam-footer-injection.md) — HMAC secrets diverge between test/server processes; contacts schema column must match DB; worker channel gate fail-closes before custom gates.
 - [Drizzle out-of-order journal when](drizzle-out-of-order-journal.md) — a journal entry's `when` below any already-applied entry is silently skipped; fix `when` above high-water mark + insert hash.
-- [Sequence/coordinator test-isolation flakes](sequence-case27-lock-race.md) — live BullMQ workers racing for job locks or stale/absent pause holds during/after tests cause flaps, not product bugs (see coordinator-holds-test-isolation.md, test-nba-hold-isolation.md, coordinator-hold-integrity-timing.md).
+- [Sequence/coordinator test-isolation flakes](sequence-case27-lock-race.md) — live BullMQ workers racing for job locks or stale pause holds during tests cause flaps, not product bugs.
 - [Dashboard header shrink-0 sibling overlap](header-shrink0-overlap.md) — shrink-0 right header group forced left group to 0 width on mobile; search input silently ate its taps.
 - [Collateral packet manual override](collateral-packet-override.md) — override precedence (explicit > auto-match > fallback); watch for "resolved name left null on failure" truthful-state bugs.
 - [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — two route files can both register the same param path; earlier-registered wins silently — verify via curl, not code reading.
@@ -59,7 +59,7 @@
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all intake paths wired.
 - [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.
 - [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding routes must use isAuthenticated+ownership, not isDashboardUser.
-- [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch attempt (20s default, retryable AbortError); email-422s sanitize to terminal skips (ghl-invalid-contact-skip.md); pause enforced at each client's fetch helper, audit_logs sanitized (ghl-failfast-transport.md).
+- [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch (20s, retryable); email-422s sanitize to terminal skips; pause enforced at each client's fetch helper.
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes may 404 until a full server restart; probe with curl and restart to confirm.
 - [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — SQL files in migrations/ root without journal entries hang drizzle-kit generate; journal them or move to migrations/guarded/.
 - [Test phone/EIN isolation](test-phone-isolation.md) — hardcoded phones/EINs collide across test runs; always generate uniquely (uniquePhone(), Date.now()%10000000) (see test-ein-uniqueness.md).
@@ -99,28 +99,27 @@
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repo access alone may be insufficient.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
-- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — local socket/role/port forcing; launcher-minted-only sinks; cross-DB BullMQ Redis-namespace collisions; replacement-env child processes; per-suite Redis prefixes.
+- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — local socket/role/port forcing; launcher-minted sinks only; cross-DB BullMQ Redis-namespace collisions; per-suite Redis prefixes.
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
-- [Commercial resolution authority](commercial-resolution-authority.md) — five-value class stays separate from provenance/identity/link axes; shadow never replaces legacy before cutover.
-- [Channel cohort authority](channel-cohort-authority.md) — channel qualification freezes immutable evidence; never implies activation/consumption.
+- [Commercial/channel authority axes](commercial-resolution-authority.md) — resolution class, channel-cohort evidence, and provenance/identity/link stay separate axes; shadow never replaces legacy before cutover; see channel-cohort-authority.md.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
-- [Publish/production schema ownership](production-schema-ownership.md) — Replit Publish owns production DDL; app startup must not replay Drizzle migrations against it; inline NOT VALID constraints fail Publish (see publish-inline-not-valid.md).
+- [Publish/production schema ownership](production-schema-ownership.md) — Replit Publish owns production DDL; app startup must not replay Drizzle migrations against it; inline NOT VALID constraints fail Publish.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
-- [Migration ledger hash-only proof](migration-ledger-hash-proof.md) — drizzle.__drizzle_migrations row count is NOT valid applied-migration proof; only exact content-hash match is sound.
+- [Migration ledger hash-only proof](migration-ledger-hash-proof.md) — row count in drizzle.__drizzle_migrations is NOT valid applied-migration proof; only exact content-hash match is sound.
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
 - [Task agent isolated branch vs production deploy target](task-agent-isolated-branch.md) — task-agent `main` isn't what Publish deploys from; pushing to `origin` never updates the live app.
-- [Layering a new authority on immutable upstream systems](cro07-controlled-delivery.md) — one-active-chain-per-intent constraint; reply-vs-suppression matrix; CAS-locked decisions; pg jsonb param gotcha.
+- [Layering a new authority on immutable upstream systems](cro07-controlled-delivery.md) — one-active-chain-per-intent constraint; reply-vs-suppression matrix; CAS-locked decisions.
 - [CRO-02 production seed-row gap](cro02-production-seed-gap.md) — Publish-managed tables can miss Drizzle-seeded rows; repair via insert-only fingerprint-guarded convergence initializer, never by replaying migrations against prod.
 - [Publish vs dev environment drift](publish-vs-dev-environment-drift.md) — publish auto-commits past deployed HEAD; dev/prod DBs separate even with same-named secrets; can share Redis and collide on BullMQ keys.
 - [Production seed convergence pattern](production-seed-convergence.md) — startup service repairs never-replayed INSERT/UPSERT seeds; per-target advisory lock, content-hash conflict detection.
-- [Production drizzle_migrations convergence](prod-drizzle-migrations-convergence.md) — post-snapshot migrations 0110–0274 applied in prod without hash rows; sentinel-gated backfill in db-migrate.ts; raise ceiling when new migrations land before drizzle tracking caught up.
+- [Production drizzle_migrations convergence](prod-drizzle-migrations-convergence.md) — post-snapshot migrations applied in prod without hash rows; sentinel-gated backfill; raise ceiling as new migrations land.
 - [DB pool/worker contention](db-pool-worker-contention.md) — system-wide 500s/timeouts can be pool exhaustion from shared BullMQ workers, not a regression; isolated pg.Pool ping fast = contention.
 - [pool.connect() wrapper danger](pool-connect-wrapper.md) — wrapping pool.connect() to intercept client.release() is unsafe (pg-pool recycles clients); use pool.query() wrapper only.
 - [Contact record_class production gap](contact-record-class-gap.md) — production contacts all land as 'unknown'; fire-and-forget backfill on startup reclassifies; excluded from sync SEED_TARGETS.
 - [CRO03 safeError opaque redaction](cro03-safeerror-redaction.md) — routes/cro03.ts strips non-CRO03(A|B|C)?_-prefixed errors to a generic 400 with no server log; trace source, not logs.
 - [uuid cursor empty-string sentinel](uuid-cursor-empty-sentinel.md) — never compare a uuid column against '' on an empty table; Postgres throws invalid-uuid-syntax.
-- [CRO03D/CRO03C ceremony pitfalls](cro03d-ceremony-scope-mismatch.md) — offline ceremony scope must replicate cro03cApprovalScope() exactly; RELEASE_SHA-bound approvals invalidate on every deploy; /tmp artifacts wiped by restarts; attestation needs live worker heartbeats (see cro03c-release-bound-approvals.md, tmp-ceremony-artifact-loss.md, cro03d-ceremony-architecture.md).
+- [CRO03D/CRO03C ceremony pitfalls](cro03d-ceremony-scope-mismatch.md) — ceremony scope must replicate cro03cApprovalScope(); RELEASE_SHA-bound approvals invalidate on deploy; /tmp wiped by restarts.
 - [CRO-08A source-scope & pilot-gate pitfalls](cro08a-source-scope-and-pilot-gate.md) — real source_system allowlist must come from the live cursor table, not table-name guesses.
 - [Contact enrichment backlog reconnect](contact-enrichment-backlog-reconnect.md) — recurring-tick backlog pitfalls: predicate drift, retry starvation, wrong gateway status column.
 - [Free-enrichment queue UNION ALL indexing](free-enrichment-queue-union-all-indexing.md) — split an OR eligibility predicate into UNION ALL branches so each gets its own partial index.
@@ -130,20 +129,20 @@
 - [contacts/businesses NOT NULL convergence](contacts-notnull-convergence.md) — check live NULL count, tighten DB to match code's notNull() when safe; prod DDL flows through Publish diffing schema.ts.
 - [Drizzle raw VALUES boolean columns](drizzle-values-boolean-untyped.md) — ad hoc `VALUES(...)` harnesses can return booleans as text; `Boolean("false")` is truthy — cast `::boolean`.
 - [Canonical DBPR-family predicate](dbpr-canonical-predicate.md) — server/services/dbpr.ts is the single TS+SQL DBPR exclusion module; ingestion/storage/lineage stays allowed, only specific boundaries exclude it.
-- [Sunbiz bootstrap claim idempotency](sunbiz-bootstrap-claim-idempotency.md) — filing_number claim row precedes org resolution; registry_id FK gotcha; huge-table pagination trap.
+- [Sunbiz bootstrap claim idempotency](sunbiz-bootstrap-claim-idempotency.md) — filing_number claim row precedes org resolution; registry_id FK gotcha.
 - [CRO03C provider-hardening parity](cro03c-provider-hardening-parity.md) — two separate provider-execution pipelines (legacy/MI-05 vs CRO03C canary); shared provider_controls gate extended to outscraper/openai.
 - [SQL correlated-subquery column shadowing](sql-correlated-subquery-column-shadowing.md) — raw-string correlated EXISTS subqueries must fully qualify outer column refs or Postgres silently shadows them.
-- [ZeroBounce DBPR, capability re-homing & single-spend-path census](zerobounce-dbpr-capability-rehoming.md) — two independent ZB spend paths each needed their own DBPR exclusion; validation-intent re-homed to email-validation group; scan-zerobounce-contact-validation-paths.ts guards against a second path reappearing (see zerobounce-single-spend-path-census.md).
+- [ZeroBounce DBPR, capability re-homing & single-spend-path census](zerobounce-dbpr-capability-rehoming.md) — two independent ZB spend paths each needed their own DBPR exclusion; a census script guards against a second path reappearing.
 - [Contactability four-dimension authority](contactability-four-dimension-authority.md) — evaluateContactDecisions() = single authority for dataHygiene/enrichment/promotion/send eligibility; census script guards consumer list.
-- [Master Lead import/backfill DBPR & quarantine](master-lead-import-backfill-dbpr-quarantine.md) — DBPR-lineage exclusion + insufficient-identifier quarantine added to manual-import paths; found/fixed a real duplicate-email unique-index bug.
-- [CRO-03C master-lead E2E certification](cro03c-master-lead-certification.md) — disposable-DB + fake-transport DI recipe; found/fixed 4 real bugs (array-param, hash constraint, wrong join, ESM require).
+- [Master Lead import/backfill DBPR & quarantine](master-lead-import-backfill-dbpr-quarantine.md) — DBPR-lineage exclusion + insufficient-identifier quarantine added to manual-import paths.
+- [CRO-03C master-lead E2E certification](cro03c-master-lead-certification.md) — disposable-DB + fake-transport DI recipe for full-pipeline certs.
 - [Live dev DB delta assertion flakiness](live-dev-db-delta-assertion-flakiness.md) — global before/after count assertions flap against this project's shared dev DB; scope to uniquely-prefixed fixture rows instead.
-- [Pilot evidence-completeness chain](pilot-evidence-completeness-chain.md) — terminal state alone isn't proof; walk receipt→resolution→final-outcome; missing checkpoint rows must count as unresolved, not pass by default.
-- [First-party contact-page email crawler](first-party-contact-crawler.md) — Serper->crawler fallback domain-priority order, dual email policies, `_crawlerDeps` test seam, and a benign pre-existing test-noise error to ignore.
-- [CRO-03C inventory AMBIGUOUS prevention](cro03c-inventory-ambiguous-prevention.md) — convergence must check+revoke existing valid inventories before signing a new one; PID-based processIdentity causes stale rows within a 24h TTL on restart.
-- [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources return sentinel and skip both row fetch and cursor advance for that run.
-- [CRO-03C gate diagnostics endpoint](cro03c-gate-diagnostics.md) — GET /api/admin/cro03c/gate-diagnostics returns all prerequisite statuses; closedGateReason is a single enum (null=open); census latest-run at GET /api/cro03a/source-census/latest-run.
-- [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — a catch-block INSERT reusing a failing transaction's own pre-generated PK on a second connection deadlocks until the failing tx actually rolls back; write failures only in an outer catch, never inside the transaction callback.
+- [Pilot evidence-completeness chain](pilot-evidence-completeness-chain.md) — terminal state alone isn't proof; walk receipt→resolution→final-outcome; missing checkpoints count as unresolved.
+- [First-party contact-page email crawler](first-party-contact-crawler.md) — Serper->crawler fallback domain-priority order, dual email policies, `_crawlerDeps` test seam.
+- [CRO-03C inventory AMBIGUOUS prevention](cro03c-inventory-ambiguous-prevention.md) — convergence must check+revoke existing valid inventories before signing a new one.
+- [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources skip both row fetch and cursor advance.
+- [CRO-03C gate diagnostics endpoint](cro03c-gate-diagnostics.md) — GET /api/admin/cro03c/gate-diagnostics returns prerequisite statuses; closedGateReason is a single enum (null=open).
+- [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — a catch-block INSERT reusing a failing tx's own pre-generated PK on a second connection deadlocks; write failures only in an outer catch.
 - [Certification fixture reuse after mutation](cert-fixture-mutation-reuse.md) — a fixture mutated by an earlier check (voided/marked existing-customer) silently shows that mutated state to any later check reusing the same id, not the original state.
 - [Cross-connection advisory lock deadlock](advisory-lock-cross-connection-deadlock.md) — never take a transaction-scoped `pg_advisory_xact_lock` on the same key a session-level `pg_advisory_lock` (different connection) already holds for the call.
 - [Schema.ts check constraint without a migration](schema-check-constraint-unmigrated.md) — a `check()` added to a Drizzle table definition enforces nothing until a real migration creates it; `drizzle-kit check` won't catch this, only a live disposable-DB run will.
