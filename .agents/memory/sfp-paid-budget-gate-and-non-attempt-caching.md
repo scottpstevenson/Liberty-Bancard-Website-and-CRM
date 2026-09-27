@@ -55,3 +55,13 @@ automatic retry/reset. If a class of failures turns out to be a real code bug
 existing `failed` rows for the affected idempotency keys still block retries
 and need an explicit, deliberate remediation decision (not a blanket
 mutation) once the underlying bug is confirmed fixed.
+
+Remediating those rows must be an UPDATE (e.g. append a suffix to
+`idempotency_key` to stop it colliding with a fresh attempt), not a DELETE:
+several tables reference `provider_operations.id` with `onDelete: "restrict"`,
+so deleting a row with any child reference fails outright. Also remember the
+old `failed` row still matches later diagnostic queries filtered only on
+`state`/`target_fingerprint` (its target_fingerprint doesn't change) — that's
+expected noise from the stale row, not proof a fresh retry also failed;
+confirm success from the actual run's own response (e.g. non-zero settled
+cost) rather than by re-querying the old row.
