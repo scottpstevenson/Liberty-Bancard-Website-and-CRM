@@ -3480,6 +3480,45 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // POST /api/lead-ops/sfp/classification/provider-operations/clear-failed —
+  // one-time remediation for a confirmed code bug (fixed): a shared OpenAI
+  // transport helper hardcoded server-side output re-validation to the
+  // CRO03C {category,confidence,summary} shape regardless of the schema a
+  // caller actually requested, so every SFP {outcome,confidence,reasonCodes}
+  // completion -- even a real, correctly-shaped one -- was rejected as
+  // invalid_output and settled the reservation as 'failed'. Because the
+  // reservation idempotency key is deterministic (businessId + sha256(prompt)),
+  // those stale 'failed' rows permanently block any retry with the same
+  // input, even after the validator bug is fixed in code. provider_operations
+  // has no immutability trigger (unlike sfp_classification_evidence), but per
+  // this project's production-write discipline this must go through an
+  // explicit, scoped admin route -- never a raw SQL UPDATE/DELETE -- and only
+  // deletes rows that are state='failed' (never 'running' or 'completed') for
+  // the caller-specified businessIds under the openai control provider and
+  // the sfp_precohort_vertical_classification purpose. No refund/ledger
+  // change is needed: a 'failed' reservation was already released back to
+  // provider_controls at settlement time, and no cost was ever settled.
+  app.post("/api/lead-ops/sfp/classification/provider-operations/clear-failed", requireRole("admin"), async (req, res) => {
+    try {
+      const businessIds = Array.isArray(req.body?.businessIds)
+        ? req.body.businessIds.map(Number).filter((n: number) => Number.isInteger(n)) : [];
+      if (businessIds.length === 0 || businessIds.length > 25) {
+        return res.status(400).json({ error: "businessIds must be a non-empty array of at most 25 integers" });
+      }
+      const fingerprints = businessIds.map((id: number) => `business:${id}`);
+      const deleted = rows(await db.execute(sql`
+        DELETE FROM provider_operations
+         WHERE provider='openai' AND purpose='sfp_precohort_vertical_classification'
+           AND state='failed' AND billing_state='released'
+           AND target_fingerprint = ANY(ARRAY[${sql.join(fingerprints.map((f: string) => sql`${f}`), sql`,`)}]::text[])
+        RETURNING id, target_fingerprint
+      `));
+      res.json({ clearedCount: deleted.length, targetFingerprints: deleted.map((r: any) => r.target_fingerprint) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // POST /api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity — Apollo/Outscraper waterfall (bounded, manual)
   // Body: { idempotencyKey, maxBusinesses? }
   app.post("/api/lead-ops/sfp/runs/:runId/paid-waterfall/person-identity", requireRole("admin"), async (req, res) => {
