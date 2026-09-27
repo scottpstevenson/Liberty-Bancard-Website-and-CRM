@@ -46,6 +46,18 @@ const MAX_UNITS_PER_RESERVATION: Record<SfpPaidProvider, number> = {
   openai_classification: 4000,
 };
 
+// Exported so any pre-flight gate that estimates provider-call consumption
+// (e.g. the arm-pilot readiness check in routes/lead-ops.ts) reads the same
+// per-reservation ceiling used by reserveSfpProviderOperation/
+// reservePreCohortSfpProviderOperation, instead of hardcoding its own copy
+// of the number. Both `provider_controls.reserved_units`/`consumed_units`
+// (unit-denominated) and, for serper specifically, `serper_control.
+// window_calls`/`local_budget` (raw API call counts) use "1 unit == 1 call"
+// for this provider, so a single shared constant keeps both gates in sync.
+export function maxUnitsPerSfpReservation(provider: SfpPaidProvider): number {
+  return MAX_UNITS_PER_RESERVATION[provider] ?? 100;
+}
+
 export interface SfpProviderReservation {
   operationId: string;
   claimToken: string;

@@ -23,7 +23,8 @@ process.env.SERPER_API_KEY = "test-cert-serper-key";
 
 const { sql } = await import("drizzle-orm");
 const { db, pool } = await import("../server/db");
-const { assertSfpRuntimeAuthority } = await import("../server/services/cro03/sfp-provider-operations");
+const { assertSfpRuntimeAuthority, maxUnitsPerSfpReservation } = await import("../server/services/cro03/sfp-provider-operations");
+const maxCallsPerBusiness = maxUnitsPerSfpReservation("serper" as any);
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -61,7 +62,7 @@ async function armPilot(cohortRunId: string, maxBusinesses: number, reason: stri
       SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1 FOR UPDATE
     `))[0];
     if (!gateway?.enabled || gateway.state !== "closed" ||
-        Number(gateway.window_calls) + 4 * maxBusinesses > Number(gateway.local_budget)) {
+        Number(gateway.window_calls) + maxCallsPerBusiness * maxBusinesses > Number(gateway.local_budget)) {
       throw new Error("409:SFP_SERPER_GATEWAY_NOT_READY");
     }
     const control = rows(await tx.execute(sql`
@@ -69,7 +70,7 @@ async function armPilot(cohortRunId: string, maxBusinesses: number, reason: stri
         FROM provider_controls WHERE provider='serper' FOR UPDATE
     `))[0];
     if (!control || control.circuit_state !== "closed") throw new Error("409:SFP_SERPER_CONTROL_NOT_READY");
-    const cap = Number(control.consumed_units) + Number(control.reserved_units) + 4 * maxBusinesses;
+    const cap = Number(control.consumed_units) + Number(control.reserved_units) + maxCallsPerBusiness * maxBusinesses;
     const updated = rows(await tx.execute(sql`
       UPDATE provider_controls SET enabled=TRUE,local_budget_units=${cap},version=version+1,updated_at=NOW()
        WHERE provider='serper' RETURNING provider,enabled,circuit_state,local_budget_units,
@@ -93,6 +94,23 @@ async function main() {
   check(!armSection.slice(0, armSection.indexOf("res.json({ control")).includes("fetch(") &&
     !armSection.slice(0, armSection.indexOf("res.json({ control")).includes("lookupBusinessIdentity"),
     "arm-pilot handler makes no provider transport call before responding");
+
+  // --- Unit-consistency regression guard: serper_control.window_calls/local_budget
+  // (raw API calls) and provider_controls.reserved_units/consumed_units (also
+  // calls, for serper) must both be scaled by the SAME per-business call estimate.
+  // A future edit that hardcodes a numeral in either arithmetic site instead of
+  // reusing maxUnitsPerSfpReservation("serper") would silently let the two gates
+  // drift out of unit-sync — this assertion fails loudly if that regresses.
+  const preCapSection = armSection.slice(0, armSection.indexOf("const cap ="));
+  check(/maxUnitsPerSfpReservation\s*\(\s*["']serper["']\s*\)/.test(preCapSection),
+    "arm-pilot imports the per-business call estimate rather than importing it ad hoc");
+  const gatewayCheckLine = armSection.slice(armSection.indexOf("gateway?.enabled"), armSection.indexOf("SFP_SERPER_GATEWAY_NOT_READY"));
+  const capLine = armSection.slice(armSection.indexOf("const cap ="), armSection.indexOf("const cap =") + 200);
+  check(gatewayCheckLine.includes("maxCallsPerBusiness") && !/[^a-zA-Z_]4\s*\*\s*maxBusinesses/.test(gatewayCheckLine),
+    "the serper_control readiness check scales by the shared call-estimate variable, not a hardcoded literal");
+  check(capLine.includes("maxCallsPerBusiness") && !/[^a-zA-Z_]4\s*\*\s*maxBusinesses/.test(capLine),
+    "the provider_controls cap calculation scales by the same shared call-estimate variable (no unit drift between the two gates)");
+  check(maxCallsPerBusiness === 4, "maxUnitsPerSfpReservation('serper') is still the documented 4-calls-per-business ceiling this cert's fixtures assume");
 
   // --- Fixtures ---
   const programId = randomUUID();
@@ -165,8 +183,8 @@ async function main() {
   check(armed.enabled === true, "arm-pilot enables the provider control");
   check(Number(armed.reserved_units) === Number(before.reserved_units) && Number(armed.consumed_units) === Number(before.consumed_units),
     "arm-pilot preserves consumed_units and reserved_units exactly");
-  check(Number(armed.local_budget_units) === Number(before.reserved_units) + Number(before.consumed_units) + 4 * 2,
-    "arm-pilot sets local_budget_units to consumed+reserved+4*maxBusinesses (at most 4 requests/business)");
+  check(Number(armed.local_budget_units) === Number(before.reserved_units) + Number(before.consumed_units) + maxCallsPerBusiness * 2,
+    `arm-pilot sets local_budget_units to consumed+reserved+${maxCallsPerBusiness}*maxBusinesses (shared per-business call ceiling)`);
   check(Number(armed.version) === Number(before.version) + 1, "arm-pilot bumps the optimistic version counter");
 
   // 4. Never makes a provider call merely by arming: no provider_operations/stage_items rows created

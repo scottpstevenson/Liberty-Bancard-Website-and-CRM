@@ -7925,6 +7925,10 @@ export const serperControl = pgTable("serper_control", {
   windowFailures:          integer("window_failures").notNull().default(0),
   windowStartedAt:         timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
   windowEndsAt:            timestamp("window_ends_at", { withTimezone: true }).notNull(),
+  // localBudget is a raw API-call ceiling for the current billing window —
+  // the SAME unit as windowCalls (1 increment == 1 Serper API call). Never
+  // populate this column with a dollar/spend figure; readers (SerperGateway,
+  // the SFP arm-pilot readiness gate, admin dashboards) all assume calls.
   localBudget:             integer("local_budget").notNull().default(50000),
   providerBalance:         integer("provider_balance"),
   yieldWebsites:           bigint("yield_websites", { mode: "number" }).notNull().default(0),

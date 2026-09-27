@@ -3348,18 +3348,26 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (reason.length < 8 || reason.length > 200) {
         return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
       }
-      const { assertSfpRuntimeAuthority } = await import("../services/cro03/sfp-provider-operations");
+      const { assertSfpRuntimeAuthority, maxUnitsPerSfpReservation } = await import("../services/cro03/sfp-provider-operations");
       const cohortRunId = String(req.params.runId);
       await assertSfpRuntimeAuthority(cohortRunId);
       if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" || !process.env.SERPER_API_KEY) {
         return res.status(422).json({ error: "SFP_SERPER_TRANSPORT_OR_CREDENTIAL_UNAVAILABLE" });
       }
+      // Both serper_control (window_calls/local_budget) and provider_controls
+      // (reserved_units/consumed_units/local_budget_units) express Serper
+      // consumption in the SAME unit — raw API calls — so a single shared
+      // per-business call estimate must gate both checks below. Pulling this
+      // from sfp-provider-operations.ts (instead of a hardcoded literal)
+      // keeps this readiness gate from silently drifting out of sync with
+      // the reservation ceiling actually enforced when the pilot runs.
+      const maxCallsPerBusiness = maxUnitsPerSfpReservation("serper");
       const result = await db.transaction(async (tx) => {
         const gateway = rows(await tx.execute(sql`
           SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1 FOR UPDATE
         `))[0];
         if (!gateway?.enabled || gateway.state !== "closed" ||
-            Number(gateway.window_calls) + 4 * maxBusinesses > Number(gateway.local_budget)) {
+            Number(gateway.window_calls) + maxCallsPerBusiness * maxBusinesses > Number(gateway.local_budget)) {
           throw new Error("SFP_SERPER_GATEWAY_NOT_READY");
         }
         const control = rows(await tx.execute(sql`
@@ -3367,7 +3375,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             FROM provider_controls WHERE provider='serper' FOR UPDATE
         `))[0];
         if (!control || control.circuit_state !== "closed") throw new Error("SFP_SERPER_CONTROL_NOT_READY");
-        const cap = Number(control.consumed_units) + Number(control.reserved_units) + 4 * maxBusinesses;
+        const cap = Number(control.consumed_units) + Number(control.reserved_units) + maxCallsPerBusiness * maxBusinesses;
         const updated = rows(await tx.execute(sql`
           UPDATE provider_controls SET enabled=TRUE,local_budget_units=${cap},version=version+1,updated_at=NOW()
            WHERE provider='serper' RETURNING provider,enabled,circuit_state,local_budget_units,
@@ -3376,12 +3384,12 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         await tx.execute(sql`
           INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
           VALUES (${String((req.user as any)?.id ?? "system")},'sfp_serper_pilot_armed','provider_control','serper',
-                  ${JSON.stringify({ cohortRunId, maxBusinesses, maxAdditionalRequests: maxBusinesses * 4, reason })}::jsonb,
+                  ${JSON.stringify({ cohortRunId, maxBusinesses, maxAdditionalRequests: maxBusinesses * maxCallsPerBusiness, reason })}::jsonb,
                   ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
         `);
         return updated;
       });
-      res.json({ control: result, maxBusinesses, maxAdditionalRequests: maxBusinesses * 4 });
+      res.json({ control: result, maxBusinesses, maxAdditionalRequests: maxBusinesses * maxCallsPerBusiness });
     } catch (err: any) {
       const message = String(err?.message ?? err);
       res.status(/NOT_READY|NO_LIVE_RUNTIME_AUTHORITY/.test(message) ? 409 : 500).json({ error: message });
