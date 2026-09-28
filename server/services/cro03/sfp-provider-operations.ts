@@ -162,6 +162,36 @@ export async function getSfpProviderReadiness(
   return { ready: true, reason: null };
 }
 
+/**
+ * Side-effect-free pre-check mirroring assertSfpRuntimeAuthority's exact
+ * SELECT, but returning {ready,reason} instead of throwing. The runtime
+ * attestation is deliberately short-lived (<=15 min TTL) and, until this
+ * fix, was only ever (re)created via a manual admin ceremony endpoint
+ * (routes/cro03.ts) — nothing refreshed it on a schedule, so a scheduled
+ * worker hitting an expired attestation looked identical to a hard failure
+ * and could silently stall validation forever with no distinct signal.
+ * Continuous ticks call this first so "no live attestation right now" is
+ * its own quiet, resumable outcome (like provider_paused), not a crash.
+ */
+export async function getSfpAttestationReadiness(
+  cohortRunId: string,
+): Promise<{ ready: boolean; reason: string | null }> {
+  const authority = rows(await db.execute(sql`
+    SELECT a.id AS attestation_id
+      FROM sfp_cohort_runs r
+      JOIN sfp_programs p ON p.id=r.program_id
+      JOIN LATERAL (
+        SELECT id FROM cro03c_runtime_attestations
+         WHERE expires_at>NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
+         ORDER BY captured_at DESC LIMIT 1
+      ) a ON TRUE
+     WHERE r.id=${cohortRunId}::uuid AND r.cohort_state='frozen' AND r.voided_at IS NULL
+       AND r.superseded_at IS NULL AND p.is_active=TRUE
+  `))[0];
+  if (!authority) return { ready: false, reason: "no_live_runtime_attestation" };
+  return { ready: true, reason: null };
+}
+
 export async function currentSfpUnitPrice(provider: SfpPaidProvider): Promise<number> {
   const pricing = await getCurrentPricingSchedule();
   const key = provider === "openai_classification" ? "openai" : provider;

@@ -535,6 +535,21 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 10 * 60 * 1000,
     jobName: "tick",
   },
+  {
+    // Renews the short-lived (<=15 min) CRO-03C runtime attestation SFP
+    // paid operations require. 5-min interval keeps at least two
+    // overlapping valid attestations in force at all times so a single
+    // missed/failed tick (worker fleet momentarily incomplete, Redis blip)
+    // never fully drains the window before the next tick retries. Fails
+    // closed on its own (see sfp-attestation-refresh.ts) — never raises any
+    // cap, never touches provider_controls, never performs provider I/O.
+    name: QUEUE_NAMES.SFP_ATTESTATION_REFRESH,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 30_000,
+    repeatEveryMs: 5 * 60 * 1000,
+    jobName: "tick",
+  },
 ];
 
 /**
@@ -2558,6 +2573,12 @@ class QueueManager {
           const { processSfpContinuousValidationTick } = await import("./cro03/sfp-continuous-discovery");
           const result = await processSfpContinuousValidationTick();
           if (result.ran) console.log(`[SfpContinuousValidation] ${JSON.stringify(result)}`);
+          break;
+        }
+        case QUEUE_NAMES.SFP_ATTESTATION_REFRESH: {
+          const { processSfpAttestationRefreshTick } = await import("./cro03/sfp-attestation-refresh");
+          const result = await processSfpAttestationRefreshTick();
+          console.log(`[SfpAttestationRefresh] ${JSON.stringify(result)}`);
           break;
         }
         case QUEUE_NAMES.MASTER_LEAD_STAGER: {

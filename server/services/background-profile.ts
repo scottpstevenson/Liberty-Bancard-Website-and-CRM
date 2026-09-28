@@ -221,6 +221,11 @@ export const WORKER_CAPABILITY_GROUPS = {
   "sfp-continuous-discovery": [
     "sfp-continuous-discovery",
     "sfp-continuous-validation",
+    // Attestation refresh must ride with the same group: it's what unblocks
+    // validation's runtime-authority gate, so scheduling one without the
+    // other just recreates the "gate closed forever" symptom this exists
+    // to fix.
+    "sfp-attestation-refresh",
   ],
 } as const satisfies Record<string, readonly string[]>;
 

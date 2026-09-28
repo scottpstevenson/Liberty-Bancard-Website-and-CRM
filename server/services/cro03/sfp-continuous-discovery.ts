@@ -26,7 +26,7 @@ import {
 import { previewSfpPaidWaterfall, executeSfpSerperDiscovery } from "./sfp-paid-waterfall";
 import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
 import { assertAggregatePaidBudgetAvailable } from "../mi09-pilot-authority";
-import { getSfpProviderReadiness } from "./sfp-provider-operations";
+import { getSfpProviderReadiness, getSfpAttestationReadiness } from "./sfp-provider-operations";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -187,6 +187,18 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
   for (const c of candidates) {
     const cohortRunId = String(c.id);
     try {
+      // The runtime attestation is short-lived (<=15 min) and, historically,
+      // only ever refreshed by a manual admin ceremony — nothing kept it
+      // current on its own. sfp-attestation-refresh.ts now renews it on a
+      // schedule, but if that ever falls behind (worker fleet incomplete,
+      // Redis unhealthy, etc.) this must be a quiet, resumable pause for
+      // THIS cohort, exactly like a disabled provider — never a silent
+      // permanent stall and never an unhandled throw that kills the tick.
+      const attestation = await getSfpAttestationReadiness(cohortRunId);
+      if (!attestation.ready) {
+        await auditTick("sfp_continuous_validation_tick", "attestation_paused", { cohortRunId, reason: attestation.reason });
+        continue;
+      }
       const preview = await previewSfpValidation(cohortRunId);
       if (!preview.gateOpen || preview.selectedCandidates.length === 0) continue;
       const result = await executeSfpValidation(cohortRunId, {
