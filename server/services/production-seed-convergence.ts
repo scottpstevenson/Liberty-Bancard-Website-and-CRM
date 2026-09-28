@@ -245,7 +245,7 @@ const SFP_9555_BUSINESS_ID = 9555;
 const SFP_9555_SUSPECT_DOMAIN = "prolawnlandscaper.com";
 const SFP_9555_VOIDED_COHORT_RUN_ID = "03b65bd0-cf98-427f-92d5-4a7a79705028";
 
-async function convergeSfpIdentityQuarantineBusiness9555(): Promise<SeedTargetResult> {
+export async function convergeSfpIdentityQuarantineBusiness9555(): Promise<SeedTargetResult> {
   const id = "sfp_identity_quarantine_business_9555";
   const tables = ["sfp_identity_quarantines", "sfp_discredited_paid_evidence", "businesses", "free_discovery_candidates"];
   return withLock(`seed:${id}`, async (tx) => {
@@ -338,7 +338,7 @@ async function convergeSfpIdentityQuarantineBusiness9555(): Promise<SeedTargetRe
 // Publish syncs the archive tables without executing migration DML, so mirror
 // the exact guarded archive-and-removal here. The immutable paid observations
 // and historical source events are left intact under their rejection gates.
-async function convergeSfpWrongSiteDerivedEvidence9555(): Promise<SeedTargetResult> {
+export async function convergeSfpWrongSiteDerivedEvidence9555(): Promise<SeedTargetResult> {
   const id = "sfp_wrong_site_derived_evidence_9555";
   const tables = ["sfp_discredited_processor_signals", "sfp_discredited_free_enrichment_summaries", "processor_signals", "businesses"];
   return withLock(`seed:${id}`, async (tx) => {
@@ -1126,8 +1126,14 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
     seedKeys: { columns: ["logical_key", "created_by"], values: [["candidate_freshness_refresh", CRO08A_SCHEDULE_CREATED_BY]] },
   },
   { id: "sunbiz_soflo_cursor_rewind_task2002", classification: "historical_backfill", tables: ["sunbiz_bootstrap_runs"], write: convergeSofloCursorRewind },
-  { id: "sfp_identity_quarantine_business_9555", classification: "historical_backfill", tables: ["sfp_identity_quarantines", "sfp_discredited_paid_evidence", "businesses", "free_discovery_candidates"], write: convergeSfpIdentityQuarantineBusiness9555 },
-  { id: "sfp_wrong_site_derived_evidence_9555", classification: "historical_backfill", tables: ["sfp_discredited_processor_signals", "sfp_discredited_free_enrichment_summaries", "processor_signals", "businesses"], write: convergeSfpWrongSiteDerivedEvidence9555 },
+  // sfp_identity_quarantine_business_9555 and sfp_wrong_site_derived_evidence_9555
+  // are intentionally NOT registered here. They are single-business, one-off
+  // historical-incident repairs (not required gating seeds), and blocking
+  // startup on them serializes two more DB transactions ahead of listen() —
+  // same class of risk documented on convergeContactRecordClassBackfill below.
+  // They run fire-and-forget after listen() in server/index.ts instead so a
+  // slow/contended production DB cannot delay port-open past the deploy
+  // health-check window.
 ];
 
 /**

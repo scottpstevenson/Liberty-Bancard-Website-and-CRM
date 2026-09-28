@@ -62,6 +62,14 @@ const KNOWN_EXEMPT_SEEDS: Record<string, { table: string; classification: "histo
     { table: "documents", classification: "historical_one_time", reason: "same one-time contact-dedupe reassignment as the deals row above, for documents." },
     { table: "contacts", classification: "historical_one_time", reason: "one-time archival of duplicate contact rows discovered by this migration's dedupe scan; not applicable to contacts created after this migration's window." },
   ],
+  "0304_sfp_identity_quarantine.sql": [
+    { table: "sfp_identity_quarantines", classification: "historical_one_time", reason: "single-business (9555) historical-incident quarantine repair; covered by convergeSfpIdentityQuarantineBusiness9555, run fire-and-forget after listen() in server/index.ts rather than as a blocking SEED_TARGETS entry so a slow/contended production DB cannot delay port-open." },
+    { table: "sfp_discredited_paid_evidence", classification: "historical_one_time", reason: "same business-9555 incident repair as sfp_identity_quarantines above; archived by the same post-listen() backfill." },
+  ],
+  "0305_sfp_wrong_site_derived_evidence.sql": [
+    { table: "sfp_discredited_processor_signals", classification: "historical_one_time", reason: "single-business (9555) historical-incident archive; covered by convergeSfpWrongSiteDerivedEvidence9555, run fire-and-forget after listen() in server/index.ts rather than as a blocking SEED_TARGETS entry so a slow/contended production DB cannot delay port-open." },
+    { table: "sfp_discredited_free_enrichment_summaries", classification: "historical_one_time", reason: "same business-9555 incident repair as sfp_discredited_processor_signals above; archived by the same post-listen() backfill." },
+  ],
   "0012_verbal_commit_pipeline_stage.sql": [{ table: "pipeline_stages", classification: "historical_one_time", reason: "one-time pipeline stage row insert/rename for a specific historical pipeline configuration; current pipeline_stages content is operator-managed at runtime, not migration-seeded." }],
   "0027_underwriting_rules.sql": [{ table: "underwriting_rules", classification: "historical_one_time", reason: "initial underwriting rule set from the original feature launch; rules are now managed via the admin UI, not re-seeded on every deploy." }],
   "0055_add_data_completeness_score.sql": [{ table: "contacts", classification: "historical_one_time", reason: "one-time UPDATE backfilling a computed score column added in this migration for rows that existed at the time; the score is recomputed by application code going forward." }],

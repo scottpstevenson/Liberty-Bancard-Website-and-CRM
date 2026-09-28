@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { assertCro02PurposePolicies, assertCro02ShadowOnly } from "./services/commercial-resolution";
-import { runProductionSeedConvergence, convergeContactRecordClassBackfill } from "./services/production-seed-convergence";
+import { runProductionSeedConvergence, convergeContactRecordClassBackfill, convergeSfpIdentityQuarantineBusiness9555, convergeSfpWrongSiteDerivedEvidence9555 } from "./services/production-seed-convergence";
 import { ensureSfpOutreachPolicyControlCheckConstraint } from "./services/cro03/sfp-outreach-policy";
 // W13: Ceremony removed from startup — use scripts/cro03d-run-ceremony.ts offline.
 import { serveStatic } from "./static";
@@ -402,6 +402,22 @@ app.use((req, _res, next) => {
         }).catch((err: any) => {
           console.error("[ContactClassBackfill] Failed (non-fatal, will retry on next restart):", err?.message ?? err);
         });
+      });
+      // sfp_identity_quarantine_business_9555 / sfp_wrong_site_derived_evidence_9555:
+      // one-off historical-incident repairs for a single business, deliberately
+      // NOT part of runProductionSeedConvergence()'s blocking startup chain (see
+      // that file's SEED_TARGETS comment). Run after listen() so a slow/contended
+      // production DB cannot delay port-open past the deploy health-check window.
+      // Sequential (quarantine must land before the derived-evidence guard reads it).
+      setImmediate(async () => {
+        try {
+          const quarantineResult = await convergeSfpIdentityQuarantineBusiness9555();
+          console.log(`[SfpBusiness9555] identity_quarantine ${quarantineResult.outcome}: ${quarantineResult.detail}`);
+          const evidenceResult = await convergeSfpWrongSiteDerivedEvidence9555();
+          console.log(`[SfpBusiness9555] wrong_site_derived_evidence ${evidenceResult.outcome}: ${evidenceResult.detail}`);
+        } catch (err: any) {
+          console.error("[SfpBusiness9555] Backfill failed (non-fatal, will retry on next restart):", err?.message ?? err);
+        }
       });
       // MI-06: Fire-and-forget reconciliation for pre-MI-06 businesses.mainEmail values.
       // For every businesses row where mainEmail IS NOT NULL and email_discovery_status IS NULL,

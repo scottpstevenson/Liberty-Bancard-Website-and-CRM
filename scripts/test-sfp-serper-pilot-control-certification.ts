@@ -322,10 +322,13 @@ async function main() {
     VALUES (${incidentSignalId},${incidentId},'ecommerce_platform','Squarespace Commerce','script',
       'Script source: //assets.squarespace.com/@sqs/polyfiller/1.6/legacy.js')
   `);
-  const { SEED_TARGETS } = await import("../server/services/production-seed-convergence");
-  const correction = SEED_TARGETS.find((t) => t.id === "sfp_wrong_site_derived_evidence_9555");
-  check(Boolean(correction), "wrong-site correction is registered for production startup convergence");
-  const correctionResult = await correction!.write();
+  // Registered as a fire-and-forget post-listen() backfill in server/index.ts
+  // (not in SEED_TARGETS) so a slow/contended production DB cannot delay
+  // port-open past the deploy health-check window — see that file's comment
+  // on convergeSfpWrongSiteDerivedEvidence9555 for why.
+  const { convergeSfpWrongSiteDerivedEvidence9555 } = await import("../server/services/production-seed-convergence");
+  check(typeof convergeSfpWrongSiteDerivedEvidence9555 === "function", "wrong-site correction is exported for the post-listen() startup backfill");
+  const correctionResult = await convergeSfpWrongSiteDerivedEvidence9555();
   const liveAfterCorrection = rows(await db.execute(sql`
     SELECT b.free_enrichment_evidence,
       (SELECT COUNT(*)::int FROM processor_signals WHERE business_id=${incidentId}) AS live_signals,
@@ -337,7 +340,7 @@ async function main() {
     Number(liveAfterCorrection.live_signals) === 0 && Number(liveAfterCorrection.archived_signals) === 1 &&
     Number(liveAfterCorrection.archived_summaries) === 1,
     "guarded correction archives both wrong-site artifacts and clears only their live projections");
-  check((await correction!.write()).outcome === "already_present",
+  check((await convergeSfpWrongSiteDerivedEvidence9555()).outcome === "already_present",
     "wrong-site correction replays without another archive or mutation");
 
   // 11. UI package-check fix: client component now queries the v2 verify endpoint
