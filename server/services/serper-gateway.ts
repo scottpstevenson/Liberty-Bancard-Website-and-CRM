@@ -33,7 +33,10 @@ export type SerperBlockReason =
   | "circuit_open"
   | "half_open_probe_in_flight"
   | "budget_exhausted"
-  | "no_api_key";
+  | "no_api_key"
+  | "canonical_control_disabled"
+  | "canonical_control_open"
+  | "canonical_control_unreadable";
 
 export interface SerperGatewayResult {
   ok: boolean;
@@ -362,8 +365,28 @@ export class SerperGateway {
     );
     // #1602 — RESOLVED alert only on an actual half_open → closed transition.
     const r = rows[0];
+    if (r && r.new_state !== r.prev_state) {
+      await this._mirrorCircuitState(r.new_state);
+    }
     if (r && r.prev_state === "half_open" && r.new_state === "closed") {
       this._emitCircuitRecoveryAlert();
+    }
+  }
+
+  /**
+   * Gate 2 reconciliation: mirror a circuit-state transition into the
+   * canonical provider_controls row. Best-effort — a mirror failure must
+   * never affect the legacy circuit transition that already committed,
+   * since serper_control remains the sole call-time authority for Serper.
+   */
+  private async _mirrorCircuitState(state: "closed" | "open" | "half_open"): Promise<void> {
+    try {
+      await this.pool.query(
+        `UPDATE provider_controls SET circuit_state = $1, version = version + 1, updated_at = NOW() WHERE provider = 'serper'`,
+        [state],
+      );
+    } catch (err) {
+      console.error("[SerperGateway] provider_controls circuit mirror failed:", err);
     }
   }
 
@@ -418,6 +441,9 @@ export class SerperGateway {
     }
     // #1602 — alert ONLY on an actual closed/half_open → open transition.
     const r = rows[0];
+    if (r && r.new_state !== r.prev_state) {
+      await this._mirrorCircuitState(r.new_state);
+    }
     if (r && r.new_state === "open" && r.prev_state !== "open") {
       this._emitCircuitOpenAlert(
         r.reason_code ?? reasonCode,
@@ -576,6 +602,20 @@ export class SerperGateway {
       );
       if (result.rows.length === 0) throw new Error("serper_control row missing — run migrations");
       const row = result.rows[0] as unknown as SerperControlRow;
+
+      // Gate 2 reconciliation: mirror into the canonical provider_controls
+      // row in the SAME transaction so the admin/lead-ops panels (which read
+      // provider_controls for every other paid provider) never show a
+      // stale Serper enabled state relative to this legacy singleton. This
+      // is a one-way mirror (serper_control remains authoritative for
+      // Serper's own call-time gate); it does not read provider_controls
+      // back or make it a second gate, avoiding the drift/false-block risk
+      // of a dual-read gate.
+      await tx.execute(sql`
+        INSERT INTO provider_controls (provider, capability, enabled, circuit_state)
+        VALUES ('serper', 'business_discovery', ${enabled}, 'closed')
+        ON CONFLICT (provider) DO UPDATE SET enabled = ${enabled}, version = provider_controls.version + 1, updated_at = NOW()
+      `);
 
       await tx.insert(auditLogs).values({
         userId: audit.actorId,
