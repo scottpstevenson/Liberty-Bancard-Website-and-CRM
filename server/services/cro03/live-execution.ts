@@ -33,6 +33,8 @@ import {
 import { sanitizeAuditPayload } from "../audit-sanitizer";
 import { PAID_PROVIDER_KEYS } from "../paid-provider-control";
 import { assertAggregateRecurringPaidBudgetAvailable } from "../cro08a/schedule-authority";
+import { assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
+import { MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS } from "../mi09-pilot-authority";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const SHA256 = /^[0-9a-f]{64}$/i;
@@ -2018,6 +2020,17 @@ export async function reserveCro03cProviderOperation(input: {
         throw new Error("CRO08A_OCCURRENCE_AGGREGATE_BUDGET_EXCEEDED");
       }
     }
+    // Gate 2 hardening: the FOR UPDATE OF c row lock above only serializes
+    // reservations against THIS command, and only against other CRO-03C
+    // reservations — it never sees a concurrent SFP reservation, which uses
+    // an entirely separate table pool and its own (previously separate)
+    // advisory lock. Acquire the SAME shared ladder-budget lock SFP now
+    // uses, and check the SAME combined SFP+CRO-03C sum, before committing
+    // this reservation, so the two paths can never jointly exceed $50.
+    await assertLadderBudgetHeadroom(tx, {
+      reservationMicros: input.maxAmountMicros,
+      capMicros: MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS,
+    });
     const operation = rows(await tx.execute(sql`
       INSERT INTO cro03c_stage_operations
         (generation_id,stage_key,provider,operation_type,operation_key,caller,unit_type,currency,

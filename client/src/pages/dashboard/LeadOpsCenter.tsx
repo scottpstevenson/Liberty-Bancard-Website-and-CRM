@@ -3221,6 +3221,43 @@ function PilotStatusPanel() {
             </div>
           </div>
         )}
+        {statusOverviewQuery.data?.funnel && (
+          <div className="rounded border p-2 space-y-1">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>Enrichment funnel (Gate 3)</span>
+              <span className="font-mono">as of {new Date(statusOverviewQuery.data.funnel.snapshotAt).toLocaleTimeString()}</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div className="rounded border p-2"><div className="text-muted-foreground">Sunbiz source rows</div><div>{statusOverviewQuery.data.funnel.sunbiz_source_rows ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Canonical businesses</div><div>{statusOverviewQuery.data.funnel.canonical_businesses ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Contacts linked to business</div><div>{statusOverviewQuery.data.funnel.contacts_linked_to_business ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Canonical missing domain</div><div>{statusOverviewQuery.data.funnel.canonical_missing_domain ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Free enrichment complete</div><div>{statusOverviewQuery.data.funnel.free_enrichment_complete ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Free enrichment queued</div><div>{statusOverviewQuery.data.funnel.free_enrichment_queued ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Paid discovered evidence</div><div>{statusOverviewQuery.data.funnel.paid_discovered_evidence_rows ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Policy eligible</div><div className="text-green-600 font-semibold">{statusOverviewQuery.data.funnel.policy_eligible ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Policy suppressed</div><div>{statusOverviewQuery.data.funnel.policy_suppressed ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Policy ineligible</div><div>{statusOverviewQuery.data.funnel.policy_ineligible ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Policy pending/discovery</div><div>{statusOverviewQuery.data.funnel.policy_pending ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Catch-all review</div><div>{statusOverviewQuery.data.funnel.policy_catch_all_review ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Ready-held enrollments</div><div>{statusOverviewQuery.data.funnel.ready_held_enrollments ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Identity quarantined</div><div>{statusOverviewQuery.data.funnel.identity_quarantined ?? "—"}</div></div>
+              <div className="rounded border p-2"><div className="text-muted-foreground">Contacts suppressed</div><div>{statusOverviewQuery.data.funnel.contacts_suppressed ?? "—"}</div></div>
+            </div>
+          </div>
+        )}
+        {statusOverviewQuery.data?.crosswalkOnlyExcluded && (
+          <div className="rounded border p-2">
+            <div className="text-xs text-muted-foreground mb-1">Crosswalk-only excluded contacts</div>
+            <div className="flex flex-wrap gap-2 items-center text-xs">
+              <span className="font-semibold text-base">{statusOverviewQuery.data.crosswalkOnlyExcluded.crosswalk_only_excluded_count ?? 0}</span>
+              <span className="text-muted-foreground">
+                have no deterministic/explicit identity link — only ambiguous ({statusOverviewQuery.data.crosswalkOnlyExcluded.ambiguous_match_count ?? 0}) or
+                insufficient-evidence ({statusOverviewQuery.data.crosswalkOnlyExcluded.insufficient_evidence_count ?? 0}) crosswalk candidates. Kept in review, never promoted or dropped.
+              </span>
+            </div>
+          </div>
+        )}
         {statusOverviewQuery.data?.zbOutcomes?.length > 0 && (
           <div>
             <div className="text-xs text-muted-foreground mb-1">ZeroBounce outcomes (contacts.email_status)</div>

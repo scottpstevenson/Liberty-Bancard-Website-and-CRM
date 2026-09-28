@@ -17,6 +17,7 @@ import {
   assertPaidBudgetAuthorized,
   getCurrentPricingSchedule,
 } from "../mi09-pilot-authority";
+import { assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const CALLER = "server/services/cro03/sfp-provider-operations.ts";
@@ -86,17 +87,21 @@ export async function reserveSfpAggregateBudgetInTransaction(
     target: { kind: "precohort"; runId: string } | { kind: "cohort"; stageRunId: string };
   },
 ): Promise<void> {
-  await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('sfp-paid-budget',0))`);
-  const current = rows(await executor.execute(sql`
-    SELECT
-      (SELECT COALESCE(SUM(reserved_cost_micros+settled_cost_micros),0)
-         FROM sfp_stage_runs WHERE state IN ('authorized','running','completed','partial')) +
-      (SELECT COALESCE(SUM(reserved_cost_micros),0)
-         FROM sfp_classification_runs WHERE state IN ('authorized','running')) +
-      (SELECT COALESCE(SUM(cost_micros),0) FROM sfp_classification_evidence) AS micros
-  `))[0];
-  if (Number(current?.micros ?? 0) + input.externalSpendMicros + input.reservationMicros > input.capMicros) {
-    throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
+  // Gate 2 hardening: this used to take its own SFP-only advisory lock and
+  // sum only SFP's own tables, which let a concurrent MI-09/CRO-03C
+  // reservation slip past unseen. Both paths now share one lock key and one
+  // combined sum (see shared-paid-budget-ledger.ts) so neither can commit
+  // past the $50 cap while the other path is mid-reservation.
+  try {
+    await assertLadderBudgetHeadroom(executor, {
+      reservationMicros: input.reservationMicros + input.externalSpendMicros,
+      capMicros: input.capMicros,
+    });
+  } catch (err: any) {
+    if (String(err?.message ?? "").startsWith("LADDER_AGGREGATE_BUDGET_EXCEEDED")) {
+      throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
+    }
+    throw err;
   }
   const reserved = input.target.kind === "precohort"
     ? rows(await executor.execute(sql`

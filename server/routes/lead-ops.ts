@@ -2320,6 +2320,64 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         WHERE email_status IS NOT NULL GROUP BY email_status ORDER BY cnt DESC LIMIT 10
       `));
 
+      // Crosswalk-only exclusion visibility (Liberty Bancard enrichment
+      // hardening): contacts whose only identity-crosswalk candidate
+      // evidence is AMBIGUOUS_MATCH or INSUFFICIENT_EVIDENCE — i.e. no
+      // deterministic/explicit fact-based link exists — must be counted and
+      // reasoned about in this funnel, not silently absent from it. These
+      // contacts are never deleted: classifyEvidence()
+      // (identity-crosswalk-runner.ts) always persists a disposition row
+      // and Gen-1 promotion stays fail-closed for them
+      // (daily-outreach.ts) — they remain in review/excluded state.
+      // Scoped to the most recent completed run per contact candidate so a
+      // stale/superseded run doesn't double count or contradict a later one.
+      const crosswalkOnlyExcluded = rows(await db.execute(sql`
+        WITH latest_candidate AS (
+          SELECT DISTINCT ON (cic.candidate_id)
+            cic.candidate_id AS contact_id,
+            cic.evidence_class,
+            cis.disposition
+          FROM contact_identity_candidates cic
+          JOIN contact_identity_subjects cis ON cis.id = cic.subject_id
+          JOIN contact_identity_reconciliation_runs r ON r.id = cic.run_id
+          WHERE cic.candidate_type = 'contact' AND r.status = 'completed'
+          ORDER BY cic.candidate_id, r.created_at DESC
+        )
+        SELECT
+          COUNT(*) FILTER (WHERE evidence_class IN ('AMBIGUOUS_MATCH', 'INSUFFICIENT_EVIDENCE'))::int AS crosswalk_only_excluded_count,
+          COUNT(*) FILTER (WHERE evidence_class = 'AMBIGUOUS_MATCH')::int AS ambiguous_match_count,
+          COUNT(*) FILTER (WHERE evidence_class = 'INSUFFICIENT_EVIDENCE')::int AS insufficient_evidence_count
+        FROM latest_candidate
+      `))[0] ?? { crosswalk_only_excluded_count: 0, ambiguous_match_count: 0, insufficient_evidence_count: 0 };
+
+      // Gate 3 — Enrichment Control Center funnel. Real counts per stage
+      // (source → canonical → contacts → domain → free/paid → discovered →
+      // ZB → policy-eligible → ready_held → suppressed/quarantined), each
+      // using the exact predicate already authoritative elsewhere in this
+      // codebase (see inline comments). A stage whose real denominator is
+      // structurally unavailable is reported as null with an "unavailable"
+      // reason string, never a fabricated 0 — per truthful-state-signal
+      // policy for provider/pipeline telemetry.
+      const funnelSnapshotAt = new Date().toISOString();
+      const funnel = rows(await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::int FROM sunbiz_entities WHERE source = 'sunbiz') AS sunbiz_source_rows,
+          (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical') AS canonical_businesses,
+          (SELECT COUNT(*)::int FROM contacts c JOIN businesses b ON b.id = c.business_id) AS contacts_linked_to_business,
+          (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical' AND (website_domain IS NULL OR trim(website_domain) = '')) AS canonical_missing_domain,
+          (SELECT COUNT(*)::int FROM businesses WHERE free_enrichment_status = 'enriched') AS free_enrichment_complete,
+          (SELECT COUNT(*)::int FROM businesses WHERE website_domain IS NOT NULL AND free_enrichment_status IS NULL) AS free_enrichment_queued,
+          (SELECT COUNT(*)::int FROM sfp_paid_candidate_evidence) AS paid_discovered_evidence_rows,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility WHERE status = 'validated_outreach_eligible') AS policy_eligible,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility WHERE status = 'validated_suppressed') AS policy_suppressed,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility WHERE status = 'validated_policy_ineligible') AS policy_ineligible,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility WHERE status IN ('validation_pending', 'discovery_required')) AS policy_pending,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility WHERE status = 'catch_all_review') AS policy_catch_all_review,
+          (SELECT COUNT(*)::int FROM sfp_ready_held_enrollments) AS ready_held_enrollments,
+          (SELECT COUNT(*)::int FROM sfp_identity_quarantines) AS identity_quarantined,
+          (SELECT COUNT(*)::int FROM contacts WHERE do_not_contact = true OR email_status IN ('bounced', 'invalid', 'opted_out', 'unsafe')) AS contacts_suppressed
+      `))[0] ?? {};
+
       res.json({
         poolAuthority,
         releaseSha: process.env.RELEASE_SHA ?? "unknown",
@@ -2327,6 +2385,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         outboundEnrichmentPaused: getBackgroundProfile() === "off",
         eligibleCounts,
         zbOutcomes,
+        funnel: { snapshotAt: funnelSnapshotAt, ...funnel },
+        crosswalkOnlyExcluded: crosswalkOnlyExcluded ?? { crosswalk_only_excluded_count: 0, ambiguous_match_count: 0, insufficient_evidence_count: 0 },
         spendByProvider: spend.byProvider,
         aggregateBudget: { capMicros: spend.capMicros, settledMicros: spend.settledMicros, reservedMicros: spend.reservedMicros, remainingMicros: spend.remainingMicros, overCap: spend.overCap },
         providerControls: paidProviderControls.providers,
