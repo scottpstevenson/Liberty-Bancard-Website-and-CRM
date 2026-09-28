@@ -34,12 +34,20 @@ function canonicalDomain(value: unknown): string | null {
 }
 
 async function claimStageRun(stageRunId: string): Promise<string> {
+  // 'partial' means a prior attempt under this same idempotency key finished
+  // (cleared its lease) with some items unresolved — e.g. every item failed
+  // because a paid provider was disabled at the time. Its lease is already
+  // NULL (see the UPDATE at the bottom of executeSfpSerperDiscovery), so it
+  // is safe to reclaim exactly like 'authorized'/'pending'. Excluding it was
+  // a bug: once a stage ever went 'partial', no later tick within the same
+  // idempotency window could ever retry it, and the caller saw a misleading
+  // "already running" error for what was really "nothing left to claim".
   const claimed = rows(await db.execute(sql`
     UPDATE sfp_stage_runs
        SET state='running',claim_token=gen_random_uuid(),lease_expires_at=NOW()+INTERVAL '30 minutes',
            started_at=COALESCE(started_at,NOW()),last_heartbeat_at=NOW(),updated_at=NOW()
      WHERE id=${stageRunId}::uuid AND (
-       state IN ('authorized','pending') OR (state='running' AND lease_expires_at<NOW())
+       state IN ('authorized','pending','partial') OR (state='running' AND lease_expires_at<NOW())
      )
     RETURNING claim_token
   `))[0];

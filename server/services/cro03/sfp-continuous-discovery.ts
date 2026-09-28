@@ -26,6 +26,7 @@ import {
 import { previewSfpPaidWaterfall, executeSfpSerperDiscovery } from "./sfp-paid-waterfall";
 import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
 import { assertAggregatePaidBudgetAvailable } from "../mi09-pilot-authority";
+import { getSfpProviderReadiness } from "./sfp-provider-operations";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -71,6 +72,21 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   } catch (err: any) {
     await auditTick("sfp_continuous_discovery_tick", "budget_exhausted", { error: String(err?.message ?? err) });
     return { ran: false, reason: "aggregate_budget_exhausted" };
+  }
+
+  // Durable-paused fast path: check the shared provider_controls gate BEFORE
+  // touching any cohort or stage row. A disabled/exhausted/open-circuit
+  // provider must never freeze a new cohort, claim a stage, or attempt a
+  // reservation — doing so previously stranded a cohort in a 'partial' stage
+  // that every later tick within the same hour bucket could not reclaim
+  // (SFP_STAGE_ALREADY_RUNNING). This makes "paused" its own quiet, resumable
+  // outcome distinct from "failed": nothing is written except one audit row,
+  // and the very next tick after the provider is re-enabled resumes the same
+  // frozen cohort's remaining Serper-eligible work with no operator action.
+  const readiness = await getSfpProviderReadiness("serper");
+  if (!readiness.ready) {
+    await auditTick("sfp_continuous_discovery_tick", "provider_paused", { reason: readiness.reason });
+    return { ran: false, reason: `provider_paused:${readiness.reason}` };
   }
 
   // 1) Reuse an existing usable frozen cohort if it still has Serper-eligible
@@ -155,6 +171,11 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
   if (!program || !program.isActive) return { ran: false, reason: "program_inactive" };
   if (process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
     return { ran: false, reason: "validation_promotion_disabled" };
+  }
+  const readiness = await getSfpProviderReadiness("zerobounce");
+  if (!readiness.ready) {
+    await auditTick("sfp_continuous_validation_tick", "provider_paused", { reason: readiness.reason });
+    return { ran: false, reason: `provider_paused:${readiness.reason}` };
   }
 
   const candidates = rows(await db.execute(sql`

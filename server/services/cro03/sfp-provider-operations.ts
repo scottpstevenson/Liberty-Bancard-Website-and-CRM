@@ -133,6 +133,35 @@ export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ 
   return { attestationId: String(authority.attestation_id) };
 }
 
+/**
+ * Fast, side-effect-free readiness check for the shared provider_controls
+ * gate (enabled + circuit closed + a real budget ceiling with headroom).
+ * Continuous background ticks call this BEFORE touching any cohort/stage
+ * row so a disabled/exhausted provider becomes a durable "paused" outcome —
+ * no cohort freeze, no stage claim, no reservation attempt, nothing to get
+ * stuck in a partial state and no retry storm. This deliberately duplicates
+ * (rather than weakens) the authoritative checks inside
+ * reserveSfpProviderOperation/previewSfpValidation, which still run their
+ * own full gate at actual reservation time.
+ */
+export async function getSfpProviderReadiness(
+  provider: SfpPaidProvider,
+): Promise<{ ready: boolean; reason: string | null }> {
+  const controlProvider = CONTROL_KEY[provider];
+  const control = rows(await db.execute(sql`
+    SELECT enabled, circuit_state, local_budget_units, reserved_units, consumed_units
+      FROM provider_controls WHERE provider=${controlProvider}
+  `))[0];
+  if (!control) return { ready: false, reason: `provider_control_missing:${controlProvider}` };
+  if (!control.enabled) return { ready: false, reason: `provider_disabled:${controlProvider}` };
+  if (control.circuit_state !== "closed") return { ready: false, reason: `provider_circuit_${control.circuit_state}:${controlProvider}` };
+  if (control.local_budget_units == null) return { ready: false, reason: `provider_budget_unset:${controlProvider}` };
+  const headroom = Number(control.local_budget_units) - Number(control.reserved_units) - Number(control.consumed_units);
+  if (headroom <= 0) return { ready: false, reason: `provider_budget_exhausted:${controlProvider}` };
+  if (!process.env[SECRET_KEY[provider]]) return { ready: false, reason: `credential_missing:${SECRET_KEY[provider]}` };
+  return { ready: true, reason: null };
+}
+
 export async function currentSfpUnitPrice(provider: SfpPaidProvider): Promise<number> {
   const pricing = await getCurrentPricingSchedule();
   const key = provider === "openai_classification" ? "openai" : provider;

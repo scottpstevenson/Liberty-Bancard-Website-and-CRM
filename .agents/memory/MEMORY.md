@@ -13,7 +13,6 @@
 - [Drizzle set() silent drop](drizzle-set-silent-drop.md) — db.update().set({...} as cast) silently drops columns; use raw db.execute(sql`UPDATE...`) for critical single-field writes.
 - [Login rate limiter behavior](login-rate-limiter.md) — 401 "Invalid email or password" returned for BOTH wrong password AND rate-limit hits — indistinguishable from logs.
 - [Admin password sync](admin-password-sync.md) — seedAdminUser re-hashes and updates DB password on every startup; use env vars to control it.
-- [Playwright test user](playwright-test-user.md) — dedicated test user exists in DB; avoid using admin user (2FA risk, rate limiter).
 - [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat, not /dashboard/ai-advisors; ResponsiveTable can't wrap children (overflow-x-auto div instead).
 - [Sequence control policy](sequence-control-policy.md) — all sequences default to `paused`; storage layer blocks enrollment into non-active sequences.
 - [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent; maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first.
@@ -44,7 +43,6 @@
 - [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.
 - [CAN-SPAM footer injection](can-spam-footer-injection.md) — HMAC secrets diverge between test/server processes; contacts schema column must match DB; worker channel gate fail-closes before custom gates.
 - [Drizzle out-of-order journal when](drizzle-out-of-order-journal.md) — a journal entry's `when` below any already-applied entry is silently skipped; fix `when` above high-water mark + insert hash.
-- [Sequence/coordinator test-isolation flakes](sequence-case27-lock-race.md) — live BullMQ workers racing for job locks or stale pause holds during tests cause flaps, not product bugs.
 - [Dashboard header shrink-0 sibling overlap](header-shrink0-overlap.md) — shrink-0 right header group forced left group to 0 width on mobile; search input silently ate its taps.
 - [Collateral packet manual override](collateral-packet-override.md) — override precedence (explicit > auto-match > fallback); watch for "resolved name left null on failure" truthful-state bugs.
 - [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — two route files can both register the same param path; earlier-registered wins silently — verify via curl, not code reading.
@@ -158,3 +156,4 @@
 - [Paid-batch runs execute the published build, not workspace edits](sfp-paid-batch-runs-published-build.md) — a code fix isn't live in prod paid runs until redeployed; verify before spending budget.
 - [Drizzle migration errors swallow the real Postgres cause](drizzle-migration-error-swallowed-cause.md) — err.message is just "Failed query: <sql>"; the real error is on err.cause and was never logged.
 - [Selective BullMQ profile double-gate](selective-background-profile-double-gate.md) — a new recurring queue also needs a WORKER_CAPABILITY_GROUPS entry + its group added to BACKGROUND_JOB_PROFILE, or it registers in code but never runs.
+- [Continuous-tick provider pause pattern](sfp-continuous-pause-pattern.md) — stage-claim WHERE must include 'partial' (lease already cleared) or a blocked provider strands the stage forever; pre-check provider_controls before freezing/claiming so "disabled" is one quiet paused outcome, not N wasted attempts. Dev/prod provider_controls are separate DBs — never infer prod state from dev.
