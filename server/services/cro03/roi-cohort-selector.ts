@@ -668,6 +668,9 @@ export async function selectRoiCohort(opts: {
     FROM business_locations
   `));
   const locationsByBusiness = new Map<number, LocationCandidateInput[]>();
+  const quarantinedBusinessIds = new Set<number>(rows(await exec.execute(sql`
+    SELECT business_id FROM sfp_identity_quarantines WHERE cleared_at IS NULL
+  `)).map((r: any) => Number(r.business_id)));
   for (const r of allLocationRows) {
     const bizId = Number(r.business_id);
     const list = locationsByBusiness.get(bizId) ?? [];
@@ -767,6 +770,13 @@ export async function selectRoiCohort(opts: {
       if (dbprBizIds.has(bizId)) {
         funnel.dbprExcluded++;
         excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap, "excluded:dbpr", false, "none", "unknown"));
+        continue;
+      }
+
+      if (quarantinedBusinessIds.has(bizId)) {
+        funnel.suppressed++;
+        excluded.push(_buildCandidate(bizId, row, verticalIds, countyFips, fipsLocationMap,
+          "excluded:identity_quarantined", false, "none", "unknown"));
         continue;
       }
 

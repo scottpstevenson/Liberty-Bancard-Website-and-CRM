@@ -175,6 +175,11 @@ export async function reserveSfpProviderOperation(input: {
   const controlProvider = CONTROL_KEY[input.provider];
 
   return db.transaction(async (tx) => {
+    const quarantine = rows(await tx.execute(sql`
+      SELECT 1 FROM sfp_identity_quarantines
+       WHERE business_id=${input.businessId} AND cleared_at IS NULL LIMIT 1
+    `))[0];
+    if (quarantine) throw new Error("SFP_PAID_BLOCKED:IDENTITY_QUARANTINED");
     const existing = rows(await tx.execute(sql`
        SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
        WHERE provider=${controlProvider} AND idempotency_key=${input.idempotencyKey} LIMIT 1
@@ -290,6 +295,11 @@ export async function reservePreCohortSfpProviderOperation(input: {
   const controlProvider = CONTROL_KEY[input.provider];
 
   return db.transaction(async (tx) => {
+    const quarantine = rows(await tx.execute(sql`
+      SELECT 1 FROM sfp_identity_quarantines
+       WHERE business_id=${input.businessId} AND cleared_at IS NULL LIMIT 1
+    `))[0];
+    if (quarantine) throw new Error("SFP_PAID_BLOCKED:IDENTITY_QUARANTINED");
     const existing = rows(await tx.execute(sql`
        SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
        WHERE provider=${controlProvider} AND idempotency_key=${input.idempotencyKey} LIMIT 1

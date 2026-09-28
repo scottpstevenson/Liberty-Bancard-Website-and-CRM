@@ -2156,6 +2156,13 @@
       "when": 1800000012900,
       "tag": "0303_sfp_free_classification_continuation",
       "breakpoints": true
+    },
+    {
+      "idx": 308,
+      "version": "7",
+      "when": 1800000013000,
+      "tag": "0304_sfp_identity_quarantine",
+      "breakpoints": true
     }
   ]
 }

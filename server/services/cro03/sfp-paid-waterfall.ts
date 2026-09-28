@@ -544,6 +544,7 @@ export async function executeSfpSerperDiscovery(input: {
       if(reservation.replayed){ noResult++; continue; }
        const outcome=await invokeSfpProviderTransport(reservation,() => lookupBusinessIdentity({
          businessName:String(target.canonical_name),zip:target.postal_code,city:target.city,state:target.state,address:target.street_address,
+         requireGeographicCorroboration:true,
        },{caller:"server/services/cro03/sfp-paid-waterfall.ts"}));
       if(outcome.kind==='accepted_match' && outcome.accepted){
         const acceptedIdentity = outcome.accepted;

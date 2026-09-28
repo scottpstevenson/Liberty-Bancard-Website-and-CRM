@@ -157,6 +157,33 @@ const queryMiamiDental: CandidateQuery = {
   state: "FL",
 };
 
+// SFP cannot project an unrelated business's domain or crawl its email merely
+// because a common legal name matches. Other callers retain their policy.
+{
+  const strict: CandidateQuery = {
+    businessName: "Prolawn & Landscaping, Inc.", city: "Boynton Beach", state: "FL",
+    zip: "33435", requireGeographicCorroboration: true,
+  };
+  const newYork: CandidateInput = {
+    name: "Prolawn & Landscaping", city: "Albany", state: "NY", zip: "12203",
+    website: "prolawnlandscaper.com", phone: "5185550123",
+  };
+  check("SFP exact name in wrong state is rejected", scoreCandidate(strict, newYork).classification === "identity_rejected");
+  check("SFP name-only organic result is rejected", scoreCandidate(strict, {
+    name: newYork.name, website: newYork.website,
+  }).classification === "identity_rejected");
+  check("SFP matching ZIP is accepted", scoreCandidate(strict, {
+    name: newYork.name, zip: "33435", website: "verified.example",
+  }).classification === "accepted_match");
+  check("SFP matching city and state is accepted", scoreCandidate(strict, {
+    name: newYork.name, city: "Boynton Beach", state: "FL", website: "verified.example",
+  }).classification === "accepted_match");
+  check("SFP conflicting ZIP rejects despite matching city", scoreCandidate(strict, {
+    name: newYork.name, city: "Boynton Beach", state: "FL", zip: "33436", website: "different.example",
+  }).classification === "identity_rejected");
+  check("other callers keep existing score behavior", scoreCandidate({ ...strict, requireGeographicCorroboration: false }, newYork).classification === "accepted_match");
+}
+
 // Exact name + ZIP match → well above threshold
 {
   const s = scoreCandidate(queryMiamiDental, {
@@ -302,6 +329,19 @@ function makeFakeGateway(responses: Array<{ ok: boolean; blocked?: boolean; bloc
 }
 
 async function runWaterfallTests() {
+  {
+    const gateway = makeFakeGateway([
+      { ok: true, data: { places: [{ title: "Prolawn & Landscaping", address: "1 Main St, Albany, NY 12203", website: "prolawnlandscaper.com", phoneNumber: "5185550123" }] } },
+      { ok: true, data: { knowledgeGraph: { title: "Prolawn & Landscaping", address: "1 Main St, Albany, NY 12203", website: "prolawnlandscaper.com" }, organic: [{ title: "Prolawn & Landscaping", link: "https://prolawnlandscaper.com" }] } },
+    ]);
+    const result = await lookupBusinessIdentity(
+      { businessName: "Prolawn & Landscaping, Inc.", city: "Boynton Beach", state: "FL", zip: "33435", requireGeographicCorroboration: true },
+      { caller: "test", gateway },
+    );
+    check("strict SFP waterfall rejects wrong-state Places, KG, and name-only organic", result.kind === "identity_rejected", `kind=${result.kind}`);
+    check("strict SFP waterfall never returns wrong-site domain", !result.accepted);
+  }
+
   // Fake Places response with a strong match
   {
     const gateway = makeFakeGateway([

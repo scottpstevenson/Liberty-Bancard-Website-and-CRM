@@ -229,6 +229,108 @@ async function convergePaidProviderControls(): Promise<SeedTargetResult> {
   return convergeProviderControlRows("paid_provider_controls", PAID_PROVIDER_CONTROL_SEED_ROWS);
 }
 
+// ── Target: SFP business #9555 identity-quarantine repair ──────────────────
+// migrations/0304_sfp_identity_quarantine.sql. Like every other
+// migration-embedded write, Replit Publish's schema-only sync creates the two
+// new tables but never runs this migration's INSERT/UPDATE statements in
+// production. This is not a config seed a runtime path depends on being
+// present in general — it is a one-time, tightly-scoped repair of a single
+// known bad Serper match (business 9555, voided cohort
+// 03b65bd0-cf98-427f-92d5-4a7a79705028) that must still land in production or
+// the wrong domain/phone/free-candidate rows stay live there. Every predicate
+// below is copied verbatim from the migration file so this function converges
+// exactly the same rows, no broader match.
+const SFP_9555_BUSINESS_ID = 9555;
+const SFP_9555_SUSPECT_DOMAIN = "prolawnlandscaper.com";
+const SFP_9555_VOIDED_COHORT_RUN_ID = "03b65bd0-cf98-427f-92d5-4a7a79705028";
+
+async function convergeSfpIdentityQuarantineBusiness9555(): Promise<SeedTargetResult> {
+  const id = "sfp_identity_quarantine_business_9555";
+  const tables = ["sfp_identity_quarantines", "sfp_discredited_paid_evidence", "businesses", "free_discovery_candidates"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "sfp_identity_quarantines", { business_id: "integer", reason_code: "text", suspect_domain: "text", cleared_at: "timestamp with time zone" });
+    await assertColumns(tx, "sfp_discredited_paid_evidence", { evidence_id: "uuid", business_id: "integer", reason_code: "text" });
+
+    const quarantineBefore = rows(await tx.execute(sql`
+      SELECT business_id, cleared_at FROM sfp_identity_quarantines WHERE business_id = ${SFP_9555_BUSINESS_ID}
+    `))[0];
+    if (quarantineBefore) {
+      return { id, classification: "historical_backfill", tables, outcome: "already_present", detail: "quarantine row for business 9555 already exists; convergence does not re-run repairs" };
+    }
+
+    await tx.execute(sql`
+      INSERT INTO sfp_identity_quarantines
+        (business_id, reason_code, suspect_domain, source_cohort_run_id)
+      SELECT b.id, 'SERPER_WRONG_GEOGRAPHY', ${SFP_9555_SUSPECT_DOMAIN}, r.id
+        FROM businesses b
+        JOIN sfp_cohort_members m ON m.business_id = b.id
+        JOIN sfp_cohort_runs r ON r.id = m.cohort_run_id
+       WHERE b.id = ${SFP_9555_BUSINESS_ID}
+         AND LOWER(BTRIM(b.canonical_name)) LIKE 'prolawn & landscaping%'
+         AND (
+           LOWER(BTRIM(b.website_domain)) = ${SFP_9555_SUSPECT_DOMAIN}
+           OR EXISTS (
+             SELECT 1 FROM sfp_stage_items i
+             JOIN sfp_stage_runs s ON s.id = i.stage_run_id
+             JOIN provider_operations o ON o.id = i.provider_operation_id
+             WHERE i.business_id = b.id AND i.provider = 'serper'
+               AND s.cohort_run_id = r.id
+               AND LOWER(o.sfp_result_data->>'domain') = ${SFP_9555_SUSPECT_DOMAIN}
+           )
+         )
+         AND r.id = ${SFP_9555_VOIDED_COHORT_RUN_ID}::uuid
+         AND r.cohort_state = 'voided' AND r.voided_at IS NOT NULL
+      ON CONFLICT (business_id) DO NOTHING
+    `);
+
+    const quarantineAfter = rows(await tx.execute(sql`
+      SELECT business_id FROM sfp_identity_quarantines WHERE business_id = ${SFP_9555_BUSINESS_ID}
+    `))[0];
+    if (!quarantineAfter) {
+      // The guard predicate did not match (e.g. business/cohort state does
+      // not look the way the incident report described). Do not fabricate a
+      // quarantine row or run the dependent repairs — report the true state.
+      return { id, classification: "historical_backfill", tables, outcome: "unexpected", detail: "guard predicate matched zero rows for business 9555 — no quarantine created, no repair applied" };
+    }
+
+    await tx.execute(sql`
+      INSERT INTO sfp_discredited_paid_evidence (evidence_id, business_id, reason_code)
+      SELECT e.id, e.business_id, 'SERPER_WRONG_GEOGRAPHY'
+        FROM sfp_paid_candidate_evidence e
+        JOIN sfp_stage_items i ON i.provider_operation_id = e.provider_operation_id
+        JOIN sfp_stage_runs s ON s.id = i.stage_run_id
+        JOIN sfp_identity_quarantines q ON q.business_id = e.business_id
+       WHERE e.business_id = ${SFP_9555_BUSINESS_ID} AND e.provider = 'serper'
+         AND s.cohort_run_id = ${SFP_9555_VOIDED_COHORT_RUN_ID}::uuid
+      ON CONFLICT (evidence_id) DO NOTHING
+    `);
+
+    await tx.execute(sql`
+      UPDATE businesses b
+         SET website_domain = NULL,
+             main_phone = CASE WHEN LEFT(RIGHT(REGEXP_REPLACE(COALESCE(b.main_phone, ''), '[^0-9]', '', 'g'), 10), 3) = '518'
+                               THEN NULL ELSE b.main_phone END,
+             free_enrichment_status = NULL,
+             free_enrichment_completed_at = NULL,
+             updated_at = NOW()
+       WHERE b.id = ${SFP_9555_BUSINESS_ID} AND LOWER(BTRIM(b.website_domain)) = ${SFP_9555_SUSPECT_DOMAIN}
+         AND EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                      WHERE q.business_id = b.id AND q.cleared_at IS NULL)
+    `);
+
+    await tx.execute(sql`
+      UPDATE free_discovery_candidates f
+         SET disposition = 'rejected'
+       WHERE f.business_id = ${SFP_9555_BUSINESS_ID} AND LOWER(BTRIM(f.domain)) = ${SFP_9555_SUSPECT_DOMAIN}
+         AND f.disposition IN ('staged', 'validation_admitted')
+         AND EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                      WHERE q.business_id = f.business_id AND q.cleared_at IS NULL)
+    `);
+
+    return { id, classification: "historical_backfill", tables, outcome: "backfilled", detail: "inserted quarantine + discredited-evidence rows and nulled the wrong domain/518-phone/free-candidate rows for business 9555" };
+  });
+}
+
 // ── Target: commercial graph revision backfill ──────────────────────────────
 // commercial_subject_revisions / commercial_membership_revisions are
 // otherwise maintained forward-only by the cro02_bump_graph_membership()
@@ -911,6 +1013,7 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
     seedKeys: { columns: ["logical_key", "created_by"], values: [["candidate_freshness_refresh", CRO08A_SCHEDULE_CREATED_BY]] },
   },
   { id: "sunbiz_soflo_cursor_rewind_task2002", classification: "historical_backfill", tables: ["sunbiz_bootstrap_runs"], write: convergeSofloCursorRewind },
+  { id: "sfp_identity_quarantine_business_9555", classification: "historical_backfill", tables: ["sfp_identity_quarantines", "sfp_discredited_paid_evidence", "businesses", "free_discovery_candidates"], write: convergeSfpIdentityQuarantineBusiness9555 },
 ];
 
 /**

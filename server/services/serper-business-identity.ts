@@ -235,6 +235,8 @@ export interface ScoredCandidate {
 
 export interface CandidateQuery {
   businessName: string;
+  /** SFP domain discovery requires returned geography, not query geography. */
+  requireGeographicCorroboration?: boolean;
   zip?: string | null;
   city?: string | null;
   state?: string | null;
@@ -266,9 +268,9 @@ export interface CandidateInput {
  *  - City+state match: 0.05 each
  *  - Address partial overlap: 0–0.10
  *
- * Geography corroboration adds up to 0.30 total. A strong name match alone
- * (≥0.60) can pass MIN_IDENTITY_SCORE, but a borderline name always requires
- * geographic corroboration.
+ * Geography corroboration adds up to 0.30 total. Legacy callers may accept
+ * a strong name alone; SFP opts into a separate returned-geography gate so
+ * a same-name business outside the program cannot become an official domain.
  *
  * Officer-surname-only hints are intentionally excluded from the score to
  * prevent accepting a wrong business that happens to share an officer name.
@@ -293,6 +295,16 @@ export function scoreCandidate(
   let geoScore = 0;
   const qZip = normalizeZip(query.zip);
   const cZip = normalizeZip(candidate.zip);
+  const queryState = (query.state ?? "").trim().toLowerCase();
+  const returnedState = (candidate.state ?? "").trim().toLowerCase();
+  const conflictingState = !!(queryState && returnedState && queryState !== returnedState);
+  const conflictingZip = !!(qZip && cZip && qZip !== cZip);
+  const zipCorroborated = !!(qZip && cZip && qZip === cZip);
+  const cityStateCorroborated = !!(
+    query.city?.trim() && candidate.city?.trim() && queryState && returnedState &&
+    query.city.trim().toLowerCase() === candidate.city.trim().toLowerCase() &&
+    queryState === returnedState
+  );
   if (qZip && cZip && qZip === cZip) {
     geoScore += 0.10;
   }
@@ -360,6 +372,17 @@ export function scoreCandidate(
     };
   }
 
+  // A common-name website in another state is not the queried local business.
+  // For SFP, organic results without an address must remain unverified rather
+  // than inheriting geography from the search text or the queried business.
+  if (query.requireGeographicCorroboration &&
+      (conflictingState || conflictingZip || !(zipCorroborated || cityStateCorroborated))) {
+    return {
+      score, classification: "identity_rejected",
+      nameScore, geoScore, website, phone, address, category, rating, reviewCount,
+    };
+  }
+
   // All scoring done at this point; ambiguity resolved by caller after comparing all candidates
   return {
     score, classification: "accepted_match",
@@ -404,6 +427,7 @@ export interface LookupOutcome {
 export interface BusinessIdentityInput {
   /** Primary name (DBA name if available) */
   businessName: string;
+  requireGeographicCorroboration?: boolean;
   /** Legal/registered name (used as a second strategy when DBA differs) */
   legalName?: string | null;
   zip?: string | null;
@@ -500,6 +524,7 @@ export async function lookupBusinessIdentity(
 ): Promise<LookupOutcome> {
   const gateway = context.gateway ?? serperGateway;
   const startedAt = Date.now();
+  const strategyVersion = input.requireGeographicCorroboration ? 2 : 1;
   let requestsUsed = 0;
   const strategiesAttempted: string[] = [];
 
@@ -513,6 +538,7 @@ export async function lookupBusinessIdentity(
         zip: normalizeZip(input.zip),
         city: (input.city ?? "").toLowerCase().trim(),
         state: (input.state ?? "").toLowerCase().trim(),
+        strategyVersion,
       }),
     )
     .digest("hex");
@@ -549,7 +575,7 @@ export async function lookupBusinessIdentity(
     if (gatewayResult.blocked) {
       await recordAttemptTelemetry({
         correlationHash, caller: context.caller,
-        strategyVersion: 1, strategyName, endpoint: "/places",
+        strategyVersion, strategyName, endpoint: "/places",
         outcomeKind: "blocked", outcomeReason: gatewayResult.blockReason ?? "blocked",
         resultCount: 0, acceptedCount: 0, rejectedCount: 0,
         yieldWebsite: false, yieldPhone: false, yieldAddress: false, yieldCategory: false,
@@ -561,7 +587,7 @@ export async function lookupBusinessIdentity(
     if (!gatewayResult.ok) {
       await recordAttemptTelemetry({
         correlationHash, caller: context.caller,
-        strategyVersion: 1, strategyName, endpoint: "/places",
+        strategyVersion, strategyName, endpoint: "/places",
         outcomeKind: "provider_failure", outcomeReason: gatewayResult.error ?? "provider_error",
         resultCount: 0, acceptedCount: 0, rejectedCount: 0,
         yieldWebsite: false, yieldPhone: false, yieldAddress: false, yieldCategory: false,
@@ -592,6 +618,7 @@ export async function lookupBusinessIdentity(
 
     const query: CandidateQuery = {
       businessName: nameVariant,
+      requireGeographicCorroboration: input.requireGeographicCorroboration,
       zip: input.zip,
       city: input.city,
       state: input.state,
@@ -605,7 +632,7 @@ export async function lookupBusinessIdentity(
 
     await recordAttemptTelemetry({
       correlationHash, caller: context.caller,
-      strategyVersion: 1, strategyName, endpoint: "/places",
+      strategyVersion, strategyName, endpoint: "/places",
       outcomeKind: acceptedCount > 0 ? "accepted_match" : scored.length === 0 ? "no_result" : "identity_rejected",
       outcomeReason: null,
       resultCount: scored.length, acceptedCount, rejectedCount,
@@ -646,7 +673,7 @@ export async function lookupBusinessIdentity(
     if (gatewayResult.blocked) {
       await recordAttemptTelemetry({
         correlationHash, caller: context.caller,
-        strategyVersion: 1, strategyName, endpoint: "/search",
+        strategyVersion, strategyName, endpoint: "/search",
         outcomeKind: "blocked", outcomeReason: gatewayResult.blockReason ?? "blocked",
         resultCount: 0, acceptedCount: 0, rejectedCount: 0,
         yieldWebsite: false, yieldPhone: false, yieldAddress: false, yieldCategory: false,
@@ -658,7 +685,7 @@ export async function lookupBusinessIdentity(
     if (!gatewayResult.ok) {
       await recordAttemptTelemetry({
         correlationHash, caller: context.caller,
-        strategyVersion: 1, strategyName, endpoint: "/search",
+        strategyVersion, strategyName, endpoint: "/search",
         outcomeKind: "provider_failure", outcomeReason: gatewayResult.error ?? "provider_error",
         resultCount: 0, acceptedCount: 0, rejectedCount: 0,
         yieldWebsite: false, yieldPhone: false, yieldAddress: false, yieldCategory: false,
@@ -706,6 +733,7 @@ export async function lookupBusinessIdentity(
 
     const query: CandidateQuery = {
       businessName: nameVariant,
+      requireGeographicCorroboration: input.requireGeographicCorroboration,
       zip: input.zip,
       city: input.city,
       state: input.state,
@@ -718,7 +746,7 @@ export async function lookupBusinessIdentity(
 
     await recordAttemptTelemetry({
       correlationHash, caller: context.caller,
-      strategyVersion: 1, strategyName, endpoint: "/search",
+      strategyVersion, strategyName, endpoint: "/search",
       outcomeKind: acceptedCount > 0 ? "accepted_match" : scored.length === 0 ? "no_result" : "identity_rejected",
       outcomeReason: null,
       resultCount: scored.length, acceptedCount, rejectedCount,

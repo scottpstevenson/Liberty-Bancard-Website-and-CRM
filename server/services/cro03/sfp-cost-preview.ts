@@ -200,12 +200,18 @@ export async function getSfpCohortGapSnapshot(cohortRunId: string): Promise<{
       FROM free_discovery_candidates
        WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
          AND field IN ('email','phone') AND disposition IN ('staged','validation_admitted','accepted')
+         AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                          WHERE q.business_id=free_discovery_candidates.business_id AND q.cleared_at IS NULL)
       UNION ALL
       SELECT business_id,id,'paid'::text AS source,provider,
              person_name_evidence,person_title_evidence
         FROM sfp_paid_candidate_evidence
        WHERE business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
          AND field IN ('email','phone') AND disposition IN ('staged','accepted')
+         AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                          WHERE q.business_id=sfp_paid_candidate_evidence.business_id AND q.cleared_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
+                          WHERE d.evidence_id=sfp_paid_candidate_evidence.id)
   `));
   const evidenceById = new Map<number, any[]>();
   for (const evidence of evidenceRows) {

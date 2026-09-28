@@ -98,6 +98,10 @@ export async function listSfpPaidCandidateEvidence(businessIds: number[]): Promi
            masked_value, person_name_evidence, person_title_evidence, created_at
       FROM sfp_paid_candidate_evidence
      WHERE business_id = ANY(ARRAY[${idList}]::integer[])
+       AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                        WHERE q.business_id=sfp_paid_candidate_evidence.business_id AND q.cleared_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
+                        WHERE d.evidence_id=sfp_paid_candidate_evidence.id)
      ORDER BY created_at DESC
   `));
   return result.map((r: any) => ({
@@ -177,7 +181,10 @@ export async function resolveSfpCandidateReference(
   if (reference.sourceKind === "free") {
     const row = rows(await db.execute(sql`
       SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,created_at
-        FROM free_discovery_candidates WHERE id=${reference.freeDiscoveryCandidateId}::uuid LIMIT 1
+        FROM free_discovery_candidates WHERE id=${reference.freeDiscoveryCandidateId}::uuid
+          AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                           WHERE q.business_id=free_discovery_candidates.business_id AND q.cleared_at IS NULL)
+        LIMIT 1
     `))[0];
     return row ? {
       sourceKind: "free", evidenceId: String(row.id), businessId: Number(row.business_id),
@@ -188,7 +195,12 @@ export async function resolveSfpCandidateReference(
   }
   const row = rows(await db.execute(sql`
     SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
-      FROM sfp_paid_candidate_evidence WHERE id=${reference.paidCandidateEvidenceId}::uuid LIMIT 1
+      FROM sfp_paid_candidate_evidence
+     WHERE id=${reference.paidCandidateEvidenceId}::uuid
+       AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                        WHERE q.business_id=sfp_paid_candidate_evidence.business_id AND q.cleared_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
+                        WHERE d.evidence_id=sfp_paid_candidate_evidence.id) LIMIT 1
   `))[0];
   return row ? {
     sourceKind: "paid", evidenceId: String(row.id), businessId: Number(row.business_id),
@@ -263,6 +275,14 @@ export async function openSfpCandidatePlaintext<T>(
       };
   if (!resolvedRef) throw new Error("SFP_CANDIDATE_REFERENCE_NOT_FOUND");
   const resolved = resolvedRef;
+  if (rows(await executor.execute(sql`
+    SELECT 1 FROM sfp_identity_quarantines
+     WHERE business_id=${resolved.businessId} AND cleared_at IS NULL LIMIT 1
+  `))[0]) throw new Error("SFP_CANDIDATE_IDENTITY_QUARANTINED");
+  if (resolved.sourceKind === "paid" && rows(await executor.execute(sql`
+    SELECT 1 FROM sfp_discredited_paid_evidence
+     WHERE evidence_id=${resolved.evidenceId}::uuid LIMIT 1
+  `))[0]) throw new Error("SFP_CANDIDATE_EVIDENCE_DISCREDITED");
   if (resolved.disposition === "suppressed" || resolved.disposition === "rejected") {
     throw new Error(`SFP_CANDIDATE_NOT_OPENABLE:disposition=${resolved.disposition}`);
   }
@@ -342,12 +362,18 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
             disposition, confidence, masked_value, normalized_value_hash, created_at
       FROM free_discovery_candidates
      WHERE business_id = ANY(ARRAY[${idList}]::integer[])
+       AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                        WHERE q.business_id=free_discovery_candidates.business_id AND q.cleared_at IS NULL)
   `));
   const paidRows = rows(await db.execute(sql`
      SELECT id, business_id, provider, field, subject_type, disposition, confidence, candidate_metadata,
            masked_value, normalized_value_hash, person_name_evidence, person_title_evidence, created_at
       FROM sfp_paid_candidate_evidence
      WHERE business_id = ANY(ARRAY[${idList}]::integer[])
+       AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                        WHERE q.business_id=sfp_paid_candidate_evidence.business_id AND q.cleared_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
+                        WHERE d.evidence_id=sfp_paid_candidate_evidence.id)
      ORDER BY created_at DESC
   `));
   type Internal = UnifiedSfpCandidateView & {

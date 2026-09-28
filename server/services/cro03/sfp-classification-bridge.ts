@@ -218,6 +218,7 @@ async function defaultSerperDomainLookup(input: {
       lookupBusinessIdentity({
         businessName: input.canonicalName, zip: input.postalCode, city: input.city, state: input.state,
         address: input.streetAddress,
+        requireGeographicCorroboration: true,
       }, { caller: CALLER }));
     let domain: string | null = null;
     if (outcome.kind === "accepted_match" && outcome.accepted?.website) {
