@@ -2170,6 +2170,13 @@
       "when": 1800000013100,
       "tag": "0305_sfp_wrong_site_derived_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 310,
+      "version": "7",
+      "when": 1800000013200,
+      "tag": "0306_sfp_contact_eligibility_reference",
+      "breakpoints": true
     }
   ]
 }

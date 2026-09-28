@@ -375,7 +375,9 @@ export async function executeSfpValidation(
     try {
       const reference = cand.sourceKind === "free"
         ? { sourceKind: "free" as const, freeDiscoveryCandidateId: cand.evidenceId }
-        : { sourceKind: "paid" as const, paidCandidateEvidenceId: cand.evidenceId };
+        : cand.sourceKind === "paid"
+        ? { sourceKind: "paid" as const, paidCandidateEvidenceId: cand.evidenceId }
+        : { sourceKind: "contact" as const, contactId: cand.evidenceId.replace(/^contact:/, "") };
       await openSfpCandidatePlaintext(
         { reference, cohortRunId, actorId: opts.actorId, purpose: "sfp_email_validation" },
         async (realEmail) => {
@@ -571,7 +573,7 @@ export async function executeSfpValidation(
             const expiresAt = new Date(Date.now() + policy.validationTtlDays * 86_400_000).toISOString();
             await tx.execute(sql`
               INSERT INTO sfp_outreach_eligibility
-                (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, source_kind,
+                (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
                  policy_version, status, decision_reason, zb_outcome, validation_at, validation_expires_at,
                  named_contact, role_inbox, masked_email, discovery_source, evidence_confidence,
                  suppression_status, outreach_policy_version, outreach_policy_reason, validation_operation_id,
@@ -581,6 +583,7 @@ export async function executeSfpValidation(
                 ${cohortRunId}::uuid, ${bizId},
                 ${cand.sourceKind === "free" ? cand.evidenceId : null}::uuid,
                 ${cand.sourceKind === "paid" ? cand.evidenceId : null}::uuid,
+                ${cand.sourceKind === "contact" ? Number(cand.evidenceId.replace(/^contact:/, "")) : null}::int,
                 ${cand.sourceKind},
                 ${policy.version}, ${status}, ${decisionReason}, ${String(zbOutcome)},
                 ${validationAt}::timestamptz, ${expiresAt}::timestamptz,
@@ -598,7 +601,7 @@ export async function executeSfpValidation(
                 masked_email = EXCLUDED.masked_email, evidence_confidence = EXCLUDED.evidence_confidence,
                 suppression_status = EXCLUDED.suppression_status, validation_operation_id = EXCLUDED.validation_operation_id,
                 source_kind = EXCLUDED.source_kind, paid_candidate_evidence_id = EXCLUDED.paid_candidate_evidence_id,
-                candidate_id = EXCLUDED.candidate_id, normalized_value_hash = EXCLUDED.normalized_value_hash,
+                candidate_id = EXCLUDED.candidate_id, contact_id = EXCLUDED.contact_id, normalized_value_hash = EXCLUDED.normalized_value_hash,
                 policy_document_id = EXCLUDED.policy_document_id, policy_document_hash = EXCLUDED.policy_document_hash,
                 consent_tier = EXCLUDED.consent_tier, raw_provider_status = EXCLUDED.raw_provider_status,
                 raw_provider_substatus = EXCLUDED.raw_provider_substatus, reused_from_operation_id = EXCLUDED.reused_from_operation_id,
@@ -687,14 +690,18 @@ async function writeEligibilityRow(input: {
   policyVersion?: number;
 }): Promise<void> {
   const policyVersion = input.policyVersion ?? SFP_POLICY_VERSION;
+  const contactIdInt = input.cand.sourceKind === "contact"
+    ? Number(input.cand.evidenceId.replace(/^contact:/, ""))
+    : null;
   await db.execute(sql`
     INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, source_kind,
+      (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
        policy_version, status, decision_reason, suppression_status, masked_email, discovery_source,
        consent_tier, reason_codes)
     VALUES (${input.cohortRunId}::uuid, ${input.bizId},
       ${input.cand.sourceKind === "free" ? input.cand.evidenceId : null}::uuid,
       ${input.cand.sourceKind === "paid" ? input.cand.evidenceId : null}::uuid,
+      ${contactIdInt}::int,
       ${input.cand.sourceKind},
       ${policyVersion}, ${input.status}, ${input.decisionReason},
       ${input.suppressionStatus ?? "unchecked"}, ${input.cand.maskedValue}, ${input.cand.provider ?? "free"},

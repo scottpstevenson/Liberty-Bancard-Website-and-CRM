@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { seal, unseal } from "./candidate-evidence-service";
 import { candidateTier } from "./candidate-selector";
+import { maskCandidate } from "./contracts";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -128,7 +129,7 @@ export async function listSfpPaidCandidateEvidence(businessIds: number[]): Promi
  * consumer can always trace back to the exact source row.
  */
 export interface UnifiedSfpCandidateView {
-  sourceKind: "free" | "paid";
+  sourceKind: "free" | "paid" | "contact";
   evidenceId: string;
   businessId: number;
   field: string;
@@ -159,10 +160,11 @@ export interface UnifiedSfpCandidateView {
 
 export type SfpCandidateReference =
   | { sourceKind: "free"; freeDiscoveryCandidateId: string }
-  | { sourceKind: "paid"; paidCandidateEvidenceId: string };
+  | { sourceKind: "paid"; paidCandidateEvidenceId: string }
+  | { sourceKind: "contact"; contactId: string };
 
 export interface ResolvedSfpCandidateReference {
-  sourceKind: "free" | "paid";
+  sourceKind: "free" | "paid" | "contact";
   evidenceId: string;
   businessId: number;
   field: string;
@@ -193,19 +195,37 @@ export async function resolveSfpCandidateReference(
       createdAt: String(row.created_at),
     } : null;
   }
+  if (reference.sourceKind === "paid") {
+    const row = rows(await db.execute(sql`
+      SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
+        FROM sfp_paid_candidate_evidence
+       WHERE id=${reference.paidCandidateEvidenceId}::uuid
+         AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                          WHERE q.business_id=sfp_paid_candidate_evidence.business_id AND q.cleared_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
+                          WHERE d.evidence_id=sfp_paid_candidate_evidence.id) LIMIT 1
+    `))[0];
+    return row ? {
+      sourceKind: "paid", evidenceId: String(row.id), businessId: Number(row.business_id),
+      field: String(row.field), provider: String(row.provider), subjectType: String(row.subject_type),
+      maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
+      createdAt: String(row.created_at),
+    } : null;
+  }
   const row = rows(await db.execute(sql`
-    SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
-      FROM sfp_paid_candidate_evidence
-     WHERE id=${reference.paidCandidateEvidenceId}::uuid
+    SELECT c.id,c.business_id,c.email,c.email_status,c.created_at
+      FROM contacts c
+      JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
+     WHERE c.id=${reference.contactId}::int
        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
-                        WHERE q.business_id=sfp_paid_candidate_evidence.business_id AND q.cleared_at IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
-                        WHERE d.evidence_id=sfp_paid_candidate_evidence.id) LIMIT 1
+                        WHERE q.business_id=c.business_id AND q.cleared_at IS NULL)
+     LIMIT 1
   `))[0];
   return row ? {
-    sourceKind: "paid", evidenceId: String(row.id), businessId: Number(row.business_id),
-    field: String(row.field), provider: String(row.provider), subjectType: String(row.subject_type),
-    maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
+    sourceKind: "contact", evidenceId: String(row.id), businessId: Number(row.business_id),
+    field: "email", provider: null, subjectType: "person",
+    maskedValue: maskCandidate("email", String(row.email)), confidence: 60,
+    disposition: row.email_status === "valid" ? "validation_admitted" : "staged",
     createdAt: String(row.created_at),
   } : null;
 }
@@ -256,9 +276,13 @@ export async function openSfpCandidatePlaintext<T>(
         SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,created_at
           FROM free_discovery_candidates WHERE id=${input.reference.freeDiscoveryCandidateId}::uuid LIMIT 1
       `)))[0]
-    : (await rows(await executor.execute(sql`
+    : input.reference.sourceKind === "paid"
+    ? (await rows(await executor.execute(sql`
         SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
           FROM sfp_paid_candidate_evidence WHERE id=${input.reference.paidCandidateEvidenceId}::uuid LIMIT 1
+      `)))[0]
+    : (await rows(await executor.execute(sql`
+        SELECT id,business_id,email,email_status,created_at FROM contacts WHERE id=${input.reference.contactId}::int LIMIT 1
       `)))[0];
   const resolvedRef: ResolvedSfpCandidateReference | null = !resolvedRow ? null : input.reference.sourceKind === "free"
     ? {
@@ -267,10 +291,18 @@ export async function openSfpCandidatePlaintext<T>(
         maskedValue: String(resolvedRow.masked_value), confidence: Number(resolvedRow.confidence), disposition: String(resolvedRow.disposition),
         createdAt: String(resolvedRow.created_at),
       }
-    : {
+    : input.reference.sourceKind === "paid"
+    ? {
         sourceKind: "paid", evidenceId: String(resolvedRow.id), businessId: Number(resolvedRow.business_id),
         field: String(resolvedRow.field), provider: String(resolvedRow.provider), subjectType: String(resolvedRow.subject_type),
         maskedValue: String(resolvedRow.masked_value), confidence: Number(resolvedRow.confidence), disposition: String(resolvedRow.disposition),
+        createdAt: String(resolvedRow.created_at),
+      }
+    : {
+        sourceKind: "contact", evidenceId: String(resolvedRow.id), businessId: Number(resolvedRow.business_id),
+        field: "email", provider: null, subjectType: "person",
+        maskedValue: maskCandidate("email", String(resolvedRow.email)),
+        confidence: 60, disposition: resolvedRow.email_status === "valid" ? "validation_admitted" : "staged",
         createdAt: String(resolvedRow.created_at),
       };
   if (!resolvedRef) throw new Error("SFP_CANDIDATE_REFERENCE_NOT_FOUND");
@@ -376,6 +408,40 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
                         WHERE d.evidence_id=sfp_paid_candidate_evidence.id)
      ORDER BY created_at DESC
   `));
+  // Existing CRM contacts linked to one of these canonical businesses via the
+  // real contacts.business_id FK. This is the Gate-1 "reuse the existing
+  // contact pool" join: a contact is surfaced here only as a raw candidate
+  // row — it still passes through the exact same downstream suppression
+  // (isCanonicallySuppressed), consent-tier, and mutable safety gates
+  // (evaluateSfpMutableSafetyGates) as free/paid rows before it can ever be
+  // selected as a validation winner. Pre-filtering hard-suppressed contacts
+  // here is purely an optimization (fewer rows to rank); it is never a
+  // substitute for those downstream gates, which are re-run unconditionally.
+  // email_token_hash doubles as the cross-source dedupe key below — it is
+  // NOT computed with the same seal()/normalized_value_hash algorithm the
+  // free/paid tables use, so a contact-sourced email is deduped against
+  // other contacts but is not guaranteed to collapse onto an identical
+  // free/paid row for the same address; the exact address is still verified
+  // against real plaintext at validation time regardless.
+  const contactRows = rows(await db.execute(sql`
+     SELECT c.id, c.business_id, c.email, c.email_token_hash, c.email_status, c.created_at
+       FROM contacts c
+       JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
+      WHERE c.business_id = ANY(ARRAY[${idList}]::integer[])
+        AND c.email IS NOT NULL AND c.email <> ''
+        AND COALESCE(c.do_not_contact, FALSE) = FALSE
+        AND COALESCE(c.do_not_auto_contact, FALSE) = FALSE
+        AND COALESCE(c.opted_out_email, FALSE) = FALSE
+        AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+        AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
+        AND c.complaint_status IS DISTINCT FROM 'reported'
+        AND c.bounce_status IS DISTINCT FROM 'hard'
+        AND c.email_status NOT IN ('bounced', 'invalid')
+        AND c.suppression_reason IS NULL
+        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                         WHERE q.business_id = c.business_id AND q.cleared_at IS NULL)
+     ORDER BY c.created_at DESC
+  `));
   type Internal = UnifiedSfpCandidateView & {
     _hashKey: string;
     stageKey?: string;
@@ -422,6 +488,36 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       candidateMetadata: p.candidate_metadata ?? null,
       _hashKey: `${p.business_id}:${p.field}:${p.normalized_value_hash}`,
     })),
+    ...contactRows.map((c: any) => {
+      // A contact with no email_status yet ('unvalidated'/'active') has no
+      // verification evidence and must still be validated like any other
+      // discovered candidate ('staged'). Only a contact whose email_status
+      // was already advanced to 'valid' by some other path (never inferred
+      // from 'active') is treated as pre-admitted — and even then,
+      // sfp-validation.ts's freshness-reuse check (findFreshProviderObservation)
+      // is the sole authority that decides whether spend is actually
+      // skipped; this disposition alone never bypasses a live re-check.
+      const disposition = c.email_status === "valid" ? "validation_admitted" : "staged";
+      return {
+        sourceKind: "contact" as const,
+        evidenceId: `contact:${c.id}`,
+        businessId: Number(c.business_id),
+        field: "email",
+        provider: null,
+        maskedValue: maskCandidate("email", String(c.email)),
+        confidence: 60, // existing CRM contact, unranked by any provider signal
+        disposition,
+        personNameEvidence: null,
+        personTitleEvidence: null,
+        createdAt: String(c.created_at),
+        duplicateOfEvidenceId: null,
+        stageKey: "contact",
+        subjectType: "person",
+        apolloMatchConfidence: null,
+        candidateMetadata: null,
+        _hashKey: `${c.business_id}:email:${c.email_token_hash ?? `contact:${c.id}`}`,
+      };
+    }),
   ];
   const tier = (entry: Internal): number => {
     const metadata = entry.candidateMetadata
