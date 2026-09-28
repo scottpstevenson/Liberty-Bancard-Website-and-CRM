@@ -507,6 +507,34 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 2 * 60 * 1000,
     jobName: "tick",
   },
+  {
+    // Continuous paid-discovery rotation. concurrency=1: a single sequential
+    // Serper batch per tick is correct — the reservation/settlement path is
+    // per-business and idempotent, but running two ticks concurrently would
+    // waste a worker slot racing for the same cohort's advisory lock.
+    // 10 min interval keeps daily volume bounded and observable; the tick
+    // itself is a hard no-op unless CRO03_PROVIDER_TRANSPORT_ENABLED,
+    // SERPER_API_KEY, and an active SFP program are all already true.
+    name: QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 60_000,
+    repeatEveryMs: 10 * 60 * 1000,
+    jobName: "tick",
+  },
+  {
+    // Continuous ZeroBounce validation feed for whichever frozen cohort has
+    // free/paid-discovered candidates awaiting validation. No-op unless
+    // FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED is set. Staging to
+    // ready_held is handled entirely by the existing SFP_CAMPAIGN_STAGING
+    // worker once rows reach validated_outreach_eligible.
+    name: QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
+    concurrency: 1,
+    attempts: 1,
+    backoffDelay: 60_000,
+    repeatEveryMs: 10 * 60 * 1000,
+    jobName: "tick",
+  },
 ];
 
 /**
@@ -2518,6 +2546,18 @@ class QueueManager {
           const { processSfpFreeClassificationTick } = await import("./cro03/sfp-free-classification-continuation");
           const result = await processSfpFreeClassificationTick();
           if (result.claimed) console.log(`[SfpFreeClassification] ${JSON.stringify(result)}`);
+          break;
+        }
+        case QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY: {
+          const { processSfpContinuousDiscoveryTick } = await import("./cro03/sfp-continuous-discovery");
+          const result = await processSfpContinuousDiscoveryTick();
+          if (result.ran) console.log(`[SfpContinuousDiscovery] ${JSON.stringify(result)}`);
+          break;
+        }
+        case QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION: {
+          const { processSfpContinuousValidationTick } = await import("./cro03/sfp-continuous-discovery");
+          const result = await processSfpContinuousValidationTick();
+          if (result.ran) console.log(`[SfpContinuousValidation] ${JSON.stringify(result)}`);
           break;
         }
         case QUEUE_NAMES.MASTER_LEAD_STAGER: {

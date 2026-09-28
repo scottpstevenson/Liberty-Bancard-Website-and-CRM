@@ -39,6 +39,12 @@ export const QUEUE_NAMES = {
   // implies outreach, sequences, GHL, or any paid-provider capability.
   SFP_CAMPAIGN_STAGING: "sfp-campaign-staging",
   SFP_FREE_CLASSIFICATION: "sfp-free-classification",
+  // Continuous outreach-readiness pipeline: rolling cohort rotation + bounded
+  // Serper domain discovery, and bounded ZeroBounce validation. Both are
+  // no-ops unless the program is active AND (for validation) the promotion
+  // env flag is on; neither ever enrolls, sends, or raises any spend cap.
+  SFP_CONTINUOUS_DISCOVERY: "sfp-continuous-discovery",
+  SFP_CONTINUOUS_VALIDATION: "sfp-continuous-validation",
   // Task #2002 completion: recurring driver for the resumable Sunbiz
   // full-backlog microbatch processor. Registered unconditionally but the
   // handler is a no-op unless an admin has set the run status to 'running'

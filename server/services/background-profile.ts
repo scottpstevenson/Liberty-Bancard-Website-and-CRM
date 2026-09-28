@@ -207,6 +207,21 @@ export const WORKER_CAPABILITY_GROUPS = {
   "sunbiz-backfill": [
     "sunbiz-full-backfill",
   ],
+  /**
+   * Continuous SFP outreach-readiness pipeline: rolling cohort rotation +
+   * bounded paid Serper domain discovery, and bounded ZeroBounce validation.
+   * Kept separate from `sfp-campaign-staging`/`sfp-free-classification` so
+   * each stage's blast radius stays independently controllable — enabling
+   * this group never implies staging is also running, and vice versa.
+   * Every tick already fails closed on CRO03_PROVIDER_TRANSPORT_ENABLED,
+   * credentials, program activation, and the $50 aggregate cap (see
+   * sfp-continuous-discovery.ts); this group only controls whether the
+   * BullMQ ticks are scheduled at all.
+   */
+  "sfp-continuous-discovery": [
+    "sfp-continuous-discovery",
+    "sfp-continuous-validation",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 export type WorkerCapabilityGroup = keyof typeof WORKER_CAPABILITY_GROUPS;
