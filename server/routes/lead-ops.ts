@@ -2289,10 +2289,12 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const { getPoolAuthorityDecision, getAggregatePilotSpend } = await import("../services/mi09-pilot-authority");
       const { getBackgroundProfile } = await import("../services/background-profile");
       const { getPaidProviderControls } = await import("../services/paid-provider-control");
+      const { getPauseState } = await import("../services/outbound-pause-authority");
 
-      const [poolAuthority, spend] = await Promise.all([
+      const [poolAuthority, spend, outboundPauseState] = await Promise.all([
         getPoolAuthorityDecision(),
         getAggregatePilotSpend(),
+        getPauseState(),
       ]);
       const paidProviderControls = await getPaidProviderControls();
 
@@ -2382,7 +2384,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         poolAuthority,
         releaseSha: process.env.RELEASE_SHA ?? "unknown",
         backgroundJobProfile: getBackgroundProfile(),
-        outboundEnrichmentPaused: getBackgroundProfile() === "off",
+        // Corrective fix (Liberty Bancard enrichment completion, continuation):
+        // this field previously derived its value from getBackgroundProfile()
+        // === "off", which only reflects whether the background *job scheduler*
+        // profile is disabled — it said nothing about the canonical outbound
+        // send authority (OutboundPauseAuthority / outbound_pause_control),
+        // which is what actually gates every outbound send site in this
+        // codebase (see outbound-pause-authority.md memory). A background
+        // profile of e.g. "selective" reported outboundEnrichmentPaused=false
+        // even while the canonical authority was paused — a false "not
+        // paused" signal. This field now reports the real authority state;
+        // backgroundJobProfile remains separately visible above for the
+        // scheduler dimension, which is a distinct concern.
+        outboundEnrichmentPaused: outboundPauseState.state !== "unpaused",
+        outboundPauseAuthority: {
+          state: outboundPauseState.state,
+          reason: outboundPauseState.reason,
+          source: outboundPauseState.source,
+          epoch: outboundPauseState.epoch?.toString?.() ?? String(outboundPauseState.epoch),
+        },
         eligibleCounts,
         zbOutcomes,
         funnel: { snapshotAt: funnelSnapshotAt, ...funnel },
@@ -4076,6 +4096,86 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         : message.includes("NOT_READY_HELD") || message.includes("CONFLICT") || message.includes("NOT_PAUSED") || message.includes("BLOCKED") ? 409
         : 500;
       res.status(status).json({ code: "SFP_READY_HELD_BRIDGE_ERROR", message });
+    }
+  });
+
+  // ── Held-record review controls (Liberty Bancard enrichment completion,
+  // continuation — item 5). These endpoints let an admin record a
+  // review decision (approve/reject) against a ready_held enrollment row.
+  // They are review-metadata-only: they NEVER touch sequence_enrollments
+  // status, NEVER stage or enable a campaign, NEVER call GHL, and NEVER
+  // send. The enrollment stays exactly as bridgeReadyHeldIntentToPausedEnrollment
+  // left it (status='paused') regardless of the review decision recorded
+  // here. Any future activation flow is a separate, explicitly-authorized
+  // step outside the scope of this review surface.
+  app.get("/api/lead-ops/sfp/ready-held-enrollments", requireRole("admin"), async (req, res) => {
+    try {
+      const statusFilter = typeof req.query.reviewStatus === "string" ? req.query.reviewStatus : null;
+      const rowsResult = rows(await db.execute(sql`
+        SELECT
+          rhe.id, rhe.staging_intent_id, rhe.contact_id, rhe.sequence_enrollment_id,
+          rhe.contact_resolution, rhe.actor_id, rhe.created_at,
+          rhe.review_status, rhe.reviewed_by, rhe.reviewed_at, rhe.review_note,
+          se.status AS enrollment_status, se.sequence_id,
+          c.email AS contact_email, c.first_name, c.last_name, c.business_id
+        FROM sfp_ready_held_enrollments rhe
+        JOIN sequence_enrollments se ON se.id = rhe.sequence_enrollment_id
+        JOIN contacts c ON c.id = rhe.contact_id
+        WHERE ${statusFilter ? sql`rhe.review_status = ${statusFilter}` : sql`TRUE`}
+        ORDER BY rhe.created_at DESC
+        LIMIT 200
+      `));
+      res.json({ enrollments: rowsResult });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/lead-ops/sfp/ready-held-enrollments/:id/review", requireRole("admin"), async (req, res) => {
+    try {
+      const id = String(req.params.id);
+      const decision = String(req.body?.decision ?? "");
+      const note = typeof req.body?.note === "string" ? req.body.note.slice(0, 2000) : null;
+      if (decision !== "approved" && decision !== "rejected") {
+        return res.status(400).json({ error: "decision must be 'approved' or 'rejected'" });
+      }
+      const actorId = `admin:${(req as any).user?.id ?? "system"}`;
+
+      // Guard: the underlying enrollment must still be paused. If some other
+      // process ever changed it, refuse the review write rather than silently
+      // recording a decision against a row that no longer reflects reality.
+      const current = rows(await db.execute(sql`
+        SELECT rhe.review_status, se.status AS enrollment_status
+        FROM sfp_ready_held_enrollments rhe
+        JOIN sequence_enrollments se ON se.id = rhe.sequence_enrollment_id
+        WHERE rhe.id = ${id}::uuid
+        LIMIT 1
+      `))[0];
+      if (!current) return res.status(404).json({ error: "NOT_FOUND" });
+      if (current.enrollment_status !== "paused") {
+        return res.status(409).json({
+          error: "ENROLLMENT_NOT_PAUSED",
+          message: `Refusing to record a review decision: enrollment status is '${current.enrollment_status}', expected 'paused'.`,
+        });
+      }
+
+      const updated = rows(await db.execute(sql`
+        UPDATE sfp_ready_held_enrollments
+        SET review_status = ${decision}, reviewed_by = ${actorId}, reviewed_at = NOW(), review_note = ${note}
+        WHERE id = ${id}::uuid
+        RETURNING id, review_status, reviewed_by, reviewed_at, review_note
+      `))[0];
+
+      await storage.createAuditLog({
+        action: "sfp_ready_held_enrollment_reviewed",
+        entityType: "sfp_ready_held_enrollment",
+        userId: (req.user as any)?.id ?? null,
+        details: { id, decision, note, previousReviewStatus: current.review_status },
+      });
+
+      res.json({ enrollment: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
     }
   });
 

@@ -9940,12 +9940,27 @@ export const sfpReadyHeldEnrollments = pgTable("sfp_ready_held_enrollments", {
   contactResolution: text("contact_resolution").notNull(),
   actorId: text("actor_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Review/approval metadata only (Liberty Bancard enrichment completion,
+  // continuation — item 5). This is a review DECISION record, not an
+  // activation control: it never touches sequence_enrollments.status, never
+  // stages a campaign, never calls GHL, and never sends. The row's own
+  // ready_held/paused reality is owned entirely by sfp-enrollment-bridge.ts
+  // and is untouched by any write here.
+  reviewStatus: text("review_status").notNull().default("pending"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewNote: text("review_note"),
 }, (table) => [
   uniqueIndex("sfp_ready_held_enrollments_intent_uidx").on(table.stagingIntentId),
   index("sfp_ready_held_enrollments_contact_idx").on(table.contactId),
+  index("sfp_ready_held_enrollments_review_status_idx").on(table.reviewStatus),
   check(
     "sfp_ready_held_enrollments_resolution_chk",
     sql`contact_resolution IN ('matched_existing', 'created_new')`,
+  ),
+  check(
+    "sfp_ready_held_enrollments_review_status_chk",
+    sql`review_status IN ('pending', 'approved', 'rejected')`,
   ),
 ]);
 

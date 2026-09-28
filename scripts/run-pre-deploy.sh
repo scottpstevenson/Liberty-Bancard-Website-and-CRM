@@ -78,8 +78,21 @@ echo ""
 
 # ── 2. Start the dev server in the background ─────────────────────────────────
 # GHL_TRANSPORT_FAILFAST installs the fail-fast fake GHL transport (C-03).
+#
+# BUG FIX (Liberty Bancard enrichment completion, continuation): SERVER_PORT is
+# derived from BASE_URL above and used for the port pre-flight check, but was
+# never exported to this child process — server/index.ts binds
+# `process.env.PORT || "5000"`, so the spawned server always bound the
+# hardcoded default 5000 regardless of BASE_URL. In a workspace where the
+# "Start application" workflow is already listening on 5000, this either
+# collides outright or (depending on process/port timing) lets the health
+# check and SHA-verification step observe THAT already-running process
+# instead of the one this script just started — producing a spurious
+# "SHA mismatch" that has nothing to do with the code under test. Exporting
+# PORT=$SERVER_PORT makes the spawned server actually honor BASE_URL, so this
+# gate can run isolated on a free port alongside an already-running dev server.
 echo "▶  Starting dev server with provider denial and disposable statement test storage…"
-GHL_TRANSPORT_FAILFAST=true STATEMENT_COMMAND_TEST_STORAGE=true npm run dev &
+PORT="$SERVER_PORT" GHL_TRANSPORT_FAILFAST=true STATEMENT_COMMAND_TEST_STORAGE=true npm run dev &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 

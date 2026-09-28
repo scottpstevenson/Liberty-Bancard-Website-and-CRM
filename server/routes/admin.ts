@@ -2551,10 +2551,21 @@ export function registerAdminRoutes(app: Express) {
   // would produce a permanently stale/misleading entry.
   app.get("/api/admin/worker-heartbeats", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const { QUEUE_CONFIGS: QC, getEffectiveQueueIntervals, isLegacyGhlSyncClaimed, QUEUE_NAMES: QN } = await import("../services/queue-manager");
+      const { QUEUE_CONFIGS: QC, getEffectiveQueueIntervals, isLegacyGhlSyncClaimed, QUEUE_NAMES: QN, getQueueManagerProducers } = await import("../services/queue-manager");
       const live = getEffectiveQueueIntervals();
       const legacyGhl = isLegacyGhlSyncClaimed();
       const now = Date.now();
+      const qm = getQueueManagerProducers();
+
+      // Corrective addition (Liberty Bancard enrichment completion,
+      // continuation — item 4): heartbeats alone only prove "did the
+      // scheduler tick recently" — they say nothing about backlog, retry
+      // pressure, or WHY a worker is idle. Add real backlog/retry counts
+      // from the live BullMQ queue when available, and surface the
+      // canonical pause reason so a paused-but-healthy worker is
+      // distinguishable from a genuinely stalled one.
+      const { getPauseState } = await import("../services/outbound-pause-authority");
+      const pauseState = await getPauseState().catch(() => null);
 
       // Only include queues that are actively managed by BullMQ in this process.
       const activeConfigs = legacyGhl ? QC.filter(c => c.name !== QN.GHL_SYNC) : QC;
@@ -2566,16 +2577,40 @@ export function registerAdminRoutes(app: Express) {
           // Use the live effective interval (may include a persisted override) if available.
           const expectedMs = live[config.name] ?? config.repeatEveryMs;
           const stale = lastSeenMs === null || (now - lastSeenMs) > expectedMs * 2;
+
+          let backlog: { waiting: number; active: number; delayed: number; failed: number } | null = null;
+          try {
+            const queue = qm?.getQueue(config.name);
+            if (queue) {
+              const counts = await queue.getJobCounts("waiting", "active", "delayed", "failed");
+              backlog = {
+                waiting: counts.waiting ?? 0,
+                active: counts.active ?? 0,
+                delayed: counts.delayed ?? 0,
+                failed: counts.failed ?? 0,
+              };
+            }
+          } catch {
+            backlog = null; // BullMQ/Redis unreachable — report as unavailable, never fabricate 0s.
+          }
+
           return {
             queueName: config.name,
             lastSeenMs,
             lastSeenAt: lastSeenMs ? new Date(lastSeenMs).toISOString() : null,
             expectedIntervalMs: expectedMs,
             stale,
+            backlog,
+            backlogAvailable: backlog !== null,
           };
         })
       );
-      res.json({ heartbeats: entries, asOf: new Date(now).toISOString(), legacyGhlActive: legacyGhl });
+      res.json({
+        heartbeats: entries,
+        asOf: new Date(now).toISOString(),
+        legacyGhlActive: legacyGhl,
+        pauseReason: pauseState ? { state: pauseState.state, reason: pauseState.reason, source: pauseState.source } : { state: "unknown", reason: "outbound pause authority unavailable", source: "safe_default" },
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -6274,6 +6309,40 @@ export function registerAdminRoutes(app: Express) {
       if (!control) return res.status(404).json({ message: "serper_control row missing — run migrations" });
       res.json({ control, policyVersion: control.policy_version });
     } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  // Corrective addition (Liberty Bancard enrichment completion, continuation
+  // — item 1): every other paid provider (zerobounce, outscraper, openai,
+  // apollo) has a dedicated enable/pause PUT route via
+  // /api/admin/provider-controls/:provider; Serper had none — its only
+  // toggle was the blanket ladder-wide emergency stop. Adds parity using the
+  // gateway's own atomic setEnabled(), which already mirrors into
+  // provider_controls in the same transaction (Gate 2 reconciliation).
+  app.put("/api/admin/serper/control", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      const { enabled } = req.body as { enabled?: unknown };
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled must be a boolean" });
+      }
+      const { serperGateway } = await import("../services/serper-gateway");
+      const correlationId = `admin-toggle:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+      const row = await serperGateway.setEnabled(enabled, {
+        actorId: (req.user as any)?.id ?? null,
+        reason: typeof req.body?.reason === "string" ? req.body.reason.slice(0, 500) : "admin_toggle",
+        correlationId,
+      });
+      await storage.createAuditLog({
+        action: "provider_control_updated", entityType: "provider_control",
+        userId: (req.user as any)?.id ?? null,
+        details: { provider: "serper", enabled, correlationId },
+      });
+      res.json({ control: row });
+    } catch (err: any) {
+      if (/serper_control row missing/i.test(err?.message ?? "")) {
+        return res.status(404).json({ message: err.message });
+      }
       serverError(res, err);
     }
   });
