@@ -188,6 +188,7 @@ type SfpCampaignStagingTelemetry = {
 
 type PaidWaterfallPreview = {
   businessesNeedingPaidDiscovery: number;
+  serperEligibleNow: number;
   providers: Array<{provider:string;credentialPresent:boolean;enabled:boolean;circuitState:string;executableForSfp:boolean;unitPriceMicros:number|null;role:string}>;
   note: string;
 };
@@ -1264,20 +1265,25 @@ export function SouthFloridaProspectingPanel() {
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-3">
-              <span className="text-xs font-medium">{paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery</span>
+              <span className="text-xs font-medium">
+                {paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery · {paidPreviewQuery.data?.serperEligibleNow ?? 0} eligible for Serper now
+              </span>
               <label className="text-xs" htmlFor="sfp-serper-batch-size">Pilot businesses</label>
               <input id="sfp-serper-batch-size" type="number" min={1} max={10} value={serperBatchSize}
                 onChange={(e) => setSerperBatchSize(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
                 className="border rounded px-2 py-1 text-xs w-16" />
               <Button size="sm" variant="outline" onClick={() => armSerperPilot.mutate()}
-                disabled={armSerperPilot.isPending || !activeRunId}>
+                disabled={armSerperPilot.isPending || !activeRunId || !paidPreviewQuery.data?.serperEligibleNow}>
                 Arm Serper pilot (at most {serperBatchSize * 4} requests)
               </Button>
               <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
-                disabled={runSerperDiscovery.isPending || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
+                disabled={runSerperDiscovery.isPending || !paidPreviewQuery.data?.serperEligibleNow || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
                 {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
                 Run Serper discovery ({serperBatchSize} business{serperBatchSize === 1 ? "" : "es"})
               </Button>
+              {paidPreviewQuery.data?.serperEligibleNow === 0 && (paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0) > 0 && (
+                <span className="text-xs text-muted-foreground">No paid retry is due in this frozen cohort. A larger new cohort can include unattempted businesses; recent no-results become retryable after 24 hours.</span>
+              )}
               <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
                 disabled={runPaidWaterfall.isPending || !cohortCostPreviewQuery.data?.snapshotHash}>
                 {runPaidWaterfall.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}

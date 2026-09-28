@@ -182,12 +182,29 @@ export async function previewSfpPaidWaterfall(cohortRunId: string) {
        AND NOT EXISTS (SELECT 1 FROM free_discovery_candidates c
                         WHERE c.business_id=m.business_id AND c.disposition IN ('staged','validation_admitted'))
   `))[0];
+  const serperReady = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_cohort_members m
+    JOIN businesses b ON b.id=m.business_id
+    WHERE m.cohort_run_id=${cohortRunId}::uuid AND b.website_domain IS NULL
+      AND NOT EXISTS (SELECT 1 FROM free_discovery_candidates c
+        WHERE c.business_id=b.id AND c.disposition IN ('staged','validation_admitted'))
+      AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+        WHERE q.business_id=b.id AND q.cleared_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM sfp_stage_items i
+        JOIN sfp_stage_runs prior ON prior.id=i.stage_run_id
+        WHERE prior.cohort_run_id=m.cohort_run_id AND i.business_id=b.id
+          AND i.provider='serper' AND i.state IN ('completed','no_result'))
+      AND NOT EXISTS (SELECT 1 FROM sfp_stage_items i
+        WHERE i.business_id=b.id AND i.provider='serper' AND i.state='no_result'
+          AND i.completed_at >= NOW() - INTERVAL '24 hours')
+  `))[0];
   const controls = await getPaidProviderControls();
   const supported = new Set(["serper", "outscraper", "apollo"]);
   return {
     cohortRunId,
     programActive:Boolean(cohort.is_active),
     businessesNeedingPaidDiscovery:Number(eligible?.count ?? 0),
+    serperEligibleNow:Number(serperReady?.count ?? 0),
     providers: await Promise.all(controls.providers.map(async (p: any) => ({
       ...p,
       executableForSfp: supported.has(String(p.provider)),
@@ -488,6 +505,34 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   };
 }
 
+/** Read-only selection shared by execution and disposable-DB certification. */
+export async function selectSfpSerperTargets(cohortRunId: string, maxBusinesses: number): Promise<any[]> {
+  return rows(await db.execute(sql`
+    SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,m.roi_score
+      FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
+     WHERE m.cohort_run_id=${cohortRunId}::uuid
+       AND b.website_domain IS NULL
+       AND NOT EXISTS (SELECT 1 FROM free_discovery_candidates c WHERE c.business_id=b.id AND c.disposition IN ('staged','validation_admitted'))
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_stage_items i JOIN sfp_stage_runs prior ON prior.id=i.stage_run_id
+          WHERE prior.cohort_run_id=m.cohort_run_id AND i.business_id=b.id
+            AND i.provider='serper' AND i.state IN ('completed','no_result')
+       )
+       -- A new frozen cohort must not pay for the same terminal no-result
+       -- lookup again immediately. A voided prior cohort does not invalidate
+       -- the settled observation for this business. Retry is allowed after
+       -- the finite cooldown expires.
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_stage_items i WHERE i.business_id=b.id
+           AND i.provider='serper' AND i.state='no_result'
+           AND i.completed_at >= NOW() - INTERVAL '24 hours'
+       )
+       AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+         WHERE q.business_id=b.id AND q.cleared_at IS NULL)
+     ORDER BY m.roi_score DESC,b.id ASC LIMIT ${maxBusinesses}
+  `));
+}
+
 export async function executeSfpSerperDiscovery(input: {
   cohortRunId:string;
   idempotencyKey:string;
@@ -517,19 +562,7 @@ export async function executeSfpSerperDiscovery(input: {
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
    const stageClaimToken=await claimStageRun(String(stage.id));
-  const targets=rows(await db.execute(sql`
-    SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,m.roi_score
-      FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
-     WHERE m.cohort_run_id=${input.cohortRunId}::uuid
-       AND b.website_domain IS NULL
-       AND NOT EXISTS (SELECT 1 FROM free_discovery_candidates c WHERE c.business_id=b.id AND c.disposition IN ('staged','validation_admitted'))
-       AND NOT EXISTS (
-         SELECT 1 FROM sfp_stage_items i JOIN sfp_stage_runs prior ON prior.id=i.stage_run_id
-          WHERE prior.cohort_run_id=m.cohort_run_id AND i.business_id=b.id
-            AND i.provider='serper' AND i.state IN ('completed','no_result')
-       )
-     ORDER BY m.roi_score DESC,b.id ASC LIMIT ${maxBusinesses}
-  `));
+  const targets=await selectSfpSerperTargets(input.cohortRunId,maxBusinesses);
   await db.execute(sql`UPDATE sfp_stage_runs SET selected_count=${targets.length},updated_at=NOW() WHERE id=${String(stage.id)}::uuid`);
   let succeeded=0,failed=0,noResult=0,freeRecrawlFailed=0;
   for(const target of targets){
@@ -593,7 +626,11 @@ export async function executeSfpSerperDiscovery(input: {
       }else{
         await settleSfpProviderOperation({
           reservation,outcome:'no_result',observation:'no_result',businessId:Number(target.id),
-          settledUnits:outcome.requestsUsed,resultData:{domain:null,reasonCode:"SERPER_NO_RESULT"},
+          settledUnits:outcome.requestsUsed,resultData:{
+            domain:null,
+            reasonCode:outcome.kind==='identity_rejected' ? 'SERPER_IDENTITY_REJECTED' : 'SERPER_NO_RESULT',
+            lookupOutcome:outcome.kind,
+          },
         });
         noResult++;
       }

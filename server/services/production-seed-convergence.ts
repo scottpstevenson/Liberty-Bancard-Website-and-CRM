@@ -23,11 +23,12 @@
  *
  * Every target function:
  *  - never runs schema DDL and never touches the Drizzle migration journal,
- *  - never updates or deletes a row it did not just insert,
  *  - fails closed (throws) if it finds a row that conflicts with the
- *    canonical seed content, rather than silently overwriting it,
+ *    canonical content, rather than silently overwriting it,
  *  - is idempotent under concurrent boots via a per-target Postgres advisory
  *    lock plus `ON CONFLICT DO NOTHING` on the real unique/composite key.
+ * Most targets insert missing rows; incident corrections below use explicit
+ * narrow guards and audit copies before altering a known bad projection.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
@@ -328,6 +329,118 @@ async function convergeSfpIdentityQuarantineBusiness9555(): Promise<SeedTargetRe
     `);
 
     return { id, classification: "historical_backfill", tables, outcome: "backfilled", detail: "inserted quarantine + discredited-evidence rows and nulled the wrong domain/518-phone/free-candidate rows for business 9555" };
+  });
+}
+
+// migrations/0305_sfp_wrong_site_derived_evidence.sql. The 0304 repair
+// removed the wrong domain, 518 phone and free candidates, but the same crawl
+// left a visible free summary and a processor signal in the business record.
+// Publish syncs the archive tables without executing migration DML, so mirror
+// the exact guarded archive-and-removal here. The immutable paid observations
+// and historical source events are left intact under their rejection gates.
+async function convergeSfpWrongSiteDerivedEvidence9555(): Promise<SeedTargetResult> {
+  const id = "sfp_wrong_site_derived_evidence_9555";
+  const tables = ["sfp_discredited_processor_signals", "sfp_discredited_free_enrichment_summaries", "processor_signals", "businesses"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "sfp_discredited_processor_signals", { signal_id: "integer", business_id: "integer", original_row: "jsonb", reason_code: "text" });
+    await assertColumns(tx, "sfp_discredited_free_enrichment_summaries", { business_id: "integer", original_evidence: "jsonb", reason_code: "text" });
+
+    // Disposable and development databases need not contain this production
+    // incident. An unrelated business that happens to have id 9555 must not
+    // become a required repair target.
+    const incident = rows(await tx.execute(sql`
+      SELECT id FROM businesses WHERE id = ${SFP_9555_BUSINESS_ID}
+        AND LOWER(BTRIM(canonical_name)) LIKE 'prolawn & landscaping%'
+    `))[0];
+    if (!incident) return { id, classification: "historical_backfill", tables, outcome: "already_present", detail: "production incident business absent" };
+
+    const archived = rows(await tx.execute(sql`
+      SELECT EXISTS(SELECT 1 FROM sfp_discredited_processor_signals
+          WHERE signal_id = 1548 AND business_id = ${SFP_9555_BUSINESS_ID}
+            AND reason_code = 'SERPER_WRONG_GEOGRAPHY'
+            AND original_row->>'vendor_name' = 'Squarespace Commerce'
+            AND original_row->>'detection_method' = 'script') AS signal_archived,
+        EXISTS(SELECT 1 FROM sfp_discredited_free_enrichment_summaries
+          WHERE business_id = ${SFP_9555_BUSINESS_ID}
+            AND reason_code = 'SERPER_WRONG_GEOGRAPHY'
+            AND original_evidence->>'collectedAt' = '2026-09-28T01:06:23.035Z') AS summary_archived,
+        EXISTS(SELECT 1 FROM processor_signals
+          WHERE id = 1548 AND business_id = ${SFP_9555_BUSINESS_ID}) AS signal_live,
+        (SELECT free_enrichment_evidence IS NULL FROM businesses
+          WHERE id = ${SFP_9555_BUSINESS_ID}) AS summary_cleared
+    `))[0];
+    if (archived.signal_archived && archived.summary_archived &&
+        !archived.signal_live && archived.summary_cleared) {
+      return { id, classification: "historical_backfill", tables, outcome: "already_present", detail: "wrong-site signal and summary already archived and absent from live business" };
+    }
+
+    const guard = rows(await tx.execute(sql`
+      SELECT q.business_id FROM sfp_identity_quarantines q
+      JOIN businesses b ON b.id = q.business_id
+      WHERE q.business_id = ${SFP_9555_BUSINESS_ID}
+        AND q.cleared_at IS NULL AND q.reason_code = 'SERPER_WRONG_GEOGRAPHY'
+        AND q.suspect_domain = ${SFP_9555_SUSPECT_DOMAIN}
+        AND b.website_domain IS NULL
+      FOR UPDATE OF q, b
+    `))[0];
+    if (!guard) return { id, classification: "historical_backfill", tables, outcome: "unexpected", detail: "active quarantine or cleared wrong-domain guard missing; no derived evidence changed" };
+
+    await tx.execute(sql`
+      INSERT INTO sfp_discredited_processor_signals (signal_id, business_id, original_row, reason_code)
+      SELECT p.id, p.business_id, to_jsonb(p), 'SERPER_WRONG_GEOGRAPHY'
+        FROM processor_signals p
+       WHERE p.id = 1548 AND p.business_id = ${SFP_9555_BUSINESS_ID}
+         AND p.signal_type = 'ecommerce_platform'
+         AND p.vendor_name = 'Squarespace Commerce' AND p.detection_method = 'script'
+         AND p.evidence = 'Script source: //assets.squarespace.com/@sqs/polyfiller/1.6/legacy.js'
+      ON CONFLICT (signal_id) DO NOTHING
+    `);
+    await tx.execute(sql`
+      DELETE FROM processor_signals p USING sfp_discredited_processor_signals d
+       WHERE p.id = 1548 AND p.id = d.signal_id AND p.business_id = d.business_id
+         AND to_jsonb(p) = d.original_row
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO sfp_discredited_free_enrichment_summaries (business_id, original_evidence, reason_code)
+      SELECT b.id, b.free_enrichment_evidence, 'SERPER_WRONG_GEOGRAPHY'
+        FROM businesses b
+       WHERE b.id = ${SFP_9555_BUSINESS_ID} AND b.website_domain IS NULL
+         AND b.free_enrichment_evidence->>'collectedAt' = '2026-09-28T01:06:23.035Z'
+         AND b.free_enrichment_evidence->>'contactPageEmailCount' = '2'
+         AND b.free_enrichment_evidence->'processorVendors' @> '["Squarespace Commerce"]'::jsonb
+      ON CONFLICT (business_id) DO NOTHING
+    `);
+    await tx.execute(sql`
+      UPDATE businesses b SET free_enrichment_evidence = NULL, updated_at = NOW()
+        FROM sfp_discredited_free_enrichment_summaries d
+       WHERE b.id = ${SFP_9555_BUSINESS_ID} AND b.id = d.business_id
+         AND b.free_enrichment_evidence = d.original_evidence
+    `);
+
+    const state = rows(await tx.execute(sql`
+      SELECT
+        (SELECT count(*)::int FROM sfp_discredited_processor_signals
+          WHERE signal_id = 1548 AND business_id = ${SFP_9555_BUSINESS_ID}
+            AND reason_code = 'SERPER_WRONG_GEOGRAPHY'
+            AND original_row->>'vendor_name' = 'Squarespace Commerce'
+            AND original_row->>'detection_method' = 'script') AS archived_signals,
+        (SELECT count(*)::int FROM processor_signals
+          WHERE id = 1548 AND business_id = ${SFP_9555_BUSINESS_ID}) AS live_signals,
+        (SELECT count(*)::int FROM sfp_discredited_free_enrichment_summaries
+          WHERE business_id = ${SFP_9555_BUSINESS_ID}
+            AND reason_code = 'SERPER_WRONG_GEOGRAPHY'
+            AND original_evidence->>'collectedAt' = '2026-09-28T01:06:23.035Z') AS archived_summaries,
+        (SELECT free_enrichment_evidence IS NULL FROM businesses
+          WHERE id = ${SFP_9555_BUSINESS_ID}) AS summary_cleared
+    `))[0];
+    if (Number(state?.archived_signals) !== 1 || Number(state?.live_signals) !== 0 ||
+        Number(state?.archived_summaries) !== 1 || state?.summary_cleared !== true) {
+      // Roll back the entire archive-and-removal transaction on drift.
+      throw new Error(`SFP_WRONG_SITE_DERIVED_EVIDENCE_INCOMPLETE:${JSON.stringify(state)}`);
+    }
+    return { id, classification: "historical_backfill", tables, outcome: "backfilled",
+      detail: "exactly one wrong-site processor signal and free summary archived and absent from live business 9555" };
   });
 }
 
@@ -1014,6 +1127,7 @@ export const SEED_TARGETS: Array<{ id: string; classification: SeedClassificatio
   },
   { id: "sunbiz_soflo_cursor_rewind_task2002", classification: "historical_backfill", tables: ["sunbiz_bootstrap_runs"], write: convergeSofloCursorRewind },
   { id: "sfp_identity_quarantine_business_9555", classification: "historical_backfill", tables: ["sfp_identity_quarantines", "sfp_discredited_paid_evidence", "businesses", "free_discovery_candidates"], write: convergeSfpIdentityQuarantineBusiness9555 },
+  { id: "sfp_wrong_site_derived_evidence_9555", classification: "historical_backfill", tables: ["sfp_discredited_processor_signals", "sfp_discredited_free_enrichment_summaries", "processor_signals", "businesses"], write: convergeSfpWrongSiteDerivedEvidence9555 },
 ];
 
 /**
@@ -1298,6 +1412,29 @@ export async function verifyProductionSeedConvergence(): Promise<SeedConvergence
           ? `south_florida phase cursor still at ${row.soflo_high_water_entity_id} — convergence rewind has not run yet`
           : "no pending rewind (row absent, past south_florida phase, or already rewound)",
       };
+    },
+    async () => {
+      const id = "sfp_wrong_site_derived_evidence_9555";
+      const tables = ["sfp_discredited_processor_signals", "sfp_discredited_free_enrichment_summaries", "processor_signals", "businesses"];
+      const state = rows(await db.execute(sql`
+        SELECT EXISTS(SELECT 1 FROM businesses WHERE id = ${SFP_9555_BUSINESS_ID}
+            AND LOWER(BTRIM(canonical_name)) LIKE 'prolawn & landscaping%') AS incident_present,
+          EXISTS(SELECT 1 FROM sfp_discredited_processor_signals WHERE signal_id = 1548
+            AND business_id = ${SFP_9555_BUSINESS_ID} AND reason_code = 'SERPER_WRONG_GEOGRAPHY'
+            AND original_row->>'vendor_name' = 'Squarespace Commerce'
+            AND original_row->>'detection_method' = 'script') AS signal_archived,
+          EXISTS(SELECT 1 FROM processor_signals WHERE id = 1548 AND business_id = ${SFP_9555_BUSINESS_ID}) AS signal_live,
+          EXISTS(SELECT 1 FROM sfp_discredited_free_enrichment_summaries WHERE business_id = ${SFP_9555_BUSINESS_ID}
+            AND reason_code = 'SERPER_WRONG_GEOGRAPHY'
+            AND original_evidence->>'collectedAt' = '2026-09-28T01:06:23.035Z') AS summary_archived,
+          (SELECT free_enrichment_evidence IS NULL FROM businesses WHERE id = ${SFP_9555_BUSINESS_ID}) AS summary_cleared
+      `))[0];
+      const ok = !state?.incident_present || (state.signal_archived &&
+        !state.signal_live && state.summary_archived && state.summary_cleared);
+      return { id, classification: "historical_backfill", tables, outcome: ok ? "already_present" : "unexpected",
+        detail: !state?.incident_present ? "production incident business absent" : ok
+          ? "wrong-site derived evidence archived and absent from live business"
+          : "business 9555 still has unarchived or live wrong-site derived evidence" };
     },
   ];
   for (const check of checks) {

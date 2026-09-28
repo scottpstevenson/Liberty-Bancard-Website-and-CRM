@@ -260,6 +260,86 @@ async function main() {
     return src.includes("i.provider='serper' AND i.state IN ('completed','no_result')");
   }
 
+  // 10b. Exercise the production selector itself against a second cohort.
+  // Voiding the first cohort must not cause a paid no-result to be charged
+  // again immediately. Once that observation is older than the 24-hour
+  // cooldown, it becomes retryable; an active identity quarantine still wins.
+  const { selectSfpSerperTargets } = await import("../server/services/cro03/sfp-paid-waterfall");
+  const nextCohortId = randomUUID();
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs (id, program_id, idempotency_key, status, cohort_state, actor_id,
+      request_hash, config_hash, request_payload, policy_versions, cohort_size, cohort_hash)
+    VALUES (${nextCohortId}::uuid, ${programId}::uuid, ${"cert-next-" + nextCohortId},
+      'freezing', 'freezing', 'cert', 'h3', 'c3', '{}'::jsonb, '{}'::jsonb, 1, 'next-hash')
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_members (cohort_run_id, business_id, roi_score, selection_rank)
+    VALUES (${nextCohortId}::uuid, ${businessId}, 99, 1)
+  `);
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW() WHERE id=${nextCohortId}::uuid
+  `);
+  await db.execute(sql`
+    UPDATE sfp_stage_items SET completed_at=NOW() WHERE stage_run_id=${priorStageRunId}::uuid
+      AND business_id=${businessId} AND provider='serper'
+  `);
+  await db.execute(sql`UPDATE sfp_cohort_runs SET cohort_state='voided',voided_at=NOW(),voided_by='cert',void_reason='cert unrelated business' WHERE id=${cohortRunId}::uuid`);
+  check((await selectSfpSerperTargets(nextCohortId, 1)).length === 0,
+    "a settled no-result from a voided prior cohort is not selected for immediate paid retry");
+  await db.execute(sql`
+    UPDATE sfp_stage_items SET completed_at=NOW()-INTERVAL '25 hours'
+     WHERE stage_run_id=${priorStageRunId}::uuid AND business_id=${businessId} AND provider='serper'
+  `);
+  check((await selectSfpSerperTargets(nextCohortId, 1)).some((r: any) => Number(r.id) === businessId),
+    "the same business becomes eligible after the finite 24-hour no-result cooldown");
+  await db.execute(sql`
+    INSERT INTO sfp_identity_quarantines (business_id,reason_code,suspect_domain,source_cohort_run_id)
+    VALUES (${businessId},'SERPER_WRONG_GEOGRAPHY','wrong.example',${cohortRunId}::uuid)
+  `);
+  check((await selectSfpSerperTargets(nextCohortId, 1)).length === 0,
+    "active identity quarantine excludes a business even after cooldown expires");
+
+  // 10c. Production Publish can apply schema without migration DML. Exercise
+  // the registered startup correction on the exact bad-crawl shape, including
+  // its audit copy and idempotent replay.
+  const incidentId = 9555;
+  const incidentSignalId = 1548;
+  const badSummary = {
+    collectedAt: "2026-09-28T01:06:23.035Z", contactPageEmailCount: 2,
+    processorVendors: ["Squarespace Commerce"], processorSignalCount: 1,
+  };
+  await db.execute(sql`
+    INSERT INTO businesses (id,canonical_name,normalized_name,record_class,city,state,free_enrichment_evidence)
+    VALUES (${incidentId},'Prolawn & Landscaping, Inc..','prolawn landscaping inc','canonical',
+      'Boynton Beach','FL',${JSON.stringify(badSummary)}::jsonb)
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_identity_quarantines (business_id,reason_code,suspect_domain,source_cohort_run_id)
+    VALUES (${incidentId},'SERPER_WRONG_GEOGRAPHY','prolawnlandscaper.com',${cohortRunId}::uuid)
+  `);
+  await db.execute(sql`
+    INSERT INTO processor_signals (id,business_id,signal_type,vendor_name,detection_method,evidence)
+    VALUES (${incidentSignalId},${incidentId},'ecommerce_platform','Squarespace Commerce','script',
+      'Script source: //assets.squarespace.com/@sqs/polyfiller/1.6/legacy.js')
+  `);
+  const { SEED_TARGETS } = await import("../server/services/production-seed-convergence");
+  const correction = SEED_TARGETS.find((t) => t.id === "sfp_wrong_site_derived_evidence_9555");
+  check(Boolean(correction), "wrong-site correction is registered for production startup convergence");
+  const correctionResult = await correction!.write();
+  const liveAfterCorrection = rows(await db.execute(sql`
+    SELECT b.free_enrichment_evidence,
+      (SELECT COUNT(*)::int FROM processor_signals WHERE business_id=${incidentId}) AS live_signals,
+      (SELECT COUNT(*)::int FROM sfp_discredited_processor_signals WHERE business_id=${incidentId}) AS archived_signals,
+      (SELECT COUNT(*)::int FROM sfp_discredited_free_enrichment_summaries WHERE business_id=${incidentId}) AS archived_summaries
+      FROM businesses b WHERE b.id=${incidentId}
+  `))[0];
+  check(correctionResult.outcome === "backfilled" && liveAfterCorrection.free_enrichment_evidence == null &&
+    Number(liveAfterCorrection.live_signals) === 0 && Number(liveAfterCorrection.archived_signals) === 1 &&
+    Number(liveAfterCorrection.archived_summaries) === 1,
+    "guarded correction archives both wrong-site artifacts and clears only their live projections");
+  check((await correction!.write()).outcome === "already_present",
+    "wrong-site correction replays without another archive or mutation");
+
   // 11. UI package-check fix: client component now queries the v2 verify endpoint
   const panelSource = fs.readFileSync(new URL("../client/src/components/lead-ops/SouthFloridaProspectingPanel.tsx", import.meta.url), "utf8");
   check(panelSource.includes('"/api/lead-ops/sfp/campaign-packages-v2/verify"') && !panelSource.includes('"/api/lead-ops/sfp/campaign-packages/verify"'),
