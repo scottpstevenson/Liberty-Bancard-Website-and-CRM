@@ -2723,6 +2723,7 @@ export default function LeadOpsCenter() {
 
         {/* ── South Florida Prospecting tab ──────────────────────────────── */}
         <TabsContent value="sfp" className="space-y-4">
+          <SfpEnrichmentControlCenter />
           <SouthFloridaProspectingPanel />
         </TabsContent>
 
@@ -2737,6 +2738,155 @@ export default function LeadOpsCenter() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ── Enrichment Control Center — single-glance health for the SFP
+// source-to-paused-enrollment pipeline (discovery → validation →
+// ready-held → paused sequence enrollment). Every number here is read
+// straight from existing server authorities (pilot status-overview,
+// promotion-state, the new validation-promotion override route) — this
+// panel adds no new server-side state of its own beyond the override.
+function SfpEnrichmentControlCenter() {
+  const { toast } = useToast();
+
+  const overviewQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/pilot/status-overview"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/pilot/status-overview", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const promotionStateQuery = useQuery<any>({
+    queryKey: ["/api/lead-ops/candidates/promotion-state"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/candidates/promotion-state", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const overrideQuery = useQuery<{ override: boolean | null; envVarEnabled: boolean; effective: boolean }>({
+    queryKey: ["/api/lead-ops/sfp/settings/validation-promotion-override"],
+    queryFn: async () => {
+      const r = await fetch("/api/lead-ops/sfp/settings/validation-promotion-override", { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const setOverrideMutation = useMutation({
+    mutationFn: async (value: boolean | null) => {
+      return apiRequest("PUT", "/api/lead-ops/sfp/settings/validation-promotion-override", { override: value });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/settings/validation-promotion-override"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/candidates/promotion-state"] });
+      toast({ title: "Validation promotion setting updated" });
+    },
+    onError: (err: any) => toast({ title: "Failed to update setting", description: parseApiRequestError(String(err?.message ?? err))?.reason ?? String(err?.message ?? err), variant: "destructive" }),
+  });
+
+  const overview = overviewQuery.data;
+  const providerControls: Array<{ provider: string; enabled: boolean; circuit_state: string; local_budget_units: number | null; reserved_units: number; consumed_units: number }> =
+    overview?.providerControls ?? [];
+  const serper = providerControls.find((p) => p.provider === "serper");
+  const zerobounce = providerControls.find((p) => p.provider === "zerobounce");
+  const aggregateBudget = overview?.aggregateBudget;
+  const override = overrideQuery.data?.override ?? null;
+
+  const remainingPct = aggregateBudget && aggregateBudget.capMicros > 0
+    ? Math.max(0, 100 - Math.round(((aggregateBudget.settledMicros + aggregateBudget.reservedMicros) / aggregateBudget.capMicros) * 100))
+    : null;
+
+  return (
+    <Card data-testid="card-sfp-enrichment-control-center">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5" /> Enrichment Control Center
+        </CardTitle>
+        <CardDescription>
+          Live health of the source → validated email → ready-held → paused-enrollment pipeline. Outbound sending stays paused regardless of what's shown here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {(overviewQuery.isLoading || promotionStateQuery.isLoading) ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (overviewQuery.isError) ? (
+          <div className="text-sm text-destructive">Failed to load pipeline status.</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="rounded-md border p-3" data-testid="stat-serper-budget">
+                <div className="text-xs text-muted-foreground">Serper (discovery)</div>
+                <div className="text-lg font-semibold">
+                  {serper ? `${Number(serper.consumed_units) + Number(serper.reserved_units)} / ${serper.local_budget_units ?? "∞"}` : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {serper ? (serper.enabled && serper.circuit_state === "closed" ? "healthy" : `${serper.circuit_state}${serper.enabled ? "" : ", disabled"}`) : "unknown"}
+                </div>
+              </div>
+              <div className="rounded-md border p-3" data-testid="stat-zerobounce-budget">
+                <div className="text-xs text-muted-foreground">ZeroBounce (validation)</div>
+                <div className="text-lg font-semibold">
+                  {zerobounce ? `${Number(zerobounce.consumed_units) + Number(zerobounce.reserved_units)} / ${zerobounce.local_budget_units ?? "∞"}` : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {zerobounce ? (zerobounce.enabled && zerobounce.circuit_state === "closed" ? "healthy" : `${zerobounce.circuit_state}${zerobounce.enabled ? "" : ", disabled"}`) : "unknown"}
+                </div>
+              </div>
+              <div className="rounded-md border p-3" data-testid="stat-aggregate-budget">
+                <div className="text-xs text-muted-foreground">$50 aggregate paid cap</div>
+                <div className="text-lg font-semibold">
+                  {aggregateBudget ? usdFromMicros(aggregateBudget.remainingMicros) : "—"} left
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {remainingPct !== null ? `${remainingPct}% remaining` : ""}{aggregateBudget?.overCap ? " · OVER CAP" : ""}
+                </div>
+              </div>
+              <div className="rounded-md border p-3" data-testid="stat-ready-held">
+                <div className="text-xs text-muted-foreground">Ready-held enrollments</div>
+                <div className="text-lg font-semibold">{overview?.eligibleCounts?.ready_held_enrollments ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">{overview?.eligibleCounts?.policy_eligible ?? 0} outreach-eligible</div>
+              </div>
+            </div>
+
+            <div className="rounded-md border p-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Email-validation promotion gate</div>
+                <div className="text-xs text-muted-foreground">
+                  Env var: {overrideQuery.data?.envVarEnabled ? "on" : "off"} · Override: {override === null ? "none (defers to env var)" : override ? "forced ON" : "forced OFF"} ·{" "}
+                  Effective: <span className={overrideQuery.data?.effective ? "text-green-600" : "text-red-600"}>{overrideQuery.data?.effective ? "OPEN" : "CLOSED"}</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant={override === true ? "default" : "outline"} disabled={setOverrideMutation.isPending}
+                  onClick={() => setOverrideMutation.mutate(true)} data-testid="button-promotion-override-on">
+                  Force ON
+                </Button>
+                <Button size="sm" variant={override === false ? "default" : "outline"} disabled={setOverrideMutation.isPending}
+                  onClick={() => setOverrideMutation.mutate(false)} data-testid="button-promotion-override-off">
+                  Force OFF
+                </Button>
+                <Button size="sm" variant={override === null ? "default" : "outline"} disabled={setOverrideMutation.isPending}
+                  onClick={() => setOverrideMutation.mutate(null)} data-testid="button-promotion-override-clear">
+                  Use env var
+                </Button>
+              </div>
+            </div>
+
+            <div className="text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" /> Auto-refreshes every 30s. Outbound sending authority is separate and unaffected by this panel — see the Health tab.
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
