@@ -371,7 +371,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
             }, tx);
             await tx.execute(sql`
               UPDATE sfp_stage_items
-                 SET paid_candidate_evidence_id=${writes[0].id}::uuid,outcome_code='candidate_found',updated_at=NOW()
+                 SET paid_candidate_evidence_id=${evidence[0].id}::uuid,outcome_code='candidate_found',updated_at=NOW()
                WHERE provider_operation_id=${reservation!.operationId}::uuid
             `);
             return evidence;
@@ -461,7 +461,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
             const emailReferenceIndex = candidateValues.findIndex((value) => value.field === "email");
             await tx.execute(sql`
               UPDATE sfp_stage_items
-                 SET paid_candidate_evidence_id=${writes[emailReferenceIndex >= 0 ? emailReferenceIndex : 0].id}::uuid,
+                 SET paid_candidate_evidence_id=${evidence[emailReferenceIndex >= 0 ? emailReferenceIndex : 0].id}::uuid,
                      outcome_code='candidate_found',updated_at=NOW()
                WHERE provider_operation_id=${reservation!.operationId}::uuid
             `);
