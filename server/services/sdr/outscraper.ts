@@ -380,7 +380,11 @@ export async function performOutscraperSearch(
       headers: { "X-API-KEY": apiKey, Accept: "application/json" },
       signal: controller.signal,
     });
-    if (!response.ok) return { status: response.status, ok: false, consideredResultCount: 0, results: [] };
+    if (!response.ok) {
+      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+      await recordPaidProviderCreditSignal("outscraper", { httpStatus: response.status, failure: true });
+      return { status: response.status, ok: false, consideredResultCount: 0, results: [] };
+    }
     try {
       const data = await response.json();
       const items: unknown[] = Array.isArray(data)
@@ -391,6 +395,8 @@ export async function performOutscraperSearch(
       const results = items
         .filter((item): item is Record<string, any> => Boolean(item && typeof item === "object" && (item as any).name))
         .map(parseOutscraperResult);
+      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+      await recordPaidProviderCreditSignal("outscraper", { httpStatus: response.status, failure: false });
       return { status: response.status, ok: true, consideredResultCount: items.length, results };
     } catch {
       return { status: response.status, ok: false, consideredResultCount: 0, results: [] };

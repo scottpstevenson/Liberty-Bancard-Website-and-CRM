@@ -318,10 +318,26 @@ export async function processBusinessValidationIntent(
   let zbResponse: ZeroBounceRawResponse;
   try {
     zbResponse = await validateEmail(email, apiKey);
-  } catch {
+  } catch (err: any) {
     // Post-dispatch transport failure — leave claimed to prevent duplicate I/O.
     // The caller settles as "ambiguous" so the accounting record is quarantined.
+    // validateEmail (validateEmailRaw) already records this attempt's
+    // outcome at the transport boundary — do not record it again here, or a
+    // single failed request could count twice toward the alert threshold.
     return "ambiguous";
+  }
+
+  {
+    // ZeroBounce can return HTTP 200 with a body-level error (invalid API
+    // key, exhausted credits) — validateEmailRaw already records that case
+    // as a failure; only report a clean success signal when there's no
+    // body-level error, so validateEmailRaw's own failure record isn't
+    // immediately overwritten by a bogus success reset.
+    const bodyError = typeof zbResponse.error === "string" && zbResponse.error.trim();
+    if (!bodyError) {
+      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+      await recordPaidProviderCreditSignal("zerobounce", { failure: false });
+    }
   }
 
   const discoveryStatus = mapZbStatus(zbResponse.status);

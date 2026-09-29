@@ -30,8 +30,18 @@ export async function validateEmailRaw(
 ): Promise<ZeroBounceRawResponse> {
   const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}&ip_address=`;
   const res = await fetchImpl(url, { signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) throw new Error(`ZB_HTTP_${res.status}`);
-  return await res.json() as ZeroBounceRawResponse;
+  const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+  if (!res.ok) {
+    await recordPaidProviderCreditSignal("zerobounce", { httpStatus: res.status, failure: true });
+    throw new Error(`ZB_HTTP_${res.status}`);
+  }
+  const parsed = await res.json() as ZeroBounceRawResponse;
+  // ZeroBounce can return HTTP 200 with a body-level error (e.g. an invalid
+  // API key or an account that has run out of credits) instead of a non-2xx
+  // status — that must not be recorded as a success.
+  const bodyError = typeof parsed?.error === "string" && parsed.error.trim() ? parsed.error.trim() : null;
+  await recordPaidProviderCreditSignal("zerobounce", { httpStatus: res.status, message: bodyError, failure: Boolean(bodyError) });
+  return parsed;
 }
 
 export async function verifyEmail(
@@ -55,6 +65,8 @@ export async function verifyEmail(
     const fetchImpl = opts.fetchImpl ?? fetch;
     const res = await fetchImpl(url, { signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000) });
     if (!res.ok) {
+      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+      await recordPaidProviderCreditSignal("zerobounce", { httpStatus: res.status, failure: true });
       return {
         status: "unknown",
         provider: "zerobounce",
@@ -63,15 +75,32 @@ export async function verifyEmail(
         outcome: "unavailable",
       };
     }
-    let data: { status: string; sub_status?: string };
+    let data: { status: string; sub_status?: string; error?: string };
     try {
-      data = (await res.json()) as { status: string; sub_status?: string };
+      data = (await res.json()) as { status: string; sub_status?: string; error?: string };
     } catch {
       return {
         status: "unknown",
         provider: "zerobounce",
         verifiedAt: new Date().toISOString(),
         reason: "parse_error",
+        outcome: "unavailable",
+      };
+    }
+    // ZeroBounce can return HTTP 200 with a body-level error (invalid API key,
+    // account out of credits) instead of a non-2xx status — don't record that
+    // as a success, or a real outage never accumulates a failure streak.
+    const bodyError = typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+    const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+    await recordPaidProviderCreditSignal("zerobounce", {
+      httpStatus: res.status, message: bodyError, failure: Boolean(bodyError),
+    });
+    if (bodyError) {
+      return {
+        status: "unknown",
+        provider: "zerobounce",
+        verifiedAt: new Date().toISOString(),
+        reason: "http_4xx",
         outcome: "unavailable",
       };
     }

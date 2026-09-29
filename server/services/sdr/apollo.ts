@@ -300,14 +300,35 @@ async function postApollo(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`APOLLO_HTTP_${response.status}`);
-    return await response.json();
+    const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+    if (!response.ok) {
+      await recordPaidProviderCreditSignal("apollo", { httpStatus: response.status, failure: true });
+      throw new Error(`APOLLO_HTTP_${response.status}`);
+    }
+    const parsed = await response.json();
+    const bodyError = apolloBodyErrorMessage(parsed);
+    await recordPaidProviderCreditSignal("apollo", {
+      httpStatus: response.status, message: bodyError, failure: Boolean(bodyError),
+    });
+    return parsed;
   } catch (err: any) {
     if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
     throw err;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Apollo returns HTTP 200 for some auth/billing failures (e.g. an expired
+ * plan or exhausted credits surfaced as a body-level error rather than a
+ * non-2xx status). Surface that so it isn't mistaken for a successful call.
+ */
+function apolloBodyErrorMessage(body: Record<string, any> | null | undefined): string | null {
+  if (!body || typeof body !== "object") return null;
+  const candidate = body.error ?? body.error_message ?? body.message;
+  if (typeof candidate !== "string" || !candidate.trim()) return null;
+  return candidate.trim();
 }
 
 function redactedApolloBusiness(value: ApolloBusiness): ApolloRedactedBusiness {
@@ -377,6 +398,11 @@ async function postApolloForCro03c(
     } catch {
       responseBody = {};
     }
+    const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+    const bodyError = apolloBodyErrorMessage(responseBody);
+    await recordPaidProviderCreditSignal("apollo", {
+      httpStatus: response.status, message: bodyError, failure: !response.ok || Boolean(bodyError),
+    });
     return { body: responseBody, billing: apolloCreditReceipt(response, responseBody), ok: response.ok };
   } catch (err: any) {
     if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
@@ -434,6 +460,11 @@ export async function performApolloSearch(
       } catch {
         responseBody = {};
       }
+      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+      const bodyError = apolloBodyErrorMessage(responseBody);
+      await recordPaidProviderCreditSignal("apollo", {
+        httpStatus: response.status, message: bodyError, failure: !response.ok || Boolean(bodyError),
+      });
       return { body: responseBody, billing: apolloCreditReceipt(response, responseBody), ok: response.ok };
     } catch (err: any) {
       if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
@@ -794,6 +825,7 @@ export async function searchApolloForDiscovery(
 
     clearTimeout(timeout);
 
+    const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
       if (response.status === 401 || response.status === 403) {
@@ -803,10 +835,15 @@ export async function searchApolloForDiscovery(
       } else {
         console.error(`[Apollo] API error ${response.status}: ${errorText}`);
       }
+      await recordPaidProviderCreditSignal("apollo", { httpStatus: response.status, message: errorText, failure: true });
       throw new Error(`APOLLO_HTTP_${response.status}`);
     }
 
     const data = await response.json() as any;
+    const bodyError = apolloBodyErrorMessage(data);
+    await recordPaidProviderCreditSignal("apollo", {
+      httpStatus: response.status, message: bodyError, failure: Boolean(bodyError),
+    });
     const people: Record<string, any>[] = data.people || [];
     const organizations: Record<string, any>[] = data.organizations || [];
 
