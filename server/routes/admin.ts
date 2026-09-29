@@ -6347,6 +6347,56 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Corrective addition (SFP enrichment repair, continuation): the SFP paid
+  // pipeline's readiness gate (getSfpProviderReadiness) checks
+  // provider_controls.local_budget_units, but the ONLY writer that ever
+  // raises it is the bounded SFP "arm pilot" route (a few units at a time).
+  // serper_control.local_budget — the real gateway ceiling that actually
+  // gates every live Serper call — can be raised independently (e.g. by an
+  // earlier ops action) and drift far ahead of the stale
+  // provider_controls mirror, leaving the SFP pipeline reporting
+  // provider_budget_exhausted against a gateway that has ample real
+  // headroom. This route resyncs the mirror to the authoritative gateway
+  // ceiling. Never lowers it (GREATEST), matching the same
+  // never-shrink-the-real-ceiling contract as the SFP arm-pilot route.
+  app.post("/api/admin/serper/resync-budget-mirror", isDashboardUser, requireRole('admin'), async (req, res) => {
+    try {
+      const result = await db.transaction(async (tx) => {
+        const gateway = ((await tx.execute(sql`
+          SELECT local_budget FROM serper_control WHERE id = 1 FOR UPDATE
+        `)) as any).rows?.[0];
+        if (!gateway) throw new Error("serper_control row missing — run migrations");
+        const control = ((await tx.execute(sql`
+          SELECT local_budget_units FROM provider_controls WHERE provider='serper' FOR UPDATE
+        `)) as any).rows?.[0];
+        const before = control?.local_budget_units ?? null;
+        const updated = ((await tx.execute(sql`
+          INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units)
+          VALUES ('serper', 'business_identity_discovery', TRUE, 'closed', ${Number(gateway.local_budget)})
+          ON CONFLICT (provider) DO UPDATE
+            SET local_budget_units = GREATEST(COALESCE(provider_controls.local_budget_units, 0), ${Number(gateway.local_budget)}),
+                version = provider_controls.version + 1, updated_at = NOW()
+          RETURNING provider, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version
+        `)) as any).rows?.[0];
+        return { before, after: updated };
+      });
+      await storage.createAuditLog({
+        action: "provider_control_updated", entityType: "provider_control",
+        userId: (req.user as any)?.id ?? null,
+        details: {
+          provider: "serper", operation: "resync_budget_mirror_to_gateway_ceiling",
+          localBudgetUnitsBefore: result.before, localBudgetUnitsAfter: result.after.local_budget_units,
+        },
+      });
+      res.json({ control: result.after, localBudgetUnitsBefore: result.before });
+    } catch (err: any) {
+      if (/serper_control row missing/i.test(err?.message ?? "")) {
+        return res.status(404).json({ message: err.message });
+      }
+      serverError(res, err);
+    }
+  });
+
   app.post("/api/admin/serper/recovery", isDashboardUser, requireRole('admin'), async (req, res) => {
     try {
       const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";

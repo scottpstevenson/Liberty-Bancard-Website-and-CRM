@@ -43,6 +43,7 @@ const SCRIPTS = [
   "scripts/test-sfp2000-disposable-certification.ts",
   "scripts/test-sfp2001-campaign-staging-certification.ts",
   "scripts/test-sfp-full-drain-certification.ts",
+  "scripts/test-sfp-continuous-tick-orchestration-certification.ts",
 ];
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
