@@ -1,5 +1,6 @@
 import type { ConnectionOptions } from "bullmq";
 import Redis from "ioredis";
+import { buildSfpQueueNamespace } from "./cro03/sfp-queue-namespace";
 
 /** Truthful process-level background-work authority. Never represents a mock queue. */
 export type QueueMode = "bullmq_redis" | "legacy_interval_partial" | "unavailable";
@@ -39,6 +40,38 @@ export function getBullMqTestPrefix(): string | undefined {
     throw new Error("TEST_REDIS_PREFIX must be an isolated test/CI namespace ending in '_' or ':'.");
   }
   return prefix;
+}
+
+/**
+ * Return the BullMQ key prefix for one queue.
+ *
+ * The ordinary queue families keep their existing namespace for compatibility
+ * with durable one-off jobs already stored in Redis. SFP repeatable queues are
+ * database-backed drainers: their source of truth is Postgres, and their jobs
+ * carry no lead payload. Give those queues a namespace bound to this exact
+ * environment, Replit deployment, release and capability topology so a stale
+ * or foreign worker sharing REDIS_URL cannot consume this release's SFP ticks.
+ *
+ * Tests continue to use their explicit disposable Redis prefix unchanged.
+ */
+export function getBullMqPrefixForQueue(
+  queueName: string,
+  queueTopologyHash: string,
+): string | undefined {
+  const testPrefix = getBullMqTestPrefix();
+  if (testPrefix) return testPrefix;
+  const environmentIdentity = process.env.NODE_ENV?.trim() || "unknown";
+  const deploymentIdentity =
+    process.env.REPL_DEPLOYMENT_ID?.trim() || process.env.REPL_ID?.trim() ||
+    (environmentIdentity === "production" ? "" : process.env.PROCESS_IDENTITY?.trim() || `local:${process.pid}`);
+  const releaseSha = process.env.RELEASE_SHA?.trim() || "unreleased";
+  return buildSfpQueueNamespace({
+    queueName,
+    environmentIdentity,
+    deploymentIdentity,
+    releaseSha,
+    queueTopologyHash,
+  });
 }
 
 /**

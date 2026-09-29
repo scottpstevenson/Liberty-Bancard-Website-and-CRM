@@ -11,6 +11,7 @@ import {
 import { createHash } from "node:crypto";
 import {
   diagnoseRedisCapacity,
+  getBullMqPrefixForQueue,
   getBullMqTestPrefix,
   getRedisConnection,
   getSharedRedisClientIfReady,
@@ -658,9 +659,16 @@ export interface QueueMetric {
   delayed: number | null;
   paused: boolean | null;
   repeatEveryMs: number;
+  /** Last completion observed in this API/worker process, never Redis-retained history. */
   lastCompletedAt: string | null;
+  /** Most recent completion retained in shared Redis; may belong to another process generation. */
+  lastRetainedRedisCompletedAt: string | null;
   lastFailedAt: string | null;
+  lastRetainedRedisFailedAt: string | null;
+  workerSelected: boolean;
+  workerActive: boolean;
   avgDurationMs: number | null;
+  /** Current-process completions per hour, based on local worker events. */
   throughputPerHour: number | null;
   /** A failed probe is not an empty queue. */
   probeStatus: "ok" | "error";
@@ -688,6 +696,7 @@ export interface QueueTopologySnapshot {
   activeConfigCount: number;
   instantiatedQueueCount: number;
   instantiatedWorkerCount: number;
+  readyWorkerCount: number;
   logicalJobCount: number;
   legacyGhlClaimed: boolean;
   /** BullMQ is only active when backed by a real Redis connection. */
@@ -1045,10 +1054,18 @@ class QueueManager {
   private queues: Map<string, Queue> = new Map();
 
   private workers: Map<string, Worker> = new Map();
+  private readyWorkers: Set<string> = new Set();
+  private processLastCompletedAt: Map<string, number> = new Map();
+  private processLastFailedAt: Map<string, number> = new Map();
+  private processCompletedCount: Map<string, number> = new Map();
 
   /** Expose underlying BullMQ Queue for one-off job enqueuing. */
   getQueue(name: string): Queue | undefined {
     return this.queues.get(name);
+  }
+
+  private queuePrefix(queueName: string): string | undefined {
+    return getBullMqPrefixForQueue(queueName, getCro03cQueueTopologyHash());
   }
 
   /**
@@ -1058,7 +1075,8 @@ class QueueManager {
    * actually execute the queue's recurring tick.
    */
   isQueueWorkerActive(queueName: string): boolean {
-    return this.workers.has(queueName);
+    const worker = this.workers.get(queueName);
+    return Boolean(worker && this.readyWorkers.has(queueName) && worker.isRunning());
   }
 
   private connection!: ConnectionOptions;
@@ -1249,6 +1267,7 @@ class QueueManager {
       activeConfigCount: snapshot.activeConfigCount,
       instantiatedQueueCount: snapshot.instantiatedQueueCount,
       instantiatedWorkerCount: snapshot.instantiatedWorkerCount,
+      readyWorkerCount: snapshot.readyWorkerCount,
       estimatedProcessConnections: capacity.estimatedProcessConnections,
       capacityStatus: capacity.status,
       legacyGhlClaimed: snapshot.legacyGhlClaimed,
@@ -1299,6 +1318,17 @@ class QueueManager {
       enabledGroups: process.env.BACKGROUND_JOB_PROFILE ?? "off",
     });
     const publish = async () => {
+      const configuredWorkers = this.activeConfigs().length;
+      if (this.readyWorkers.size < configuredWorkers) {
+        console.warn(JSON.stringify({
+          event: "cro03c:worker-heartbeat-deferred",
+          readyWorkerCount: this.readyWorkers.size,
+          expectedWorkerCount: configuredWorkers,
+          releaseSha: process.env.RELEASE_SHA ?? null,
+          timestamp: new Date().toISOString(),
+        }));
+        return;
+      }
       await publishCro03cWorkerHeartbeat(redis, this.redisKeyPrefix, {
         ...heartbeat,
         timestamp: new Date().toISOString(),
@@ -1359,7 +1389,7 @@ class QueueManager {
     for (const config of this.activeConfigs()) {
       const queue = new Queue(config.name, {
         connection: this.connection,
-        prefix: this.redisKeyPrefix,
+        prefix: this.queuePrefix(config.name),
         defaultJobOptions: {
           attempts: config.attempts,
           backoff: {
@@ -1381,7 +1411,7 @@ class QueueManager {
       const processor = this.buildProcessor(config.name, featureFlags);
       const worker = new Worker(config.name, processor, {
         connection: this.connection,
-        prefix: this.redisKeyPrefix,
+        prefix: this.queuePrefix(config.name),
         concurrency: config.concurrency,
         // Give each job 2 minutes to complete before BullMQ considers the lock
         // expired. The previous default of 30 s was too short for Serper/GHL
@@ -1402,6 +1432,8 @@ class QueueManager {
           console.log(`[Queue:${config.name}] Job ${job.id} completed in ${duration}ms`);
         }
         this.recordHistoryEvent(config.name, "completed");
+        this.processLastCompletedAt.set(config.name, Date.now());
+        this.processCompletedCount.set(config.name, (this.processCompletedCount.get(config.name) ?? 0) + 1);
         // Reset consecutive failure count in background_jobs so the health dashboard
         // reflects a clean run without needing to wait for a separate read.
         import("./job-registry").then(({ recordWorkerSuccess }) =>
@@ -1446,6 +1478,7 @@ class QueueManager {
           failureCode,
         }));
         this.recordHistoryEvent(config.name, "failed");
+        this.processLastFailedAt.set(config.name, Date.now());
 
         // Persist the failure to background_jobs and get the durable consecutive count.
         // This keeps health monitoring accurate across restarts and surfaced on the
@@ -1525,6 +1558,7 @@ class QueueManager {
       // Never logs: Redis URLs, credentials, job payloads, contact PII, merchant data.
 
       worker.on("ready", () => {
+        this.readyWorkers.add(config.name);
         console.log(JSON.stringify({
           event: "worker:ready",
           queue: config.name,
@@ -1554,6 +1588,7 @@ class QueueManager {
       });
 
       worker.on("closed", () => {
+        this.readyWorkers.delete(config.name);
         console.log(JSON.stringify({
           event: "worker:closed",
           queue: config.name,
@@ -2827,6 +2862,7 @@ class QueueManager {
       activeConfigCount: this.activeConfigs().length,
       instantiatedQueueCount: this.queues.size,
       instantiatedWorkerCount: this.workers.size,
+      readyWorkerCount: this.readyWorkers.size,
       logicalJobCount: QUEUE_CONFIGS.length + NAMED_QUEUE_SCHEDULES.length,
       legacyGhlClaimed: isLegacyGhlSyncClaimed(),
       queueMode: getQueueMode(),
@@ -2958,7 +2994,11 @@ class QueueManager {
           paused: null,
           repeatEveryMs: this.effectiveIntervals.get(config.name) ?? config.repeatEveryMs,
           lastCompletedAt: null,
+          lastRetainedRedisCompletedAt: null,
           lastFailedAt: null,
+          lastRetainedRedisFailedAt: null,
+          workerSelected: this.workers.has(config.name),
+          workerActive: this.isQueueWorkerActive(config.name),
           avgDurationMs: null,
           throughputPerHour: null,
           probeStatus: "error",
@@ -2980,12 +3020,16 @@ class QueueManager {
         const recentCompleted = await queue.getCompleted(0, 4);
         const recentFailed = await queue.getFailed(0, 0);
 
-        const lastCompletedAt = recentCompleted[0]?.finishedOn
+        const lastRetainedRedisCompletedAt = recentCompleted[0]?.finishedOn
           ? new Date(recentCompleted[0].finishedOn).toISOString()
           : null;
-        const lastFailedAt = recentFailed[0]?.finishedOn
+        const lastRetainedRedisFailedAt = recentFailed[0]?.finishedOn
           ? new Date(recentFailed[0].finishedOn).toISOString()
           : null;
+        const processCompletedAt = this.processLastCompletedAt.get(config.name);
+        const processFailedAt = this.processLastFailedAt.get(config.name);
+        const lastCompletedAt = processCompletedAt ? new Date(processCompletedAt).toISOString() : null;
+        const lastFailedAt = processFailedAt ? new Date(processFailedAt).toISOString() : null;
 
         let avgDurationMs: number | null = null;
         if (recentCompleted.length > 0) {
@@ -2999,15 +3043,16 @@ class QueueManager {
 
         const now = Date.now();
         let throughputPerHour: number | null = null;
+        const localCompleted = this.processCompletedCount.get(config.name) ?? 0;
         const baseline = this.throughputBaseline.get(config.name);
         if (baseline) {
           const elapsedHours = (now - baseline.recordedAt) / (1000 * 60 * 60);
           if (elapsedHours > 0) {
-            const delta = completed - baseline.count;
+            const delta = localCompleted - baseline.count;
             throughputPerHour = delta >= 0 ? Math.round(delta / elapsedHours) : null;
           }
         }
-        this.throughputBaseline.set(config.name, { count: completed, recordedAt: now });
+        this.throughputBaseline.set(config.name, { count: localCompleted, recordedAt: now });
 
         metrics.push({
           name: config.name,
@@ -3019,7 +3064,11 @@ class QueueManager {
           paused: isPaused,
             repeatEveryMs: this.effectiveIntervals.get(config.name) ?? config.repeatEveryMs,
           lastCompletedAt,
+          lastRetainedRedisCompletedAt,
           lastFailedAt,
+          lastRetainedRedisFailedAt,
+          workerSelected: this.workers.has(config.name),
+          workerActive: this.isQueueWorkerActive(config.name),
           avgDurationMs,
           throughputPerHour,
           probeStatus: "ok",
@@ -3035,7 +3084,11 @@ class QueueManager {
           paused: null,
           repeatEveryMs: config.repeatEveryMs,
           lastCompletedAt: null,
+          lastRetainedRedisCompletedAt: null,
           lastFailedAt: null,
+          lastRetainedRedisFailedAt: null,
+          workerSelected: this.workers.has(config.name),
+          workerActive: this.isQueueWorkerActive(config.name),
           avgDurationMs: null,
           throughputPerHour: null,
           probeStatus: "error",
@@ -3047,7 +3100,9 @@ class QueueManager {
     return {
       queues: metrics,
       queueMode: getQueueMode(),
-      status: metrics.some((metric) => metric.probeStatus === "error") ? "degraded" : "ok",
+      status: metrics.some((metric) => metric.probeStatus === "error" || (this.workers.has(metric.name) && !metric.workerActive))
+        ? "degraded"
+        : "ok",
     };
   }
 
@@ -3174,6 +3229,30 @@ class QueueManager {
     });
 
     if (metrics.status === "degraded") degradations.push("QUEUE_METRICS_DEGRADED");
+    const sfpRepeatableQueues = [
+      QUEUE_NAMES.SFP_CAMPAIGN_STAGING,
+      QUEUE_NAMES.SFP_FREE_CLASSIFICATION,
+      QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
+      QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
+      QUEUE_NAMES.SFP_ATTESTATION_REFRESH,
+    ];
+    const observedForMs = Date.now() - this.observationStartedAt.getTime();
+    for (const queueName of sfpRepeatableQueues) {
+      if (!this.queues.has(queueName)) continue; // capability group was not selected
+      const config = QUEUE_CONFIGS.find((candidate) => candidate.name === queueName);
+      const intervalMs = this.effectiveIntervals.get(queueName) ?? config?.repeatEveryMs ?? 0;
+      const graceMs = Math.max(intervalMs * 2, 60_000);
+      if (!this.isQueueWorkerActive(queueName)) {
+        degradations.push(`SFP_WORKER_NOT_READY:${queueName}`);
+      } else {
+        const lastTick = this.processLastCompletedAt.get(queueName);
+        if (lastTick === undefined && observedForMs > graceMs) {
+          degradations.push(`SFP_WORKER_TICK_NOT_OBSERVED:${queueName}`);
+        } else if (lastTick !== undefined && Date.now() - lastTick > graceMs) {
+          degradations.push(`SFP_WORKER_TICK_STALE:${queueName}`);
+        }
+      }
+    }
     if (dlqRead.queueStatus.some((source) => source.status !== "sampled")) {
       degradations.push("DLQ_SAMPLE_INCOMPLETE");
     }

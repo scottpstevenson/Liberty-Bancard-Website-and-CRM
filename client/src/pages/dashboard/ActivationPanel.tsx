@@ -159,7 +159,10 @@ interface QueueMetric {
   paused: boolean;
   repeatEveryMs: number | null;
   lastCompletedAt: string | null;
+  lastRetainedRedisCompletedAt?: string | null;
   lastFailedAt: string | null;
+  workerSelected?: boolean;
+  workerActive?: boolean;
   avgDurationMs: number | null;
   throughputPerHour: number | null;
   lastError?: string | null;
@@ -1432,6 +1435,8 @@ export default function ActivationPanel() {
             // Color: green=no failures, amber=failed+retrying (waiting/active>0), red=failed+exhausted
             function queueColor(q: QueueMetric): { dot: string; text: string; bg: string } {
               if (q.paused) return { dot: "bg-amber-400", text: "text-amber-700 dark:text-amber-400", bg: "" };
+              if (q.workerSelected === false) return { dot: "bg-gray-300", text: "text-muted-foreground", bg: "" };
+              if (q.workerActive === false) return { dot: "bg-red-500", text: "text-red-700 dark:text-red-400", bg: "bg-red-50/40 dark:bg-red-950/20" };
               if (q.failed === 0) return { dot: "bg-green-500", text: "text-green-700 dark:text-green-400", bg: "" };
               const hasRetrying = q.waiting > 0 || q.active > 0;
               if (hasRetrying) return { dot: "bg-amber-400", text: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50/50 dark:bg-amber-950/20" };
@@ -1440,6 +1445,9 @@ export default function ActivationPanel() {
 
             function queueLabel(q: QueueMetric): string {
               if (q.paused) return "PAUSED";
+              if (q.workerSelected === false) return "NOT SELECTED";
+              if (q.workerActive === false) return "WORKER OFFLINE";
+              if (q.workerActive === true && !q.lastCompletedAt) return "AWAITING LOCAL TICK";
               if (isStaleActive(q)) return "STALE";
               if (q.failed > 0 && q.waiting === 0 && q.active === 0) return "EXHAUSTED";
               if (q.failed > 0) return "RETRYING";
@@ -1474,8 +1482,18 @@ export default function ActivationPanel() {
                         <span>wait:<strong className="ml-0.5">{q.waiting}</strong></span>
                         <span>active:<strong className={`ml-0.5 ${isStaleActive(q) ? "text-amber-600" : ""}`}>{q.active}{isStaleActive(q) ? " ⚠" : ""}</strong></span>
                         <span>failed:<strong className={`ml-0.5 ${q.failed > 0 ? colors.text : ""}`}>{q.failed}</strong></span>
-                        <span>done:<strong className="ml-0.5">{q.completed}</strong></span>
+                        <span>retained done:<strong className="ml-0.5">{q.completed}</strong></span>
                       </div>
+                      {q.lastCompletedAt && (
+                        <div className="ml-3 text-[10px] text-muted-foreground">
+                          current process last completed: {formatAge(q.lastCompletedAt)}
+                        </div>
+                      )}
+                      {!q.lastCompletedAt && q.lastRetainedRedisCompletedAt && (
+                        <div className="ml-3 text-[10px] text-amber-700 dark:text-amber-400">
+                          Redis retains a completion from {formatAge(q.lastRetainedRedisCompletedAt)}; current process has not completed this queue since restart.
+                        </div>
+                      )}
                       {q.lastFailedAt && q.failed > 0 && (
                         <div className={`ml-3 text-[10px] ${colors.text}`}>
                           last failed: {formatAge(q.lastFailedAt)}

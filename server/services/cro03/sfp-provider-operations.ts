@@ -18,6 +18,7 @@ import {
   getCurrentPricingSchedule,
 } from "../mi09-pilot-authority";
 import { assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
+import { getCurrentSfpRuntimeFence } from "./sfp-runtime-fence";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const CALLER = "server/services/cro03/sfp-provider-operations.ts";
@@ -122,6 +123,8 @@ export async function reserveSfpAggregateBudgetInTransaction(
 }
 
 export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ attestationId: string }> {
+  const fence = await getCurrentSfpRuntimeFence();
+  if (!fence) throw new Error("SFP_PAID_BLOCKED:NO_LIVE_RUNTIME_AUTHORITY");
   const authority = rows(await db.execute(sql`
     SELECT a.id AS attestation_id
       FROM sfp_cohort_runs r
@@ -129,6 +132,11 @@ export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ 
       JOIN LATERAL (
         SELECT id FROM cro03c_runtime_attestations
          WHERE expires_at>NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
+           AND artifact_sha=${fence.artifactSha}
+           AND deployment_identity=${fence.deploymentIdentity}
+           AND environment_identity=${fence.environmentIdentity}
+           AND queue_topology_hash=${fence.queueTopologyHash}
+           AND worker_identities @> ${JSON.stringify([fence.processIdentity])}::jsonb
          ORDER BY captured_at DESC LIMIT 1
       ) a ON TRUE
      WHERE r.id=${cohortRunId}::uuid AND r.cohort_state='frozen' AND r.voided_at IS NULL
@@ -181,6 +189,8 @@ export async function getSfpProviderReadiness(
 export async function getSfpAttestationReadiness(
   cohortRunId: string,
 ): Promise<{ ready: boolean; reason: string | null }> {
+  const fence = await getCurrentSfpRuntimeFence();
+  if (!fence) return { ready: false, reason: "runtime_identity_unverified" };
   const authority = rows(await db.execute(sql`
     SELECT a.id AS attestation_id
       FROM sfp_cohort_runs r
@@ -188,6 +198,11 @@ export async function getSfpAttestationReadiness(
       JOIN LATERAL (
         SELECT id FROM cro03c_runtime_attestations
          WHERE expires_at>NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
+           AND artifact_sha=${fence.artifactSha}
+           AND deployment_identity=${fence.deploymentIdentity}
+           AND environment_identity=${fence.environmentIdentity}
+           AND queue_topology_hash=${fence.queueTopologyHash}
+           AND worker_identities @> ${JSON.stringify([fence.processIdentity])}::jsonb
          ORDER BY captured_at DESC LIMIT 1
       ) a ON TRUE
      WHERE r.id=${cohortRunId}::uuid AND r.cohort_state='frozen' AND r.voided_at IS NULL
@@ -511,6 +526,8 @@ export async function invokePreCohortSfpProviderTransport<T>(
 }
 
 export async function assertCurrentSfpProviderReservation(reservation: SfpProviderReservation): Promise<void> {
+  const fence = await getCurrentSfpRuntimeFence();
+  if (!fence) throw new Error("SFP_PROVIDER_RESERVATION_INVALID");
   const current = rows(await db.execute(sql`
     SELECT o.id FROM provider_operations o
       JOIN provider_controls pc ON pc.provider=o.provider
@@ -524,7 +541,12 @@ export async function assertCurrentSfpProviderReservation(reservation: SfpProvid
        AND i.state='claimed' AND i.lease_expires_at>NOW()
        AND sr.state='running' AND p.is_active=TRUE
        AND EXISTS (SELECT 1 FROM cro03c_runtime_attestations a
-                    WHERE a.expires_at>NOW() AND a.db_healthy=TRUE AND a.redis_healthy=TRUE)
+                    WHERE a.expires_at>NOW() AND a.db_healthy=TRUE AND a.redis_healthy=TRUE
+                      AND a.artifact_sha=${fence.artifactSha}
+                      AND a.deployment_identity=${fence.deploymentIdentity}
+                      AND a.environment_identity=${fence.environmentIdentity}
+                      AND a.queue_topology_hash=${fence.queueTopologyHash}
+                      AND a.worker_identities @> ${JSON.stringify([fence.processIdentity])}::jsonb)
   `))[0];
   if (!current) throw new Error("SFP_PROVIDER_RESERVATION_INVALID");
 }

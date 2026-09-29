@@ -53,7 +53,7 @@ if (
   infrastructureGuard.includes("await redis.set(key, \"verified\"") &&
   infrastructureGuard.includes("TEST_REDIS_PREFIX must be an isolated test/CI namespace") &&
   queueConnection.includes("getBullMqTestPrefix") &&
-  queueManager.includes("prefix: this.redisKeyPrefix")
+  queueManager.includes("prefix: this.queuePrefix(config.name)")
 ) {
   console.log("  PASS stateful tests verify and enforce an isolated BullMQ Redis namespace");
 } else {

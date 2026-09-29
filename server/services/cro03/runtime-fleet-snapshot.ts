@@ -253,12 +253,19 @@ export async function evaluateCro03cRuntimeFleet(opts: {
   let activeAttestationExpiresAt: string | null = null;
   let hasAttestation = false;
   try {
-    const attRow = rows(await db.execute(sql`
+    const attRow = logicalWorkers.length > 0 ? rows(await db.execute(sql`
       SELECT id::text, expires_at::text
         FROM cro03c_runtime_attestations
        WHERE expires_at > ${now}::timestamptz
+         AND db_healthy=TRUE AND redis_healthy=TRUE
+         AND artifact_sha=${releaseSha}
+         AND deployment_identity=${deploymentIdentity}
+         AND environment_identity=${environmentIdentity}
+         AND queue_topology_hash=${queueTopologyHash}
+         AND worker_identities @> ${JSON.stringify(logicalWorkers)}::jsonb
+         AND jsonb_array_length(worker_identities)=${logicalWorkers.length}
        ORDER BY captured_at DESC LIMIT 1
-    `))[0];
+    `))[0] : null;
     if (attRow) {
       activeAttestationId = String(attRow.id);
       activeAttestationExpiresAt = String(attRow.expires_at);

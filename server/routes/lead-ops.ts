@@ -2899,18 +2899,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/candidates/promotion-state", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const enabled = process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true";
-      // Check attestation: requires a non-expired row in cro03c_runtime_attestations.
-      // This is the same gate the promotion action enforces — the state endpoint must
-      // report the same answer so the UI badge is truthful.
+      // A live attestation from another release/topology/process must not make
+      // this deployment's promotion badge look open. Match the exact runtime
+      // identity required again at the provider reservation boundary.
+      const { getCurrentSfpRuntimeFence } = await import("../services/cro03/sfp-runtime-fence");
+      const runtimeFence = await getCurrentSfpRuntimeFence();
       let attestationLive = false;
-      let attestationReason = "NO_LIVE_RUNTIME_ATTESTATION";
+      let attestationReason = runtimeFence ? "NO_LIVE_RUNTIME_ATTESTATION" : "RUNTIME_IDENTITY_UNVERIFIED";
       try {
-        const attestRows = ((await db.execute(sql`
+        const attestRows = runtimeFence ? ((await db.execute(sql`
           SELECT id FROM cro03c_runtime_attestations
-          WHERE expires_at > NOW()
+          WHERE expires_at > NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
+            AND artifact_sha=${runtimeFence.artifactSha}
+            AND deployment_identity=${runtimeFence.deploymentIdentity}
+            AND environment_identity=${runtimeFence.environmentIdentity}
+            AND queue_topology_hash=${runtimeFence.queueTopologyHash}
+            AND worker_identities @> ${JSON.stringify([runtimeFence.processIdentity])}::jsonb
           ORDER BY captured_at DESC
           LIMIT 1
-        `)) as any).rows ?? [];
+        `)) as any).rows ?? [] : [];
         attestationLive = attestRows.length > 0;
         if (attestationLive) attestationReason = "OK";
       } catch (attestErr: any) {
@@ -2929,8 +2936,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       let note: string;
       if (!enabled) {
         note = "Promotion gate is CLOSED — set FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true to enable.";
+      } else if (!runtimeFence) {
+        note = "Promotion gate is CLOSED — this runtime cannot prove its release, deployment, or queue identity.";
       } else if (!attestationLive) {
-        note = `Promotion gate is CLOSED — feature flag is ON but no live runtime attestation exists (${attestationReason}). Issue a runtime attestation via POST /api/cro03c/runtime-attestations before promoting.`;
+        note = `Promotion gate is CLOSED — no live runtime attestation matches this release, deployment, topology, and worker (${attestationReason}).`;
       } else {
         note = "Promotion gate is OPEN — promoteCandidateForValidation() will advance staged candidates.";
       }
@@ -4436,10 +4445,19 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       // a clear failure reason so the UI does not show a misleading "failed: 50".
       let sharedAttestationReason: string | null = null;
       try {
-        const attRow = ((await db.execute(sql`
-          SELECT id FROM cro03c_runtime_attestations WHERE expires_at > NOW() ORDER BY captured_at DESC LIMIT 1
-        `)) as any).rows?.[0];
-        if (!attRow) sharedAttestationReason = "NO_LIVE_RUNTIME_ATTESTATION";
+        const { getCurrentSfpRuntimeFence } = await import("../services/cro03/sfp-runtime-fence");
+        const runtimeFence = await getCurrentSfpRuntimeFence();
+        const attRow = runtimeFence ? ((await db.execute(sql`
+          SELECT id FROM cro03c_runtime_attestations
+          WHERE expires_at > NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
+            AND artifact_sha=${runtimeFence.artifactSha}
+            AND deployment_identity=${runtimeFence.deploymentIdentity}
+            AND environment_identity=${runtimeFence.environmentIdentity}
+            AND queue_topology_hash=${runtimeFence.queueTopologyHash}
+            AND worker_identities @> ${JSON.stringify([runtimeFence.processIdentity])}::jsonb
+          ORDER BY captured_at DESC LIMIT 1
+        `)) as any).rows?.[0] : null;
+        if (!attRow) sharedAttestationReason = runtimeFence ? "NO_LIVE_RUNTIME_ATTESTATION" : "RUNTIME_IDENTITY_UNVERIFIED";
       } catch (attErr: any) {
         const msg = String(attErr?.message ?? "");
         sharedAttestationReason = /column.*does not exist|relation.*does not exist/i.test(msg)

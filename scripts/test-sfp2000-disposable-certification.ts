@@ -40,6 +40,7 @@ await assertDisposableTestInfrastructure({
   operation: "Task #2000 SFP validation disposable certification",
   requireRedis: false,
 });
+const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
 
@@ -225,16 +226,16 @@ check(true, "T2K-setup", "frozen cohort synthesized directly for the three fixtu
   const certAttHash = createHash("sha256").update(certIdemKey).digest("hex");
   await db.execute(sql`
     INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, artifact_sha, migration_head, deployment_identity,
+      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
        environment_identity, web_boot_identity, worker_boot_identity,
        queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
        captured_at, expires_at, attestation_hash, created_by)
     VALUES (
-      ${certIdemKey}, ${(process.env.RELEASE_SHA ?? "0".repeat(40)).padEnd(40, "0").slice(0, 40)},
+      ${certIdemKey}, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${sfpRuntimeIdentity.artifactSha},
       ${createHash("sha256").update("cert2000-migration-head").digest("hex").slice(0, 40)},
-      ${`cert2000-deploy-${RUN_ID}`}, ${`cert2000-env-${RUN_ID}`},
+      ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity},
       ${`cert2000-web-${RUN_ID}`}, ${`cert2000-worker-${RUN_ID}`},
-      ${createHash("sha256").update("cert2000-queue-topo").digest("hex").slice(0, 8)},
+      ${sfpRuntimeIdentity.queueTopologyHash},
       NOW() - INTERVAL '30 seconds', true, true,
       NOW(), NOW() + INTERVAL '1 hour',
       ${certAttHash}, ${"cert2000:" + RUN_ID}

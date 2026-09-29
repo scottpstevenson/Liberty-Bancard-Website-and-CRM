@@ -8,9 +8,16 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
-import { pool } from "../server/db";
-import { executeSfpPaidPersonAndIdentityDiscovery } from "../server/services/cro03/sfp-paid-waterfall";
-import { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } from "../server/services/mi09-pilot-authority";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+await assertDisposableTestInfrastructure({
+  operation: "SFP paid waterfall Apollo/Outscraper fake-provider certification",
+  requireRedis: false,
+});
+const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
+const { pool } = await import("../server/db");
+const { executeSfpPaidPersonAndIdentityDiscovery } = await import("../server/services/cro03/sfp-paid-waterfall");
+const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } = await import("../server/services/mi09-pilot-authority");
 
 const nonce = randomUUID().slice(0, 8);
 let assertionCount = 0;
@@ -63,14 +70,22 @@ async function main() {
   // paid reservation; fabricate a fresh, valid one scoped to this test run only.
   await pool.query(`
     INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, artifact_sha, migration_head, deployment_identity,
+      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
        environment_identity, web_boot_identity, worker_boot_identity,
        queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
        captured_at, expires_at, attestation_hash, created_by)
-    VALUES ($1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'test-migration-head', 'test-deploy', 'test-env', 'test-web',
-            'test-worker', 'test-topo', NOW(), true, true, NOW(), NOW() + INTERVAL '1 hour',
-            $2, 'test')
-  `, [`sfp-paid-wf-attestation-${nonce}`, createHash("sha256").update(`sfp-paid-wf-attestation-${nonce}`).digest("hex")]);
+    VALUES ($1, $2::jsonb, $3, 'test-migration-head', $4, $5, 'test-web',
+            'test-worker', $6, NOW(), true, true, NOW(), NOW() + INTERVAL '1 hour',
+            $7, 'test')
+  `, [
+    `sfp-paid-wf-attestation-${nonce}`,
+    JSON.stringify([sfpRuntimeIdentity.processIdentity]),
+    sfpRuntimeIdentity.artifactSha,
+    sfpRuntimeIdentity.deploymentIdentity,
+    sfpRuntimeIdentity.environmentIdentity,
+    sfpRuntimeIdentity.queueTopologyHash,
+    createHash("sha256").update(`sfp-paid-wf-attestation-${nonce}`).digest("hex"),
+  ]);
 
   await authorizePaidBudget({ authorizedBy: "test", typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION });
 

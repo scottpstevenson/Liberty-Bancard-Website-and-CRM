@@ -2628,7 +2628,10 @@ interface QueueMetric {
   paused: boolean;
   repeatEveryMs: number;
   lastCompletedAt: string | null;
+  lastRetainedRedisCompletedAt?: string | null;
   lastFailedAt: string | null;
+  workerSelected?: boolean;
+  workerActive?: boolean;
   avgDurationMs: number | null;
   throughputPerHour: number | null;
 }
@@ -2744,7 +2747,7 @@ function QueueMetricsPanel() {
 
   const queueList = Array.isArray(metrics?.queues) ? metrics.queues : [];
   const dlqList = Array.isArray(dlqData?.items) ? dlqData.items : [];
-  const queueUnavailable = metricsError || metrics?.status === "not_initialized" || metrics?.status === "degraded";
+  const queueUnavailable = metricsError || metrics?.status === "not_initialized" || (metrics?.status === "degraded" && queueList.length === 0);
   const dlqUnavailable = dlqError || dlqData?.status === "not_initialized" || dlqData?.status === "degraded";
   const totalActive = queueList.reduce((s, q) => s + q.active, 0);
   const totalWaiting = queueList.reduce((s, q) => s + q.waiting, 0);
@@ -2762,6 +2765,12 @@ function QueueMetricsPanel() {
         <div className="flex items-center gap-2 p-3 border border-amber-300 rounded-md text-sm text-amber-800 dark:text-amber-300" data-testid="queue-unavailable-state">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           Queue metrics are unavailable because the queue service is not initialized. No worker was started by this read.
+        </div>
+      )}
+      {!queueUnavailable && metrics?.status === "degraded" && (
+        <div className="flex items-center gap-2 p-3 border border-amber-300 rounded-md text-sm text-amber-800 dark:text-amber-300" data-testid="queue-degraded-state">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Queue telemetry is degraded. Per-queue data is still shown; a completion retained in Redis does not prove this process ran it.
         </div>
       )}
 
@@ -2818,11 +2827,11 @@ function QueueMetricsPanel() {
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Active</th>
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Waiting</th>
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Failed</th>
-                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Completed</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Retained Done</th>
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Avg Duration</th>
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Rate/hr</th>
                     <th className="text-center py-2 px-3 font-medium text-muted-foreground">Repeats</th>
-                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Status</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Worker / Tick</th>
                     <th className="text-center py-2 px-3 font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -2844,10 +2853,14 @@ function QueueMetricsPanel() {
                       </td>
                       <td className="py-2 px-3 text-center text-xs text-muted-foreground">every {formatRepeatInterval(q.repeatEveryMs)}</td>
                       <td className="py-2 px-3 text-center">
-                        {q.paused ? (
-                          <Badge variant="secondary" className="text-xs">Paused</Badge>
+                        {q.workerSelected === false ? (
+                          <Badge variant="secondary" className="text-xs">Not selected</Badge>
+                        ) : q.workerActive === false ? (
+                          <Badge variant="destructive" className="text-xs">Worker not ready</Badge>
+                        ) : q.lastCompletedAt ? (
+                          <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">{q.paused ? "Paused · ran" : "Ran in process"}</Badge>
                         ) : (
-                          <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Active</Badge>
+                          <Badge variant="secondary" className="text-xs">{q.workerActive ? "Ready · no tick yet" : q.paused ? "Paused" : "No worker proof"}</Badge>
                         )}
                       </td>
                       <td className="py-2 px-3 text-center">
@@ -2881,6 +2894,17 @@ function QueueMetricsPanel() {
             </div>
           </CardHeader>
           <CardContent className="pb-4">
+            {(() => {
+              const selected = queueList.find((queue) => queue.name === selectedQueue);
+              if (!selected) return null;
+              return (
+                <div className="mb-3 space-y-1 text-xs text-muted-foreground" data-testid="queue-current-process-evidence">
+                  <div>Current process last completion: {selected.lastCompletedAt ? new Date(selected.lastCompletedAt).toLocaleString() : "none observed since restart"}</div>
+                  <div>Redis retained completion: {selected.lastRetainedRedisCompletedAt ? new Date(selected.lastRetainedRedisCompletedAt).toLocaleString() : "none retained"}</div>
+                  <div>Worker selection/readiness: {selected.workerSelected ? (selected.workerActive ? "selected and ready" : "selected, not ready") : "not selected by this profile"}</div>
+                </div>
+              );
+            })()}
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={historyData.history[selectedQueue]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />

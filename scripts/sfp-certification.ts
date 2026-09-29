@@ -53,13 +53,14 @@ await assertDisposableTestInfrastructure({
   operation: "SFP cohort certification",
   requireRedis: false,
 });
+const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 
 const { db } = await import("../server/db");
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 const RUN_ID = `sfpcert-${Math.random().toString(36).slice(2, 10)}`;
-const RELEASE_SHA = (process.env.RELEASE_SHA ?? "").padEnd(40, "0").slice(0, 40);
+const RELEASE_SHA = sfpRuntimeIdentity.artifactSha;
 
 let passed = 0, failed = 0;
 
@@ -594,16 +595,16 @@ await phase("7a. previewSfpValidation returns correct interface", async () => {
   const certAttHash = createHash("sha256").update(`cert-att-${RUN_ID}`).digest("hex");
   await db.execute(sql`
     INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, artifact_sha, migration_head, deployment_identity,
+      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
        environment_identity, web_boot_identity, worker_boot_identity,
        queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
        captured_at, expires_at, attestation_hash, created_by)
     VALUES (
-      ${certIdemKey}, ${RELEASE_SHA},
+      ${certIdemKey}, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${RELEASE_SHA},
       ${createHash("sha256").update("cert-migration-head").digest("hex").slice(0, 40)},
-      ${`cert-deploy-${RUN_ID}`}, ${`cert-env-${RUN_ID}`},
+      ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity},
       ${`cert-web-${RUN_ID}`}, ${`cert-worker-${RUN_ID}`},
-      ${createHash("sha256").update("cert-queue-topo").digest("hex").slice(0, 8)},
+      ${sfpRuntimeIdentity.queueTopologyHash},
       NOW() - INTERVAL '30 seconds', true, true,
       NOW(), NOW() + INTERVAL '1 hour',
       ${certAttHash}, ${'cert:' + RUN_ID}
