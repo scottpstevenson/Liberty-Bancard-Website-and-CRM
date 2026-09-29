@@ -35,6 +35,39 @@ import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 // The selector loads latest admissible evidence for the complete census in the
 // same transaction snapshot and attaches it to each decision candidate.
 import { getActiveSfpOutreachPolicy } from "./sfp-outreach-policy";
+import { storage } from "../../storage";
+
+/**
+ * Admin-auditable override for the FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED
+ * gate. Previously this gate was readable only via a raw environment
+ * variable, requiring a redeploy to flip and leaving no audit trail. The
+ * system_settings key below lets an admin close the gate even when the env
+ * var is "true" (explicit "false" always wins — fail-closed), or open it
+ * without redeploying when the env var is unset/false ("true" opens it).
+ * Unset (null) defers entirely to the env var, preserving prior behavior.
+ */
+const SFP_VALIDATION_PROMOTION_OVERRIDE_KEY = "sfp_validation_promotion_override_enabled";
+
+export async function isSfpValidationPromotionEnabled(): Promise<boolean> {
+  const override = await storage.getSystemSetting(SFP_VALIDATION_PROMOTION_OVERRIDE_KEY).catch(() => null);
+  if (override === true || override === "true") return true;
+  if (override === false || override === "false") return false;
+  return process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true";
+}
+
+export async function setSfpValidationPromotionOverride(input: {
+  value: boolean | null;
+  actorId: string;
+}): Promise<{ override: boolean | null; effective: boolean }> {
+  await storage.setSystemSetting(SFP_VALIDATION_PROMOTION_OVERRIDE_KEY, input.value);
+  const effective = await isSfpValidationPromotionEnabled();
+  await db.execute(sql`
+    INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+    VALUES ('sfp_validation_promotion_override_changed', 'system_setting', ${SFP_VALIDATION_PROMOTION_OVERRIDE_KEY},
+            'user', ${input.actorId}, ${JSON.stringify({ override: input.value, effective })}::jsonb)
+  `);
+  return { override: input.value, effective };
+}
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 

@@ -24,6 +24,7 @@ import { db } from "../../db";
 import {
   getProgramReadOnly,
   freezeCohort,
+  isSfpValidationPromotionEnabled,
 } from "./south-florida-prospecting";
 import { previewSfpPaidWaterfall, executeSfpSerperDiscovery } from "./sfp-paid-waterfall";
 import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
@@ -255,7 +256,7 @@ export interface SfpContinuousValidationTickResult {
 export async function processSfpContinuousValidationTick(): Promise<SfpContinuousValidationTickResult> {
   const program = await getProgramReadOnly();
   if (!program || !program.isActive) return { ran: false, reason: "program_inactive" };
-  if (process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
+  if (!(await isSfpValidationPromotionEnabled())) {
     return { ran: false, reason: "validation_promotion_disabled" };
   }
 

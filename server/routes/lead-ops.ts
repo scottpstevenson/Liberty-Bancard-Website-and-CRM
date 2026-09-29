@@ -2893,6 +2893,40 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // ── GET/PUT /api/lead-ops/sfp/settings/validation-promotion-override ───────
+  // Admin-auditable override for FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED,
+  // which was previously only settable by editing the env var and
+  // redeploying. `override:true` opens the gate even when the env var is
+  // unset/false; `override:false` closes it even when the env var is
+  // "true" (fail-closed always wins); `override:null` clears the override
+  // and defers entirely to the env var (prior behavior).
+  app.get("/api/lead-ops/sfp/settings/validation-promotion-override", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isSfpValidationPromotionEnabled } = await import("../services/cro03/south-florida-prospecting");
+      const override = await storage.getSystemSetting("sfp_validation_promotion_override_enabled");
+      res.json({
+        override: override === true || override === "true" ? true : override === false || override === "false" ? false : null,
+        envVarEnabled: process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true",
+        effective: await isSfpValidationPromotionEnabled(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+  app.put("/api/lead-ops/sfp/settings/validation-promotion-override", requireRole("admin"), async (req, res) => {
+    try {
+      const raw = req.body?.override;
+      if (raw !== true && raw !== false && raw !== null) {
+        return res.status(400).json({ error: "override must be true, false, or null" });
+      }
+      const { setSfpValidationPromotionOverride } = await import("../services/cro03/south-florida-prospecting");
+      const result = await setSfpValidationPromotionOverride({ value: raw, actorId: String((req.user as any)?.id ?? "system") });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── GET /api/lead-ops/candidates/promotion-state ────────────────────────────
   // Exposes the runtime gate for FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED so
   // the UI can display correct status without having admins guess from env vars.

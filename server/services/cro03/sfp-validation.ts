@@ -30,7 +30,7 @@ import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { businessHasDbprLineageSql } from "../dbpr";
-import { type OutreachEligibilityStatus } from "./south-florida-prospecting";
+import { type OutreachEligibilityStatus, isSfpValidationPromotionEnabled } from "./south-florida-prospecting";
 import {
   assertCurrentSfpProviderReservation,
   assertSfpRuntimeAuthority,
@@ -206,7 +206,7 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
 
   let gateBlockedReason: string | null = null;
   try {
-    if (process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
+    if (!(await isSfpValidationPromotionEnabled())) {
       throw new Error("FREE_DISCOVERY_VALIDATION_PROMOTION_DISABLED");
     }
     await assertSfpRuntimeAuthority(cohortRunId);
@@ -276,7 +276,7 @@ export async function executeSfpValidation(
   }
 
   if (!runRow.is_active) throw new Error("SFP_VALIDATION_BLOCKED:program_inactive");
-  if (!opts.zbTransport && process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
+  if (!opts.zbTransport && !(await isSfpValidationPromotionEnabled())) {
     throw new Error("SFP_VALIDATION_BLOCKED:FREE_DISCOVERY_VALIDATION_PROMOTION_DISABLED");
   }
 
