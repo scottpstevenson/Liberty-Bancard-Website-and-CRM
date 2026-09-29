@@ -52,6 +52,14 @@ const DRAIN_TIME_BUDGET_MS = 7 * 60 * 1000;
 // loop (e.g. a bug that keeps finding "eligible" work that never clears)
 // cannot spin indefinitely inside the time budget.
 const MAX_CALLS_PER_TICK = 200;
+// Phase 1 (Serper) gets at most this much of the overall drain window. A
+// large Serper backlog must never consume the whole tick and starve Phase 2
+// (Outscraper/Apollo) — those providers are independent and budget-eligible
+// on their own, and previously got zero real calls in production ticks
+// where Serper alone filled DRAIN_TIME_BUDGET_MS. Phase 2 always gets the
+// remainder of the overall window (DRAIN_TIME_BUDGET_MS - this, or more if
+// Phase 1 finishes early), never less.
+const PHASE1_TIME_BUDGET_MS = 4 * 60 * 1000;
 
 function deadline(): number {
   return Date.now() + DRAIN_TIME_BUDGET_MS;
@@ -129,6 +137,11 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   }
 
   const end = deadline();
+  // Phase 1 stops at whichever is sooner: its own bounded share of the tick,
+  // or the overall tick deadline. This guarantees Phase 2 always gets the
+  // remainder of `end` (at least DRAIN_TIME_BUDGET_MS - PHASE1_TIME_BUDGET_MS)
+  // even when Phase 1's backlog alone could fill the whole tick.
+  const phase1End = Math.min(end, Date.now() + PHASE1_TIME_BUDGET_MS);
   const cohortRunIds = new Set<string>();
   let newlyFrozenCount = 0;
   let calls = 0, processed = 0, succeeded = 0, failed = 0, noResult = 0;
@@ -139,7 +152,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   const exhaustedCohorts = new Set<string>();
   let sawWorkThisTick = false;
 
-  while (Date.now() < end && calls < MAX_CALLS_PER_TICK) {
+  while (Date.now() < phase1End && calls < MAX_CALLS_PER_TICK) {
     try {
       await assertAggregatePaidBudgetAvailable();
     } catch (err: any) {
@@ -228,7 +241,9 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     }
   }
 
-  if (Date.now() >= end) stopReason = "time_budget_exhausted";
+  if (Date.now() >= phase1End) {
+    stopReason = phase1End < end ? "phase1_time_budget_exhausted" : "time_budget_exhausted";
+  }
   if (calls >= MAX_CALLS_PER_TICK) stopReason = "max_calls_per_tick_reached";
 
   // ── Phase 2: person/identity escalation (Outscraper business-identity gap
