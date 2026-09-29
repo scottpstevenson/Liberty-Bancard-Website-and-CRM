@@ -376,7 +376,9 @@ export function registerAcquisitionRoutes(app: Express): void {
   });
 
   // ── Offline conversion export (CSV) ────────────────────────────────────────
-  app.get("/api/acquisition/offline-conversions/export", isDashboardUser, async (req, res) => {
+  // ADS-01: bulk export of contact_email/gclid attribution data is admin/manager
+  // only — isDashboardUser alone would also admit ordinary agents.
+  app.get("/api/acquisition/offline-conversions/export", requireRole("admin", "manager"), async (req, res) => {
     try {
       const days = parseDays(req.query.days);
       const since = new Date(Date.now() - days * 86_400_000);

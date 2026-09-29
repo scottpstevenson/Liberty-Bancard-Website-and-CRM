@@ -762,6 +762,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     capability: "server-required",
     providerDenial: "localhost authorization contract; CRO-03 providers remain disabled",
   },
+  {
+    name: "SEC-02 Session Validity Fail-Closed",
+    script: "scripts/test-session-validity-fail-closed.ts",
+    capability: "deterministic-static",
+    providerDenial: "no server, DB, or provider transport; authStorage monkey-patched in-process",
+  },
   // ── server-required (live server + DB; hard-fails if server absent) ──────
   {
     name: "CRM Operator Experience",

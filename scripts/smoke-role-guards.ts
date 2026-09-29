@@ -147,6 +147,13 @@ const CASES: GuardCase[] = [
   { method: "POST", path: "/api/ai/classify-ticket",    anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI ticket classifier (isAuthenticated + ticket ownership; CSRF required for POST)" },
   { method: "POST", path: "/api/ai/analyze-statement",  anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI statement analysis (isAuthenticated + contact/deal ownership; CSRF required for POST)" },
   { method: "POST", path: "/api/ai/generate-proposal",  anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI proposal generation (isAuthenticated + deal ownership; CSRF required for POST)" },
+  // SEC-01: was isAuthenticated-only (any authenticated non-dashboard role could read internal
+  // proposal JSON by deal ID). Now isDashboardUser + authorizeDealAccess — merchant/agent (no
+  // matching deal) both get a non-enumerating 404, so both assert the same status.
+  { method: "GET",  path: "/api/deals/9999999/proposal", anon: [401], merchant: [403], admin: [404], agent: [404], manager: [404], description: "SEC-01: internal proposal read (isDashboardUser + deal object authorization, non-enumerating 404)" },
+  // ADS-01: was isDashboardUser (admitted ordinary agents to bulk contact_email/gclid export).
+  // Now requireRole(admin, manager) — agent must get 403.
+  { method: "GET",  path: "/api/acquisition/offline-conversions/export", anon: [401], merchant: [403], admin: [200], agent: [403], manager: [200], description: "ADS-01: offline-conversion export (requireRole admin/manager; agent blocked)" },
   { method: "POST", path: "/api/ai/chargeback-copilot/9999999",          anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI chargeback copilot (isDashboardUser + linked contact/deal ownership; CSRF required for POST)" },
   { method: "PATCH", path: "/api/ai/chargeback-copilot/9999999/finalize", anon: [401], merchant: [403], admin: [403], agent: [403], manager: [403], description: "AI chargeback copilot finalize (isDashboardUser + linked contact/deal ownership; CSRF required for PATCH)" },
   // Prospects have no per-agent ownership model — routing matches /api/prospects gate.

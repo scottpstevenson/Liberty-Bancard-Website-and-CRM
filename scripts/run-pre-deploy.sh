@@ -77,7 +77,15 @@ echo "   ✓ Port ${SERVER_PORT} is free"
 echo ""
 
 # ── 2. Start the dev server in the background ─────────────────────────────────
-# GHL_TRANSPORT_FAILFAST installs the fail-fast fake GHL transport (C-03).
+# REL-02: the launched server must sit fully inside the repository's zero-egress
+# test boundary, not just GHL_TRANSPORT_FAILFAST. VG_PROVIDER_DENY_MODE=1 is the
+# canonical deny gate consumed at server/index.ts (skips live GHL/health-monitor
+# provider sweeps) and server/services/queue-manager.ts (skips the operational
+# provider sweep). NODE_ENV=test, SUNBIZ_ENRICHMENT_ENABLED=false, and
+# SERPER_GATEWAY_ENABLED=false close the remaining live-provider surfaces this
+# server could otherwise reach. This does not replace GHL_TRANSPORT_FAILFAST —
+# both are required, the same pairing scripts/certification-process-env.ts
+# enforces for disposable certification children.
 #
 # BUG FIX (Liberty Bancard enrichment completion, continuation): SERVER_PORT is
 # derived from BASE_URL above and used for the port pre-flight check, but was
@@ -91,8 +99,25 @@ echo ""
 # "SHA mismatch" that has nothing to do with the code under test. Exporting
 # PORT=$SERVER_PORT makes the spawned server actually honor BASE_URL, so this
 # gate can run isolated on a free port alongside an already-running dev server.
-echo "▶  Starting dev server with provider denial and disposable statement test storage…"
-PORT="$SERVER_PORT" GHL_TRANSPORT_FAILFAST=true STATEMENT_COMMAND_TEST_STORAGE=true npm run dev &
+echo "▶  Starting dev server with zero-egress provider denial and disposable statement test storage…"
+# Export (not just prefix) the deny-mode env so it (a) is NOT clobbered by
+# `npm run dev`'s own hardcoded `NODE_ENV=development` — npm scripts execute
+# their command string verbatim in a subshell, so a prefix on `npm run dev`
+# itself would be overridden by that inline assignment — and (b) survives into
+# `npx tsx scripts/pre-deploy.ts` below, whose `runSuite()` spreads
+# `process.env` into every mandatory-suite child process. Running the server
+# via `tsx server/index.ts` directly (bypassing the `dev` npm script) means
+# our exported NODE_ENV=test is what the server actually sees.
+export PORT="$SERVER_PORT"
+export NODE_ENV=test
+export VG_PROVIDER_DENY_MODE=1
+export GHL_TRANSPORT_FAILFAST=true
+export EMAIL_TRANSPORT_FAILFAST=true
+export SMS_TRANSPORT_FAILFAST=true
+export SUNBIZ_ENRICHMENT_ENABLED=false
+export SERPER_GATEWAY_ENABLED=false
+export STATEMENT_COMMAND_TEST_STORAGE=true
+npx tsx server/index.ts &
 SERVER_PID=$!
 echo "   Server PID: $SERVER_PID"
 
@@ -136,6 +161,36 @@ fi
 # Give Express an extra moment to finish registering all routes/middleware.
 sleep 3
 echo "   ✓ Server ready at ${BASE_URL} (pid $SERVER_PID)"
+echo ""
+
+# ── 4b. Prove the zero-egress/test posture, not just assume it (REL-02) ──────
+# A regression here (e.g. a future edit reintroducing `npm run dev`, or an env
+# var typo) must fail the gate loudly instead of silently running mandatory
+# suites against a live-provider server.
+echo "▶  Verifying the launched server actually reports the zero-egress/test posture…"
+_HEALTH_BODY=$(curl -sf --max-time 5 "${HEALTH_URL}" 2>/dev/null || true)
+_HEALTH_ENV=$(echo "$_HEALTH_BODY" | grep -o '"env":"[^"]*"' | sed 's/"env":"//;s/"//')
+_HEALTH_GHL_FAILFAST=$(echo "$_HEALTH_BODY" | grep -o '"ghlTransportFailFast":[a-z]*' | sed 's/"ghlTransportFailFast"://')
+if [ "$_HEALTH_ENV" != "test" ]; then
+  echo ""
+  echo "✗  Server reports env=\"${_HEALTH_ENV:-<missing>}\", expected \"test\"."
+  echo "   The zero-egress boundary is not in effect — refusing to run mandatory suites."
+  exit 1
+fi
+if [ "$_HEALTH_GHL_FAILFAST" != "true" ]; then
+  echo ""
+  echo "✗  Server reports ghlTransportFailFast=${_HEALTH_GHL_FAILFAST:-<missing>}, expected true."
+  echo "   GHL fail-fast transport is not installed — refusing to run mandatory suites."
+  exit 1
+fi
+if [ "${VG_PROVIDER_DENY_MODE:-}" != "1" ]; then
+  echo ""
+  echo "✗  VG_PROVIDER_DENY_MODE is not set to 1 in this wrapper's own environment."
+  echo "   scripts/pre-deploy.ts's runSuite() spreads process.env into every mandatory"
+  echo "   suite subprocess, so an unset value here means suites would run undenied too."
+  exit 1
+fi
+echo "   ✓ env=test, ghlTransportFailFast=true, VG_PROVIDER_DENY_MODE=1 (inherited by pre-deploy.ts suite subprocesses)"
 echo ""
 
 # ── 5. SHA verification (if RELEASE_SHA is set) ───────────────────────────────

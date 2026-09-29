@@ -951,10 +951,12 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
-  app.get("/api/deals/:id/proposal", isAuthenticated, async (req, res) => {
+  app.get("/api/deals/:id/proposal", isDashboardUser, async (req, res) => {
     try {
-      const deal = await storage.getDeal(Number(req.params.id));
-      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      // Dashboard-role gate alone isn't enough — agents must additionally be
+      // authorized for this specific deal (SEC-01). Non-enumerating 404 on denial.
+      const deal = await authorizeDealAccess(req, res, Number(req.params.id));
+      if (!deal) return;
       if (!deal.savingsProposal) return res.status(404).json({ message: "No proposal generated yet" });
       res.json(deal.savingsProposal);
     } catch (err: any) {

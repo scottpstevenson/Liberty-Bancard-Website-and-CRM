@@ -638,6 +638,11 @@ const MANDATORY_SUITES: Suite[] = [
     requiresServer: true,
   },
   {
+    name: "SEC-02 Session Validity Fail-Closed",
+    script: "scripts/test-session-validity-fail-closed.ts",
+    timeoutSecs: 60,
+  },
+  {
     name: "CRM Operator Experience",
     script: "scripts/test-crm-operator-experience.ts",
     timeoutSecs: 60,

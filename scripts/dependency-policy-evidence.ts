@@ -84,6 +84,16 @@ export function inspectLock(packageJson: Json, lock: Json, strictSources = false
     if (resolved.protocol === "file:" || resolved.protocol === "git:" || resolved.protocol === "git+ssh:") {
       findings.push({ severity: "error", code: "NON_PORTABLE_SOURCE", detail: `${location} uses ${resolved.protocol}` });
     }
+    // REL-01: a private/internal Replit package host is unreachable from any
+    // clean CI runner regardless of protocol — this is always an error, not
+    // just a strict-mode warning, so it can never silently reappear.
+    if (/(^|\.)package-firewall\.replit\.internal$/i.test(resolved.hostname) || /\.replit\.internal$/i.test(resolved.hostname)) {
+      findings.push({
+        severity: "error",
+        code: "PRIVATE_PACKAGE_HOST",
+        detail: `${location} resolves through the private host ${resolved.host}, which is unreachable outside Replit`,
+      });
+    }
   }
   return findings.sort((a, b) => a.code.localeCompare(b.code) || a.detail.localeCompare(b.detail));
 }
