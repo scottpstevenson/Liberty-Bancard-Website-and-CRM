@@ -26,10 +26,11 @@ import {
   freezeCohort,
   isSfpValidationPromotionEnabled,
 } from "./south-florida-prospecting";
-import { previewSfpPaidWaterfall, executeSfpSerperDiscovery } from "./sfp-paid-waterfall";
+import { previewSfpPaidWaterfall, executeSfpSerperDiscovery, executeSfpPaidPersonAndIdentityDiscovery } from "./sfp-paid-waterfall";
 import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
 import { assertAggregatePaidBudgetAvailable } from "../mi09-pilot-authority";
 import { getSfpProviderReadiness, getSfpAttestationReadiness } from "./sfp-provider-operations";
+import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -78,7 +79,11 @@ export interface SfpContinuousDiscoveryTickResult {
   succeeded?: number;
   failed?: number;
   noResult?: number;
+  waterfallProcessed?: number;
+  waterfallSucceeded?: number;
+  waterfallFailed?: number;
   stopReason?: string;
+  waterfallStopReason?: string;
   elapsedMs?: number;
 }
 
@@ -127,6 +132,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   const cohortRunIds = new Set<string>();
   let newlyFrozenCount = 0;
   let calls = 0, processed = 0, succeeded = 0, failed = 0, noResult = 0;
+  let waterfallProcessed = 0, waterfallSucceeded = 0, waterfallFailed = 0;
   let stopReason = "drain_complete";
   // Tracks cohorts already confirmed to have no remaining work THIS tick, so
   // we don't re-preview them on every loop iteration once they're drained.
@@ -225,12 +231,107 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   if (Date.now() >= end) stopReason = "time_budget_exhausted";
   if (calls >= MAX_CALLS_PER_TICK) stopReason = "max_calls_per_tick_reached";
 
+  // ── Phase 2: person/identity escalation (Outscraper business-identity gap
+  // + Apollo named-decision-maker gap) ──────────────────────────────────────
+  // Deliberately a SEPARATE drain from Phase 1, not nested inside the Serper
+  // loop above. Serper, Outscraper, and Apollo are independent providers with
+  // independent provider_controls rows (enabled/circuit/budget) and independent
+  // gap dimensions (domain vs. business-identity vs. named decision-maker) —
+  // an open Serper circuit or an exhausted Serper budget must never block
+  // Outscraper/Apollo from running, and vice versa. Cohort selection here is
+  // therefore NOT filtered by serperEligibleNow; any active frozen cohort with
+  // members is a candidate, and executeSfpPaidPersonAndIdentityDiscovery
+  // itself decides per-business, per-provider whether that business's specific
+  // gap is still open before spending a reservation. Each provider's own
+  // readiness (enabled/circuit/budget/credential) is checked BEFORE the call
+  // so a disabled/exhausted provider is a quiet, resumable skip — never a
+  // wasted reservation attempt or a tick abort. This never touches
+  // free_discovery_candidates or bypasses the $50 aggregate cap logic; it
+  // reuses the exact same reservation/settlement authority as Serper.
+  const waterfallCohortRunIds = new Set<string>();
+  let waterfallStopReason = "drain_complete";
+  const waterfallExhausted = new Set<string>();
+  if (program.isActive) {
+    while (Date.now() < end && calls < MAX_CALLS_PER_TICK) {
+      try {
+        await assertAggregatePaidBudgetAvailable();
+      } catch (err: any) {
+        waterfallStopReason = "aggregate_budget_exhausted";
+        await auditTick("sfp_continuous_discovery_tick", "person_identity_budget_exhausted", { error: String(err?.message ?? err) });
+        break;
+      }
+      const [outscraperReady, apolloReady] = await Promise.all([
+        getSfpProviderReadiness("outscraper"),
+        getSfpProviderReadiness("apollo"),
+      ]);
+      if (!outscraperReady.ready && !apolloReady.ready) {
+        waterfallStopReason = `provider_paused:outscraper=${outscraperReady.reason}|apollo=${apolloReady.reason}`;
+        await auditTick("sfp_continuous_discovery_tick", "person_identity_provider_paused", {
+          outscraperReason: outscraperReady.reason, apolloReason: apolloReady.reason,
+        });
+        break;
+      }
+
+      const candidatesAll = rows(await db.execute(sql`
+        SELECT id FROM sfp_cohort_runs
+         WHERE program_id = ${program.id}::uuid AND cohort_state='frozen'
+           AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
+         ORDER BY frozen_at DESC LIMIT 25
+      `));
+      const candidates = candidatesAll.filter((c: any) => !waterfallExhausted.has(String(c.id)));
+      if (candidates.length === 0) { waterfallStopReason = "no_cohort_with_person_identity_work"; break; }
+
+      let madeProgressThisPass = false;
+      for (const c of candidates) {
+        if (Date.now() >= end || calls >= MAX_CALLS_PER_TICK) break;
+        const cohortRunId = String(c.id);
+        try {
+          const snapshot = await getSfpCohortGapSnapshot(cohortRunId);
+          const waterfallResult = await executeSfpPaidPersonAndIdentityDiscovery({
+            cohortRunId,
+            idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${calls}`,
+            actorId: "system:sfp-continuous-discovery",
+            maxBusinesses: SERPER_BATCH_PER_CALL,
+            previewSnapshotHash: snapshot.snapshotHash,
+          });
+          calls++;
+          waterfallCohortRunIds.add(cohortRunId);
+          waterfallProcessed += waterfallResult.processed;
+          waterfallSucceeded += waterfallResult.succeeded;
+          waterfallFailed += waterfallResult.failed;
+          if (waterfallResult.processed > 0) {
+            madeProgressThisPass = true;
+          } else {
+            waterfallExhausted.add(cohortRunId);
+          }
+        } catch (err: any) {
+          if (String(err?.message ?? err) === "SFP_STAGE_ALREADY_RUNNING") {
+            // Another concurrent worker already owns this cohort's waterfall
+            // stage this tick — not an error, just try the next cohort.
+          } else {
+            await auditTick("sfp_continuous_discovery_tick", "person_identity_discovery_failed", {
+              cohortRunId, error: String(err?.message ?? err),
+            });
+          }
+          waterfallExhausted.add(cohortRunId);
+        }
+      }
+      if (!madeProgressThisPass) { waterfallStopReason = "no_cohort_with_person_identity_work"; break; }
+    }
+    if (Date.now() >= end) waterfallStopReason = "time_budget_exhausted";
+    if (calls >= MAX_CALLS_PER_TICK) waterfallStopReason = "max_calls_per_tick_reached";
+  } else {
+    waterfallStopReason = "program_inactive";
+  }
+  for (const id of waterfallCohortRunIds) cohortRunIds.add(id);
+
   const summary = {
     ran: calls > 0,
     cohortRunIds: [...cohortRunIds],
     newlyFrozenCount,
     calls, processed, succeeded, failed, noResult,
-    stopReason,
+    waterfallProcessed, waterfallSucceeded, waterfallFailed,
+    stopReason, waterfallStopReason,
     elapsedMs: DRAIN_TIME_BUDGET_MS - Math.max(0, end - Date.now()),
   };
   await auditTick("sfp_continuous_discovery_tick", "drain_completed", summary);
