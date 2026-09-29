@@ -3460,11 +3460,15 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           throw new Error("SFP_SERPER_GATEWAY_NOT_READY");
         }
         const control = rows(await tx.execute(sql`
-          SELECT enabled,circuit_state,consumed_units,reserved_units,version
+          SELECT enabled,circuit_state,consumed_units,reserved_units,local_budget_units,version
             FROM provider_controls WHERE provider='serper' FOR UPDATE
         `))[0];
         if (!control || control.circuit_state !== "closed") throw new Error("SFP_SERPER_CONTROL_NOT_READY");
-        const cap = Number(control.consumed_units) + Number(control.reserved_units) + maxCallsPerBusiness * maxBusinesses;
+        // Never shrink the recurring worker's real ceiling: only raise it to
+        // cover this pilot's headroom on top of whatever it already is, and
+        // never below existing consumed+reserved units.
+        const requiredFloor = Number(control.consumed_units) + Number(control.reserved_units) + maxCallsPerBusiness * maxBusinesses;
+        const cap = Math.max(Number(control.local_budget_units ?? 0), requiredFloor);
         const updated = rows(await tx.execute(sql`
           UPDATE provider_controls SET enabled=TRUE,local_budget_units=${cap},version=version+1,updated_at=NOW()
            WHERE provider='serper' RETURNING provider,enabled,circuit_state,local_budget_units,
