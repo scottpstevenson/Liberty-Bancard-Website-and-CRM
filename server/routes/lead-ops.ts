@@ -3561,6 +3561,72 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // Enable Outscraper or Apollo with a bounded spend-equivalent local budget
+  // ceiling, without ever touching circuit_state, reserved_units, or
+  // consumed_units. Mirrors the Serper arm-pilot pattern: the requested
+  // ceiling is only ever raised to cover (existing consumed+reserved,
+  // requestedFloor) — never below what's already spent/held, and never
+  // reset. maxUsdMicros is a hard operator-specified spend-equivalent cap
+  // converted to provider units via the live, operator-reviewed pricing
+  // schedule (the same source executeSfpPaidPersonAndIdentityDiscovery uses
+  // to price reservations), so the budget in the DB always means the same
+  // dollar amount the operator asked for, regardless of provider unit cost.
+  app.post("/api/lead-ops/sfp/provider-controls/:provider/arm-budget", requireRole("admin"), async (req, res) => {
+    try {
+      const provider = String(req.params.provider);
+      if (provider !== "outscraper" && provider !== "apollo") {
+        return res.status(400).json({ error: "Only outscraper and apollo are supported by this endpoint" });
+      }
+      const maxUsdMicros = Number(req.body?.maxUsdMicros);
+      if (!Number.isSafeInteger(maxUsdMicros) || maxUsdMicros <= 0 || maxUsdMicros > 50_000_000) {
+        return res.status(400).json({ error: "maxUsdMicros must be a positive integer (USD micros), at most $50" });
+      }
+      const reason = String(req.body?.reason ?? "").trim();
+      if (reason.length < 8 || reason.length > 200) {
+        return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
+      }
+      const { getCurrentPricingSchedule } = await import("../services/mi09-pilot-authority");
+      const pricing = await getCurrentPricingSchedule();
+      const entry = pricing.priceSchedules[provider] as any;
+      const amountMicros = Number(entry?.amountMicros);
+      if (!Number.isSafeInteger(amountMicros) || amountMicros <= 0) {
+        return res.status(422).json({ error: `SFP_PAID_BLOCKED:PRICING_UNAVAILABLE:${provider}` });
+      }
+      const requestedUnitsCap = Math.floor(maxUsdMicros / amountMicros);
+      if (requestedUnitsCap < 1) {
+        return res.status(400).json({ error: "maxUsdMicros is too small to afford even one unit at the current price" });
+      }
+      const result = await db.transaction(async (tx) => {
+        const control = rows(await tx.execute(sql`
+          SELECT enabled,circuit_state,consumed_units,reserved_units,local_budget_units,version
+            FROM provider_controls WHERE provider=${provider} FOR UPDATE
+        `))[0];
+        if (!control) throw new Error("SFP_PROVIDER_CONTROL_NOT_FOUND");
+        // Never lower the ceiling below what's already committed (consumed+
+        // reserved), and never raise it past the operator's requested
+        // spend-equivalent cap.
+        const requiredFloor = Number(control.consumed_units) + Number(control.reserved_units);
+        const finalCap = Math.max(requiredFloor, requestedUnitsCap);
+        const updated = rows(await tx.execute(sql`
+          UPDATE provider_controls SET enabled=TRUE,local_budget_units=${finalCap},version=version+1,updated_at=NOW()
+           WHERE provider=${provider} RETURNING provider,enabled,circuit_state,local_budget_units,
+             reserved_units,consumed_units,version
+        `))[0];
+        await tx.execute(sql`
+          INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
+          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_provider_budget_armed','provider_control',${provider},
+                  ${JSON.stringify({ maxUsdMicros, amountMicros, requestedUnitsCap, finalCap, reason })}::jsonb,
+                  ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
+        `);
+        return updated;
+      });
+      res.json({ control: result, maxUsdMicros, unitPriceMicros: amountMicros, requestedUnitsCap });
+    } catch (err: any) {
+      const message = String(err?.message ?? err);
+      res.status(/NOT_FOUND/.test(message) ? 404 : 500).json({ error: message });
+    }
+  });
+
   app.get("/api/lead-ops/sfp/runs/:runId/paid-waterfall-preview", requireRole("admin"), async (req, res) => {
     try {
       const { previewSfpPaidWaterfall } = await import("../services/cro03/sfp-paid-waterfall");
