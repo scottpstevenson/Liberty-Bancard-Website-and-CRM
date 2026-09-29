@@ -90,7 +90,7 @@ async function _claimNextDiscoveryCohort(programId: string): Promise<{ cohortRun
   const candidates = rows(await db.execute(sql`
     SELECT id FROM sfp_cohort_runs
      WHERE program_id = ${programId}::uuid AND cohort_state='frozen'
-       AND voided_at IS NULL AND superseded_at IS NULL
+       AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
      ORDER BY frozen_at DESC LIMIT 25
   `));
   for (const c of candidates) {
@@ -162,7 +162,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     const reusableAll = rows(await db.execute(sql`
       SELECT id FROM sfp_cohort_runs
        WHERE program_id = ${program.id}::uuid AND cohort_state='frozen'
-         AND voided_at IS NULL AND superseded_at IS NULL
+         AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
        ORDER BY frozen_at DESC LIMIT 25
     `));
     const reusable = reusableAll.filter((c: any) => !exhaustedCohorts.has(String(c.id)));
@@ -276,7 +276,7 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
     const candidatesAll = rows(await db.execute(sql`
       SELECT id FROM sfp_cohort_runs
        WHERE program_id = ${program.id}::uuid AND cohort_state='frozen'
-         AND voided_at IS NULL AND superseded_at IS NULL
+         AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
        ORDER BY frozen_at DESC LIMIT 25
     `));
     const candidates = candidatesAll.filter((c: any) => !exhaustedCohorts.has(String(c.id)));

@@ -80,7 +80,7 @@ async function prepareRecurringRun(config: { programId: string; batchSize: numbe
       JOIN sfp_outreach_eligibility e ON e.cohort_run_id=r.id
      WHERE p.id=${config.programId}::uuid AND p.is_active=TRUE AND p.recurring_enabled=TRUE
        AND COALESCE((p.schedule_config->>'campaignStaging')::int,0)>0
-       AND r.cohort_state='frozen' AND r.voided_at IS NULL AND r.superseded_at IS NULL
+       AND r.cohort_state='frozen' AND r.voided_at IS NULL AND r.superseded_at IS NULL AND r.cohort_size > 0
        AND e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL
      GROUP BY r.id, r.created_at
      ORDER BY r.created_at DESC

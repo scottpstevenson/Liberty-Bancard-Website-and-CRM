@@ -593,9 +593,10 @@ export class SerperGateway {
     audit: { actorId: string | null; reason: string; correlationId: string },
   ): Promise<SerperControlRow> {
     return await this.db.transaction(async (tx) => {
-      const before = await tx.execute(sql`SELECT enabled FROM serper_control WHERE id = 1`);
+      const before = await tx.execute(sql`SELECT enabled, local_budget FROM serper_control WHERE id = 1`);
       if (before.rows.length === 0) throw new Error("serper_control row missing — run migrations");
       const beforeEnabled = (before.rows[0] as any).enabled as boolean;
+      const localBudget = (before.rows[0] as any).local_budget as number | null;
 
       const result = await tx.execute(
         sql`UPDATE serper_control SET enabled = ${enabled}, updated_at = now() WHERE id = 1 RETURNING *`,
@@ -611,10 +612,25 @@ export class SerperGateway {
       // Serper's own call-time gate); it does not read provider_controls
       // back or make it a second gate, avoiding the drift/false-block risk
       // of a dual-read gate.
+      // Bug fix: the mirror previously never populated local_budget_units,
+      // so a fresh/never-set provider_controls row stayed permanently
+      // local_budget_units=NULL — which getSfpProviderReadiness (and any
+      // other budget-headroom check reading provider_controls) treats as
+      // "budget unset" and refuses to proceed, even once serper_control
+      // itself is enabled and healthy. Mirror serper_control's own
+      // local_budget as the cap so enabling here also clears that gap; it
+      // never lowers an existing cap an admin may have set some other way.
+      // Also mirror circuit_state='closed' on conflict, not just on first
+      // insert: the previous ON CONFLICT clause never touched circuit_state,
+      // so a row already marked 'open' from an earlier trip stayed 'open'
+      // forever even after this same call re-enables and this gateway's own
+      // circuit (serper_control.state) has already recovered to 'closed'.
       await tx.execute(sql`
-        INSERT INTO provider_controls (provider, capability, enabled, circuit_state)
-        VALUES ('serper', 'business_discovery', ${enabled}, 'closed')
-        ON CONFLICT (provider) DO UPDATE SET enabled = ${enabled}, version = provider_controls.version + 1, updated_at = NOW()
+        INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units)
+        VALUES ('serper', 'business_discovery', ${enabled}, 'closed', ${localBudget})
+        ON CONFLICT (provider) DO UPDATE SET
+          enabled = ${enabled}, circuit_state = 'closed', version = provider_controls.version + 1, updated_at = NOW(),
+          local_budget_units = COALESCE(provider_controls.local_budget_units, ${localBudget})
       `);
 
       await tx.insert(auditLogs).values({
