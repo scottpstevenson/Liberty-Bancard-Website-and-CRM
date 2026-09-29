@@ -266,8 +266,14 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   const waterfallCohortRunIds = new Set<string>();
   let waterfallStopReason = "drain_complete";
   const waterfallExhausted = new Set<string>();
+  // Phase 2 gets its OWN call budget, separate from Phase 1's `calls` counter.
+  // Sharing MAX_CALLS_PER_TICK between phases would let Phase 1 exhaust the
+  // entire tick's call allowance well within its own time budget (each
+  // Serper batch call is fast), leaving zero calls for Outscraper/Apollo even
+  // though PHASE1_TIME_BUDGET_MS reserved them plenty of time.
+  let waterfallCalls = 0;
   if (program.isActive) {
-    while (Date.now() < end && calls < MAX_CALLS_PER_TICK) {
+    while (Date.now() < end && waterfallCalls < MAX_CALLS_PER_TICK) {
       try {
         await assertAggregatePaidBudgetAvailable();
       } catch (err: any) {
@@ -298,18 +304,18 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
 
       let madeProgressThisPass = false;
       for (const c of candidates) {
-        if (Date.now() >= end || calls >= MAX_CALLS_PER_TICK) break;
+        if (Date.now() >= end || waterfallCalls >= MAX_CALLS_PER_TICK) break;
         const cohortRunId = String(c.id);
         try {
           const snapshot = await getSfpCohortGapSnapshot(cohortRunId);
           const waterfallResult = await executeSfpPaidPersonAndIdentityDiscovery({
             cohortRunId,
-            idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${calls}`,
+            idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${waterfallCalls}`,
             actorId: "system:sfp-continuous-discovery",
             maxBusinesses: SERPER_BATCH_PER_CALL,
             previewSnapshotHash: snapshot.snapshotHash,
           });
-          calls++;
+          waterfallCalls++;
           waterfallCohortRunIds.add(cohortRunId);
           waterfallProcessed += waterfallResult.processed;
           waterfallSucceeded += waterfallResult.succeeded;
@@ -334,7 +340,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
       if (!madeProgressThisPass) { waterfallStopReason = "no_cohort_with_person_identity_work"; break; }
     }
     if (Date.now() >= end) waterfallStopReason = "time_budget_exhausted";
-    if (calls >= MAX_CALLS_PER_TICK) waterfallStopReason = "max_calls_per_tick_reached";
+    if (waterfallCalls >= MAX_CALLS_PER_TICK) waterfallStopReason = "max_calls_per_tick_reached";
   } else {
     waterfallStopReason = "program_inactive";
   }
