@@ -74,11 +74,7 @@ export async function computeSfpValidationSnapshot(
   maxValidations: number,
 ): Promise<{ snapshotHash: string; payload: Record<string, unknown> }> {
   const policy = await getActiveSfpOutreachPolicy();
-  const members = rows(await db.execute(sql`
-    SELECT business_id FROM sfp_cohort_members
-    WHERE cohort_run_id = ${cohortRunId}::uuid ORDER BY roi_score DESC
-  `));
-  const bizIds = members.map((m: any) => Number(m.business_id));
+  const bizIds = await getUndecidedCohortBizIds(cohortRunId, policy.version);
   const winners = await selectWinnersPerBusiness(bizIds);
   const selected = Array.from(winners.entries()).slice(0, maxValidations);
   const unitPrice = await currentSfpUnitPrice("zerobounce").catch(() => ZB_UNIT_MICROS);
@@ -135,6 +131,42 @@ export interface SfpValidationResult {
   completedAt: string;
 }
 
+/**
+ * Cohort member business IDs that still need a validation decision for the
+ * given policy version, ranked by ROI (highest first) — same ordering as
+ * before, but now EXCLUDING any business that already carries a decided
+ * (non-'validation_pending') eligibility row for this cohort+policy.
+ *
+ * BUG FIX: previously every call (preview, snapshot, execute) re-ranked the
+ * FULL cohort member list and took the top `maxValidations` by ROI with no
+ * exclusion. Since ROI scores are static per member, that slice is
+ * deterministic and IDENTICAL every time — a cohort larger than one batch
+ * (e.g. 100 members, 25-per-tick cap) could never validate business #26
+ * onward; the continuous tick would just keep re-deciding the same top 25
+ * forever (an idempotent replay once within the same idempotency-key
+ * bucket, or a harmless re-decision outside it) while the rest of the
+ * cohort's backlog silently never got reached. Excluding already-decided
+ * businesses here lets each successive call's top-N slice naturally
+ * advance to the next undecided businesses, which is what "continuously
+ * drain the backlog" requires. Retryable rows ('validation_pending') stay
+ * eligible for reselection so retries still happen.
+ */
+async function getUndecidedCohortBizIds(cohortRunId: string, policyVersion: number): Promise<number[]> {
+  const members = rows(await db.execute(sql`
+    SELECT cm.business_id FROM sfp_cohort_members cm
+     WHERE cm.cohort_run_id = ${cohortRunId}::uuid
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_outreach_eligibility soe
+          WHERE soe.cohort_run_id = cm.cohort_run_id
+            AND soe.business_id = cm.business_id
+            AND soe.policy_version = ${policyVersion}
+            AND soe.status <> 'validation_pending'
+       )
+     ORDER BY cm.roi_score DESC
+  `));
+  return members.map((m: any) => Number(m.business_id));
+}
+
 /** One ranked winner candidate per business, from the unified free+paid pool. */
 async function selectWinnersPerBusiness(bizIds: number[]): Promise<Map<number, UnifiedSfpCandidateView>> {
   const unified = await getUnifiedSfpCandidates(bizIds);
@@ -162,11 +194,11 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
     throw new Error(`SFP_VALIDATION_PREVIEW:cohort_not_usable:state=${runRow.cohort_state}`);
   }
 
-  const members = rows(await db.execute(sql`
-    SELECT business_id FROM sfp_cohort_members
-    WHERE cohort_run_id = ${cohortRunId}::uuid ORDER BY roi_score DESC
+  const previewPolicy = await getActiveSfpOutreachPolicy();
+  const bizIds = await getUndecidedCohortBizIds(cohortRunId, previewPolicy.version);
+  const allMembers = rows(await db.execute(sql`
+    SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id = ${cohortRunId}::uuid
   `));
-  const bizIds = members.map((m: any) => Number(m.business_id));
 
   const winners = await selectWinnersPerBusiness(bizIds);
   const selected = Array.from(winners.entries()).slice(0, SFP_VALIDATION_MAX);
@@ -197,7 +229,7 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
   return {
     cohortRunId,
     cohortFrozenHash: String(runRow.cohort_hash),
-    cohortSize: bizIds.length,
+    cohortSize: allMembers.length,
     addressesForValidation: selected.length,
     businessesWithoutCandidate: bizIds.length - winners.size,
     provider: "zerobounce",
@@ -330,12 +362,14 @@ export async function executeSfpValidation(
     };
   }
 
-  const members = rows(await db.execute(sql`
-    SELECT business_id FROM sfp_cohort_members
-    WHERE cohort_run_id = ${cohortRunId}::uuid ORDER BY roi_score DESC
-  `));
-  const bizIds = members.map((m: any) => Number(m.business_id));
-  if (bizIds.length === 0) throw new Error("SFP_VALIDATION_BLOCKED:EMPTY_COHORT");
+  const bizIds = await getUndecidedCohortBizIds(cohortRunId, policy.version);
+  if (bizIds.length === 0) {
+    const totalMembers = rows(await db.execute(sql`
+      SELECT COUNT(*)::int AS cnt FROM sfp_cohort_members WHERE cohort_run_id = ${cohortRunId}::uuid
+    `))[0];
+    if (Number(totalMembers?.cnt ?? 0) === 0) throw new Error("SFP_VALIDATION_BLOCKED:EMPTY_COHORT");
+    throw new Error("SFP_VALIDATION_BLOCKED:COHORT_FULLY_DECIDED");
+  }
 
   const stageRun = existingStage ?? rows(await db.execute(sql`
     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
@@ -640,18 +674,29 @@ export async function executeSfpValidation(
     }
   }
 
-  // Add discovery_required rows for businesses without a candidate
-  const validatedBizIds = new Set(selectedEntries.map(([bizId]) => bizId));
-  for (const bizId of bizIds) {
-    if (!validatedBizIds.has(bizId)) {
-      await db.execute(sql`
-        INSERT INTO sfp_outreach_eligibility
-          (cohort_run_id, business_id, policy_version, status, decision_reason)
-        VALUES (${cohortRunId}::uuid, ${bizId}, ${policy.version},
-                'discovery_required', 'no_staged_candidate')
-        ON CONFLICT (cohort_run_id, business_id, policy_version) DO NOTHING
-      `);
-    }
+  // Add discovery_required rows ONLY for businesses that genuinely have no
+  // winning candidate at all (bizIds not present in `winners`).
+  //
+  // BUG FIX: this used to compare against `selectedEntries` — the batch's
+  // maxValidations-truncated slice — instead of the full `winners` map. Any
+  // undecided business that DID have a real candidate but simply didn't
+  // fit in this batch's top-N slice was permanently mislabeled
+  // 'discovery_required'/'no_staged_candidate' and, because that status is
+  // not 'validation_pending', getUndecidedCohortBizIds's exclusion then
+  // treated it as a DECIDED business forever — the business could never be
+  // reselected in any later batch. Combined with the top-N reselection bug
+  // this was the actual mechanism behind the permanent stall: every
+  // business past the first batch got falsely marked "no candidate" and
+  // silently dropped from the backlog for good, not just re-skipped.
+  const noCandidateBizIds = bizIds.filter((bizId) => !winners.has(bizId));
+  for (const bizId of noCandidateBizIds) {
+    await db.execute(sql`
+      INSERT INTO sfp_outreach_eligibility
+        (cohort_run_id, business_id, policy_version, status, decision_reason)
+      VALUES (${cohortRunId}::uuid, ${bizId}, ${policy.version},
+              'discovery_required', 'no_staged_candidate')
+      ON CONFLICT (cohort_run_id, business_id, policy_version) DO NOTHING
+    `);
   }
 
   const result: SfpValidationResult = {

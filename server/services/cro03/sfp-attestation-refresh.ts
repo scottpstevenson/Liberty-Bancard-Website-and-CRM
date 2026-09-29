@@ -58,6 +58,20 @@ export async function processSfpAttestationRefreshTick(): Promise<SfpAttestation
     const result = await createCro03cRuntimeAttestation({
       idempotencyKey,
       actorId: "system:sfp-attestation-refresh",
+      // BUG FIX: createCro03cRuntimeAttestation defaults ttlMs to 60_000 (1
+      // minute) when not passed explicitly, but this tick only runs every
+      // 5 minutes (see queue-manager.ts NAMED_QUEUE_SCHEDULES). That left a
+      // ~4-minute gap after every refresh with NO live attestation, so
+      // every sfp-continuous-validation tick landing in that gap saw
+      // getSfpAttestationReadiness() report "no_live_runtime_attestation"
+      // and paused — this was the actual production stall behind zero
+      // sfp_outreach_eligibility rows despite FREE_DISCOVERY_VALIDATION_
+      // PROMOTION_ENABLED already being on. Request the max allowed TTL
+      // (15 min, clamped in createCro03cRuntimeAttestation) so a fresh
+      // attestation always overlaps the next scheduled refresh with
+      // margin to spare, exactly like SFP_ATTESTATION_REFRESH's own
+      // "two overlapping valid attestations at all times" design intent.
+      ttlMs: 15 * 60_000,
     });
     await auditRefresh("attestation_refreshed", {
       attestationId: result.id, expiresAt: result.expiresAt, replayed: result.replayed,
