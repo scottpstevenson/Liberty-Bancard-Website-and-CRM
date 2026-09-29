@@ -3416,6 +3416,44 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
+  // GET /api/lead-ops/sfp/provider-results — per-call results log for the
+  // paid SFP providers (Serper/Outscraper/Apollo candidate discovery +
+  // OpenAI classification), not just spend totals. Never returns decrypted
+  // contact values — envelopeCiphertext/Nonce/Tag are intentionally
+  // excluded; maskedValue (already redacted at write time) is the most a
+  // dashboard viewer ever sees for a discovered email/contact.
+  app.get("/api/lead-ops/sfp/provider-results", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+      const provider = typeof req.query.provider === "string" && req.query.provider.trim() ? req.query.provider.trim() : null;
+
+      const candidateRows = (await db.execute(sql`
+        SELECT e.id, e.provider, e.field, e.subject_type, e.disposition, e.confidence,
+               e.masked_value, e.person_name_evidence, e.person_title_evidence,
+               e.created_at, b.id AS business_id, b.canonical_name AS business_name
+          FROM sfp_paid_candidate_evidence e
+          JOIN businesses b ON b.id = e.business_id
+         WHERE (${provider}::text IS NULL OR e.provider = ${provider}::text)
+         ORDER BY e.created_at DESC
+         LIMIT ${limit}
+      `) as any).rows ?? [];
+
+      const classificationRows = (await db.execute(sql`
+        SELECT e.id, e.outcome, e.confidence, e.resolved_vertical_id, e.admission_tier,
+               e.reason_codes, e.terminal_state, e.cost_micros, e.created_at,
+               b.id AS business_id, b.canonical_name AS business_name
+          FROM sfp_classification_evidence e
+          JOIN businesses b ON b.id = e.business_id
+         ORDER BY e.created_at DESC
+         LIMIT ${limit}
+      `) as any).rows ?? [];
+
+      res.json({ candidateResults: candidateRows, classificationResults: classificationRows });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // GET /api/lead-ops/sfp/runs/:runId/free-evidence — free-evidence report
   app.get("/api/lead-ops/sfp/runs/:runId/free-evidence", requireRole("admin"), async (req, res) => {
     try {

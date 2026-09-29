@@ -1773,6 +1773,9 @@ export default function LeadOpsCenter() {
           <TabsTrigger value="sfp" className="gap-1.5 min-h-[44px] text-sm">
             <MapPin className="h-4 w-4" aria-hidden /> South Florida Prospecting
           </TabsTrigger>
+          <TabsTrigger value="provider-results" className="gap-1.5 min-h-[44px] text-sm">
+            <Activity className="h-4 w-4" aria-hidden /> Provider Results
+          </TabsTrigger>
           <TabsTrigger value="pilot" className="gap-1.5 min-h-[44px] text-sm">
             🧪 Paid Pilot (Legacy)
           </TabsTrigger>
@@ -2727,6 +2730,11 @@ export default function LeadOpsCenter() {
           <SouthFloridaProspectingPanel />
         </TabsContent>
 
+        {/* ── Provider Results tab: per-call evidence log ─────────────────── */}
+        <TabsContent value="provider-results" className="space-y-4">
+          <SfpProviderResultsPanel />
+        </TabsContent>
+
         {/* ── MI-09: Pilot Status tab (legacy) ────────────────────────── */}
         <TabsContent value="pilot" className="space-y-4">
           <PilotStatusPanel />
@@ -2887,6 +2895,144 @@ function SfpEnrichmentControlCenter() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Provider Results Panel: per-call evidence log ──────────────────────────
+//
+// Complements the Enrichment Control Center's aggregate spend/counts with
+// the actual per-call output: which business a discovery call resolved to
+// which masked candidate value, and which classification call reached which
+// verdict. Never fetches or renders decrypted contact values — the server
+// route excludes envelope ciphertext entirely; maskedValue is already
+// redacted at write time.
+function SfpProviderResultsPanel() {
+  const [providerFilter, setProviderFilter] = useState<string>("all");
+
+  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[] }>({
+    queryKey: ["/api/lead-ops/sfp/provider-results", providerFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: "200" });
+      if (providerFilter !== "all") params.set("provider", providerFilter);
+      const r = await fetch(`/api/lead-ops/sfp/provider-results?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const candidateResults = resultsQuery.data?.candidateResults ?? [];
+  const classificationResults = resultsQuery.data?.classificationResults ?? [];
+
+  return (
+    <div className="space-y-4">
+      <Card data-testid="card-sfp-candidate-results">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" /> Discovery &amp; Candidate Results
+          </CardTitle>
+          <CardDescription>
+            What each paid discovery call (Serper, Outscraper, Apollo) actually returned, one row per candidate value. Values are masked — this is a results log, not a data export.
+          </CardDescription>
+          <div className="flex gap-2 pt-2">
+            {["all", "serper", "outscraper", "apollo"].map((p) => (
+              <Button key={p} size="sm" variant={providerFilter === p ? "default" : "outline"} onClick={() => setProviderFilter(p)} data-testid={`button-filter-${p}`}>
+                {p === "all" ? "All" : p}
+              </Button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {resultsQuery.isLoading ? (
+            <Skeleton className="h-32 w-full" />
+          ) : resultsQuery.isError ? (
+            <div className="text-sm text-destructive">Failed to load provider results.</div>
+          ) : candidateResults.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No candidate results yet for this filter.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Time</th>
+                    <th className="py-1.5 pr-3">Provider</th>
+                    <th className="py-1.5 pr-3">Business</th>
+                    <th className="py-1.5 pr-3">Field</th>
+                    <th className="py-1.5 pr-3">Value</th>
+                    <th className="py-1.5 pr-3">Confidence</th>
+                    <th className="py-1.5 pr-3">Disposition</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidateResults.map((r: any) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{new Date(r.created_at).toLocaleString()}</td>
+                      <td className="py-1.5 pr-3 font-mono">{r.provider}</td>
+                      <td className="py-1.5 pr-3">{r.business_name ?? `#${r.business_id}`}</td>
+                      <td className="py-1.5 pr-3">{r.field}</td>
+                      <td className="py-1.5 pr-3 font-mono">{r.masked_value}</td>
+                      <td className="py-1.5 pr-3">{r.confidence}</td>
+                      <td className="py-1.5 pr-3">
+                        <span className="px-1.5 py-0.5 rounded bg-muted">{r.disposition}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-sfp-classification-results">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" /> Classification Results
+          </CardTitle>
+          <CardDescription>Each OpenAI vertical-classification call and its verdict.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {resultsQuery.isLoading ? (
+            <Skeleton className="h-32 w-full" />
+          ) : classificationResults.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No classification results yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Time</th>
+                    <th className="py-1.5 pr-3">Business</th>
+                    <th className="py-1.5 pr-3">Outcome</th>
+                    <th className="py-1.5 pr-3">Vertical</th>
+                    <th className="py-1.5 pr-3">Admission tier</th>
+                    <th className="py-1.5 pr-3">Confidence</th>
+                    <th className="py-1.5 pr-3">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classificationResults.map((r: any) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{new Date(r.created_at).toLocaleString()}</td>
+                      <td className="py-1.5 pr-3">{r.business_name ?? `#${r.business_id}`}</td>
+                      <td className="py-1.5 pr-3">
+                        <span className={`px-1.5 py-0.5 rounded ${r.outcome === "target" ? "bg-green-100 text-green-800" : r.outcome === "review_required" ? "bg-amber-100 text-amber-800" : "bg-muted"}`}>
+                          {r.outcome}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-3">{r.resolved_vertical_id ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{r.admission_tier ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{r.confidence ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{usdFromMicros(r.cost_micros)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
