@@ -11,10 +11,18 @@ import { SfpStagingV2Error, executeStagingV2, previewStagingV2 } from "./sfp-cam
 import { reconcileStageRunCounters } from "./sfp-stage-ledger";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
+// Per-call safety ceiling (a single stage_run's batch). Not the tick's
+// overall throughput — processSfpCampaignStagingTick DRAINS by looping this
+// across every eligible cohort/run until a real stop condition fires
+// (no more validated_outreach_eligible rows anywhere, or the time budget).
 const MAX_BATCH_SIZE = 25;
 const MAX_ATTEMPTS = 5;
 const LEASE_MINUTES = 30;
 const RETRY_DELAYS_MINUTES = [1, 5, 15, 30];
+// Wall-clock ceiling per tick invocation, kept safely inside the queue's own
+// 15-minute repeat interval (queue-manager.ts NAMED_QUEUE_SCHEDULES).
+const DRAIN_TIME_BUDGET_MS = 10 * 60 * 1000;
+const MAX_RUNS_PER_TICK = 200;
 
 function capabilityIsActive(): boolean {
   const profile = getBackgroundProfile();
@@ -313,31 +321,68 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
   }
 }
 
-/** Repeatable, bounded scan. No work is created unless both program controls are on. */
+/**
+ * DRAIN scan. No work is created unless both program controls are on. This
+ * used to process at most 5 stage_runs (LIMIT 5) per call, which — combined
+ * with the 25-item MAX_BATCH_SIZE per run — made a fixed ~125 records the
+ * real ceiling on staging throughput every 15 minutes regardless of how much
+ * validated_outreach_eligible backlog existed. It now keeps preparing and
+ * processing runs back-to-back until there is genuinely no more eligible
+ * work anywhere, or a time/run-count safety valve fires.
+ */
 export async function processSfpCampaignStagingTick() {
-  if (!capabilityIsActive()) return { enabled: false, processed: 0, succeeded: 0, failed: 0 };
+  if (!capabilityIsActive()) return { enabled: false, processed: 0, succeeded: 0, failed: 0, stopReason: "capability_inactive" };
   const baseConfig = await getRecurringStageConfig();
-  if (!baseConfig) return { enabled: false, processed: 0, succeeded: 0, failed: 0 };
-  const createdRunId = await prepareRecurringRun(baseConfig);
-  const pendingRuns = rows(await db.execute(sql`
-    SELECT id
-      FROM sfp_stage_runs
-     WHERE stage='campaign_staging'
-       AND (state IN ('pending','authorized','stalled')
-            OR (state='running' AND lease_expires_at<NOW()))
-     ORDER BY created_at
-     LIMIT 5
-  `));
-  const runIds = [...new Set([
-    ...(createdRunId ? [createdRunId] : []),
-    ...pendingRuns.map((run) => String(run.id)),
-  ])].slice(0, 5);
-  const results = [];
-  for (const runId of runIds) results.push(await processRun(runId));
+  if (!baseConfig) return { enabled: false, processed: 0, succeeded: 0, failed: 0, stopReason: "recurring_disabled" };
+
+  const end = Date.now() + DRAIN_TIME_BUDGET_MS;
+  let totalProcessed = 0, totalSucceeded = 0, totalFailed = 0, runsRun = 0;
+  let stopReason = "drain_complete";
+
+  while (Date.now() < end && runsRun < MAX_RUNS_PER_TICK) {
+    // Re-check controls every pass — an operator pausing/disabling mid-drain
+    // must stop new work immediately, not just at the next 15-min tick.
+    const config = await getRecurringStageConfig();
+    if (!config) { stopReason = "recurring_disabled_mid_drain"; break; }
+
+    const createdRunId = await prepareRecurringRun(config);
+    const pendingRuns = rows(await db.execute(sql`
+      SELECT id
+        FROM sfp_stage_runs
+       WHERE stage='campaign_staging'
+         AND (state IN ('pending','authorized','stalled')
+              OR (state='running' AND lease_expires_at<NOW()))
+       ORDER BY created_at
+       LIMIT 25
+    `));
+    const runIds = [...new Set([
+      ...(createdRunId ? [createdRunId] : []),
+      ...pendingRuns.map((run) => String(run.id)),
+    ])];
+    if (runIds.length === 0) { stopReason = "no_eligible_work"; break; }
+
+    let madeProgressThisPass = false;
+    for (const runId of runIds) {
+      if (Date.now() >= end || runsRun >= MAX_RUNS_PER_TICK) break;
+      const result = await processRun(runId);
+      runsRun++;
+      totalProcessed += result.processed;
+      totalSucceeded += result.succeeded;
+      totalFailed += result.failed;
+      if (result.processed > 0) madeProgressThisPass = true;
+    }
+    if (!madeProgressThisPass) { stopReason = "no_eligible_work"; break; }
+  }
+
+  if (Date.now() >= end) stopReason = "time_budget_exhausted";
+  if (runsRun >= MAX_RUNS_PER_TICK) stopReason = "max_runs_per_tick_reached";
+
   return {
     enabled: true,
-    processed: results.reduce((sum, result) => sum + result.processed, 0),
-    succeeded: results.reduce((sum, result) => sum + result.succeeded, 0),
-    failed: results.reduce((sum, result) => sum + result.failed, 0),
+    processed: totalProcessed,
+    succeeded: totalSucceeded,
+    failed: totalFailed,
+    runsRun,
+    stopReason,
   };
 }
