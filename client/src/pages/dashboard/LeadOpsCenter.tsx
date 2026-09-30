@@ -3408,7 +3408,7 @@ function SfpEnrichmentControlCenter() {
   });
 
   const overview = overviewQuery.data;
-  const providerControls: Array<{ provider: string; enabled: boolean; circuit_state: string }> =
+  const providerControls: Array<{ provider: string; enabled: boolean; circuitState: string }> =
     overview?.providerControls ?? [];
   const serper = providerControls.find((p) => p.provider === "serper");
   const zerobounce = providerControls.find((p) => p.provider === "zerobounce");
@@ -3435,18 +3435,81 @@ function SfpEnrichmentControlCenter() {
               <div className="rounded-md border p-3" data-testid="stat-serper-status">
                 <div className="text-xs text-muted-foreground">Serper (discovery)</div>
                 <div className="text-lg font-semibold">{serper ? (serper.enabled ? "enabled" : "disabled") : "unknown"}</div>
-                <div className="text-xs text-muted-foreground">{serper?.circuit_state ?? "unavailable"}</div>
+                <div className="text-xs text-muted-foreground">{serper?.circuitState ?? "unavailable"}</div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-zerobounce-status">
                 <div className="text-xs text-muted-foreground">ZeroBounce (validation)</div>
                 <div className="text-lg font-semibold">{zerobounce ? (zerobounce.enabled ? "enabled" : "disabled") : "unknown"}</div>
-                <div className="text-xs text-muted-foreground">{zerobounce?.circuit_state ?? "unavailable"}</div>
+                <div className="text-xs text-muted-foreground">{zerobounce?.circuitState ?? "unavailable"}</div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-ready-held">
                 <div className="text-xs text-muted-foreground">Ready-held enrollments</div>
                 <div className="text-lg font-semibold">{overview?.eligibleCounts?.ready_held_enrollments ?? "—"}</div>
                 <div className="text-xs text-muted-foreground">{overview?.eligibleCounts?.policy_eligible ?? 0} outreach-eligible</div>
               </div>
+            </div>
+
+            <div className="rounded-md border p-3 space-y-2" data-testid="sfp-actual-throughput">
+              <div className="text-sm font-medium">CRM pool and actual SFP movement · rolling 24 hours</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">CRM contacts with email</div><div className="text-base font-semibold">{overview?.sourcePool?.active_contacts_with_email ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Verified linked to canonical</div><div className="text-base font-semibold">{overview?.sourcePool?.verified_canonical_linked_contacts_with_email ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Inside frozen v2 SFP cohorts</div><div className="text-base font-semibold">{overview?.sourcePool?.v2_sfp_cohort_linked_contacts_with_email ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Canonical businesses</div><div className="text-base font-semibold">{overview?.eligibleCounts?.canonical_businesses ?? "—"}</div></div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                <div className="rounded border p-2"><div className="text-muted-foreground">Provider operations</div><div className="font-semibold">{overview?.throughput24h?.provider_attempts ?? "—"}</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Distinct targets attempted</div><div className="font-semibold">{overview?.throughput24h?.distinct_provider_targets ?? "—"}</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Paid evidence facts</div><div className="font-semibold">{overview?.throughput24h?.paid_evidence_rows ?? "—"} · {overview?.throughput24h?.businesses_with_paid_evidence ?? "—"} businesses</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Validation decisions</div><div className="font-semibold">{overview?.throughput24h?.validation_decisions ?? "—"} · {overview?.throughput24h?.validation_eligible ?? "—"} eligible</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Ready-held created</div><div className="font-semibold">{overview?.throughput24h?.ready_held_created ?? "—"} · {overview?.throughput24h?.contact_source_ready_held ?? "—"} from contacts</div></div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Provider calls, returned evidence, validation outcomes, and staged records are counted separately. This rolling window is real record movement, not worker ticks; outbound sending remains independently paused.
+              </div>
+              {overview?.enrichmentTelemetry?.available === false && (
+                <div className="text-xs text-amber-700">
+                  SFP throughput details unavailable: {overview.enrichmentTelemetry.unavailableReason ?? "query_failed"}. Counts are not inferred.
+                </div>
+              )}
+              {overview?.v2VerticalFunnel24h?.length > 0 && (
+                <div className="overflow-x-auto rounded border" data-testid="sfp-v2-vertical-funnel">
+                  <table className="w-full text-[11px] min-w-[900px]">
+                    <thead className="bg-muted/50 text-left">
+                      <tr>
+                        <th className="p-2">V2 vertical</th><th className="p-2">Frozen businesses</th>
+                        <th className="p-2">Verified linked CRM emails</th><th className="p-2">Free email candidates</th>
+                        <th className="p-2">Paid email candidates</th><th className="p-2">ZB policy eligible · 24h</th>
+                        <th className="p-2">Validation held/rejected · 24h</th><th className="p-2">Ready-held · 24h</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overview.v2VerticalFunnel24h.map((row: any) => (
+                        <tr key={row.vertical} className="border-t">
+                          <td className="p-2 font-medium">{row.vertical}</td>
+                          <td className="p-2">{row.frozen_businesses}</td>
+                          <td className="p-2">{row.verified_contact_candidates}</td>
+                          <td className="p-2">{row.free_email_candidates} · {row.businesses_with_free_email_candidate} businesses</td>
+                          <td className="p-2">{row.paid_email_candidates} · {row.businesses_with_paid_email_candidate} businesses</td>
+                          <td className="p-2">{row.validation_eligible_24h} / {row.validation_decisions_24h}</td>
+                          <td className="p-2">{row.validation_held_or_rejected_24h}</td>
+                          <td className="p-2">{row.ready_held_created_24h}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {overview?.paidEvidenceByProvider24h?.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {overview.paidEvidenceByProvider24h.map((row: any) => <span key={`${row.provider}:${row.field}`} className="rounded bg-muted px-2 py-1 text-[11px] font-mono">{row.provider} {row.field}: {row.evidence_rows} facts / {row.businesses} businesses</span>)}
+                </div>
+              )}
+              {overview?.validationBySourceStatus24h?.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {overview.validationBySourceStatus24h.map((row: any) => <span key={`${row.source_kind}:${row.status}`} className="rounded bg-muted px-2 py-1 text-[11px] font-mono">{row.source_kind} → {row.status}: {row.rows}</span>)}
+                </div>
+              )}
             </div>
 
             <div className="rounded-md border p-3 flex flex-wrap items-center justify-between gap-3">
@@ -3494,7 +3557,7 @@ function SfpEnrichmentControlCenter() {
 function SfpProviderResultsPanel() {
   const [providerFilter, setProviderFilter] = useState<string>("all");
 
-  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[] }>({
+  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[]; validationResults: any[] }>({
     queryKey: ["/api/lead-ops/sfp/provider-results", providerFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -3508,19 +3571,20 @@ function SfpProviderResultsPanel() {
 
   const candidateResults = resultsQuery.data?.candidateResults ?? [];
   const classificationResults = resultsQuery.data?.classificationResults ?? [];
+  const validationResults = resultsQuery.data?.validationResults ?? [];
 
   return (
     <div className="space-y-4">
-      <Card data-testid="card-sfp-candidate-results">
+      {(providerFilter === "all" || ["serper", "outscraper", "apollo"].includes(providerFilter)) && <Card data-testid="card-sfp-candidate-results">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" /> Discovery &amp; Candidate Results
           </CardTitle>
           <CardDescription>
-            What each paid discovery call (Serper, Outscraper, Apollo) actually returned, one row per candidate value. Values are masked — this is a results log, not a data export.
+            What each paid discovery call (Serper, Outscraper, Apollo) actually returned, one row per candidate value. Values are masked — this is a results log, not a data export. Cost fields are application-ledger metadata, not provider invoices.
           </CardDescription>
           <div className="flex gap-2 pt-2">
-            {["all", "serper", "outscraper", "apollo"].map((p) => (
+            {["all", "serper", "outscraper", "apollo", "openai", "zerobounce"].map((p) => (
               <Button key={p} size="sm" variant={providerFilter === p ? "default" : "outline"} onClick={() => setProviderFilter(p)} data-testid={`button-filter-${p}`}>
                 {p === "all" ? "All" : p}
               </Button>
@@ -3546,6 +3610,8 @@ function SfpProviderResultsPanel() {
                     <th className="py-1.5 pr-3">Value</th>
                     <th className="py-1.5 pr-3">Confidence</th>
                     <th className="py-1.5 pr-3">Disposition</th>
+                    <th className="py-1.5 pr-3">Unit price</th>
+                    <th className="py-1.5 pr-3">Recorded cost</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3560,6 +3626,8 @@ function SfpProviderResultsPanel() {
                       <td className="py-1.5 pr-3">
                         <span className="px-1.5 py-0.5 rounded bg-muted">{r.disposition}</span>
                       </td>
+                      <td className="py-1.5 pr-3">{r.unit_price_micros == null ? "Unpriced" : usdFromMicros(r.unit_price_micros)}</td>
+                      <td className="py-1.5 pr-3">{r.settled_cost_micros == null ? (r.billing_state === "ambiguous" ? "Reserved / unresolved" : "Unpriced") : usdFromMicros(r.settled_cost_micros)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3567,9 +3635,9 @@ function SfpProviderResultsPanel() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      <Card data-testid="card-sfp-classification-results">
+      {(providerFilter === "all" || providerFilter === "openai") && <Card data-testid="card-sfp-classification-results">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" /> Classification Results
@@ -3616,7 +3684,36 @@ function SfpProviderResultsPanel() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
+
+      {(providerFilter === "all" || providerFilter === "zerobounce") && <Card data-testid="card-sfp-validation-results">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> ZeroBounce Validation Results</CardTitle>
+          <CardDescription>Validation decisions, masked email evidence, and provider-operation cost metadata. Decrypted email addresses are never shown here; recorded amounts are not provider invoices.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {resultsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : validationResults.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No SFP validation results yet.</div>
+          ) : <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-muted-foreground border-b">
+                <th className="py-1.5 pr-3">Validated</th><th className="py-1.5 pr-3">Business</th>
+                <th className="py-1.5 pr-3">Source</th><th className="py-1.5 pr-3">Email (masked)</th>
+                <th className="py-1.5 pr-3">Status</th><th className="py-1.5 pr-3">Outcome</th>
+                <th className="py-1.5 pr-3">Recorded cost</th>
+              </tr></thead>
+              <tbody>{validationResults.map((r: any) => <tr key={r.id} className="border-b last:border-0">
+                <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{r.validation_at ? new Date(r.validation_at).toLocaleString() : "—"}</td>
+                <td className="py-1.5 pr-3">{r.business_name ?? `#${r.business_id}`}</td>
+                <td className="py-1.5 pr-3">{r.source_kind ?? r.discovery_source ?? "—"}</td>
+                <td className="py-1.5 pr-3 font-mono">{r.masked_email ?? "—"}</td>
+                <td className="py-1.5 pr-3">{r.status}</td><td className="py-1.5 pr-3">{r.zb_outcome ?? "—"}</td>
+                <td className="py-1.5 pr-3">{r.settled_cost_micros == null ? (r.reused_from_operation_id ? "Reused; no new charge" : r.billing_state === "ambiguous" ? "Reserved / unresolved" : "Unpriced") : usdFromMicros(r.settled_cost_micros)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+        </CardContent>
+      </Card>}
     </div>
   );
 }
@@ -4096,6 +4193,11 @@ function PilotStatusPanel() {
               <span>Enrichment funnel (Gate 3)</span>
               <span className="font-mono">as of {new Date(statusOverviewQuery.data.funnel.snapshotAt).toLocaleTimeString()}</span>
             </div>
+            {statusOverviewQuery.data.funnel.available === false && (
+              <div className="text-xs text-amber-700">
+                Funnel counts unavailable: {statusOverviewQuery.data.funnel.unavailableReason ?? "query_failed"}. Counts are not inferred.
+              </div>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
               <div className="rounded border p-2"><div className="text-muted-foreground">Sunbiz source rows</div><div>{statusOverviewQuery.data.funnel.sunbiz_source_rows ?? "—"}</div></div>
               <div className="rounded border p-2"><div className="text-muted-foreground">Canonical businesses</div><div>{statusOverviewQuery.data.funnel.canonical_businesses ?? "—"}</div></div>
@@ -4151,8 +4253,8 @@ function PilotStatusPanel() {
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 mt-1 font-mono text-[11px]">
                     <span>credential: {String(p.credentialPresent)}</span>
-                    <span>reserved: {p.reservedUnits ?? 0}</span>
-                    <span>consumed: {p.consumedUnits ?? 0}</span>
+                    <span>reserved units: {p.reservedUnits ?? "unavailable"}</span>
+                    <span>consumed units: {p.consumedUnits ?? "unavailable"}</span>
                     <span className="col-span-2 truncate">price: {p.currentPriceArtifactReference ?? "unavailable"}</span>
                     <span className="col-span-2">last: {p.lastCallAt ? `${p.lastOutcome ?? "unknown"} @ ${new Date(p.lastCallAt).toLocaleString()}` : "none"}</span>
                   </div>
@@ -4167,7 +4269,7 @@ function PilotStatusPanel() {
             </div>
             <div className="mt-2 text-xs text-muted-foreground">
               Credentials are presence booleans only. In-flight operations requiring reconciliation:{" "}
-              <span className="font-semibold">{statusOverviewQuery.data.paidInFlightCount ?? 0}</span>
+              <span className="font-semibold">{statusOverviewQuery.data.paidInFlightCount ?? "unavailable"}</span>
             </div>
           </div>
         )}

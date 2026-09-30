@@ -396,6 +396,11 @@ export const providerOperations = pgTable("provider_operations", {
   state: text("state").notNull().default("pending"),
   requestedUnits: integer("requested_units").notNull().default(0),
   reservedUnits: integer("reserved_units").notNull().default(0),
+  // Exact reviewed-price snapshot cost for SFP operations. Legacy and
+  // non-SFP provider operations remain NULL rather than being backfilled
+  // from today's price as if it were historical fact.
+  unitPriceMicros: bigint("unit_price_micros", { mode: "number" }),
+  settledCostMicros: bigint("settled_cost_micros", { mode: "number" }),
   billingState: text("billing_state").notNull().default("none"),
   attemptCount: integer("attempt_count").notNull().default(0),
   claimToken: uuid("claim_token"),
@@ -9287,7 +9292,7 @@ export const sfpPrograms = pgTable("sfp_programs", {
   activatedAt: timestamp("activated_at", { withTimezone: true }),
   activatedBy: text("activated_by"),
   recurringEnabled: boolean("recurring_enabled").notNull().default(false),
-  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 10 }),
+  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 0 }),
   /**
    * Which vertical taxonomy version (see sfp-vertical-classifier.ts) this
    * program's `verticalIds` are drawn from, and which the classification
@@ -9545,9 +9550,9 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   stagingIntentId: uuid("staging_intent_id"),
   campaignStagedAt: timestamp("campaign_staged_at", { withTimezone: true }),
   campaignStagedBy: text("campaign_staged_by"),
-  // Task #2000: additive typed source lineage + policy pin. candidateId (above)
-  // remains the legacy free-candidate compatibility FK; sourceKind/paidCandidateEvidenceId
-  // are the new one-of typed reference for unified free+paid candidate handoff.
+  // Task #2000+: additive typed source lineage + policy pin. The one-of source
+  // reference is free candidate, paid evidence, or an existing verified-linked
+  // contact whose email is revalidated through the same ZeroBounce policy.
   sourceKind: text("source_kind"),
   paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "set null" }),
   normalizedValueHash: text("normalized_value_hash"),

@@ -17,6 +17,7 @@ await assertDisposableTestInfrastructure({
 const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 const { pool } = await import("../server/db");
 const { executeSfpPaidPersonAndIdentityDiscovery } = await import("../server/services/cro03/sfp-paid-waterfall");
+const { getSfpCohortGapSnapshot } = await import("../server/services/cro03/sfp-cost-preview");
 const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } = await import("../server/services/mi09-pilot-authority");
 
 const nonce = randomUUID().slice(0, 8);
@@ -123,7 +124,10 @@ async function main() {
   );
 
   const result = await executeSfpPaidPersonAndIdentityDiscovery(
-    { cohortRunId, idempotencyKey: `sfp-paid-wf-run-${nonce}`, actorId: "test" },
+    {
+      cohortRunId, idempotencyKey: `sfp-paid-wf-run-${nonce}`, actorId: "test",
+      previewSnapshotHash: (await getSfpCohortGapSnapshot(cohortRunId)).snapshotHash,
+    },
     { fetchImpl },
   );
   check(result.processed === 2, "processes both cohort members");
@@ -137,6 +141,13 @@ async function main() {
   check(paidEvidence.some((r: any) => r.provider === "apollo"), "an Apollo result is written to sfp_paid_candidate_evidence");
   check(paidEvidence.some((r: any) => r.provider === "outscraper" && r.business_id === businessNoDomain), "Outscraper only ran for the business missing a known domain");
   check(!paidEvidence.some((r: any) => r.provider === "outscraper" && r.business_id === businessWithDomain), "Outscraper is skipped for the business with an already-known domain (C6: dimension-specific stop condition)");
+  const knownDomainOutscraperReservations = (await pool.query(
+    `SELECT id FROM provider_operations
+      WHERE provider='outscraper' AND purpose='sfp_business_identity_discovery'
+        AND target_fingerprint=$1`,
+    [`business:${businessWithDomain}`],
+  )).rows;
+  check(knownDomainOutscraperReservations.length === 0, "known-domain business creates no Outscraper reservation (not merely a no-result)");
 
   const stageItems = (await pool.query(
     `SELECT provider, business_id, outcome_code, paid_candidate_evidence_id, candidate_id FROM sfp_stage_items

@@ -534,6 +534,8 @@ try {
   // --- Concurrent duplicate execution converges to one intent (Defect 3) -
   const concurrentBusinessId = extraBusinessIds.concurrent;
   const concurrentEmail = `concurrent-${runKey}@example.org`;
+  // Use the exact v1 normalized hash produced by seal(); a run-key-only hash
+  // would exercise the email-drift rejection instead of concurrent staging.
   const sealedConcurrent = seal("email", concurrentEmail);
   const concurrentCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -550,10 +552,11 @@ try {
     INSERT INTO sfp_outreach_eligibility
       (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
        decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+       normalized_value_hash, normalized_value_hash_version,
+       policy_document_id, policy_document_hash, consent_tier, reason_codes)
     VALUES (${cohortRunId}::uuid, ${concurrentBusinessId}, ${String(concurrentCandidate.id)}::uuid, 'free',
        ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_concurrent',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`concurrent-${runKey}`).digest("hex")},
+       NOW(), NOW()+INTERVAL '20 days', TRUE, ${sealedConcurrent.normalizedValueHash}, 1,
        ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
     RETURNING id
   `))[0];
@@ -562,7 +565,9 @@ try {
     executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey, confirmPayloadHash: concurrentPreview.payloadHash }),
     executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey, confirmPayloadHash: concurrentPreview.payloadHash }),
   ]);
-  check(concurrentA.readyHeld + (concurrentA.replayed ? 0 : 0) >= 0 && concurrentB.readyHeld >= 0, "concurrent duplicate execution calls both return without throwing");
+  check(concurrentA.readyHeld === 1 && concurrentA.rejected === 0 &&
+    concurrentB.readyHeld === 1 && concurrentB.rejected === 0,
+    "both concurrent same-command calls converge on the one ready_held business result");
   const concurrentIntentCount = Number(rows(await db.execute(sql`
     SELECT COUNT(*)::int AS count FROM sfp_campaign_staging_intents WHERE eligibility_id=${String(concurrentEligibility.id)}::uuid
   `))[0].count);
@@ -1018,6 +1023,8 @@ try {
   // extraBusinessIds.suppressed business rather than inserting a new one
   // now (which would trip the frozen-cohort membership trigger).
   const suppressedBusinessId = extraBusinessIds.suppressed;
+  // Keep the validated identity pin bound to the actual candidate address so
+  // the negative proof reaches the canonical suppression re-check.
   const sealedSuppressed = seal("email", suppressedEmail);
   const suppressedCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -1034,10 +1041,11 @@ try {
     INSERT INTO sfp_outreach_eligibility
       (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
        decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
+       normalized_value_hash, normalized_value_hash_version,
+       policy_document_id, policy_document_hash, consent_tier, reason_codes)
     VALUES (${cohortRunId}::uuid, ${suppressedBusinessId}, ${String(suppressedCandidate.id)}::uuid, 'free',
        ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_suppressed_real_address',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`suppressed-real-${runKey}`).digest("hex")},
+       NOW(), NOW()+INTERVAL '20 days', TRUE, ${sealedSuppressed.normalizedValueHash}, 1,
        ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
     RETURNING id
   `))[0];

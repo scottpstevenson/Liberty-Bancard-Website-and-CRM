@@ -131,21 +131,29 @@ try {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// GATE 3: with the provider durably paused, discovery tick fails closed
-// before any program/cohort lookup (the provider gate precedes credentials).
+// GATE 3: with provider transport unavailable, the safe transport pre-check
+// wins before provider readiness and any program/cohort lookup.
 // ══════════════════════════════════════════════════════════════════════════
 const savedTransportFlag = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
 const savedSerperKey = process.env.SERPER_API_KEY;
 delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
 delete process.env.SERPER_API_KEY;
 try {
+  const cohortsBeforeGate3 = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM sfp_cohort_runs WHERE program_id = ${program.id}::uuid
+  `))[0]?.n ?? 0);
   const discoveryGated = await processSfpContinuousDiscoveryTick();
   check(discoveryGated.ran === false, "GATE3-ran-false", `discovery tick reports ran:false without transport/API key (got: ${JSON.stringify(discoveryGated)})`);
   check(
-    typeof discoveryGated.stopReason === "string" && discoveryGated.stopReason.startsWith("provider_paused"),
+    discoveryGated.reason === "provider_transport_unavailable",
     "GATE3-reason",
-    `stop reason starts with provider_paused (got: ${discoveryGated.stopReason})`,
+    `transport pre-check reports provider_transport_unavailable (got: ${discoveryGated.reason ?? discoveryGated.stopReason})`,
   );
+  const cohortsAfterGate3 = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM sfp_cohort_runs WHERE program_id = ${program.id}::uuid
+  `))[0]?.n ?? 0);
+  check(cohortsAfterGate3 === cohortsBeforeGate3,
+    "GATE3-no-cohort-writes", "transport pre-check performs no program/cohort writes or claims");
 } finally {
   if (savedTransportFlag !== undefined) process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = savedTransportFlag;
   if (savedSerperKey !== undefined) process.env.SERPER_API_KEY = savedSerperKey;

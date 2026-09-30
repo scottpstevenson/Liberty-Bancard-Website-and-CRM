@@ -18,7 +18,8 @@ const files = {
   migration: read("migrations/0278_sfp_governed_operations.sql"),
   replit: read(".replit"),
   packageJson: read("package.json"),
-  migrateRunner: read("scripts/migrate.ts"),
+  index: read("server/index.ts"),
+  startupMigrationPolicy: read("server/startup-migration-policy.ts"),
   roi: read("server/services/cro03/roi-cohort-selector.ts"),
 };
 
@@ -94,11 +95,15 @@ test("recurring free lane is configurable and bounded", () => {
   has(files.queue, "Math.min(100");
   lacks(files.queue, "const FREE_LANE_BATCH = 20;");
 });
-test("paid provider execution reserves and rechecks immediately before I/O", () => {
+test("paid provider execution keeps approval and dispatch fences without an in-app money ceiling", () => {
   has(files.providerOps, "reserveSfpProviderOperation");
   has(files.providerOps, "assertCurrentSfpProviderReservation");
   has(files.providerOps, "assertPaidBudgetAuthorized");
-  has(files.providerOps, "assertAggregatePaidBudgetAvailable");
+  has(files.providerOps, "assertProviderActivation");
+  has(files.providerOps, "markSfpProviderOperationDispatchBoundary");
+  lacks(files.providerOps, "assertAggregatePaidBudgetAvailable");
+  lacks(files.providerOps, "aggregate_budget_exhausted");
+  lacks(files.providerOps, "SFP_PAID_BLOCKED:AGGREGATE_BUDGET");
   has(files.providerOps, "provider_operations");
   has(files.providerOps, "provider_controls");
 });
@@ -149,23 +154,29 @@ test("durable SFP schema exists in migration and Drizzle schema", () => {
   has(files.migration, "master_leads_sfp_business_email_uidx");
   has(files.schema, "master_leads_sfp_business_email_uidx");
 });
-test("production deployment applies journaled migrations before API startup", () => {
+test("production schema is managed by Publish instead of replaying startup migrations", () => {
   has(files.packageJson, '"db:migrate": "tsx scripts/migrate.ts"');
-  has(files.replit, "npm run db:migrate && RELEASE_SHA=");
-  has(files.migrateRunner, "pg_advisory_lock(hashtext($1))");
-  has(files.migrateRunner, "pg_advisory_unlock(hashtext($1))");
+  has(files.index, "shouldRunStartupMigrations(process.env.NODE_ENV)");
+  has(files.index, "Production startup migrations skipped — schema is managed by Replit Publish.");
+  has(files.startupMigrationPolicy, 'return nodeEnv !== "production"');
+  lacks(files.replit, "npm run db:migrate && RELEASE_SHA=");
 });
 test("UI actions parse API responses and do not display fake provider status", () => {
   has(files.ui, ")).json()");
   has(files.ui, "paidPreviewQuery.data?.providers");
   has(files.ui, "Run free discovery");
-  has(files.ui, "Authorize Serper batch (max 10)");
+  has(files.ui, "Provider status below is live.");
+  lacks(files.ui, "Authorize Serper batch (max 10)");
   lacks(files.ui, "All paid providers are disabled by default");
 });
-test("paid and free execution routes are admin-only", () => {
+test("SFP routes carry appropriate admin and read-only role guards", () => {
   const routeLines = files.routes.split("\n").filter((line) => line.includes("/api/lead-ops/sfp/") && (line.includes("app.post") || line.includes("app.get")));
   assert.ok(routeLines.length >= 8, "expected SFP route surface");
-  assert.ok(routeLines.every((line) => line.includes('requireRole("admin")')), "an SFP route is not admin-only");
+  assert.ok(routeLines.every((line) => line.includes("requireRole(")), "an SFP route has no explicit role guard");
+  const mutationRoutes = routeLines.filter((line) => line.includes("app.post"));
+  assert.ok(mutationRoutes.every((line) => line.includes('requireRole("admin"')), "an SFP mutation is not admin-only");
+  const readRoutes = routeLines.filter((line) => line.includes("app.get"));
+  assert.ok(readRoutes.every((line) => /requireRole\("admin"(?:,\s*"manager")?\)/.test(line)), "an SFP read route has an unexpected role set");
 });
 test("operator batch inputs are integer-validated at the HTTP boundary", () => {
   // Program cohort cap is 100 everywhere (not the legacy 500 bound).

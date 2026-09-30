@@ -51,8 +51,8 @@ process.exit = ((code?: number | string | null) => {
   if (normalized === 0) writeTerminalReceipt();
   return originalExit(normalized);
 }) as typeof process.exit;
-if (!suitePath || !/^(?:scripts|server\/tests)\/[A-Za-z0-9._/-]+\.ts$/.test(suitePath)) {
-  throw new Error("A certification suite path under scripts/ or server/tests/ is required.");
+if (!suitePath || !/^(?:scripts|server\/tests)\/[A-Za-z0-9._/-]+\.(?:ts|mjs)$/.test(suitePath)) {
+  throw new Error("A certification suite path under scripts/ or server/tests/ must end in .ts or .mjs.");
 }
 if (
   !["deterministic-static", "deterministic-integration", "server-required", "external-security", "writable-build"].includes(

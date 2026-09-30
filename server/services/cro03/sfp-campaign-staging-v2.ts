@@ -66,6 +66,20 @@ function normalizedContactHash(email: unknown, version: unknown): string | null 
   return null;
 }
 
+/** True only when the row's pinned hash matches this exact source value using
+ * the row's declared hash version. Unknown source kinds/hash versions fail
+ * closed rather than being compared against an unversioned digest. */
+export function isValidatedSfpSourceEmailUnchanged(
+  sourceKind: unknown,
+  email: unknown,
+  normalizedValueHash: unknown,
+  normalizedValueHashVersion: unknown,
+): boolean {
+  if (!["free", "paid", "contact"].includes(String(sourceKind))) return false;
+  const actualHash = normalizedContactHash(email, normalizedValueHashVersion);
+  return actualHash !== null && actualHash === String(normalizedValueHash ?? "");
+}
+
 export class SfpStagingV2Error extends Error {
   constructor(public code: string, message: string, public httpStatus: 400 | 409 | 422 = 400) {
     super(message);
@@ -1112,10 +1126,21 @@ async function stageOneRowTransactional(opts: {
         if (resolved.businessId !== opts.businessId) {
           throw new SfpStagingV2Error("SFP_STAGING_EVIDENCE_BUSINESS_MISMATCH", "candidate/paid evidence resolves to a different business than this eligibility row", 422);
         }
+        if (reference.sourceKind === "contact" && String(resolved.evidenceId) !== String(eligRow.contact_id)) {
+          throw new SfpStagingV2Error("SFP_STAGING_CONTACT_IDENTITY_DRIFTED", "resolved contact no longer matches the validated contact reference", 409);
+        }
         const contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
         const tokenHashForSuppression = hashEmailToken(plaintext);
         if (!tokenHashForSuppression) throw new SfpStagingV2Error("SFP_STAGING_EMAIL_INVALID", "resolved source is not a valid normalized email", 422);
         const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash, tokenHashForSuppression], tx);
+        if (!isValidatedSfpSourceEmailUnchanged(
+          reference.sourceKind,
+          plaintext,
+          eligRow.normalized_value_hash,
+          eligRow.normalized_value_hash_version,
+        )) {
+          throw new SfpStagingV2Error("SFP_STAGING_VALIDATED_EMAIL_DRIFTED", "candidate email differs from the address that passed validation", 409);
+        }
         if (stillSuppressed) throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "resolved address is suppressed", 422);
         // Master-lead insert happens HERE, inside this callback, using the
         // plaintext directly — it never leaves this stack frame. `tx` is

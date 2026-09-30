@@ -71,11 +71,32 @@ export async function getPaidProviderControls(): Promise<{
            requested_units, reserved_units, created_at, started_at
       FROM provider_operations
      WHERE provider IN ('serper', 'outscraper', 'openai', 'apollo', 'zerobounce')
-       AND (state IN ('pending', 'deferred', 'running') OR billing_state = 'reserved')
+       AND (state IN ('pending', 'deferred', 'running') OR billing_state IN ('reserved','ambiguous'))
      ORDER BY created_at ASC
      LIMIT 100
   `));
+  const sfpCostRows = rows(await db.execute(sql`
+    SELECT o.provider,
+           COALESCE(SUM(settled_cost_micros) FILTER (WHERE settled_cost_micros IS NOT NULL), 0)::bigint AS settled_micros,
+           COUNT(*) FILTER (WHERE o.settled_cost_micros IS NOT NULL)::int AS settled_cost_records,
+           COALESCE(SUM(CASE WHEN o.billing_state = 'reserved' AND price.amount_micros IS NOT NULL
+                             THEN o.reserved_units::bigint * price.amount_micros ELSE 0 END), 0)::bigint AS reserved_micros,
+           COUNT(*) FILTER (WHERE price.amount_micros IS NULL)::int AS unpriced_operations,
+           COUNT(*) FILTER (WHERE o.billing_state='ambiguous')::int AS ambiguous_operations
+      FROM provider_operations o
+      CROSS JOIN LATERAL (
+        SELECT CASE
+          WHEN o.unit_price_micros IS NOT NULL THEN o.unit_price_micros
+          WHEN o.sfp_result_data->>'reservedUnitAmountMicros' ~ '^[0-9]+$'
+            THEN (o.sfp_result_data->>'reservedUnitAmountMicros')::bigint
+          ELSE NULL
+        END AS amount_micros
+      ) AS price
+     WHERE o.operation_type IN ('sfp_enrichment', 'sfp_precohort_classification')
+     GROUP BY o.provider
+  `));
   const byProvider = new Map(controls.map((row) => [String(row.provider), row]));
+  const sfpCostsByProvider = new Map(sfpCostRows.map((row) => [String(row.provider), row]));
 
   let serper: any = null;
   try {
@@ -130,13 +151,27 @@ export async function getPaidProviderControls(): Promise<{
       : row?.enabled === true;
     const price = pricing[provider];
     const manifest = PROVIDER_SOURCE_MANIFEST.find((entry) => entry.id === provider);
+    const canonicalConsumedUnits = Number(row?.consumed_units ?? 0);
+    const gatewayConsumedUnits = provider === "serper" ? Number(serper?.window_calls ?? 0) : 0;
+    const sfpCost = sfpCostsByProvider.get(provider);
     return {
       provider,
       credentialPresent: Boolean(process.env[SECRET_BY_PROVIDER[provider]]),
       enabled,
       circuitState,
       reservedUnits: row?.reserved_units ?? 0,
-      consumedUnits: row?.consumed_units ?? (provider === "serper" ? serper?.window_calls ?? 0 : 0),
+      consumedUnits: provider === "serper" ? Math.max(canonicalConsumedUnits, gatewayConsumedUnits) : canonicalConsumedUnits,
+      providerControlConsumedUnits: canonicalConsumedUnits,
+      gatewayConsumedUnits,
+      // These are schedule-based estimates, not provider invoices. NULL means
+      // the operation writer has not recorded per-operation settlement data.
+      sfpSettledCostEstimateMicros: Number(sfpCost?.settled_cost_records ?? 0) > 0
+        ? Number(sfpCost.settled_micros)
+        : null,
+      sfpSettledCostEstimateRecordCount: Number(sfpCost?.settled_cost_records ?? 0),
+      sfpReservedCostEstimateMicros: Number(sfpCost?.reserved_micros ?? 0),
+      sfpUnpricedOperationCount: Number(sfpCost?.unpriced_operations ?? 0),
+      sfpAmbiguousOperationCount: Number(sfpCost?.ambiguous_operations ?? 0),
       currentPriceArtifactReference: pricingAvailable && price
         ? (pricingArtifactRefs.get(provider) ?? `mi09_pricing_schedule_snapshots:${pricingSnapshotId}:${provider}:v${price.version}`)
         : null,
@@ -165,6 +200,84 @@ export async function getPaidProviderControls(): Promise<{
     inFlightCount: inFlightOperations.length,
     inFlightOperations,
   };
+}
+
+/**
+ * Audited operator enable/disable switch for SFP provider execution.
+ * Enablement never changes provider usage counters or circuit state and does
+ * not impose a monetary or credit ceiling. Actual operations still require
+ * their independent approval, pause, manifest, and last-mile authority gates.
+ */
+export async function updateSfpPaidProviderControl(input: {
+  provider: PaidProviderKey;
+  enabled: boolean;
+  reason: string;
+  actorId: string;
+}): Promise<Record<string, unknown>> {
+  if (typeof input.enabled !== "boolean") throw new Error("PROVIDER_ENABLED_BOOLEAN_REQUIRED");
+  const reason = String(input.reason ?? "").trim();
+  if (reason.length < 8 || reason.length > 200) throw new Error("PROVIDER_CONTROL_REASON_REQUIRED");
+
+  if (input.enabled) {
+    if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") throw new Error("PROVIDER_TRANSPORT_DISABLED");
+    if (!process.env[SECRET_BY_PROVIDER[input.provider]]) throw new Error(`PROVIDER_CREDENTIAL_MISSING:${SECRET_BY_PROVIDER[input.provider]}`);
+  }
+
+  return db.transaction(async (tx) => {
+    const current = rows(await tx.execute(sql`
+      SELECT provider,enabled,circuit_state,reserved_units,consumed_units,version
+        FROM provider_controls WHERE provider=${input.provider} FOR UPDATE
+    `))[0];
+    if (!current) throw new Error(`PROVIDER_CONTROL_NOT_FOUND:${input.provider}`);
+
+    let gateway: any = null;
+    if (input.provider === "serper") {
+      gateway = rows(await tx.execute(sql`
+        SELECT enabled,state,window_calls FROM serper_control WHERE id=1 FOR UPDATE
+      `))[0];
+      if (!gateway) throw new Error("SERPER_GATEWAY_CONTROL_NOT_FOUND");
+    }
+
+    if (input.enabled && current.circuit_state !== "closed") throw new Error(`PROVIDER_CIRCUIT_NOT_CLOSED:${current.circuit_state}`);
+    if (input.enabled && input.provider === "serper" && gateway.state !== "closed") throw new Error(`SERPER_GATEWAY_CIRCUIT_NOT_CLOSED:${gateway.state}`);
+
+    const updated = rows(await tx.execute(sql`
+      UPDATE provider_controls
+         SET enabled=${input.enabled},
+             version=version+1,updated_at=NOW()
+       WHERE provider=${input.provider}
+       RETURNING provider,enabled,circuit_state,reserved_units,consumed_units,version
+    `))[0];
+
+    if (input.provider === "serper") {
+      await tx.execute(sql`
+        UPDATE serper_control
+           SET enabled=${input.enabled},
+               updated_at=NOW()
+         WHERE id=1
+      `);
+    }
+
+    const auditPayload = sanitizeAuditPayload({
+      provider: input.provider,
+      enabled: input.enabled,
+      reason,
+      providerConsumedUnits: current.consumed_units,
+      providerReservedUnits: current.reserved_units,
+      gatewayConsumedUnits: input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : null,
+    });
+    await tx.execute(sql`
+      INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,before_state,after_state,actor_type,actor_id)
+      VALUES (${input.actorId},'sfp_provider_control_changed','provider_control',${input.provider},
+              ${JSON.stringify(auditPayload)}::jsonb,
+              ${JSON.stringify({ enabled: current.enabled, circuitState: current.circuit_state, consumedUnits: current.consumed_units, reservedUnits: current.reserved_units, gatewayConsumedUnits: input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : null })}::jsonb,
+              ${JSON.stringify(updated)}::jsonb,'user',${input.actorId})
+    `);
+    return {
+      ...updated,
+      gatewayConsumedUnits: input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : null,
+    };
+  });
 }
 
 /**

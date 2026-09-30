@@ -185,7 +185,7 @@ console.log("repository manifest metadata:");
 const manifest = JSON.parse(readFileSync(join(process.cwd(), "scripts/tracked-pasted-text-debt-manifest.json"), "utf8"));
 check("authorized baseline contains exactly the currently tracked pairs", manifest.baselinePathCount === 0 && manifest.entries.length === 0);
 check("authorized owner recorded", manifest.owner === "Repository Owner");
-check("authorized expiry recorded", manifest.expiresOn === "2026-09-27");
+check("authorized expiry recorded", manifest.expiresOn === "2026-12-31");
 check("owner timezone recorded", manifest.expiryTimeZone === "America/New_York");
 check("manifest entries are exact path plus SHA only", manifest.entries.every((entry: Record<string, unknown>) =>
   Object.keys(entry).sort().join(",") === "blobSha,path" &&

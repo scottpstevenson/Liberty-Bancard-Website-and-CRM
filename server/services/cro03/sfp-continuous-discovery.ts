@@ -130,6 +130,9 @@ async function _claimNextDiscoveryCohort(programId: string): Promise<{ cohortRun
 
 /** Rolling cohort rotation + a bounded-time DRAIN of Serper discovery work. */
 export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuousDiscoveryTickResult> {
+  if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
+    return { ran: false, reason: "provider_transport_unavailable" };
+  }
   const program = await getProgramReadOnly();
   if (!program || !program.isActive) {
     return { ran: false, reason: "program_inactive" };
@@ -302,8 +305,13 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
             cohortRunId,
             idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${waterfallCalls}`,
             actorId: "system:sfp-continuous-discovery",
-            maxBusinesses: SERPER_BATCH_PER_CALL,
+            maxBusinesses: 25,
             previewSnapshotHash: snapshot.snapshotHash,
+            includeSerperDiscovery: false,
+            enabledProviders: [
+              ...(outscraperReady.ready ? ["outscraper" as const] : []),
+              ...(apolloReady.ready ? ["apollo" as const] : []),
+            ],
           });
           providerRequests += Number(waterfallResult.providerRequests ?? 0);
           waterfallCohortRunIds.add(cohortRunId);
@@ -337,7 +345,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   for (const id of waterfallCohortRunIds) cohortRunIds.add(id);
 
   const summary = {
-    ran: calls > 0,
+    ran: calls > 0 || waterfallCalls > 0,
     cohortRunIds: [...cohortRunIds],
     newlyFrozenCount,
     calls, providerRequests, processed, succeeded, failed, noResult,

@@ -2205,6 +2205,13 @@
       "when": 1800000013500,
       "tag": "0310_sfp_named_email_eligibility_review",
       "breakpoints": true
+    },
+    {
+      "idx": 315,
+      "version": "7",
+      "when": 1800000013600,
+      "tag": "0311_sfp_provider_operation_costs",
+      "breakpoints": true
     }
   ]
 }

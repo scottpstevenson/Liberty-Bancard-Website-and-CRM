@@ -23,7 +23,12 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const CALLER = "server/services/cro03/sfp-provider-operations.ts";
 const publicProviderResultData = (value: any) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value ?? null;
-  const { reservedUnitAmountMicros: _reservedUnitAmountMicros, ...result } = value;
+  const {
+    reservedUnitAmountMicros: _reservedUnitAmountMicros,
+    noResultBillingSemantics: _noResultBillingSemantics,
+    noResultBillable: _noResultBillable,
+    ...result
+  } = value;
   return Object.keys(result).length ? result : null;
 };
 
@@ -70,6 +75,8 @@ export interface SfpProviderReservation {
   provider: SfpPaidProvider;
   controlProvider: string;
   amountMicros: number;
+  reviewedUnitPriceMicros?: number | null;
+  noResultBillable?: boolean | null;
   units: number;
   stageRunId: string;
   replayed?: boolean;
@@ -164,28 +171,122 @@ export async function getSfpAttestationReadiness(
 }
 
 export async function currentSfpUnitPrice(provider: SfpPaidProvider): Promise<number | null> {
+  return (await currentSfpReviewedPricing(provider)).unitPriceMicros;
+}
+
+type SfpNoResultBillingSemantics =
+  | "per_unit_no_result_billable"
+  | "per_unit_no_result_free"
+  | null;
+
+export function noResultBillableFromPricingSemantics(semantics: unknown): boolean | null {
+  if (semantics === "per_unit_no_result_billable") return true;
+  if (semantics === "per_unit_no_result_free") return false;
+  return null;
+}
+
+function canonicalNoResultBillingSemantics(value: unknown): SfpNoResultBillingSemantics {
+  return value === "per_unit_no_result_billable" || value === "per_unit_no_result_free"
+    ? value
+    : null;
+}
+
+function reservationNoResultBillable(resultData: unknown): boolean | null {
+  if (!resultData || typeof resultData !== "object" || Array.isArray(resultData)) return null;
+  const data = resultData as Record<string, unknown>;
+  if (typeof data.noResultBillable === "boolean") return data.noResultBillable;
+  return noResultBillableFromPricingSemantics(data.noResultBillingSemantics);
+}
+
+function nullableReviewedMicros(value: unknown): number | null {
+  if (value == null) return null;
+  const amount = Number(value);
+  return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+}
+
+export async function currentSfpReviewedPricing(provider: SfpPaidProvider): Promise<{
+  unitPriceMicros: number | null;
+  noResultBillingSemantics: SfpNoResultBillingSemantics;
+  noResultBillable: boolean | null;
+}> {
   try {
     const pricing = await getCurrentPricingSchedule();
     const key = provider === "openai_classification" ? "openai" : provider;
     const entry = pricing.priceSchedules[key] as any;
-    const amount = Number(entry?.amountMicros);
-    // Keep price data for historical estimates only. Its absence must never
-    // authorize or prevent a paid provider request.
-    return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+    const unitPriceMicros = nullableReviewedMicros(entry?.amountMicros);
+    const noResultBillingSemantics = canonicalNoResultBillingSemantics(entry?.billingSemantics);
+    return {
+      unitPriceMicros,
+      noResultBillingSemantics,
+      noResultBillable: noResultBillableFromPricingSemantics(noResultBillingSemantics),
+    };
   } catch {
-    return null;
+    return { unitPriceMicros: null, noResultBillingSemantics: null, noResultBillable: null };
   }
 }
 
-export function sfpPriceEstimateReceipt(unitPriceEstimateMicros: number | null): {
+export function sfpPriceEstimateReceipt(
+  unitPriceEstimateMicros: number | null,
+  noResultBillingSemantics: SfpNoResultBillingSemantics = null,
+): {
   unitPriceEstimateMicros: number | null;
   unitPriceEstimateStatus: "estimate" | "unknown";
   costEstimateStatus: "estimate" | "unknown";
+  noResultBillingSemantics: SfpNoResultBillingSemantics;
+  noResultBillable: boolean | null;
 } {
   return {
     unitPriceEstimateMicros,
     unitPriceEstimateStatus: unitPriceEstimateMicros === null ? "unknown" : "estimate",
     costEstimateStatus: unitPriceEstimateMicros === null ? "unknown" : "estimate",
+    noResultBillingSemantics,
+    noResultBillable: noResultBillableFromPricingSemantics(noResultBillingSemantics),
+  };
+}
+
+export function calculateSfpSettlementAccounting(input: {
+  outcome: "completed" | "no_result" | "failed" | "ambiguous" | "not_dispatched";
+  reservedUnits: number;
+  settledUnits?: number;
+  reviewedUnitPriceMicros: number | null;
+  noResultBillable: boolean | null;
+  notDispatched: boolean;
+  billingAmbiguous: boolean;
+}): { settledUnits: number; settledMicros: number; settledCostMicros: number | null } {
+  const completed = input.outcome === "completed" || input.outcome === "no_result";
+  const reservedUnits = Number.isSafeInteger(input.reservedUnits) && input.reservedUnits >= 0
+    ? input.reservedUnits
+    : 0;
+  const requestedSettledUnits = Number.isFinite(input.settledUnits)
+    ? Math.max(0, Math.min(reservedUnits, Number(input.settledUnits)))
+    : reservedUnits;
+  let settledUnits = completed ? requestedSettledUnits : 0;
+  if (input.outcome === "no_result" && input.noResultBillable === false) settledUnits = 0;
+  if (input.notDispatched || input.billingAmbiguous) settledUnits = 0;
+
+  let settledCostMicros: number | null;
+  if (input.billingAmbiguous) {
+    settledCostMicros = null;
+  } else if (input.notDispatched) {
+    settledCostMicros = 0;
+  } else if (input.outcome === "no_result" && input.noResultBillable === false) {
+    settledCostMicros = 0;
+  } else if (input.outcome === "no_result" && input.noResultBillable === null) {
+    settledCostMicros = null;
+  } else if (settledUnits === 0) {
+    settledCostMicros = 0;
+  } else if (input.reviewedUnitPriceMicros == null) {
+    settledCostMicros = null;
+  } else {
+    const total = settledUnits * input.reviewedUnitPriceMicros;
+    settledCostMicros = Number.isSafeInteger(total) && total >= 0 ? total : null;
+  }
+  return {
+    settledUnits,
+    // Stage/run ledgers are numeric aggregates; unknown cost remains NULL in
+    // provider_operations.settled_cost_micros rather than being fabricated.
+    settledMicros: settledCostMicros ?? 0,
+    settledCostMicros,
   };
 }
 
@@ -216,7 +317,8 @@ export async function releaseExpiredPreDispatchSfpReservations(): Promise<number
       if (!Number.isSafeInteger(amountMicros) || amountMicros < 0) continue;
       const updated = rows(await tx.execute(sql`
         UPDATE provider_operations
-           SET state='failed',billing_state='released',failure_code='PRE_DISPATCH_LEASE_EXPIRED',
+            SET state='failed',billing_state='released',failure_code='PRE_DISPATCH_LEASE_EXPIRED',
+                settled_cost_micros=0,
                claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
          WHERE id=${String(operation.id)}::uuid AND state='running' AND billing_state='reserved'
          RETURNING id
@@ -285,7 +387,8 @@ export async function reserveSfpProviderOperation(input: {
   const authority = await assertSfpRuntimeAuthority(input.cohortRunId);
   const budgetAuth = await assertPaidBudgetAuthorized();
   const units = Math.max(1, Math.min(MAX_UNITS_PER_RESERVATION[input.provider] ?? 100, Number(input.units ?? 1)));
-  const unitPriceEstimateMicros = await currentSfpUnitPrice(input.provider);
+  const reviewedPricing = await currentSfpReviewedPricing(input.provider);
+  const unitPriceEstimateMicros = reviewedPricing.unitPriceMicros;
   const amountMicros = unitPriceEstimateMicros ?? 0;
   const controlProvider = CONTROL_KEY[input.provider];
 
@@ -296,7 +399,7 @@ export async function reserveSfpProviderOperation(input: {
     `))[0];
     if (quarantine) throw new Error("SFP_PAID_BLOCKED:IDENTITY_QUARANTINED");
     const existing = rows(await tx.execute(sql`
-       SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
+       SELECT id,claim_token,reserved_units,state,sfp_result_data,unit_price_micros FROM provider_operations
        WHERE provider=${controlProvider} AND idempotency_key=${input.idempotencyKey} LIMIT 1
     `))[0];
     if (existing) {
@@ -306,7 +409,11 @@ export async function reserveSfpProviderOperation(input: {
       }
       return {
         operationId:String(existing.id),claimToken:String(existing.claim_token ?? ""),provider:input.provider,
-        controlProvider,amountMicros,units:Number(existing.reserved_units),stageRunId:input.stageRunId,
+        controlProvider,
+        amountMicros:nullableReviewedMicros(existing.unit_price_micros) ?? 0,
+        reviewedUnitPriceMicros:nullableReviewedMicros(existing.unit_price_micros),
+        noResultBillable:reservationNoResultBillable(existing.sfp_result_data),
+        units:Number(existing.reserved_units),stageRunId:input.stageRunId,
          replayed:true,resultData:publicProviderResultData(existing.sfp_result_data),
       };
     }
@@ -321,13 +428,14 @@ export async function reserveSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       INSERT INTO provider_operations
         (provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
-          state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at,sfp_result_data)
+          state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,
+          unit_price_micros,started_at,sfp_result_data)
       VALUES (${controlProvider},'sfp_enrichment',${input.purpose},${input.idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-                NOW()+INTERVAL '5 minutes',NOW(),
+                NOW()+INTERVAL '5 minutes',${unitPriceEstimateMicros},NOW(),
                 ${JSON.stringify({
                   reservedUnitAmountMicros: unitPriceEstimateMicros,
-                  ...sfpPriceEstimateReceipt(unitPriceEstimateMicros),
+                  ...sfpPriceEstimateReceipt(unitPriceEstimateMicros, reviewedPricing.noResultBillingSemantics),
                 })}::jsonb) RETURNING id
     `))[0];
     await tx.execute(sql`
@@ -348,8 +456,11 @@ export async function reserveSfpProviderOperation(input: {
         SET provider_operation_id=EXCLUDED.provider_operation_id,state='claimed',claim_token=EXCLUDED.claim_token,
             lease_expires_at=EXCLUDED.lease_expires_at,attempt_count=sfp_stage_items.attempt_count+1,updated_at=NOW()
     `);
-    return { operationId:String(operation.id),claimToken,provider:input.provider,controlProvider,
-             amountMicros,units,stageRunId:input.stageRunId };
+    return {
+      operationId:String(operation.id),claimToken,provider:input.provider,controlProvider,
+      amountMicros,reviewedUnitPriceMicros:unitPriceEstimateMicros,
+      noResultBillable:reviewedPricing.noResultBillable,units,stageRunId:input.stageRunId,
+    };
   });
 }
 
@@ -369,6 +480,8 @@ export interface SfpPreCohortProviderReservation {
   provider: SfpPaidProvider;
   controlProvider: string;
   amountMicros: number;
+  reviewedUnitPriceMicros?: number | null;
+  noResultBillable?: boolean | null;
   units: number;
   runId: string;
   replayed?: boolean;
@@ -395,7 +508,8 @@ export async function reservePreCohortSfpProviderOperation(input: {
   await releaseExpiredPreDispatchSfpReservations();
   await assertPaidBudgetAuthorized();
   const units = Math.max(1, Math.min(MAX_UNITS_PER_RESERVATION[input.provider] ?? 100, Number(input.units ?? 1)));
-  const unitPriceEstimateMicros = await currentSfpUnitPrice(input.provider);
+  const reviewedPricing = await currentSfpReviewedPricing(input.provider);
+  const unitPriceEstimateMicros = reviewedPricing.unitPriceMicros;
   const amountMicros = unitPriceEstimateMicros ?? 0;
   const controlProvider = CONTROL_KEY[input.provider];
   // Include the owning run as durable lineage so an expired, provably
@@ -409,7 +523,7 @@ export async function reservePreCohortSfpProviderOperation(input: {
     `))[0];
     if (quarantine) throw new Error("SFP_PAID_BLOCKED:IDENTITY_QUARANTINED");
     const existing = rows(await tx.execute(sql`
-       SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
+       SELECT id,claim_token,reserved_units,state,sfp_result_data,unit_price_micros FROM provider_operations
         WHERE provider=${controlProvider} AND idempotency_key=${idempotencyKey} LIMIT 1
     `))[0];
     if (existing) {
@@ -419,7 +533,11 @@ export async function reservePreCohortSfpProviderOperation(input: {
       }
       return {
         operationId:String(existing.id),claimToken:String(existing.claim_token ?? ""),provider:input.provider,
-        controlProvider,amountMicros,units:Number(existing.reserved_units),runId:input.runId,
+        controlProvider,
+        amountMicros:nullableReviewedMicros(existing.unit_price_micros) ?? 0,
+        reviewedUnitPriceMicros:nullableReviewedMicros(existing.unit_price_micros),
+        noResultBillable:reservationNoResultBillable(existing.sfp_result_data),
+        units:Number(existing.reserved_units),runId:input.runId,
          replayed:true,resultData:publicProviderResultData(existing.sfp_result_data),
       };
     }
@@ -433,20 +551,25 @@ export async function reservePreCohortSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       INSERT INTO provider_operations
         (provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
-          state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at,sfp_result_data)
+          state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,
+          unit_price_micros,started_at,sfp_result_data)
        VALUES (${controlProvider},'sfp_precohort_classification',${input.purpose},${idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-                NOW()+INTERVAL '5 minutes',NOW(),
+                NOW()+INTERVAL '5 minutes',${unitPriceEstimateMicros},NOW(),
                 ${JSON.stringify({
                   reservedUnitAmountMicros: unitPriceEstimateMicros,
-                  ...sfpPriceEstimateReceipt(unitPriceEstimateMicros),
+                  ...sfpPriceEstimateReceipt(unitPriceEstimateMicros, reviewedPricing.noResultBillingSemantics),
                 })}::jsonb) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
       VALUES (${String(operation.id)}::uuid,1,'pending',NOW())
     `);
-    return { operationId:String(operation.id),claimToken,provider:input.provider,controlProvider,amountMicros,units,runId:input.runId };
+    return {
+      operationId:String(operation.id),claimToken,provider:input.provider,controlProvider,
+      amountMicros,reviewedUnitPriceMicros:unitPriceEstimateMicros,
+      noResultBillable:reviewedPricing.noResultBillable,units,runId:input.runId,
+    };
   });
 }
 
@@ -459,8 +582,6 @@ export async function settlePreCohortSfpProviderOperation(input: {
   resultData?: unknown;
 }, executor?: { execute: (query: any) => Promise<any> }): Promise<{ settledMicros: number; replayed: boolean }> {
   const completed = input.outcome === "completed" || input.outcome === "no_result";
-  const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
-  const settledMicros = settledUnits * input.reservation.amountMicros;
   const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
     await acquireLadderBudgetLock(tx);
     const attemptState = rows(await tx.execute(sql`
@@ -471,6 +592,17 @@ export async function settlePreCohortSfpProviderOperation(input: {
     const notDispatched = !completed && !dispatchWasMarked &&
       (input.outcome === "failed" || input.outcome === "not_dispatched");
     const billingAmbiguous = !completed && (input.outcome === "ambiguous" || dispatchWasMarked);
+    const accounting = calculateSfpSettlementAccounting({
+      outcome: input.outcome,
+      reservedUnits: input.reservation.units,
+      settledUnits: input.settledUnits,
+      reviewedUnitPriceMicros: input.reservation.reviewedUnitPriceMicros ?? null,
+      noResultBillable: input.reservation.noResultBillable ?? null,
+      notDispatched,
+      billingAmbiguous,
+    });
+    const settledUnits = accounting.settledUnits;
+    const settledMicros = accounting.settledMicros;
     // The provider operation is the settlement fence. Only the claimant that
     // still owns a live reserved operation may move money or counters. A
     // concurrent/retried settlement observes the terminal row and becomes a
@@ -478,6 +610,7 @@ export async function settlePreCohortSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
        UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
               billing_state=${completed ? "committed" : billingAmbiguous ? "ambiguous" : "released"},
+              settled_cost_micros=${accounting.settledCostMicros},
                sfp_result_data=COALESCE(sfp_result_data,'{}'::jsonb) ||
                  ${JSON.stringify(input.resultData ?? {})}::jsonb,
               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
@@ -628,8 +761,6 @@ export async function settleSfpProviderOperation(input: {
   resultData?: unknown;
 }, executor?: { execute: (query: any) => Promise<any> }): Promise<{ settledMicros: number; replayed: boolean }> {
   const completed = input.outcome === "completed" || input.outcome === "no_result";
-  const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
-  const settledMicros = settledUnits * input.reservation.amountMicros;
   const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
     await acquireLadderBudgetLock(tx);
     const attemptState = rows(await tx.execute(sql`
@@ -640,9 +771,21 @@ export async function settleSfpProviderOperation(input: {
     const notDispatched = !completed && !dispatchWasMarked &&
       (input.outcome === "failed" || input.outcome === "not_dispatched");
     const billingAmbiguous = !completed && (input.outcome === "ambiguous" || dispatchWasMarked);
+    const accounting = calculateSfpSettlementAccounting({
+      outcome: input.outcome,
+      reservedUnits: input.reservation.units,
+      settledUnits: input.settledUnits,
+      reviewedUnitPriceMicros: input.reservation.reviewedUnitPriceMicros ?? null,
+      noResultBillable: input.reservation.noResultBillable ?? null,
+      notDispatched,
+      billingAmbiguous,
+    });
+    const settledUnits = accounting.settledUnits;
+    const settledMicros = accounting.settledMicros;
     const operation = rows(await tx.execute(sql`
       UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
               billing_state=${completed ? "committed" : billingAmbiguous ? "ambiguous" : "released"},
+              settled_cost_micros=${accounting.settledCostMicros},
               sfp_result_data=COALESCE(sfp_result_data,'{}'::jsonb) ||
                 ${JSON.stringify(input.resultData ?? {})}::jsonb,
               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()

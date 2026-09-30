@@ -15,7 +15,7 @@ import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { seal, unseal } from "./candidate-evidence-service";
-import { candidateTier } from "./candidate-selector";
+import { candidateTier, rejectEmailCandidate } from "./candidate-selector";
 import { maskCandidate } from "./contracts";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -552,7 +552,9 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
         AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
         AND c.complaint_status IS DISTINCT FROM 'reported'
         AND c.bounce_status IS DISTINCT FROM 'hard'
-        AND c.email_status NOT IN ('bounced', 'invalid')
+        AND c.email_status IS DISTINCT FROM 'bounced'
+        AND c.email_status IS DISTINCT FROM 'invalid'
+        AND c.email_status IS DISTINCT FROM 'opted_out'
         AND c.suppression_reason IS NULL
         AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                          WHERE q.business_id = c.business_id AND q.cleared_at IS NULL)
@@ -625,6 +627,8 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       // sfp-validation.ts's freshness-reuse check (findFreshProviderObservation)
       // is the sole authority that decides whether spend is actually
       // skipped; this disposition alone never bypasses a live re-check.
+      const isRoleInbox = rejectEmailCandidate(String(c.email), "person") === "role_address_rejected_for_person";
+      const personName = [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || null;
       const disposition = c.email_status === "valid" ? "validation_admitted" : "staged";
       return {
         sourceKind: "contact" as const,
@@ -635,12 +639,12 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
         maskedValue: maskCandidate("email", String(c.email)),
         confidence: 60, // existing CRM contact, unranked by any provider signal
         disposition,
-        personNameEvidence: null,
-        personTitleEvidence: null,
+        personNameEvidence: isRoleInbox ? null : personName,
+        personTitleEvidence: isRoleInbox ? null : c.title ?? null,
         createdAt: String(c.created_at),
         duplicateOfEvidenceId: null,
         stageKey: "contact",
-        subjectType: "person",
+        subjectType: isRoleInbox ? "business" : "person",
         apolloMatchConfidence: null,
         candidateMetadata: null,
         _hashKey: `${c.business_id}:email:${emailNormalizedValueHash(String(c.email))}`,

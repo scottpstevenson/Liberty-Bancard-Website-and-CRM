@@ -39,7 +39,16 @@
 
 import fs from "fs";
 import path from "path";
-import { SEED_TARGETS } from "../server/services/production-seed-convergence";
+
+// This is a static source check, but the convergence module also imports the
+// runtime database pool. Import it with an explicitly unreachable placeholder
+// URL so the check never inherits or touches a developer/production database.
+// No convergence function is invoked below; the connection is never opened.
+const inheritedDatabaseUrl = process.env.DATABASE_URL;
+process.env.DATABASE_URL = "postgresql://static-check:static-check@127.0.0.1:1/static_check";
+const { SEED_TARGETS } = await import("../server/services/production-seed-convergence");
+if (inheritedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+else process.env.DATABASE_URL = inheritedDatabaseUrl;
 
 const MIGRATIONS_ROOT = path.join(process.cwd(), "migrations");
 
@@ -55,6 +64,15 @@ const MIGRATIONS_ROOT = path.join(process.cwd(), "migrations");
  *     runtime code depends on being present to function correctly.
  */
 const KNOWN_EXEMPT_SEEDS: Record<string, { table: string; classification: "historical_one_time" | "not_config_seed"; reason: string }[]> = {
+  "0279_sfp_immutable_cohort_lifecycle.sql": [
+    { table: "sfp_cohort_runs", classification: "historical_one_time", reason: "one-time mapping from the legacy status column into cohort_state during the lifecycle schema transition; current cohort writes maintain both fields and the production migration has already been applied." },
+  ],
+  "0292_sfp2001_command_lifecycle.sql": [
+    { table: "sfp_campaign_staging_commands", classification: "historical_one_time", reason: "migration-time normalization of commands that existed before the pending/executing/completed lifecycle; the column's migration default marks those rows completed, while current command writers explicitly persist pending/executing/completed and must not be reset on every boot." },
+  ],
+  "0301_sfp_taxonomy_version_and_ready_held_bridge.sql": [
+    { table: "sfp_classification_evidence", classification: "historical_one_time", reason: "one-time legacy evidence backfill from the overloaded classifier_version field; the production migration was applied with its immutability-trigger exception, and all current writers persist classifier_version and taxonomy_version distinctly. Replaying this backfill at startup would violate the evidence immutability boundary." },
+  ],
   "0005_shallow_stepford_cuckoos.sql": [
     { table: "deals", classification: "historical_one_time", reason: "one-time contact-dedupe backfill reassigning deals from a duplicate contact row to the surviving primary before the contacts_email_unique_idx constraint added later in this migration; not applicable to contacts created after this migration's window." },
     { table: "tickets", classification: "historical_one_time", reason: "same one-time contact-dedupe reassignment as the deals row above, for tickets." },

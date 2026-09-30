@@ -33,6 +33,7 @@ type SfpProgram = {
   maxCohortSize: number;
   isActive: boolean;
   recurringEnabled: boolean;
+  campaignStagingBatchSize: number;
   activatedAt: string | null;
   policyVersion?: number;
   taxonomyVersion: 1 | 2;
@@ -189,6 +190,11 @@ type PaidWaterfallPreview = {
   providers: Array<{provider:string;credentialPresent:boolean;enabled:boolean;circuitState:string;executableForSfp:boolean;unitPriceMicros:number|null;role:string}>;
   note: string;
 };
+type SfpPaidGapVector = {
+  businessId: number;
+  before: Array<{ dimension: string; open: boolean }>;
+  after: Array<{ dimension: string; open: boolean }>;
+};
 type SfpPhaseAPreview = {
   snapshotHash: string;
   candidateCount: number;
@@ -234,12 +240,12 @@ export function SouthFloridaProspectingPanel() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [showProspects, setShowProspects] = useState(false);
   const [stagingResult, setStagingResult] = useState<{ created: number; skipped: number; rejected: number; reasons: Record<string, number> } | null>(null);
+  const [serperBatchSize, setSerperBatchSize] = useState(10);
+  const [lastPaidResult, setLastPaidResult] = useState<{ gapVectors: SfpPaidGapVector[] } | null>(null);
   const [selectedEligibilityIds, setSelectedEligibilityIds] = useState<string[]>([]);
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
-  const [lastPaidResult, setLastPaidResult] = useState<any>(null);
-  const [serperBatchSize, setSerperBatchSize] = useState(1);
   // Generated once per logical freeze attempt and retained across
   // retry/reload via localStorage (VFC-06) — a plain useState initializer
   // resets on every page reload, which silently turned every post-reload
@@ -464,12 +470,13 @@ export function SouthFloridaProspectingPanel() {
   });
 
   const setActivation = useMutation({
-    mutationFn: async (active: boolean) => (await apiRequest("POST", "/api/lead-ops/sfp/program/activation", {
-      active, recurringEnabled: false,
+    mutationFn: async (input: { active: boolean; recurringEnabled: boolean }) => (await apiRequest("POST", "/api/lead-ops/sfp/program/activation", {
+      active: input.active, recurringEnabled: input.recurringEnabled,
     })).json(),
     onSuccess: () => {
-      toast({ title: program?.isActive ? "Program paused" : "Program activated" });
+      toast({ title: "South Florida enrichment program updated" });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/program"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"] });
     },
     onError: (e: any) => toast({ title: "Activation failed", description: e?.message, variant: "destructive" }),
   });
@@ -783,9 +790,16 @@ export function SouthFloridaProspectingPanel() {
                   {program.isActive ? "Active" : "Inactive"}
                 </Badge>
                 <Button size="sm" variant={program.isActive ? "outline" : "default"}
-                  onClick={() => setActivation.mutate(!program.isActive)} disabled={setActivation.isPending}>
+                  onClick={() => setActivation.mutate({ active: !program.isActive, recurringEnabled: false })} disabled={setActivation.isPending}>
                   {program.isActive ? "Pause program" : "Activate program"}
                 </Button>
+                {program.isActive && (
+                  <Button size="sm" variant={program.recurringEnabled ? "outline" : "default"}
+                    onClick={() => setActivation.mutate({ active: true, recurringEnabled: !program.recurringEnabled })}
+                    disabled={setActivation.isPending}>
+                    {program.recurringEnabled ? "Pause recurring enrichment" : "Enable recurring enrichment"}
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -810,6 +824,10 @@ export function SouthFloridaProspectingPanel() {
                   {f === "12011" ? "Broward" : f === "12086" ? "Miami-Dade" : f === "12099" ? "Palm Beach" : f}
                 </Badge>
               ))}
+            </div>
+            <div className="text-xs mt-2">
+              Recurring enrichment: <span className={program.recurringEnabled ? "text-green-700 font-medium" : "text-muted-foreground"}>{program.recurringEnabled ? "on" : "off"}</span>
+              {program.recurringEnabled && ` · campaign staging drain enabled (per-call chunk ${program.campaignStagingBatchSize || 25}; the worker drains backlog)`}
             </div>
             <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
               <Lock className="h-3 w-3" />
@@ -1333,7 +1351,7 @@ export function SouthFloridaProspectingPanel() {
                 Run Serper discovery ({serperBatchSize} business{serperBatchSize === 1 ? "" : "es"})
               </Button>
               {paidPreviewQuery.data?.serperEligibleNow === 0 && (paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0) > 0 && (
-                <span className="text-xs text-muted-foreground">No paid retry is due in this frozen cohort. A larger new cohort can include unattempted businesses; recent no-results become retryable after 24 hours.</span>
+                <span className="text-muted-foreground">No paid retry is due in this frozen cohort. Recent no-results become retryable after the configured cooldown.</span>
               )}
               <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
                 disabled={runPaidWaterfall.isPending || paidPreviewQuery.isError}>
@@ -1341,7 +1359,7 @@ export function SouthFloridaProspectingPanel() {
                 Outscraper + Apollo (max 10)
               </Button>
             </div>
-            {lastPaidResult?.gapVectors?.length > 0 && (
+            {lastPaidResult !== null && lastPaidResult.gapVectors.length > 0 && (
               <div className="mt-2 text-xs">
                 <div className="font-medium">Per-business gap vectors (before → after)</div>
                 {lastPaidResult.gapVectors.map((vector: any) => (
@@ -1353,7 +1371,7 @@ export function SouthFloridaProspectingPanel() {
               {paidPreviewQuery.data?.note ?? (paidPreviewQuery.isError ? "Provider readiness is unavailable; no provider request is authorized." : "Loading provider controls…")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Provider approval enables the existing control without changing its configured limit or circuit state.
+              Provider approval enables the existing control without changing its usage counters or circuit state.
               A completed or no-result business is skipped on later batches of this cohort.
             </p>
           </CardContent>

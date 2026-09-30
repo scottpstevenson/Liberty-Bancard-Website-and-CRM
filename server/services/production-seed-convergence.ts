@@ -230,6 +230,187 @@ async function convergePaidProviderControls(): Promise<SeedTargetResult> {
   return convergeProviderControlRows("paid_provider_controls", PAID_PROVIDER_CONTROL_SEED_ROWS);
 }
 
+// migrations/0289_sfp2000_policy_and_lineage.sql seeds this immutable policy
+// document and its active singleton pointer. Publish's schema sync creates
+// the tables but does not guarantee the migration's INSERTs run, so the SFP
+// validation path must converge the exact v1 document before recurring work
+// can read it. Existing operator-selected policy pointers are preserved.
+const SFP_OUTREACH_POLICY_V1 = {
+  version: 1,
+  documentHash: "f8f014ae6937e1d83dbc1d128af377eb59fe6b009bc37dd26578bff4ed2e94df",
+  validationTtlDays: 30,
+  acceptedOutcomes: ["valid"],
+  retryableOutcomes: ["failed", "dns_indeterminate", "unknown"],
+  roleInboxPolicy: { role_inbox_eligible_for_cold_b2b: true, named_or_unclassified_requires_review: true },
+  consentTierPolicy: {
+    cold_no_consent: "eligible_for_staging_review",
+    warm_no_pewc: "eligible_for_staging_review",
+    pewc_full_automation: "eligible_for_staging_review",
+    opted_out: "ineligible",
+    do_not_contact: "ineligible",
+  },
+  reasonCodes: [
+    "zb_valid_role_inbox_eligible", "zb_valid_named_review_required", "zb_catch_all_review",
+    "zb_invalid_not_deliverable", "zb_spamtrap_not_deliverable", "zb_abuse_not_deliverable",
+    "zb_do_not_mail_not_deliverable", "zb_unknown_review_required", "zb_transport_failed_retryable",
+    "policy_existing_relationship", "policy_suppressed", "policy_consent_ineligible",
+    "policy_dbpr_excluded", "policy_stale_reused",
+  ],
+} as const;
+
+async function convergeSfpOutreachPolicyV1(): Promise<SeedTargetResult> {
+  const id = "sfp_outreach_policy_v1";
+  const tables = ["sfp_outreach_policy_documents", "sfp_outreach_policy_control"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "sfp_outreach_policy_documents", {
+      version: "integer", document_hash: "text", validation_ttl_days: "integer",
+      accepted_outcomes: "jsonb", retryable_outcomes: "jsonb", role_inbox_policy: "jsonb",
+      consent_tier_policy: "jsonb", reason_codes: "jsonb", created_by: "text",
+    });
+    await assertColumns(tx, "sfp_outreach_policy_control", {
+      singleton: "boolean", active_policy_id: "uuid", activated_by: "text",
+    });
+
+    const expectedJson = {
+      accepted_outcomes: SFP_OUTREACH_POLICY_V1.acceptedOutcomes,
+      retryable_outcomes: SFP_OUTREACH_POLICY_V1.retryableOutcomes,
+      role_inbox_policy: SFP_OUTREACH_POLICY_V1.roleInboxPolicy,
+      consent_tier_policy: SFP_OUTREACH_POLICY_V1.consentTierPolicy,
+      reason_codes: SFP_OUTREACH_POLICY_V1.reasonCodes,
+    };
+    let document = rows(await tx.execute(sql`
+      SELECT id, version, document_hash, validation_ttl_days, accepted_outcomes,
+             retryable_outcomes, role_inbox_policy, consent_tier_policy, reason_codes
+        FROM sfp_outreach_policy_documents WHERE version = 1 FOR UPDATE
+    `))[0];
+    let insertedDocument = false;
+    if (!document) {
+      await tx.execute(sql`
+        INSERT INTO sfp_outreach_policy_documents
+          (version, document_hash, validation_ttl_days, accepted_outcomes, retryable_outcomes,
+           role_inbox_policy, consent_tier_policy, reason_codes, created_by)
+        VALUES (
+          1, ${SFP_OUTREACH_POLICY_V1.documentHash}, 30,
+          ${JSON.stringify(SFP_OUTREACH_POLICY_V1.acceptedOutcomes)}::jsonb,
+          ${JSON.stringify(SFP_OUTREACH_POLICY_V1.retryableOutcomes)}::jsonb,
+          ${JSON.stringify(SFP_OUTREACH_POLICY_V1.roleInboxPolicy)}::jsonb,
+          ${JSON.stringify(SFP_OUTREACH_POLICY_V1.consentTierPolicy)}::jsonb,
+          ${JSON.stringify(SFP_OUTREACH_POLICY_V1.reasonCodes)}::jsonb,
+          'system:production-seed-convergence'
+        ) ON CONFLICT (version) DO NOTHING
+      `);
+      insertedDocument = true;
+      document = rows(await tx.execute(sql`
+        SELECT id, version, document_hash, validation_ttl_days, accepted_outcomes,
+               retryable_outcomes, role_inbox_policy, consent_tier_policy, reason_codes
+          FROM sfp_outreach_policy_documents WHERE version = 1 FOR UPDATE
+      `))[0];
+    }
+    if (!document || Number(document.version) !== 1 ||
+        document.document_hash !== SFP_OUTREACH_POLICY_V1.documentHash ||
+        Number(document.validation_ttl_days) !== SFP_OUTREACH_POLICY_V1.validationTtlDays ||
+        Object.entries(expectedJson).some(([key, value]) => stableStringify(document[key]) !== stableStringify(value))) {
+      throw new Error("SEED_CONVERGENCE_CONFLICT:sfp_outreach_policy_v1:canonical_document_mismatch");
+    }
+
+    const invalidControl = rows(await tx.execute(sql`
+      SELECT singleton FROM sfp_outreach_policy_control WHERE singleton IS DISTINCT FROM TRUE LIMIT 1
+    `))[0];
+    if (invalidControl) throw new Error("SEED_CONVERGENCE_CONFLICT:sfp_outreach_policy_v1:invalid_singleton_row");
+
+    const control = rows(await tx.execute(sql`
+      SELECT active_policy_id FROM sfp_outreach_policy_control WHERE singleton = TRUE FOR UPDATE
+    `))[0];
+    let insertedControl = false;
+    if (!control) {
+      await tx.execute(sql`
+        INSERT INTO sfp_outreach_policy_control (singleton, active_policy_id, activated_by)
+        VALUES (TRUE, ${String(document.id)}::uuid, 'system:production-seed-convergence')
+        ON CONFLICT (singleton) DO NOTHING
+      `);
+      insertedControl = true;
+      const verified = rows(await tx.execute(sql`
+        SELECT active_policy_id FROM sfp_outreach_policy_control WHERE singleton = TRUE FOR UPDATE
+      `))[0];
+      if (!verified) throw new Error("SEED_CONVERGENCE_VERIFY_FAILED:sfp_outreach_policy_v1:control");
+    }
+    const outcome = insertedDocument || insertedControl ? "inserted" : "already_present";
+    return {
+      id, classification: "immutable_revision_seed", tables, outcome,
+      detail: `${insertedDocument ? "inserted canonical policy v1" : "policy v1 already present"}; ` +
+        `${insertedControl ? "installed default active pointer" : "preserved existing active policy pointer"}`,
+    };
+  });
+}
+
+// One-time correction from migration 0291: campaign staging must remain
+// default-off. A durable marker keeps this narrow repair from overwriting a
+// deliberate operator choice of batch size 10 on later boots.
+async function convergeSfpCampaignStagingDefaultOff(): Promise<SeedTargetResult> {
+  const id = "sfp_campaign_staging_default_off_v1";
+  const tables = ["sfp_programs", "system_settings"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "sfp_programs", { schedule_config: "jsonb" });
+    await assertColumns(tx, "system_settings", { key: "text", value: "jsonb" });
+    const markerKey = "production_seed_sfp_campaign_staging_default_off_v1";
+    const marker = rows(await tx.execute(sql`SELECT key FROM system_settings WHERE key = ${markerKey} FOR UPDATE`))[0];
+    if (marker) return { id, classification: "historical_backfill", tables, outcome: "already_present", detail: "one-time default-off correction already recorded" };
+
+    const corrected = rows(await tx.execute(sql`
+      UPDATE sfp_programs
+         SET schedule_config = jsonb_set(COALESCE(schedule_config, '{}'::jsonb), '{campaignStaging}', '0'::jsonb, TRUE)
+       WHERE schedule_config->>'campaignStaging' = '10'
+       RETURNING id
+    `));
+    await tx.execute(sql`
+      INSERT INTO system_settings (key, value, updated_at)
+      VALUES (${markerKey}, ${JSON.stringify({ version: 1, correctedPrograms: corrected.length })}::jsonb, NOW())
+      ON CONFLICT (key) DO NOTHING
+    `);
+    return {
+      id, classification: "historical_backfill", tables,
+      outcome: corrected.length > 0 ? "backfilled" : "already_present",
+      detail: `default-off correction recorded; changed ${corrected.length} legacy program row(s) with campaignStaging=10`,
+    };
+  });
+}
+
+// Safe repeatable legacy source-lineage completion for rows the migration
+// could not mark because Publish may synchronize schema without replaying its
+// data UPDATE. New staging writes always set source_kind explicitly.
+async function convergeSfpStagingSourceLineage(): Promise<SeedTargetResult> {
+  const id = "sfp_staging_source_lineage";
+  const tables = ["sfp_campaign_staging_intents", "sfp_outreach_eligibility"];
+  return withLock(`seed:${id}`, async (tx) => {
+    await assertColumns(tx, "sfp_campaign_staging_intents", {
+      candidate_id: "uuid", paid_candidate_evidence_id: "uuid", source_kind: "text",
+    });
+    await assertColumns(tx, "sfp_outreach_eligibility", {
+      policy_version: "integer", candidate_id: "uuid", paid_candidate_evidence_id: "uuid",
+      source_kind: "text", policy_document_id: "uuid", policy_document_hash: "text",
+    });
+    const intentUpdates = rows(await tx.execute(sql`
+      UPDATE sfp_campaign_staging_intents
+         SET source_kind = 'free'
+       WHERE source_kind IS NULL AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL
+       RETURNING id
+    `));
+    const eligibilityUpdates = rows(await tx.execute(sql`
+      UPDATE sfp_outreach_eligibility e
+         SET source_kind = 'free', policy_document_id = pd.id, policy_document_hash = pd.document_hash
+        FROM sfp_outreach_policy_documents pd
+       WHERE pd.version = 1 AND e.policy_version = 1 AND e.candidate_id IS NOT NULL
+         AND e.paid_candidate_evidence_id IS NULL AND e.source_kind IS NULL
+      RETURNING e.id
+    `));
+    return {
+      id, classification: "historical_backfill", tables,
+      outcome: intentUpdates.length + eligibilityUpdates.length > 0 ? "backfilled" : "already_present",
+      detail: `marked ${intentUpdates.length} legacy free-source intent(s) and attached policy v1 lineage to ${eligibilityUpdates.length} provable legacy eligibility decision(s)`,
+    };
+  });
+}
+
 // ── Target: SFP business #9555 identity-quarantine repair ──────────────────
 // migrations/0304_sfp_identity_quarantine.sql. Like every other
 // migration-embedded write, Replit Publish's schema-only sync creates the two
@@ -1076,6 +1257,14 @@ async function convergeSofloCursorRewind(): Promise<SeedTargetResult> {
 export const SEED_TARGETS: Array<{ id: string; classification: SeedClassification; tables: string[]; write: () => Promise<SeedTargetResult>; seedKeys?: SeedKeyRegistration }> = [
   { id: "commercial_shadow_controls", classification: "schema_required_bootstrap", tables: ["commercial_shadow_controls"], write: convergeCommercialShadowControls },
   { id: "paid_provider_controls", classification: "schema_required_bootstrap", tables: ["provider_controls"], write: convergePaidProviderControls },
+  {
+    id: "sfp_outreach_policy_v1", classification: "immutable_revision_seed",
+    tables: ["sfp_outreach_policy_documents", "sfp_outreach_policy_control"],
+    write: convergeSfpOutreachPolicyV1,
+    seedKeys: { columns: ["version"], values: [["1"]] },
+  },
+  { id: "sfp_campaign_staging_default_off_v1", classification: "historical_backfill", tables: ["sfp_programs", "system_settings"], write: convergeSfpCampaignStagingDefaultOff },
+  { id: "sfp_staging_source_lineage", classification: "historical_backfill", tables: ["sfp_campaign_staging_intents", "sfp_outreach_eligibility"], write: convergeSfpStagingSourceLineage },
   { id: "commercial_graph_revisions_backfill", classification: "historical_backfill", tables: ["commercial_subject_revisions", "commercial_membership_revisions"], write: convergeCommercialGraphRevisions },
   {
     id: "cro02_purpose_policies", classification: "immutable_revision_seed", tables: ["commercial_purpose_policies"],
