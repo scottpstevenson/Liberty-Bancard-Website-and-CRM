@@ -9292,7 +9292,7 @@ export const sfpPrograms = pgTable("sfp_programs", {
   activatedAt: timestamp("activated_at", { withTimezone: true }),
   activatedBy: text("activated_by"),
   recurringEnabled: boolean("recurring_enabled").notNull().default(false),
-  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 10 }),
+  scheduleConfig: jsonb("schedule_config").notNull().default({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 0 }),
   /**
    * Which vertical taxonomy version (see sfp-vertical-classifier.ts) this
    * program's `verticalIds` are drawn from, and which the classification
