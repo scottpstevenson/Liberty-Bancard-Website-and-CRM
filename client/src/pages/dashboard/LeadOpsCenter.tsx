@@ -2801,8 +2801,7 @@ function SfpEnrichmentControlCenter() {
   });
 
   const overview = overviewQuery.data;
-  const providerControls: Array<{ provider: string; enabled: boolean; circuit_state: string; local_budget_units: number | null; reserved_units: number; consumed_units: number }> =
-    overview?.providerControls ?? [];
+  const providerControls: Array<any> = overview?.providerControls ?? [];
   const serper = providerControls.find((p) => p.provider === "serper");
   const zerobounce = providerControls.find((p) => p.provider === "zerobounce");
   const aggregateBudget = overview?.aggregateBudget;
@@ -2833,23 +2832,23 @@ function SfpEnrichmentControlCenter() {
               <div className="rounded-md border p-3" data-testid="stat-serper-budget">
                 <div className="text-xs text-muted-foreground">Serper (discovery)</div>
                 <div className="text-lg font-semibold">
-                  {serper ? `${Number(serper.consumed_units) + Number(serper.reserved_units)} / ${serper.local_budget_units ?? "∞"}` : "—"}
+                  {serper ? `${Number(serper.consumedUnits) + Number(serper.reservedUnits)} / ${serper.budgetCapUnits ?? "—"} units` : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {serper ? (serper.enabled && serper.circuit_state === "closed" ? "healthy" : `${serper.circuit_state}${serper.enabled ? "" : ", disabled"}`) : "unknown"}
+                  {serper ? (serper.enabled && serper.circuitState === "closed" ? "healthy" : `${serper.circuitState}${serper.enabled ? "" : ", disabled"}`) : "unknown"}
                 </div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-zerobounce-budget">
                 <div className="text-xs text-muted-foreground">ZeroBounce (validation)</div>
                 <div className="text-lg font-semibold">
-                  {zerobounce ? `${Number(zerobounce.consumed_units) + Number(zerobounce.reserved_units)} / ${zerobounce.local_budget_units ?? "∞"}` : "—"}
+                  {zerobounce ? `${Number(zerobounce.consumedUnits) + Number(zerobounce.reservedUnits)} / ${zerobounce.budgetCapUnits ?? "—"} units` : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {zerobounce ? (zerobounce.enabled && zerobounce.circuit_state === "closed" ? "healthy" : `${zerobounce.circuit_state}${zerobounce.enabled ? "" : ", disabled"}`) : "unknown"}
+                  {zerobounce ? (zerobounce.enabled && zerobounce.circuitState === "closed" ? "healthy" : `${zerobounce.circuitState}${zerobounce.enabled ? "" : ", disabled"}`) : "unknown"}
                 </div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-aggregate-budget">
-                <div className="text-xs text-muted-foreground">$50 aggregate paid cap</div>
+                <div className="text-xs text-muted-foreground">{aggregateBudget ? `${usdFromMicros(aggregateBudget.capMicros)} shared aggregate paid cap` : "Shared aggregate paid cap"}</div>
                 <div className="text-lg font-semibold">
                   {aggregateBudget ? usdFromMicros(aggregateBudget.remainingMicros) : "—"} left
                 </div>
@@ -2863,6 +2862,66 @@ function SfpEnrichmentControlCenter() {
                 <div className="text-xs text-muted-foreground">{overview?.eligibleCounts?.policy_eligible ?? 0} outreach-eligible</div>
               </div>
             </div>
+
+            <div className="rounded-md border p-3 space-y-2" data-testid="sfp-actual-throughput">
+              <div className="text-sm font-medium">CRM pool and actual SFP movement · rolling 24 hours</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">CRM contacts with email</div><div className="text-base font-semibold">{overview?.sourcePool?.active_contacts_with_email ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Verified linked to canonical</div><div className="text-base font-semibold">{overview?.sourcePool?.verified_canonical_linked_contacts_with_email ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Inside frozen v2 SFP cohorts</div><div className="text-base font-semibold">{overview?.sourcePool?.v2_sfp_cohort_linked_contacts_with_email ?? "—"}</div></div>
+                <div className="rounded bg-muted/40 p-2"><div className="text-muted-foreground">Canonical businesses</div><div className="text-base font-semibold">{overview?.eligibleCounts?.canonical_businesses ?? "—"}</div></div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                <div className="rounded border p-2"><div className="text-muted-foreground">Provider operations</div><div className="font-semibold">{overview?.throughput24h?.provider_attempts ?? "—"}</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Distinct targets attempted</div><div className="font-semibold">{overview?.throughput24h?.distinct_provider_targets ?? "—"}</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Paid evidence facts</div><div className="font-semibold">{overview?.throughput24h?.paid_evidence_rows ?? "—"} · {overview?.throughput24h?.businesses_with_paid_evidence ?? "—"} businesses</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Validation decisions</div><div className="font-semibold">{overview?.throughput24h?.validation_decisions ?? "—"} · {overview?.throughput24h?.validation_eligible ?? "—"} eligible</div></div>
+                <div className="rounded border p-2"><div className="text-muted-foreground">Ready-held created</div><div className="font-semibold">{overview?.throughput24h?.ready_held_created ?? "—"} · {overview?.throughput24h?.contact_source_ready_held ?? "—"} from contacts</div></div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Provider calls, returned evidence, validation outcomes, and staged records are counted separately. This rolling window is real record movement, not worker ticks. Shared budget remaining: {aggregateBudget ? usdFromMicros(aggregateBudget.remainingMicros) : "unavailable"} of {aggregateBudget ? usdFromMicros(aggregateBudget.capMicros) : "—"}; provider ceilings below are independently configurable and cannot raise that shared cap.
+              </div>
+              {overview?.v2VerticalFunnel24h?.length > 0 && (
+                <div className="overflow-x-auto rounded border" data-testid="sfp-v2-vertical-funnel">
+                  <table className="w-full text-[11px] min-w-[900px]">
+                    <thead className="bg-muted/50 text-left">
+                      <tr>
+                        <th className="p-2">V2 vertical</th><th className="p-2">Frozen businesses</th>
+                        <th className="p-2">Verified linked CRM emails</th><th className="p-2">Free email candidates</th>
+                        <th className="p-2">Paid email candidates</th><th className="p-2">ZB policy eligible · 24h</th>
+                        <th className="p-2">Validation held/rejected · 24h</th><th className="p-2">Ready-held · 24h</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overview.v2VerticalFunnel24h.map((row: any) => (
+                        <tr key={row.vertical} className="border-t">
+                          <td className="p-2 font-medium">{row.vertical}</td>
+                          <td className="p-2">{row.frozen_businesses}</td>
+                          <td className="p-2">{row.verified_contact_candidates}</td>
+                          <td className="p-2">{row.free_email_candidates} · {row.businesses_with_free_email_candidate} businesses</td>
+                          <td className="p-2">{row.paid_email_candidates} · {row.businesses_with_paid_email_candidate} businesses</td>
+                          <td className="p-2">{row.validation_eligible_24h} / {row.validation_decisions_24h}</td>
+                          <td className="p-2">{row.validation_held_or_rejected_24h}</td>
+                          <td className="p-2">{row.ready_held_created_24h}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {overview?.paidEvidenceByProvider24h?.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {overview.paidEvidenceByProvider24h.map((row: any) => <span key={`${row.provider}:${row.field}`} className="rounded bg-muted px-2 py-1 text-[11px] font-mono">{row.provider} {row.field}: {row.evidence_rows} facts / {row.businesses} businesses</span>)}
+                </div>
+              )}
+              {overview?.validationBySourceStatus24h?.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {overview.validationBySourceStatus24h.map((row: any) => <span key={`${row.source_kind}:${row.status}`} className="rounded bg-muted px-2 py-1 text-[11px] font-mono">{row.source_kind} → {row.status}: {row.rows}</span>)}
+                </div>
+              )}
+            </div>
+
+            <SfpPaidProviderControlEditor providers={providerControls} />
 
             <div className="rounded-md border p-3 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -2898,6 +2957,85 @@ function SfpEnrichmentControlCenter() {
   );
 }
 
+function SfpPaidProviderControlEditor({ providers }: { providers: any[] }) {
+  const { toast } = useToast();
+  const [providerCapInputs, setProviderCapInputs] = useState<Record<string, string>>({});
+  const [providerControlReason, setProviderControlReason] = useState("");
+  const providerControlMutation = useMutation({
+    mutationFn: async (input: { provider: string; enabled: boolean; maxSpendUsdMicros?: number }) => {
+      const reason = providerControlReason.trim();
+      if (reason.length < 8) throw new Error("Enter an audit reason of at least 8 characters.");
+      const response = await apiRequest("PUT", `/api/lead-ops/sfp/provider-controls/${input.provider}`, {
+        enabled: input.enabled, maxSpendUsdMicros: input.maxSpendUsdMicros, reason,
+      });
+      return response.json();
+    },
+    onSuccess: (_data: any, input) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/status-overview"] });
+      toast({ title: `${input.provider} ${input.enabled ? "enabled" : "paused"}` });
+      setProviderControlReason("");
+    },
+    onError: (err: any) => toast({ title: "Provider control rejected", description: parseApiRequestError(String(err?.message ?? err))?.reason ?? String(err?.message ?? err), variant: "destructive" }),
+  });
+
+  return (
+    <div className="rounded-md border p-3 space-y-2" data-testid="sfp-paid-provider-controls">
+      <div className="text-sm font-medium">Paid provider controls and exact recorded SFP cost</div>
+      <div className="text-xs text-muted-foreground">Each ceiling is provider-specific and USD-priced. The independent shared cap still stops all providers at its current limit.</div>
+      <label className="block text-xs text-muted-foreground">
+        Audit reason (required for every change)
+        <Input className="mt-1 h-8 text-xs" value={providerControlReason} maxLength={200}
+          onChange={(event) => setProviderControlReason(event.target.value)} placeholder="Why are you changing this provider?" />
+      </label>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+        {providers.map((p: any) => {
+          const defaultCap = p.budgetCapUnits != null && Number(p.currentPrice?.amountMicros) > 0
+            ? (Number(p.budgetCapUnits) * Number(p.currentPrice.amountMicros) / 1_000_000).toFixed(2) : "";
+          const capText = providerCapInputs[p.provider] ?? defaultCap;
+          return (
+            <div key={p.provider} className={`rounded border p-2 text-xs ${p.circuitState !== "closed" || !p.enabled ? "border-red-200 bg-red-50/50" : "bg-muted/30"}`}>
+              <div className="flex items-center justify-between font-semibold">
+                <span className="capitalize">{p.provider}</span>
+                <span className={p.enabled && p.circuitState === "closed" ? "text-green-700" : "text-red-700"}>{p.enabled ? "enabled" : "disabled"} · {p.circuitState}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 mt-1 font-mono text-[11px]">
+                <span>credential: {String(p.credentialPresent)}</span>
+                <span>cap: {p.budgetCapUnits ?? "unset"} units</span>
+                <span>reserved: {p.reservedUnits ?? 0} units</span>
+                <span>consumed: {p.consumedUnits ?? 0} units</span>
+                <span className="col-span-2 truncate">price source: {p.currentPriceArtifactReference ?? "unavailable"}</span>
+                <span className="col-span-2">unit: {p.currentPrice?.unitType ?? "unknown"} · {p.currentPrice?.amountMicros != null ? usdFromMicros(Number(p.currentPrice.amountMicros)) : "price unavailable"} per unit</span>
+                <span className="col-span-2">Recorded SFP cost: {usdFromMicros(Number(p.sfpSettledCostMicros ?? 0))} settled · {usdFromMicros(Number(p.sfpReservedCostMicros ?? 0))} reserved/ambiguous</span>
+                {Number(p.sfpUnpricedOperationCount ?? 0) > 0 && <span className="col-span-2 text-amber-700">{p.sfpUnpricedOperationCount} historical SFP operations have no stored price; excluded from totals.</span>}
+                {Number(p.sfpAmbiguousOperationCount ?? 0) > 0 && <span className="col-span-2 text-amber-700">{p.sfpAmbiguousOperationCount} billing-ambiguous operation(s) remain reserved pending reconciliation.</span>}
+                {p.provider === "serper" && p.gatewayBudgetUnits != null && <span className="col-span-2">Legacy gateway: {p.gatewayConsumedUnits ?? 0} / {p.gatewayBudgetUnits} requests; both Serper controls apply.</span>}
+                <span className="col-span-2">last: {p.lastCallAt ? `${p.lastOutcome ?? "unknown"} @ ${new Date(p.lastCallAt).toLocaleString()}` : "none"}</span>
+              </div>
+              <div className="mt-1 text-muted-foreground">purposes: {(p.authorizedPurposes ?? []).join(", ") || "none"}</div>
+              <div className="truncate text-muted-foreground" title={(p.authorizedCallers ?? []).join(", ")}>callers: {(p.authorizedCallers ?? []).join(", ") || "none"}</div>
+              <div className="grid grid-cols-[1fr_auto] gap-2 items-end mt-2">
+                <label className="text-muted-foreground">Provider ceiling (USD, max $50)
+                  <Input type="number" min="0.01" max="50" step="0.01" className="mt-1 h-8 text-xs" value={capText}
+                    onChange={(event) => setProviderCapInputs((current) => ({ ...current, [p.provider]: event.target.value }))} />
+                </label>
+                <Button size="sm" variant={p.enabled ? "destructive" : "default"}
+                  disabled={providerControlMutation.isPending || (!p.enabled && p.circuitState !== "closed") || providerControlReason.trim().length < 8}
+                  onClick={() => {
+                    const capUsd = Number(capText);
+                    const enabling = !p.enabled;
+                    providerControlMutation.mutate({ provider: p.provider, enabled: enabling,
+                      maxSpendUsdMicros: enabling && Number.isFinite(capUsd) && capUsd > 0 ? Math.round(capUsd * 1_000_000) : undefined });
+                  }}>{p.enabled ? "Pause" : "Enable"}</Button>
+              </div>
+              {p.circuitState !== "closed" && !p.enabled && <div className="mt-1 text-amber-700">Circuit is {p.circuitState}; enable remains locked until its recovery path closes it.</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Provider Results Panel: per-call evidence log ──────────────────────────
 //
 // Complements the Enrichment Control Center's aggregate spend/counts with
@@ -2909,7 +3047,7 @@ function SfpEnrichmentControlCenter() {
 function SfpProviderResultsPanel() {
   const [providerFilter, setProviderFilter] = useState<string>("all");
 
-  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[] }>({
+  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[]; validationResults: any[] }>({
     queryKey: ["/api/lead-ops/sfp/provider-results", providerFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -2923,10 +3061,11 @@ function SfpProviderResultsPanel() {
 
   const candidateResults = resultsQuery.data?.candidateResults ?? [];
   const classificationResults = resultsQuery.data?.classificationResults ?? [];
+  const validationResults = resultsQuery.data?.validationResults ?? [];
 
   return (
     <div className="space-y-4">
-      <Card data-testid="card-sfp-candidate-results">
+      {(providerFilter === "all" || ["serper", "outscraper", "apollo"].includes(providerFilter)) && <Card data-testid="card-sfp-candidate-results">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" /> Discovery &amp; Candidate Results
@@ -2935,7 +3074,7 @@ function SfpProviderResultsPanel() {
             What each paid discovery call (Serper, Outscraper, Apollo) actually returned, one row per candidate value. Values are masked — this is a results log, not a data export.
           </CardDescription>
           <div className="flex gap-2 pt-2">
-            {["all", "serper", "outscraper", "apollo"].map((p) => (
+            {["all", "serper", "outscraper", "apollo", "openai", "zerobounce"].map((p) => (
               <Button key={p} size="sm" variant={providerFilter === p ? "default" : "outline"} onClick={() => setProviderFilter(p)} data-testid={`button-filter-${p}`}>
                 {p === "all" ? "All" : p}
               </Button>
@@ -2961,6 +3100,8 @@ function SfpProviderResultsPanel() {
                     <th className="py-1.5 pr-3">Value</th>
                     <th className="py-1.5 pr-3">Confidence</th>
                     <th className="py-1.5 pr-3">Disposition</th>
+                    <th className="py-1.5 pr-3">Unit price</th>
+                    <th className="py-1.5 pr-3">Recorded cost</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2975,6 +3116,8 @@ function SfpProviderResultsPanel() {
                       <td className="py-1.5 pr-3">
                         <span className="px-1.5 py-0.5 rounded bg-muted">{r.disposition}</span>
                       </td>
+                      <td className="py-1.5 pr-3">{r.unit_price_micros == null ? "Unpriced" : usdFromMicros(r.unit_price_micros)}</td>
+                      <td className="py-1.5 pr-3">{r.settled_cost_micros == null ? (r.billing_state === "ambiguous" ? "Reserved / unresolved" : "Unpriced") : usdFromMicros(r.settled_cost_micros)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2982,9 +3125,9 @@ function SfpProviderResultsPanel() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      <Card data-testid="card-sfp-classification-results">
+      {(providerFilter === "all" || providerFilter === "openai") && <Card data-testid="card-sfp-classification-results">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" /> Classification Results
@@ -3031,7 +3174,36 @@ function SfpProviderResultsPanel() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
+
+      {(providerFilter === "all" || providerFilter === "zerobounce") && <Card data-testid="card-sfp-validation-results">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> ZeroBounce Validation Results</CardTitle>
+          <CardDescription>Validation decisions, masked email evidence, and exact provider-operation cost. Decrypted email addresses are never shown here.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {resultsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : validationResults.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No SFP validation results yet.</div>
+          ) : <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-muted-foreground border-b">
+                <th className="py-1.5 pr-3">Validated</th><th className="py-1.5 pr-3">Business</th>
+                <th className="py-1.5 pr-3">Source</th><th className="py-1.5 pr-3">Email (masked)</th>
+                <th className="py-1.5 pr-3">Status</th><th className="py-1.5 pr-3">Outcome</th>
+                <th className="py-1.5 pr-3">Recorded cost</th>
+              </tr></thead>
+              <tbody>{validationResults.map((r: any) => <tr key={r.id} className="border-b last:border-0">
+                <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground">{r.validation_at ? new Date(r.validation_at).toLocaleString() : "—"}</td>
+                <td className="py-1.5 pr-3">{r.business_name ?? `#${r.business_id}`}</td>
+                <td className="py-1.5 pr-3">{r.source_kind ?? r.discovery_source ?? "—"}</td>
+                <td className="py-1.5 pr-3 font-mono">{r.masked_email ?? "—"}</td>
+                <td className="py-1.5 pr-3">{r.status}</td><td className="py-1.5 pr-3">{r.zb_outcome ?? "—"}</td>
+                <td className="py-1.5 pr-3">{r.settled_cost_micros == null ? (r.reused_from_operation_id ? "Reused; no new charge" : r.billing_state === "ambiguous" ? "Reserved / unresolved" : "Unpriced") : usdFromMicros(r.settled_cost_micros)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+        </CardContent>
+      </Card>}
     </div>
   );
 }
@@ -3577,38 +3749,9 @@ function PilotStatusPanel() {
           </div>
         )}
         {statusOverviewQuery.data?.providerControls?.length > 0 && (
-          <div>
-            <div className="text-xs text-muted-foreground mb-2">Paid Provider Controls</div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-              {statusOverviewQuery.data.providerControls.map((p: any) => (
-                <div key={p.provider} className={`rounded border p-2 text-xs ${p.circuitState !== "closed" || !p.enabled ? "border-red-200 bg-red-50/50" : "bg-muted/30"}`}>
-                  <div className="flex items-center justify-between font-semibold">
-                    <span className="capitalize">{p.provider}</span>
-                    <span className={p.enabled && p.circuitState === "closed" ? "text-green-700" : "text-red-700"}>
-                      {p.enabled ? "enabled" : "disabled"} · {p.circuitState}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 mt-1 font-mono text-[11px]">
-                    <span>credential: {String(p.credentialPresent)}</span>
-                    <span>cap: {p.budgetCapUnits ?? "—"}</span>
-                    <span>reserved: {p.reservedUnits ?? 0}</span>
-                    <span>consumed: {p.consumedUnits ?? 0}</span>
-                    <span className="col-span-2 truncate">price: {p.currentPriceArtifactReference ?? "unavailable"}</span>
-                    <span className="col-span-2">last: {p.lastCallAt ? `${p.lastOutcome ?? "unknown"} @ ${new Date(p.lastCallAt).toLocaleString()}` : "none"}</span>
-                  </div>
-                  <div className="mt-1 text-muted-foreground">
-                    purposes: {(p.authorizedPurposes ?? []).join(", ") || "none"}
-                  </div>
-                  <div className="truncate text-muted-foreground" title={(p.authorizedCallers ?? []).join(", ")}>
-                    callers: {(p.authorizedCallers ?? []).join(", ") || "none"}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-xs text-muted-foreground">
-              Credentials are presence booleans only. In-flight operations requiring reconciliation:{" "}
-              <span className="font-semibold">{statusOverviewQuery.data.paidInFlightCount ?? 0}</span>
-            </div>
+          <div className="rounded border p-2 text-xs text-muted-foreground">
+            Provider toggles and per-provider ceilings are managed in the Enrichment Control Center. In-flight operations requiring reconciliation:{" "}
+            <span className="font-semibold text-foreground">{statusOverviewQuery.data.paidInFlightCount ?? 0}</span>
           </div>
         )}
         {statusOverviewQuery.data?.zeroBounceSafety && (
