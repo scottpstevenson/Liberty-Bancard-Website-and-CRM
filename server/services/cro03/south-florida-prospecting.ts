@@ -189,7 +189,7 @@ export async function ensureProgram(opts: {
 
   const created = rows(await db.execute(sql`
     INSERT INTO sfp_programs
-      (name, county_fips, vertical_ids, max_cohort_size, policy_version, taxonomy_version, is_active, created_by)
+      (name, county_fips, vertical_ids, max_cohort_size, policy_version, taxonomy_version, schedule_config, is_active, created_by)
     VALUES (
       ${PROGRAM_NAME},
       ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
@@ -197,6 +197,7 @@ export async function ensureProgram(opts: {
       ${Math.max(1, Math.min(100, opts.maxCohortSize ?? 100))},
       ${SFP_POLICY_VERSION},
       ${TAXONOMY_VERSION_V2},
+      ${JSON.stringify({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 0 })}::jsonb,
       false,
       ${opts.createdBy ?? "system:sfp"}
     )
