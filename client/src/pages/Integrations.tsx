@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { SEO, type StructuredData } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -276,10 +276,14 @@ export default function Integrations() {
     notes: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const requestMutation = useMutation({
     mutationFn: async (payload: typeof requestForm) => {
-      const res = await apiRequest("POST", "/api/public/integration-request", payload);
+      idempotencyKeyRef.current ??= crypto.randomUUID();
+      const res = await apiRequest("POST", "/api/public/integration-request", payload, {
+        "Idempotency-Key": idempotencyKeyRef.current,
+      });
       return res.json();
     },
     onSuccess: () => {

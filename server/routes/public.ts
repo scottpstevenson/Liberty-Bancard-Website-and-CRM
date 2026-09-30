@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and } from "drizzle-orm";
+import { and, isNull, sql } from "drizzle-orm";
 import { verifyUnsubscribeToken } from "../services/unsubscribe-token";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
 import { generateDealBlueprint } from "../services/deal-blueprint";
@@ -14,6 +14,7 @@ import type { Contact } from "@shared/schema";
 import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
+import { normalizePhoneE164 } from "../services/sdr/dedupe";
 import { persistAndEnqueueStatementCommand } from "../services/statement-command-worker";
 import {
   claimCommand,
@@ -38,6 +39,7 @@ import {
   getPublicInboundRequestStatus,
   inboundSlaDueAt,
   orchestrateInboundRequest,
+  queueAmbiguousCallbackReview,
   setInboundRequestLifecycle,
 } from "../services/inbound-request-authority";
 
@@ -454,7 +456,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
               landingPage: landingPage || "/upload-statement",
               gclid: gclid || undefined,
             }),
-            incomingConsent: { consentSms: parseBool(consentSms) },
+            incomingConsent: { consentSms: parseBool(consentSms) ? true : undefined },
             submissionId,
             formType: "statement_upload",
             requestEvidence: {
@@ -661,8 +663,42 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = (req as any).inboundRequestId;
-      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: estimateReferrerUrlBody } = req.body;
-      const estimateReferrerUrl = estimateReferrerUrlBody || req.headers["referer"] || req.headers["referrer"] || undefined;
+      const schema = z.object({
+        contactName: z.string().trim().min(1).max(120),
+        businessName: z.string().trim().min(1).max(160),
+        email: z.string().trim().email().max(160),
+        phone: z.string().trim().min(10).max(40),
+        vertical: z.enum(["Medical/Dental/Medspa", "Automotive", "Restaurant", "Home Services", "Retail", "Other"]),
+        monthlyVolume: z.string().trim().min(1).max(40),
+        totalFees: z.string().trim().min(1).max(40),
+        currentProvider: z.string().max(120).optional(),
+        notes: z.string().max(2000).optional(),
+        pewcConsent: z.boolean().optional(),
+        referralCode: z.string().max(120).optional(),
+        utmSource: z.string().max(200).optional(),
+        utmMedium: z.string().max(200).optional(),
+        utmCampaign: z.string().max(200).optional(),
+        utmContent: z.string().max(200).optional(),
+        utmTerm: z.string().max(200).optional(),
+        landingPage: z.string().max(1000).optional(),
+        gclid: z.string().max(500).optional(),
+        gclidPresent: z.boolean().optional(),
+        fbclidPresent: z.boolean().optional(),
+        msclkidPresent: z.boolean().optional(),
+        referrerUrl: z.string().max(2000).optional(),
+      }).strict();
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        await failInbound(req, 400);
+        return res.status(400).json({
+          error: "INVALID_SUBMISSION",
+          details: parsed.error.issues.map(({ path, message }) => ({ path: path.join("."), message })),
+        });
+      }
+      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid, referrerUrl: estimateReferrerUrlBody } = parsed.data;
+      const estimateReferrerUrl = estimateReferrerUrlBody
+        || (typeof req.headers["referer"] === "string" ? req.headers["referer"] : undefined)
+        || (typeof req.headers["referrer"] === "string" ? req.headers["referrer"] : undefined);
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -804,7 +840,25 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.post("/api/public/support", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = (req as any).inboundRequestId;
-      const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = req.body;
+      const schema = z.object({
+        name: z.string().trim().min(1).max(120),
+        businessName: z.string().trim().min(1).max(160),
+        email: z.string().trim().email().max(160),
+        mobile: z.string().trim().min(10).max(40),
+        issueType: z.enum(["Funding / Deposits", "Terminal", "Chargeback / Dispute", "PCI Compliance", "Other"]),
+        priority: z.enum(["Normal", "Urgent"]),
+        message: z.string().trim().min(1).max(5000),
+        consentSms: z.boolean().optional(),
+      }).strict();
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        await failInbound(req, 400);
+        return res.status(400).json({
+          error: "INVALID_SUBMISSION",
+          details: parsed.error.issues.map(({ path, message }) => ({ path: path.join("."), message })),
+        });
+      }
+      const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = parsed.data;
       const nameParts = (name || "").trim().split(" ").filter(Boolean);
       const firstName = nameParts[0] || "there";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -819,7 +873,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             firstName, lastName, email, phone: mobile || "",
             companyName: businessName,
           }),
-          incomingConsent: { consentSms: consentSms === true },
+          incomingConsent: { consentSms: consentSms === true ? true : undefined },
           submissionId,
           formType: "support_form",
           requestEvidence: {
@@ -910,7 +964,39 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = (req as any).inboundRequestId;
-      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = req.body;
+      const schema = z.object({
+        goal: z.enum(["lower fees", "deposit clarity", "0% interest", "need terminal", "compare vs flat-rate", "not sure"]),
+        vertical: z.enum(["Medical/Dental/Medspa", "Automotive", "Restaurant", "Home Services", "Retail", "Other"]),
+        monthlyVolume: z.enum(["Under $5k", "$5k-$15k", "$15k-$50k", "$50k-$150k", "$150k+"]),
+        needTerminal: z.boolean(),
+        interestedIn0Percent: z.boolean(),
+        firstName: z.string().trim().min(1).max(100),
+        lastName: z.string().trim().min(1).max(100),
+        email: z.string().trim().email().max(160),
+        phone: z.string().trim().min(10).max(40),
+        pewcConsent: z.boolean().optional(),
+        referralCode: z.string().max(120).optional(),
+        promoCode: z.string().max(120).optional(),
+        utmSource: z.string().max(200).optional(),
+        utmMedium: z.string().max(200).optional(),
+        utmCampaign: z.string().max(200).optional(),
+        utmContent: z.string().max(200).optional(),
+        utmTerm: z.string().max(200).optional(),
+        landingPage: z.string().max(1000).optional(),
+        gclid: z.string().max(500).optional(),
+        gclidPresent: z.boolean().optional(),
+        fbclidPresent: z.boolean().optional(),
+        msclkidPresent: z.boolean().optional(),
+      }).strict();
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        await failInbound(req, 400);
+        return res.status(400).json({
+          error: "INVALID_SUBMISSION",
+          details: parsed.error.issues.map(({ path, message }) => ({ path: path.join("."), message })),
+        });
+      }
+      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage, gclid } = parsed.data;
 
       let offerPath = "Not Sure";
       if (goal === "0% interest" || interestedIn0Percent) offerPath = "0% Program";
@@ -1197,36 +1283,81 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   });
 
   // === CALLBACK REQUEST ===
-  // EXEMPTION from canonical existing-contact path: this form captures no email address
-  // (email: "" is hardcoded), so email-based lookup always returns null and the canonical
-  // processExistingPublicFormSubmission() flow cannot be applied. Additionally, this form
-  // does not write consentSms or consentEmail fields — only PEWC consent, which is handled
-  // via the separate recordPewcDecision() path. No consent field protection or opt_in audit
-  // is needed here; this handler is safe to remain as a direct writeContact() call.
+  // Callback intake has no email identifier, so it resolves on normalized phone
+  // only when that produces one unambiguous candidate. It does not write marketing
+  // consent; PEWC consent remains on its separate evidence path.
   app.post("/api/public/callback", publicLeadRateLimit, async (req, res) => {
     try {
       const submissionId = (req as any).inboundRequestId;
       const { name, phone, bestTime, notes, pewcConsent: pewcConsentRaw } = req.body;
       const pewcConsent = pewcConsentRaw === true;
-      const nameParts = (name || "").split(" ");
+      const nameParts = (name || "").trim().split(/\s+/).filter(Boolean);
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
+      const normalizedPhone = normalizePhoneE164(typeof phone === "string" ? phone : "");
+      const phoneSuffix = normalizedPhone?.replace(/\D/g, "").slice(-10);
+      const possibleMatches = phoneSuffix
+        ? await db.select().from(contacts).where(and(
+          isNull(contacts.archivedAt),
+          sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${`%${phoneSuffix}`}`,
+        ))
+        : [];
+      const matchingContacts = possibleMatches.filter(
+        (candidate) => normalizePhoneE164(candidate.phone) === normalizedPhone,
+      );
 
-      let contact: Contact = await writeContact({
-        mode: "local_first",
-        mutation: {
-          firstName, lastName, email: "", phone: phone || "",
-          status: "New",
-          tags: ["src_website", "lead_callback", `callback_${(bestTime || "anytime").toLowerCase().replace(/[^a-z]/g, "_")}`],
-        },
-        provenance: {
-          sourceCategory: "website_form",
-          sourceType: "callback_form",
-          eventKey: `form:callback_form:${submissionId}`,
-          actorType: "public",
-        },
-        actor: { actorType: "public" },
-      });
+      if (matchingContacts.length > 1) {
+        const review = await queueAmbiguousCallbackReview({
+          requestId: submissionId,
+          candidateContactIds: matchingContacts.map((candidate) => candidate.id),
+          name: `${firstName} ${lastName}`.trim(),
+          phone: normalizedPhone || phone,
+          bestTime,
+        });
+        return res.status(201).json({ success: true, requestReceipt: review.id, status: review.lifecycleState });
+      }
+
+      let contact: Contact;
+      if (matchingContacts.length === 1) {
+        const existingContact = matchingContacts[0];
+        const existingName = `${existingContact.firstName || ""} ${existingContact.lastName || ""}`.trim();
+        const incomingName = `${firstName} ${lastName}`.trim();
+        contact = await processExistingPublicFormSubmission({
+          existingContact,
+          permittedProfileUpdates: buildPublicContactPayload("callback_form", {
+            ...(incomingName.length > existingName.length ? { firstName, lastName } : {}),
+            phone: normalizedPhone || phone || "",
+          }),
+          incomingConsent: {},
+          submissionId,
+          formType: "callback_form",
+          requestEvidence: {
+            ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+            userAgent: req.headers["user-agent"] || "unknown",
+          },
+        });
+      } else {
+        contact = await writeContact({
+          mode: "local_first",
+          mutation: {
+            firstName, lastName,
+            // contacts.email is non-nullable and uniquely indexed. This follows
+            // the existing no-email sentinel convention without pretending that
+            // the callback supplied an email address.
+            email: `no-email-${submissionId}@no-email.libertybancard.internal`,
+            phone: normalizedPhone || phone || "",
+            status: "New",
+            tags: ["src_website", "lead_callback", `callback_${(bestTime || "anytime").toLowerCase().replace(/[^a-z]/g, "_")}`],
+          },
+          provenance: {
+            sourceCategory: "website_form",
+            sourceType: "callback_form",
+            eventKey: `form:callback_form:${submissionId}`,
+            actorType: "public",
+          },
+          actor: { actorType: "public" },
+        });
+      }
 
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
+import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackQuizStart, trackQuizStep, trackQuizComplete, trackConversion, trackFormSubmission } from "@/lib/tracking";
 import { trackConversion as trackConversionV2, trackPhoneCallClick } from "@/lib/analytics";
@@ -276,7 +277,6 @@ export default function FreeAnalysis() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [refCode, setRefCode] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState<string | null>(null);
-  const [utmParams, setUtmParams] = useState<Record<string, string>>({});
   const [affiliateName, setAffiliateName] = useState<string | null>(null);
   const [affiliateCompany, setAffiliateCompany] = useState<string | null>(null);
   const submissionIdempotencyKey = useRef<string | null>(null);
@@ -331,13 +331,6 @@ export default function FreeAnalysis() {
         setSubmitted(true);
       }
     }
-
-    const utms: Record<string, string> = {};
-    ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"].forEach((key) => {
-      const val = params.get(key);
-      if (val) utms[key] = val;
-    });
-    if (Object.keys(utms).length > 0) setUtmParams(utms);
   }, []);
 
   const canProceed = () => {
@@ -351,7 +344,7 @@ export default function FreeAnalysis() {
       case 4:
         return painPoints.length > 0;
       case 5:
-        return firstName.trim() !== "" && lastName.trim() !== "" && email.trim() !== "" && phone.trim() !== "" && consent;
+        return firstName.trim() !== "" && lastName.trim() !== "" && email.trim() !== "" && phone.trim() !== "";
       default:
         return false;
     }
@@ -391,6 +384,7 @@ export default function FreeAnalysis() {
       const cookieRef = document.cookie.match(/(?:^|; )lb_ref=([^;]*)/)?.[1];
       const storedRef = refCode || localStorage.getItem("lb_ref_code") || (cookieRef ? decodeURIComponent(cookieRef) : undefined) || undefined;
       const storedPromo = promoCode || localStorage.getItem("lb_promo_code") || undefined;
+      const utmParams = getStoredUTMParams();
       await apiRequest(
         "POST",
         "/api/public/free-analysis",
@@ -406,11 +400,11 @@ export default function FreeAnalysis() {
           consentSms: consent,
           referralCode: storedRef,
           promoCode: storedPromo,
-          utmSource: utmParams.utm_source,
-          utmMedium: utmParams.utm_medium,
-          utmCampaign: utmParams.utm_campaign,
-          utmContent: utmParams.utm_content,
-          utmTerm: utmParams.utm_term,
+          utmSource: utmParams.utmSource,
+          utmMedium: utmParams.utmMedium,
+          utmCampaign: utmParams.utmCampaign,
+          utmContent: utmParams.utmContent,
+          utmTerm: utmParams.utmTerm,
           gclid: utmParams.gclid,
         },
         { "Idempotency-Key": submissionIdempotencyKey.current },

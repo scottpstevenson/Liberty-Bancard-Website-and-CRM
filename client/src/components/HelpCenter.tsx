@@ -168,13 +168,21 @@ function CallbackPanel() {
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const submissionIdempotencyKey = useRef<string | null>(null);
 
   const handleSubmit = async () => {
     if (!name.trim() || !phone.trim()) return;
+    submissionIdempotencyKey.current ??= crypto.randomUUID();
     setSubmitting(true);
     try {
-      await apiRequest("POST", "/api/public/callback", { name, phone, bestTime: "ASAP" });
+      await apiRequest(
+        "POST",
+        "/api/public/callback",
+        { name, phone, bestTime: "ASAP" },
+        { "Idempotency-Key": submissionIdempotencyKey.current },
+      );
       setSubmitted(true);
+      submissionIdempotencyKey.current = null;
     } catch {
       toast({ title: "Something went wrong", description: "Please try calling us at 954-266-8214.", variant: "destructive" });
     } finally {

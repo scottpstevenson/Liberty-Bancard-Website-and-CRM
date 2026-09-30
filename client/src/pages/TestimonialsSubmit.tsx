@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -34,6 +34,7 @@ export default function TestimonialsSubmit() {
   const [videoLink, setVideoLink] = useState("");
   const [savingsAmount, setSavingsAmount] = useState("");
   const [story, setStory] = useState("");
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const canSubmit = name.trim() && businessName.trim() && email.trim() && story.trim();
 
@@ -41,6 +42,7 @@ export default function TestimonialsSubmit() {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       await apiRequest("POST", "/api/public/testimonial-submit", {
         name,
         businessName,
@@ -50,7 +52,7 @@ export default function TestimonialsSubmit() {
         videoLink,
         savingsAmount,
         story,
-      });
+      }, { "Idempotency-Key": idempotencyKeyRef.current });
       trackConversion("testimonial_submit", { industry, has_video: !!videoLink });
       setSubmitted(true);
     } catch (error: any) {

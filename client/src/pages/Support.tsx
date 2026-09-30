@@ -29,7 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { trackConversion } from "@/lib/analytics";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Loader2,
   Clock,
@@ -77,6 +77,7 @@ export default function Support() {
   });
 
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   function getFormErrorMessage(error: Error): string {
     const msg = error?.message || "";
@@ -87,6 +88,7 @@ export default function Support() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: SupportFormData) => {
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       const res = await apiRequest("POST", "/api/public/support", {
         name: data.name,
         businessName: data.businessName,
@@ -96,7 +98,7 @@ export default function Support() {
         priority: data.priority,
         message: data.message,
         consentSms: data.consentSms,
-      });
+      }, { "Idempotency-Key": idempotencyKeyRef.current });
       return res.json();
     },
     onSuccess: () => {
@@ -108,6 +110,13 @@ export default function Support() {
       setLocation("/thanks-support");
     },
     onError: (error: Error) => {
+      // A 400 (INVALID_SUBMISSION) never reached mutation on the server, so
+      // no record was claimed under this key — rotate it before the user
+      // edits and resubmits. Any other error keeps the key so a resubmission
+      // is a safe retry rather than a duplicate.
+      if (/^400:/.test(error?.message || "")) {
+        idempotencyKeyRef.current = null;
+      }
       setSubmitError(getFormErrorMessage(error));
     },
   });

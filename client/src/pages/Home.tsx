@@ -11,6 +11,7 @@ import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { trackPhoneCallClick } from "@/lib/analytics";
 import { apiRequest } from "@/lib/queryClient";
+import { SITE_STATS } from "@/lib/site-content";
 import { useToast } from "@/hooks/use-toast";
 import { PewcCheckbox } from "@/components/PewcCheckbox";
 import {
@@ -129,18 +130,25 @@ export default function Home() {
   const { toast } = useToast();
 
   const containerRef = useScrollReveal();
-  const stat1 = useCountUp(10, 2000, "+");
-  const stat2 = useCountUp(5000, 2000, "+");
-  const stat3 = useCountUp(2400, 2000, "M+", 1000, 1);
+  const yearsStat = SITE_STATS.find((stat) => stat.id === "years_in_business")!;
+  const merchantsStat = SITE_STATS.find((stat) => stat.id === "merchants_served")!;
+  const volumeStat = SITE_STATS.find((stat) => stat.id === "processing_volume_annual_m")!;
+  const stat1 = useCountUp(yearsStat.countUpEnd, 2000, "+");
+  const stat2 = useCountUp(merchantsStat.countUpEnd, 2000, "+");
+  const stat3 = useCountUp(volumeStat.countUpEnd, 2000, "B+", 1000, 1);
+
+  const cbIdempotencyKeyRef = useRef<string | null>(null);
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
     setCbSubmitting(true);
     try {
+      cbIdempotencyKeyRef.current ??= crypto.randomUUID();
       await apiRequest("POST", "/api/public/callback", {
         name: cbName, phone: cbPhone, bestTime: cbBestTime, pewcConsent: cbPewcConsent,
-      });
+      }, { "Idempotency-Key": cbIdempotencyKeyRef.current });
       setCbSubmitted(true);
+      cbIdempotencyKeyRef.current = null;
     } catch (error: any) {
       toast({
         title: "Something went wrong",
@@ -448,18 +456,18 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
               <div ref={stat1.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-years">
                 <div className="num text-6xl md:text-7xl font-bold text-white mb-2 tracking-tight">{stat1.display}</div>
-                <div className="text-sm font-semibold text-white">Years in Business</div>
-                <div className="text-xs text-white/65 mt-1">South Florida roots, nationwide reach</div>
+                <div className="text-sm font-semibold text-white">{yearsStat.label}</div>
+                <div className="text-xs text-white/65 mt-1">{yearsStat.sublabel}</div>
               </div>
               <div ref={stat2.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-merchants">
                 <div className="num text-6xl md:text-7xl font-bold text-white mb-2 tracking-tight">{stat2.display}</div>
-                <div className="text-sm font-semibold text-white">Merchants Served</div>
-                <div className="text-xs text-white/65 mt-1">Across every major vertical</div>
+                <div className="text-sm font-semibold text-white">{merchantsStat.label}</div>
+                <div className="text-xs text-white/65 mt-1">{merchantsStat.sublabel}</div>
               </div>
               <div ref={stat3.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-fees">
                 <div className="num text-6xl md:text-7xl font-bold text-white mb-2 tracking-tight">${stat3.display}</div>
-                <div className="text-sm font-semibold text-white">In Fees Identified</div>
-                <div className="text-xs text-white/65 mt-1">Across merchant statement reviews*</div>
+                <div className="text-sm font-semibold text-white">{volumeStat.label}</div>
+                <div className="text-xs text-white/65 mt-1">{volumeStat.sublabel}</div>
               </div>
             </div>
           </div>

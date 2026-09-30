@@ -536,7 +536,7 @@ export default function MerchantApplication() {
           (terminalNeeded === false || (terminalType !== "" && terminalQuantity.trim() !== ""))
         );
       case 6:
-        return reviewConfirmed && pewcConsent;
+        return reviewConfirmed;
       default:
         return false;
     }
@@ -876,7 +876,7 @@ export default function MerchantApplication() {
                     For questions, call us at <a href="tel:9542668214" className="text-primary font-medium" onClick={() => trackPhoneCallClick({ sourcePage: "/merchant-application" })}>954-266-8214</a>.
                   </p>
                   <p className="text-xs text-muted-foreground border-t pt-4" data-testid="text-success-disclaimer">
-                    Liberty Bancard is a registered ISO of [Bank Partner]. All applications are subject to underwriting approval. 
+                    Liberty Bancard is a registered ISO of our acquiring bank partner(s). All applications are subject to underwriting approval.
                     Eligibility, underwriting, card brand rules, and applicable laws apply.
                   </p>
                 </CardContent>
@@ -1569,7 +1569,7 @@ export default function MerchantApplication() {
 
                     <div className="bg-muted/50 rounded-md p-4 space-y-3">
                       <p className="text-xs text-muted-foreground leading-relaxed" data-testid="text-compliance-disclaimer">
-                        Liberty Bancard is a registered ISO of [Bank Partner]. All applications are subject to underwriting approval. 
+                        Liberty Bancard is a registered ISO of our acquiring bank partner(s). All applications are subject to underwriting approval.
                         Eligibility, underwriting, card brand rules, and applicable laws apply. By submitting this application, 
                         you consent to a background and credit check as part of the underwriting process.
                       </p>
@@ -1653,16 +1653,16 @@ export default function MerchantApplication() {
             <div className="flex flex-col items-center gap-1.5 mt-6 py-4 border-t border-border" data-testid="section-no-lockin">
               <div className="inline-flex items-center gap-2 text-sm text-foreground font-semibold">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                Cancel Anytime. No Early Termination Fee. No Penalty.
+                Flexible Terms. Most Programs Have No Long-Term Contract.
               </div>
               <p className="text-xs text-muted-foreground text-center max-w-sm">
-                We earn your business every month. No lock-in, no cancellation fees.{" "}
+                Some programs include a 1-3 year term with an early termination fee ($295-$595) if canceled early. Ask about our no-ETF options.{" "}
                 <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
               </p>
             </div>
 
             <p className="text-xs text-muted-foreground text-center mt-4" data-testid="text-footer-disclaimer">
-              Your information is encrypted and secure. Liberty Bancard is a registered ISO of [Bank Partner]. 
+              Your information is encrypted and secure. Liberty Bancard is a registered ISO of our acquiring bank partner(s).
               All applications are subject to underwriting approval.
             </p>
           </div>

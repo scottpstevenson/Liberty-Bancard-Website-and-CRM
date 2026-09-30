@@ -114,6 +114,8 @@ export function buildAttributedBookingUrl(baseUrl: string, context: BookingUrlCo
     if (utm.utmCampaign) url.searchParams.set("utm_campaign", utm.utmCampaign);
     if (utm.utmContent) url.searchParams.set("utm_content", utm.utmContent);
     if (utm.utmTerm) url.searchParams.set("utm_term", utm.utmTerm);
+    if (utm.gclid) url.searchParams.set("gclid", utm.gclid);
+    if (utm.landingPage) url.searchParams.set("landing_page", utm.landingPage);
     if (context.ctaLocation) url.searchParams.set("cta_loc", context.ctaLocation);
 
     return url.toString();

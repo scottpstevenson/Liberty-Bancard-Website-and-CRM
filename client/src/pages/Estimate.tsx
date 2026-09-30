@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Loader2, Upload, ArrowRight, Calculator, TrendingDown, AlertCircle } from "lucide-react";
 import heroAnalytics from "@assets/images/hero-analytics.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -83,6 +83,7 @@ export default function Estimate() {
   });
 
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   function getFormErrorMessage(error: Error): string {
     const msg = error?.message || "";
@@ -93,12 +94,15 @@ export default function Estimate() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: EstimateFormData) => {
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const utmParams = getStoredUTMParams();
       const res = await apiRequest("POST", "/api/public/estimate", {
         contactName: data.contactName,
+        businessName: data.businessName,
         email: data.email,
         phone: data.phone,
+        vertical: data.vertical,
         monthlyVolume: data.monthlyVolume,
         totalFees: data.totalFees,
         currentProvider: data.currentProvider || undefined,
@@ -106,7 +110,7 @@ export default function Estimate() {
         pewcConsent: data.pewcConsent ?? false,
         referralCode: refCode,
         ...utmParams,
-      });
+      }, { "Idempotency-Key": idempotencyKeyRef.current });
       return res.json();
     },
     onSuccess: () => {
@@ -116,6 +120,14 @@ export default function Estimate() {
       setLocation("/thanks-estimate");
     },
     onError: (error: Error) => {
+      // A 400 (INVALID_SUBMISSION) means the request never reached mutation
+      // on the server — no lead/record was ever claimed under this key, so
+      // rotate it before the user edits and resubmits. Any other error
+      // (429, 5xx, network) may have reached the server, so the key is kept
+      // to make a resubmission a safe retry rather than a duplicate.
+      if (/^400:/.test(error?.message || "")) {
+        idempotencyKeyRef.current = null;
+      }
       setSubmitError(getFormErrorMessage(error));
     },
   });

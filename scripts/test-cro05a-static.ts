@@ -214,7 +214,7 @@ check("claimed free-analysis and referral failures persist a safe honest lifecyc
 
 check("statement SMS and PEWC evidence cannot create email consent", () => {
   const statementRoute = routeBody(publicRoutes, "/api/public/statement-upload");
-  assert.match(statementRoute, /incomingConsent:\s*\{\s*consentSms:\s*parseBool\(consentSms\)\s*\}/);
+  assert.match(statementRoute, /incomingConsent:\s*\{\s*consentSms:\s*parseBool\(consentSms\)\s*\?\s*true\s*:\s*undefined\s*\}/);
   assert.match(statementRoute, /channel:\s*"sms"/);
   assert.match(statementRoute, /recordPewcDecision\(/);
   assert.doesNotMatch(statementRoute, /consentEmail\s*:\s*parseBool\(consentSms\)/);

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Shield, X, Settings, Check } from "lucide-react";
+import { applyConsentPreferences, getStoredCookieConsent, saveCookieConsent } from "@/lib/tracking";
 
 type ConsentPreferences = {
   necessary: boolean;
@@ -11,54 +12,37 @@ type ConsentPreferences = {
   functional: boolean;
 };
 
-const CONSENT_KEY = "lb_cookie_consent";
-const CONSENT_PREFS_KEY = "lb_cookie_prefs";
-
-function getStoredConsent(): string | null {
-  try { return localStorage.getItem(CONSENT_KEY); } catch { return null; }
-}
-
-function getStoredPrefs(): ConsentPreferences {
-  try {
-    const raw = localStorage.getItem(CONSENT_PREFS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return { necessary: true, analytics: false, marketing: false, functional: false };
-}
-
-function storeConsent(level: string, prefs: ConsentPreferences) {
-  try {
-    localStorage.setItem(CONSENT_KEY, level);
-    localStorage.setItem(CONSENT_PREFS_KEY, JSON.stringify(prefs));
-  } catch {}
-}
-
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
-  const [prefs, setPrefs] = useState<ConsentPreferences>(getStoredPrefs());
+  const [prefs, setPrefs] = useState<ConsentPreferences>(() => getStoredCookieConsent().preferences);
 
   useEffect(() => {
-    const consent = getStoredConsent();
-    if (!consent) setVisible(true);
+    const stored = getStoredCookieConsent();
+    setPrefs(stored.preferences);
+    if (stored.level) {
+      applyConsentPreferences(stored.preferences);
+    } else {
+      setVisible(true);
+    }
   }, []);
 
   if (!visible) return null;
 
   const acceptAll = () => {
     const all = { necessary: true, analytics: true, marketing: true, functional: true };
-    storeConsent("all", all);
+    saveCookieConsent("all", all);
     setVisible(false);
   };
 
   const rejectNonEssential = () => {
     const essential = { necessary: true, analytics: false, marketing: false, functional: false };
-    storeConsent("essential", essential);
+    saveCookieConsent("essential", essential);
     setVisible(false);
   };
 
   const savePrefs = () => {
-    storeConsent("custom", { ...prefs, necessary: true });
+    saveCookieConsent("custom", { ...prefs, necessary: true });
     setVisible(false);
   };
 

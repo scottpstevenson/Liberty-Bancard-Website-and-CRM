@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
@@ -244,6 +244,7 @@ export default function TerminalShop() {
   const [selectedTerminal, setSelectedTerminal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [promoCode, setPromoCode] = useState(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -312,9 +313,10 @@ export default function TerminalShop() {
       });
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const utmParams = getStoredUTMParams();
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       const response = await fetch("/api/equipment-order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKeyRef.current },
         body: JSON.stringify({ ...form, items: orderItems, referralCode: refCode, promoCode: promoCode || undefined, ...utmParams }),
       });
       if (!response.ok) {

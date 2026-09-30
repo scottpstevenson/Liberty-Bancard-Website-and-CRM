@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,16 +13,25 @@ export function ContactBubble() {
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const submissionIdempotencyKey = useRef<string | null>(null);
   const { toast } = useToast();
+
+  const closeBubble = () => {
+    setOpen(false);
+    setSubmitted(false);
+    submissionIdempotencyKey.current = null;
+  };
 
   const handleSubmit = async () => {
     if (!name.trim() || !phone.trim()) return;
+    submissionIdempotencyKey.current ??= crypto.randomUUID();
     setSubmitting(true);
     try {
       await apiRequest("POST", "/api/public/callback", {
         name, phone, bestTime: "ASAP",
-      });
+      }, { "Idempotency-Key": submissionIdempotencyKey.current });
       setSubmitted(true);
+      submissionIdempotencyKey.current = null;
     } catch (error: any) {
       toast({
         title: "Something went wrong",
@@ -41,7 +50,7 @@ export function ContactBubble() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
               <span className="text-sm font-semibold text-foreground">Need a quick answer?</span>
-              <Button size="icon" variant="ghost" aria-label="Close" onClick={() => setOpen(false)} data-testid="button-bubble-close">
+              <Button size="icon" variant="ghost" aria-label="Close" onClick={closeBubble} data-testid="button-bubble-close">
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -73,7 +82,7 @@ export function ContactBubble() {
       <Button
         size="icon"
         className="rounded-full shadow-lg"
-        onClick={() => setOpen(!open)}
+        onClick={open ? closeBubble : () => setOpen(true)}
         aria-label={open ? "Close contact bubble" : "Open contact bubble"}
         data-testid="button-bubble-toggle"
       >

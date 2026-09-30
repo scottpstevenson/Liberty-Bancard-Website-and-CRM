@@ -29,6 +29,10 @@ export const SITE_HERO_BADGE = "South Florida Merchant Services";
  *   merchants_served:
  *     source: "Internal — CRM cumulative merchant count, last verified Aug 2026"
  *     measuredAs: "Cumulative approved merchant accounts, all-time"
+ *
+ *   processing_volume_annual_m:
+ *     source: "Internal — annual processing volume report, last verified Aug 2026"
+ *     measuredAs: "Annual card processing volume in US dollars, billions"
  */
 export const SITE_STATS = [
   {
@@ -48,6 +52,15 @@ export const SITE_STATS = [
     sublabel: "Across every major vertical",
     source: "Internal — CRM cumulative merchant count, last verified Aug 2026",
     measuredAs: "Cumulative approved merchant accounts, all-time",
+  },
+  {
+    id: "processing_volume_annual_m",
+    value: "$2.4B+",
+    countUpEnd: 2400,
+    label: "Annual Processing Volume",
+    sublabel: "Across merchant processing programs",
+    source: "Internal — annual processing volume report, last verified Aug 2026",
+    measuredAs: "Annual card processing volume in US dollars, billions",
   },
 ] as const;
 

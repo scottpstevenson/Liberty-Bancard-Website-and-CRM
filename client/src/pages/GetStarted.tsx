@@ -207,11 +207,14 @@ export default function GetStarted() {
     return msg || "Please try again or call us at 954-266-8214.";
   }
 
+  const idempotencyKeyRef = useRef<string | null>(null);
+
   const handleSubmit = async () => {
     if (!canProceed()) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const utmParams = getStoredUTMParams();
       await apiRequest("POST", "/api/public/get-started", {
@@ -228,13 +231,20 @@ export default function GetStarted() {
         referralCode: refCode,
         promoCode: promoCode || undefined,
         ...utmParams,
-      });
+      }, { "Idempotency-Key": idempotencyKeyRef.current });
       trackQuizComplete();
       trackFormSubmission("get_started_submission");
       trackConversion("get_started_submission");
       trackConversionV2("get_started_submission");
       setSubmitted(true);
     } catch (error: any) {
+      // A 400 (INVALID_SUBMISSION) never reached mutation on the server, so
+      // no record was claimed under this key — rotate it before the user
+      // edits and resubmits. Any other error keeps the key so a resubmission
+      // is a safe retry rather than a duplicate.
+      if (/^400:/.test(error?.message || "")) {
+        idempotencyKeyRef.current = null;
+      }
       setSubmitError(getFormErrorMessage(error));
     } finally {
       setSubmitting(false);
@@ -349,10 +359,10 @@ export default function GetStarted() {
               <div className="flex flex-col items-center gap-2 py-6 border-t border-border" data-testid="section-no-lockin">
                 <div className="inline-flex items-center gap-2 text-sm text-foreground font-semibold">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  Cancel Anytime. No Early Termination Fee. No Penalty.
+                  Flexible Terms. Most Programs Have No Long-Term Contract.
                 </div>
                 <p className="text-xs text-muted-foreground text-center max-w-sm">
-                  We earn your business every month. No lock-in, no cancellation fees. <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
+                  Some programs include a 1-3 year term with an early termination fee ($295-$595) if canceled early. Ask about our no-ETF options. <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
                 </p>
               </div>
 

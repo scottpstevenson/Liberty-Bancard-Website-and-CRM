@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,16 @@ export function NewsletterSignupInline({ variant = "inline", sourceArticle }: Ne
   const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const subscribe = useMutation({
     mutationFn: async () => {
+      idempotencyKeyRef.current ??= crypto.randomUUID();
       const payload: Record<string, string> = { firstName, email };
       if (sourceArticle) payload.sourceArticle = sourceArticle;
-      const res = await apiRequest("POST", "/api/newsletter/subscribe", payload);
+      const res = await apiRequest("POST", "/api/newsletter/subscribe", payload, {
+        "Idempotency-Key": idempotencyKeyRef.current,
+      });
       return res.json();
     },
     onSuccess: () => {

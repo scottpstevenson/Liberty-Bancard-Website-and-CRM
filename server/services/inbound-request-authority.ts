@@ -718,6 +718,53 @@ export async function orchestrateInboundRequest(input: {
   }
 }
 
+/**
+ * An ambiguous callback has sales intent, but no safe contact identity.
+ * Keep its sales effects held until an operator resolves identity. A
+ * request-keyed notification is the actionable, contactless review handoff.
+ * Both the handoff and review state commit atomically.
+ */
+export async function queueAmbiguousCallbackReview(input: {
+  requestId: string;
+  candidateContactIds: number[];
+  name: string;
+  phone: string;
+  bestTime?: string;
+}): Promise<InboundRequest> {
+  if (input.candidateContactIds.length < 2) throw new Error("CALLBACK_REVIEW_REQUIRES_MULTIPLE_CANDIDATES");
+  const request = await getInboundRequestById(input.requestId);
+  if (!request || request.sourceCategory !== "website_form" || request.sourceType !== "callback_form") {
+    throw new Error("CALLBACK_REVIEW_REQUEST_NOT_FOUND");
+  }
+  const dueAt = inboundSlaDueAt("sales_request", request.sourceReceivedAt);
+  const commandKey = `inbound:${request.id}:callback-identity-review`;
+  return db.transaction(async (tx) => {
+    await tx.insert(notifications).values({
+      inboundRequestId: request.id,
+      commandKey,
+      channel: "#sales",
+      title: "Callback identity needs review",
+      message: `Callback from ${input.name} (${input.phone}); best time: ${input.bestTime || "Anytime"}. Multiple contacts match this number. Review request ${request.id} before attaching to a contact or creating sales work.`,
+      type: "alert",
+      metadata: { candidateContactIds: [...new Set(input.candidateContactIds)], dueAt: dueAt?.toISOString() },
+    }).onConflictDoNothing();
+    const [notice] = await tx.select({ id: notifications.id }).from(notifications)
+      .where(and(eq(notifications.inboundRequestId, request.id), eq(notifications.commandKey, commandKey))).limit(1);
+    if (!notice) throw new Error("CALLBACK_REVIEW_NOTIFICATION_MISSING");
+    const [updated] = await tx.update(inboundRequests).set({
+      lifecycleState: "review_required",
+      terminalReason: "AMBIGUOUS_CALLBACK_IDENTITY",
+      assignmentStatus: "review_required",
+      slaDueAt: dueAt,
+      updatedAt: new Date(),
+    }).where(eq(inboundRequests.id, request.id)).returning();
+    if (!updated) throw new Error("CALLBACK_REVIEW_REQUEST_NOT_FOUND");
+    // Sales assignment, work, SLA, and external effects remain held; no
+    // candidate is treated as the owner merely because their number matches.
+    return updated;
+  });
+}
+
 export async function getInboundRequestById(id: string): Promise<InboundRequest | null> {
   const [row] = await db.select().from(inboundRequests).where(eq(inboundRequests.id, id)).limit(1);
   return row || null;
