@@ -1326,12 +1326,16 @@ export async function previewPreCohortClassification(programId: string, options:
        ${businessFilter ? sql`AND id=ANY(ARRAY[${sql.join(businessFilter.map((id) => sql`${id}`), sql`, `)}]::integer[])` : sql``}
      ORDER BY id
   `));
-  const ids = candidates.map((row: any) => Number(row.id));
-  const locationRows = ids.length ? rows(await db.execute(sql`
-    SELECT id,business_id,is_primary,city,state,postal_code,county_fips
-      FROM business_locations
-     WHERE business_id=ANY(ARRAY[${sql.join(ids.map((id: number) => sql`${id}`), sql`, `)}]::integer[])
-     ORDER BY business_id,id
+  // The unfiltered preview may include more canonical businesses than the
+  // PostgreSQL bind-parameter limit. Reuse the same candidate predicate in a
+  // join instead of serializing every candidate ID into the location query.
+  const locationRows = candidates.length ? rows(await db.execute(sql`
+    SELECT l.id,l.business_id,l.is_primary,l.city,l.state,l.postal_code,l.county_fips
+      FROM business_locations l
+      JOIN businesses b ON b.id=l.business_id
+     WHERE b.record_class='canonical'
+       ${businessFilter ? sql`AND b.id=ANY(ARRAY[${sql.join(businessFilter.map((id) => sql`${id}`), sql`, `)}]::integer[])` : sql``}
+     ORDER BY l.business_id,l.id
   `)) : [];
   const locations = new Map<number, LocationCandidateInput[]>();
   for (const location of locationRows) {
@@ -1352,16 +1356,28 @@ export async function previewPreCohortClassification(programId: string, options:
     return result.outcome === "resolved" && counties.includes(String(result.countyFips));
   });
   const idsLocal = local.map((business: any) => Number(business.id));
-  const hardExclusions = await getSfpBusinessHardExclusionReasons(idsLocal);
-  const businessSuppression = await getBusinessWideSuppressionExclusions(idsLocal);
-  const currentEvidence = idsLocal.length ? rows(await db.execute(sql`
-    SELECT DISTINCT ON (business_id) business_id,outcome,evidence_hash
-      FROM sfp_classification_evidence
-     WHERE policy_version=${Number(program.policy_version)} AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion}
-       AND terminal_state='completed'
-       AND business_id=ANY(ARRAY[${sql.join(idsLocal.map((id) => sql`${id}`), sql`, `)}]::integer[])
-     ORDER BY business_id,created_at DESC,evidence_hash ASC
-  `)) : [];
+  const hardExclusions = new Map<number, string>();
+  const businessSuppression = new Set<number>();
+  const currentEvidence: any[] = [];
+  // These lookups also bind each local business ID. Keep each query below the
+  // bind limit without changing the ordered evidence used in snapshotHash.
+  for (let offset = 0; offset < idsLocal.length; offset += 4000) {
+    const chunk = idsLocal.slice(offset, offset + 4000);
+    for (const [id, reason] of await getSfpBusinessHardExclusionReasons(chunk)) {
+      hardExclusions.set(id, reason);
+    }
+    for (const id of await getBusinessWideSuppressionExclusions(chunk)) {
+      businessSuppression.add(id);
+    }
+    currentEvidence.push(...rows(await db.execute(sql`
+      SELECT DISTINCT ON (business_id) business_id,outcome,evidence_hash
+        FROM sfp_classification_evidence
+       WHERE policy_version=${Number(program.policy_version)} AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion}
+         AND terminal_state='completed'
+         AND business_id=ANY(ARRAY[${sql.join(chunk.map((id) => sql`${id}`), sql`, `)}]::integer[])
+       ORDER BY business_id,created_at DESC,evidence_hash ASC
+    `)));
+  }
   const evidenceById = new Map(currentEvidence.map((r: any) => [Number(r.business_id), r]));
   const eligibleForRun = local.filter((business: any) => {
     const id = Number(business.id);
