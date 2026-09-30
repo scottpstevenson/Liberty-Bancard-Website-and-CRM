@@ -33,6 +33,7 @@ type SfpProgram = {
   maxCohortSize: number;
   isActive: boolean;
   recurringEnabled: boolean;
+  campaignStagingBatchSize: number;
   activatedAt: string | null;
   policyVersion?: number;
   taxonomyVersion: 1 | 2;
@@ -243,8 +244,6 @@ export function SouthFloridaProspectingPanel() {
   const [showFunnel, setShowFunnel] = useState(false);
   const [maxCohort, setMaxCohort] = useState(25);
   const [freeBatchSize, setFreeBatchSize] = useState(100);
-  const [lastPaidResult, setLastPaidResult] = useState<any>(null);
-  const [serperBatchSize, setSerperBatchSize] = useState(1);
   // Generated once per logical freeze attempt and retained across
   // retry/reload via localStorage (VFC-06) — a plain useState initializer
   // resets on every page reload, which silently turned every post-reload
@@ -474,12 +473,13 @@ export function SouthFloridaProspectingPanel() {
   });
 
   const setActivation = useMutation({
-    mutationFn: async (active: boolean) => (await apiRequest("POST", "/api/lead-ops/sfp/program/activation", {
-      active, recurringEnabled: false,
+    mutationFn: async (input: { active: boolean; recurringEnabled: boolean }) => (await apiRequest("POST", "/api/lead-ops/sfp/program/activation", {
+      active: input.active, recurringEnabled: input.recurringEnabled,
     })).json(),
     onSuccess: () => {
-      toast({ title: program?.isActive ? "Program paused" : "Program activated" });
+      toast({ title: "South Florida enrichment program updated" });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/program"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"] });
     },
     onError: (e: any) => toast({ title: "Activation failed", description: e?.message, variant: "destructive" }),
   });
@@ -573,62 +573,6 @@ export function SouthFloridaProspectingPanel() {
     onError: (e: any) => toast({ title: "Free discovery failed", description: e?.message, variant: "destructive" }),
   });
 
-  const armSerperPilot = useMutation({
-    mutationFn: async () => {
-      if (!activeRunId) throw new Error("No frozen cohort selected");
-      const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/serper/arm-pilot`, {
-        maxBusinesses: serperBatchSize,
-        reason: "Bounded SFP domain-discovery pilot for frozen cohort",
-      });
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      toast({ title: "Serper pilot armed", description: `At most ${data.maxAdditionalRequests} additional requests. No call made yet.` });
-      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`] });
-    },
-    onError: (e: any) => toast({ title: "Serper pilot blocked", description: e?.message, variant: "destructive" }),
-  });
-
-  const runSerperDiscovery = useMutation({
-    mutationFn: async () => {
-      if(!activeRunId) throw new Error("No active run");
-      const res=await apiRequest("POST",`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/serper`,{
-        idempotencyKey:`sfp-serper-${discoveryIdempotencyKey}`,maxBusinesses:serperBatchSize,
-        previewSnapshotHash:cohortCostPreviewQuery.data?.snapshotHash,
-      });
-      return res.json();
-    },
-    onSuccess:(data:any)=>{
-      toast({title:"Serper discovery completed",description:`${data.succeeded} matched · ${data.noResult} no result · ${data.failed} failed`});
-      const nextKey = crypto.randomUUID();
-      try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, nextKey); } catch { /* best-effort */ }
-      setDiscoveryIdempotencyKey(nextKey);
-      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`]});
-      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`]});
-      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`]});
-    },
-    onError:(e:any)=>toast({title:"Paid discovery blocked",description:e?.message,variant:"destructive"}),
-  });
-  const runPaidWaterfall = useMutation({
-    mutationFn: async () => {
-      if (!activeRunId || !cohortCostPreviewQuery.data?.snapshotHash) throw new Error("Load the current cost preview before execution");
-      const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/person-identity`, {
-        idempotencyKey: `sfp-paid-${discoveryIdempotencyKey}`, maxBusinesses: 10,
-        previewSnapshotHash: cohortCostPreviewQuery.data.snapshotHash,
-      });
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      setLastPaidResult(data);
-      toast({ title: "Paid waterfall completed", description: `${data.succeeded} succeeded · ${data.failed} failed · ${data.skipped} skipped` });
-      const nextKey = crypto.randomUUID();
-      try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, nextKey); } catch { /* best-effort */ }
-      setDiscoveryIdempotencyKey(nextKey);
-      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/candidates`] });
-    },
-    onError: (e: any) => toast({ title: "Paid waterfall blocked", description: e?.message, variant: "destructive" }),
-  });
   const runPhaseAClassification = useMutation({
     mutationFn: async () => {
       const currentProgram = programQuery.data;
@@ -793,9 +737,16 @@ export function SouthFloridaProspectingPanel() {
                   {program.isActive ? "Active" : "Inactive"}
                 </Badge>
                 <Button size="sm" variant={program.isActive ? "outline" : "default"}
-                  onClick={() => setActivation.mutate(!program.isActive)} disabled={setActivation.isPending}>
+                  onClick={() => setActivation.mutate({ active: !program.isActive, recurringEnabled: false })} disabled={setActivation.isPending}>
                   {program.isActive ? "Pause program" : "Activate program"}
                 </Button>
+                {program.isActive && (
+                  <Button size="sm" variant={program.recurringEnabled ? "outline" : "default"}
+                    onClick={() => setActivation.mutate({ active: true, recurringEnabled: !program.recurringEnabled })}
+                    disabled={setActivation.isPending}>
+                    {program.recurringEnabled ? "Pause recurring enrichment" : "Enable recurring enrichment"}
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -814,6 +765,10 @@ export function SouthFloridaProspectingPanel() {
                   {f === "12011" ? "Broward" : f === "12086" ? "Miami-Dade" : f === "12099" ? "Palm Beach" : f}
                 </Badge>
               ))}
+            </div>
+            <div className="text-xs mt-2">
+              Recurring enrichment: <span className={program.recurringEnabled ? "text-green-700 font-medium" : "text-muted-foreground"}>{program.recurringEnabled ? "on" : "off"}</span>
+              {program.recurringEnabled && ` · campaign staging drain enabled (per-call chunk ${program.campaignStagingBatchSize || 25}; the worker drains backlog)`}
             </div>
             <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
               <Lock className="h-3 w-3" />
@@ -1264,31 +1219,13 @@ export function SouthFloridaProspectingPanel() {
                 </div>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-2 mt-3">
-              <span className="text-xs font-medium">
+            <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
+              <span className="font-medium">
                 {paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery · {paidPreviewQuery.data?.serperEligibleNow ?? 0} eligible for Serper now
               </span>
-              <label className="text-xs" htmlFor="sfp-serper-batch-size">Pilot businesses</label>
-              <input id="sfp-serper-batch-size" type="number" min={1} max={10} value={serperBatchSize}
-                onChange={(e) => setSerperBatchSize(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
-                className="border rounded px-2 py-1 text-xs w-16" />
-              <Button size="sm" variant="outline" onClick={() => armSerperPilot.mutate()}
-                disabled={armSerperPilot.isPending || !activeRunId || !paidPreviewQuery.data?.serperEligibleNow}>
-                Arm Serper pilot (at most {serperBatchSize * 4} requests)
-              </Button>
-              <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
-                disabled={runSerperDiscovery.isPending || !paidPreviewQuery.data?.serperEligibleNow || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
-                {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
-                Run Serper discovery ({serperBatchSize} business{serperBatchSize === 1 ? "" : "es"})
-              </Button>
               {paidPreviewQuery.data?.serperEligibleNow === 0 && (paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0) > 0 && (
-                <span className="text-xs text-muted-foreground">No paid retry is due in this frozen cohort. A larger new cohort can include unattempted businesses; recent no-results become retryable after 24 hours.</span>
+                <span className="text-muted-foreground">No paid retry is due in this frozen cohort. Recent no-results become retryable after the configured cooldown.</span>
               )}
-              <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
-                disabled={runPaidWaterfall.isPending || !cohortCostPreviewQuery.data?.snapshotHash}>
-                {runPaidWaterfall.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                Outscraper + Apollo (max 10)
-              </Button>
             </div>
             {cohortCostPreviewQuery.data && (
               <div className="mt-3 space-y-1 text-xs">
@@ -1301,20 +1238,11 @@ export function SouthFloridaProspectingPanel() {
                 <div>Estimated {fmtMicros(cohortCostPreviewQuery.data.totalEstimatedCostMicros)} · worst case {fmtMicros(cohortCostPreviewQuery.data.totalWorstCaseCostMicros)}</div>
               </div>
             )}
-            {lastPaidResult?.gapVectors?.length > 0 && (
-              <div className="mt-2 text-xs">
-                <div className="font-medium">Per-business gap vectors (before → after)</div>
-                {lastPaidResult.gapVectors.map((vector: any) => (
-                  <div key={vector.businessId}>Business {vector.businessId}: {vector.before.filter((g: any) => g.open).map((g: any) => g.dimension).join(", ") || "none"} → {vector.after.filter((g: any) => g.open).map((g: any) => g.dimension).join(", ") || "none"}</div>
-                ))}
-              </div>
-            )}
             <p className="text-xs text-muted-foreground mt-2">
               {paidPreviewQuery.data?.note ?? "Loading provider controls…"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Arm sets the canonical Serper control to allow at most the selected batch's requests beyond current spent and reserved units; it makes no provider call.
-              A completed or no-result business is skipped on later batches of this cohort.
+              Discovery runs continuously from the scheduled worker and stops only on provider controls, the shared budget, retry/cooldown rules, or the worker time-safety bound. Provider caps are managed in the Enrichment Control Center.
             </p>
           </CardContent>
         </Card>
