@@ -171,6 +171,23 @@ export async function getSfpProviderReadiness(
   if (control.local_budget_units == null) return { ready: false, reason: `provider_budget_unset:${controlProvider}` };
   const headroom = Number(control.local_budget_units) - Number(control.reserved_units) - Number(control.consumed_units);
   if (headroom <= 0) return { ready: false, reason: `provider_budget_exhausted:${controlProvider}` };
+  // Serper is the only provider with a legacy gateway singleton that also
+  // gates transport. Both controls must be healthy and the legacy monthly
+  // call window must have room; checking provider_controls alone caused a
+  // continuous worker to churn through batches after the gateway had already
+  // reached its smaller cap.
+  if (provider === "serper") {
+    const gateway = rows(await db.execute(sql`
+      SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1
+    `))[0];
+    if (!gateway) return { ready: false, reason: "serper_gateway_control_missing" };
+    if (!gateway.enabled) return { ready: false, reason: "serper_gateway_disabled" };
+    if (gateway.state !== "closed") return { ready: false, reason: `serper_gateway_circuit_${gateway.state}` };
+    if (gateway.local_budget == null) return { ready: false, reason: "serper_gateway_budget_unset" };
+    if (Number(gateway.local_budget) - Number(gateway.window_calls) <= 0) {
+      return { ready: false, reason: "serper_gateway_budget_exhausted" };
+    }
+  }
   if (!process.env[SECRET_KEY[provider]]) return { ready: false, reason: `credential_missing:${SECRET_KEY[provider]}` };
   return { ready: true, reason: null };
 }
@@ -295,10 +312,11 @@ export async function reserveSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       INSERT INTO provider_operations
         (provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
-         state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at)
+         state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,
+         unit_price_micros,started_at)
       VALUES (${controlProvider},'sfp_enrichment',${input.purpose},${input.idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-              NOW()+INTERVAL '5 minutes',NOW()) RETURNING id
+              NOW()+INTERVAL '5 minutes',${amountMicros},NOW()) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
@@ -414,10 +432,11 @@ export async function reservePreCohortSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       INSERT INTO provider_operations
         (provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
-         state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at)
+         state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,
+         unit_price_micros,started_at)
       VALUES (${controlProvider},'sfp_precohort_classification',${input.purpose},${input.idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-              NOW()+INTERVAL '5 minutes',NOW()) RETURNING id
+              NOW()+INTERVAL '5 minutes',${amountMicros},NOW()) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
@@ -446,6 +465,7 @@ export async function settlePreCohortSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
        UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
              billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
+              settled_cost_micros=${input.outcome === "ambiguous" ? null : settledMicros},
               sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
         WHERE id=${input.reservation.operationId}::uuid
@@ -472,8 +492,9 @@ export async function settlePreCohortSfpProviderOperation(input: {
        RETURNING id
     `))[0];
     if (!attempt) throw new Error("SFP_PROVIDER_SETTLEMENT_ATTEMPT_MISSING");
+    const releaseReservedUnits = input.outcome === "ambiguous" ? 0 : input.reservation.units;
     await tx.execute(sql`
-      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
+      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${releaseReservedUnits}),
              consumed_units=consumed_units+${settledUnits},
              last_completed_at=${completed ? sql`NOW()` : sql`last_completed_at`},last_outcome=${input.observation},
              version=version+1,updated_at=NOW() WHERE provider=${input.reservation.controlProvider}
@@ -483,9 +504,10 @@ export async function settlePreCohortSfpProviderOperation(input: {
       VALUES (${input.reservation.controlProvider},${input.reservation.operationId}::uuid,${attempt ? String(attempt.id) : null}::uuid,
               'business',${input.businessId},NULL,${input.observation},${!completed})
     `);
+    const releaseReservedMicros = input.outcome === "ambiguous" ? 0 : input.reservation.amountMicros * input.reservation.units;
     await tx.execute(sql`
       UPDATE sfp_classification_runs
-         SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${input.reservation.amountMicros * input.reservation.units}),
+         SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${releaseReservedMicros}),
              settled_cost_micros=settled_cost_micros+${settledMicros},updated_at=NOW()
        WHERE id=${input.reservation.runId}::uuid
     `);
@@ -576,6 +598,7 @@ export async function settleSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
              billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
+              settled_cost_micros=${input.outcome === "ambiguous" ? null : settledMicros},
               sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
        WHERE id=${input.reservation.operationId}::uuid
@@ -602,8 +625,9 @@ export async function settleSfpProviderOperation(input: {
        RETURNING id
     `))[0];
     if (!attempt) throw new Error("SFP_PROVIDER_SETTLEMENT_ATTEMPT_MISSING");
+    const releaseReservedUnits = input.outcome === "ambiguous" ? 0 : input.reservation.units;
     await tx.execute(sql`
-      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
+      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${releaseReservedUnits}),
              consumed_units=consumed_units+${settledUnits},
              last_completed_at=${completed ? sql`NOW()` : sql`last_completed_at`},last_outcome=${input.observation},
              version=version+1,updated_at=NOW() WHERE provider=${input.reservation.controlProvider}
@@ -618,8 +642,9 @@ export async function settleSfpProviderOperation(input: {
              outcome_code=${input.observation},completed_at=NOW(),updated_at=NOW()
        WHERE provider_operation_id=${input.reservation.operationId}::uuid
     `);
+    const releaseReservedMicros = input.outcome === "ambiguous" ? 0 : input.reservation.amountMicros * input.reservation.units;
     await tx.execute(sql`
-      UPDATE sfp_stage_runs SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${input.reservation.amountMicros * input.reservation.units}),
+      UPDATE sfp_stage_runs SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${releaseReservedMicros}),
              settled_cost_micros=settled_cost_micros+${settledMicros},processed_count=processed_count+1,
              succeeded_count=succeeded_count+${completed ? 1 : 0},failed_count=failed_count+${completed ? 0 : 1},
              last_heartbeat_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.stageRunId}::uuid
