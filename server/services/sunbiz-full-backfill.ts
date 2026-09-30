@@ -77,7 +77,11 @@ export interface SunbizBackfillStatus {
   status: "idle" | "running" | "paused" | "completed" | "failed";
   highWaterEntityId: number;
   totalEntities: number | null;
-  remainingEligible: number;
+  remainingEligible: number | null;
+  remainingEligibleAvailable: boolean;
+  remainingEligibleIsFloor: boolean;
+  remainingEligibleUnavailableReason: string | null;
+  measuredAt: string;
   processedCount: number;
   deadLetterCount: number;
   lastBatchAt: string | null;
@@ -101,13 +105,17 @@ export interface SunbizBackfillStatus {
     highWaterEntityId: number;
     processedCount: number;
     deadLetterCount: number;
-    remainingEligible: number;
+    remainingEligible: number | null;
+    remainingEligibleAvailable: boolean;
+    remainingEligibleIsFloor: boolean;
   };
   remainingUniverse: {
     highWaterEntityId: number;
     processedCount: number;
     deadLetterCount: number;
-    remainingEligible: number;
+    remainingEligible: number | null;
+    remainingEligibleAvailable: boolean;
+    remainingEligibleIsFloor: boolean;
   };
   /**
    * Task #2002 corrective patch: truthful worker-capability evidence.
@@ -176,21 +184,19 @@ async function countRemainingEligible(
   afterId: number,
   geography: "south_florida" | "any",
 ): Promise<{ count: number; isFloor: boolean }> {
-  if (geography === "any") {
-    const result = rows(await db.execute(sql`
-      SELECT COUNT(*)::bigint AS n FROM sunbiz_entities se
+  const sampleRows = await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL statement_timeout = '2500ms'`);
+    return rows(await tx.execute(sql`
+      SELECT se.principal_state, se.principal_city, se.principal_zip
+      FROM sunbiz_entities se
       WHERE ${BASE_ELIGIBILITY_SQL} AND se.id > ${afterId}
-    `))[0] as any;
-    return { count: Number(result?.n ?? 0), isFloor: false };
+      ORDER BY se.id ASC
+      LIMIT ${REMAINING_COUNT_SAMPLE_CAP}
+    `)) as any[];
+  });
+  if (geography === "any") {
+    return { count: sampleRows.length, isFloor: sampleRows.length === REMAINING_COUNT_SAMPLE_CAP };
   }
-
-  const sampleRows = rows(await db.execute(sql`
-    SELECT se.principal_state, se.principal_city, se.principal_zip
-    FROM sunbiz_entities se
-    WHERE ${BASE_ELIGIBILITY_SQL} AND se.id > ${afterId}
-    ORDER BY se.id ASC
-    LIMIT ${REMAINING_COUNT_SAMPLE_CAP}
-  `)) as any[];
   const { isSouthFloridaEligible } = await import("./sunbiz-bootstrap");
   const eligibleInSample = sampleRows.filter((r) =>
     isSouthFloridaEligible({
@@ -214,16 +220,19 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
     FROM sunbiz_bootstrap_runs WHERE id = ${RUN_ID}
   `))[0] as any;
 
-  const emptyLane = { highWaterEntityId: 0, processedCount: 0, deadLetterCount: 0, remainingEligible: 0 };
+  const emptyLane = { highWaterEntityId: 0, processedCount: 0, deadLetterCount: 0, remainingEligible: null };
   if (!run) {
     // Table/seed row not provisioned yet in this environment (e.g. before a
     // deploy has run the migration) -- report a truthful "not set up" idle
     // state rather than throwing or fabricating numbers.
     return {
-      status: "idle", highWaterEntityId: 0, totalEntities: null, remainingEligible: 0,
+      status: "idle", highWaterEntityId: 0, totalEntities: null, remainingEligible: null,
+      remainingEligibleAvailable: false, remainingEligibleIsFloor: false,
+      remainingEligibleUnavailableReason: "backfill_run_not_provisioned", measuredAt: new Date().toISOString(),
       processedCount: 0, deadLetterCount: 0, lastBatchAt: null, lastError: null, leaseHeld: false,
       phase: "south_florida", geographyReferenceVersion: CRO03A_GEOGRAPHY_REFERENCE_VERSION,
-      southFlorida: emptyLane, remainingUniverse: emptyLane,
+      southFlorida: { ...emptyLane, remainingEligible: null, remainingEligibleAvailable: false, remainingEligibleIsFloor: false },
+      remainingUniverse: { ...emptyLane, remainingEligible: null, remainingEligibleAvailable: false, remainingEligibleIsFloor: false },
       workerCapability: computeWorkerCapability(),
     };
   }
@@ -231,10 +240,17 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
   const sofloAfterId = Number(run.soflo_high_water_entity_id ?? 0);
   const remainingAfterId = Number(run.remaining_high_water_entity_id ?? 0);
 
-  const [sofloRemaining, remainingRemaining] = await Promise.all([
+  const [sofloResult, remainingResult] = await Promise.allSettled([
     countRemainingEligible(sofloAfterId, "south_florida"),
     countRemainingEligible(remainingAfterId, "any"),
   ]);
+  const sofloRemaining = sofloResult.status === "fulfilled" ? sofloResult.value : null;
+  const remainingRemaining = remainingResult.status === "fulfilled" ? remainingResult.value : null;
+  const remainingAvailable = Boolean(sofloRemaining && remainingRemaining);
+  const remainingSum = remainingAvailable ? sofloRemaining!.count + remainingRemaining!.count : null;
+  const unavailableReason = remainingAvailable
+    ? null
+    : String((sofloResult.status === "rejected" ? sofloResult.reason : remainingResult.status === "rejected" ? remainingResult.reason : "count_unavailable")?.code ?? "count_unavailable");
 
   const leaseHeld = !!run.lease_owner && run.lease_expires_at && new Date(run.lease_expires_at).getTime() > Date.now();
 
@@ -242,7 +258,11 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
     status: run.status,
     highWaterEntityId: Number(run.high_water_entity_id),
     totalEntities: run.total_entities == null ? null : Number(run.total_entities),
-    remainingEligible: sofloRemaining.count + remainingRemaining.count,
+    remainingEligible: remainingSum,
+    remainingEligibleAvailable: remainingAvailable,
+    remainingEligibleIsFloor: Boolean(sofloRemaining?.isFloor || remainingRemaining?.isFloor),
+    remainingEligibleUnavailableReason: unavailableReason,
+    measuredAt: new Date().toISOString(),
     processedCount: Number(run.processed_count),
     deadLetterCount: Number(run.dead_letter_count),
     lastBatchAt: run.last_batch_at ? new Date(run.last_batch_at).toISOString() : null,
@@ -254,13 +274,17 @@ export async function getSunbizFullBackfillStatus(): Promise<SunbizBackfillStatu
       highWaterEntityId: sofloAfterId,
       processedCount: Number(run.soflo_processed_count ?? 0),
       deadLetterCount: Number(run.soflo_dead_letter_count ?? 0),
-      remainingEligible: sofloRemaining.count,
+      remainingEligible: sofloRemaining?.count ?? null,
+      remainingEligibleAvailable: sofloRemaining !== null,
+      remainingEligibleIsFloor: sofloRemaining?.isFloor ?? false,
     },
     remainingUniverse: {
       highWaterEntityId: remainingAfterId,
       processedCount: Number(run.remaining_processed_count ?? 0),
       deadLetterCount: Number(run.remaining_dead_letter_count ?? 0),
-      remainingEligible: remainingRemaining.count,
+      remainingEligible: remainingRemaining?.count ?? null,
+      remainingEligibleAvailable: remainingRemaining !== null,
+      remainingEligibleIsFloor: remainingRemaining?.isFloor ?? false,
     },
     workerCapability: computeWorkerCapability(),
   };

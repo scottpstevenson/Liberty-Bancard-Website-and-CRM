@@ -16,20 +16,54 @@
 
 import { sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
+import { hashEmailToken } from "../provider-readiness-control";
 import { db } from "../../db";
-import { getActiveSfpOutreachPolicy } from "./sfp-outreach-policy";
+import { getActiveSfpOutreachPolicy, evaluateSfpEmailTypePolicy } from "./sfp-outreach-policy";
 import { isCanonicallySuppressed } from "./sfp-outreach-policy";
 import { businessLacksDbprLineageSql } from "../dbpr";
 import { getCurrentPackageForVertical, computeLivePackageContentHash } from "./sfp-campaign-packages";
 import { openSfpCandidatePlaintext } from "./sfp-paid-evidence-writer";
 import { evaluateSfpMutableSafetyGates, lookupConsentTierByEmailHash } from "./sfp-outreach-policy";
 import { getOrCreateStageRun, ensureStageItem, markStageItemCompletedInTx, markStageItemDeadLetter, reconcileStageRunCounters } from "./sfp-stage-ledger";
+import { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const MAX_BATCH_SIZE = 25;
+export function isFrozenV2ClassificationAdmissible(input: {
+  targetVertical: unknown;
+  classifierVersion: unknown;
+  taxonomyVersion: unknown;
+  currentTaxonomyVersion: unknown;
+  classificationPolicyVersion: unknown;
+  currentPolicyVersion: unknown;
+  decisionTarget: unknown;
+  evidenceTarget: unknown;
+  evidenceOutcome: unknown;
+  decisionEvidenceHash: unknown;
+  evidenceHash: unknown;
+}): boolean {
+  const target = String(input.targetVertical ?? "");
+  return Number(input.taxonomyVersion) === TAXONOMY_VERSION_V2 &&
+    Number(input.currentTaxonomyVersion) === TAXONOMY_VERSION_V2 &&
+    Number(input.classifierVersion) === CLASSIFIER_VERSION &&
+    input.classificationPolicyVersion != null &&
+    Number(input.classificationPolicyVersion) === Number(input.currentPolicyVersion) &&
+    input.decisionEvidenceHash === input.evidenceHash &&
+    input.decisionTarget === input.evidenceTarget &&
+    input.evidenceOutcome === "target" &&
+    SFP_TARGET_VERTICALS_V2.includes(target as any);
+}
 
 function sha256(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function normalizedContactHash(email: unknown, version: unknown): string | null {
+  const normalizedEmail = String(email ?? "").trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes("@")) return null;
+  if (Number(version) === 0) return createHash("sha256").update(normalizedEmail).digest("hex");
+  if (Number(version) === 1) return createHash("sha256").update(`email\u0000${normalizedEmail}`).digest("hex");
+  return null;
 }
 
 export class SfpStagingV2Error extends Error {
@@ -42,7 +76,7 @@ export class SfpStagingV2Error extends Error {
 export interface StagingV2PreviewRow {
   eligibilityId: string;
   businessId: number;
-  sourceKind: "free" | "paid";
+  sourceKind: "free" | "paid" | "contact";
   vertical: string | null;
   packageKey: string | null;
   disposition: "eligible" | "blocked";
@@ -60,6 +94,14 @@ export interface StagingV2PreviewRow {
   policyDocumentHash?: string;
   validationExpiresAt?: string;
   validationAgeSeconds?: number;
+  sourceContactLinkDecisionId?: string;
+  sourceContactLinkRevision?: number;
+  normalizedValueHashVersion?: number;
+  sourceReferenceId?: string;
+  normalizedValueHash?: string;
+  classificationEvidenceId?: string;
+  classificationEvidenceHash?: string;
+  eligibilityReviewId?: string;
 }
 
 export interface StagingV2Preview {
@@ -155,11 +197,67 @@ export async function previewStagingV2(opts: {
   const activePolicy = await getActiveSfpOutreachPolicy();
   const eligibilityRows = rows(await db.execute(sql`
     SELECT soe.id, soe.business_id, soe.source_kind, soe.candidate_id, soe.paid_candidate_evidence_id,
-           soe.status, soe.validation_at, soe.validation_expires_at, soe.masked_email, soe.staging_intent_id,
-           soe.normalized_value_hash, soe.policy_version,
-           b.vertical
+           soe.contact_id, soe.named_contact, soe.role_inbox,
+            soe.status, soe.validation_at, soe.validation_expires_at, soe.masked_email, soe.staging_intent_id,
+           soe.normalized_value_hash, soe.normalized_value_hash_version,
+           soe.contact_business_link_decision_id, soe.contact_business_link_revision, soe.policy_version,
+            soe.updated_at AS eligibility_updated_at, soe.zb_outcome, soe.raw_provider_status,
+             soe.suppression_status, soe.validation_operation_id, soe.reused_from_operation_id,
+           b.vertical AS raw_vertical,
+           d.classifier_matched_target, d.classifier_version, d.classification_evidence_id,
+           d.classification_policy_version, d.classification_evidence_hash,
+           ce.taxonomy_version, ce.outcome AS evidence_outcome, ce.resolved_vertical_id,
+           ce.evidence_hash AS evidence_hash, p.taxonomy_version AS current_taxonomy_version,
+           p.policy_version AS current_classification_policy_version,
+           c_link.id AS source_contact_link_decision_id, c_link.revision AS source_contact_link_revision,
+            c_link.email AS source_contact_email, c_link.email_token_hash AS source_contact_email_token_hash,
+            eligibility_review.id AS eligibility_review_id
     FROM sfp_outreach_eligibility soe
     JOIN businesses b ON b.id = soe.business_id
+    JOIN sfp_cohort_decisions d
+      ON d.cohort_run_id = soe.cohort_run_id AND d.business_id = soe.business_id AND d.selected = TRUE
+    JOIN sfp_classification_evidence ce ON ce.id = d.classification_evidence_id
+    JOIN sfp_cohort_runs cr ON cr.id = soe.cohort_run_id
+    JOIN sfp_programs p ON p.id = cr.program_id
+    LEFT JOIN LATERAL (
+      SELECT c.email, c.email_token_hash, d.id, d.revision
+        FROM contacts c
+        JOIN contact_business_link_decisions d ON d.contact_id=c.id
+       WHERE c.id=soe.contact_id AND c.business_id=soe.business_id
+         AND c.archived_at IS NULL
+         AND d.business_id=soe.business_id AND d.decision='verified' AND d.superseded_at IS NULL
+       ORDER BY d.revision DESC
+       LIMIT 1
+    ) c_link ON soe.source_kind='contact'
+    LEFT JOIN LATERAL (
+      SELECT r.id
+        FROM sfp_named_email_eligibility_reviews r
+       WHERE r.eligibility_id=soe.id AND r.decision='approved'
+         AND r.id=(SELECT rr.id FROM sfp_named_email_eligibility_reviews rr
+                    WHERE rr.eligibility_id=soe.id ORDER BY rr.created_at DESC,rr.id DESC LIMIT 1)
+         AND r.expected_updated_at=soe.updated_at
+         AND r.policy_document_id=${activePolicy.id}::uuid
+         AND r.policy_document_hash=${activePolicy.documentHash}
+         AND r.validation_operation_id=COALESCE(soe.validation_operation_id,soe.reused_from_operation_id)
+         AND r.source_kind=soe.source_kind
+         AND r.source_reference_id=CASE soe.source_kind
+           WHEN 'free' THEN soe.candidate_id::text
+           WHEN 'paid' THEN soe.paid_candidate_evidence_id::text
+           WHEN 'contact' THEN soe.contact_id::text
+           ELSE '' END
+         AND r.contact_business_link_decision_id IS NOT DISTINCT FROM soe.contact_business_link_decision_id
+         AND r.contact_business_link_revision IS NOT DISTINCT FROM soe.contact_business_link_revision
+         AND r.normalized_value_hash=soe.normalized_value_hash
+         AND r.normalized_value_hash_version=soe.normalized_value_hash_version
+         AND r.validation_expires_at=soe.validation_expires_at
+         AND EXISTS (
+           SELECT 1 FROM provider_observations po
+            WHERE po.operation_id=r.validation_operation_id
+              AND po.subject_type='business' AND po.subject_id=soe.business_id
+              AND po.provider='zerobounce' AND po.outcome='valid'
+         )
+       ORDER BY r.created_at DESC LIMIT 1
+    ) eligibility_review ON TRUE
     WHERE soe.cohort_run_id = ${opts.cohortRunId}::uuid
       AND soe.id = ANY(ARRAY[${sql.join(orderedIds.map((id) => sql`${id}::uuid`), sql`, `)}])
     ORDER BY soe.id
@@ -185,15 +283,97 @@ export async function previewStagingV2(opts: {
   // its underlying content_hash, campaign, or sequence changes underneath
   // it, and that must force a fresh preview too.
   const hashInputRows: Array<{ id: string; disposition: string; packageKey: string | null; packageContentHash: string | null; effectiveExpiresAtIso: string | null }> = [];
+  const frozenClassificationPins = eligibilityRows.map((row: any) => ({
+    eligibilityId: String(row.id),
+    targetVertical: row.resolved_vertical_id ?? null,
+    classifierVersion: row.classifier_version ?? null,
+    taxonomyVersion: row.taxonomy_version ?? null,
+    evidenceId: row.classification_evidence_id ?? null,
+    evidenceHash: row.classification_evidence_hash ?? null,
+    policyVersion: row.classification_policy_version ?? null,
+    currentTaxonomyVersion: row.current_taxonomy_version ?? null,
+    currentPolicyVersion: row.current_classification_policy_version ?? null,
+    validationContactLinkDecisionId: row.contact_business_link_decision_id ?? null,
+    validationContactLinkRevision: row.contact_business_link_revision ?? null,
+    validationNormalizedValueHash: row.normalized_value_hash ?? null,
+    validationNormalizedValueHashVersion: row.normalized_value_hash_version ?? null,
+    currentContactLinkDecisionId: row.source_contact_link_decision_id ?? null,
+    currentContactLinkRevision: row.source_contact_link_revision ?? null,
+    eligibilityReviewId: row.eligibility_review_id ?? null,
+  }));
+  const typedSourcePins = eligibilityRows.map((row: any) => ({
+    eligibilityId: String(row.id),
+    sourceKind: row.source_kind ?? null,
+    candidateId: row.candidate_id ?? null,
+    paidCandidateEvidenceId: row.paid_candidate_evidence_id ?? null,
+    contactId: row.contact_id ?? null,
+    sourceContactLinkDecisionId: row.contact_business_link_decision_id ?? null,
+    sourceContactLinkRevision: row.contact_business_link_revision ?? null,
+    normalizedValueHash: row.normalized_value_hash ?? null,
+    normalizedValueHashVersion: row.normalized_value_hash_version ?? null,
+  }));
 
   for (const row of eligibilityRows) {
-    const sourceKind = (row.source_kind === "paid" ? "paid" : "free") as "free" | "paid";
+    const sourceKind = row.source_kind === "free" || row.source_kind === "paid" || row.source_kind === "contact"
+      ? row.source_kind as "free" | "paid" | "contact"
+      : "free";
+    const targetVertical = String(row.resolved_vertical_id ?? "");
     const base: StagingV2PreviewRow = {
       eligibilityId: String(row.id), businessId: Number(row.business_id), sourceKind,
-      vertical: row.vertical ?? null, packageKey: null, disposition: "eligible", maskedEmail: row.masked_email ?? null,
+      vertical: targetVertical || null, packageKey: null, disposition: "eligible", maskedEmail: row.masked_email ?? null,
+      sourceContactLinkDecisionId: row.contact_business_link_decision_id ? String(row.contact_business_link_decision_id) : undefined,
+      sourceContactLinkRevision: row.contact_business_link_revision == null ? undefined : Number(row.contact_business_link_revision),
+      normalizedValueHashVersion: row.normalized_value_hash_version == null ? undefined : Number(row.normalized_value_hash_version),
+      sourceReferenceId: row.source_kind === "free" ? String(row.candidate_id ?? "")
+        : row.source_kind === "paid" ? String(row.paid_candidate_evidence_id ?? "")
+          : row.source_kind === "contact" ? String(row.contact_id ?? "") : undefined,
+      normalizedValueHash: row.normalized_value_hash == null ? undefined : String(row.normalized_value_hash),
+      classificationEvidenceId: row.classification_evidence_id == null ? undefined : String(row.classification_evidence_id),
+      classificationEvidenceHash: row.classification_evidence_hash == null ? undefined : String(row.classification_evidence_hash),
     };
-    if (row.status !== "validated_outreach_eligible") {
-      previewRows.push({ ...base, disposition: "blocked", blockedReason: `status_${row.status}` });
+    if (!["free", "paid", "contact"].includes(String(row.source_kind)) ||
+        (row.source_kind === "free" && (!row.candidate_id || row.paid_candidate_evidence_id || row.contact_id)) ||
+        (row.source_kind === "paid" && (!row.paid_candidate_evidence_id || row.candidate_id || row.contact_id)) ||
+        (row.source_kind === "contact" && (!row.contact_id || row.candidate_id || row.paid_candidate_evidence_id))) {
+      previewRows.push({ ...base, disposition: "blocked", blockedReason: "source_reference_invalid" });
+      hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
+      continue;
+    }
+    if (row.source_kind === "contact") {
+      const sourceHash = normalizedContactHash(row.source_contact_email, row.normalized_value_hash_version);
+      if (!row.contact_business_link_decision_id || !row.contact_business_link_revision ||
+          row.normalized_value_hash_version == null ||
+          ![0, 1].includes(Number(row.normalized_value_hash_version)) ||
+          String(row.contact_business_link_decision_id) !== String(row.source_contact_link_decision_id ?? "") ||
+          Number(row.contact_business_link_revision) !== Number(row.source_contact_link_revision) ||
+          sourceHash !== String(row.normalized_value_hash ?? "") ||
+          String(row.source_contact_email_token_hash ?? "") !== (hashEmailToken(String(row.source_contact_email ?? "")) ?? "")) {
+        previewRows.push({ ...base, disposition: "blocked", blockedReason: "contact_link_or_email_pin_stale" });
+        hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
+        continue;
+      }
+    }
+    const approvedNamedReview = row.status === "validated_review_required" &&
+      row.named_contact === true && row.zb_outcome === "valid" &&
+      row.suppression_status === "not_suppressed" &&
+      !!(row.validation_operation_id || row.reused_from_operation_id);
+    if (row.status !== "validated_outreach_eligible" &&
+        !(approvedNamedReview && row.eligibility_review_id &&
+          activePolicy.roleInboxPolicy?.named_or_unclassified_requires_review !== false)) {
+      const emailPolicy = evaluateSfpEmailTypePolicy({
+        namedContact: row.named_contact === true,
+        roleInbox: row.role_inbox === true,
+        policy: activePolicy,
+      });
+      previewRows.push({
+        ...base,
+        disposition: "blocked",
+        blockedReason: row.named_contact === true && row.status === "validated_review_required"
+          ? emailPolicy.status === "eligibility_review_required"
+            ? emailPolicy.reasonCode
+            : "named_email_policy_status_mismatch"
+          : `status_${row.status}`,
+      });
       hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
       continue;
     }
@@ -248,13 +428,37 @@ export async function previewStagingV2(opts: {
       hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
       continue;
     }
-    if (!row.vertical) {
-      previewRows.push({ ...base, disposition: "blocked", blockedReason: "vertical_unresolved" });
+    if (!isFrozenV2ClassificationAdmissible({
+      targetVertical,
+      classifierVersion: row.classifier_version,
+      taxonomyVersion: row.taxonomy_version,
+      currentTaxonomyVersion: row.current_taxonomy_version,
+      classificationPolicyVersion: row.classification_policy_version,
+      currentPolicyVersion: row.current_classification_policy_version,
+      decisionTarget: row.classifier_matched_target,
+      evidenceTarget: row.resolved_vertical_id,
+      evidenceOutcome: row.evidence_outcome,
+      decisionEvidenceHash: row.classification_evidence_hash,
+      evidenceHash: row.evidence_hash,
+    })) {
+      previewRows.push({ ...base, disposition: "blocked", blockedReason: "frozen_v2_classification_unresolved_or_stale" });
       hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
       continue;
     }
-    const pkg = await getCurrentPackageForVertical(String(row.vertical));
-    if (!pkg) {
+    const emailPolicy = evaluateSfpEmailTypePolicy({
+      namedContact: row.named_contact === true,
+      roleInbox: row.role_inbox === true,
+      policy: activePolicy,
+    });
+    if (emailPolicy.status === "eligibility_review_required" &&
+        !(approvedNamedReview && row.eligibility_review_id &&
+          activePolicy.roleInboxPolicy?.named_or_unclassified_requires_review !== false)) {
+      previewRows.push({ ...base, disposition: "blocked", blockedReason: emailPolicy.reasonCode });
+      hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
+      continue;
+    }
+    const pkg = await getCurrentPackageForVertical(targetVertical);
+    if (!pkg || !pkg.packageKey.endsWith(".v2")) {
       previewRows.push({ ...base, disposition: "blocked", blockedReason: "no_current_package_for_vertical" });
       hashInputRows.push({ id: String(row.id), disposition: "blocked", packageKey: null, packageContentHash: null, effectiveExpiresAtIso: null });
       continue;
@@ -273,6 +477,7 @@ export async function previewStagingV2(opts: {
       policyDocumentHash: activePolicy.documentHash,
       validationExpiresAt: effectiveExpiresAt.toISOString(),
       validationAgeSeconds: row.validation_at ? Math.max(0, Math.round((Date.now() - new Date(String(row.validation_at)).getTime()) / 1000)) : undefined,
+      eligibilityReviewId: row.eligibility_review_id ? String(row.eligibility_review_id) : undefined,
     });
     hashInputRows.push({ id: String(row.id), disposition: "eligible", packageKey: pkg.packageKey, packageContentHash: pkg.contentHash, effectiveExpiresAtIso: effectiveExpiresAt.toISOString() });
   }
@@ -286,6 +491,8 @@ export async function previewStagingV2(opts: {
     eligibilityIds: [...opts.eligibilityIds].sort(),
     policyDocumentHash,
     rows: hashInputRows,
+    frozenClassificationPins,
+    typedSourcePins,
     attemptSalt: opts.attemptSalt ?? null,
   });
   const commandKey = `sfp-stage-v2:${opts.cohortRunId}:${snapshotHash}`;
@@ -479,6 +686,14 @@ export async function executeStagingV2(opts: {
         eligibilityId: previewRow.eligibilityId,
         businessId: previewRow.businessId,
         sourceKind: previewRow.sourceKind,
+        sourceContactLinkDecisionId: previewRow.sourceContactLinkDecisionId,
+        sourceContactLinkRevision: previewRow.sourceContactLinkRevision,
+        normalizedValueHashVersion: previewRow.normalizedValueHashVersion,
+        sourceReferenceId: previewRow.sourceReferenceId,
+        normalizedValueHash: previewRow.normalizedValueHash,
+        classificationEvidenceId: previewRow.classificationEvidenceId,
+        classificationEvidenceHash: previewRow.classificationEvidenceHash,
+        eligibilityReviewId: previewRow.eligibilityReviewId,
         packageKey: previewRow.packageKey!,
         actorId: opts.actorId,
         commandKey: opts.commandKey,
@@ -548,7 +763,14 @@ export async function executeStagingV2(opts: {
 }
 
 async function stageOneRowTransactional(opts: {
-  cohortRunId: string; eligibilityId: string; businessId: number; sourceKind: "free" | "paid";
+  cohortRunId: string; eligibilityId: string; businessId: number; sourceKind: "free" | "paid" | "contact";
+  sourceContactLinkDecisionId?: string; sourceContactLinkRevision?: number;
+  normalizedValueHashVersion?: number;
+  sourceReferenceId?: string;
+  normalizedValueHash?: string;
+  classificationEvidenceId?: string;
+  classificationEvidenceHash?: string;
+  eligibilityReviewId?: string;
   packageKey: string; actorId: string; commandKey: string; payloadHash: string; snapshotHash: string;
   stageItemId: string; incrementAttempt?: boolean;
 }): Promise<void> {
@@ -561,7 +783,8 @@ async function stageOneRowTransactional(opts: {
     // or a program deactivated between preview and this write must still be
     // caught here, inside the same transaction that commits the intent.
     const cohortRow = rows(await tx.execute(sql`
-      SELECT r.cohort_state, r.voided_at, r.superseded_at, p.is_active AS program_active
+      SELECT r.cohort_state, r.voided_at, r.superseded_at, p.is_active AS program_active,
+             p.taxonomy_version AS current_taxonomy_version, p.policy_version AS current_classification_policy_version
       FROM sfp_cohort_runs r
       JOIN sfp_programs p ON p.id = r.program_id
       WHERE r.id = ${opts.cohortRunId}::uuid
@@ -577,18 +800,92 @@ async function stageOneRowTransactional(opts: {
 
     // Lock the eligibility row for the duration of this transaction.
     const eligRow = rows(await tx.execute(sql`
-      SELECT soe.id, soe.status, soe.candidate_id, soe.paid_candidate_evidence_id, soe.normalized_value_hash,
-             soe.masked_email, soe.role_inbox, soe.staging_intent_id, soe.policy_version,
+      SELECT soe.id, soe.status, soe.source_kind, soe.candidate_id, soe.paid_candidate_evidence_id, soe.contact_id,
+              soe.normalized_value_hash, soe.normalized_value_hash_version,
+              soe.contact_business_link_decision_id, soe.contact_business_link_revision,
+              soe.named_contact, soe.masked_email, soe.role_inbox,
+              soe.staging_intent_id, soe.policy_version, soe.updated_at AS eligibility_updated_at,
+              soe.zb_outcome, soe.raw_provider_status, soe.suppression_status,
+              soe.validation_operation_id, soe.reused_from_operation_id,
              soe.validation_at, soe.validation_expires_at,
-             b.canonical_name, b.website_domain, b.main_phone, b.vertical, b.city, b.state
+             b.canonical_name, b.website_domain, b.main_phone, b.vertical, b.city, b.state,
+             d.classifier_matched_target, d.classifier_version, d.classification_evidence_id,
+             d.classification_policy_version, d.classification_evidence_hash,
+             ce.taxonomy_version, ce.outcome AS evidence_outcome, ce.resolved_vertical_id,
+              ce.evidence_hash AS evidence_hash,
+              eligibility_review.id AS eligibility_review_id
       FROM sfp_outreach_eligibility soe
       JOIN businesses b ON b.id = soe.business_id
+      JOIN sfp_cohort_decisions d
+        ON d.cohort_run_id = soe.cohort_run_id AND d.business_id = soe.business_id AND d.selected = TRUE
+      JOIN sfp_classification_evidence ce ON ce.id = d.classification_evidence_id
+      LEFT JOIN LATERAL (
+        SELECT r.id
+          FROM sfp_named_email_eligibility_reviews r
+         WHERE r.eligibility_id=soe.id AND r.decision='approved'
+           AND r.id=(SELECT rr.id FROM sfp_named_email_eligibility_reviews rr
+                      WHERE rr.eligibility_id=soe.id ORDER BY rr.created_at DESC,rr.id DESC LIMIT 1)
+           AND r.id=${opts.eligibilityReviewId ?? null}::uuid
+           AND r.expected_updated_at=soe.updated_at
+           AND r.policy_document_id=${activePolicy.id}::uuid
+           AND r.policy_document_hash=${activePolicy.documentHash}
+           AND r.validation_operation_id=COALESCE(soe.validation_operation_id,soe.reused_from_operation_id)
+           AND r.source_kind=soe.source_kind
+           AND r.source_reference_id=CASE soe.source_kind
+             WHEN 'free' THEN soe.candidate_id::text
+             WHEN 'paid' THEN soe.paid_candidate_evidence_id::text
+             WHEN 'contact' THEN soe.contact_id::text ELSE '' END
+           AND r.contact_business_link_decision_id IS NOT DISTINCT FROM soe.contact_business_link_decision_id
+           AND r.contact_business_link_revision IS NOT DISTINCT FROM soe.contact_business_link_revision
+           AND r.normalized_value_hash=soe.normalized_value_hash
+           AND r.normalized_value_hash_version=soe.normalized_value_hash_version
+           AND r.validation_expires_at=soe.validation_expires_at
+           AND EXISTS (
+             SELECT 1 FROM provider_observations po
+              WHERE po.operation_id=r.validation_operation_id
+                AND po.subject_type='business' AND po.subject_id=soe.business_id
+                AND po.provider='zerobounce' AND po.outcome='valid'
+           )
+         LIMIT 1
+      ) eligibility_review ON TRUE
       WHERE soe.id = ${opts.eligibilityId}::uuid
       FOR UPDATE OF soe
     `))[0];
     if (!eligRow) throw new SfpStagingV2Error("SFP_STAGING_ELIGIBILITY_NOT_FOUND", "eligibility row not found", 422);
-    if (eligRow.status !== "validated_outreach_eligible") {
+    const reviewedNamedValid = eligRow.status === "validated_review_required" &&
+      eligRow.named_contact === true && eligRow.zb_outcome === "valid" &&
+      eligRow.suppression_status === "not_suppressed" &&
+      (eligRow.validation_operation_id || eligRow.reused_from_operation_id) &&
+      String(eligRow.eligibility_review_id ?? "") === String(opts.eligibilityReviewId ?? "") &&
+      activePolicy.roleInboxPolicy?.named_or_unclassified_requires_review !== false;
+    if (eligRow.status !== "validated_outreach_eligible" && !reviewedNamedValid) {
       throw new SfpStagingV2Error("SFP_STAGING_STATUS_DRIFTED", `eligibility status is now ${eligRow.status}`, 409);
+    }
+    if (!["free", "paid", "contact"].includes(String(eligRow.source_kind)) ||
+        (eligRow.source_kind === "free" && (!eligRow.candidate_id || eligRow.paid_candidate_evidence_id || eligRow.contact_id)) ||
+        (eligRow.source_kind === "paid" && (!eligRow.paid_candidate_evidence_id || eligRow.candidate_id || eligRow.contact_id)) ||
+        (eligRow.source_kind === "contact" && (!eligRow.contact_id || eligRow.candidate_id || eligRow.paid_candidate_evidence_id))) {
+      throw new SfpStagingV2Error("SFP_STAGING_SOURCE_REFERENCE_INVALID", "eligibility must have exactly one typed source reference", 422);
+    }
+    if (eligRow.source_kind !== opts.sourceKind) {
+      throw new SfpStagingV2Error("SFP_STAGING_SOURCE_KIND_DRIFTED", "source kind changed since preview", 409);
+    }
+    const currentSourceReferenceId = eligRow.source_kind === "free"
+      ? String(eligRow.candidate_id ?? "")
+      : eligRow.source_kind === "paid"
+        ? String(eligRow.paid_candidate_evidence_id ?? "")
+        : String(eligRow.contact_id ?? "");
+    if (currentSourceReferenceId !== String(opts.sourceReferenceId ?? "")) {
+      throw new SfpStagingV2Error("SFP_STAGING_SOURCE_REFERENCE_DRIFTED", "typed source reference changed since preview", 409);
+    }
+    if (String(eligRow.normalized_value_hash ?? "") !== String(opts.normalizedValueHash ?? "")) {
+      throw new SfpStagingV2Error("SFP_STAGING_EMAIL_IDENTITY_DRIFTED", "validated normalized email identity changed since preview", 409);
+    }
+    if (eligRow.source_kind === "contact" &&
+        (String(eligRow.contact_business_link_decision_id ?? "") !== String(opts.sourceContactLinkDecisionId ?? "") ||
+         Number(eligRow.contact_business_link_revision) !== Number(opts.sourceContactLinkRevision) ||
+         Number(eligRow.normalized_value_hash_version) !== Number(opts.normalizedValueHashVersion))) {
+      throw new SfpStagingV2Error("SFP_STAGING_CONTACT_VALIDATION_PIN_DRIFTED", "persisted contact validation pins changed since preview", 409);
     }
     if (eligRow.staging_intent_id) {
       // If the existing intent was created by THIS exact command (a
@@ -620,6 +917,37 @@ async function stageOneRowTransactional(opts: {
       throw new SfpStagingV2Error("SFP_STAGING_VALIDATION_STALE", "validation has expired since preview", 409);
     }
 
+    const targetVertical = String(eligRow.resolved_vertical_id ?? "");
+    if (!isFrozenV2ClassificationAdmissible({
+      targetVertical,
+      classifierVersion: eligRow.classifier_version,
+      taxonomyVersion: eligRow.taxonomy_version,
+      currentTaxonomyVersion: cohortRow.current_taxonomy_version,
+      classificationPolicyVersion: eligRow.classification_policy_version,
+      currentPolicyVersion: cohortRow.current_classification_policy_version,
+      decisionTarget: eligRow.classifier_matched_target,
+      evidenceTarget: eligRow.resolved_vertical_id,
+      evidenceOutcome: eligRow.evidence_outcome,
+      decisionEvidenceHash: eligRow.classification_evidence_hash,
+      evidenceHash: eligRow.evidence_hash,
+    })) {
+      throw new SfpStagingV2Error("SFP_STAGING_CLASSIFICATION_STALE", "frozen v2 classifier evidence is stale, conflicting, or unresolved", 422);
+    }
+    if (String(eligRow.classification_evidence_id) !== String(opts.classificationEvidenceId ?? "") ||
+        String(eligRow.classification_evidence_hash) !== String(opts.classificationEvidenceHash ?? "")) {
+      throw new SfpStagingV2Error("SFP_STAGING_CLASSIFICATION_DRIFTED", "frozen classifier evidence changed since preview", 409);
+    }
+    const emailPolicy = evaluateSfpEmailTypePolicy({
+      namedContact: eligRow.named_contact === true,
+      roleInbox: eligRow.role_inbox === true,
+      policy: activePolicy,
+    });
+    if (emailPolicy.status !== "eligible_for_staging_review") {
+      if (!reviewedNamedValid) {
+        throw new SfpStagingV2Error("SFP_STAGING_EMAIL_POLICY_REVIEW_REQUIRED", emailPolicy.reasonCode, 422);
+      }
+    }
+
     // Package still current; campaign draft; sequence paused (Defect 12).
     const pkgRow = rows(await tx.execute(sql`
       SELECT v.id, v.campaign_id, v.sequence_id, v.content_hash, c.status AS campaign_status, s.status AS sequence_status
@@ -630,6 +958,13 @@ async function stageOneRowTransactional(opts: {
       LIMIT 1
     `))[0];
     if (!pkgRow) throw new SfpStagingV2Error("SFP_STAGING_PACKAGE_NOT_CURRENT", "package mapping is no longer current", 409);
+    if (!String(opts.packageKey).endsWith(".v2") || !String(targetVertical) ||
+        String(rows(await tx.execute(sql`
+          SELECT vertical FROM sfp_campaign_package_versions
+           WHERE id=${String(pkgRow.id)}::uuid
+        `))[0]?.vertical ?? "") !== targetVertical) {
+      throw new SfpStagingV2Error("SFP_STAGING_PACKAGE_CLASSIFICATION_MISMATCH", "package does not match the frozen v2 classifier target", 422);
+    }
     if (pkgRow.campaign_status !== "draft") throw new SfpStagingV2Error("SFP_STAGING_PACKAGE_CAMPAIGN_NOT_DRAFT", "target campaign is no longer draft", 409);
     if (pkgRow.sequence_status !== "paused") throw new SfpStagingV2Error("SFP_STAGING_PACKAGE_SEQUENCE_NOT_PAUSED", "target sequence is no longer paused", 409);
 
@@ -669,8 +1004,15 @@ async function stageOneRowTransactional(opts: {
     // authority (DBPR + existing-customer + consent-tier) instead of a
     // second, duplicated inline implementation — bound to `tx` so it reads
     // the same locked snapshot as everything else in this transaction.
-    const consentTier = eligRow.normalized_value_hash
-      ? await lookupConsentTierByEmailHash(String(eligRow.normalized_value_hash), tx)
+    let consentEmailHash = String(eligRow.normalized_value_hash ?? "");
+    if (eligRow.source_kind === "contact" && eligRow.contact_id) {
+      const sourceEmail = rows(await tx.execute(sql`
+        SELECT email FROM contacts WHERE id=${Number(eligRow.contact_id)} AND archived_at IS NULL
+      `))[0]?.email;
+      consentEmailHash = hashEmailToken(String(sourceEmail ?? "")) ?? "";
+    }
+    const consentTier = consentEmailHash
+      ? await lookupConsentTierByEmailHash(consentEmailHash, tx)
       : null;
     const gate = await evaluateSfpMutableSafetyGates({ businessId: opts.businessId, consentTier, policy: activePolicy }, tx);
     if (!gate.eligible) {
@@ -679,15 +1021,17 @@ async function stageOneRowTransactional(opts: {
 
     // Suppression re-check against the masked/normalized hash on file, bound
     // to this same transaction rather than the global DB helper.
-    if (eligRow.normalized_value_hash) {
+    if (eligRow.normalized_value_hash && eligRow.source_kind !== "contact") {
       const suppressed = await isCanonicallySuppressed([String(eligRow.normalized_value_hash)], tx);
       if (suppressed) throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "candidate address is suppressed", 422);
     }
 
     let idempotencyKey = opts.commandKey;
     let intentValues: {
-      candidateId: string | null; paidCandidateEvidenceId: string | null;
+      candidateId: string | null; paidCandidateEvidenceId: string | null; sourceContactId: number | null;
       contactEmailTokenHash: string; maskedEmailForLead: string | null;
+      sourceContactLinkDecisionId: string | null; sourceContactLinkRevision: number | null;
+      normalizedValueHash: string | null; normalizedValueHashVersion: number | null;
     };
     // masterLeadEmail is written ONLY inside the openSfpCandidatePlaintext
     // callback below, in the same statement, bound to `tx` — plaintext is
@@ -702,9 +1046,59 @@ async function stageOneRowTransactional(opts: {
           if (!eligRow.candidate_id) throw new SfpStagingV2Error("SFP_STAGING_CANDIDATE_MISSING", "free-source row missing candidate_id", 422);
           return { sourceKind: "free" as const, freeDiscoveryCandidateId: String(eligRow.candidate_id) };
         })()
-      : (() => {
+      : opts.sourceKind === "paid"
+      ? (() => {
           if (!eligRow.paid_candidate_evidence_id) throw new SfpStagingV2Error("SFP_STAGING_PAID_EVIDENCE_MISSING", "paid-source row missing paid_candidate_evidence_id", 422);
           return { sourceKind: "paid" as const, paidCandidateEvidenceId: String(eligRow.paid_candidate_evidence_id) };
+        })()
+      : await (async () => {
+          if (!eligRow.contact_id) throw new SfpStagingV2Error("SFP_STAGING_CONTACT_SOURCE_MISSING", "contact-source row missing contact_id", 422);
+           if (!eligRow.contact_business_link_decision_id || !eligRow.contact_business_link_revision ||
+               eligRow.normalized_value_hash_version == null ||
+               ![0, 1].includes(Number(eligRow.normalized_value_hash_version))) {
+             throw new SfpStagingV2Error("SFP_STAGING_CONTACT_VALIDATION_PIN_MISSING", "contact source lacks its validation-time link and identity pins", 422);
+           }
+          const sourceContactId = Number(eligRow.contact_id);
+          const verifiedLink = rows(await tx.execute(sql`
+            SELECT c.id, c.email, c.email_token_hash, d.id AS decision_id, d.revision
+              FROM contacts c
+              JOIN contact_business_link_decisions d ON d.contact_id=c.id
+             WHERE c.id=${sourceContactId}
+               AND c.business_id=${opts.businessId}
+               AND c.archived_at IS NULL
+               AND d.business_id=${opts.businessId}
+                AND d.id=${String(eligRow.contact_business_link_decision_id)}::uuid
+                AND d.revision=${Number(eligRow.contact_business_link_revision)}
+               AND d.decision='verified' AND d.superseded_at IS NULL
+             LIMIT 2
+             FOR SHARE OF c, d
+          `));
+          if (verifiedLink.length !== 1) {
+            throw new SfpStagingV2Error("SFP_STAGING_CONTACT_LINK_NOT_VERIFIED", "source contact has no unique current verified link to this business", 422);
+          }
+          const linkedContact = verifiedLink[0];
+          if (String(linkedContact.decision_id) !== String(opts.sourceContactLinkDecisionId ?? "") ||
+              Number(linkedContact.revision) !== Number(opts.sourceContactLinkRevision)) {
+            throw new SfpStagingV2Error("SFP_STAGING_CONTACT_LINK_REVISION_DRIFTED", "verified source-contact link changed after preview", 409);
+          }
+           const currentEmailHash = normalizedContactHash(linkedContact.email, eligRow.normalized_value_hash_version);
+          const contactTokenHash = hashEmailToken(String(linkedContact.email ?? ""));
+          if (!linkedContact.email || currentEmailHash !== String(eligRow.normalized_value_hash ?? "") || !contactTokenHash ||
+              String(linkedContact.email_token_hash ?? "") !== contactTokenHash) {
+            throw new SfpStagingV2Error("SFP_STAGING_CONTACT_EMAIL_DRIFTED", "source contact email changed since validation", 409);
+          }
+          if (await isCanonicallySuppressed([contactTokenHash], tx)) {
+            throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "source contact address is suppressed", 422);
+          }
+           return {
+             sourceKind: "contact" as const,
+             contactId: String(sourceContactId),
+             contactBusinessLinkDecisionId: String(eligRow.contact_business_link_decision_id),
+             contactBusinessLinkRevision: Number(eligRow.contact_business_link_revision),
+             normalizedValueHash: String(eligRow.normalized_value_hash),
+             normalizedValueHashVersion: Number(eligRow.normalized_value_hash_version),
+             sourceContactId,
+           };
         })();
 
     const hash = await openSfpCandidatePlaintext(
@@ -719,7 +1113,9 @@ async function stageOneRowTransactional(opts: {
           throw new SfpStagingV2Error("SFP_STAGING_EVIDENCE_BUSINESS_MISMATCH", "candidate/paid evidence resolves to a different business than this eligibility row", 422);
         }
         const contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
-        const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash], tx);
+        const tokenHashForSuppression = hashEmailToken(plaintext);
+        if (!tokenHashForSuppression) throw new SfpStagingV2Error("SFP_STAGING_EMAIL_INVALID", "resolved source is not a valid normalized email", 422);
+        const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash, tokenHashForSuppression], tx);
         if (stillSuppressed) throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "resolved address is suppressed", 422);
         // Master-lead insert happens HERE, inside this callback, using the
         // plaintext directly — it never leaves this stack frame. `tx` is
@@ -731,7 +1127,7 @@ async function stageOneRowTransactional(opts: {
              outreach_readiness, readiness_reason, source, source_path, city, state, website, email_valid,
              pipeline_origin, canonical_business_id, email_token_hash, masked_email, created_at, updated_at)
           VALUES ('staged', ${eligRow.canonical_name}, LOWER(TRIM(${eligRow.canonical_name})), ${eligRow.website_domain},
-                  ${plaintext}, ${eligRow.role_inbox ? "role" : "business"}, ${eligRow.main_phone}, ${eligRow.vertical},
+                   ${plaintext}, ${eligRow.role_inbox ? "role" : eligRow.named_contact ? "person" : "business"}, ${eligRow.main_phone}, ${targetVertical},
                   'not_ready', 'ready_held_package_pinned_pending_separate_activation', 'sfp_validated',
                   ${`sfp:${opts.cohortRunId}:${opts.eligibilityId}`}, ${eligRow.city}, ${eligRow.state}, ${eligRow.website_domain}, TRUE,
                   'sfp_pipeline', ${opts.businessId}, ${contactEmailTokenHash}, ${eligRow.masked_email ?? null}, NOW(), NOW())
@@ -749,7 +1145,12 @@ async function stageOneRowTransactional(opts: {
     intentValues = {
       candidateId: reference.sourceKind === "free" ? reference.freeDiscoveryCandidateId : null,
       paidCandidateEvidenceId: reference.sourceKind === "paid" ? reference.paidCandidateEvidenceId : null,
+      sourceContactId: reference.sourceKind === "contact" ? reference.sourceContactId : null,
       contactEmailTokenHash: hash, maskedEmailForLead: eligRow.masked_email ?? null,
+      sourceContactLinkDecisionId: reference.sourceKind === "contact" ? String(eligRow.contact_business_link_decision_id) : null,
+      sourceContactLinkRevision: reference.sourceKind === "contact" ? Number(eligRow.contact_business_link_revision) : null,
+      normalizedValueHash: reference.sourceKind === "contact" ? String(eligRow.normalized_value_hash) : null,
+      normalizedValueHashVersion: reference.sourceKind === "contact" ? Number(eligRow.normalized_value_hash_version) : null,
     };
 
     const masterLead = rows(await tx.execute(sql`
@@ -761,15 +1162,42 @@ async function stageOneRowTransactional(opts: {
 
     const intent = rows(await tx.execute(sql`
       INSERT INTO sfp_campaign_staging_intents
-        (cohort_run_id, eligibility_id, business_id, candidate_id, paid_candidate_evidence_id, source_kind,
+        (cohort_run_id, eligibility_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id,
+         contact_business_link_decision_id, contact_business_link_revision, normalized_value_hash, normalized_value_hash_version,
+         source_kind,
          idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage,
          package_version_id, package_key, policy_document_hash, snapshot_hash, payload_hash, command_key,
          operator_selected_at, operator_selected_by, ready_held_at)
       VALUES (${opts.cohortRunId}::uuid, ${opts.eligibilityId}::uuid, ${opts.businessId},
-              ${intentValues.candidateId}::uuid, ${intentValues.paidCandidateEvidenceId}::uuid, ${opts.sourceKind},
+               ${intentValues.candidateId}::uuid, ${intentValues.paidCandidateEvidenceId}::uuid, ${intentValues.sourceContactId},
+               ${intentValues.sourceContactLinkDecisionId}::uuid, ${intentValues.sourceContactLinkRevision},
+               ${intentValues.normalizedValueHash}, ${intentValues.normalizedValueHashVersion}, ${opts.sourceKind},
               ${idempotencyKey}, ${opts.actorId}, 'ready_held', ${Number(eligRow.policy_version ?? 1)},
-              ${JSON.stringify({ status: eligRow.status, pinnedPackageContentHash, pinnedPolicyHash, validationExpiresAt: effectiveExpiresAt.toISOString() })}::jsonb,
-              ${JSON.stringify({ source: "sfp_staging_v2", cohortRunId: opts.cohortRunId, eligibilityId: opts.eligibilityId })}::jsonb,
+               ${JSON.stringify({
+                 status: eligRow.status, pinnedPackageContentHash, pinnedPolicyHash, validationExpiresAt: effectiveExpiresAt.toISOString(),
+                  eligibilityReviewId: opts.eligibilityReviewId ?? null,
+                 classifierVersion: Number(eligRow.classifier_version), taxonomyVersion: Number(eligRow.taxonomy_version),
+                 classificationEvidenceId: String(eligRow.classification_evidence_id),
+                 classificationEvidenceHash: String(eligRow.classification_evidence_hash),
+                 classificationPolicyVersion: Number(eligRow.classification_policy_version),
+                 targetVertical, sourceContactId: intentValues.sourceContactId,
+                  validatedEmailTokenHash: intentValues.contactEmailTokenHash,
+                  sourceContactLinkDecisionId: intentValues.sourceContactLinkDecisionId,
+                  sourceContactLinkRevision: intentValues.sourceContactLinkRevision,
+                  normalizedValueHash: intentValues.normalizedValueHash,
+                  normalizedValueHashVersion: intentValues.normalizedValueHashVersion,
+               })}::jsonb,
+               ${JSON.stringify({
+                 source: "sfp_staging_v2", cohortRunId: opts.cohortRunId, eligibilityId: opts.eligibilityId,
+                  eligibilityReviewId: opts.eligibilityReviewId ?? null,
+                 classificationEvidenceId: String(eligRow.classification_evidence_id),
+                 classificationEvidenceHash: String(eligRow.classification_evidence_hash),
+                 targetVertical, sourceContactId: intentValues.sourceContactId,
+                  sourceContactLinkDecisionId: intentValues.sourceContactLinkDecisionId,
+                  sourceContactLinkRevision: intentValues.sourceContactLinkRevision,
+                  normalizedValueHash: intentValues.normalizedValueHash,
+                  normalizedValueHashVersion: intentValues.normalizedValueHashVersion,
+               })}::jsonb,
               ${pkgRow.id}::uuid, ${opts.packageKey}, ${pinnedPolicyHash}, ${opts.snapshotHash}, ${opts.payloadHash}, ${opts.commandKey},
               NOW(), ${opts.actorId}, NOW())
       RETURNING id

@@ -43,6 +43,543 @@ import LeadImports from "@/pages/dashboard/LeadImports";
 import LeadIntelligence from "@/pages/dashboard/LeadIntelligence";
 import DataQuality from "@/pages/dashboard/DataQuality";
 
+const CONTACT_RECONCILIATION_PATH = "/api/admin/contact-business-reconciliation";
+const CONTACT_SUGGESTIONS_PATH = "/api/admin/contact-business-suggestions";
+
+type ContactBusinessReconciliationProgress = {
+  jobId: string | null;
+  status: "idle" | "running" | "ready" | "paused" | "completed" | "error";
+  cursorContactId: number;
+  scannedContacts: number;
+  suggestionsRecorded: number;
+  ambiguousContacts: number;
+  unmatchedContacts: number;
+  batchSize: number;
+  startedAt: string | null;
+  updatedAt: string | null;
+  lastError: string | null;
+};
+
+type ContactBusinessSuggestion = {
+  candidateId: string;
+  contactId: number;
+  businessId: number;
+  confidence: number;
+  source: string;
+  sourceVersion: string;
+  createdAt: string;
+  contactCompanyName: string | null;
+  contactEmail: string | null;
+  projectedBusinessId: number | null;
+  safetyFlags: string[];
+  businessName: string | null;
+  businessDomain: string | null;
+  contactCandidateCount: number;
+  domainBusinessCount: number;
+  currentDecisionId: number | null;
+  currentDecision: string | null;
+  currentRevision: number;
+  ambiguous: boolean;
+  reviewBlocked: boolean;
+  isVerified: boolean;
+};
+
+type ContactBusinessSuggestionPage = {
+  candidates: ContactBusinessSuggestion[];
+  nextCursor: { createdAt: string; id: string } | null;
+  limit: number;
+};
+
+type ContactBusinessReviewInput = {
+  decision: string;
+  evidenceEventId: string;
+  decisionKey: string;
+};
+
+function maskContactEmail(email: string | null): string {
+  if (!email) return "Email unavailable";
+  const [local, domain] = email.split("@");
+  if (!domain) return "Email unavailable";
+  return `${local.slice(0, 1)}***@${domain}`;
+}
+
+function ContactBusinessReconciliationPanel() {
+  const { toast } = useToast();
+  const [previewLimit, setPreviewLimit] = useState(25);
+  const [showPreview, setShowPreview] = useState(false);
+  const [pageCursor, setPageCursor] = useState<{ createdAt: string; id: string } | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<Array<{ createdAt: string; id: string } | null>>([]);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [reviewInputs, setReviewInputs] = useState<Record<string, ContactBusinessReviewInput>>({});
+
+  const progressQuery = useQuery<ContactBusinessReconciliationProgress>({
+    queryKey: ["/api/admin/contact-business-reconciliation/progress"],
+    queryFn: async () => (await apiRequest("GET", `${CONTACT_RECONCILIATION_PATH}/progress`)).json(),
+    refetchInterval: 10_000,
+    retry: false,
+  });
+
+  const previewQuery = useQuery({
+    queryKey: ["/api/admin/contact-business-reconciliation/preview", previewLimit],
+    queryFn: async () => (await apiRequest("GET", `${CONTACT_RECONCILIATION_PATH}/preview?limit=${previewLimit}`)).json() as Promise<{
+      mode: string;
+      sampleLimit: number;
+      sampledContacts: number;
+      sampleSuggestions: number;
+      sampleAmbiguousContacts: number;
+      sampleUnmatchedContacts: number;
+      eligibleUnlinkedContacts: number | null;
+      totalCountStatus: string;
+      paidProviderCalls: number;
+      writes: number;
+      note: string;
+    }>,
+    enabled: showPreview,
+    retry: false,
+  });
+
+  const suggestionQueryKey = [CONTACT_SUGGESTIONS_PATH, pageCursor?.createdAt ?? null, pageCursor?.id ?? null] as const;
+  const suggestionsQuery = useQuery<ContactBusinessSuggestionPage>({
+    queryKey: suggestionQueryKey,
+    queryFn: async () => {
+      const params = new URLSearchParams({ limit: "50" });
+      if (pageCursor) {
+        params.set("afterCreatedAt", pageCursor.createdAt);
+        params.set("afterId", pageCursor.id);
+      }
+      return (await apiRequest("GET", `${CONTACT_SUGGESTIONS_PATH}?${params.toString()}`)).json();
+    },
+    retry: false,
+  });
+
+  const invalidateWorkflowReads = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/contact-business-reconciliation/progress"] });
+    queryClient.invalidateQueries({ queryKey: [CONTACT_SUGGESTIONS_PATH] });
+  };
+
+  const runControlMutation = useMutation({
+    mutationFn: async (action: "start" | "pause" | "resume") => {
+      const body = action === "start" ? { batchSize: 50 } : {};
+      return (await apiRequest("POST", `${CONTACT_RECONCILIATION_PATH}/${action}`, body)).json();
+    },
+    onSuccess: (_result, action) => {
+      toast({ title: `Contact reconciliation ${action === "start" ? "batch started" : action === "pause" ? "paused" : "resumed"}` });
+      invalidateWorkflowReads();
+    },
+    onError: (error: Error) => toast({ title: "Reconciliation control failed", description: error.message, variant: "destructive" }),
+  });
+
+  const selectedRows = (suggestionsQuery.data?.candidates ?? [])
+    .filter((candidate) => selectedCandidateIds.includes(candidate.candidateId));
+  const reviewReadinessIssue = selectedRows.find((candidate) => {
+    const review = reviewInputs[candidate.candidateId];
+    if (!review?.decision) return true;
+    if (review.decision !== "verified") return false;
+    const evidenceEventId = Number(review.evidenceEventId);
+    const projectedToDifferentBusiness = candidate.projectedBusinessId != null
+      && candidate.projectedBusinessId !== candidate.businessId;
+    return candidate.ambiguous || candidate.reviewBlocked || candidate.isVerified
+      || projectedToDifferentBusiness || !Number.isInteger(evidenceEventId) || evidenceEventId < 1;
+  });
+
+  const reviewBatchMutation = useMutation({
+    mutationFn: async () => {
+      if (selectedRows.length === 0) throw new Error("Select at least one candidate to review.");
+      if (reviewReadinessIssue) {
+        const candidate = reviewReadinessIssue;
+        const review = reviewInputs[candidate.candidateId];
+        if (!review?.decision) throw new Error(`Choose a decision for contact #${candidate.contactId}.`);
+        if (review.decision === "verified" && candidate.ambiguous) throw new Error(`Contact #${candidate.contactId} is ambiguous; it cannot be verified from this candidate row.`);
+        if (review.decision === "verified" && candidate.reviewBlocked) throw new Error(`Contact #${candidate.contactId} has safety flags and cannot be verified.`);
+        if (review.decision === "verified" && candidate.projectedBusinessId != null && candidate.projectedBusinessId !== candidate.businessId) {
+          throw new Error(`Contact #${candidate.contactId} projects to a different business; resolve the conflicting link decision first.`);
+        }
+        if (review.decision === "verified" && (!Number.isInteger(Number(review.evidenceEventId)) || Number(review.evidenceEventId) < 1)) {
+          throw new Error(`Enter a pre-existing source evidence event ID to verify contact #${candidate.contactId}.`);
+        }
+      }
+      const decisions = selectedRows.map((candidate) => {
+        const review = reviewInputs[candidate.candidateId];
+        if (!review) throw new Error(`Choose a decision for contact #${candidate.contactId}.`);
+        const evidenceId = review.evidenceEventId.trim() ? Number(review.evidenceEventId) : null;
+        return {
+          candidateId: candidate.candidateId,
+          contactId: candidate.contactId,
+          businessId: candidate.businessId,
+          decision: review.decision,
+          decisionKey: review.decisionKey,
+          evidenceSourceEventId: evidenceId,
+          expectedRevision: candidate.currentRevision,
+        };
+      });
+      return (await apiRequest("POST", `${CONTACT_SUGGESTIONS_PATH}/review-batch`, { decisions })).json() as Promise<{
+        outcomes: Array<{ candidateId: string; status: string; code?: string }>;
+        applied: number;
+        rejected: number;
+      }>;
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Batch review recorded",
+        description: `${result.applied} applied · ${result.rejected} rejected. Verified links require the existing independent decision authority.`,
+      });
+      setSelectedCandidateIds([]);
+      invalidateWorkflowReads();
+    },
+    onError: (error: Error) => toast({ title: "Batch review failed", description: error.message, variant: "destructive" }),
+  });
+
+  const setCandidateReview = (candidateId: string, patch: Partial<ContactBusinessReviewInput>) => {
+    setReviewInputs((current) => {
+      const prior = current[candidateId] ?? {
+        decision: "",
+        evidenceEventId: "",
+        decisionKey: crypto.randomUUID(),
+      };
+      return {
+        ...current,
+        [candidateId]: {
+          ...prior,
+          ...patch,
+          // A changed payload must use a fresh decision key. A retry without
+          // edits retains the same key for server-side idempotent replay.
+          decisionKey: patch.decision !== undefined || patch.evidenceEventId !== undefined
+            ? crypto.randomUUID()
+            : prior.decisionKey,
+        },
+      };
+    });
+  };
+
+  const progress = progressQuery.data;
+  const canStart = progress?.status === "idle" || progress?.status === "completed";
+  const canResume = progress?.status === "ready" || progress?.status === "paused" || progress?.status === "error";
+  const canPause = progress?.status === "running" || progress?.status === "ready" || progress?.status === "error";
+
+  return (
+    <Card data-testid="contact-business-reconciliation">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <GitBranch className="h-4 w-4" />
+          Contact ↔ Business Reconciliation
+          <Badge variant="outline" className="text-[10px]">Admin review</Badge>
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Keyset-based candidate generation and independent human review. Suggestions never set a verified link; no provider or outreach action is run here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-0">
+        {progressQuery.isLoading ? (
+          <div className="text-xs text-muted-foreground" role="status">Loading reconciliation progress…</div>
+        ) : progressQuery.isError ? (
+          <div className="text-xs text-red-700" role="alert">Progress unavailable — counts are not zero: {(progressQuery.error as Error).message}</div>
+        ) : progress ? (
+          <div className="rounded border p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={progress.status === "error" ? "destructive" : progress.status === "completed" ? "default" : "secondary"}>
+                {progress.status}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {progress.jobId ? `Run ${progress.jobId}` : "No reconciliation run recorded"}
+                {progress.updatedAt ? ` · updated ${new Date(progress.updatedAt).toLocaleString()}` : ""}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+              {[
+                ["Contacts scanned", progress.scannedContacts],
+                ["Suggestions recorded", progress.suggestionsRecorded],
+                ["Ambiguous contacts", progress.ambiguousContacts],
+                ["Unmatched contacts", progress.unmatchedContacts],
+                ["Cursor contact ID", progress.cursorContactId],
+              ].map(([label, count]) => (
+                <div key={String(label)} className="rounded bg-muted/40 px-2 py-1.5">
+                  <div className="font-semibold">{count}</div>
+                  <div className="text-muted-foreground">{label}</div>
+                </div>
+              ))}
+            </div>
+            {progress.lastError && <div className="text-xs text-red-700" role="alert">Last error: {progress.lastError}</div>}
+            {runControlMutation.isError && (
+              <div className="text-xs text-red-700" role="alert">
+                Reconciliation control failed: {(runControlMutation.error as Error).message}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {canStart && (
+                <Button size="sm" onClick={() => runControlMutation.mutate("start")}
+                  disabled={runControlMutation.isPending || progressQuery.isError}>
+                  {runControlMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                  Start new reconciliation run
+                </Button>
+              )}
+              {canResume && (
+                <Button size="sm" onClick={() => runControlMutation.mutate("resume")}
+                  disabled={runControlMutation.isPending || progressQuery.isError}>
+                  {runControlMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                  Resume next bounded batch
+                </Button>
+              )}
+              {canPause && (
+                <Button size="sm" variant="outline" onClick={() => runControlMutation.mutate("pause")}
+                  disabled={runControlMutation.isPending || progressQuery.isError}>
+                  Pause
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => progressQuery.refetch()} disabled={progressQuery.isFetching}>
+                <RefreshCw className={`h-3 w-3 mr-1 ${progressQuery.isFetching ? "animate-spin" : ""}`} />
+                Refresh progress
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Each start/resume processes one bounded keyset page (maximum 100 contacts) and checkpoints progress. A zero count is shown only after a successful response.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="rounded border p-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-xs font-semibold">Read-only preview</h3>
+            <label className="text-xs" htmlFor="contact-reconciliation-preview-limit">Sample contacts</label>
+            <Input
+              id="contact-reconciliation-preview-limit"
+              type="number"
+              min={1}
+              max={100}
+              className="h-8 w-20"
+              value={previewLimit}
+              onChange={(event) => setPreviewLimit(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}
+            />
+            <Button size="sm" variant="outline"
+              onClick={() => showPreview ? previewQuery.refetch() : setShowPreview(true)}
+              disabled={previewQuery.isFetching}>
+              {previewQuery.isFetching ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+              Preview matches
+            </Button>
+          </div>
+          {showPreview && previewQuery.isLoading && <p className="text-xs text-muted-foreground" role="status">Loading preview…</p>}
+          {showPreview && previewQuery.isError && (
+            <p className="text-xs text-red-700" role="alert">Preview unavailable — totals were not counted: {(previewQuery.error as Error).message}</p>
+          )}
+          {showPreview && previewQuery.data && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                {[
+                  ["Sampled contacts", previewQuery.data.sampledContacts],
+                  ["Candidate matches", previewQuery.data.sampleSuggestions],
+                  ["Ambiguous contacts", previewQuery.data.sampleAmbiguousContacts],
+                  ["No match in sample", previewQuery.data.sampleUnmatchedContacts],
+                  ["Unlinked total", previewQuery.data.eligibleUnlinkedContacts ?? "Not counted"],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded bg-muted/40 px-2 py-1.5">
+                    <div className="font-semibold">{value}</div>
+                    <div className="text-muted-foreground">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">{previewQuery.data.note} · writes: {previewQuery.data.writes} · paid calls: {previewQuery.data.paidProviderCalls}.</p>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-xs font-semibold">Candidate suggestions</h3>
+              <p className="text-[11px] text-muted-foreground">Contact email is masked. Candidate presence is not a verified association.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => suggestionsQuery.refetch()} disabled={suggestionsQuery.isFetching}>
+              <RefreshCw className={`h-3 w-3 mr-1 ${suggestionsQuery.isFetching ? "animate-spin" : ""}`} />
+              Refresh suggestions
+            </Button>
+          </div>
+          {suggestionsQuery.isLoading ? (
+            <div className="text-xs text-muted-foreground" role="status">Loading suggestion page…</div>
+          ) : suggestionsQuery.isError ? (
+            <div className="text-xs text-red-700" role="alert">Suggestions unavailable — no empty-state conclusion can be made: {(suggestionsQuery.error as Error).message}</div>
+          ) : suggestionsQuery.data ? (
+            <>
+              <div className="overflow-x-auto rounded border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">Review</TableHead>
+                      <TableHead>Contact / candidate</TableHead>
+                      <TableHead>Evidence / ambiguity</TableHead>
+                      <TableHead>Safety</TableHead>
+                      <TableHead>Current identity state</TableHead>
+                      <TableHead>Independent decision</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {suggestionsQuery.data.candidates.map((candidate) => {
+                      const review = reviewInputs[candidate.candidateId];
+                      const selected = selectedCandidateIds.includes(candidate.candidateId);
+                      const projectionConflict = candidate.projectedBusinessId != null
+                        && candidate.projectedBusinessId !== candidate.businessId;
+                      const canVerifyCandidate = !candidate.ambiguous && !candidate.reviewBlocked
+                        && !candidate.isVerified && !projectionConflict;
+                      return (
+                        <TableRow key={candidate.candidateId}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selected}
+                              disabled={candidate.isVerified}
+                              aria-label={`Select candidate for contact ${candidate.contactId}`}
+                              onCheckedChange={(checked) => setSelectedCandidateIds((current) =>
+                                checked
+                                  ? current.includes(candidate.candidateId) ? current : [...current, candidate.candidateId]
+                                  : current.filter((id) => id !== candidate.candidateId))}
+                            />
+                          </TableCell>
+                          <TableCell className="min-w-[220px]">
+                            <a href={`/dashboard/contacts/${candidate.contactId}`} className="font-medium text-blue-700 hover:underline">
+                              Contact #{candidate.contactId}
+                            </a>
+                            <div className="text-xs text-muted-foreground">{candidate.contactCompanyName ?? "Company name unavailable"}</div>
+                            <div className="font-mono text-[11px]">{maskContactEmail(candidate.contactEmail)}</div>
+                            <div className="mt-1 text-xs">Candidate: <a href={`/dashboard/lead-ops/business/${candidate.businessId}`} className="text-blue-700 hover:underline">
+                              {candidate.businessName ?? `Business #${candidate.businessId}`}
+                            </a></div>
+                            <div className="text-[11px] text-muted-foreground">{candidate.businessDomain ?? "Domain unavailable"}</div>
+                          </TableCell>
+                          <TableCell className="min-w-[180px] text-xs">
+                            <div>{candidate.source} · {candidate.sourceVersion}</div>
+                            <div>Confidence {candidate.confidence}</div>
+                            <div>Observed {candidate.createdAt ? new Date(candidate.createdAt).toLocaleString() : "time unavailable"}</div>
+                            <div>{candidate.contactCandidateCount} contact candidate(s) · {candidate.domainBusinessCount} businesses on domain</div>
+                            {candidate.ambiguous && <Badge variant="destructive" className="mt-1">Ambiguous — do not verify</Badge>}
+                          </TableCell>
+                          <TableCell className="min-w-[150px]">
+                            {candidate.safetyFlags.length ? (
+                              <div className="space-y-1">
+                                {candidate.safetyFlags.map((flag) => <Badge key={flag} variant="destructive" className="mr-1">{flag.replace(/_/g, " ")}</Badge>)}
+                                <div className="text-[11px] text-red-700">Verification blocked by safety evidence.</div>
+                              </div>
+                            ) : <span className="text-xs text-muted-foreground">No safety flags returned</span>}
+                          </TableCell>
+                          <TableCell className="min-w-[170px]">
+                            {candidate.isVerified ? (
+                              <Badge variant="default">Verified link (decision + projection)</Badge>
+                            ) : (
+                              <Badge variant="outline">Suggestion only · not verified</Badge>
+                            )}
+                            <div className="text-[11px] text-muted-foreground mt-1">
+                              Decision: {candidate.currentDecision ?? "none"} · revision {candidate.currentRevision}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              Projected business: {candidate.projectedBusinessId ?? "none"}
+                            </div>
+                            {projectionConflict && <Badge variant="destructive" className="mt-1">Existing projection conflicts</Badge>}
+                          </TableCell>
+                          <TableCell className="min-w-[220px]">
+                            <div className="space-y-1.5">
+                              <select
+                                className="h-8 w-full rounded border bg-background px-2 text-xs"
+                                aria-label={`Decision for contact ${candidate.contactId}`}
+                                value={review?.decision ?? ""}
+                                disabled={!selected || candidate.isVerified}
+                                onChange={(event) => setCandidateReview(candidate.candidateId, { decision: event.target.value })}
+                              >
+                                <option value="">Choose independent decision…</option>
+                                <option value="verified" disabled={!canVerifyCandidate}>Verify link (requires evidence)</option>
+                                <option value="conflicted">Mark conflicted</option>
+                                <option value="rejected">Reject candidate</option>
+                                <option value="missing">Mark missing</option>
+                                <option value="legacy_unknown">Legacy unknown</option>
+                              </select>
+                              <Input
+                                type="number"
+                                min={1}
+                                className="h-8"
+                                placeholder="Pre-existing source event ID"
+                                aria-label={`Evidence event ID for contact ${candidate.contactId}`}
+                                value={review?.evidenceEventId ?? ""}
+                                disabled={!selected || review?.decision !== "verified"}
+                                onChange={(event) => setCandidateReview(candidate.candidateId, { evidenceEventId: event.target.value })}
+                              />
+                              {review?.decision === "verified" && (
+                                <div className="text-[10px] text-amber-800">
+                                  Verification requires an existing source event, safe unambiguous evidence, and expected revision {candidate.currentRevision}.
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {suggestionsQuery.data.candidates.length === 0 && (
+                      <TableRow><TableCell colSpan={6} className="text-center text-xs text-muted-foreground">
+                        No suggestions on this page. This is not a count of all contacts or a verified-link result.
+                      </TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-muted-foreground">
+                  {suggestionsQuery.data.candidates.length} suggestion(s) on this page
+                  {selectedCandidateIds.length ? ` · ${selectedCandidateIds.length} selected` : ""}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline"
+                    disabled={cursorHistory.length === 0 || suggestionsQuery.isFetching}
+                    onClick={() => {
+                      const previous = cursorHistory[cursorHistory.length - 1];
+                      setCursorHistory((history) => history.slice(0, -1));
+                      setPageCursor(previous ?? null);
+                      setSelectedCandidateIds([]);
+                    }}>
+                    Previous page
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    disabled={!suggestionsQuery.data.nextCursor || suggestionsQuery.isFetching}
+                    onClick={() => {
+                      if (!suggestionsQuery.data?.nextCursor) return;
+                      setCursorHistory((history) => [...history, pageCursor]);
+                      setPageCursor(suggestionsQuery.data.nextCursor);
+                      setSelectedCandidateIds([]);
+                    }}>
+                    Next page
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => reviewBatchMutation.mutate()}
+                  disabled={!selectedCandidateIds.length || Boolean(reviewReadinessIssue) || reviewBatchMutation.isPending}>
+                  {reviewBatchMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                  Submit independent review batch (max 50)
+                </Button>
+                {reviewReadinessIssue && selectedCandidateIds.length > 0 && (
+                  <span className="text-xs text-amber-800">
+                    Choose a decision for each selected suggestion. Verification additionally requires a pre-existing evidence event and non-ambiguous, safe evidence.
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-muted-foreground">Suggestion page has not loaded.</div>
+          )}
+          {reviewBatchMutation.isError && (
+            <div className="text-xs text-red-700" role="alert">Review batch failed; selections are retained for correction/retry: {(reviewBatchMutation.error as Error).message}</div>
+          )}
+          {reviewBatchMutation.data && (
+            <div className="rounded border p-2 text-xs" role="status">
+              Last batch: {reviewBatchMutation.data.applied} applied · {reviewBatchMutation.data.rejected} rejected
+              {reviewBatchMutation.data.outcomes.filter((outcome) => outcome.status === "rejected").length > 0 && (
+                <ul className="mt-1 list-disc pl-4">
+                  {reviewBatchMutation.data.outcomes.filter((outcome) => outcome.status === "rejected").map((outcome) => (
+                    <li key={outcome.candidateId}>{outcome.candidateId}: {outcome.code ?? "review rejected"}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LeadOpsStats {
   total: number;
@@ -262,6 +799,98 @@ function emailDiscoveryBadge(status: string | null): string {
     return "bg-yellow-100 text-yellow-800 border-yellow-200";
   }
   return "bg-gray-100 text-gray-600 border-gray-200";
+}
+
+type NamedEmailEligibilityReview = {
+  eligibility_id: string;
+  cohort_run_id: string;
+  business_id: number;
+  business_name: string;
+  source_kind: string;
+  masked_email: string | null;
+  decision_reason: string;
+  validation_at: string | null;
+  validation_expires_at: string | null;
+  updated_at: string;
+  latest_review_decision: string | null;
+  latest_reviewer_id: string | null;
+  latest_reason: string | null;
+};
+
+function NamedEmailEligibilityReviewPanel() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const query = useQuery<{ reviews: NamedEmailEligibilityReview[] }>({
+    queryKey: ["/api/lead-ops/sfp/named-email-eligibility-reviews"],
+    queryFn: async () => (await apiRequest("GET", "/api/lead-ops/sfp/named-email-eligibility-reviews?limit=50")).json(),
+    retry: false,
+  });
+  const reviewMutation = useMutation({
+    mutationFn: async ({ row, decision }: { row: NamedEmailEligibilityReview; decision: "approved" | "rejected" }) => {
+      const reason = (reasons[row.eligibility_id] ?? "").trim();
+      if (reason.length < 8) throw new Error("Enter a review reason of at least 8 characters.");
+      return (await apiRequest("POST", `/api/lead-ops/sfp/named-email-eligibility-reviews/${row.eligibility_id}`, {
+        decision,
+        reason,
+        expectedUpdatedAt: row.updated_at,
+        idempotencyKey: crypto.randomUUID(),
+      })).json();
+    },
+    onSuccess: (_data, variables) => {
+      toast({ title: "Eligibility decision recorded", description: "This decision affects policy eligibility only; it does not authorize enrollment or sending." });
+      setReasons((current) => ({ ...current, [variables.row.eligibility_id]: "" }));
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/named-email-eligibility-reviews"] });
+    },
+    onError: (error: Error) => toast({ title: "Eligibility review failed", description: error.message, variant: "destructive" }),
+  });
+  if (user?.role !== "admin") return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Named-email eligibility review</CardTitle>
+        <CardDescription>
+          Independently review fresh ZeroBounce-valid named addresses held by the active policy. Approval is not held-intent review, enrollment, or send authority.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>Bounded to 50 current, unexpired records. No provider calls or outbound actions.</span>
+          <Button size="sm" variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>
+            {query.isFetching ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}Refresh
+          </Button>
+        </div>
+        {query.isError && <p className="text-sm text-red-700" role="alert">Review queue unavailable: {(query.error as Error).message}</p>}
+        {query.isLoading && <p className="text-sm text-muted-foreground">Loading eligibility reviews…</p>}
+        {query.data?.reviews.length === 0 && <p className="text-sm text-muted-foreground">No current named-email eligibility reviews are awaiting decision.</p>}
+        {query.data?.reviews.map((row) => (
+          <div key={row.eligibility_id} className="rounded-md border p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <strong className="text-sm">{row.business_name || `Business #${row.business_id}`}</strong>
+              <Badge variant="outline">{row.masked_email || "Email masked"}</Badge>
+              <Badge variant="secondary">ZeroBounce valid · {row.source_kind}</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Eligibility {row.eligibility_id} · validation expires {row.validation_expires_at ? new Date(row.validation_expires_at).toLocaleString() : "unknown"} · {row.decision_reason}
+            </p>
+            {row.latest_review_decision && <p className="text-xs">Latest separate decision: {row.latest_review_decision} by {row.latest_reviewer_id} — {row.latest_reason}</p>}
+            <Input
+              aria-label={`Eligibility review reason for ${row.eligibility_id}`}
+              placeholder="Reason for this independent eligibility decision (min 8 characters)"
+              value={reasons[row.eligibility_id] ?? ""}
+              onChange={(event) => setReasons((current) => ({ ...current, [row.eligibility_id]: event.target.value }))}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" disabled={reviewMutation.isPending || (reasons[row.eligibility_id] ?? "").trim().length < 8}
+                onClick={() => reviewMutation.mutate({ row, decision: "approved" })}>Approve eligibility</Button>
+              <Button size="sm" variant="outline" disabled={reviewMutation.isPending || (reasons[row.eligibility_id] ?? "").trim().length < 8}
+                onClick={() => reviewMutation.mutate({ row, decision: "rejected" })}>Reject eligibility</Button>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 }
 
 function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number | null }) {
@@ -1794,6 +2423,7 @@ export default function LeadOpsCenter() {
 
         {/* ── Businesses tab ─────────────────────────────────────────────── */}
         <TabsContent value="businesses" className="space-y-4">
+          {user?.role === "admin" && <ContactBusinessReconciliationPanel />}
           <BusinessesTab userRole={user?.role ?? "agent"} />
         </TabsContent>
 
@@ -2726,6 +3356,7 @@ export default function LeadOpsCenter() {
 
         {/* ── South Florida Prospecting tab ──────────────────────────────── */}
         <TabsContent value="sfp" className="space-y-4">
+          <NamedEmailEligibilityReviewPanel />
           <SfpEnrichmentControlCenter />
           <SouthFloridaProspectingPanel />
         </TabsContent>

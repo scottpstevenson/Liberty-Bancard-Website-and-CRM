@@ -9521,6 +9521,12 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "set null" }),
+  // Immutable source identity for contact-sourced validation. RESTRICT retains
+  // the original CRM row for audit/staging history; never null it on deletion.
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  contactBusinessLinkDecisionId: uuid("contact_business_link_decision_id")
+    .references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  contactBusinessLinkRevision: integer("contact_business_link_revision"),
   policyVersion: integer("policy_version").notNull().default(1),
   status: text("status").notNull(),
   decisionReason: text("decision_reason").notNull().default(""),
@@ -9545,6 +9551,7 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   sourceKind: text("source_kind"),
   paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "set null" }),
   normalizedValueHash: text("normalized_value_hash"),
+  normalizedValueHashVersion: integer("normalized_value_hash_version"),
   policyDocumentId: uuid("policy_document_id").references(() => sfpOutreachPolicyDocuments.id),
   policyDocumentHash: text("policy_document_hash"),
   consentTier: text("consent_tier"),
@@ -9561,16 +9568,50 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   index("idx_sfp_outreach_eligibility_status").on(table.status, table.createdAt),
   index("sfp_outreach_candidate_idx").on(table.candidateId),
   index("sfp_outreach_eligibility_paid_evidence_idx").on(table.paidCandidateEvidenceId),
+  index("sfp_outreach_eligibility_contact_idx").on(table.contactId),
   index("sfp_outreach_eligibility_normalized_hash_idx").on(table.businessId, table.normalizedValueHash),
   index("sfp_outreach_eligibility_policy_idx").on(table.policyDocumentId),
   check(
     "sfp_outreach_eligibility_source_ref_one_of_chk",
     sql`
       source_kind IS NULL
-      OR (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
-      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL)
+      OR (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'contact' AND contact_id IS NOT NULL AND candidate_id IS NULL
+          AND paid_candidate_evidence_id IS NULL AND contact_business_link_decision_id IS NOT NULL
+          AND contact_business_link_revision IS NOT NULL AND normalized_value_hash IS NOT NULL
+          AND normalized_value_hash_version IS NOT NULL AND normalized_value_hash_version IN (0,1))
     `,
   ),
+]);
+
+export const sfpNamedEmailEligibilityReviews = pgTable("sfp_named_email_eligibility_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
+  decision: text("decision").notNull(),
+  reviewerId: text("reviewer_id").notNull(),
+  reason: text("reason").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  expectedUpdatedAt: timestamp("expected_updated_at", { withTimezone: true }).notNull(),
+  policyDocumentId: uuid("policy_document_id").notNull().references(() => sfpOutreachPolicyDocuments.id, { onDelete: "restrict" }),
+  policyDocumentHash: text("policy_document_hash").notNull(),
+  validationOperationId: uuid("validation_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  sourceKind: text("source_kind").notNull(),
+  sourceReferenceId: text("source_reference_id").notNull(),
+  contactBusinessLinkDecisionId: uuid("contact_business_link_decision_id").references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  contactBusinessLinkRevision: integer("contact_business_link_revision"),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  normalizedValueHashVersion: integer("normalized_value_hash_version").notNull(),
+  validationExpiresAt: timestamp("validation_expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_named_email_reviews_eligibility_idx").on(table.eligibilityId, table.createdAt),
+  uniqueIndex("sfp_named_email_reviews_snapshot_uidx").on(table.eligibilityId, table.expectedUpdatedAt),
+  check("sfp_named_email_reviews_decision_check", sql`decision IN ('approved','rejected')`),
+  check("sfp_named_email_reviews_source_check", sql`
+    (source_kind = 'contact' AND contact_business_link_decision_id IS NOT NULL AND contact_business_link_revision IS NOT NULL)
+    OR (source_kind IN ('free','paid') AND contact_business_link_decision_id IS NULL AND contact_business_link_revision IS NULL)
+  `),
 ]);
 
 export const sfpStageRuns = pgTable("sfp_stage_runs", {
@@ -9878,11 +9919,16 @@ export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents",
   cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
   eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
-  // Legacy free-candidate FK — nullable as of Task #2001 (Defect 5). Exactly
-  // one of candidateId / paidCandidateEvidenceId is set, enforced by the
-  // sourceKind-driven CHECK (see migration 0290).
+  // Typed immutable source lineage. Contact sources are RESTRICTed on delete
+  // so historical staged evidence cannot silently lose its originating person.
   candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "restrict" }),
   paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  contactBusinessLinkDecisionId: uuid("contact_business_link_decision_id")
+    .references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  contactBusinessLinkRevision: integer("contact_business_link_revision"),
+  normalizedValueHash: text("normalized_value_hash"),
+  normalizedValueHashVersion: integer("normalized_value_hash_version"),
   sourceKind: text("source_kind"),
   idempotencyKey: text("idempotency_key").notNull(), actorId: text("actor_id").notNull(),
   state: text("state").notNull().default("staged"), policyVersion: integer("policy_version").notNull(),
@@ -9910,8 +9956,12 @@ export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents",
   check(
     "sfp_campaign_staging_intents_source_ref_one_of_chk",
     sql`
-      (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
-      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL)
+      (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'contact' AND contact_id IS NOT NULL AND candidate_id IS NULL
+          AND paid_candidate_evidence_id IS NULL AND contact_business_link_decision_id IS NOT NULL
+          AND contact_business_link_revision IS NOT NULL AND normalized_value_hash IS NOT NULL
+          AND normalized_value_hash_version IS NOT NULL AND normalized_value_hash_version IN (0,1))
     `,
   ),
   // 'promoted' is a retained LEGACY-ONLY value (pre-migration-0290 rows only).

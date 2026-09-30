@@ -25,6 +25,7 @@ import { getPauseState } from "./outbound-pause-authority";
 import { sanitizeAuditPayload } from "./audit-sanitizer";
 import { businessHasDbprLineageSql, businessLacksDbprLineageSql } from "./dbpr";
 import { evaluateBusinessEnrichmentEligibility } from "./contactability";
+import { acquireLadderBudgetLock, computeLadderBudgetLedger } from "./cro03/shared-paid-budget-ledger";
 import {
   buildCro03PriceScheduleFromArtifacts,
   CRO03C_PROVIDER_KEYS,
@@ -2241,8 +2242,9 @@ export async function getPilotEffectLinks(
 // Level 3 combined — Level 1 must never carry a paid provider at all, see
 // createPilotDefinition), not $50 per provider and not $50 per run. This
 // section sums real settled + in-flight reserved spend across every pilot
-// run's recorded cro03c_command effect links, independent of which run or
-// provider produced it.
+// operation across the shared SFP/pre-cohort and CRO-03C ledger, independent
+// of which run or provider produced it. The pilot-specific provider breakdown
+// below remains scoped to recorded cro03c_command effect links.
 export const MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS = 50_000_000; // $50.00 USD
 
 const MI09_PAID_BUDGET_AUTH_KEY = "mi09_pilot_paid_budget_authorization";
@@ -2256,16 +2258,37 @@ export interface PilotBudgetSummary {
   remainingMicros: number;
   overCap: boolean;
   operationCount: number;
-  byProvider: Array<{ provider: string; settledMicros: number; reservedMicros: number; operationCount: number }>;
+  byProvider: Array<{
+    provider: string;
+    settledMicros: number;
+    reservedMicros: number;
+    operationCount: number;
+    scope: "mi09_pilot_linked_cro03c_operations_only";
+  }>;
 }
 
-/** Aggregate real spend across every pilot run's cro03c_command effect links. */
+/**
+ * Canonical aggregate ledger read shared by pilot and SFP summaries. The
+ * provider breakdown remains pilot-link scoped for backwards compatibility;
+ * all headline amounts and remaining headroom come from the shared operation
+ * ledger so SFP is not counted once here and a second time by its caller.
+ */
 export async function getAggregatePilotSpend(): Promise<PilotBudgetSummary> {
   const opRows = rows(await db.execute(sql`
     SELECT so.provider, so.state,
-           SUM(so.settled_amount_micros)::bigint AS settled_micros,
-           SUM(CASE WHEN so.state IN ('reserved','dispatched') THEN so.max_reserved_amount_micros ELSE 0 END)::bigint AS reserved_micros,
-           SUM(CASE WHEN so.state IN ('failed','cancelled') THEN so.max_reserved_amount_micros ELSE 0 END)::bigint AS failed_micros,
+           SUM(CASE
+             WHEN so.terminal_disposition = 'released'
+               OR so.state IN ('reserved','dispatched','failed','cancelled')
+               OR so.billing_certainty IN ('ambiguous','unknown') THEN 0
+             ELSE so.settled_amount_micros
+           END)::bigint AS settled_micros,
+           SUM(CASE
+             WHEN so.terminal_disposition = 'released' THEN 0
+             WHEN so.state IN ('reserved','dispatched','failed','cancelled')
+               OR so.billing_certainty IN ('ambiguous','unknown')
+               THEN GREATEST(so.max_reserved_amount_micros, so.settled_amount_micros)
+             ELSE 0
+           END)::bigint AS reserved_micros,
            COUNT(*)::int AS cnt
     FROM mi09_pilot_effect_links el
     JOIN cro03c_stage_operations so ON so.command_id = el.entity_id
@@ -2273,19 +2296,25 @@ export async function getAggregatePilotSpend(): Promise<PilotBudgetSummary> {
     GROUP BY so.provider, so.state
   `));
 
-  let settledMicros = 0, reservedMicros = 0, failedOrCancelledMicros = 0, operationCount = 0;
-  const byProviderMap = new Map<string, { settledMicros: number; reservedMicros: number; operationCount: number }>();
+  let operationCount = 0;
+  const byProviderMap = new Map<string, {
+    settledMicros: number;
+    reservedMicros: number;
+    operationCount: number;
+    scope: "mi09_pilot_linked_cro03c_operations_only";
+  }>();
   for (const r of opRows) {
     const provider = String(r.provider);
     const settled = Number(r.settled_micros ?? 0);
     const reserved = Number(r.reserved_micros ?? 0);
-    const failed = Number(r.failed_micros ?? 0);
     const cnt = Number(r.cnt ?? 0);
-    settledMicros += settled;
-    reservedMicros += reserved;
-    failedOrCancelledMicros += failed;
     operationCount += cnt;
-    const entry = byProviderMap.get(provider) ?? { settledMicros: 0, reservedMicros: 0, operationCount: 0 };
+    const entry = byProviderMap.get(provider) ?? {
+      settledMicros: 0,
+      reservedMicros: 0,
+      operationCount: 0,
+      scope: "mi09_pilot_linked_cro03c_operations_only",
+    };
     entry.settledMicros += settled;
     entry.reservedMicros += reserved;
     entry.operationCount += cnt;
@@ -2293,15 +2322,21 @@ export async function getAggregatePilotSpend(): Promise<PilotBudgetSummary> {
   }
 
   const capMicros = MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS;
+  const ledger = await db.transaction(async (tx) => {
+    await acquireLadderBudgetLock(tx);
+    return computeLadderBudgetLedger(tx);
+  });
+  const settledMicros = ledger.settledMicros;
+  const reservedMicros = ledger.reservedMicros;
   const committedMicros = settledMicros + reservedMicros;
   return {
     capMicros,
     settledMicros,
     reservedMicros,
-    failedOrCancelledMicros,
+    failedOrCancelledMicros: ledger.failedOrCancelledMicros,
     remainingMicros: Math.max(0, capMicros - committedMicros),
     overCap: committedMicros > capMicros,
-    operationCount,
+    operationCount: ledger.operationCount || operationCount,
     byProvider: Array.from(byProviderMap.entries()).map(([provider, v]) => ({ provider, ...v })),
   };
 }

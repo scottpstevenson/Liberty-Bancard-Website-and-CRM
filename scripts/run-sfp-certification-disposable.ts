@@ -34,7 +34,11 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import pg from "pg";
-import { launchLocalPostgres16, type LocalCluster } from "./local-rehearsal-core";
+import {
+  buildLocalRehearsalEnvironment,
+  launchLocalPostgres16,
+  type LocalCluster,
+} from "./local-rehearsal-core";
 
 const localRole = () => process.env.USER || process.env.LOGNAME || os.userInfo().username;
 
@@ -75,26 +79,26 @@ async function main() {
 
     const dbUrl = `postgresql:///${dbName}?host=${encodeURIComponent(cluster.socket.realpath)}&port=${cluster.port}`;
 
-    const baseEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      // Strip inherited PG* connection vars — they point at the real
-      // application database's role/host and must never leak into the
-      // disposable local connection string's implicit defaults.
+    const baseEnv = buildLocalRehearsalEnvironment({
       PGUSER: localRole(),
-      PGPASSWORD: undefined,
-      PGHOST: undefined,
-      PGPORT: undefined,
-      PGDATABASE: undefined,
-      PGSERVICE: undefined,
       NODE_ENV: "test",
-      DATABASE_URL: dbUrl,
-      TEST_DATABASE_URL: dbUrl,
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME || `${os.homedir()}/.config`,
       GHL_TRANSPORT_FAILFAST: "true",
       EMAIL_TRANSPORT_FAILFAST: "true",
       SMS_TRANSPORT_FAILFAST: "true",
       SUNBIZ_ENRICHMENT_ENABLED: "false",
       SERPER_GATEWAY_ENABLED: "false",
-    };
+      FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED: "true",
+      BACKGROUND_JOB_PROFILE: "selective:sfp-campaign-staging",
+    });
+    // Database URLs are scrubbed by the rehearsal helper before the private
+    // socket-only URL is restored here; inherited application URLs never pass.
+    baseEnv.DATABASE_URL = dbUrl;
+    baseEnv.TEST_DATABASE_URL = dbUrl;
+    // Disposable-only encryption keys permit fixture sealing and contact
+    // provenance writes; they are unrelated to inherited production secrets.
+    baseEnv.MERCHANT_DATA_ENCRYPTION_KEY = "sfp-certification-disposable-only";
+    baseEnv.CREDENTIAL_ENCRYPTION_KEY = "sfp-certification-disposable-only";
 
     console.log("\n▶ Running Drizzle migrations against the disposable database…");
     const migrateCode = await run(

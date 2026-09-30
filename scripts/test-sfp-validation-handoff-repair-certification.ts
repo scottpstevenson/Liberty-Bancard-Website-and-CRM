@@ -66,6 +66,9 @@ const { ensureProgram, setProgramActivation } = await import(
 const { previewSfpValidation, executeSfpValidation, SFP_VALIDATION_MAX } = await import(
   "../server/services/cro03/sfp-validation"
 );
+const { claimValidationCandidate } = await import("../server/services/cro03/sfp-validation");
+const { getUnifiedSfpCandidates } = await import("../server/services/cro03/sfp-paid-evidence-writer");
+const { getActiveSfpOutreachPolicy } = await import("../server/services/cro03/sfp-outreach-policy");
 const { seal } = await import("../server/services/cro03/candidate-evidence-service");
 const { createCro03cRuntimeAttestation } = await import("../server/services/cro03/live-execution");
 const { processSfpAttestationRefreshTick } = await import("../server/services/cro03/sfp-attestation-refresh");
@@ -122,6 +125,22 @@ check(
   `patched refresh call requests a ${patchedTtlMs / 60_000}-minute TTL, which outlives the 5-minute refresh interval — closes the dead-attestation gap`,
 );
 check(patchedTtlMs <= 15 * 60_000, "FIX1-c", "the requested TTL stays within createCro03cRuntimeAttestation's own 15-minute clamp — no new unbounded-authority window introduced");
+
+// C5 source contracts: continuous selection must page the complete frozen
+// cohort set and order by durable prior activity, rather than a newest-25
+// window. ROI remains the stable tie-break in the starvation-protected
+// pre-cohort selector.
+const continuousSource = await (await import("node:fs/promises")).readFile(
+  new URL("../server/services/cro03/sfp-continuous-discovery.ts", import.meta.url), "utf-8",
+);
+check(!/LIMIT\s+25\b/.test(continuousSource), "C5-cohort-page", "continuous discovery/validation no longer truncates frozen cohorts to the newest 25");
+check(continuousSource.includes("MAX(s.last_heartbeat_at)") && continuousSource.includes("stage='validation'"),
+  "C5-cohort-fairness", "validation cohort selection rotates from persisted least-recently-worked progress");
+const roiSource = await (await import("node:fs/promises")).readFile(
+  new URL("../server/services/cro03/roi-cohort-selector.ts", import.meta.url), "utf-8",
+);
+check(roiSource.includes("lastFrozenAt") && roiSource.includes("b.roiScore - a.roiScore"),
+  "C5-roi-starvation", "cohort selection prioritizes least-recently-frozen businesses while retaining deterministic ROI priority");
 
 // For the rest of this cert (continuous-validation wiring, backlog draining,
 // terminal-state matrix), seed a live attestation row directly via SQL —
@@ -268,18 +287,15 @@ check(true, "SETUP", `frozen cohort with ${allBizIds.length} members (8 outcome 
 // covers this cohort's validation).
 
 // ══════════════════════════════════════════════════════════════════════════
-// FIX-2: backlog draining across two batches smaller than the cohort
+// C4/C5: backlog draining across a bounded batch while retryable candidates
+// stay on durable cooldown instead of being replayed as fresh progress.
 // ══════════════════════════════════════════════════════════════════════════
 const BATCH = 3; // deliberately smaller than the 9-member cohort
 
 const TOTAL_CANDIDATE_BUSINESSES = OUTCOMES.length + fillerBizIds.length; // excludes the missing-candidate business
 
-// Shared across all batches: a retryable outcome ('failed'/'unknown')
-// recovers to 'valid' on its SECOND attempt, simulating a real transient
-// failure clearing up on retry. This lets the test prove both that a
-// retryable row correctly reappears for retry (FIX2-d2) AND that the
-// backlog can reach a genuine full drain once retries are exhausted,
-// without relying on an artificial infinite-retry loop.
+// The provider adapter is deterministic; unknown/failed outcomes remain
+// candidate-specific pending work and are protected by a finite backoff.
 const attemptCounts = new Map<string, number>();
 const zbTransportFor = (): ((candidateId: string, realEmail: string) => Promise<any>) => {
   const emailToOutcome = new Map<string, string>();
@@ -339,7 +355,7 @@ check(overlap.length === 0, "FIX2-d", "batch 2's preview selects businesses NOT 
 const retriedPending = batch2CandidateBizIds.filter((id) =>
   decidedAfterBatch1Full.some((r: any) => Number(r.business_id) === id && r.status === "validation_pending"),
 );
-check(retriedPending.length === 2, "FIX2-d2", `the 2 retryable ('unknown'/'failed') businesses from batch 1 correctly reappear in batch 2's candidate list for retry (got ${retriedPending.length})`);
+check(retriedPending.length === 0, "FIX2-d2", `unknown/failed candidates are not immediately replayed inside their bounded retry cooldown (got ${retriedPending.length})`);
 check(preview2.snapshotHash !== preview1.snapshotHash, "FIX2-d2", "batch 2's snapshot hash differs from batch 1's — proves the selection genuinely changed, not just re-labeled");
 
 const exec2 = await executeSfpValidation(cohortRunId, {
@@ -348,13 +364,10 @@ const exec2 = await executeSfpValidation(cohortRunId, {
   actorId: `cert:${RUN_ID}`,
   zbTransport: zbTransportFor(),
 });
-// Expected batch-2 size = every candidate-bearing business not yet
-// TERMINALLY decided in batch 1: the ones batch 1 never reached, PLUS the
-// 2 retryable ('validation_pending') ones batch 1 did reach but couldn't
-// terminally resolve.
-const retryableCountInBatch1 = decidedAfterBatch1Full.filter((r: any) => r.status === "validation_pending").length;
-const expectedBatch2Count = TOTAL_CANDIDATE_BUSINESSES - (SFP_VALIDATION_MAX - retryableCountInBatch1);
-check(exec2.addressesValidated === expectedBatch2Count, "FIX2-e", `batch 2 validated the remaining ${exec2.addressesValidated} businesses (${TOTAL_CANDIDATE_BUSINESSES - SFP_VALIDATION_MAX} never-yet-reached + ${retryableCountInBatch1} retryable from batch 1) — cumulative backlog draining proven across two batches, not stuck replaying batch 1`);
+// Immediate batch two validates the untouched candidates and does not turn
+// cached unknown/transport outcomes into false provider progress.
+const expectedBatch2Count = TOTAL_CANDIDATE_BUSINESSES - SFP_VALIDATION_MAX;
+check(exec2.addressesValidated === expectedBatch2Count, "FIX2-e", `batch 2 validated the ${exec2.addressesValidated} untouched candidates while respecting pending-candidate cooldown`);
 
 const decidedAfterBatch2 = rows(await db.execute(sql`
   SELECT business_id FROM sfp_outreach_eligibility WHERE cohort_run_id = ${cohortRunId}::uuid
@@ -362,7 +375,7 @@ const decidedAfterBatch2 = rows(await db.execute(sql`
 check(decidedAfterBatch2.length === TOTAL_CANDIDATE_BUSINESSES + 1, "FIX2-f", `ALL ${TOTAL_CANDIDATE_BUSINESSES} candidate-bearing businesses + the 1 no-candidate business decided after exactly two batches (got ${decidedAfterBatch2.length}) — the full backlog drained, not just "a batch"`);
 
 const preview3 = await previewSfpValidation(cohortRunId);
-check(preview3.selectedCandidates.length === 0, "FIX2-g", "a third preview finds nothing left to validate — the cohort is genuinely fully drained, confirming there is no residual undiscovered backlog");
+check(preview3.selectedCandidates.length === 0, "FIX2-g", "a third preview has no immediately actionable candidates while the unknown/transport candidates remain durably backed off");
 
 const finalDecided = rows(await db.execute(sql`
   SELECT business_id, status, zb_outcome FROM sfp_outreach_eligibility WHERE cohort_run_id = ${cohortRunId}::uuid
@@ -403,12 +416,97 @@ const missingRow = rows(await db.execute(sql`
 check(!!missingRow && missingRow.status === "discovery_required" && missingRow.zb_outcome === null, "MATRIX-missing", "the genuinely candidate-less business gets a truthful 'discovery_required' row, never a fabricated ZB decision");
 
 // ══════════════════════════════════════════════════════════════════════════
-// Idempotent replay: same idempotency key + snapshot returns the same
-// stored result, no double-counting, no second transport invocation.
+// Candidate-specific late evidence reopens a discovery_required business and
+// allows an alternative address after the first address was rejected.
+{
+  const lateEmail = `late-${RUN_ID}@gmail.com`;
+  const sealedLate = seal("email", lateEmail);
+  await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id,business_id,field,subject_type,domain,source,attribution_scope,disposition,confidence,
+       envelope_ciphertext,envelope_nonce,envelope_tag,envelope_key_version,normalized_value_hash,masked_value,created_at)
+    VALUES (${generationId}::uuid,${missingBizId},'email','business',${`${RUN_ID}-late.example.com`},
+      'cert-late','role','staged',95,${sealedLate.ciphertext},${sealedLate.nonce},${sealedLate.tag},1,
+      ${sealedLate.normalizedValueHash},${sealedLate.maskedValue},NOW())
+  `);
+  const altEmail = `alternate-${RUN_ID}@gmail.com`;
+  const sealedAlt = seal("email", altEmail);
+  const altEvidence = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id,business_id,field,subject_type,domain,source,attribution_scope,disposition,confidence,
+       envelope_ciphertext,envelope_nonce,envelope_tag,envelope_key_version,normalized_value_hash,masked_value,created_at)
+    VALUES (${generationId}::uuid,${bizByLabel.get("invalid")!},'email','business',${`${RUN_ID}-alternate.example.com`},
+      'cert-alternate','role','staged',95,${sealedAlt.ciphertext},${sealedAlt.nonce},${sealedAlt.tag},1,
+      ${sealedAlt.normalizedValueHash},${sealedAlt.maskedValue},NOW())
+    RETURNING id
+  `))[0];
+  const alt2Email = `alternate-two-${RUN_ID}@gmail.com`;
+  const sealedAlt2 = seal("email", alt2Email);
+  const alt2Evidence = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id,business_id,field,subject_type,domain,source,attribution_scope,disposition,confidence,
+       envelope_ciphertext,envelope_nonce,envelope_tag,envelope_key_version,normalized_value_hash,masked_value,created_at)
+    VALUES (${generationId}::uuid,${bizByLabel.get("invalid")!},'email','business',${`${RUN_ID}-alternate-two.example.com`},
+      'cert-alternate-two','role','staged',94,${sealedAlt2.ciphertext},${sealedAlt2.nonce},${sealedAlt2.tag},1,
+      ${sealedAlt2.normalizedValueHash},${sealedAlt2.maskedValue},NOW())
+    RETURNING id
+  `))[0];
+  const latePreview = await previewSfpValidation(cohortRunId);
+  const lateIds = latePreview.selectedCandidates.map((c) => c.businessId);
+  check(lateIds.includes(missingBizId), "C4-late-discovery", "late candidate evidence reopens a discovery_required business");
+  check(lateIds.includes(bizByLabel.get("invalid")!), "C4-alternative", "a new candidate-specific alternative reopens a business after its prior address was invalid");
+  check(latePreview.selectedCandidates.find(c => c.businessId === bizByLabel.get("invalid")!)?.candidateId === String(altEvidence.id),
+    "C4-alternative-rank", "the higher-confidence alternate is the current candidate winner before claims");
+
+  // Two independent stage runs race to claim the exact same normalized
+  // candidate. The shared transaction advisory lock plus durable lease must
+  // admit exactly one owner. A second, different candidate on the same
+  // business remains available after the first candidate is claimed.
+  const candidate = (await getUnifiedSfpCandidates([bizByLabel.get("invalid")!]))
+    .find(c => c.sourceKind === "free" && c.evidenceId === String(altEvidence.id));
+  check(!!candidate, "C5-claim-fixture", "the selected alternate candidate is present in the unified writer view");
+  const policy = await getActiveSfpOutreachPolicy();
+  const raceStageRuns = await Promise.all([1, 2].map(async worker => {
+    const row = rows(await db.execute(sql`
+      INSERT INTO sfp_stage_runs
+        (cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
+      VALUES (${cohortRunId}::uuid,'validation',${`cert-vhr-claim-${worker}-${RUN_ID}`},
+        ${`cert:${RUN_ID}`},'authorized',1,'["zerobounce"]'::jsonb,
+        ${createHash("sha256").update(`claim-payload-${worker}-${RUN_ID}`).digest("hex")},
+        ${latePreview.snapshotHash},NOW(),NOW())
+      RETURNING id
+    `))[0];
+    return String(row.id);
+  }));
+  const claimResults = await Promise.all(raceStageRuns.map(stageRunId =>
+    claimValidationCandidate({
+      stageRunId, cohortRunId, businessId: bizByLabel.get("invalid")!,
+      candidate: candidate!, policyVersion: policy.version,
+    }),
+  ));
+  check(claimResults.filter(Boolean).length === 1, "C5-claim-single-owner",
+    `two concurrent workers produced exactly one durable candidate claim (results=${claimResults.join(",")})`);
+  const claimedRows = rows(await db.execute(sql`
+    SELECT i.candidate_id::text AS candidate_id,i.state,i.redacted_result
+      FROM sfp_stage_items i
+     WHERE i.stage_run_id=ANY(ARRAY[${sql.join(raceStageRuns.map(id => sql`${id}::uuid`),sql`, `)}]::uuid[])
+       AND i.business_id=${bizByLabel.get("invalid")!} AND i.provider='zerobounce'
+  `));
+  check(claimedRows.length === 1 && claimedRows[0]?.state === "claimed" &&
+        String(claimedRows[0]?.candidate_id) === String(altEvidence.id),
+    "C5-claim-lease", "one durable lease pins the exact free-evidence row without creating any provider operation");
+  const afterClaimPreview = await previewSfpValidation(cohortRunId);
+  check(afterClaimPreview.selectedCandidates.some(c =>
+    c.businessId === bizByLabel.get("invalid")! && c.candidateId === String(alt2Evidence.id)),
+    "C4-alternate-after-claim", "claiming one terminally-rejected business's address leaves its different candidate revision actionable");
+}
+
+// Idempotent replay: same key/snapshot returns the same immutable receipt even
+// after later evidence changes the mutable backlog.
 // ══════════════════════════════════════════════════════════════════════════
 let replayTransportCalls = 0;
-const replayPreview = await previewSfpValidation(cohortRunId); // fully decided now -> selectedCandidates == []
-check(replayPreview.selectedCandidates.length === 0, "REPLAY-setup", "cohort is fully decided — nothing left to validate, proving drain completed");
+const replayPreview = await previewSfpValidation(cohortRunId);
+check(replayPreview.selectedCandidates.length > 0, "REPLAY-setup", "late evidence has changed the live selection after the earlier completed receipt");
 
 // Direct idempotent-replay check on a batch we already executed: re-invoke
 // executeSfpValidation with batch 1's exact idempotency key + a fresh
@@ -419,21 +517,115 @@ check(replayPreview.selectedCandidates.length === 0, "REPLAY-setup", "cohort is 
 let replayed: any = null;
 try {
   replayed = await executeSfpValidation(cohortRunId, {
-    idempotencyKey: `cert-vhr-batch1-${RUN_ID}`,
-    snapshotHash: preview1.snapshotHash,
+    idempotencyKey: `cert-vhr-batch2-${RUN_ID}`,
+    snapshotHash: preview2.snapshotHash,
     actorId: `cert:${RUN_ID}`,
-    maxValidations: BATCH,
     zbTransport: async () => { replayTransportCalls++; return "valid"; },
   });
 } catch (err: any) {
-  // A stale snapshot after the cohort has moved on is an acceptable
-  // fail-closed outcome (SNAPSHOT_MISMATCH) — record it as a pass of the
-  // "never silently re-executes on drift" contract instead of a failure.
-  check(/SNAPSHOT_MISMATCH/.test(String(err?.message ?? "")), "REPLAY-a-altpath", `replay attempt with a now-stale snapshot correctly fails closed: ${err.message}`);
+  check(false, "REPLAY-a-altpath", `an exact completed replay must return its immutable receipt: ${err.message}`);
 }
 if (replayed) {
   check(replayTransportCalls === 0, "REPLAY-a", "replaying a completed idempotency key never re-invokes the provider transport");
-  check(replayed.addressesValidated === exec1.addressesValidated, "REPLAY-b", "replay returns the exact same stored counts as the original run");
+  check(replayed.addressesValidated === exec2.addressesValidated, "REPLAY-b", "replay returns the exact same stored counts as the original run");
+}
+
+// C1: exercise the contact source through a real migrated eligibility table,
+// using only an injected fake transport. The source decision/revision and
+// version-1 normalized email hash must be pinned on the persisted decision.
+{
+  const contactBiz = Number(rows(await db.execute(sql`
+    INSERT INTO businesses (canonical_name,normalized_name,vertical,state,record_class,created_at)
+    VALUES (${`${RUN_ID}-contact-biz`},${`${RUN_ID}-contact-biz`.toLowerCase()},'Med Spa','FL','canonical',NOW())
+    RETURNING id
+  `))[0].id);
+  const contactEmail = `named-${RUN_ID}@gmail.com`;
+  const { writeContact } = await import("../server/services/contact-writer");
+  const contactActorId = `cert-vhr-contact-writer-${RUN_ID}`;
+  const contact = await writeContact({
+    mode: "local_only",
+    mutation: {
+      firstName: "Certification", lastName: "Contact", email: contactEmail, phone: "5550100",
+      companyName: `${RUN_ID}-contact-biz`, status: "New",
+    },
+    provenance: {
+      sourceCategory: "discovery", sourceType: "cro03", eventKey: `cert-vhr-contact-source-${RUN_ID}`,
+      actorType: "system", actorId: contactActorId,
+    },
+    actor: { actorType: "system", actorId: contactActorId },
+    hookPolicy: {
+      source: "cro03", deferValidation: true, deferReadiness: true,
+      deferLeadScoring: true, suppressProviderProjection: true,
+    },
+  });
+  const contactId = Number(contact.id);
+  const sourceEventId = Number(contact._sourceEventId);
+  check(contactId > 0 && sourceEventId > 0, "C1-contact-source-event", "the contact writer persists the contact's provenance source event");
+  const reviewerId = `cert-vhr-contact-admin-${RUN_ID}`;
+  await db.execute(sql`
+    INSERT INTO users (id,email,first_name,last_name,role)
+    VALUES (${reviewerId},${`${reviewerId}@cert.invalid`},'Independent','Reviewer','admin')
+  `);
+  const { decideContactBusinessLink } = await import("../server/services/commercial-link-authority");
+  const linkDecision = await decideContactBusinessLink({
+    contactId,
+    businessId: contactBiz,
+    decision: "verified",
+    decisionKey: `cert-vhr-contact-link-${RUN_ID}`,
+    reviewerId,
+    evidenceSourceEventId: sourceEventId,
+  });
+  const contactCohortRunId = randomUUID();
+  const contactCohortHash = createHash("sha256").update(contactCohortRunId).digest("hex");
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs
+      (id,program_id,idempotency_key,status,cohort_size,cohort_hash,frozen_at,release_sha,actor_id,
+       cohort_state,request_hash,config_hash)
+    VALUES (${contactCohortRunId}::uuid,${program.id}::uuid,${`cert-vhr-contact-${RUN_ID}`},
+            'freezing',1,${contactCohortHash},NULL,${"0".repeat(40)},${`cert:${RUN_ID}`},
+            'freezing',${contactCohortHash},${contactCohortHash})
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_members
+      (cohort_run_id,business_id,roi_score,geography_class,geography_source,county_fips,vertical)
+    VALUES (${contactCohortRunId}::uuid,${contactBiz},100,'verified','fips','12086','Med Spa')
+  `);
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
+     WHERE id=${contactCohortRunId}::uuid
+  `);
+  const contactPreview = await previewSfpValidation(contactCohortRunId);
+  check(contactPreview.selectedCandidates.length === 1 &&
+        contactPreview.selectedCandidates[0]?.candidateId === `contact:${contactId}`,
+    "C1-contact-preview", "the verified contact is selected with its writer-pinned source reference");
+  const contactValidation = await executeSfpValidation(contactCohortRunId, {
+    idempotencyKey: `cert-vhr-contact-validate-${RUN_ID}`,
+    snapshotHash: contactPreview.snapshotHash,
+    actorId: `cert:${RUN_ID}`,
+    zbTransport: async (_candidateId, realEmail) => {
+      check(realEmail === contactEmail, "C1-contact-fake-transport", "the contact's real address reaches only the injected fake transport");
+      return "valid";
+    },
+  });
+  const persistedContactDecision = rows(await db.execute(sql`
+    SELECT source_kind,contact_id,contact_business_link_decision_id,contact_business_link_revision,
+           normalized_value_hash,normalized_value_hash_version,status,named_contact,role_inbox
+      FROM sfp_outreach_eligibility
+     WHERE cohort_run_id=${contactCohortRunId}::uuid AND business_id=${contactBiz}
+  `))[0];
+  const expectedContactHash = createHash("sha256").update(`email\0${contactEmail.trim().toLowerCase()}`).digest("hex");
+  check(contactValidation.providerRequests === 1, "C1-contact-provider", "the fake transport records one actual contact validation request");
+  check(persistedContactDecision?.source_kind === "contact" &&
+        Number(persistedContactDecision.contact_id) === contactId &&
+        String(persistedContactDecision.contact_business_link_decision_id) === String(linkDecision.id) &&
+        Number(persistedContactDecision.contact_business_link_revision) === Number(linkDecision.revision),
+    "C1-contact-link-pin", "eligibility persists the exact verified contact-business decision and revision");
+  check(persistedContactDecision.normalized_value_hash === expectedContactHash &&
+        Number(persistedContactDecision.normalized_value_hash_version) === 1,
+    "C1-contact-hash-v1", "eligibility persists the writer-compatible version-1 normalized email hash, not the CRM token hash");
+  check(persistedContactDecision.status === "validated_review_required" &&
+        persistedContactDecision.named_contact === true && persistedContactDecision.role_inbox === false,
+    "C1-contact-policy-hold", "a valid named contact remains held under the active review-required policy");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -482,7 +674,8 @@ const { getBlockedCertificationNetworkAttemptCount } = await import("./certifica
 const blockedBefore = getBlockedCertificationNetworkAttemptCount();
 const tickResult = await processSfpContinuousValidationTick();
 const blockedAfter = getBlockedCertificationNetworkAttemptCount();
-check(tickResult.reason !== "attestation_paused", "TICK-a", `continuous tick proceeds past the attestation gate after FIX-1 (result: ${JSON.stringify(tickResult)})`);
+const tickStopReason = tickResult.stopReason ?? tickResult.reason ?? "";
+check(tickStopReason !== "attestation_paused", "TICK-a", `continuous tick proceeds past the attestation gate after FIX-1 (result: ${JSON.stringify(tickResult)})`);
 // The tick calls the REAL ZeroBounce transport path (no zbTransport override
 // available at this layer). Zero real spend is proven either way:
 //  (a) the certification network-deny boundary intercepted an outbound
@@ -492,11 +685,11 @@ check(tickResult.reason !== "attestation_paused", "TICK-a", `continuous tick pro
 //      earlier, more defensive fail-closed point that never reaches the
 //      transport layer at all.
 const networkAttemptBlocked = blockedAfter > blockedBefore;
-const refusedBeforeTransport = /credential_missing|provider_paused/.test(tickResult.reason ?? "");
+const refusedBeforeTransport = /credential_missing|provider_paused/.test(tickStopReason);
 check(
   networkAttemptBlocked || refusedBeforeTransport,
   "TICK-b",
-  `zero real ZeroBounce calls confirmed — ${networkAttemptBlocked ? "network-deny boundary intercepted the attempt" : `provider readiness refused before the transport layer (${tickResult.reason})`}`,
+  `zero real ZeroBounce calls confirmed — ${networkAttemptBlocked ? "network-deny boundary intercepted the attempt" : `provider readiness refused before the transport layer (${tickStopReason})`}`,
 );
 const tickEligRow = rows(await db.execute(sql`
   SELECT status FROM sfp_outreach_eligibility WHERE cohort_run_id = ${tickCohortRunId}::uuid AND business_id = ${tickBizId}

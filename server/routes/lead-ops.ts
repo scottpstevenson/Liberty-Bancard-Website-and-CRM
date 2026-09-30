@@ -132,50 +132,88 @@ export function registerLeadOpsRoutes(app: Express) {
   // ── GET /api/lead-ops/stats ────────────────────────────────────────────────
   // Aggregate stats for the entire sunbiz entity lead pool.
   app.get("/api/lead-ops/stats", requireRole("admin", "manager"), async (req, res) => {
+    const sampledAt = new Date().toISOString();
+    let stats: Record<string, unknown> | null = null;
+    let verticals: any[] | null = null;
+    let statsError: string | null = null;
+    let verticalsError: string | null = null;
+    const asSafeCount = (value: unknown): number => {
+      const count = Number(value);
+      if (!Number.isSafeInteger(count) || count < 0) throw new Error("aggregate_count_out_of_range");
+      return count;
+    };
     try {
-      const statsResult = await db.execute(sql`
-        SELECT
-          COUNT(*)::int                                                              AS total,
-          COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int              AS processing_completed,
-          COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int               AS pending_processing,
-          COUNT(*) FILTER (WHERE enrichment_status = 'processing')::int            AS processing,
-          COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int                AS failed,
-          COUNT(*) FILTER (WHERE score = 'hot')::int                               AS hot,
-          COUNT(*) FILTER (WHERE score = 'warm')::int                              AS warm,
-          COUNT(*) FILTER (WHERE score = 'cold')::int                              AS cold,
-          COUNT(*) FILTER (
-            WHERE NULLIF(BTRIM(email), '') IS NOT NULL
-               OR NULLIF(BTRIM(owner_email), '') IS NOT NULL
-          )::int AS current_email_inventory,
-          COUNT(*) FILTER (
-            WHERE NULLIF(BTRIM(phone), '') IS NOT NULL
-               OR NULLIF(BTRIM(owner_phone), '') IS NOT NULL
-          )::int AS current_phone_inventory,
-          COUNT(*) FILTER (
-            WHERE (NULLIF(BTRIM(email), '') IS NOT NULL OR NULLIF(BTRIM(owner_email), '') IS NOT NULL)
-              AND (NULLIF(BTRIM(phone), '') IS NOT NULL  OR NULLIF(BTRIM(owner_phone), '') IS NOT NULL)
-          )::int AS contactable,
-          COUNT(*) FILTER (WHERE NULLIF(BTRIM(owner_name), '') IS NOT NULL)::int   AS has_owner_name
-        FROM sunbiz_entities
-      `);
-
-      const verticalResult = await db.execute(sql`
-        SELECT vertical, COUNT(*)::int AS count,
-               COUNT(*) FILTER (WHERE score = 'hot')::int AS hot_count
-        FROM sunbiz_entities
-        WHERE vertical IS NOT NULL
-        GROUP BY vertical
-        ORDER BY count DESC
-        LIMIT 25
-      `);
-
-      const rows = (statsResult as any).rows ?? statsResult;
-      const vRows = (verticalResult as any).rows ?? verticalResult;
-      res.json({ ...(rows[0] || {}), verticals: vRows });
+      stats = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL statement_timeout = '2500ms'`);
+        const result = await tx.execute(sql`
+          SELECT
+            COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::bigint AS processing_completed,
+            COUNT(*) FILTER (WHERE enrichment_status = 'pending')::bigint AS pending_processing,
+            COUNT(*) FILTER (WHERE enrichment_status = 'processing')::bigint AS processing,
+            COUNT(*) FILTER (WHERE enrichment_status = 'failed')::bigint AS failed,
+            COUNT(*) FILTER (WHERE score = 'hot')::bigint AS hot,
+            COUNT(*) FILTER (WHERE score = 'warm')::bigint AS warm,
+            COUNT(*) FILTER (WHERE score = 'cold')::bigint AS cold,
+            COUNT(*) FILTER (
+              WHERE NULLIF(BTRIM(email), '') IS NOT NULL
+                 OR NULLIF(BTRIM(owner_email), '') IS NOT NULL
+            )::bigint AS current_email_inventory,
+            COUNT(*) FILTER (
+              WHERE NULLIF(BTRIM(phone), '') IS NOT NULL
+                 OR NULLIF(BTRIM(owner_phone), '') IS NOT NULL
+            )::bigint AS current_phone_inventory,
+            COUNT(*) FILTER (
+              WHERE (NULLIF(BTRIM(email), '') IS NOT NULL OR NULLIF(BTRIM(owner_email), '') IS NOT NULL)
+                AND (NULLIF(BTRIM(phone), '') IS NOT NULL OR NULLIF(BTRIM(owner_phone), '') IS NOT NULL)
+            )::bigint AS contactable,
+            COUNT(*) FILTER (WHERE NULLIF(BTRIM(owner_name), '') IS NOT NULL)::bigint AS has_owner_name
+          FROM sunbiz_entities
+        `);
+        const record = rows(result)[0];
+        if (!record) return null;
+        return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, asSafeCount(value)]));
+      });
     } catch (err: any) {
-      console.error("[LeadOps] stats error:", err?.message);
-      res.status(500).json({ error: err?.message || "Failed to load stats" });
+      statsError = String(err?.code ?? "aggregate_unavailable");
+      console.error("[LeadOps] stats aggregate unavailable:", err?.message);
     }
+    try {
+      verticals = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL statement_timeout = '2500ms'`);
+        const result = await tx.execute(sql`
+          SELECT vertical, COUNT(*)::bigint AS count,
+                 COUNT(*) FILTER (WHERE score = 'hot')::bigint AS hot_count
+          FROM sunbiz_entities
+          WHERE vertical IS NOT NULL
+          GROUP BY vertical
+          ORDER BY COUNT(*) DESC
+          LIMIT 25
+        `);
+        return rows(result).map((row: any) => ({
+          vertical: row.vertical,
+          count: asSafeCount(row.count),
+          hot_count: asSafeCount(row.hot_count),
+        }));
+      });
+    } catch (err: any) {
+      verticalsError = String(err?.code ?? "aggregate_unavailable");
+      console.error("[LeadOps] vertical stats unavailable:", err?.message);
+    }
+    res.json({
+      ...(stats ?? {
+        total: null, processing_completed: null, pending_processing: null, processing: null,
+        failed: null, hot: null, warm: null, cold: null, current_email_inventory: null,
+        current_phone_inventory: null, contactable: null, has_owner_name: null,
+      }),
+      statsAvailable: stats !== null,
+      statsUnavailableReason: statsError,
+      verticals,
+      verticalsAvailable: verticals !== null,
+      verticalsUnavailableReason: verticalsError,
+      sampledAt,
+      scope: "exact_full_corpus_if_available",
+    });
   });
 
   // ── GET /api/lead-ops/entities ─────────────────────────────────────────────
@@ -498,32 +536,52 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
   app.get("/api/lead-ops/sunbiz-bootstrap/status", requireRole("admin"), async (_req, res) => {
     try {
-      const result = await db.execute(sql`
-        SELECT
-          COUNT(*)::int AS total_claims,
-          COUNT(*) FILTER (WHERE status = 'claimed')::int AS claimed,
-          COUNT(*) FILTER (WHERE status = 'created')::int AS created,
-          COUNT(*) FILTER (WHERE status = 'matched_existing')::int AS matched_existing,
-          COUNT(*) FILTER (WHERE status = 'deferred_collision')::int AS deferred,
-          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
-          MAX(completed_at) AS last_completed_at
-        FROM sunbiz_bootstrap_claims
-      `);
-      const candidate = await db.execute(sql`
-        SELECT MIN(se.id)::int AS next_entity_id
-        FROM sunbiz_entities se
-        WHERE se.score IN ('hot','warm')
-          AND NOT EXISTS (
-            SELECT 1 FROM sunbiz_bootstrap_claims c WHERE c.filing_number = se.filing_number
-          )
-      `);
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL statement_timeout = '2500ms'`);
+        return tx.execute(sql`
+          SELECT
+            COUNT(*)::bigint AS total_claims,
+            COUNT(*) FILTER (WHERE status = 'claimed')::bigint AS claimed,
+            COUNT(*) FILTER (WHERE status = 'created')::bigint AS created,
+            COUNT(*) FILTER (WHERE status = 'matched_existing')::bigint AS matched_existing,
+            COUNT(*) FILTER (WHERE status = 'deferred_collision')::bigint AS deferred,
+            COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed,
+            MAX(completed_at) AS last_completed_at
+          FROM sunbiz_bootstrap_claims
+        `);
+      });
+      const claimCounts = rows(result)[0] ?? {};
+      const normalizedClaimCounts = { ...claimCounts };
+      for (const key of ["total_claims", "claimed", "created", "matched_existing", "deferred", "failed"]) {
+        const count = Number((claimCounts as any)[key]);
+        if (!Number.isSafeInteger(count) || count < 0) throw new Error("bootstrap_count_out_of_range");
+        (normalizedClaimCounts as any)[key] = count;
+      }
+      let nextCandidateId: number | null = null;
+      let candidateLookupAvailable = true;
+      let candidateLookupError: string | null = null;
+      try {
+        const { selectSunbizBootstrapCandidateWindow } = await import("../services/sunbiz-bootstrap");
+        const window = await selectSunbizBootstrapCandidateWindow(1, { geography: "any" });
+        nextCandidateId = window.candidates[0]?.id ?? null;
+      } catch (err: any) {
+        candidateLookupAvailable = false;
+        candidateLookupError = String(err?.code ?? "candidate_lookup_unavailable");
+      }
       res.json({
-        ...(rows(result)[0] ?? {}),
-        cursor: rows(candidate)[0]?.next_entity_id ?? null,
+        ...normalizedClaimCounts,
+        cursor: nextCandidateId,
+        cursorAvailable: candidateLookupAvailable,
+        cursorUnavailableReason: candidateLookupError,
+        cursorMeaning: "first currently eligible bootstrap candidate; null with cursorAvailable=true means none currently eligible",
         recovery: "Failed claims remain durable and can be inspected; successful claims are idempotently excluded from retries.",
       });
     } catch (err: any) {
-      res.status(500).json({ error: err?.message || "Failed to load bootstrap status" });
+      res.status(503).json({
+        error: "bootstrap_status_unavailable",
+        available: false,
+        reasonCode: String(err?.code ?? "status_query_failed"),
+      });
     }
   });
 
@@ -2361,9 +2419,38 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       // reason string, never a fabricated 0 — per truthful-state-signal
       // policy for provider/pipeline telemetry.
       const funnelSnapshotAt = new Date().toISOString();
-      const funnel = rows(await db.execute(sql`
+      let funnel: Record<string, unknown> | null = null;
+      let funnelUnavailableReason: string | null = null;
+      try {
+        funnel = await db.transaction(async (tx) => {
+          await tx.execute(sql`SET LOCAL statement_timeout = '2500ms'`);
+          const result = await tx.execute(sql`
+        WITH raw_count AS MATERIALIZED (
+          SELECT COUNT(*)::bigint AS n FROM sunbiz_entities
+        ),
+        eligible_sample AS MATERIALIZED (
+          SELECT 1 FROM sunbiz_entities se
+          WHERE se.filing_number IS NOT NULL AND se.entity_name IS NOT NULL
+            AND se.score IN ('hot', 'warm')
+            AND (se.website IS NOT NULL OR se.phone IS NOT NULL
+                 OR (se.principal_city IS NOT NULL AND se.principal_state IS NOT NULL))
+            AND NOT EXISTS (
+              SELECT 1 FROM sunbiz_bootstrap_claims c WHERE c.filing_number = se.filing_number
+                AND NOT ((c.status = 'failed' AND c.retry_count < 5)
+                  OR (c.status = 'claimed' AND c.claimed_at < now() - interval '15 minutes'))
+            )
+          ORDER BY se.id LIMIT 5001
+        )
         SELECT
-          (SELECT COUNT(*)::int FROM sunbiz_entities WHERE source = 'sunbiz') AS sunbiz_source_rows,
+          (SELECT n FROM raw_count) AS sunbiz_source_rows,
+          (SELECT n FROM raw_count) AS sunbiz_raw_rows,
+          (SELECT COUNT(*)::bigint FROM eligible_sample) AS sunbiz_bootstrap_eligible_sample,
+          ((SELECT COUNT(*) FROM eligible_sample) = 5001) AS sunbiz_bootstrap_eligible_is_floor,
+          (SELECT COUNT(*)::bigint FROM sunbiz_bootstrap_claims) AS sunbiz_bootstrap_claim_rows,
+          (SELECT COUNT(*)::bigint FROM sunbiz_bootstrap_ledger_events) AS sunbiz_bootstrap_scanned,
+          (SELECT COUNT(*)::bigint FROM sunbiz_bootstrap_ledger_events WHERE outcome = 'created') AS sunbiz_bootstrap_created,
+          (SELECT COUNT(*)::bigint FROM sunbiz_bootstrap_ledger_events WHERE outcome = 'matched_existing') AS sunbiz_bootstrap_matched,
+          (SELECT COUNT(*)::bigint FROM sunbiz_bootstrap_ledger_events WHERE outcome IN ('deferred_collision', 'identity_review')) AS sunbiz_bootstrap_deferred,
           (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical') AS canonical_businesses,
           (SELECT COUNT(*)::int FROM contacts c JOIN businesses b ON b.id = c.business_id) AS contacts_linked_to_business,
           (SELECT COUNT(*)::int FROM businesses WHERE record_class = 'canonical' AND (website_domain IS NULL OR trim(website_domain) = '')) AS canonical_missing_domain,
@@ -2378,7 +2465,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           (SELECT COUNT(*)::int FROM sfp_ready_held_enrollments) AS ready_held_enrollments,
           (SELECT COUNT(*)::int FROM sfp_identity_quarantines) AS identity_quarantined,
           (SELECT COUNT(*)::int FROM contacts WHERE do_not_contact = true OR email_status IN ('bounced', 'invalid', 'opted_out', 'unsafe')) AS contacts_suppressed
-      `))[0] ?? {};
+          `);
+          const record = rows(result)[0];
+          if (!record) return null;
+          const normalized = { ...record };
+          for (const key of [
+            "sunbiz_source_rows", "sunbiz_raw_rows", "sunbiz_bootstrap_eligible_sample",
+            "sunbiz_bootstrap_claim_rows", "sunbiz_bootstrap_scanned", "sunbiz_bootstrap_created",
+            "sunbiz_bootstrap_matched", "sunbiz_bootstrap_deferred",
+          ]) {
+            const count = Number((record as any)[key]);
+            if (!Number.isSafeInteger(count) || count < 0) throw new Error("funnel_count_out_of_range");
+            (normalized as any)[key] = count;
+          }
+          return normalized;
+        });
+      } catch (err: any) {
+        funnelUnavailableReason = String(err?.code ?? "funnel_unavailable");
+        console.error("[LeadOps] status funnel unavailable:", err?.message);
+      }
 
       res.json({
         poolAuthority,
@@ -2405,7 +2510,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         },
         eligibleCounts,
         zbOutcomes,
-        funnel: { snapshotAt: funnelSnapshotAt, ...funnel },
+        funnel: funnel
+          ? { snapshotAt: funnelSnapshotAt, available: true, ...funnel }
+          : { snapshotAt: funnelSnapshotAt, available: false, unavailableReason: funnelUnavailableReason },
         crosswalkOnlyExcluded: crosswalkOnlyExcluded ?? { crosswalk_only_excluded_count: 0, ambiguous_match_count: 0, insufficient_evidence_count: 0 },
         spendByProvider: spend.byProvider,
         aggregateBudget: { capMicros: spend.capMicros, settledMicros: spend.settledMicros, reservedMicros: spend.reservedMicros, remainingMicros: spend.remainingMicros, overCap: spend.overCap },
@@ -4121,6 +4228,219 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       res.json(preview);
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // Named person addresses that received a real, fresh ZeroBounce-valid
+  // receipt remain policy-held until an independent admin records this
+  // separate eligibility decision. This is not held-intent review or send
+  // authorization; staging remains ready_held only.
+  app.get("/api/lead-ops/sfp/named-email-eligibility-reviews", requireRole("admin"), async (req, res) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const result = rows(await db.execute(sql`
+        SELECT e.id AS eligibility_id, e.cohort_run_id, e.business_id, b.canonical_name AS business_name,
+               e.source_kind, e.contact_id, e.masked_email, e.status, e.decision_reason,
+               e.zb_outcome, e.validation_at, e.validation_expires_at,
+               e.validation_operation_id, e.reused_from_operation_id, e.updated_at,
+               e.contact_business_link_decision_id, e.contact_business_link_revision,
+               e.policy_document_id, e.policy_document_hash,
+               latest.id AS latest_review_id, latest.decision AS latest_review_decision,
+               latest.reviewer_id AS latest_reviewer_id, latest.reason AS latest_reason,
+               latest.created_at AS latest_reviewed_at
+          FROM sfp_outreach_eligibility e
+          JOIN businesses b ON b.id=e.business_id
+          JOIN sfp_outreach_policy_control pc ON pc.singleton=TRUE
+          JOIN sfp_outreach_policy_documents p ON p.id=pc.active_policy_id
+          LEFT JOIN LATERAL (
+            SELECT r.id, r.decision, r.reviewer_id, r.reason, r.created_at
+              FROM sfp_named_email_eligibility_reviews r
+             WHERE r.eligibility_id=e.id AND r.expected_updated_at=e.updated_at
+               AND r.policy_document_id=p.id AND r.policy_document_hash=p.document_hash
+             ORDER BY r.created_at DESC,r.id DESC LIMIT 1
+          ) latest ON TRUE
+         WHERE e.status='validated_review_required' AND e.named_contact=TRUE
+           AND e.zb_outcome='valid'
+           AND e.suppression_status='not_suppressed'
+           AND p.role_inbox_policy->>'named_or_unclassified_requires_review' <> 'false'
+           AND e.validation_expires_at > NOW()
+           AND e.policy_document_id=p.id AND e.policy_document_hash=p.document_hash
+           AND e.updated_at > NOW() - INTERVAL '90 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM sfp_named_email_eligibility_reviews prior
+              WHERE prior.eligibility_id=e.id AND prior.expected_updated_at=e.updated_at
+                AND prior.policy_document_id=p.id AND prior.policy_document_hash=p.document_hash
+           )
+           AND EXISTS (
+             SELECT 1 FROM provider_observations po
+              WHERE po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+                AND po.subject_type='business' AND po.subject_id=e.business_id
+                AND po.provider='zerobounce' AND po.outcome='valid'
+           )
+           AND (e.source_kind <> 'contact' OR EXISTS (
+             SELECT 1 FROM contacts c
+             JOIN contact_business_link_decisions d ON d.contact_id=c.id
+              WHERE c.id=e.contact_id AND c.business_id=e.business_id AND c.archived_at IS NULL
+                AND d.id=e.contact_business_link_decision_id AND d.revision=e.contact_business_link_revision
+                AND d.business_id=e.business_id AND d.decision='verified' AND d.superseded_at IS NULL
+                AND (
+                  (e.normalized_value_hash_version=0 AND c.email_token_hash=e.normalized_value_hash)
+                  OR (e.normalized_value_hash_version=1 AND c.email IS NOT NULL
+                    AND encode(sha256(
+                      convert_to('email','UTF8') || decode('00','hex') ||
+                      convert_to(lower(btrim(c.email)),'UTF8')
+                    ),'hex')=e.normalized_value_hash)
+                )
+           ))
+         ORDER BY e.validation_at DESC, e.id
+         LIMIT ${limit} OFFSET ${offset}
+      `));
+      res.json({ reviews: result, limit, offset });
+    } catch (err: any) {
+      res.status(503).json({ error: "SFP_NAMED_EMAIL_REVIEW_LIST_UNAVAILABLE", reason: String(err?.code ?? "query_failed") });
+    }
+  });
+
+  app.post("/api/lead-ops/sfp/named-email-eligibility-reviews/:eligibilityId", requireRole("admin"), async (req, res) => {
+    const id = String(req.params.eligibilityId);
+    const decision = req.body?.decision;
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey.trim() : "";
+    const expectedUpdatedAt = typeof req.body?.expectedUpdatedAt === "string" ? req.body.expectedUpdatedAt : "";
+    if (!["approved", "rejected"].includes(decision) || reason.length < 8 || reason.length > 2000 ||
+        !idempotencyKey || idempotencyKey.length > 200 || !expectedUpdatedAt) {
+      return res.status(400).json({ error: "decision, reason (8-2000 chars), idempotencyKey, and expectedUpdatedAt are required" });
+    }
+    const reviewerId = `admin:${(req as any).user?.id ?? ""}`;
+    if (reviewerId === "admin:") return res.status(401).json({ error: "Authenticated reviewer identity required" });
+    try {
+      const { getActiveSfpOutreachPolicy, isCanonicallySuppressed } = await import("../services/cro03/sfp-outreach-policy");
+      const policy = await getActiveSfpOutreachPolicy({ bypassCache: true });
+      const review = await db.transaction(async (tx) => {
+        const replay = rows(await tx.execute(sql`
+          SELECT * FROM sfp_named_email_eligibility_reviews WHERE idempotency_key=${idempotencyKey} LIMIT 1
+        `))[0];
+        if (replay) {
+          if (String(replay.eligibility_id) !== id || replay.reviewer_id !== reviewerId ||
+              replay.decision !== decision || replay.reason !== reason ||
+              new Date(String(replay.expected_updated_at)).getTime() !== new Date(expectedUpdatedAt).getTime()) {
+            throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { status: 409 });
+          }
+          return replay;
+        }
+        const current = rows(await tx.execute(sql`
+          SELECT e.*, p.id AS active_policy_id, p.document_hash AS active_policy_hash,
+                 p.role_inbox_policy->>'named_or_unclassified_requires_review' AS named_requires_review,
+                 COALESCE(e.validation_operation_id,e.reused_from_operation_id) AS receipt_operation_id,
+                 op.actor_id AS validation_actor_id, c.email AS source_contact_email,
+                 c.email_token_hash AS source_contact_token_hash,
+                 link.id AS current_link_id, link.revision AS current_link_revision,
+                 link.email_token_hash AS current_link_token_hash
+            FROM sfp_outreach_eligibility e
+            JOIN businesses b ON b.id=e.business_id
+            JOIN sfp_outreach_policy_control pc ON pc.singleton=TRUE
+            JOIN sfp_outreach_policy_documents p ON p.id=pc.active_policy_id
+            LEFT JOIN provider_operations op ON op.id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+            LEFT JOIN contacts c ON c.id=e.contact_id
+            LEFT JOIN LATERAL (
+              SELECT d.id,d.revision,c2.email_token_hash
+                FROM contact_business_link_decisions d JOIN contacts c2 ON c2.id=d.contact_id
+               WHERE d.contact_id=e.contact_id AND d.business_id=e.business_id
+                 AND d.decision='verified' AND d.superseded_at IS NULL
+                 AND c2.business_id=e.business_id AND c2.archived_at IS NULL
+               ORDER BY d.revision DESC LIMIT 1
+            ) link ON e.source_kind='contact'
+           WHERE e.id=${id}::uuid FOR UPDATE OF e
+        `))[0];
+        if (!current) throw Object.assign(new Error("NOT_FOUND"), { status: 404 });
+        const replayAfterLock = rows(await tx.execute(sql`
+          SELECT * FROM sfp_named_email_eligibility_reviews WHERE idempotency_key=${idempotencyKey} LIMIT 1
+        `))[0];
+        if (replayAfterLock) {
+          if (String(replayAfterLock.eligibility_id) !== id || replayAfterLock.reviewer_id !== reviewerId ||
+              replayAfterLock.decision !== decision || replayAfterLock.reason !== reason ||
+              new Date(String(replayAfterLock.expected_updated_at)).getTime() !== new Date(expectedUpdatedAt).getTime()) {
+            throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { status: 409 });
+          }
+          return replayAfterLock;
+        }
+        if (current.status !== "validated_review_required" || current.named_contact !== true ||
+            current.zb_outcome !== "valid" ||
+            current.suppression_status !== "not_suppressed" ||
+            current.named_requires_review === "false" ||
+            String(current.active_policy_id) !== String(policy.id) ||
+            current.active_policy_hash !== policy.documentHash ||
+            new Date(String(current.updated_at)).toISOString() !== new Date(expectedUpdatedAt).toISOString() ||
+            !current.validation_expires_at || new Date(String(current.validation_expires_at)).getTime() <= Date.now() ||
+            !current.receipt_operation_id) {
+          throw Object.assign(new Error("ELIGIBILITY_OR_POLICY_CAS_FAILED"), { status: 409 });
+        }
+        if (!["free", "paid", "contact"].includes(String(current.source_kind)) ||
+            !current.normalized_value_hash || ![0, 1].includes(Number(current.normalized_value_hash_version)) ||
+            (current.source_kind === "free" && !current.candidate_id) ||
+            (current.source_kind === "paid" && !current.paid_candidate_evidence_id) ||
+            (current.source_kind === "contact" && !current.contact_id)) {
+          throw Object.assign(new Error("TYPED_SOURCE_OR_EMAIL_PIN_REQUIRED"), { status: 409 });
+        }
+        if (!current.validation_actor_id || String(current.validation_actor_id) === reviewerId) {
+          throw Object.assign(new Error("REVIEWER_MUST_BE_INDEPENDENT"), { status: 409 });
+        }
+        if (await isCanonicallySuppressed([String(current.normalized_value_hash)], tx)) {
+          throw Object.assign(new Error("EMAIL_SUPPRESSED"), { status: 409 });
+        }
+        const receipt = rows(await tx.execute(sql`
+          SELECT 1 FROM provider_observations
+           WHERE operation_id=${current.receipt_operation_id}::uuid
+             AND subject_type='business' AND subject_id=${current.business_id}
+             AND provider='zerobounce' AND outcome='valid' LIMIT 1
+        `))[0];
+        if (!receipt) throw Object.assign(new Error("VALID_ZEROBOUNCE_RECEIPT_REQUIRED"), { status: 409 });
+        if (current.source_kind === "contact") {
+          const normalized = current.normalized_value_hash_version === 0
+            ? current.source_contact_token_hash
+            : current.source_contact_email
+              ? (await import("node:crypto")).createHash("sha256").update(`email\u0000${String(current.source_contact_email).trim().toLowerCase()}`).digest("hex")
+              : null;
+          if (!current.contact_id || !current.current_link_id ||
+              String(current.current_link_id) !== String(current.contact_business_link_decision_id) ||
+              Number(current.current_link_revision) !== Number(current.contact_business_link_revision) ||
+              String(current.current_link_token_hash ?? "") !== String(current.source_contact_token_hash ?? "") ||
+              normalized !== String(current.normalized_value_hash ?? "")) {
+            throw Object.assign(new Error("CONTACT_IDENTITY_OR_LINK_STALE"), { status: 409 });
+          }
+          if (current.source_contact_token_hash &&
+              await isCanonicallySuppressed([String(current.source_contact_token_hash)], tx)) {
+            throw Object.assign(new Error("EMAIL_SUPPRESSED"), { status: 409 });
+          }
+        }
+        const inserted = rows(await tx.execute(sql`
+          INSERT INTO sfp_named_email_eligibility_reviews
+            (eligibility_id,decision,reviewer_id,reason,idempotency_key,expected_updated_at,
+             policy_document_id,policy_document_hash,validation_operation_id,source_kind,source_reference_id,
+             contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash,
+             normalized_value_hash_version,validation_expires_at)
+          VALUES (${id}::uuid,${decision},${reviewerId},${reason},${idempotencyKey},${expectedUpdatedAt}::timestamptz,
+             ${policy.id}::uuid,${policy.documentHash},${current.receipt_operation_id}::uuid,${current.source_kind},
+             CASE ${current.source_kind} WHEN 'free' THEN ${current.candidate_id}::text
+                  WHEN 'paid' THEN ${current.paid_candidate_evidence_id}::text ELSE ${current.contact_id}::text END,
+             ${current.contact_business_link_decision_id}::uuid,${current.contact_business_link_revision}::int,
+             ${current.normalized_value_hash},${current.normalized_value_hash_version}::int,${current.validation_expires_at}::timestamptz)
+          RETURNING id,eligibility_id,decision,reviewer_id,reason,created_at
+        `))[0];
+        return inserted;
+      });
+      await storage.createAuditLog({
+        action: "sfp_named_email_eligibility_reviewed",
+        entityType: "sfp_outreach_eligibility",
+        entityId: 0,
+        userId: (req.user as any)?.id ?? null,
+        details: { decision, reason, idempotencyKey, reviewId: review.id },
+      });
+      res.json({ review });
+    } catch (err: any) {
+      const status = Number(err?.status) || (err?.code === "23505" || String(err?.message).includes("IDEMPOTENCY") ? 409 : 500);
+      res.status(status).json({ error: String(err?.message ?? "review_failed") });
     }
   });
 

@@ -18,11 +18,8 @@
 - [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent; maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first.
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, regenerate in GHL settings; breaker persists closed/open/half-open via classifyGhlSyncError().
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first.
-- [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — ternary else-branch fragment must close before the first sibling Card's </CardContent>, not inside a later one.
 - [Master audit + 12-wave plan](master-audit-2026.md) — full compliance/conversion audit; 6 kill lines; 12 build waves across contactability, consent, GHL sync authority, analytics, QA.
-- [isWithinBusinessHours currentTime threading](is-within-business-hours.md) — function hardcoded new Date(); added optional `now` param; tests must pass fixed weekday/hour or asserts flap.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
-- [Broken Tailwind value patterns](tailwind-arbitrary-values.md) — `opacity-15` and `from-[hsl(...)/0.92]` are NOT valid utilities; silently no-op. Use `opacity-[0.15]` and solid bg + overlay.
 - [Public marketing shell map](public-shell-overlays.md) — overlay stack (StickyMobileCTA, ChatWidget, ContactBubble) must be offset so they never collide; gated by route.
 - [Wave 10 draft persistence](wave10-draft-persistence.md) — server-side draft uses draftTokenHash; autosave blocks EIN/SSN/bank; finalize uses EIN-only dedupe; prefill token in-memory Map, 24h TTL.
 - [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — storage.getContacts({limit:1000}) silently skips contacts in DBs >1000 rows; use indexed db.select by email; capture req.ip before IIFE starts.
@@ -157,3 +154,4 @@
 - [Selective BullMQ profile double-gate](selective-background-profile-double-gate.md) — a new recurring queue also needs a WORKER_CAPABILITY_GROUPS entry + its group added to BACKGROUND_JOB_PROFILE, or it registers in code but never runs.
 - [Serper local_budget_units ceiling-raise pattern](sfp-serper-ceiling-raise.md) — any route that adjusts a provider ceiling must SELECT the current value and use max(current, requested); never assign the requested value directly.
 - [Continuous-tick provider pause pattern](sfp-continuous-pause-pattern.md) — stage-claim WHERE must include 'partial' (lease already cleared) or a blocked provider strands the stage forever; pre-check provider_controls before freezing/claiming so "disabled" is one quiet paused outcome, not N wasted attempts. Dev/prod provider_controls are separate DBs — never infer prod state from dev.
+- [Shared disposable SFP certification fixtures](sfp-shared-cert-fixtures.md) — the multi-suite runner shares one private database; fixtures must tolerate earlier suites' programs, packages and decisions.

@@ -1453,22 +1453,43 @@ export function registerAnalyticsRoutes(app: Express) {
   // GET /api/analytics/lifecycle-distribution
   // #533 — Count of contacts per lifecycle_state (excluding archived)
   app.get("/api/analytics/lifecycle-distribution", isDashboardUser, async (req, res) => {
+    let client: import("pg").PoolClient | null = null;
     try {
-      const result = await pool.query<{ lifecycle_state: string | null; cnt: string }>(`
+      client = await pool.connect();
+      await client.query("BEGIN READ ONLY");
+      await client.query("SET LOCAL statement_timeout = '2500ms'");
+      const result = await client.query<{ lifecycle_state: string | null; cnt: string }>(`
         SELECT lifecycle_state, COUNT(*)::text AS cnt
         FROM contacts
         WHERE archived_at IS NULL AND record_class = 'production'
         GROUP BY lifecycle_state
-        ORDER BY cnt::int DESC
+        ORDER BY COUNT(*) DESC, lifecycle_state NULLS LAST
       `);
       const distribution: Record<string, number> = {};
+      let total = 0;
       for (const row of result.rows) {
         const key = row.lifecycle_state ?? "unknown";
-        distribution[key] = Number(row.cnt);
+        const count = Number(row.cnt);
+        if (!Number.isSafeInteger(count) || count < 0) {
+          throw new Error("lifecycle_count_out_of_range");
+        }
+        distribution[key] = count;
+        total += count;
       }
-      res.json({ distribution });
+      await client.query("COMMIT");
+      res.json({ distribution, total, available: true, sampledAt: new Date().toISOString() });
     } catch (err: any) {
-      serverError(res, err);
+      if (client) await client.query("ROLLBACK").catch(() => {});
+      console.error("[Analytics] lifecycle distribution unavailable:", err?.message);
+      res.status(503).json({
+        distribution: null,
+        total: null,
+        available: false,
+        sampledAt: new Date().toISOString(),
+        error: "lifecycle_distribution_unavailable",
+      });
+    } finally {
+      client?.release();
     }
   });
 

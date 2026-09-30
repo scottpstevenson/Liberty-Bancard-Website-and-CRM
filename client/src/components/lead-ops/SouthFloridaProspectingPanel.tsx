@@ -232,6 +232,15 @@ function statusBadge(status: string) {
   return <Badge variant={variant}>{status.replace(/_/g, " ")}</Badge>;
 }
 
+function QueryFailure({ label, error }: { label: string; error: unknown }) {
+  const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+  return (
+    <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+      {label} unavailable: {message}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function SouthFloridaProspectingPanel() {
@@ -782,7 +791,11 @@ export function SouthFloridaProspectingPanel() {
                 Independent program · Works when master_leads = 0 · No pilot handoff required
               </CardDescription>
             </div>
-            {!program ? (
+            {!program && programQuery.isLoading ? (
+              <span className="text-xs text-muted-foreground" role="status">Loading program status…</span>
+            ) : !program && programQuery.isError ? (
+              <span className="text-xs text-amber-700">Program status unavailable</span>
+            ) : !program ? (
               <Button size="sm" onClick={() => ensureProgram.mutate()} disabled={ensureProgram.isPending}>
                 {ensureProgram.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                 Initialize Program
@@ -800,6 +813,12 @@ export function SouthFloridaProspectingPanel() {
             )}
           </div>
         </CardHeader>
+
+        {programQuery.isError && (
+          <CardContent className="pt-0">
+            <QueryFailure label="SFP program" error={programQuery.error} />
+          </CardContent>
+        )}
 
         {program && (
           <CardContent className="pt-0">
@@ -822,6 +841,8 @@ export function SouthFloridaProspectingPanel() {
           </CardContent>
         )}
       </Card>
+
+      {runsQuery.isError && <QueryFailure label="Cohort run list" error={runsQuery.error} />}
 
       {/* Step 1-2: Funnel preview */}
       <Card>
@@ -871,6 +892,11 @@ export function SouthFloridaProspectingPanel() {
             </div>
           </CardContent>
         )}
+        {showFunnel && funnelQuery.isError && (
+          <CardContent className="pt-0">
+            <QueryFailure label="Funnel preview" error={funnelQuery.error} />
+          </CardContent>
+        )}
       </Card>
 
       {program && (
@@ -881,22 +907,28 @@ export function SouthFloridaProspectingPanel() {
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
             <div className="flex flex-wrap items-center gap-3 text-xs">
-              <span>{phaseAPreviewQuery.data?.candidateCount ?? "—"} businesses</span>
-              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.target ?? 0} target</span>
-              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.nonTarget ?? 0} non-target</span>
-              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.reviewRequired ?? 0} without evidence at current policy</span>
+              <span>{phaseAPreviewQuery.data?.candidateCount ?? (phaseAPreviewQuery.isError ? "unavailable" : "—")} businesses</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.target ?? (phaseAPreviewQuery.isError ? "unavailable" : 0)} target</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.nonTarget ?? (phaseAPreviewQuery.isError ? "unavailable" : 0)} non-target</span>
+              <span>{phaseAPreviewQuery.data?.currentPolicyEvidenceCounts.reviewRequired ?? (phaseAPreviewQuery.isError ? "unavailable" : 0)} without evidence at current policy</span>
               <Button size="sm" onClick={() => runPhaseAClassification.mutate()}
                 disabled={!phaseAPreviewQuery.data?.snapshotHash || runPhaseAClassification.isPending}>
                 {runPhaseAClassification.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
                 Run Phase A (max 25)
               </Button>
             </div>
+            {phaseAPreviewQuery.isError && <QueryFailure label="Phase A preview" error={phaseAPreviewQuery.error} />}
             <div className="border rounded p-3 space-y-2 text-xs">
-              <div className="font-semibold">Free-only backlog continuation: {continuationQuery.data?.continuation?.state ?? "idle"}</div>
+              <div className="font-semibold">
+                Free-only backlog continuation: {continuationQuery.isError ? "unavailable" : continuationQuery.isLoading ? "loading" : continuationQuery.data?.continuation?.state ?? "idle"}
+              </div>
+              {continuationQuery.isError && <QueryFailure label="Continuation status" error={continuationQuery.error} />}
               <div className="text-muted-foreground">
-                Cursor {continuationQuery.data?.continuation?.high_water_business_id ?? 0} / {continuationQuery.data?.continuation?.stop_business_id ?? 0}
-                {" · "}{continuationQuery.data?.continuation?.processed_count ?? 0} classified
-                {" · "}{continuationQuery.data?.continuation?.target_count ?? 0} target.
+                {continuationQuery.isError || continuationQuery.isLoading ? "Progress counters are unavailable; they are not zero." : <>
+                  Cursor {continuationQuery.data?.continuation?.high_water_business_id ?? 0} / {continuationQuery.data?.continuation?.stop_business_id ?? 0}
+                  {" · "}{continuationQuery.data?.continuation?.processed_count ?? 0} classified
+                  {" · "}{continuationQuery.data?.continuation?.target_count ?? 0} target.
+                </>}
                 Scans at most 250 records and classifies at most 25 per tick; paid providers and outbound remain off.
               </div>
               {continuationQuery.data?.continuation?.state === "running" &&
@@ -909,9 +941,9 @@ export function SouthFloridaProspectingPanel() {
                 <div className="text-red-600">Last error: {continuationQuery.data.continuation.last_error}</div>}
               {continuationQuery.data?.continuation?.state === "running" ?
                 <Button size="sm" variant="outline" onClick={() => continuationControl.mutate("pause")}
-                  disabled={continuationControl.isPending}>Pause free classification</Button> :
+                  disabled={continuationControl.isPending || continuationQuery.isError}>Pause free classification</Button> :
                 <Button size="sm" variant="outline" onClick={() => continuationControl.mutate("start")}
-                  disabled={!program.isActive || program.taxonomyVersion !== 2 || continuationControl.isPending}>
+                  disabled={!program.isActive || program.taxonomyVersion !== 2 || continuationControl.isPending || continuationQuery.isError}>
                   {continuationQuery.data?.continuation?.state === "paused" ? "Resume" : "Start"} free-only backlog
                 </Button>}
             </div>
@@ -974,7 +1006,11 @@ export function SouthFloridaProspectingPanel() {
                             />
                           </td>
                           <td className="p-1 font-mono">{c.businessId}</td>
-                          <td className="p-1">{c.canonicalName}</td>
+                          <td className="p-1">
+                            <a className="text-blue-700 hover:underline" href={`/dashboard/lead-ops/business/${c.businessId}`}>
+                              {c.canonicalName}
+                            </a>
+                          </td>
                           <td className="p-1">{c.proposedVerticalId}</td>
                           <td className="p-1">{c.source === "structured_vertical_field" ? "Structured field" : "Name-derived"}</td>
                           <td className="p-1">{c.countyFips ?? "—"} ({c.geographySource})</td>
@@ -991,6 +1027,12 @@ export function SouthFloridaProspectingPanel() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {highConfidenceCandidatesQuery.isError && (
+              <QueryFailure label="Candidate preview" error={highConfidenceCandidatesQuery.error} />
+            )}
+            {highConfidenceCandidatesQuery.isFetching && !highConfidenceCandidatesQuery.data && (
+              <div className="text-xs text-muted-foreground" role="status">Loading candidate preview…</div>
             )}
             <div className="flex items-center gap-3 text-xs">
               <span>{selectedCandidateIds.length} selected (max 25)</span>
@@ -1220,6 +1262,33 @@ export function SouthFloridaProspectingPanel() {
                   {evidenceQuery.data.totalCandidates} total staged candidates.
                   Use the bounded action below to run the real free-only crawler for this cohort.
                 </p>
+                <div className="rounded border">
+                  <div className="border-b bg-muted/40 px-2 py-1.5 text-xs font-medium">
+                    Candidate evidence (masked)
+                  </div>
+                  {evidenceQuery.data.perBusiness.length > 0 ? (
+                    <div className="max-h-48 overflow-y-auto divide-y">
+                      {evidenceQuery.data.perBusiness.map((candidate) => (
+                        <div key={candidate.businessId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-2 py-1.5 text-xs">
+                          <span className="font-mono">Business #{candidate.businessId}</span>
+                          <span>{candidate.bestCandidateMasked ?? "No candidate address"}</span>
+                          <span className="text-muted-foreground">
+                            {candidate.bestCandidateConfidence == null
+                              ? "Confidence unavailable"
+                              : `Confidence ${Number(candidate.bestCandidateConfidence).toFixed(2)}`}
+                            {" · "}{candidate.disposition}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="px-2 py-2 text-xs text-muted-foreground">No candidate evidence rows were returned.</p>
+                  )}
+                  <p className="border-t px-2 py-1.5 text-[11px] text-muted-foreground">
+                    This API does not include per-candidate source, observation time, or validation receipt details.
+                    Masked candidates are evidence only, not verified or send-authorized email.
+                  </p>
+                </div>
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <label className="text-xs">Batch:</label>
                   <input type="number" min={1} max={500} value={freeBatchSize}
@@ -1232,8 +1301,8 @@ export function SouthFloridaProspectingPanel() {
                   </Button>
                 </div>
               </div>
-            ) : evidenceQuery.error ? (
-              <p className="text-xs text-red-500">{String((evidenceQuery.error as any)?.message ?? "Error loading evidence report")}</p>
+            ) : evidenceQuery.isError ? (
+              <QueryFailure label="Free evidence report" error={evidenceQuery.error} />
             ) : null}
           </CardContent>
         </Card>
@@ -1253,6 +1322,8 @@ export function SouthFloridaProspectingPanel() {
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
+            {paidPreviewQuery.isError && <QueryFailure label="Paid-provider readiness" error={paidPreviewQuery.error} />}
+            {cohortCostPreviewQuery.isError && <QueryFailure label="Cohort cost preview" error={cohortCostPreviewQuery.error} />}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               {(paidPreviewQuery.data?.providers ?? []).map((p) => (
                 <div key={p.provider} className={`border rounded p-2 ${p.executableForSfp ? "" : "opacity-60"}`}>
@@ -1266,18 +1337,18 @@ export function SouthFloridaProspectingPanel() {
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <span className="text-xs font-medium">
-                {paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery · {paidPreviewQuery.data?.serperEligibleNow ?? 0} eligible for Serper now
+                {paidPreviewQuery.isError ? "unavailable" : paidPreviewQuery.data?.businessesNeedingPaidDiscovery ?? 0} businesses still need discovery · {paidPreviewQuery.isError ? "unavailable" : paidPreviewQuery.data?.serperEligibleNow ?? 0} eligible for Serper now
               </span>
               <label className="text-xs" htmlFor="sfp-serper-batch-size">Pilot businesses</label>
               <input id="sfp-serper-batch-size" type="number" min={1} max={10} value={serperBatchSize}
                 onChange={(e) => setSerperBatchSize(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
                 className="border rounded px-2 py-1 text-xs w-16" />
               <Button size="sm" variant="outline" onClick={() => armSerperPilot.mutate()}
-                disabled={armSerperPilot.isPending || !activeRunId || !paidPreviewQuery.data?.serperEligibleNow}>
+                disabled={armSerperPilot.isPending || paidPreviewQuery.isError || !activeRunId || !paidPreviewQuery.data?.serperEligibleNow}>
                 Arm Serper pilot (at most {serperBatchSize * 4} requests)
               </Button>
               <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
-                disabled={runSerperDiscovery.isPending || !paidPreviewQuery.data?.serperEligibleNow || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
+                disabled={runSerperDiscovery.isPending || paidPreviewQuery.isError || cohortCostPreviewQuery.isError || !paidPreviewQuery.data?.serperEligibleNow || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
                 {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
                 Run Serper discovery ({serperBatchSize} business{serperBatchSize === 1 ? "" : "es"})
               </Button>
@@ -1285,7 +1356,7 @@ export function SouthFloridaProspectingPanel() {
                 <span className="text-xs text-muted-foreground">No paid retry is due in this frozen cohort. A larger new cohort can include unattempted businesses; recent no-results become retryable after 24 hours.</span>
               )}
               <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
-                disabled={runPaidWaterfall.isPending || !cohortCostPreviewQuery.data?.snapshotHash}>
+                disabled={runPaidWaterfall.isPending || cohortCostPreviewQuery.isError || !cohortCostPreviewQuery.data?.snapshotHash}>
                 {runPaidWaterfall.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
                 Outscraper + Apollo (max 10)
               </Button>
@@ -1310,7 +1381,7 @@ export function SouthFloridaProspectingPanel() {
               </div>
             )}
             <p className="text-xs text-muted-foreground mt-2">
-              {paidPreviewQuery.data?.note ?? "Loading provider controls…"}
+              {paidPreviewQuery.data?.note ?? (paidPreviewQuery.isError ? "Provider readiness is unavailable; no provider request is authorized." : "Loading provider controls…")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Arm sets the canonical Serper control to allow at most the selected batch's requests beyond current spent and reserved units; it makes no provider call.
@@ -1356,6 +1427,7 @@ export function SouthFloridaProspectingPanel() {
                 Gate blocked: {validationPreviewQuery.data.gateBlockedReason}
               </p>
             )}
+            {validationPreviewQuery.isError && <QueryFailure label="Validation preview" error={validationPreviewQuery.error} />}
             <div className="flex gap-2">
               <Button
                 size="sm" variant="outline"
@@ -1366,7 +1438,7 @@ export function SouthFloridaProspectingPanel() {
               <Button
                 size="sm"
                 onClick={() => validateCohort.mutate()}
-                disabled={validateCohort.isPending || validationPreviewQuery.data?.gateBlockedReason !== null}
+                disabled={validateCohort.isPending || validationPreviewQuery.isError || validationPreviewQuery.data?.gateBlockedReason !== null}
               >
                 {validateCohort.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
                 Authorize Bounded Validation (max 25)
@@ -1425,7 +1497,12 @@ export function SouthFloridaProspectingPanel() {
                             }}
                           />
                           <div className="flex-1 min-w-0">
-                            <span className="font-medium truncate">{p.businessName ?? `Biz #${p.businessId}`}</span>
+                            <a
+                              className="font-medium truncate text-blue-700 hover:underline"
+                              href={`/dashboard/lead-ops/business/${p.businessId}`}
+                            >
+                              {p.businessName ?? `Biz #${p.businessId}`}
+                            </a>
                             {p.normalizedVertical && <span className="text-muted-foreground ml-1">· {p.normalizedVertical}</span>}
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
@@ -1458,7 +1535,9 @@ export function SouthFloridaProspectingPanel() {
                     Only <code>validated_outreach_eligible</code> rows can advance to campaign staging.
                   </p>
                 </>
-              ) : null}
+              ) : prospectsQuery.isError ? (
+                <QueryFailure label="Prospect list" error={prospectsQuery.error} />
+              ) : <p className="text-xs text-muted-foreground">Prospect list has not loaded.</p>}
             </CardContent>
           )}
         </Card>
@@ -1474,6 +1553,7 @@ export function SouthFloridaProspectingPanel() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0 space-y-3">
+            {stagingPreviewQuery.isError && <QueryFailure label="Campaign staging preview" error={stagingPreviewQuery.error} />}
             {stagingPreviewQuery.data && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 <div className="bg-green-50 rounded p-2">

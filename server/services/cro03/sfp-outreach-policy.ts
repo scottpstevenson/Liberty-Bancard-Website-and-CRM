@@ -98,6 +98,33 @@ export type SfpEligibilityGateResult =
   | { eligible: true; reasonCode: string }
   | { eligible: false; reasonCode: string; status: "validated_existing_relationship" | "validated_suppressed" | "validated_policy_ineligible" };
 
+export interface SfpEmailPolicyDecision {
+  status: "eligible_for_staging_review" | "eligibility_review_required" | "ineligible";
+  reasonCode: string;
+}
+
+/**
+ * Named addresses remain people, not role inboxes. This policy decision is
+ * deliberately separate from ZeroBounce validity and from send authority:
+ * when the active document requires review, a valid named address stays held
+ * for an explicit eligibility review instead of being relabeled as a role.
+ */
+export function evaluateSfpEmailTypePolicy(input: {
+  namedContact: boolean;
+  roleInbox: boolean;
+  policy: SfpActivePolicy;
+}): SfpEmailPolicyDecision {
+  if (input.namedContact) {
+    return input.policy.roleInboxPolicy?.named_or_unclassified_requires_review !== false
+      ? { status: "eligibility_review_required", reasonCode: "named_email_requires_eligibility_review" }
+      : { status: "eligible_for_staging_review", reasonCode: "named_email_policy_eligible_for_review" };
+  }
+  if (input.roleInbox && input.policy.roleInboxPolicy?.role_inbox_eligible_for_cold_b2b !== false) {
+    return { status: "eligible_for_staging_review", reasonCode: "role_inbox_policy_eligible_for_review" };
+  }
+  return { status: "eligibility_review_required", reasonCode: "unclassified_email_requires_eligibility_review" };
+}
+
 /**
  * Mutable safety gates that must be re-evaluated on EVERY execution,
  * including freshness-reuse hits that skip the provider call. Never a

@@ -2191,6 +2191,20 @@
       "when": 1800000013301,
       "tag": "0308_sfp_ready_held_review_status",
       "breakpoints": true
+    },
+    {
+      "idx": 313,
+      "version": "7",
+      "when": 1800000013400,
+      "tag": "0309_sfp_verified_contact_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 314,
+      "version": "7",
+      "when": 1800000013500,
+      "tag": "0310_sfp_named_email_eligibility_review",
+      "breakpoints": true
     }
   ]
 }

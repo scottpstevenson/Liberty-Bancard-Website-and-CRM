@@ -1059,11 +1059,26 @@ export async function selectRoiCohort(opts: {
     if (chunk.length < CHUNK) break;
   }
 
-  // Global rank after all chunks are scored. Stable total order: roi_score
-  // DESC, then canonical_business_id ASC as a deterministic tiebreak so two
-  // runs against the same data always produce the same ranked order (no
-  // dependence on scan/insertion order for equal scores).
-  allScored.sort((a, b) => b.roiScore - a.roiScore || a.canonicalBusinessId - b.canonicalBusinessId);
+  // Deterministic ROI rank with starvation protection across repeated freezes.
+  // Businesses never previously frozen (then least-recently frozen) get
+  // first access to a cohort; ROI and immutable business id break ties. This
+  // keeps each cohort ROI-prioritized while ensuring repeated top-25 freezes
+  // do not indefinitely recycle the same highest-scoring businesses.
+  const scoredIds = allScored.map((candidate) => candidate.canonicalBusinessId);
+  const lastFrozenRows = scoredIds.length ? rows(await exec.execute(sql`
+    SELECT m.business_id,MAX(r.frozen_at) AS last_frozen_at
+      FROM sfp_cohort_members m JOIN sfp_cohort_runs r ON r.id=m.cohort_run_id
+     WHERE m.business_id=ANY(ARRAY[${sql.join(scoredIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+       AND r.cohort_state='frozen' AND r.voided_at IS NULL
+     GROUP BY m.business_id
+  `)) : [];
+  const lastFrozenAt = new Map<number, number>(
+    lastFrozenRows.map((row: any) => [Number(row.business_id), Date.parse(String(row.last_frozen_at)) || 0]),
+  );
+  allScored.sort((a, b) =>
+    (lastFrozenAt.get(a.canonicalBusinessId) ?? 0) - (lastFrozenAt.get(b.canonicalBusinessId) ?? 0) ||
+    b.roiScore - a.roiScore || a.canonicalBusinessId - b.canonicalBusinessId,
+  );
 
   const topCohort = allScored.slice(0, maxCohort);
   eligible.push(...topCohort);

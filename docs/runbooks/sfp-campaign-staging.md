@@ -178,3 +178,67 @@ Activation, enrollment, and delivery for `ready_held` intents are the
 explicit responsibility of a separate, later, authorized task. This
 runbook's operators should treat a `ready_held` row as "ready for that next
 task to pick up," not as something to push further themselves.
+
+## Contact enrichment release and production acceptance
+
+The SFP contact funnel has two separate gates. A passing disposable-database
+certification means **code complete/offline certified**, not that enrichment
+works in production. Publishing is a user action and does not authorize
+reconciliation, paid validation, provider toggles, cap changes, enrollment or
+outbound sends. Keep the outbound/channel pauses on throughout this workflow.
+The aggregate paid-provider cap remains a fixed **$50** in code. There is no
+audited live cap-adjustment control in this release; do not describe a program
+settings change as a cap increase, and do not raise or reset the production cap.
+
+### Before publishing (offline)
+
+1. Record the exact source SHA, migration journal head, changed files, commands
+   and results in the release receipt. Apply additive migrations to a disposable
+   database; verify both upgrade and fresh database CHECKs, typed free/paid/contact
+   provenance, and retained historical eligibility/staging evidence.
+2. Certify a **previously unlinked** contact by suggesting a business, obtaining
+   an independent admin review backed by a real contact source event, then
+   opening the exact approved email through the audited callback. A populated
+   `contacts.business_id` alone is not a verified link. With fake provider
+   transport at the ordinary reservation/attempt/settlement boundary, verify
+   fresh valid ZeroBounce evidence, policy review where needed, an admitted v2
+   classification and pinned package, ready_held intent and a *manual* paused
+   enrollment. Also certify the new/free-email path.
+3. Check changed-email/revoked-link/replay, stale classification, invalid and
+   unknown-validation retries, provider outage, >25-cohort progression, concurrent
+   reservation accounting and rollback. Confirm no sends or GHL dispatch.
+
+### After the user publishes (production; separate authorization required)
+
+1. Verify deployed release SHA and **production-applied** schema separately from
+   the repository journal. Read current policy, pricing, provider readiness,
+   aggregate settled/reserved/ambiguous cost and remaining cap; do not use a
+   historical dollar figure as live headroom. Application receipts are not
+   provider invoice reconciliation.
+2. Preview contact matching and conflict partitions with the audited admin
+   controls. A potential domain match is a suggestion, never an automatic
+   verified relationship. Only a real, independent admin can decide a link
+   against the pre-existing source evidence and current revision. Do not
+   directly backfill `contacts.business_id` or create a reviewer identity.
+   Reconciliation/backfill/settings controls must be separately authorized.
+3. Only if explicitly authorized, enable the intended staging recurrence via
+   existing audited controls while outbound remains paused. Keep paid providers
+   paused unless separately approved with current budget headroom. Free
+   reconciliation can proceed while paid validation is blocked.
+4. Trace one real approved existing-contact address and one newly discovered
+   free address through source, business identity, candidate, fresh or genuinely
+   reusable **valid** receipt, policy outcome, master lead, exact v2 package and
+   ready_held intent. A manual idempotent paused bridge is a separate operator
+   decision; a named-email review or held-intent approval is not send approval.
+5. Measure again after an actual scheduled run/restart. Report distinct linked
+   contacts, business IDs, addresses, provider attempts/outcomes, policy-held
+   and eligible addresses, master leads, ready_held intents and paused
+   enrollments by county/vertical/source. Separate fresh output from reused
+   observations, retry cooldowns, repeated cohort memberships and heartbeats.
+   Reconcile operation-level spending and show zero sends/GHL dispatch.
+
+If cap headroom, a provider control, access or authorization blocks the real
+trace, report the exact blocked gate and continue only free read/reconciliation
+work that was approved. Never raise/reset the production $50 authorization,
+relabel a person email as a role inbox, silently replay an ambiguous paid
+operation, or declare production acceptance based only on offline results.

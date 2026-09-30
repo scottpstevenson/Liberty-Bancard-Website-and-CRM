@@ -210,19 +210,18 @@ async function main() {
       // fall back to running the equivalent raw SQL directly here instead.
       const sfp = rows(await setup.query(`
         SELECT
-          (SELECT COALESCE(SUM(reserved_cost_micros + settled_cost_micros), 0)
-             FROM sfp_stage_runs WHERE state IN ('authorized', 'running', 'completed', 'partial')) +
-          (SELECT COALESCE(SUM(reserved_cost_micros), 0)
-             FROM sfp_classification_runs WHERE state IN ('authorized', 'running')) +
+          (SELECT COALESCE(SUM(reserved_cost_micros), 0) FROM sfp_stage_runs) +
+          (SELECT COALESCE(SUM(reserved_cost_micros), 0) FROM sfp_classification_runs) +
+          (SELECT COALESCE(SUM(settled_cost_micros), 0) FROM sfp_stage_runs) +
           (SELECT COALESCE(SUM(cost_micros), 0) FROM sfp_classification_evidence) AS micros
       `))[0];
       const cro03c = rows(await setup.query(`
-        SELECT COALESCE(SUM(
-          CASE WHEN state IN ('reserved', 'dispatched') THEN max_reserved_amount_micros
-               ELSE settled_amount_micros END
-        ), 0) AS micros
+        SELECT COALESCE(SUM(CASE
+          WHEN terminal_disposition='released' THEN 0
+          WHEN state IN ('reserved','dispatched','failed','cancelled') OR billing_certainty IN ('ambiguous','unknown')
+            THEN GREATEST(max_reserved_amount_micros,settled_amount_micros)
+          ELSE settled_amount_micros END), 0) AS micros
         FROM cro03c_stage_operations
-        WHERE state NOT IN ('failed', 'cancelled')
       `))[0];
       return Number(sfp.micros) + Number(cro03c.micros);
     });
@@ -232,13 +231,20 @@ async function main() {
     // and is not contaminated by whichever real reservation the actual race
     // (below) happens to commit first.
     const baselineSfp = Number(rows(await setup.query(`
-      SELECT COALESCE(SUM(reserved_cost_micros + settled_cost_micros), 0) AS micros
-        FROM sfp_stage_runs WHERE state IN ('authorized', 'running', 'completed', 'partial')
+      SELECT
+        (SELECT COALESCE(SUM(reserved_cost_micros + settled_cost_micros), 0) FROM sfp_stage_runs) +
+        (SELECT COALESCE(SUM(reserved_cost_micros), 0) FROM sfp_classification_runs) +
+        (SELECT COALESCE(SUM(cost_micros), 0) FROM sfp_classification_evidence) AS micros
     `))[0].micros);
     const baselineCro03c = Number(rows(await setup.query(`
       SELECT COALESCE(SUM(
-        CASE WHEN state IN ('reserved', 'dispatched') THEN max_reserved_amount_micros ELSE settled_amount_micros END
-      ), 0) AS micros FROM cro03c_stage_operations WHERE state NOT IN ('failed', 'cancelled')
+        CASE
+          WHEN terminal_disposition='released' THEN 0
+          WHEN state IN ('reserved','dispatched','failed','cancelled') OR billing_certainty IN ('ambiguous','unknown')
+            THEN GREATEST(max_reserved_amount_micros,settled_amount_micros)
+          ELSE settled_amount_micros
+        END
+      ), 0) AS micros FROM cro03c_stage_operations
     `))[0].micros);
 
     // Synthetic test cap: room for ~1.5x a single $2 reservation, so two
@@ -272,15 +278,15 @@ async function main() {
     const LOCK_KEY_SQL = `SELECT pg_advisory_xact_lock(hashtextextended('ladder-aggregate-paid-budget:v2', 0))`;
     const COMBINED_SUM_SQL = `
       SELECT
-        (SELECT COALESCE(SUM(reserved_cost_micros + settled_cost_micros), 0)
-           FROM sfp_stage_runs WHERE state IN ('authorized', 'running', 'completed', 'partial')) +
-        (SELECT COALESCE(SUM(reserved_cost_micros), 0)
-           FROM sfp_classification_runs WHERE state IN ('authorized', 'running')) +
+        (SELECT COALESCE(SUM(reserved_cost_micros), 0) FROM sfp_stage_runs) +
+        (SELECT COALESCE(SUM(reserved_cost_micros), 0) FROM sfp_classification_runs) +
+        (SELECT COALESCE(SUM(settled_cost_micros), 0) FROM sfp_stage_runs) +
         (SELECT COALESCE(SUM(cost_micros), 0) FROM sfp_classification_evidence) +
-        (SELECT COALESCE(SUM(
-           CASE WHEN state IN ('reserved', 'dispatched') THEN max_reserved_amount_micros
-                ELSE settled_amount_micros END
-         ), 0) FROM cro03c_stage_operations WHERE state NOT IN ('failed', 'cancelled')) AS micros
+        (SELECT COALESCE(SUM(CASE
+           WHEN terminal_disposition='released' THEN 0
+           WHEN state IN ('reserved','dispatched','failed','cancelled') OR billing_certainty IN ('ambiguous','unknown')
+             THEN GREATEST(max_reserved_amount_micros,settled_amount_micros)
+           ELSE settled_amount_micros END), 0) FROM cro03c_stage_operations) AS micros
     `;
 
     async function attemptSfpReservation(client: Client): Promise<{ ok: boolean; error?: string }> {

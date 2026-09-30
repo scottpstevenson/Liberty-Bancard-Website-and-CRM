@@ -131,7 +131,11 @@ async function processRun(runId: string): Promise<{ processed: number; succeeded
   try {
     await renewStageRunClaim(runId, claimToken);
     const eligible = rows(await db.execute(sql`
-      SELECT e.id, e.business_id
+      -- Preserve typed source columns in the claimed workset. The staging
+      -- service owns the exact-one validation and audited contact open; the
+      -- worker must not coerce contact rows into the free-candidate path.
+      SELECT e.id, e.business_id, e.source_kind, e.candidate_id,
+             e.paid_candidate_evidence_id, e.contact_id
         FROM sfp_outreach_eligibility e
        WHERE e.cohort_run_id=${String(run.cohort_run_id)}::uuid
          AND e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL

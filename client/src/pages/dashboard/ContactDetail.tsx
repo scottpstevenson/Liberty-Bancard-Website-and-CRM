@@ -872,27 +872,28 @@ const NBA_URGENCY_STYLE: Record<string, string> = {
 
 interface NbaData {
   id: number;
-  contact_id?: number;
-  action_type: string;
+  contactId?: number;
+  actionType: string | null;
   channel: string | null;
-  owner_role: string | null;
-  due_at: string | null;
-  urgency: string;
-  reason_code: string;
+  ownerRole: string | null;
+  dueAt: string | null;
+  urgency: string | null;
+  reasonCode: string | null;
   explanation: string | null;
   confidence: number | null;
-  human_required: boolean;
-  automation_eligible: boolean;
-  status: string;
+  humanRequired: boolean | null;
+  automationEligible: boolean | null;
+  status: string | null;
 }
 
 function ContactNbaCard({ contactId }: { contactId: number }) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery<{ nba: NbaData | null }>({
+  const { data, isLoading, isError, error } = useQuery<{ nba: NbaData | null }>({
     queryKey: [`/api/contacts/${contactId}/nba`],
     refetchInterval: 60_000,
+    retry: false,
   });
 
   const executeMutation = useMutation({
@@ -911,19 +912,34 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
     },
   });
 
-  if (isLoading || !data?.nba) return null;
+  if (isLoading) {
+    return <div className="text-xs text-muted-foreground" role="status">Loading next best action…</div>;
+  }
+  if (isError) {
+    return (
+      <div className="flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="alert" data-testid="nba-load-error">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        Next best action is unavailable: {(error as Error)?.message ?? "request failed"}
+      </div>
+    );
+  }
+  if (!data?.nba) {
+    return <div className="text-xs text-muted-foreground" role="status">No next best action is currently available.</div>;
+  }
   const nba = data.nba;
 
   // Only show OPEN or BLOCKED (BLOCKED still informs the rep)
-  if (!["OPEN", "BLOCKED"].includes(nba.status)) return null;
+  if (!["OPEN", "BLOCKED"].includes(nba.status ?? "")) return null;
 
-  const urgencyStyle = NBA_URGENCY_STYLE[nba.urgency] ?? NBA_URGENCY_STYLE.normal;
+  const urgency = nba.urgency ?? "normal";
+  const urgencyStyle = NBA_URGENCY_STYLE[urgency] ?? NBA_URGENCY_STYLE.normal;
   const isBlocked = nba.status === "BLOCKED";
-  const isOverdue = nba.due_at ? new Date(nba.due_at) < new Date() : false;
+  const dueAt = nba.dueAt ? new Date(nba.dueAt) : null;
+  const isOverdue = dueAt != null && !Number.isNaN(dueAt.getTime()) && dueAt < new Date();
 
   const dueSuffix = (() => {
-    if (!nba.due_at) return null;
-    const d = new Date(nba.due_at);
+    if (!dueAt || Number.isNaN(dueAt.getTime())) return null;
+    const d = dueAt;
     const diffH = Math.round((d.getTime() - Date.now()) / 3_600_000);
     if (diffH < 0) return `${Math.abs(diffH)}h overdue`;
     if (diffH < 24) return `due in ${diffH}h`;
@@ -945,12 +961,12 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-semibold">
-                {nba.action_type.replace(/_/g, " ")}
+                {(nba.actionType ?? "Recommended action").replace(/_/g, " ")}
               </span>
               <Badge variant="outline" className={`text-xs ${urgencyStyle}`}>
-                {nba.urgency}
+                {urgency}
               </Badge>
-              {nba.human_required && (
+              {nba.humanRequired && (
                 <Badge variant="outline" className="text-xs text-orange-700 border-orange-300">
                   Human required
                 </Badge>
@@ -974,10 +990,10 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
                   {nba.channel.replace(/_/g, " ")}
                 </span>
               )}
-              {nba.owner_role && (
+              {nba.ownerRole && (
                 <span className="flex items-center gap-1">
                   <User className="h-3 w-3" />
-                  {nba.owner_role}
+                  {nba.ownerRole}
                 </span>
               )}
               {dueSuffix && (
@@ -987,7 +1003,7 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
                 </span>
               )}
               <span className="text-[11px] text-muted-foreground/70 italic">
-                {nba.reason_code.replace(/_/g, " ")}
+                {(nba.reasonCode ?? "Reason not provided").replace(/_/g, " ")}
               </span>
             </div>
 
@@ -998,7 +1014,7 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
             )}
           </div>
 
-          {/* Actions — only for OPEN recommendations */}
+          {/* Human workflow only; this records completion/dismissal and never sends outreach. */}
           {!isBlocked && (
             <div className="flex gap-2 shrink-0">
               <Button
@@ -1009,7 +1025,7 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
                 disabled={executeMutation.isPending}
                 data-testid="button-nba-execute"
               >
-                {executeMutation.isPending ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Done"}
+                {executeMutation.isPending ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Mark done"}
               </Button>
               <Button
                 size="sm"
@@ -1024,6 +1040,11 @@ function ContactNbaCard({ contactId }: { contactId: number }) {
             </div>
           )}
         </div>
+        {isBlocked && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            This recommendation is blocked. No action or outreach can be started from this card.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

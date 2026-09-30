@@ -229,9 +229,44 @@ function domainFromWebsite(website: string | null): string | null {
   if (!website) return null;
   try {
     const withScheme = website.startsWith("http") ? website : `https://${website}`;
-    return new URL(withScheme).hostname.replace(/^www\./, "") || null;
+    return new URL(withScheme).hostname.toLowerCase().replace(/^www\./, "").replace(/\.$/, "") || null;
   } catch {
     return null;
+  }
+}
+
+function normalizedPhone(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+/**
+ * Queue (never execute inline) the canonical free-only enrichment handler
+ * after a newly projected domain makes a matched canonical business crawlable.
+ * This is reached only from an explicitly invoked bootstrap batch. Failure is
+ * returned to the operator; it never falls back to paid discovery.
+ */
+async function enqueueProjectedDomainRecrawl(businessId: number, filingNumber: string): Promise<"queued" | "queue_unavailable" | "enqueue_failed"> {
+  try {
+    const { requireQueueManagerReady, QUEUE_NAMES } = await import("./queue-manager");
+    const manager = requireQueueManagerReady();
+    const queue = manager.getQueue(QUEUE_NAMES.ENRICHMENT);
+    if (!queue) return "queue_unavailable";
+    const stableJobKey = crypto.createHash("sha256").update(filingNumber).digest("hex").slice(0, 16);
+    await queue.add(
+      "free-contact-enrichment",
+      { businessId },
+      {
+        jobId: `sunbiz-domain-recrawl-${businessId}-${stableJobKey}`,
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
+        removeOnComplete: { count: 50 },
+        removeOnFail: { count: 100 },
+      },
+    );
+    return "queued";
+  } catch (error: any) {
+    console.warn(`[Sunbiz Bootstrap] Free recrawl enqueue failed for business ${businessId}: ${String(error?.message ?? error)}`);
+    return "enqueue_failed";
   }
 }
 
@@ -641,7 +676,121 @@ export interface SunbizBootstrapRunOutcome {
   entityName: string;
   outcome: "created" | "matched_existing" | "deferred_collision" | "identity_review" | "already_claimed" | "failed" | "dead_letter" | "lost_lease";
   businessId?: number;
+  projectedDomain?: boolean;
+  projectedPhone?: boolean;
+  domainConflict?: boolean;
+  phoneConflict?: boolean;
+  freeRecrawl?: "not_needed" | "queued" | "queue_unavailable" | "enqueue_failed";
   error?: string;
+}
+
+interface SunbizProjectionResult {
+  lineageConflict: boolean;
+  projectedDomain: boolean;
+  projectedPhone: boolean;
+  domainConflict: boolean;
+  phoneConflict: boolean;
+}
+
+/**
+ * Add filing lineage and project only absent identifiers. The source link is
+ * checked before any field mutation and again after conflict-tolerant insert;
+ * a filing already attached to a different business is never reassigned.
+ */
+async function attachLineageAndProjectMissingFields(
+  tx: any,
+  candidate: SunbizBootstrapCandidate,
+  businessId: number,
+): Promise<SunbizProjectionResult> {
+  const existingLineage = rows(await tx.execute(sql`
+    SELECT business_id FROM canonical_source_links
+    WHERE source_system = 'sunbiz' AND source_type = 'sunbiz_entity'
+      AND stable_key = ${candidate.filingNumber}
+    FOR UPDATE
+  `))[0] as { business_id: number } | undefined;
+  if (existingLineage && Number(existingLineage.business_id) !== businessId) {
+    return { lineageConflict: true, projectedDomain: false, projectedPhone: false, domainConflict: true, phoneConflict: true };
+  }
+
+  await tx.execute(sql`
+    INSERT INTO canonical_source_links (business_id, source_system, source_type, stable_key, registry_id)
+    VALUES (${businessId}, 'sunbiz', 'sunbiz_entity', ${candidate.filingNumber}, NULL)
+    ON CONFLICT (source_system, source_type, stable_key) DO NOTHING
+  `);
+  const verifiedLineage = rows(await tx.execute(sql`
+    SELECT business_id FROM canonical_source_links
+    WHERE source_system = 'sunbiz' AND source_type = 'sunbiz_entity'
+      AND stable_key = ${candidate.filingNumber}
+    FOR UPDATE
+  `))[0] as { business_id: number } | undefined;
+  if (!verifiedLineage || Number(verifiedLineage.business_id) !== businessId) {
+    return { lineageConflict: true, projectedDomain: false, projectedPhone: false, domainConflict: true, phoneConflict: true };
+  }
+
+  const business = rows(await tx.execute(sql`
+    SELECT website_domain, main_phone, record_class
+    FROM businesses WHERE id = ${businessId} FOR UPDATE
+  `))[0] as { website_domain: string | null; main_phone: string | null; record_class: string } | undefined;
+  if (!business || business.record_class !== "canonical") {
+    return { lineageConflict: false, projectedDomain: false, projectedPhone: false, domainConflict: false, phoneConflict: false };
+  }
+
+  const candidateDomain = domainFromWebsite(candidate.website);
+  const candidatePhone = candidate.phone?.trim() || null;
+  const candidatePhoneDigits = normalizedPhone(candidatePhone);
+  const usableDomain = candidateDomain && candidateDomain.includes(".") && !candidateDomain.includes(" ") ? candidateDomain : null;
+  const usablePhone = candidatePhoneDigits.length >= 7 ? candidatePhone : null;
+  const currentDomain = String(business.website_domain ?? "").trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  const currentPhoneDigits = normalizedPhone(business.main_phone);
+
+  let domainConflict = Boolean(usableDomain && currentDomain && currentDomain !== usableDomain);
+  let phoneConflict = Boolean(usablePhone && currentPhoneDigits && currentPhoneDigits !== candidatePhoneDigits);
+  const domainOwner = usableDomain && !currentDomain
+    ? rows(await tx.execute(sql`
+        SELECT id FROM businesses
+        WHERE id <> ${businessId}
+          AND regexp_replace(lower(regexp_replace(trim(website_domain), '^www\\.', '')), '\\.$', '') = ${usableDomain}
+        LIMIT 1
+      `))[0]
+    : null;
+  const phoneOwner = usablePhone && !currentPhoneDigits
+    ? rows(await tx.execute(sql`
+        SELECT id FROM businesses
+        WHERE id <> ${businessId}
+          AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${candidatePhoneDigits}
+        LIMIT 1
+      `))[0]
+    : null;
+  if (domainOwner) domainConflict = true;
+  if (phoneOwner) phoneConflict = true;
+
+  const projectDomain = Boolean(usableDomain && !currentDomain && !domainConflict);
+  const projectPhone = Boolean(usablePhone && !currentPhoneDigits && !phoneConflict);
+  if (projectDomain || projectPhone) {
+    await tx.execute(sql`
+      UPDATE businesses
+      SET website_domain = CASE WHEN ${projectDomain} THEN ${usableDomain} ELSE website_domain END,
+          main_phone = CASE WHEN ${projectPhone} THEN ${usablePhone} ELSE main_phone END,
+          updated_at = now()
+      WHERE id = ${businessId} AND record_class = 'canonical'
+    `);
+  }
+  if (projectDomain) {
+    // This business previously had no domain, so any no-domain skip or old
+    // freshness state cannot describe a crawl of the newly projected domain.
+    // Leave an in-flight worker untouched; only a non-processing row is made
+    // eligible for the explicitly queued free-only recrawl.
+    await tx.execute(sql`
+      UPDATE businesses
+      SET free_enrichment_status = NULL,
+          free_enrichment_completed_at = NULL,
+          free_enrichment_last_error_code = NULL
+      WHERE id = ${businessId}
+        AND record_class = 'canonical'
+        AND free_enrichment_status IS DISTINCT FROM 'processing'
+    `);
+  }
+  return { lineageConflict: false, projectedDomain: projectDomain, projectedPhone: projectPhone, domainConflict, phoneConflict };
 }
 
 /**
@@ -864,30 +1013,46 @@ export async function runSunbizBootstrapBatch(
 
     const crosswalkBusinessId = await findCRO03BCrosswalkBusiness(candidate.filingNumber);
     if (crosswalkBusinessId != null) {
-      const won = await db.transaction(async (tx) => {
+      const finalized = await db.transaction(async (tx) => {
         const locked = rows(await tx.execute(sql`
           SELECT id FROM sunbiz_bootstrap_claims
           WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
           FOR UPDATE
         `));
-        if (!locked.length) return false;
-        await tx.execute(sql`
-          INSERT INTO canonical_source_links (business_id, source_system, source_type, stable_key, registry_id)
-          VALUES (${crosswalkBusinessId}, 'sunbiz', 'sunbiz_entity', ${candidate.filingNumber}, NULL)
-          ON CONFLICT (source_system, source_type, stable_key) DO NOTHING
-        `);
+        if (!locked.length) return { won: false, projection: null as SunbizProjectionResult | null };
+        const projection = await attachLineageAndProjectMissingFields(tx, candidate, crosswalkBusinessId);
+        if (projection.lineageConflict) {
+          await tx.execute(sql`
+            UPDATE sunbiz_bootstrap_claims
+            SET status = 'deferred_collision', deferred_reason_code = 'sunbiz_lineage_business_conflict', completed_at = now()
+            WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+          `);
+          return { won: true, projection };
+        }
         await tx.execute(sql`
           UPDATE sunbiz_bootstrap_claims
           SET status = 'matched_existing', business_id = ${crosswalkBusinessId}, completed_at = now()
           WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         `);
-        return true;
+        return { won: true, projection };
       });
+      const projection = finalized.projection;
+      const freeRecrawl = finalized.won && projection?.projectedDomain
+        ? await enqueueProjectedDomainRecrawl(crosswalkBusinessId, candidate.filingNumber)
+        : "not_needed";
       await recordOutcome({
         filingNumber: candidate.filingNumber,
         entityName: candidate.entityName,
-        outcome: won ? "matched_existing" : "lost_lease",
-        ...(won ? { businessId: crosswalkBusinessId } : {}),
+        outcome: !finalized.won ? "lost_lease" : projection?.lineageConflict ? "deferred_collision" : "matched_existing",
+        ...(!projection?.lineageConflict && finalized.won ? { businessId: crosswalkBusinessId } : {}),
+        ...(projection ? {
+          projectedDomain: projection.projectedDomain,
+          projectedPhone: projection.projectedPhone,
+          domainConflict: projection.domainConflict,
+          phoneConflict: projection.phoneConflict,
+        } : {}),
+        ...(finalized.won && projection?.projectedDomain ? { freeRecrawl } : {}),
+        ...(projection?.lineageConflict ? { error: "Sunbiz filing lineage already belongs to a different business." } : {}),
       });
       continue;
     }
@@ -964,39 +1129,30 @@ export async function runSunbizBootstrapBatch(
     // Finalize (lineage insert + claim status) atomically, gated by a
     // fenced re-lock of the claim row so a stale executor resuming after a
     // reclaim can never overwrite the current holder's result.
-    const won = await db.transaction(async (tx) => {
+    const finalized = await db.transaction(async (tx) => {
       const locked = (await tx.execute(sql`
         SELECT id FROM sunbiz_bootstrap_claims
         WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         FOR UPDATE
       `)).rows as any[];
-      if (locked.length === 0) return false;
+      if (locked.length === 0) return { won: false, projection: null as SunbizProjectionResult | null };
 
       if (resolution.kind === "created" || resolution.kind === "matched") {
-        // Lineage is upserted for BOTH outcomes, not just "created". This is
-        // deliberate: a crash/failure between business creation and lineage
-        // insertion on a prior attempt leaves the business row in place but
-        // the claim marked 'failed'; the retry then resolves as "matched"
-        // against the already-created business, and must still repair the
-        // missing canonical_source_links row before finalizing the claim.
-        // ON CONFLICT DO NOTHING makes this idempotent whether or not the
-        // lineage row already exists.
-        //
-        // registry_id has a FK to source_registry_adapters; Sunbiz has no
-        // adapter row there (that table is for the county/DBPR license
-        // registries), so it must stay NULL here rather than restating the
-        // filing number into a column with a foreign-key contract it doesn't
-        // satisfy.
-        await tx.execute(sql`
-          INSERT INTO canonical_source_links (business_id, source_system, source_type, stable_key, registry_id)
-          VALUES (${resolution.business.id}, 'sunbiz', 'sunbiz_entity', ${candidate.filingNumber}, NULL)
-          ON CONFLICT (source_system, source_type, stable_key) DO NOTHING
-        `);
+        const projection = await attachLineageAndProjectMissingFields(tx, candidate, resolution.business.id);
+        if (projection.lineageConflict) {
+          await tx.execute(sql`
+            UPDATE sunbiz_bootstrap_claims
+            SET status = 'deferred_collision', deferred_reason_code = 'sunbiz_lineage_business_conflict', completed_at = now()
+            WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
+          `);
+          return { won: true, projection };
+        }
         await tx.execute(sql`
           UPDATE sunbiz_bootstrap_claims
           SET status = ${finalStatus}, business_id = ${resolution.business.id}, completed_at = now()
           WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         `);
+        return { won: true, projection };
       } else {
         await tx.execute(sql`
           UPDATE sunbiz_bootstrap_claims
@@ -1005,21 +1161,41 @@ export async function runSunbizBootstrapBatch(
               completed_at = now()
           WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         `);
+        return { won: true, projection: null as SunbizProjectionResult | null };
       }
-      return true;
     });
 
-    if (!won) {
+    if (!finalized.won) {
       await recordOutcome({ filingNumber: candidate.filingNumber, entityName: candidate.entityName, outcome: "lost_lease" });
       continue;
     }
 
     if (resolution.kind === "created" || resolution.kind === "matched") {
+      const projection = finalized.projection;
+      if (projection?.lineageConflict) {
+        await recordOutcome({
+          filingNumber: candidate.filingNumber,
+          entityName: candidate.entityName,
+          outcome: "deferred_collision",
+          error: "Sunbiz filing lineage already belongs to a different business.",
+        });
+        continue;
+      }
+      const freeRecrawl = projection?.projectedDomain
+        ? await enqueueProjectedDomainRecrawl(resolution.business.id, candidate.filingNumber)
+        : "not_needed";
       await recordOutcome({
         filingNumber: candidate.filingNumber,
         entityName: candidate.entityName,
         outcome: resolution.kind === "created" ? "created" : "matched_existing",
         businessId,
+        ...(projection ? {
+          projectedDomain: projection.projectedDomain,
+          projectedPhone: projection.projectedPhone,
+          domainConflict: projection.domainConflict,
+          phoneConflict: projection.phoneConflict,
+        } : {}),
+        ...(projection?.projectedDomain ? { freeRecrawl } : {}),
       });
     } else {
       await recordOutcome({

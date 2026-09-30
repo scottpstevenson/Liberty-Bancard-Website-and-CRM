@@ -1,12 +1,12 @@
 /**
  * sfp-enrollment-bridge.ts
  *
- * The missing `ready_held` -> paused-enrollment bridge. `sfp_campaign_staging_intents`
- * pins a business + package version but has no `contact_id`, while
- * `sequence_enrollments` requires one. This module resolves a contact
- * identity-safely (match an existing contact, or create a new one through
- * the canonical writeContact() writer — never a raw INSERT) and creates a
- * `sequence_enrollments` row with status='paused'.
+ * The `ready_held` -> paused-enrollment bridge. Contact-source intents retain
+ * the exact validated contact/link/email pins; this module row-locks and
+ * rechecks those pins before using that contact. Non-contact intents resolve
+ * a contact identity-safely (match an existing contact, or create one through
+ * the canonical writeContact() writer — never a raw INSERT). Every enrollment
+ * created here has status='paused'.
  *
  * Explicitly out of scope, by design: unpausing, dispatch, sending, or any
  * GHL/email/SMS/voice action. Every enrollment this module creates lands
@@ -32,9 +32,11 @@
  *    any point rolls back every write and releases the lock.
  */
 import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { db } from "../../db";
 import { writeContact } from "../contact-writer";
 import { evaluateContactDecisions, evaluateBusinessPromotionEligibility } from "../contactability";
+import { hashEmailToken } from "../provider-readiness-decision";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -54,6 +56,14 @@ function normalizeCompanyToken(name: string | null | undefined): string {
   return String(name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function normalizedContactIdentityHash(email: unknown, version: unknown): string | null {
+  const normalizedEmail = String(email ?? "").trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes("@")) return null;
+  if (Number(version) === 0) return createHash("sha256").update(normalizedEmail).digest("hex");
+  if (Number(version) === 1) return createHash("sha256").update(`email\u0000${normalizedEmail}`).digest("hex");
+  return null;
+}
+
 /**
  * Resolves and enrolls a single `ready_held` staging intent. Idempotent: a
  * second call for the same intent returns the existing bridge row rather
@@ -63,11 +73,14 @@ function normalizeCompanyToken(name: string | null | undefined): string {
 export async function bridgeReadyHeldIntentToPausedEnrollment(
   stagingIntentId: string,
   actorId: string,
-  _testFaultInjector?: (stage: "after_contact_before_enrollment" | "after_enrollment_before_ledger") => void,
+  _testFaultInjector?: (stage: "after_source_contact_locked" | "after_contact_before_enrollment" | "after_enrollment_before_ledger") => void | Promise<void>,
 ): Promise<ReadyHeldEnrollmentResult> {
   return db.transaction(async (tx) => {
   const intent = rows(await tx.execute(sql`
-    SELECT id, business_id, master_lead_id, package_version_id, state
+    SELECT id, business_id, master_lead_id, package_version_id, contact_id,
+           contact_business_link_decision_id, contact_business_link_revision,
+           normalized_value_hash, normalized_value_hash_version,
+           validation_snapshot, state
       FROM sfp_campaign_staging_intents WHERE id=${stagingIntentId}::uuid FOR UPDATE
   `))[0];
   if (!intent) throw new Error("SFP_STAGING_INTENT_NOT_FOUND");
@@ -77,6 +90,9 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       FROM sfp_ready_held_enrollments WHERE staging_intent_id=${stagingIntentId}::uuid
   `))[0];
   if (existing) {
+    if (intent.contact_id && Number(existing.contact_id) !== Number(intent.contact_id)) {
+      throw new Error("SFP_PINNED_SOURCE_CONTACT_BRIDGE_MISMATCH");
+    }
     const enrollment = rows(await tx.execute(sql`
       SELECT status FROM sequence_enrollments WHERE id=${Number(existing.sequence_enrollment_id)}
     `))[0];
@@ -102,7 +118,7 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
 
   const masterLead = intent.master_lead_id
     ? rows(await tx.execute(sql`
-        SELECT email, phone, contact_name FROM master_leads WHERE id=${intent.master_lead_id}::uuid
+        SELECT email, email_token_hash, phone, contact_name FROM master_leads WHERE id=${intent.master_lead_id}::uuid
       `))[0]
     : null;
 
@@ -121,6 +137,7 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     };
   }
   const candidateEmail = String(masterLead.email).trim().toLowerCase();
+    const candidateEmailHash = String(masterLead.email_token_hash ?? "");
   const candidatePhone = String(masterLead?.phone ?? business.main_phone ?? "").replace(/[^0-9]/g, "");
   const businessNameToken = normalizeCompanyToken(business.canonical_name);
 
@@ -140,35 +157,84 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
   // two DIFFERENT intents that resolve to the same contact identity.
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`sfp-enrollment-bridge-email:${candidateEmail}`}))`);
 
-    const matchCandidates = rows(await tx.execute(sql`
+    const matchCandidates = intent.contact_id
+      ? rows(await tx.execute(sql`
+           SELECT c.id, c.phone, c.company_name, c.email, c.email_token_hash,
+                  d.id AS decision_id, d.revision
+            FROM contacts c
+            JOIN contact_business_link_decisions d ON d.contact_id=c.id
+           WHERE c.id=${Number(intent.contact_id)}
+             AND c.business_id=${Number(business.id)}
+             AND c.archived_at IS NULL
+             AND d.business_id=${Number(business.id)}
+              AND d.id=${String(intent.contact_business_link_decision_id ?? "")}::uuid
+              AND d.revision=${Number(intent.contact_business_link_revision)}
+             AND d.decision='verified' AND d.superseded_at IS NULL
+            LIMIT 1
+            FOR SHARE OF c, d
+        `))
+      : rows(await tx.execute(sql`
       SELECT id, phone, company_name FROM contacts
        WHERE lower(email) = ${candidateEmail} AND archived_at IS NULL
        ORDER BY id ASC
     `));
+    if (intent.contact_id) {
+      const pinned = matchCandidates.length === 1 ? matchCandidates[0] : null;
+       const expectedHash = String(intent.normalized_value_hash ?? "");
+       const expectedHashVersion = Number(intent.normalized_value_hash_version);
+       const expectedDecisionId = String(intent.contact_business_link_decision_id ?? "");
+       const expectedRevision = Number(intent.contact_business_link_revision);
+      if (!pinned) {
+        return {
+          stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+          sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "PINNED_SOURCE_CONTACT_LINK_REVOKED_OR_AMBIGUOUS",
+        };
+      }
+      const contactHash = String(pinned.email_token_hash ?? "");
+       const versionedContactHash = normalizedContactIdentityHash(pinned.email, expectedHashVersion);
+      if (!expectedDecisionId || String(pinned.decision_id) !== expectedDecisionId ||
+          Number(pinned.revision) !== expectedRevision) {
+        return {
+          stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+          sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "PINNED_SOURCE_CONTACT_LINK_REVISION_CHANGED",
+        };
+      }
+       if (!candidateEmailHash || candidateEmailHash !== contactHash ||
+           contactHash !== (hashEmailToken(String(pinned.email ?? "")) ?? "") ||
+           !versionedContactHash || versionedContactHash !== expectedHash) {
+        return {
+          stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+          sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "PINNED_SOURCE_CONTACT_EMAIL_STALE",
+        };
+      }
+      await _testFaultInjector?.("after_source_contact_locked");
+    }
     // Corroborate an email match with at least one more independent signal
     // (phone or company name) before trusting it as the same real-world
     // entity — a bare email match is not enough to silently attach an
     // unrelated contact record to this business/intent.
-    const corroborated = matchCandidates.find((c: any) => {
+    const corroborated = intent.contact_id
+      ? matchCandidates[0]
+      : matchCandidates.find((c: any) => {
       const phoneMatches = candidatePhone && String(c.phone ?? "").replace(/[^0-9]/g, "") === candidatePhone;
       const companyMatches = businessNameToken && normalizeCompanyToken(c.company_name) === businessNameToken;
       return phoneMatches || companyMatches;
     });
 
-    if (matchCandidates.length > 0 && !corroborated) {
+    if (!intent.contact_id && matchCandidates.length > 0 && !corroborated) {
       return {
         stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
         sequenceEnrollmentId: null, enrollmentStatus: null, heldReason: "EMAIL_MATCH_UNCORROBORATED",
       };
     }
 
-    let contactId: number;
-    let contactResolution: "matched_existing" | "created_new";
+    let contactId: number | null = null;
+    let contactResolution: "matched_existing" | "created_new" | null = null;
 
     if (corroborated) {
       contactId = Number(corroborated.id);
       contactResolution = "matched_existing";
-    } else {
+    } else if (!intent.contact_id) {
       // Early business-scoped gate avoids unnecessary contact writes. The
       // transaction below remains the real rollback boundary if a later
       // contact-level decision or enrollment/ledger insert rejects the work.
@@ -210,31 +276,40 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       contactId = created.id;
       contactResolution = created._intakeOutcome === "created" ? "created_new" : "matched_existing";
     }
+    if (contactId == null || contactResolution == null) {
+      return {
+        stagingIntentId, status: "left_held", contactId: null, contactResolution: null,
+        sequenceEnrollmentId: null, enrollmentStatus: null,
+        heldReason: intent.contact_id ? "PINNED_SOURCE_CONTACT_LINK_REVOKED_OR_AMBIGUOUS" : "CONTACT_RESOLUTION_FAILED",
+      };
+    }
+    const resolvedContactId = contactId;
+    const resolvedContactResolution = contactResolution;
 
     // Eligibility gate: promotion dimension covers DBPR lineage, existing-
     // customer status, and suppression — the same authority every other
     // enumerated consumer (enrollment included) must call. A blocked
     // dimension leaves the intent held rather than pausing an enrollment
     // for a contact this authority says is not eligible.
-    const decisions = await evaluateContactDecisions({ contactId, businessId: Number(business.id) }, tx);
+    const decisions = await evaluateContactDecisions({ contactId: resolvedContactId, businessId: Number(business.id) }, tx);
     if (decisions.promotion.status === "blocked") {
       // A newly created contact exists only in this transaction. Returning
       // would commit an orphan; throw to roll the canonical write back.
-      if (contactResolution === "created_new") {
+      if (resolvedContactResolution === "created_new") {
         throw new Error(`SFP_PROMOTION_BLOCKED_AFTER_CONTACT_WRITE:${decisions.promotion.reasonCodes.join(",")}`);
       }
       return {
-        stagingIntentId, status: "left_held", contactId, contactResolution,
+        stagingIntentId, status: "left_held", contactId: resolvedContactId, contactResolution: resolvedContactResolution,
         sequenceEnrollmentId: null, enrollmentStatus: null,
         heldReason: `PROMOTION_BLOCKED:${decisions.promotion.reasonCodes.join(",")}`,
       };
     }
 
-    _testFaultInjector?.("after_contact_before_enrollment");
+    await _testFaultInjector?.("after_contact_before_enrollment");
     const result = await (async () => {
       const activeOrPaused = rows(await tx.execute(sql`
         SELECT id, status FROM sequence_enrollments
-         WHERE contact_id=${contactId} AND sequence_id=${sequenceId} AND status IN ('active','paused')
+         WHERE contact_id=${resolvedContactId} AND sequence_id=${sequenceId} AND status IN ('active','paused')
          LIMIT 1
       `))[0];
       if (activeOrPaused && activeOrPaused.status === "active") {
@@ -254,15 +329,15 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       if (!enrollmentRow) {
         enrollmentRow = rows(await tx.execute(sql`
           INSERT INTO sequence_enrollments (sequence_id, contact_id, current_step, status, metadata)
-          VALUES (${sequenceId}, ${contactId}, 0, 'paused', ${JSON.stringify({ source: "sfp_ready_held_bridge", stagingIntentId })}::jsonb)
+           VALUES (${sequenceId}, ${resolvedContactId}, 0, 'paused', ${JSON.stringify({ source: "sfp_ready_held_bridge", stagingIntentId })}::jsonb)
           RETURNING id, status
         `))[0];
       }
-      _testFaultInjector?.("after_enrollment_before_ledger");
+      await _testFaultInjector?.("after_enrollment_before_ledger");
       const ledger = rows(await tx.execute(sql`
         INSERT INTO sfp_ready_held_enrollments
           (staging_intent_id, contact_id, sequence_enrollment_id, contact_resolution, actor_id)
-        VALUES (${stagingIntentId}::uuid, ${contactId}, ${Number(enrollmentRow.id)}, ${contactResolution}, ${actorId})
+         VALUES (${stagingIntentId}::uuid, ${resolvedContactId}, ${Number(enrollmentRow.id)}, ${resolvedContactResolution}, ${actorId})
         RETURNING id
       `));
       if (ledger.length !== 1) throw new Error("SFP_BRIDGE_LEDGER_INSERT_FAILED");
@@ -270,7 +345,7 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     })();
 
     return {
-      stagingIntentId, status: "created", contactId, contactResolution,
+      stagingIntentId, status: "created", contactId: resolvedContactId, contactResolution: resolvedContactResolution,
       sequenceEnrollmentId: Number(result.id), enrollmentStatus: String(result.status),
     };
   });

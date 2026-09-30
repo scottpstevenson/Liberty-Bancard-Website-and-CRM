@@ -273,7 +273,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     throw new Error("SFP_IDEMPOTENCY_PAYLOAD_MISMATCH");
   }
   if (existing?.state === "completed") {
-    return { stageRunId: String(existing.id), replayed: true, processed: Number(existing.processed_count), succeeded: Number(existing.succeeded_count), failed: Number(existing.failed_count) };
+    return { stageRunId: String(existing.id), replayed: true, processed: Number(existing.processed_count), succeeded: Number(existing.succeeded_count), failed: Number(existing.failed_count), providerRequests: 0 };
   }
   const stage = existing ?? rows(await db.execute(sql`
     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
@@ -281,7 +281,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
   const stageClaimToken = await claimStageRun(String(stage.id));
-  await executeSfpSerperDiscovery({
+  const serperResult = await executeSfpSerperDiscovery({
     cohortRunId: input.cohortRunId,
     idempotencyKey: `${input.idempotencyKey}:serper`,
     actorId: input.actorId,
@@ -293,13 +293,20 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,b.main_phone,m.roi_score
       FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
      WHERE m.cohort_run_id=${input.cohortRunId}::uuid
-     ORDER BY m.roi_score DESC,b.id ASC LIMIT ${maxBusinesses}
+      ORDER BY COALESCE((
+        SELECT MAX(i.completed_at) FROM sfp_stage_items i
+        JOIN sfp_stage_runs prior ON prior.id=i.stage_run_id
+        WHERE prior.cohort_run_id=m.cohort_run_id AND i.business_id=b.id
+          AND i.provider='gap_vector'
+      ),TIMESTAMPTZ 'epoch') ASC,m.roi_score DESC,b.id ASC
+      LIMIT ${maxBusinesses}
   `));
   await db.execute(sql`UPDATE sfp_stage_runs SET selected_count=${targets.length},updated_at=NOW() WHERE id=${String(stage.id)}::uuid`);
 
   const businessIds = targets.map((t: any) => Number(t.id));
   const reuse = await computeContactLinkReuse(businessIds);
   let succeeded = 0, failed = 0, skipped = 0;
+  let providerRequests = Number(serperResult.providerRequests ?? 0);
   const gapVectors: Array<Awaited<ReturnType<typeof computeSfpGapVector>>> = [];
 
   for (const target of targets) {
@@ -327,6 +334,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
           skipped++;
           outscraperSkipReason = "outscraper_already_completed";
         } else {
+        providerRequests++;
         const result = await invokeSfpProviderTransport(reservation, () =>
           executeSfpOutscraperDiscovery({
             businessId, businessName: String(target.canonical_name), domain: target.website_domain,
@@ -401,6 +409,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
           idempotencyKey: `${input.idempotencyKey}:apollo:${businessId}`, actorId: input.actorId, units: 1,
         });
         if (reservation.replayed) { skipped++; continue; }
+        providerRequests++;
         const result = await invokeSfpProviderTransport(reservation, () =>
           executeSfpApolloDiscovery({
             businessId, businessName: String(target.canonical_name), domain: target.website_domain,
@@ -505,6 +514,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   `);
   return {
     stageRunId: String(stage.id), replayed: false, processed: targets.length, succeeded, failed, skipped,
+    providerRequests,
     gapVectors: gapVectors.map((v) => ({
       businessId: v.businessId, before: v.before, after: v.after,
       stopConditions: stopConditionsMet(v), skippedProviderCalls: v.skippedProviderCalls,
@@ -563,7 +573,7 @@ export async function executeSfpSerperDiscovery(input: {
     SELECT * FROM sfp_stage_runs WHERE stage='paid_waterfall' AND idempotency_key=${input.idempotencyKey} LIMIT 1
   `))[0];
   if(existing?.payload_hash && String(existing.payload_hash)!==payloadHash) throw new Error("SFP_IDEMPOTENCY_PAYLOAD_MISMATCH");
-  if(existing?.state==='completed') return {stageRunId:String(existing.id),replayed:true,processed:Number(existing.processed_count),succeeded:Number(existing.succeeded_count),failed:Number(existing.failed_count)};
+  if(existing?.state==='completed') return {stageRunId:String(existing.id),replayed:true,processed:Number(existing.processed_count),succeeded:Number(existing.succeeded_count),failed:Number(existing.failed_count),providerRequests:0};
   const stage=existing ?? rows(await db.execute(sql`
      INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
      VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper"]'::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
@@ -572,7 +582,7 @@ export async function executeSfpSerperDiscovery(input: {
    const stageClaimToken=await claimStageRun(String(stage.id));
   const targets=await selectSfpSerperTargets(input.cohortRunId,maxBusinesses);
   await db.execute(sql`UPDATE sfp_stage_runs SET selected_count=${targets.length},updated_at=NOW() WHERE id=${String(stage.id)}::uuid`);
-  let succeeded=0,failed=0,noResult=0,freeRecrawlFailed=0;
+  let succeeded=0,failed=0,noResult=0,freeRecrawlFailed=0,providerRequests=0;
   for(const target of targets){
      await renewStageRunClaim(String(stage.id),stageClaimToken);
     let reservation:Awaited<ReturnType<typeof reserveSfpProviderOperation>>|null=null;
@@ -583,10 +593,12 @@ export async function executeSfpSerperDiscovery(input: {
         actorId:input.actorId,units:4,
       });
       if(reservation.replayed){ noResult++; continue; }
+      providerRequests++;
        const outcome=await invokeSfpProviderTransport(reservation,() => lookupBusinessIdentity({
          businessName:String(target.canonical_name),zip:target.postal_code,city:target.city,state:target.state,address:target.street_address,
          requireGeographicCorroboration:true,
        },{caller:"server/services/cro03/sfp-paid-waterfall.ts"}));
+       providerRequests+=Math.max(0,Number(outcome.requestsUsed ?? 1)-1);
       if(outcome.kind==='accepted_match' && outcome.accepted){
         const acceptedIdentity = outcome.accepted;
         let domain:string|null=null;
@@ -653,5 +665,5 @@ export async function executeSfpSerperDiscovery(input: {
            failed_count=${failed},skipped_count=${noResult},completed_at=NOW(),last_heartbeat_at=NOW(),updated_at=NOW()
      WHERE id=${String(stage.id)}::uuid AND claim_token=${stageClaimToken}::uuid
   `);
-  return {stageRunId:String(stage.id),replayed:false,processed:targets.length,succeeded,failed,noResult,freeRecrawlFailed,zeroOutreachConfirmed:true};
+  return {stageRunId:String(stage.id),replayed:false,processed:targets.length,succeeded,failed,noResult,freeRecrawlFailed,providerRequests,zeroOutreachConfirmed:true};
 }

@@ -131,8 +131,8 @@ try {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// GATE 3: discovery tick refuses to run without transport flag + API key,
-// before any program/cohort lookup
+// GATE 3: with the provider durably paused, discovery tick fails closed
+// before any program/cohort lookup (the provider gate precedes credentials).
 // ══════════════════════════════════════════════════════════════════════════
 const savedTransportFlag = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
 const savedSerperKey = process.env.SERPER_API_KEY;
@@ -142,9 +142,9 @@ try {
   const discoveryGated = await processSfpContinuousDiscoveryTick();
   check(discoveryGated.ran === false, "GATE3-ran-false", `discovery tick reports ran:false without transport/API key (got: ${JSON.stringify(discoveryGated)})`);
   check(
-    discoveryGated.reason === "transport_or_credential_unavailable",
+    typeof discoveryGated.stopReason === "string" && discoveryGated.stopReason.startsWith("provider_paused"),
     "GATE3-reason",
-    `stop reason is transport_or_credential_unavailable (got: ${discoveryGated.reason})`,
+    `stop reason starts with provider_paused (got: ${discoveryGated.stopReason})`,
   );
 } finally {
   if (savedTransportFlag !== undefined) process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = savedTransportFlag;

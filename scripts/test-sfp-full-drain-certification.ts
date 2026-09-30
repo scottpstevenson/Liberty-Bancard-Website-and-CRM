@@ -64,6 +64,9 @@ const { processSfpCampaignStagingTick } = await import(
 const { computeLivePackageContentHash } = await import(
   "../server/services/cro03/sfp-campaign-packages"
 );
+const { CLASSIFIER_VERSION, TAXONOMY_VERSION_V2 } = await import(
+  "../server/services/cro03/sfp-vertical-classifier"
+);
 
 try {
   const { execSync } = await import("node:child_process");
@@ -76,6 +79,8 @@ const program = await ensureProgram({ createdBy: `cert:${RUN_ID}` });
 await setProgramActivation({ active: true, actorId: `cert:${RUN_ID}` });
 await db.execute(sql`
   UPDATE sfp_programs SET recurring_enabled = TRUE,
+         taxonomy_version = ${TAXONOMY_VERSION_V2},
+         vertical_ids = ARRAY['Healthcare']::text[],
          schedule_config = jsonb_set(COALESCE(schedule_config, '{}'::jsonb), '{campaignStaging}', '5')
    WHERE id = ${program.id}::uuid
 `);
@@ -115,7 +120,9 @@ await db.execute(sql`
   `);
 }
 
-// ── Fixture: 5 businesses with staged "valid" free-discovery email candidates ──
+// ── Fixture: 5 raw-NULL businesses with staged email candidates and frozen
+// v2 Healthcare classification evidence. The raw vertical intentionally does
+// not provide the package route; only the frozen v2 classifier pin may do so.
 const genRow = rows(await db.execute(sql`
   INSERT INTO free_discovery_generations (run_key, actor_id, purpose, reason, state)
   VALUES (${`cert-fd-${RUN_ID}`}, ${`cert:${RUN_ID}`}, 'email_discovery', 'certification', 'running')
@@ -130,7 +137,7 @@ for (let i = 0; i < N; i++) {
   const name = `${RUN_ID}-biz-${i}`;
   const bizRow = rows(await db.execute(sql`
     INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
-    VALUES (${name}, ${name.toLowerCase()}, 'Med Spa', 'FL', 'canonical', NOW())
+    VALUES (${name}, ${name.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
     RETURNING id
   `))[0];
   const bizId = Number(bizRow.id);
@@ -162,27 +169,64 @@ await db.execute(sql`
           ${bizIds.length}, ${cohortHash}, NULL, ${"0".repeat(40)}, ${`cert:${RUN_ID}`},
           'freezing', ${cohortHash}, ${cohortHash})
 `);
+const classificationPolicyVersion = Number(rows(await db.execute(sql`
+  SELECT policy_version FROM sfp_programs WHERE id=${program.id}::uuid
+`))[0]?.policy_version);
 for (const [i, bizId] of bizIds.entries()) {
+  const evidenceHash = createHash("sha256")
+    .update(JSON.stringify({
+      businessId: bizId,
+      taxonomyVersion: TAXONOMY_VERSION_V2,
+      classifierVersion: CLASSIFIER_VERSION,
+      target: "Healthcare",
+      fixture: RUN_ID,
+    }))
+    .digest("hex");
+  const evidence = rows(await db.execute(sql`
+    INSERT INTO sfp_classification_evidence
+      (business_id, evidence_hash, source_refs, classifier_version, taxonomy_version,
+       policy_version, outcome, confidence, reason_codes, idempotency_key,
+       cost_micros, terminal_state, resolved_vertical_id, admission_tier)
+    VALUES (${bizId}, ${evidenceHash}, ${JSON.stringify([{ source: "disposable-certification" }])}::jsonb,
+       ${CLASSIFIER_VERSION}, ${TAXONOMY_VERSION_V2}, ${classificationPolicyVersion}, 'target', 0.95,
+       '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb,
+       ${`cert-fd-classification:${RUN_ID}:${bizId}`}, 0, 'completed', 'Healthcare', 'resolved_high')
+    RETURNING id
+  `))[0];
   await db.execute(sql`
-    INSERT INTO sfp_cohort_members (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
-    VALUES (${cohortRunId}::uuid, ${bizId}, ${100 - i}, 'verified', 'fips', '12086', 'Med Spa')
+    INSERT INTO sfp_cohort_members
+      (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical,
+       classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
+       classifier_reasons, classifier_evidence_hash)
+    VALUES (${cohortRunId}::uuid, ${bizId}, ${100 - i}, 'verified', 'fips', '12086', 'Healthcare',
+       ${CLASSIFIER_VERSION}, 'resolved_high', 0.95, 'Healthcare', '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash})
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_decisions
+      (cohort_run_id, business_id, disposition, geography_class, geography_source, vertical,
+       roi_score, selected, classifier_version, classifier_outcome, classifier_confidence,
+       classifier_matched_target, classifier_reasons, classifier_evidence_hash,
+       classification_evidence_id, classification_policy_version, classification_evidence_hash,
+       classification_classifier_version)
+    VALUES (${cohortRunId}::uuid, ${bizId}, 'selected', 'verified', 'fips', 'Healthcare',
+       ${100 - i}, TRUE, ${CLASSIFIER_VERSION}, 'resolved_high', 0.95, 'Healthcare',
+       '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash},
+       ${String(evidence.id)}::uuid, ${classificationPolicyVersion}, ${evidenceHash}, ${CLASSIFIER_VERSION})
   `);
 }
 await db.execute(sql`UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW() WHERE id=${cohortRunId}::uuid`);
 
-// A current package version is required for campaign staging to have
-// anywhere to route an eligible business -- without one, every staging
-// attempt dead-letters with 'no_current_package_for_vertical' and produces
-// zero movement regardless of how much eligible backlog exists.
+// The frozen evidence target has a current v2 package; this deliberately
+// avoids relying on the businesses.vertical column (which is raw NULL).
 const pkgCampaign = rows(await db.execute(sql`
   INSERT INTO campaigns (name, status, target_verticals, created_by, total_steps)
-  VALUES (${`${RUN_ID}-campaign`}, 'draft', ARRAY['Med Spa'], ${RUN_ID}, 1)
+  VALUES (${`${RUN_ID}-campaign`}, 'draft', ARRAY['Healthcare'], ${RUN_ID}, 1)
   RETURNING id
 `))[0];
 const pkgSequence = rows(await db.execute(sql`
   INSERT INTO follow_up_sequences
     (name, status, trigger_type, total_steps, sequence_family, channels_allowed, eligible_consent_tiers)
-  VALUES (${`${RUN_ID}-sequence`}, 'paused', 'manual', 1, ${`${RUN_ID}-med-spa`},
+  VALUES (${`${RUN_ID}-sequence`}, 'paused', 'manual', 1, ${`${RUN_ID}-healthcare-v2`},
           ARRAY['email','task'], ARRAY['first_party_role_inbox'])
   RETURNING id
 `))[0];
@@ -191,11 +235,12 @@ await db.execute(sql`
   INSERT INTO sfp_campaign_package_versions
     (package_key, vertical, campaign_id, campaign_name, sequence_id, sequence_name,
      sequence_family, content_hash, lifecycle_state, effective_at, actor_id)
-  VALUES ('sfp.med_spa.v1', 'Med Spa', ${Number(pkgCampaign.id)}, ${`${RUN_ID}-campaign`},
-          ${Number(pkgSequence.id)}, ${`${RUN_ID}-sequence`}, ${`${RUN_ID}-med-spa`},
+  VALUES ('sfp.healthcare.v2', 'Healthcare', ${Number(pkgCampaign.id)}, ${`${RUN_ID}-campaign`},
+          ${Number(pkgSequence.id)}, ${`${RUN_ID}-sequence`}, ${`${RUN_ID}-healthcare-v2`},
           ${liveContentHash}, 'current', NOW(), ${RUN_ID})
+  ON CONFLICT DO NOTHING
 `);
-check(true, "SETUP", `frozen cohort ${cohortRunId} with ${bizIds.length} staged-email members, program recurring campaignStaging batch=5, current Med Spa package version seeded`);
+check(true, "SETUP", `frozen v2 cohort ${cohortRunId} with ${bizIds.length} raw-NULL businesses, pinned Healthcare evidence and current v2 package, campaignStaging batch=5`);
 
 // ══════════════════════════════════════════════════════════════════════════
 // STAGE 1: validation (fake zbTransport, all outcomes "valid")

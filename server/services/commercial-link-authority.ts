@@ -145,6 +145,7 @@ export interface AuthoritativeContactBusinessLink {
   contactId: number;
   businessId: number;
   decisionId: string;
+  revision: number;
   decisionKey: string;
   reviewedAt: string | null;
   contactEmail: string | null;
@@ -157,12 +158,13 @@ export async function getAuthoritativeVerifiedContactLinks(
 ): Promise<AuthoritativeContactBusinessLink[]> {
   if (businessIds.length === 0) return [];
   const result = await db.execute(sql`
-    SELECT d.id AS decision_id, d.decision_key, d.contact_id, d.business_id, d.reviewed_at,
+     SELECT d.id AS decision_id, d.revision, d.decision_key, d.contact_id, d.business_id, d.reviewed_at,
            c.email AS contact_email,
            concat_ws(' ', nullif(c.first_name, ''), nullif(c.last_name, '')) AS contact_name,
            c.title AS contact_title
       FROM contact_business_link_decisions d
       JOIN contacts c ON c.id = d.contact_id
+       JOIN businesses b ON b.id=d.business_id AND b.record_class='canonical'
      WHERE d.decision = 'verified'
        AND d.superseded_at IS NULL
        AND d.business_id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
@@ -170,18 +172,102 @@ export async function getAuthoritativeVerifiedContactLinks(
        -- agree with the decision ledger, or this row is stale/inconsistent and
        -- must not be treated as authoritative.
        AND c.business_id = d.business_id
+        AND c.archived_at IS NULL
+        AND c.record_class NOT IN ('test','demo','synthetic')
+        AND COALESCE(c.existing_merchant_customer,FALSE)=FALSE
+        AND COALESCE(c.do_not_contact,FALSE)=FALSE
+        AND COALESCE(c.do_not_auto_contact,FALSE)=FALSE
+        AND COALESCE(c.opted_out_email,FALSE)=FALSE
+        AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+        AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
+        AND c.complaint_status IS DISTINCT FROM 'reported'
+        AND c.bounce_status IS DISTINCT FROM 'hard'
+        AND c.email_status NOT IN ('bounced','invalid')
+        AND c.suppression_reason IS NULL
   `);
   const rowsOut = (result as any).rows ?? result ?? [];
   return rowsOut.map((r: any) => ({
     contactId: Number(r.contact_id),
     businessId: Number(r.business_id),
     decisionId: String(r.decision_id),
+    revision: Number(r.revision),
     decisionKey: String(r.decision_key),
     reviewedAt: r.reviewed_at ? String(r.reviewed_at) : null,
     contactEmail: r.contact_email ?? null,
     contactName: r.contact_name ?? null,
     contactTitle: r.contact_title ?? null,
   }));
+}
+
+export interface CurrentVerifiedContactLinkPin {
+  contactId: number;
+  businessId: number;
+  decisionId: string;
+  revision: number;
+  normalizedEmailHash: string;
+  normalizedEmailHashVersion: 1;
+}
+
+/**
+ * Transaction-friendly final-boundary guard for consumers that freeze a
+ * verified contact source. It deliberately returns only a normalized address
+ * digest, never the plaintext email. Passing the caller's executor keeps the
+ * authority read in the same transaction/snapshot as the consumer's write.
+ */
+export async function getCurrentVerifiedContactLinkPin(
+  input: {
+    contactId: number;
+    businessId: number;
+    decisionId?: string | null;
+    revision?: number | null;
+    normalizedEmailHash?: string | null;
+    normalizedEmailHashVersion?: number | null;
+  },
+  executor: { execute: (query: any) => Promise<any> } = db,
+): Promise<CurrentVerifiedContactLinkPin | null> {
+  const result = await executor.execute(sql`
+    SELECT c.id AS contact_id,c.business_id,c.email,d.id AS decision_id,d.revision
+      FROM contacts c
+      JOIN businesses b ON b.id=c.business_id AND b.record_class='canonical'
+      JOIN contact_business_link_decisions d
+        ON d.contact_id=c.id AND d.business_id=c.business_id
+       AND d.decision='verified' AND d.superseded_at IS NULL
+     WHERE c.id=${input.contactId}
+       AND c.business_id=${input.businessId}
+       AND c.archived_at IS NULL
+       AND c.record_class NOT IN ('test','demo','synthetic')
+       AND COALESCE(c.existing_merchant_customer,FALSE)=FALSE
+       AND COALESCE(c.do_not_contact,FALSE)=FALSE
+       AND COALESCE(c.do_not_auto_contact,FALSE)=FALSE
+       AND COALESCE(c.opted_out_email,FALSE)=FALSE
+       AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+       AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
+       AND c.complaint_status IS DISTINCT FROM 'reported'
+       AND c.bounce_status IS DISTINCT FROM 'hard'
+       AND c.email_status NOT IN ('bounced','invalid')
+       AND c.suppression_reason IS NULL
+       AND c.email IS NOT NULL AND BTRIM(c.email)<>''
+     LIMIT 1
+     FOR SHARE OF c,b,d
+  `);
+  const row = (result as any).rows?.[0] ?? (result as any)[0];
+  if (!row) return null;
+  const normalizedEmailHash = crypto.createHash("sha256")
+    .update(`email\u0000${String(row.email).trim().toLowerCase()}`).digest("hex");
+  if ((input.decisionId && String(row.decision_id) !== input.decisionId)
+      || (input.revision != null && Number(row.revision) !== input.revision)
+      || (input.normalizedEmailHash && normalizedEmailHash !== input.normalizedEmailHash)
+      || (input.normalizedEmailHashVersion != null && input.normalizedEmailHashVersion !== 1)) {
+    return null;
+  }
+  return {
+    contactId: Number(row.contact_id),
+    businessId: Number(row.business_id),
+    decisionId: String(row.decision_id),
+    revision: Number(row.revision),
+    normalizedEmailHash,
+    normalizedEmailHashVersion: 1,
+  };
 }
 
 /**

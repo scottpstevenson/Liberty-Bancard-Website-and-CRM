@@ -73,7 +73,7 @@ interface BusinessDetailResponse {
   masterLead: MasterLead | null;
   safeNextAction: string;
   contactMatchAvailable?: boolean;
-  existingContactMatch: { id: number; emailStatus: string | null; lifecycleState: string | null } | null;
+  existingContactMatch?: { id: number; emailStatus: string | null; lifecycleState: string | null } | null;
   conflictCount: number;
   conflictEvidenceAvailable: boolean;
   sourceObservations: Array<{
@@ -433,11 +433,15 @@ export function BusinessDetailPage() {
                   </div>
                 ) : d.existingContactMatch ? (
                   <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                    <div className="font-medium">⚠ Existing contact match</div>
+                    <div className="font-medium">Potential contact candidate · not a verified link</div>
                     <div className="text-xs mt-1 space-y-0.5">
                       <div>Contact #{d.existingContactMatch.id}</div>
                       {d.existingContactMatch.emailStatus && <div>Email: {d.existingContactMatch.emailStatus}</div>}
                       {d.existingContactMatch.lifecycleState && <div>Lifecycle: {d.existingContactMatch.lifecycleState}</div>}
+                      <div className="pt-1">
+                        Match evidence and an authoritative identity-review decision are not included in this response.
+                        Do not treat this suggestion or a contact business ID as a verified association.
+                      </div>
                     </div>
                     <Button
                       variant="outline"
@@ -445,12 +449,16 @@ export function BusinessDetailPage() {
                       className="mt-2 h-7 text-xs gap-1"
                       onClick={() => navigate(`/dashboard/contacts/${d.existingContactMatch!.id}`)}
                     >
-                      View Contact <ArrowRight className="h-3 w-3" />
+                      Inspect Candidate <ArrowRight className="h-3 w-3" />
                     </Button>
                   </div>
+                ) : d.contactMatchAvailable === true ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground rounded bg-muted/40 border px-3 py-2">
+                    No potential contact candidate was returned. This is not a verified-link determination.
+                  </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-sm text-green-700 rounded bg-green-50 border border-green-200 px-3 py-2">
-                    <CheckCircle className="h-4 w-4 shrink-0" /> No existing contact match
+                  <div className="flex items-center gap-2 text-xs text-amber-700 rounded bg-amber-50 border border-amber-200 px-3 py-2">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> Contact candidate and verification status unavailable
                   </div>
                 )}
 

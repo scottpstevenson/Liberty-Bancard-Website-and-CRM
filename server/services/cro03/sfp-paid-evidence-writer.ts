@@ -11,6 +11,7 @@
  * evidence, so encrypted-at-rest candidate values follow one consistent pattern
  * across the codebase rather than a second bespoke encryption scheme.
  */
+import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { seal, unseal } from "./candidate-evidence-service";
@@ -140,10 +141,12 @@ export interface UnifiedSfpCandidateView {
   personNameEvidence: string | null;
   personTitleEvidence: string | null;
   createdAt: string;
-  /** Persisted subject_type from the source row ('business' | 'person') — the
-   *  authoritative classification for role-inbox vs named-contact decisions.
-   *  Never inferred from whether person-name evidence happens to be present. */
+  /** Conservative effective type shared across equal business/address
+   *  observations. Any person observation makes every row person-classified. */
   subjectType: string;
+  /** Original source-row classification; subjectType is the restrictive
+   * cross-observation policy classification used by validation. */
+  sourceSubjectType: string;
   /**
    * Cross-source dedupe (C3/proof matrix "cross-source email-hash dedupe"):
    * both free_discovery_candidates and sfp_paid_candidate_evidence hash
@@ -156,12 +159,37 @@ export interface UnifiedSfpCandidateView {
    * lineage and subject attribution. The raw hash itself is never returned.
    */
   duplicateOfEvidenceId: string | null;
+  normalizedValueHash: string | null;
+  normalizedValueHashVersion: number | null;
+  contactBusinessLinkDecisionId: string | null;
+  contactBusinessLinkRevision: number | null;
+  candidateReference: SfpCandidateReference;
+}
+
+/** Preserve source rows while applying the strictest person classification to
+ * every observation of an identical business/address. */
+export function propagateRestrictiveSfpSubjectType<
+  T extends { _hashKey: string; subjectType: string },
+>(entries: T[]): Array<T & { sourceSubjectType: string }> {
+  const personKeys = new Set(entries.filter((entry) => entry.subjectType === "person").map((entry) => entry._hashKey));
+  return entries.map((entry) => ({
+    ...entry,
+    sourceSubjectType: String(entry.subjectType ?? "business"),
+    subjectType: personKeys.has(entry._hashKey) ? "person" : entry.subjectType,
+  }));
 }
 
 export type SfpCandidateReference =
-  | { sourceKind: "free"; freeDiscoveryCandidateId: string }
-  | { sourceKind: "paid"; paidCandidateEvidenceId: string }
-  | { sourceKind: "contact"; contactId: string };
+  | { sourceKind: "free"; freeDiscoveryCandidateId: string; normalizedValueHash?: string; normalizedValueHashVersion?: number }
+  | { sourceKind: "paid"; paidCandidateEvidenceId: string; normalizedValueHash?: string; normalizedValueHashVersion?: number }
+  | {
+      sourceKind: "contact";
+      contactId: string;
+      contactBusinessLinkDecisionId?: string;
+      contactBusinessLinkRevision?: number;
+      normalizedValueHash?: string;
+      normalizedValueHashVersion?: number;
+    };
 
 export interface ResolvedSfpCandidateReference {
   sourceKind: "free" | "paid" | "contact";
@@ -174,6 +202,10 @@ export interface ResolvedSfpCandidateReference {
   confidence: number;
   disposition: string;
   createdAt: string;
+  normalizedValueHash: string | null;
+  normalizedValueHashVersion: number | null;
+  contactBusinessLinkDecisionId: string | null;
+  contactBusinessLinkRevision: number | null;
 }
 
 /** Read-only lineage resolver for the Task #2000 handoff; no eligibility writes. */
@@ -182,22 +214,26 @@ export async function resolveSfpCandidateReference(
 ): Promise<ResolvedSfpCandidateReference | null> {
   if (reference.sourceKind === "free") {
     const row = rows(await db.execute(sql`
-      SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,created_at
+      SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,normalized_value_hash,created_at
         FROM free_discovery_candidates WHERE id=${reference.freeDiscoveryCandidateId}::uuid
           AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                            WHERE q.business_id=free_discovery_candidates.business_id AND q.cleared_at IS NULL)
-        LIMIT 1
+      LIMIT 1
     `))[0];
+    if (row && ((reference.normalizedValueHash && String(row.normalized_value_hash) !== reference.normalizedValueHash)
+        || (reference.normalizedValueHashVersion !== undefined && reference.normalizedValueHashVersion !== 1))) return null;
     return row ? {
       sourceKind: "free", evidenceId: String(row.id), businessId: Number(row.business_id),
        field: String(row.field), provider: String(row.source ?? "free"), subjectType: String(row.subject_type ?? "business"),
       maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
       createdAt: String(row.created_at),
+       normalizedValueHash: String(row.normalized_value_hash), normalizedValueHashVersion: 1,
+      contactBusinessLinkDecisionId: null, contactBusinessLinkRevision: null,
     } : null;
   }
   if (reference.sourceKind === "paid") {
     const row = rows(await db.execute(sql`
-      SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
+      SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,normalized_value_hash,created_at
         FROM sfp_paid_candidate_evidence
        WHERE id=${reference.paidCandidateEvidenceId}::uuid
          AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
@@ -205,29 +241,65 @@ export async function resolveSfpCandidateReference(
          AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d
                           WHERE d.evidence_id=sfp_paid_candidate_evidence.id) LIMIT 1
     `))[0];
+    if (row && ((reference.normalizedValueHash && String(row.normalized_value_hash) !== reference.normalizedValueHash)
+        || (reference.normalizedValueHashVersion !== undefined && reference.normalizedValueHashVersion !== 1))) return null;
     return row ? {
       sourceKind: "paid", evidenceId: String(row.id), businessId: Number(row.business_id),
       field: String(row.field), provider: String(row.provider), subjectType: String(row.subject_type),
       maskedValue: String(row.masked_value), confidence: Number(row.confidence), disposition: String(row.disposition),
       createdAt: String(row.created_at),
+       normalizedValueHash: String(row.normalized_value_hash), normalizedValueHashVersion: 1,
+      contactBusinessLinkDecisionId: null, contactBusinessLinkRevision: null,
     } : null;
   }
   const row = rows(await db.execute(sql`
-    SELECT c.id,c.business_id,c.email,c.email_status,c.created_at
+    SELECT c.id,c.business_id,c.email,c.email_status,c.created_at,
+           d.id AS link_decision_id,d.revision
       FROM contacts c
       JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
+      JOIN contact_business_link_decisions d
+        ON d.contact_id=c.id AND d.business_id=c.business_id
+       AND d.decision='verified' AND d.superseded_at IS NULL
      WHERE c.id=${reference.contactId}::int
+       AND c.archived_at IS NULL
+       AND c.record_class NOT IN ('test','demo','synthetic')
+       AND COALESCE(c.existing_merchant_customer,FALSE)=FALSE
+       AND COALESCE(c.do_not_contact,FALSE)=FALSE
+       AND COALESCE(c.do_not_auto_contact,FALSE)=FALSE
+       AND COALESCE(c.opted_out_email,FALSE)=FALSE
+       AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+       AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
+       AND c.complaint_status IS DISTINCT FROM 'reported'
+       AND c.bounce_status IS DISTINCT FROM 'hard'
+       AND c.email_status NOT IN ('bounced','invalid')
+       AND c.suppression_reason IS NULL
+       AND c.email IS NOT NULL AND BTRIM(c.email) <> ''
        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                         WHERE q.business_id=c.business_id AND q.cleared_at IS NULL)
-     LIMIT 1
+          LIMIT 1
+          FOR SHARE OF c,b,d
   `))[0];
+  if (row && (
+    (reference.contactBusinessLinkDecisionId && String(row.link_decision_id) !== reference.contactBusinessLinkDecisionId)
+    || (reference.contactBusinessLinkRevision !== undefined && Number(row.revision) !== reference.contactBusinessLinkRevision)
+    || (reference.normalizedValueHash && emailNormalizedValueHash(String(row.email)) !== reference.normalizedValueHash)
+    || (reference.normalizedValueHashVersion !== undefined && reference.normalizedValueHashVersion !== 1)
+  )) return null;
   return row ? {
     sourceKind: "contact", evidenceId: String(row.id), businessId: Number(row.business_id),
     field: "email", provider: null, subjectType: "person",
     maskedValue: maskCandidate("email", String(row.email)), confidence: 60,
     disposition: row.email_status === "valid" ? "validation_admitted" : "staged",
     createdAt: String(row.created_at),
+    normalizedValueHash: emailNormalizedValueHash(String(row.email)),
+    normalizedValueHashVersion: 1,
+    contactBusinessLinkDecisionId: String(row.link_decision_id),
+    contactBusinessLinkRevision: Number(row.revision),
   } : null;
+}
+
+function emailNormalizedValueHash(value: string): string {
+  return createHash("sha256").update(`email\u0000${value.trim().toLowerCase()}`).digest("hex");
 }
 
 /**
@@ -273,16 +345,40 @@ export async function openSfpCandidatePlaintext<T>(
   // transaction-bound caller reads the SAME snapshot it will write into.
   const resolvedRow = input.reference.sourceKind === "free"
     ? (await rows(await executor.execute(sql`
-        SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,created_at
+        SELECT id,business_id,field,source,subject_type,masked_value,confidence,disposition,normalized_value_hash,created_at
           FROM free_discovery_candidates WHERE id=${input.reference.freeDiscoveryCandidateId}::uuid LIMIT 1
       `)))[0]
     : input.reference.sourceKind === "paid"
     ? (await rows(await executor.execute(sql`
-        SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
+        SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,normalized_value_hash,created_at
           FROM sfp_paid_candidate_evidence WHERE id=${input.reference.paidCandidateEvidenceId}::uuid LIMIT 1
       `)))[0]
     : (await rows(await executor.execute(sql`
-        SELECT id,business_id,email,email_status,created_at FROM contacts WHERE id=${input.reference.contactId}::int LIMIT 1
+        SELECT c.id,c.business_id,c.email,c.email_status,c.created_at,
+               d.id AS link_decision_id,d.revision
+          FROM contacts c
+          JOIN businesses b ON b.id=c.business_id AND b.record_class='canonical'
+          JOIN contact_business_link_decisions d
+            ON d.contact_id=c.id AND d.business_id=c.business_id
+           AND d.decision='verified' AND d.superseded_at IS NULL
+         WHERE c.id=${input.reference.contactId}::int
+           AND c.archived_at IS NULL
+           AND c.record_class NOT IN ('test','demo','synthetic')
+           AND COALESCE(c.existing_merchant_customer,FALSE)=FALSE
+           AND COALESCE(c.do_not_contact,FALSE)=FALSE
+           AND COALESCE(c.do_not_auto_contact,FALSE)=FALSE
+           AND COALESCE(c.opted_out_email,FALSE)=FALSE
+           AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+           AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
+           AND c.complaint_status IS DISTINCT FROM 'reported'
+           AND c.bounce_status IS DISTINCT FROM 'hard'
+           AND c.email_status NOT IN ('bounced','invalid')
+           AND c.suppression_reason IS NULL
+           AND c.email IS NOT NULL AND BTRIM(c.email) <> ''
+           AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                            WHERE q.business_id=c.business_id AND q.cleared_at IS NULL)
+          LIMIT 1
+          FOR SHARE OF c,b,d
       `)))[0];
   const resolvedRef: ResolvedSfpCandidateReference | null = !resolvedRow ? null : input.reference.sourceKind === "free"
     ? {
@@ -290,6 +386,10 @@ export async function openSfpCandidatePlaintext<T>(
         field: String(resolvedRow.field), provider: String(resolvedRow.source ?? "free"), subjectType: String(resolvedRow.subject_type ?? "business"),
         maskedValue: String(resolvedRow.masked_value), confidence: Number(resolvedRow.confidence), disposition: String(resolvedRow.disposition),
         createdAt: String(resolvedRow.created_at),
+        normalizedValueHash: String(resolvedRow.normalized_value_hash),
+        normalizedValueHashVersion: 1,
+        contactBusinessLinkDecisionId: null,
+        contactBusinessLinkRevision: null,
       }
     : input.reference.sourceKind === "paid"
     ? {
@@ -297,6 +397,10 @@ export async function openSfpCandidatePlaintext<T>(
         field: String(resolvedRow.field), provider: String(resolvedRow.provider), subjectType: String(resolvedRow.subject_type),
         maskedValue: String(resolvedRow.masked_value), confidence: Number(resolvedRow.confidence), disposition: String(resolvedRow.disposition),
         createdAt: String(resolvedRow.created_at),
+        normalizedValueHash: String(resolvedRow.normalized_value_hash),
+        normalizedValueHashVersion: 1,
+        contactBusinessLinkDecisionId: null,
+        contactBusinessLinkRevision: null,
       }
     : {
         sourceKind: "contact", evidenceId: String(resolvedRow.id), businessId: Number(resolvedRow.business_id),
@@ -304,9 +408,25 @@ export async function openSfpCandidatePlaintext<T>(
         maskedValue: maskCandidate("email", String(resolvedRow.email)),
         confidence: 60, disposition: resolvedRow.email_status === "valid" ? "validation_admitted" : "staged",
         createdAt: String(resolvedRow.created_at),
+         normalizedValueHash: emailNormalizedValueHash(String(resolvedRow.email)),
+         normalizedValueHashVersion: 1,
+         contactBusinessLinkDecisionId: String(resolvedRow.link_decision_id),
+         contactBusinessLinkRevision: Number(resolvedRow.revision),
       };
   if (!resolvedRef) throw new Error("SFP_CANDIDATE_REFERENCE_NOT_FOUND");
   const resolved = resolvedRef;
+  const sourceReference = input.reference;
+  if ((sourceReference.normalizedValueHash
+        && sourceReference.normalizedValueHash !== resolved.normalizedValueHash)
+      || (sourceReference.normalizedValueHashVersion !== undefined
+        && sourceReference.normalizedValueHashVersion !== resolved.normalizedValueHashVersion)
+      || (sourceReference.sourceKind === "contact"
+        && ((sourceReference.contactBusinessLinkDecisionId
+              && sourceReference.contactBusinessLinkDecisionId !== resolved.contactBusinessLinkDecisionId)
+          || (sourceReference.contactBusinessLinkRevision !== undefined
+              && sourceReference.contactBusinessLinkRevision !== resolved.contactBusinessLinkRevision)))) {
+    throw new Error(sourceReference.sourceKind === "contact" ? "SFP_CONTACT_SOURCE_PIN_STALE" : "SFP_CANDIDATE_SOURCE_PIN_STALE");
+  }
   if (rows(await executor.execute(sql`
     SELECT 1 FROM sfp_identity_quarantines
      WHERE business_id=${resolved.businessId} AND cleared_at IS NULL LIMIT 1
@@ -325,7 +445,7 @@ export async function openSfpCandidatePlaintext<T>(
   `))[0];
   if (!memberRow) throw new Error("SFP_CANDIDATE_BUSINESS_NOT_IN_COHORT");
 
-  const envelopeRow = resolved.sourceKind === "free"
+  const envelopeRow = resolved.sourceKind === "contact" ? null : resolved.sourceKind === "free"
     ? rows(await executor.execute(sql`
         SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
           FROM free_discovery_candidates WHERE id=${resolved.evidenceId}::uuid LIMIT 1
@@ -334,14 +454,16 @@ export async function openSfpCandidatePlaintext<T>(
         SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
           FROM sfp_paid_candidate_evidence WHERE id=${resolved.evidenceId}::uuid LIMIT 1
       `))[0];
-  if (!envelopeRow) throw new Error("SFP_CANDIDATE_ENVELOPE_NOT_FOUND");
+  if (resolved.sourceKind !== "contact" && !envelopeRow) throw new Error("SFP_CANDIDATE_ENVELOPE_NOT_FOUND");
 
-  const plaintext = unseal("email", {
-    ciphertext: String(envelopeRow.envelope_ciphertext),
-    nonce: String(envelopeRow.envelope_nonce),
-    tag: String(envelopeRow.envelope_tag),
-    keyVersion: Number(envelopeRow.envelope_key_version ?? 1),
-  });
+  const plaintext = resolved.sourceKind === "contact"
+    ? String(resolvedRow.email)
+    : unseal("email", {
+        ciphertext: String(envelopeRow!.envelope_ciphertext),
+        nonce: String(envelopeRow!.envelope_nonce),
+        tag: String(envelopeRow!.envelope_tag),
+        keyVersion: Number(envelopeRow!.envelope_key_version ?? 1),
+      });
 
   await executor.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
@@ -408,26 +530,20 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
                         WHERE d.evidence_id=sfp_paid_candidate_evidence.id)
      ORDER BY created_at DESC
   `));
-  // Existing CRM contacts linked to one of these canonical businesses via the
-  // real contacts.business_id FK. This is the Gate-1 "reuse the existing
-  // contact pool" join: a contact is surfaced here only as a raw candidate
-  // row — it still passes through the exact same downstream suppression
-  // (isCanonicallySuppressed), consent-tier, and mutable safety gates
-  // (evaluateSfpMutableSafetyGates) as free/paid rows before it can ever be
-  // selected as a validation winner. Pre-filtering hard-suppressed contacts
-  // here is purely an optimization (fewer rows to rank); it is never a
-  // substitute for those downstream gates, which are re-run unconditionally.
-  // email_token_hash doubles as the cross-source dedupe key below — it is
-  // NOT computed with the same seal()/normalized_value_hash algorithm the
-  // free/paid tables use, so a contact-sourced email is deduped against
-  // other contacts but is not guaranteed to collapse onto an identical
-  // free/paid row for the same address; the exact address is still verified
-  // against real plaintext at validation time regardless.
+   // A populated FK is only a projection, not proof. Contact evidence enters
+   // the winner pool only with its live verified decision and consistent FK.
   const contactRows = rows(await db.execute(sql`
-     SELECT c.id, c.business_id, c.email, c.email_token_hash, c.email_status, c.created_at
+      SELECT c.id, c.business_id, c.email, c.email_status, c.created_at,
+             d.id AS link_decision_id,d.revision
        FROM contacts c
        JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
+        JOIN contact_business_link_decisions d
+          ON d.contact_id=c.id AND d.business_id=c.business_id
+         AND d.decision='verified' AND d.superseded_at IS NULL
       WHERE c.business_id = ANY(ARRAY[${idList}]::integer[])
+         AND c.archived_at IS NULL
+         AND c.record_class NOT IN ('test','demo','synthetic')
+         AND COALESCE(c.existing_merchant_customer,FALSE)=FALSE
         AND c.email IS NOT NULL AND c.email <> ''
         AND COALESCE(c.do_not_contact, FALSE) = FALSE
         AND COALESCE(c.do_not_auto_contact, FALSE) = FALSE
@@ -442,8 +558,14 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
                          WHERE q.business_id = c.business_id AND q.cleared_at IS NULL)
      ORDER BY c.created_at DESC
   `));
-  type Internal = UnifiedSfpCandidateView & {
-    _hashKey: string;
+   type Internal = Omit<UnifiedSfpCandidateView,
+     "sourceSubjectType" | "normalizedValueHash" | "normalizedValueHashVersion"
+     | "contactBusinessLinkDecisionId" | "contactBusinessLinkRevision" | "candidateReference"> & {
+     _hashKey: string;
+     _normalizedValueHash: string | null;
+     _linkDecisionId: string | null;
+     _linkRevision: number | null;
+     sourceSubjectType?: string;
     stageKey?: string;
     subjectType?: string;
     apolloMatchConfidence?: string | null;
@@ -468,6 +590,9 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       apolloMatchConfidence: null,
       candidateMetadata: null,
       _hashKey: `${r.business_id}:${r.field}:${r.normalized_value_hash}`,
+       _normalizedValueHash: String(r.normalized_value_hash),
+       _linkDecisionId: null,
+       _linkRevision: null,
     })),
     ...paidRows.map((p: any) => ({
       sourceKind: "paid" as const,
@@ -487,6 +612,9 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       apolloMatchConfidence: p.candidate_metadata?.apolloMatchConfidence ?? null,
       candidateMetadata: p.candidate_metadata ?? null,
       _hashKey: `${p.business_id}:${p.field}:${p.normalized_value_hash}`,
+       _normalizedValueHash: String(p.normalized_value_hash),
+       _linkDecisionId: null,
+       _linkRevision: null,
     })),
     ...contactRows.map((c: any) => {
       // A contact with no email_status yet ('unvalidated'/'active') has no
@@ -515,11 +643,21 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
         subjectType: "person",
         apolloMatchConfidence: null,
         candidateMetadata: null,
-        _hashKey: `${c.business_id}:email:${c.email_token_hash ?? `contact:${c.id}`}`,
+        _hashKey: `${c.business_id}:email:${emailNormalizedValueHash(String(c.email))}`,
+        _normalizedValueHash: emailNormalizedValueHash(String(c.email)),
+        _linkDecisionId: String(c.link_decision_id),
+        _linkRevision: Number(c.revision),
       };
     }),
   ];
-  const tier = (entry: Internal): number => {
+   // An identical address observed as a verified named person cannot be
+   // relabeled as an organization/role inbox by another source that outranks
+   // it. Preserve each physical row's sourceSubjectType and provider lineage,
+   // but propagate the strictest classification to every observation before
+   // choosing a canonical billing/validation representative.
+   const classifiedUnified = propagateRestrictiveSfpSubjectType(unified);
+
+   const tier = (entry: Internal): number => {
     const metadata = entry.candidateMetadata
       ? (typeof entry.candidateMetadata === "object" ? entry.candidateMetadata : JSON.parse(String(entry.candidateMetadata)))
       : null;
@@ -532,7 +670,7 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
   };
   // Preserve all observations while ordering the likely actionable winner
   // using the same tier model as canonical CRO-03C email selection.
-  unified.sort((a, b) => {
+   classifiedUnified.sort((a, b) => {
     const tierDelta = tier(a) - tier(b);
     if (tierDelta !== 0) return tierDelta;
     if (b.confidence !== a.confidence) return b.confidence - a.confidence;
@@ -542,7 +680,7 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
   // every later occurrence of the same value is marked as a duplicate of it,
   // while remaining a distinct row with its own source/provenance.
   const canonicalByHash = new Map<string, string>();
-  for (const entry of unified) {
+   for (const entry of classifiedUnified) {
     const canonical = canonicalByHash.get(entry._hashKey);
     if (canonical === undefined) {
       canonicalByHash.set(entry._hashKey, entry.evidenceId);
@@ -550,5 +688,34 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       entry.duplicateOfEvidenceId = canonical;
     }
   }
-  return unified.map(({ _hashKey, ...rest }) => rest);
+   return classifiedUnified.map(({ _hashKey, _normalizedValueHash, _linkDecisionId, _linkRevision, ...rest }) => ({
+    ...rest,
+    sourceSubjectType: rest.sourceSubjectType!,
+    normalizedValueHash: _normalizedValueHash,
+    normalizedValueHashVersion: _normalizedValueHash ? 1 : null,
+    contactBusinessLinkDecisionId: _linkDecisionId,
+    contactBusinessLinkRevision: _linkRevision,
+    candidateReference: rest.sourceKind === "free"
+      ? {
+          sourceKind: "free" as const,
+          freeDiscoveryCandidateId: rest.evidenceId,
+          normalizedValueHash: _normalizedValueHash!,
+          normalizedValueHashVersion: 1,
+        }
+      : rest.sourceKind === "paid"
+      ? {
+          sourceKind: "paid" as const,
+          paidCandidateEvidenceId: rest.evidenceId,
+          normalizedValueHash: _normalizedValueHash!,
+          normalizedValueHashVersion: 1,
+        }
+      : {
+          sourceKind: "contact" as const,
+          contactId: rest.evidenceId.replace(/^contact:/, ""),
+          contactBusinessLinkDecisionId: _linkDecisionId!,
+          contactBusinessLinkRevision: _linkRevision!,
+          normalizedValueHash: _normalizedValueHash!,
+          normalizedValueHashVersion: 1,
+        },
+  }));
 }

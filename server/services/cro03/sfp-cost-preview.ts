@@ -76,28 +76,10 @@ export interface SfpGapCounts {
 }
 
 async function currentSfpAggregateSpendMicros(): Promise<{ settledMicros: number; reservedMicros: number }> {
-  const sfpSpend = rows(await db.execute(sql`
-    SELECT COALESCE(SUM(reserved_cost_micros),0)::bigint AS reserved,
-           COALESCE(SUM(settled_cost_micros),0)::bigint AS settled
-      FROM sfp_stage_runs WHERE state IN ('authorized','running','completed','partial')
-  `))[0];
-  // Task #1999 Architecture correction: Phase A's own classification-bridge
-  // spend (Serper domain discovery, cached OpenAI escalation) lands in
-  // sfp_classification_evidence.cost_micros, a ledger sfp_stage_runs never
-  // sees. Both ledgers must count against the same $50 cap, matching
-  // reservePreCohortSfpProviderOperation's own combined-spend check.
-  const classificationSpend = rows(await db.execute(sql`
-    SELECT COALESCE(SUM(cost_micros),0)::bigint AS spent FROM sfp_classification_evidence
-  `))[0];
-  const classificationReservations = rows(await db.execute(sql`
-    SELECT COALESCE(SUM(reserved_cost_micros),0)::bigint AS reserved
-      FROM sfp_classification_runs WHERE state IN ('authorized','running')
-  `))[0];
-  const pilotSpend = await getAggregatePilotSpend();
-  return {
-    settledMicros: Number(sfpSpend?.settled ?? 0) + Number(classificationSpend?.spent ?? 0) + pilotSpend.settledMicros,
-    reservedMicros: Number(sfpSpend?.reserved ?? 0) + Number(classificationReservations?.reserved ?? 0) + pilotSpend.reservedMicros,
-  };
+  // This is the same operation-level ledger used by reservations and pilot
+  // readiness. Do not add local SFP totals: they are already included there.
+  const aggregate = await getAggregatePilotSpend();
+  return { settledMicros: aggregate.settledMicros, reservedMicros: aggregate.reservedMicros };
 }
 
 /** Read-only remaining local_budget_units headroom per control provider. */

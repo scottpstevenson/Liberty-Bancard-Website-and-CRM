@@ -83,6 +83,7 @@ export interface SfpContinuousDiscoveryTickResult {
   cohortRunIds?: string[];
   newlyFrozenCount?: number;
   calls?: number;
+  providerRequests?: number;
   processed?: number;
   succeeded?: number;
   failed?: number;
@@ -105,7 +106,9 @@ async function _claimNextDiscoveryCohort(programId: string): Promise<{ cohortRun
     SELECT id FROM sfp_cohort_runs
      WHERE program_id = ${programId}::uuid AND cohort_state='frozen'
        AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
-     ORDER BY frozen_at DESC LIMIT 25
+      ORDER BY COALESCE((SELECT MAX(s.last_heartbeat_at) FROM sfp_stage_runs s
+                          WHERE s.cohort_run_id=sfp_cohort_runs.id AND s.stage='paid_waterfall'),frozen_at) ASC,
+               frozen_at ASC,id ASC
   `));
   for (const c of candidates) {
     try {
@@ -128,9 +131,6 @@ async function _claimNextDiscoveryCohort(programId: string): Promise<{ cohortRun
 
 /** Rolling cohort rotation + a bounded-time DRAIN of Serper discovery work. */
 export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuousDiscoveryTickResult> {
-  if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" || !process.env.SERPER_API_KEY) {
-    return { ran: false, reason: "transport_or_credential_unavailable" };
-  }
   const program = await getProgramReadOnly();
   if (!program || !program.isActive) {
     return { ran: false, reason: "program_inactive" };
@@ -144,7 +144,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   const phase1End = Math.min(end, Date.now() + PHASE1_TIME_BUDGET_MS);
   const cohortRunIds = new Set<string>();
   let newlyFrozenCount = 0;
-  let calls = 0, processed = 0, succeeded = 0, failed = 0, noResult = 0;
+  let calls = 0, providerRequests = 0, processed = 0, succeeded = 0, failed = 0, noResult = 0;
   let waterfallProcessed = 0, waterfallSucceeded = 0, waterfallFailed = 0;
   let stopReason = "drain_complete";
   // Tracks cohorts already confirmed to have no remaining work THIS tick, so
@@ -183,7 +183,9 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
       SELECT id FROM sfp_cohort_runs
        WHERE program_id = ${program.id}::uuid AND cohort_state='frozen'
          AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
-       ORDER BY frozen_at DESC LIMIT 25
+        ORDER BY COALESCE((SELECT MAX(s.last_heartbeat_at) FROM sfp_stage_runs s
+                            WHERE s.cohort_run_id=sfp_cohort_runs.id AND s.stage IN ('paid_waterfall','serper_discovery')),frozen_at) ASC,
+                 frozen_at ASC,id ASC
     `));
     const reusable = reusableAll.filter((c: any) => !exhaustedCohorts.has(String(c.id)));
     for (const c of reusable) {
@@ -214,6 +216,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     const { cohortRunId } = claimed;
 
     try {
+      calls++;
       const result = await executeSfpSerperDiscovery({
         cohortRunId,
         idempotencyKey: `sfp-continuous:${cohortRunId}:serper:${hourBucket()}:${calls}`,
@@ -221,7 +224,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
         maxBusinesses: SERPER_BATCH_PER_CALL,
         internalSkipPreviewCheck: true,
       });
-      calls++;
+      providerRequests += Number(result.providerRequests ?? 0);
       cohortRunIds.add(cohortRunId);
       processed += result.processed;
       succeeded += result.succeeded;
@@ -297,7 +300,9 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
         SELECT id FROM sfp_cohort_runs
          WHERE program_id = ${program.id}::uuid AND cohort_state='frozen'
            AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
-         ORDER BY frozen_at DESC LIMIT 25
+         ORDER BY COALESCE((SELECT MAX(s.last_heartbeat_at) FROM sfp_stage_runs s
+                             WHERE s.cohort_run_id=sfp_cohort_runs.id AND s.stage='paid_waterfall'),frozen_at) ASC,
+                  frozen_at ASC,id ASC
       `));
       const candidates = candidatesAll.filter((c: any) => !waterfallExhausted.has(String(c.id)));
       if (candidates.length === 0) { waterfallStopReason = "no_cohort_with_person_identity_work"; break; }
@@ -308,6 +313,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
         const cohortRunId = String(c.id);
         try {
           const snapshot = await getSfpCohortGapSnapshot(cohortRunId);
+          waterfallCalls++;
           const waterfallResult = await executeSfpPaidPersonAndIdentityDiscovery({
             cohortRunId,
             idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${waterfallCalls}`,
@@ -315,7 +321,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
             maxBusinesses: SERPER_BATCH_PER_CALL,
             previewSnapshotHash: snapshot.snapshotHash,
           });
-          waterfallCalls++;
+          providerRequests += Number(waterfallResult.providerRequests ?? 0);
           waterfallCohortRunIds.add(cohortRunId);
           waterfallProcessed += waterfallResult.processed;
           waterfallSucceeded += waterfallResult.succeeded;
@@ -350,7 +356,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     ran: calls > 0,
     cohortRunIds: [...cohortRunIds],
     newlyFrozenCount,
-    calls, processed, succeeded, failed, noResult,
+    calls, providerRequests, processed, succeeded, failed, noResult,
     waterfallProcessed, waterfallSucceeded, waterfallFailed,
     stopReason, waterfallStopReason,
     elapsedMs: DRAIN_TIME_BUDGET_MS - Math.max(0, end - Date.now()),
@@ -365,6 +371,7 @@ export interface SfpContinuousValidationTickResult {
   cohortRunIds?: string[];
   calls?: number;
   addressesValidated?: number;
+  providerRequests?: number;
   validCount?: number;
   stopReason?: string;
   elapsedMs?: number;
@@ -384,7 +391,7 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
 
   const end = deadline();
   const cohortRunIds = new Set<string>();
-  let calls = 0, addressesValidated = 0, validCount = 0;
+  let calls = 0, addressesValidated = 0, providerRequests = 0, validCount = 0;
   let stopReason = "drain_complete";
   const exhaustedCohorts = new Set<string>();
 
@@ -400,7 +407,9 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
       SELECT id FROM sfp_cohort_runs
        WHERE program_id = ${program.id}::uuid AND cohort_state='frozen'
          AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
-       ORDER BY frozen_at DESC LIMIT 25
+       ORDER BY COALESCE((SELECT MAX(s.last_heartbeat_at) FROM sfp_stage_runs s
+                           WHERE s.cohort_run_id=sfp_cohort_runs.id AND s.stage='validation'),frozen_at) ASC,
+                frozen_at ASC,id ASC
     `));
     const candidates = candidatesAll.filter((c: any) => !exhaustedCohorts.has(String(c.id)));
     if (candidates.length === 0) { stopReason = "no_cohort_with_validation_work"; break; }
@@ -430,19 +439,20 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
           stopReason = "aggregate_budget_exhausted";
           await auditTick("sfp_continuous_validation_tick", "budget_exhausted", { error: String(err?.message ?? err) });
           return {
-            ran: calls > 0, cohortRunIds: [...cohortRunIds], calls, addressesValidated, validCount,
+            ran: calls > 0, cohortRunIds: [...cohortRunIds], calls, addressesValidated, providerRequests, validCount,
             stopReason, elapsedMs: DRAIN_TIME_BUDGET_MS - Math.max(0, end - Date.now()),
           };
         }
+        calls++;
         const result = await executeSfpValidation(cohortRunId, {
           idempotencyKey: `sfp-continuous:${cohortRunId}:validate:${hourBucket()}:${calls}`,
           actorId: "system:sfp-continuous-discovery",
           maxValidations: VALIDATION_BATCH_PER_CALL,
           snapshotHash: preview.snapshotHash,
         });
-        calls++;
         cohortRunIds.add(cohortRunId);
         addressesValidated += result.addressesValidated;
+        providerRequests += result.providerRequests;
         validCount += result.validCount;
         madeProgressThisPass = true;
         await auditTick("sfp_continuous_validation_tick", "validation_batch_completed", {
@@ -463,7 +473,7 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
   const summary = {
     ran: calls > 0,
     cohortRunIds: [...cohortRunIds],
-    calls, addressesValidated, validCount,
+    calls, addressesValidated, providerRequests, validCount,
     stopReason,
     elapsedMs: DRAIN_TIME_BUDGET_MS - Math.max(0, end - Date.now()),
   };

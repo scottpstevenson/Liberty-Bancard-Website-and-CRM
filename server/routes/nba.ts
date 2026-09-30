@@ -13,6 +13,28 @@ import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { NBAService } from "../services/nba-service";
 import { authorizeContactAccess } from "../services/crm-object-access";
 
+// Keep the contact NBA response contract explicit. Drizzle rows are
+// camelCase; serializing only the fields used by the CRM avoids an accidental
+// snake_case assumption in consumers and preserves nullability from storage.
+function serializeContactNba(nba: Awaited<ReturnType<typeof NBAService.getNBA>>) {
+  if (!nba) return null;
+  return {
+    id: nba.id,
+    contactId: nba.contactId,
+    actionType: nba.actionType,
+    channel: nba.channel ?? null,
+    ownerRole: nba.ownerRole ?? null,
+    dueAt: nba.dueAt ?? null,
+    urgency: nba.urgency,
+    reasonCode: nba.reasonCode,
+    explanation: nba.explanation ?? null,
+    confidence: nba.confidence ?? null,
+    humanRequired: nba.humanRequired,
+    automationEligible: nba.automationEligible,
+    status: nba.status,
+  };
+}
+
 export function registerNbaRoutes(app: Express) {
 
   // -------------------------------------------------------------------------
@@ -34,9 +56,9 @@ export function registerNbaRoutes(app: Express) {
         return res.json({ nba: null, message: "No NBA computed for this contact" });
       }
       const fresh = await NBAService.getNBA(contactId);
-      return res.json({ nba: fresh });
+      return res.json({ nba: serializeContactNba(fresh) });
     }
-    return res.json({ nba });
+    return res.json({ nba: serializeContactNba(nba) });
   } catch (err: any) {
     console.error("[NBA] GET contact NBA error:", err);
     return res.status(500).json({ error: "Failed to retrieve NBA" });

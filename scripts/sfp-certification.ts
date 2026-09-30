@@ -41,7 +41,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
@@ -58,6 +58,21 @@ const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-ident
 const { db } = await import("../server/db");
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
+
+// A fresh disposable certification database has no operator-reviewed
+// pricing snapshot. Runtime validation intentionally fails closed without
+// one, so seed the same sanctioned MI-09 artifact schedule used by the
+// disposable SFP-2000 certification before exercising preview/execute. The
+// disposable-database guard above runs before this write; production behavior
+// remains unchanged and this is not a fallback in the validation service.
+const { execFileSync } = await import("node:child_process");
+const certificationEnvironment = process.env.NODE_ENV ?? "development";
+execFileSync("npx", [
+  "tsx", "scripts/seed-mi09-pricing.ts", "--apply",
+  `--confirm-env=${certificationEnvironment}`,
+], { stdio: "pipe", env: process.env });
+const { getCurrentPricingSchedule } = await import("../server/services/mi09-pilot-authority");
+await getCurrentPricingSchedule();
 
 const RUN_ID = `sfpcert-${Math.random().toString(36).slice(2, 10)}`;
 const RELEASE_SHA = sfpRuntimeIdentity.artifactSha;
@@ -97,6 +112,10 @@ const certSeededPlaintextByIndex = new Map<number, string>();
 let certNoMxEmail = "";
 let generationId = "";
 let cohortRunId = "";
+let validationSnapshotHash = "";
+let validationSelectedBusinessIds: number[] = [];
+let noMxCohortRunId = "";
+let sfpProgramId = "";
 
 // ════════════════════════════════════════════════════════════════════════════════
 // PHASE 1 — Migration tables exist
@@ -305,6 +324,7 @@ console.log("\nPhase 4: SFP program and funnel");
 await phase("4a. ensureProgram() creates or returns the program", async () => {
   const { ensureProgram } = await import("../server/services/cro03/south-florida-prospecting");
   const program = await ensureProgram({ createdBy: `cert:${RUN_ID}` });
+  sfpProgramId = program.id;
   assert(program.id, "Program must have an ID");
   assert.equal(program.name, "south-florida-v1", "Must be named south-florida-v1");
   assert(program.countyFips.length > 0, "Must have county FIPS");
@@ -315,6 +335,7 @@ await phase("4b. ensureProgram() is idempotent", async () => {
   const { ensureProgram } = await import("../server/services/cro03/south-florida-prospecting");
   const p1 = await ensureProgram();
   const p2 = await ensureProgram();
+  sfpProgramId = p1.id;
   assert.equal(p1.id, p2.id, "ensureProgram must be idempotent");
 });
 
@@ -621,6 +642,8 @@ await phase("7a. previewSfpValidation returns correct interface", async () => {
 await phase("7b. executeSfpValidation with fake transport validates ≤25 addresses", async () => {
   const { executeSfpValidation, previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
   const preview7b = await previewSfpValidation(cohortRunId);
+  validationSnapshotHash = preview7b.snapshotHash;
+  validationSelectedBusinessIds = preview7b.selectedCandidates.map(candidate => candidate.businessId);
   validationResult = await executeSfpValidation(cohortRunId, {
     idempotencyKey: `sfpcert-validate-${RUN_ID}`,
     snapshotHash: preview7b.snapshotHash,
@@ -693,20 +716,68 @@ await phase("7f2. Negative control — masked_value fed to the transport is dete
 });
 
 await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attempt/spend", async () => {
-  // Business index 19 was seeded (phase 3b) with a non-resolvable domain.
-  // It must be authoritatively rejected before decryption/reservation/
-  // transport — proven here by: (a) it never reaches the fake transport,
-  // (b) no provider_observations row exists for it, (c) its eligibility
-  // row is 'invalid' with the precheck_no_mx reason, at zero spend.
+  // Isolate the no-MX business in a one-member frozen cohort so this safety
+  // assertion cannot become vacuous when the broader ROI cohort excludes it
+  // or a batch bound selects other members first.
   const noMxBizId = seededBizIds[19];
-  assert(!fakeZbCalls.includes(certNoMxEmail), "no_mx candidate must never reach the transport");
+  const originalMember = rows(await db.execute(sql`
+    SELECT 1 FROM sfp_cohort_members
+     WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${noMxBizId}
+  `))[0];
+  if (originalMember && validationSelectedBusinessIds.includes(noMxBizId)) {
+    const originalEligibility = rows(await db.execute(sql`
+      SELECT status,decision_reason FROM sfp_outreach_eligibility
+       WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${noMxBizId}
+    `))[0];
+    assert(originalEligibility, "A selected no-MX candidate in the main cohort must still produce an eligibility row");
+    assert.equal(originalEligibility.status, "invalid");
+    assert(String(originalEligibility.decision_reason).includes("no_mx"));
+  } else {
+    console.log("  i no-MX row assertion is isolated below: the main frozen cohort did not select this business in batch 1");
+  }
+  noMxCohortRunId = randomUUID();
+  const noMxCohortHash = createHash("sha256").update(noMxCohortRunId).digest("hex");
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs
+      (id,program_id,idempotency_key,status,cohort_size,cohort_hash,frozen_at,release_sha,actor_id,
+       cohort_state,request_hash,config_hash)
+    VALUES (${noMxCohortRunId}::uuid,${sfpProgramId}::uuid,${`sfpcert-nomx-${RUN_ID}`},
+            'freezing',1,${noMxCohortHash},NULL,${"0".repeat(40)},${`cert:${RUN_ID}`},
+            'freezing',${noMxCohortHash},${noMxCohortHash})
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_members
+      (cohort_run_id,business_id,roi_score,geography_class,geography_source,county_fips,vertical)
+    VALUES (${noMxCohortRunId}::uuid,${noMxBizId},100,'verified','fips','12086','Retail')
+  `);
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
+     WHERE id=${noMxCohortRunId}::uuid
+  `);
+  const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  const preview = await previewSfpValidation(noMxCohortRunId);
+  assert.equal(preview.selectedCandidates.length, 1, "The isolated frozen cohort must select its no-MX candidate");
+  assert.equal(preview.selectedCandidates[0]?.businessId, noMxBizId);
+  let noMxTransportCalls = 0;
+  await executeSfpValidation(noMxCohortRunId, {
+    idempotencyKey: `sfpcert-nomx-validate-${RUN_ID}`,
+    snapshotHash: preview.snapshotHash,
+    actorId: `cert:${RUN_ID}`,
+    zbTransport: async () => { noMxTransportCalls++; return "valid"; },
+  });
+  assert.equal(noMxTransportCalls, 0, "no_mx candidate must never reach even the injected fake transport");
   const obsRow = rows(await db.execute(sql`
     SELECT COUNT(*)::int AS cnt FROM provider_observations WHERE subject_type='business' AND subject_id=${noMxBizId}
   `))[0];
   assert.equal(Number(obsRow?.cnt ?? 0), 0, "no_mx candidate must create zero provider_observations rows");
+  const operationRow = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS cnt FROM provider_operations
+     WHERE provider='zerobounce' AND idempotency_key LIKE ${`sfpcert-nomx-validate-${RUN_ID}:%`}
+  `))[0];
+  assert.equal(Number(operationRow?.cnt ?? 0), 0, "no_mx candidate must create zero provider reservations or attempts");
   const eligRow = rows(await db.execute(sql`
     SELECT status, decision_reason FROM sfp_outreach_eligibility
-    WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${noMxBizId}
+    WHERE cohort_run_id=${noMxCohortRunId}::uuid AND business_id=${noMxBizId}
   `))[0];
   assert(eligRow, "no_mx business must still get an eligibility row");
   assert.equal(eligRow.status, "invalid", "no_mx must be authoritatively ineligible");
@@ -719,10 +790,9 @@ await phase("7g. Validation idempotency — same key+payload replays exact store
     SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility WHERE cohort_run_id = ${cohortRunId}::uuid
   `))[0]?.cnt ?? 0;
   const fakeCallsBefore = fakeZbCalls.length;
-  const preview7g = await previewSfpValidation(cohortRunId);
   const replay = await executeSfpValidation(cohortRunId, {
     idempotencyKey: `sfpcert-validate-${RUN_ID}`, // same key as 7b
-    snapshotHash: preview7g.snapshotHash,
+    snapshotHash: validationSnapshotHash,
     actorId: `cert:${RUN_ID}`,
     maxValidations: 25,
     zbTransport: async (candidateId, realEmail) => { fakeZbCalls.push(realEmail); return "valid"; },
@@ -775,6 +845,104 @@ await phase("7i. A stale/mismatched snapshotHash fails closed before any executi
     caught = String(err?.message ?? "").includes("SNAPSHOT_MISMATCH");
   }
   assert(caught, "A stale/wrong snapshotHash must fail closed with SFP_VALIDATION_SNAPSHOT_MISMATCH");
+});
+
+await phase("7j. Verified named contact validates with typed source pins and fake transport", async () => {
+  const noMxBizId = seededBizIds[19];
+  const contactEmail = `named-cert-${RUN_ID}@gmail.com`;
+  const { writeContact } = await import("../server/services/contact-writer");
+  const contactActorId = `sfpcert-contact-writer-${RUN_ID}`;
+  const contact = await writeContact({
+    mode: "local_only",
+    mutation: {
+      firstName: "Certification", lastName: "Contact", email: contactEmail, phone: "5550100",
+      companyName: `${RUN_ID}-biz-19`, status: "New",
+    },
+    provenance: {
+      sourceCategory: "discovery", sourceType: "cro03", eventKey: `sfpcert-contact-source-${RUN_ID}`,
+      actorType: "system", actorId: contactActorId,
+    },
+    actor: { actorType: "system", actorId: contactActorId },
+    hookPolicy: {
+      source: "cro03", deferValidation: true, deferReadiness: true,
+      deferLeadScoring: true, suppressProviderProjection: true,
+    },
+  });
+  const contactId = Number(contact.id);
+  const sourceEventId = Number(contact._sourceEventId);
+  assert(contactId > 0 && sourceEventId > 0, "The contact writer must persist the contact and its source event");
+  const reviewerId = `sfpcert-contact-admin-${RUN_ID}`;
+  await db.execute(sql`
+    INSERT INTO users (id,email,first_name,last_name,role)
+    VALUES (${reviewerId},${`${reviewerId}@cert.invalid`},'Independent','Reviewer','admin')
+  `);
+  const { decideContactBusinessLink } = await import("../server/services/commercial-link-authority");
+  const link = await decideContactBusinessLink({
+    contactId,
+    businessId: noMxBizId,
+    decision: "verified",
+    decisionKey: `sfpcert-contact-link-${RUN_ID}`,
+    reviewerId,
+    evidenceSourceEventId: sourceEventId,
+  });
+  const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  const preview = await previewSfpValidation(noMxCohortRunId);
+  assert(preview.selectedCandidates.some(c => c.businessId === noMxBizId && c.candidateId === `contact:${contactId}`),
+    "The alternate verified contact source must reopen the business after the no-MX free candidate was rejected");
+  const received: string[] = [];
+  const result = await executeSfpValidation(noMxCohortRunId, {
+    idempotencyKey: `sfpcert-contact-validate-${RUN_ID}`,
+    snapshotHash: preview.snapshotHash,
+    actorId: `cert:${RUN_ID}`,
+    maxValidations: 25,
+    zbTransport: async (candidateId, realEmail) => {
+      assert.equal(candidateId, `contact:${contactId}`);
+      received.push(realEmail);
+      return "valid";
+    },
+  });
+  const eligibility = rows(await db.execute(sql`
+    SELECT source_kind,contact_id,contact_business_link_decision_id,contact_business_link_revision,
+           normalized_value_hash,normalized_value_hash_version,status,named_contact,role_inbox
+      FROM sfp_outreach_eligibility
+     WHERE cohort_run_id=${noMxCohortRunId}::uuid AND business_id=${noMxBizId}
+  `))[0];
+  const expectedHash = createHash("sha256").update(`email\0${contactEmail.trim().toLowerCase()}`).digest("hex");
+  assert.deepEqual(received, [contactEmail], "Only the real contact address reaches the injected fake transport");
+  assert.equal(result.providerRequests, 1, "The fake transport accounts for one provider request");
+  assert.equal(eligibility.source_kind, "contact");
+  assert.equal(Number(eligibility.contact_id), contactId);
+  assert.equal(String(eligibility.contact_business_link_decision_id), String(link.id));
+  assert.equal(Number(eligibility.contact_business_link_revision), Number(link.revision));
+  assert.equal(eligibility.normalized_value_hash, expectedHash);
+  assert.equal(Number(eligibility.normalized_value_hash_version), 1);
+  assert.equal(eligibility.status, "validated_review_required", "The default active policy holds valid named contacts for review");
+  assert.equal(eligibility.named_contact, true);
+  assert.equal(eligibility.role_inbox, false);
+  const { evaluateSfpEmailTypePolicy, getActiveSfpOutreachPolicy } = await import("../server/services/cro03/sfp-outreach-policy");
+  const activePolicy = await getActiveSfpOutreachPolicy();
+  const namedAllowedPolicy = {
+    ...activePolicy,
+    roleInboxPolicy: { ...activePolicy.roleInboxPolicy, named_or_unclassified_requires_review: false },
+  };
+  assert.equal(evaluateSfpEmailTypePolicy({
+    namedContact: true, roleInbox: false, policy: namedAllowedPolicy,
+  }).status, "eligible_for_staging_review",
+  "A valid named contact is not blanket-blocked when the active policy permits named contacts");
+  const stage = rows(await db.execute(sql`
+    SELECT id FROM sfp_stage_runs
+     WHERE stage='validation' AND idempotency_key=${`sfpcert-contact-validate-${RUN_ID}`}
+  `))[0];
+  const item = rows(await db.execute(sql`
+    SELECT redacted_result FROM sfp_stage_items
+     WHERE stage_run_id=${String(stage.id)}::uuid AND business_id=${noMxBizId} AND provider='zerobounce'
+  `))[0];
+  const redactedResult = typeof item.redacted_result === "string" ? JSON.parse(item.redacted_result) : item.redacted_result;
+  assert.equal(redactedResult.sourceKind, "contact");
+  assert.equal(String(redactedResult.contactId), String(contactId));
+  assert.equal(redactedResult.normalizedAddressHash, expectedHash);
+  assert.equal(Number(redactedResult.normalizedAddressHashVersion), 1);
+  assert(!JSON.stringify(redactedResult).includes(contactEmail), "The durable candidate claim/result contains no plaintext email");
 });
 
 // ════════════════════════════════════════════════════════════════════════════════

@@ -17,11 +17,16 @@ import {
   assertPaidBudgetAuthorized,
   getCurrentPricingSchedule,
 } from "../mi09-pilot-authority";
-import { assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
+import { acquireLadderBudgetLock, assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
 import { getCurrentSfpRuntimeFence } from "./sfp-runtime-fence";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const CALLER = "server/services/cro03/sfp-provider-operations.ts";
+const publicProviderResultData = (value: any) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value ?? null;
+  const { reservedUnitAmountMicros: _reservedUnitAmountMicros, ...result } = value;
+  return Object.keys(result).length ? result : null;
+};
 
 type SfpPaidProvider = "zerobounce" | "serper" | "outscraper" | "apollo" | "openai_classification";
 const CONTROL_KEY: Record<SfpPaidProvider, string> = {
@@ -73,8 +78,10 @@ export interface SfpProviderReservation {
 }
 
 /**
- * Shared in-transaction $50 ledger gate for Phase A and cohort-bound SFP
- * reservations. The caller must commit the returned reservation in the same
+ * Shared in-transaction aggregate ledger gate for Phase A and cohort-bound
+ * SFP reservations. Callers must not add a pilot/SFP "external spend"
+ * subtotal to this canonical combined amount. The caller must commit the
+ * returned reservation in the same
  * transaction as its provider operation/control-unit reservation. Exported
  * for deterministic disposable-Postgres race certification; it performs no
  * provider I/O and cannot authorize transport.
@@ -84,18 +91,14 @@ export async function reserveSfpAggregateBudgetInTransaction(
   input: {
     reservationMicros: number;
     capMicros: number;
-    externalSpendMicros: number;
     target: { kind: "precohort"; runId: string } | { kind: "cohort"; stageRunId: string };
   },
 ): Promise<void> {
-  // Gate 2 hardening: this used to take its own SFP-only advisory lock and
-  // sum only SFP's own tables, which let a concurrent MI-09/CRO-03C
-  // reservation slip past unseen. Both paths now share one lock key and one
-  // combined sum (see shared-paid-budget-ledger.ts) so neither can commit
-  // past the $50 cap while the other path is mid-reservation.
+  // Both pools are already present in the canonical ledger. Adding an
+  // external pilot subtotal here would count CRO-03C a second time.
   try {
     await assertLadderBudgetHeadroom(executor, {
-      reservationMicros: input.reservationMicros + input.externalSpendMicros,
+      reservationMicros: input.reservationMicros,
       capMicros: input.capMicros,
     });
   } catch (err: any) {
@@ -223,6 +226,79 @@ export async function currentSfpUnitPrice(provider: SfpPaidProvider): Promise<nu
   return amount;
 }
 
+/**
+ * Release only expired reservations whose durable attempt is still pending.
+ * invoke*SfpProviderTransport changes that marker to ambiguous under the same
+ * ledger lock immediately before transport; those post-dispatch rows are never
+ * auto-released. Legacy reservations without the stored unit price or run
+ * lineage are retained conservatively for operator reconciliation.
+ */
+export async function releaseExpiredPreDispatchSfpReservations(): Promise<number> {
+  return db.transaction(async (tx) => {
+    await acquireLadderBudgetLock(tx);
+    const expired = rows(await tx.execute(sql`
+      SELECT o.id,o.provider,o.reserved_units,o.idempotency_key,o.operation_type,
+             o.sfp_result_data->>'reservedUnitAmountMicros' AS unit_amount_micros
+        FROM provider_operations o
+        JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+       WHERE o.operation_type IN ('sfp_enrichment','sfp_precohort_classification')
+         AND o.state='running' AND o.billing_state='reserved'
+         AND o.lease_expires_at<=NOW() AND a.outcome='pending' AND a.completed_at IS NULL
+         AND o.sfp_result_data ? 'reservedUnitAmountMicros'
+       FOR UPDATE OF o,a
+    `));
+    let released = 0;
+    for (const operation of expired) {
+      const amountMicros = Number(operation.unit_amount_micros) * Number(operation.reserved_units);
+      if (!Number.isSafeInteger(amountMicros) || amountMicros < 0) continue;
+      const updated = rows(await tx.execute(sql`
+        UPDATE provider_operations
+           SET state='failed',billing_state='released',failure_code='PRE_DISPATCH_LEASE_EXPIRED',
+               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+         WHERE id=${String(operation.id)}::uuid AND state='running' AND billing_state='reserved'
+         RETURNING id
+      `))[0];
+      if (!updated) continue;
+      await tx.execute(sql`
+        UPDATE provider_attempts SET outcome='blocked',retryable=TRUE,error_code='PRE_DISPATCH_LEASE_EXPIRED',
+               completed_at=NOW()
+         WHERE operation_id=${String(operation.id)}::uuid AND attempt_number=1
+           AND outcome='pending' AND completed_at IS NULL
+      `);
+      await tx.execute(sql`
+        UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${Number(operation.reserved_units)}),
+               version=version+1,updated_at=NOW()
+         WHERE provider=${String(operation.provider)}
+      `);
+      if (String(operation.operation_type) === "sfp_enrichment") {
+        await tx.execute(sql`
+          UPDATE sfp_stage_runs sr
+             SET reserved_cost_micros=GREATEST(0,sr.reserved_cost_micros-${amountMicros}),updated_at=NOW()
+            FROM sfp_stage_items i
+           WHERE i.provider_operation_id=${String(operation.id)}::uuid AND sr.id=i.stage_run_id
+        `);
+      } else {
+        const runId = rows(await tx.execute(sql`
+          SELECT id FROM sfp_classification_runs
+           WHERE ${String(operation.idempotency_key)} LIKE '%' || ':run:' || id::text
+           LIMIT 1
+        `))[0]?.id;
+        if (!runId) {
+          // Do not commit a partial release if run lineage was not retained.
+          throw new Error("SFP_EXPIRED_RESERVATION_RUN_LINEAGE_MISSING");
+        }
+        await tx.execute(sql`
+          UPDATE sfp_classification_runs
+             SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${amountMicros}),updated_at=NOW()
+           WHERE id=${String(runId)}::uuid
+        `);
+      }
+      released++;
+    }
+    return released;
+  });
+}
+
 export async function reserveSfpProviderOperation(input: {
   stageRunId: string;
   cohortRunId: string;
@@ -242,6 +318,7 @@ export async function reserveSfpProviderOperation(input: {
   }
   const sourceId = input.provider as ProviderSourceId;
   assertProviderActivation({ sourceId, caller: CALLER, explicitPaidApproval: true });
+  await releaseExpiredPreDispatchSfpReservations();
   const authority = await assertSfpRuntimeAuthority(input.cohortRunId);
   const budgetAuth = await assertPaidBudgetAuthorized();
   const aggregate = await assertAggregatePaidBudgetAvailable();
@@ -271,7 +348,7 @@ export async function reserveSfpProviderOperation(input: {
       return {
         operationId:String(existing.id),claimToken:String(existing.claim_token ?? ""),provider:input.provider,
         controlProvider,amountMicros,units:Number(existing.reserved_units),stageRunId:input.stageRunId,
-        replayed:true,resultData:existing.sfp_result_data ?? null,
+         replayed:true,resultData:publicProviderResultData(existing.sfp_result_data),
       };
     }
 
@@ -280,7 +357,6 @@ export async function reserveSfpProviderOperation(input: {
     // SFP rows because they are intentionally not MI-09 pilot effect links.
     await reserveSfpAggregateBudgetInTransaction(tx, {
       reservationMicros: reservedMicros, capMicros: aggregate.capMicros,
-      externalSpendMicros: aggregate.settledMicros + aggregate.reservedMicros,
       target: { kind: "cohort", stageRunId: input.stageRunId },
     });
     const reserved = rows(await tx.execute(sql`
@@ -295,10 +371,10 @@ export async function reserveSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       INSERT INTO provider_operations
         (provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
-         state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at)
+          state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at,sfp_result_data)
       VALUES (${controlProvider},'sfp_enrichment',${input.purpose},${input.idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-              NOW()+INTERVAL '5 minutes',NOW()) RETURNING id
+               NOW()+INTERVAL '5 minutes',NOW(),${JSON.stringify({ reservedUnitAmountMicros: amountMicros })}::jsonb) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
@@ -366,12 +442,16 @@ export async function reservePreCohortSfpProviderOperation(input: {
   }
   const sourceId = input.provider as ProviderSourceId;
   assertProviderActivation({ sourceId, caller: "server/services/cro03/sfp-classification-bridge.ts", explicitPaidApproval: true });
+  await releaseExpiredPreDispatchSfpReservations();
   await assertPaidBudgetAuthorized();
   const aggregate = await assertAggregatePaidBudgetAvailable();
   const units = Math.max(1, Math.min(MAX_UNITS_PER_RESERVATION[input.provider] ?? 100, Number(input.units ?? 1)));
   const amountMicros = await currentSfpUnitPrice(input.provider);
   const reservedMicros = units * amountMicros;
   const controlProvider = CONTROL_KEY[input.provider];
+  // Include the owning run as durable lineage so an expired, provably
+  // pre-dispatch reservation can be returned to precisely that run ledger.
+  const idempotencyKey = `${input.idempotencyKey}:run:${input.runId}`;
 
   return db.transaction(async (tx) => {
     const quarantine = rows(await tx.execute(sql`
@@ -381,7 +461,7 @@ export async function reservePreCohortSfpProviderOperation(input: {
     if (quarantine) throw new Error("SFP_PAID_BLOCKED:IDENTITY_QUARANTINED");
     const existing = rows(await tx.execute(sql`
        SELECT id,claim_token,reserved_units,state,sfp_result_data FROM provider_operations
-       WHERE provider=${controlProvider} AND idempotency_key=${input.idempotencyKey} LIMIT 1
+        WHERE provider=${controlProvider} AND idempotency_key=${idempotencyKey} LIMIT 1
     `))[0];
     if (existing) {
       if (String(existing.state) === "running") throw new Error("SFP_PAID_BLOCKED:OPERATION_ALREADY_RUNNING");
@@ -391,7 +471,7 @@ export async function reservePreCohortSfpProviderOperation(input: {
       return {
         operationId:String(existing.id),claimToken:String(existing.claim_token ?? ""),provider:input.provider,
         controlProvider,amountMicros,units:Number(existing.reserved_units),runId:input.runId,
-        replayed:true,resultData:existing.sfp_result_data ?? null,
+         replayed:true,resultData:publicProviderResultData(existing.sfp_result_data),
       };
     }
     // Same $50 aggregate ceiling as reserveSfpProviderOperation, but also
@@ -399,7 +479,6 @@ export async function reservePreCohortSfpProviderOperation(input: {
     // doc comment above) so both ledgers share one authoritative cap check.
     await reserveSfpAggregateBudgetInTransaction(tx, {
       reservationMicros: reservedMicros, capMicros: aggregate.capMicros,
-      externalSpendMicros: aggregate.settledMicros + aggregate.reservedMicros,
       target: { kind: "precohort", runId: input.runId },
     });
     const reserved = rows(await tx.execute(sql`
@@ -414,10 +493,10 @@ export async function reservePreCohortSfpProviderOperation(input: {
     const operation = rows(await tx.execute(sql`
       INSERT INTO provider_operations
         (provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,
-         state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at)
-      VALUES (${controlProvider},'sfp_precohort_classification',${input.purpose},${input.idempotencyKey},'user',${input.actorId},
+          state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at,sfp_result_data)
+       VALUES (${controlProvider},'sfp_precohort_classification',${input.purpose},${idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-              NOW()+INTERVAL '5 minutes',NOW()) RETURNING id
+               NOW()+INTERVAL '5 minutes',NOW(),${JSON.stringify({ reservedUnitAmountMicros: amountMicros })}::jsonb) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
@@ -429,7 +508,7 @@ export async function reservePreCohortSfpProviderOperation(input: {
 
 export async function settlePreCohortSfpProviderOperation(input: {
   reservation: SfpPreCohortProviderReservation;
-  outcome: "completed" | "no_result" | "failed" | "ambiguous";
+  outcome: "completed" | "no_result" | "failed" | "ambiguous" | "not_dispatched";
   observation: "valid" | "invalid" | "risky" | "unknown" | "no_result" | "transport";
   businessId: number;
   settledUnits?: number;
@@ -439,14 +518,24 @@ export async function settlePreCohortSfpProviderOperation(input: {
   const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
   const settledMicros = settledUnits * input.reservation.amountMicros;
   const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
+    await acquireLadderBudgetLock(tx);
+    const attemptState = rows(await tx.execute(sql`
+      SELECT outcome FROM provider_attempts
+       WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
+    `))[0];
+    const dispatchWasMarked = String(attemptState?.outcome ?? "") === "ambiguous";
+    const notDispatched = !completed && !dispatchWasMarked &&
+      (input.outcome === "failed" || input.outcome === "not_dispatched");
+    const billingAmbiguous = !completed && (input.outcome === "ambiguous" || dispatchWasMarked);
     // The provider operation is the settlement fence. Only the claimant that
     // still owns a live reserved operation may move money or counters. A
     // concurrent/retried settlement observes the terminal row and becomes a
     // no-op instead of consuming units and spend twice.
     const operation = rows(await tx.execute(sql`
        UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
-             billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
-              sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
+              billing_state=${completed ? "committed" : billingAmbiguous ? "ambiguous" : "released"},
+               sfp_result_data=COALESCE(sfp_result_data,'{}'::jsonb) ||
+                 ${JSON.stringify(input.resultData ?? {})}::jsonb,
               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
         WHERE id=${input.reservation.operationId}::uuid
           AND state='running' AND billing_state='reserved'
@@ -472,9 +561,9 @@ export async function settlePreCohortSfpProviderOperation(input: {
        RETURNING id
     `))[0];
     if (!attempt) throw new Error("SFP_PROVIDER_SETTLEMENT_ATTEMPT_MISSING");
-    await tx.execute(sql`
-      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
-             consumed_units=consumed_units+${settledUnits},
+     await tx.execute(sql`
+       UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${notDispatched || completed ? input.reservation.units : 0}),
+              consumed_units=consumed_units+${settledUnits},
              last_completed_at=${completed ? sql`NOW()` : sql`last_completed_at`},last_outcome=${input.observation},
              version=version+1,updated_at=NOW() WHERE provider=${input.reservation.controlProvider}
     `);
@@ -484,8 +573,8 @@ export async function settlePreCohortSfpProviderOperation(input: {
               'business',${input.businessId},NULL,${input.observation},${!completed})
     `);
     await tx.execute(sql`
-      UPDATE sfp_classification_runs
-         SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${input.reservation.amountMicros * input.reservation.units}),
+       UPDATE sfp_classification_runs
+          SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${notDispatched || completed ? input.reservation.amountMicros * input.reservation.units : 0}),
              settled_cost_micros=settled_cost_micros+${settledMicros},updated_at=NOW()
        WHERE id=${input.reservation.runId}::uuid
     `);
@@ -522,7 +611,32 @@ export async function invokePreCohortSfpProviderTransport<T>(
   transport: () => Promise<T>,
 ): Promise<T> {
   await assertCurrentPreCohortSfpProviderReservation(reservation);
+  await markSfpProviderOperationDispatchBoundary(reservation.operationId, reservation.claimToken);
   return transport();
+}
+
+/**
+ * Persist the point after which a lost process/transport error can no longer
+ * safely be treated as an unbilled pre-dispatch expiry. The legacy schema has
+ * no dedicated dispatch column; provider_attempts.outcome='ambiguous' is an
+ * allowed in-flight marker and terminal settlement replaces it with the
+ * resolved outcome. The shared lock serializes this boundary with ledger
+ * reads and reservations.
+ */
+async function markSfpProviderOperationDispatchBoundary(operationId: string, claimToken: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await acquireLadderBudgetLock(tx);
+    const marked = rows(await tx.execute(sql`
+      UPDATE provider_attempts a SET outcome='ambiguous'
+       FROM provider_operations o
+       WHERE a.operation_id=o.id AND o.id=${operationId}::uuid
+         AND o.claim_token=${claimToken}::uuid AND o.state='running'
+         AND o.billing_state='reserved' AND o.lease_expires_at>NOW()
+         AND a.attempt_number=1 AND a.outcome='pending' AND a.completed_at IS NULL
+       RETURNING a.id
+    `))[0];
+    if (!marked) throw new Error("SFP_PROVIDER_DISPATCH_BOUNDARY_LOST");
+  });
 }
 
 export async function assertCurrentSfpProviderReservation(reservation: SfpProviderReservation): Promise<void> {
@@ -557,12 +671,13 @@ export async function invokeSfpProviderTransport<T>(
   transport: () => Promise<T>,
 ): Promise<T> {
   await assertCurrentSfpProviderReservation(reservation);
+  await markSfpProviderOperationDispatchBoundary(reservation.operationId, reservation.claimToken);
   return transport();
 }
 
 export async function settleSfpProviderOperation(input: {
   reservation: SfpProviderReservation;
-  outcome: "completed" | "no_result" | "failed" | "ambiguous";
+  outcome: "completed" | "no_result" | "failed" | "ambiguous" | "not_dispatched";
   observation: "valid" | "invalid" | "risky" | "unknown" | "no_result" | "transport";
   businessId: number;
   emailTokenHash?: string | null;
@@ -573,10 +688,20 @@ export async function settleSfpProviderOperation(input: {
   const settledUnits = completed ? Math.max(0, Math.min(input.reservation.units, input.settledUnits ?? input.reservation.units)) : 0;
   const settledMicros = settledUnits * input.reservation.amountMicros;
   const settle = async (tx: { execute: (query: any) => Promise<any> }) => {
+    await acquireLadderBudgetLock(tx);
+    const attemptState = rows(await tx.execute(sql`
+      SELECT outcome FROM provider_attempts
+       WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
+    `))[0];
+    const dispatchWasMarked = String(attemptState?.outcome ?? "") === "ambiguous";
+    const notDispatched = !completed && !dispatchWasMarked &&
+      (input.outcome === "failed" || input.outcome === "not_dispatched");
+    const billingAmbiguous = !completed && (input.outcome === "ambiguous" || dispatchWasMarked);
     const operation = rows(await tx.execute(sql`
       UPDATE provider_operations SET state=${completed ? "completed" : "failed"},
-             billing_state=${completed ? "committed" : input.outcome === "ambiguous" ? "ambiguous" : "released"},
-              sfp_result_data=${input.resultData == null ? null : JSON.stringify(input.resultData)}::jsonb,
+              billing_state=${completed ? "committed" : billingAmbiguous ? "ambiguous" : "released"},
+              sfp_result_data=COALESCE(sfp_result_data,'{}'::jsonb) ||
+                ${JSON.stringify(input.resultData ?? {})}::jsonb,
               claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
        WHERE id=${input.reservation.operationId}::uuid
          AND state='running' AND billing_state='reserved'
@@ -602,9 +727,9 @@ export async function settleSfpProviderOperation(input: {
        RETURNING id
     `))[0];
     if (!attempt) throw new Error("SFP_PROVIDER_SETTLEMENT_ATTEMPT_MISSING");
-    await tx.execute(sql`
-      UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${input.reservation.units}),
-             consumed_units=consumed_units+${settledUnits},
+     await tx.execute(sql`
+       UPDATE provider_controls SET reserved_units=GREATEST(0,reserved_units-${notDispatched || completed ? input.reservation.units : 0}),
+              consumed_units=consumed_units+${settledUnits},
              last_completed_at=${completed ? sql`NOW()` : sql`last_completed_at`},last_outcome=${input.observation},
              version=version+1,updated_at=NOW() WHERE provider=${input.reservation.controlProvider}
     `);
@@ -619,7 +744,7 @@ export async function settleSfpProviderOperation(input: {
        WHERE provider_operation_id=${input.reservation.operationId}::uuid
     `);
     await tx.execute(sql`
-      UPDATE sfp_stage_runs SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${input.reservation.amountMicros * input.reservation.units}),
+       UPDATE sfp_stage_runs SET reserved_cost_micros=GREATEST(0,reserved_cost_micros-${notDispatched || completed ? input.reservation.amountMicros * input.reservation.units : 0}),
              settled_cost_micros=settled_cost_micros+${settledMicros},processed_count=processed_count+1,
              succeeded_count=succeeded_count+${completed ? 1 : 0},failed_count=failed_count+${completed ? 0 : 1},
              last_heartbeat_at=NOW(),updated_at=NOW() WHERE id=${input.reservation.stageRunId}::uuid

@@ -70,6 +70,8 @@ const { seal } = await import("../server/services/cro03/candidate-evidence-servi
 const { writeSfpPaidCandidateEvidence } = await import("../server/services/cro03/sfp-paid-evidence-writer");
 const { previewStagingV2, executeStagingV2, SfpStagingV2Error } = await import("../server/services/cro03/sfp-campaign-staging-v2");
 const { computeLivePackageContentHash } = await import("../server/services/cro03/sfp-campaign-packages");
+const { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } = await import("../server/services/cro03/sfp-vertical-classifier");
+const { ensureProgram } = await import("../server/services/cro03/south-florida-prospecting");
 
 try {
   const policy = rows(await db.execute(sql`
@@ -80,9 +82,14 @@ try {
   `))[0];
   check(Boolean(policy), "active versioned outreach policy is present after migrations");
 
+  const targetVerticalSql = sql.join(SFP_TARGET_VERTICALS_V2.map((vertical) => sql`${vertical}`), sql`, `);
+  const ensuredProgram = await ensureProgram({ createdBy: runKey, maxCohortSize: 10 });
   const program = rows(await db.execute(sql`
-    INSERT INTO sfp_programs (name, county_fips, vertical_ids, max_cohort_size, policy_version, is_active, created_by)
-    VALUES ('south-florida-v1', ARRAY['12086'], ARRAY['Med Spa'], 10, 1, TRUE, ${runKey})
+    UPDATE sfp_programs
+       SET county_fips=ARRAY['12086']::text[],
+           vertical_ids=ARRAY[${targetVerticalSql}]::text[],
+           max_cohort_size=10, is_active=TRUE, taxonomy_version=${TAXONOMY_VERSION_V2}
+     WHERE id=${String(ensuredProgram.id)}::uuid
     RETURNING id
   `))[0];
   const cohortRunId = randomUUID();
@@ -91,45 +98,100 @@ try {
       (id, program_id, idempotency_key, status, cohort_size, cohort_hash, release_sha, actor_id,
        cohort_state, frozen_at)
     VALUES (${cohortRunId}::uuid, ${String(program.id)}::uuid, ${`${runKey}-cohort`},
-      'freezing', 4, ${createHash("sha256").update(runKey).digest("hex")},
+      'freezing', 10, ${createHash("sha256").update(runKey).digest("hex")},
       ${"0".repeat(40)}, ${runKey}, 'freezing', NULL)
   `);
 
   const campaign = rows(await db.execute(sql`
     INSERT INTO campaigns (name, status, target_verticals, created_by, total_steps)
-    VALUES (${`${runKey}-campaign`}, 'draft', ARRAY['Med Spa'], ${runKey}, 1)
+    VALUES (${`${runKey}-campaign`}, 'draft', ARRAY['Healthcare'], ${runKey}, 1)
     RETURNING id
   `))[0];
   const sequence = rows(await db.execute(sql`
     INSERT INTO follow_up_sequences
       (name, status, trigger_type, total_steps, sequence_family, channels_allowed, eligible_consent_tiers)
-    VALUES (${`${runKey}-sequence`}, 'paused', 'manual', 1, ${`${runKey}-med-spa`},
+    VALUES (${`${runKey}-sequence`}, 'paused', 'manual', 1, ${`${runKey}-healthcare-v2`},
             ARRAY['email','task'], ARRAY['first_party_role_inbox'])
     RETURNING id
   `))[0];
   const liveContentHash = await computeLivePackageContentHash(db, Number(campaign.id), Number(sequence.id));
-  const packageVersion = rows(await db.execute(sql`
+  const fixturePackageKey = "sfp.healthcare.v2";
+  const insertedPackageVersion = rows(await db.execute(sql`
     INSERT INTO sfp_campaign_package_versions
       (package_key, vertical, campaign_id, campaign_name, sequence_id, sequence_name,
        sequence_family, content_hash, lifecycle_state, effective_at, actor_id)
-    VALUES ('sfp.med_spa.v1', 'Med Spa', ${Number(campaign.id)}, ${`${runKey}-campaign`},
-            ${Number(sequence.id)}, ${`${runKey}-sequence`}, ${`${runKey}-med-spa`},
+    VALUES (${fixturePackageKey}, 'Healthcare', ${Number(campaign.id)}, ${`${runKey}-campaign`},
+            ${Number(sequence.id)}, ${`${runKey}-sequence`}, ${`${runKey}-healthcare-v2`},
             ${liveContentHash}, 'current', NOW(), ${runKey})
+    ON CONFLICT DO NOTHING
     RETURNING id
   `))[0];
-  check(Boolean(packageVersion), "draft campaign and paused sequence package version seeded");
+  const packageVersion = insertedPackageVersion ?? rows(await db.execute(sql`
+    SELECT id FROM sfp_campaign_package_versions
+     WHERE package_key=${fixturePackageKey} AND vertical='Healthcare' AND lifecycle_state='current'
+     LIMIT 1
+  `))[0];
+  check(Boolean(packageVersion), "draft campaign and paused sequence current Healthcare v2 package seeded");
 
   const generation = rows(await db.execute(sql`
     INSERT INTO free_discovery_generations (run_key, actor_id, purpose, reason, state)
     VALUES (${`${runKey}-generation`}, ${runKey}, 'email_discovery', 'Task 2001 certification', 'completed')
     RETURNING id
   `))[0];
+  const classificationPolicyVersion = Number(rows(await db.execute(sql`
+    SELECT policy_version FROM sfp_programs WHERE id=${String(program.id)}::uuid
+  `))[0]?.policy_version);
+  async function seedFrozenClassification(
+    businessId: number,
+    targetVertical: string,
+    roiScore: number,
+    targetCohortRunId = cohortRunId,
+  ): Promise<void> {
+    const evidenceHash = createHash("sha256")
+      .update(JSON.stringify({
+        businessId, taxonomyVersion: TAXONOMY_VERSION_V2, classifierVersion: CLASSIFIER_VERSION,
+        targetVertical, fixture: runKey,
+      }))
+      .digest("hex");
+    const evidence = rows(await db.execute(sql`
+      INSERT INTO sfp_classification_evidence
+        (business_id, evidence_hash, source_refs, classifier_version, taxonomy_version, policy_version,
+         outcome, confidence, reason_codes, idempotency_key, cost_micros, terminal_state,
+         resolved_vertical_id, admission_tier)
+      VALUES (${businessId}, ${evidenceHash}, ${JSON.stringify([{ source: "task-2001-disposable-certification" }])}::jsonb,
+        ${CLASSIFIER_VERSION}, ${TAXONOMY_VERSION_V2}, ${classificationPolicyVersion}, 'target', 0.95,
+        '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${`${runKey}-classification-${businessId}`},
+        0, 'completed', ${targetVertical}, 'resolved_high')
+      RETURNING id
+    `))[0];
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_members
+        (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical,
+         classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
+         classifier_reasons, classifier_evidence_hash)
+      VALUES (${targetCohortRunId}::uuid, ${businessId}, ${roiScore}, 'verified', 'fips', '12086', ${targetVertical},
+        ${CLASSIFIER_VERSION}, 'resolved_high', 0.95, ${targetVertical},
+        '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash})
+    `);
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_decisions
+        (cohort_run_id, business_id, disposition, geography_class, geography_source, vertical,
+         roi_score, selected, classifier_version, classifier_outcome, classifier_confidence,
+         classifier_matched_target, classifier_reasons, classifier_evidence_hash,
+         classification_evidence_id, classification_policy_version, classification_evidence_hash,
+         classification_classifier_version)
+      VALUES (${targetCohortRunId}::uuid, ${businessId}, 'selected', 'verified', 'fips', ${targetVertical},
+        ${roiScore}, TRUE, ${CLASSIFIER_VERSION}, 'resolved_high', 0.95, ${targetVertical},
+        '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash},
+        ${String(evidence.id)}::uuid, ${classificationPolicyVersion}, ${evidenceHash}, ${CLASSIFIER_VERSION})
+    `);
+  }
   const fixture: Array<{ eligibilityId: string; businessId: number; kind: "free" | "paid"; candidateId?: string; paidId?: string }> = [];
   const emails = [`free-${runKey}@example.org`, `paid-${runKey}@example.org`, `drift-${runKey}@example.org`, `legacy-${runKey}@example.org`];
   for (let i = 0; i < emails.length; i++) {
     const business = rows(await db.execute(sql`
       INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
-      VALUES (${`${runKey}-business-${i}`}, ${`${runKey}-business-${i}`.toLowerCase()}, 'Med Spa', 'FL', 'canonical', NOW())
+      VALUES (${`${runKey}-business-${i}`}, ${`${runKey}-business-${i}`.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
       RETURNING id
     `))[0];
     const businessId = Number(business.id);
@@ -158,11 +220,7 @@ try {
       `))[0];
       candidateId = String(candidate.id);
     }
-    await db.execute(sql`
-      INSERT INTO sfp_cohort_members
-        (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
-      VALUES (${cohortRunId}::uuid, ${businessId}, 50, 'verified', 'fips', '12086', 'Med Spa')
-    `);
+    await seedFrozenClassification(businessId, "Healthcare", 50);
     const eligibility = rows(await db.execute(sql`
       INSERT INTO sfp_outreach_eligibility
         (cohort_run_id, business_id, candidate_id, source_kind, paid_candidate_evidence_id,
@@ -190,15 +248,11 @@ try {
   for (const key of ["mismatch", "drift2", "concurrent", "workerOk", "crash", "suppressed"] as const) {
     const extraBusiness = rows(await db.execute(sql`
       INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
-      VALUES (${`${runKey}-business-${key}`}, ${`${runKey}-business-${key}`.toLowerCase()}, 'Med Spa', 'FL', 'canonical', NOW())
+      VALUES (${`${runKey}-business-${key}`}, ${`${runKey}-business-${key}`.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
       RETURNING id
     `))[0];
     extraBusinessIds[key] = Number(extraBusiness.id);
-    await db.execute(sql`
-      INSERT INTO sfp_cohort_members
-        (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
-      VALUES (${cohortRunId}::uuid, ${extraBusinessIds[key]}, 50, 'verified', 'fips', '12086', 'Med Spa')
-    `);
+    await seedFrozenClassification(extraBusinessIds[key], "Healthcare", 50);
   }
 
   await db.execute(sql`
@@ -212,8 +266,8 @@ try {
     const item = fixture[index];
     const preview = await previewStagingV2({ cohortRunId, eligibilityIds: [item.eligibilityId], actorId: runKey });
     if (label === "free") initialFreePreview = preview;
-    check(preview.eligibleCount === 1 && preview.rows[0]?.packageKey === "sfp.med_spa.v1",
-      `${label} row previews against its package-pinned Med Spa target`);
+    check(preview.eligibleCount === 1 && preview.rows[0]?.packageKey === fixturePackageKey,
+      `${label} row previews against its package-pinned frozen v2 Healthcare target`);
     const result = await executeStagingV2({
       cohortRunId, eligibilityIds: [item.eligibilityId], commandKey: preview.commandKey,
       snapshotHash: preview.snapshotHash, actorId: runKey, confirmPayloadHash: preview.payloadHash,
@@ -560,7 +614,7 @@ try {
   await db.execute(sql`
     UPDATE sfp_programs SET recurring_enabled = TRUE,
       schedule_config = jsonb_set(COALESCE(schedule_config, '{}'::jsonb), '{campaignStaging}', '5')
-     WHERE name = 'south-florida-v1'
+     WHERE id = ${String(program.id)}::uuid
   `);
   process.env.BACKGROUND_JOB_PROFILE = "selective:sfp-campaign-staging";
 
@@ -814,7 +868,7 @@ try {
   // item outcomes — a real recurring failure must retry AND the run must   --
   // actually come back 'pending' (not stuck 'completed' by the shared      --
   // executor), and the SAME item must be reclaimed by a later tick. -------
-  const retryProgram = rows(await db.execute(sql`SELECT id FROM sfp_programs WHERE name = 'south-florida-v1' LIMIT 1`))[0];
+  const retryProgram = rows(await db.execute(sql`SELECT id FROM sfp_programs WHERE id = ${String(program.id)}::uuid`))[0];
   const retryCohortRunId = randomUUID();
   await db.execute(sql`
     INSERT INTO sfp_cohort_runs
@@ -830,11 +884,7 @@ try {
     RETURNING id
   `))[0];
   const retryBusinessId = Number(retryBusiness.id);
-  await db.execute(sql`
-    INSERT INTO sfp_cohort_members
-      (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
-    VALUES (${retryCohortRunId}::uuid, ${retryBusinessId}, 50, 'verified', 'fips', '12086', NULL)
-  `);
+  await seedFrozenClassification(retryBusinessId, "Fitness/Recreation", 50, retryCohortRunId);
   await db.execute(sql`
     UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW()
      WHERE id=${retryCohortRunId}::uuid
@@ -852,11 +902,12 @@ try {
       ${sealedRetry.normalizedValueHash}, ${sealedRetry.maskedValue}, NOW())
     RETURNING id
   `))[0];
-  // vertical is deliberately NULL on this business so previewStagingV2()
-  // blocks the row with 'vertical_unresolved' every attempt — a
-  // deterministic, repeatable per-tick failure without needing to inject a
-  // real transport/network fault.
-  await db.execute(sql`
+  // The source vertical remains raw-NULL; its frozen v2 target is
+  // Fitness/Recreation. No current v2 package is seeded for that target, so
+  // staging deterministically rejects with no_current_package_for_vertical.
+  // This keeps the worker retry-lifecycle exercise independent of raw
+  // business.vertical and preserves the v2 frozen-classification gate.
+  const retryEligibility = rows(await db.execute(sql`
     INSERT INTO sfp_outreach_eligibility
       (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
        decision_reason, validation_at, validation_expires_at, role_inbox,
@@ -864,8 +915,15 @@ try {
     VALUES (${retryCohortRunId}::uuid, ${retryBusinessId}, ${String(retryCandidate.id)}::uuid, 'free',
        ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_retry',
        NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`retry-${runKey}`).digest("hex")},
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-  `);
+        ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+     RETURNING id
+  `))[0];
+  const retryPreview = await previewStagingV2({
+    cohortRunId: retryCohortRunId, eligibilityIds: [String(retryEligibility.id)], actorId: runKey,
+  });
+  check(retryPreview.eligibleCount === 0 &&
+    retryPreview.rows[0]?.blockedReason === "no_current_package_for_vertical",
+  "retry fixture resolves its frozen v2 Fitness/Recreation decision and fails closed only because that target has no current package");
 
   const retryTick1 = await processSfpCampaignStagingTick();
   check(retryTick1.enabled === true, "retry-lifecycle tick runs with the capability/schedule on");
@@ -940,7 +998,7 @@ try {
   // --- Issue 2: the real-address suppression check inside the plaintext   --
   // callback is bound to the staging transaction, not the global db pool.  --
   const stagingV2Source = source("server/services/cro03/sfp-campaign-staging-v2.ts");
-  check(/isCanonicallySuppressed\(\[contactEmailTokenHash\],\s*tx\)/.test(stagingV2Source),
+  check(/isCanonicallySuppressed\(\[\s*contactEmailTokenHash,\s*tokenHashForSuppression\s*\],\s*tx\)/.test(stagingV2Source),
     "the real-address suppression re-check inside openSfpCandidatePlaintext() is bound to the staging transaction (tx), not the ambient db pool");
   // Functional proof: a real (decrypted) address that is suppressed must
   // fail closed with SFP_STAGING_SUPPRESSED even though the eligibility

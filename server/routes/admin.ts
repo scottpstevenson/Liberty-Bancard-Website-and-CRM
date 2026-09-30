@@ -5945,6 +5945,261 @@ export function registerAdminRoutes(app: Express) {
     },
   );
 
+  // Indexed contact/business reconciliation is proposal-only. Every mutation is
+  // admin-only and CSRF is enforced by the global csrfProtection middleware.
+  app.get(
+    "/api/admin/contact-business-reconciliation/preview",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const limit = Number(req.query.limit ?? 25);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+          return res.status(400).json({ message: "limit must be an integer between 1 and 100" });
+        }
+        const { previewContactBusinessReconciliation } = await import("../services/contact-business-reconciliation");
+        const preview = await previewContactBusinessReconciliation(limit);
+        await auditChange({
+          userId: String((req.user as any)?.id ?? ""),
+          action: "contact_business_reconciliation_previewed",
+          entityType: "contact_business_reconciliation",
+          entityKey: "indexed_contact_business_suggestions_v1",
+          details: {
+            sampleLimit: preview.sampleLimit,
+            sampledContacts: preview.sampledContacts,
+            sampleSuggestions: preview.sampleSuggestions,
+            sampleAmbiguousContacts: preview.sampleAmbiguousContacts,
+            paidProviderCalls: 0,
+          },
+        });
+        res.json(preview);
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-business-reconciliation/start",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const parsed = z.object({ batchSize: z.number().int().min(1).max(100).default(50) }).strict().safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Invalid reconciliation start request", errors: parsed.error.errors });
+      try {
+        const { startContactBusinessReconciliation } = await import("../services/contact-business-reconciliation");
+        const state = await startContactBusinessReconciliation({
+          ...parsed.data,
+          actorId: String((req.user as any)?.id ?? ""),
+        });
+        res.status(202).json(state);
+      } catch (err: any) {
+        if (err?.message === "CONTACT_BUSINESS_RECONCILIATION_ALREADY_RUNNING"
+            || err?.message === "CONTACT_BUSINESS_RECONCILIATION_RESUME_REQUIRED") {
+          return res.status(409).json({ message: err.message, code: err.message });
+        }
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-business-reconciliation/pause",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const { pauseContactBusinessReconciliation } = await import("../services/contact-business-reconciliation");
+        const state = await pauseContactBusinessReconciliation(String((req.user as any)?.id ?? ""));
+        res.json(state);
+      } catch (err: any) {
+        if (err?.message === "CONTACT_BUSINESS_RECONCILIATION_NOT_FOUND") return res.status(404).json({ message: err.message });
+        if (err?.message === "CONTACT_BUSINESS_RECONCILIATION_ALREADY_RUNNING") return res.status(409).json({ message: err.message, code: err.message });
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-business-reconciliation/resume",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const { resumeContactBusinessReconciliation } = await import("../services/contact-business-reconciliation");
+        const state = await resumeContactBusinessReconciliation(String((req.user as any)?.id ?? ""));
+        res.status(202).json(state);
+      } catch (err: any) {
+        if (err?.message === "CONTACT_BUSINESS_RECONCILIATION_NOT_FOUND") return res.status(404).json({ message: err.message });
+        if (err?.message === "CONTACT_BUSINESS_RECONCILIATION_ALREADY_RUNNING"
+            || err?.message === "CONTACT_BUSINESS_RECONCILIATION_ALREADY_COMPLETED") {
+          return res.status(409).json({ message: err.message, code: err.message });
+        }
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/contact-business-reconciliation/progress",
+    isDashboardUser,
+    requireRole("admin"),
+    async (_req, res) => {
+      try {
+        const { getContactBusinessReconciliationProgress } = await import("../services/contact-business-reconciliation");
+        res.json(await getContactBusinessReconciliationProgress());
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/contact-business-suggestions",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      try {
+        const afterId = req.query.afterId === undefined ? undefined : String(req.query.afterId);
+        const afterCreatedAt = req.query.afterCreatedAt === undefined ? undefined : String(req.query.afterCreatedAt);
+        if (afterId && !z.string().uuid().safeParse(afterId).success) {
+          return res.status(400).json({ message: "afterId must be a candidate UUID" });
+        }
+        if (Boolean(afterId) !== Boolean(afterCreatedAt)
+            || (afterCreatedAt && !Number.isFinite(Date.parse(afterCreatedAt)))) {
+          return res.status(400).json({ message: "afterCreatedAt and afterId must be supplied together as a keyset cursor" });
+        }
+        const limit = Number(req.query.limit ?? 50);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+          return res.status(400).json({ message: "limit must be an integer between 1 and 100" });
+        }
+        const { listContactBusinessSuggestions } = await import("../services/contact-business-reconciliation");
+        res.json(await listContactBusinessSuggestions({ afterCreatedAt, afterId, limit }));
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-business-suggestions/review-batch",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const parsed = z.object({
+        decisions: z.array(z.object({
+          candidateId: z.string().uuid(),
+          contactId: z.number().int().positive(),
+          businessId: z.number().int().positive(),
+          decision: z.enum(["verified", "missing", "conflicted", "legacy_unknown", "rejected"]),
+          decisionKey: z.string().min(8).max(200),
+          evidenceSourceEventId: z.number().int().positive().nullable().optional(),
+          expectedRevision: z.number().int().nonnegative(),
+        }).strict()).min(1).max(50),
+      }).strict().safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid bulk review request", errors: parsed.error.errors });
+      const reviewerId = String((req.user as any)?.id ?? "");
+      try {
+        const { assertCurrentContactBusinessSuggestion } = await import("../services/contact-business-reconciliation");
+        const { decideContactBusinessLink, CommercialRevisionConflict } = await import("../services/commercial-link-authority");
+        const outcomes: Array<Record<string, unknown>> = [];
+        for (const item of parsed.data.decisions) {
+          if (!await assertCurrentContactBusinessSuggestion(item)) {
+            outcomes.push({ candidateId: item.candidateId, status: "rejected", code: "CONTACT_BUSINESS_CANDIDATE_NOT_CURRENT" });
+            continue;
+          }
+          try {
+            const decision = await decideContactBusinessLink({
+              contactId: item.contactId,
+              // The candidate is not authority. Only an explicit verified
+              // choice sends its business to the canonical decision writer.
+              businessId: item.decision === "verified" ? item.businessId : null,
+              decision: item.decision,
+              decisionKey: item.decisionKey,
+              reviewerId,
+              evidenceSourceEventId: item.evidenceSourceEventId,
+              expectedRevision: item.expectedRevision,
+              authorityCheck: item.decision === "verified" ? async (tx: any) => {
+                const result = await tx.execute(sql`
+                  SELECT (
+                    candidate.id IS NOT NULL
+                    AND
+                    contact.archived_at IS NULL
+                    AND contact.record_class NOT IN ('test', 'demo', 'synthetic')
+                    AND COALESCE(contact.existing_merchant_customer, false) = false
+                    AND COALESCE(contact.do_not_contact, false) = false
+                    AND COALESCE(contact.opted_out_email, false) = false
+                    AND COALESCE(contact.opt_out_status, 'active') <> 'opted_out'
+                    AND COALESCE(contact.unsubscribe_status, 'active') <> 'unsubscribed'
+                    AND COALESCE(contact.bounce_status, 'none') <> 'hard'
+                    AND COALESCE(contact.complaint_status, 'none') <> 'reported'
+                    AND contact.suppression_reason IS NULL
+                    AND business.record_class NOT IN ('test', 'demo', 'synthetic')
+                    AND COALESCE(business.do_not_visit, false) = false
+                  ) AS safe
+                  FROM contacts contact
+                  JOIN businesses business ON business.id = ${item.businessId}
+                  LEFT JOIN contact_business_link_candidates candidate
+                    ON candidate.id = ${item.candidateId}::uuid
+                   AND candidate.contact_id = ${item.contactId}
+                   AND candidate.business_id = ${item.businessId}
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM contact_business_link_candidates successor
+                      WHERE successor.supersedes_candidate_id = candidate.id
+                   )
+                  WHERE contact.id = ${item.contactId}
+                `);
+                // decideContactBusinessLink invokes this fence again after it has
+                // acquired the contact/business graph membership locks. Candidate
+                // writers use the same locks, so currentness cannot change between
+                // this in-transaction check and the canonical decision write.
+                return Boolean((result as any).rows?.[0]?.safe);
+              } : undefined,
+            });
+            await auditChange({
+              userId: reviewerId,
+              action: "contact_business_candidate_reviewed",
+              entityType: "contact_business_link_candidate",
+              entityKey: item.candidateId,
+              details: {
+                contactId: item.contactId,
+                businessId: item.businessId,
+                decision: item.decision,
+                decisionId: decision.id,
+                revision: decision.revision,
+                evidenceSourceEventId: item.evidenceSourceEventId ?? null,
+              },
+            });
+            outcomes.push({ candidateId: item.candidateId, status: "applied", decision });
+          } catch (error: any) {
+            const code = error instanceof CommercialRevisionConflict
+              ? error.code
+              : String(error?.message ?? "CONTACT_BUSINESS_REVIEW_FAILED").slice(0, 120);
+            outcomes.push({ candidateId: item.candidateId, status: "rejected", code });
+          }
+        }
+        await auditChange({
+          userId: reviewerId,
+          action: "contact_business_candidate_bulk_review",
+          entityType: "contact_business_link_candidate_batch",
+          details: {
+            requested: parsed.data.decisions.length,
+            applied: outcomes.filter(item => item.status === "applied").length,
+            rejected: outcomes.filter(item => item.status === "rejected").length,
+          },
+        });
+        res.status(207).json({
+          outcomes,
+          applied: outcomes.filter(item => item.status === "applied").length,
+          rejected: outcomes.filter(item => item.status === "rejected").length,
+        });
+      } catch (err) {
+        serverError(res, err);
+      }
+    },
+  );
+
   app.get(
     "/api/admin/commercial-classification/counts",
     isDashboardUser,
