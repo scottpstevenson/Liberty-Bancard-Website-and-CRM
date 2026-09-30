@@ -261,6 +261,8 @@ export async function executeSfpValidation(
     snapshotHash: string;
     /** Fake transport for tests. (candidateId, REAL decrypted email) → ZbOutcome */
     zbTransport?: (candidateId: string, realEmail: string) => Promise<SfpZbOutcome>;
+    /** Test seam for MX checks; production always uses the real DNS resolver. */
+    mxCheck?: typeof checkMxRecord;
   },
 ): Promise<SfpValidationResult> {
   if (!opts.snapshotHash) throw new Error("SFP_VALIDATION_BLOCKED:snapshotHash_required");
@@ -437,7 +439,7 @@ export async function executeSfpValidation(
           const realDomain = realEmail.split("@")[1]?.toLowerCase() ?? "";
           let mx: "ok" | "no_mx" | "dns_indeterminate" = "dns_indeterminate";
           try {
-            mx = realDomain ? await checkMxRecord(realDomain) : "no_mx";
+            mx = realDomain ? await (opts.mxCheck ?? checkMxRecord)(realDomain) : "no_mx";
           } catch {
             mx = "dns_indeterminate";
           }
@@ -755,6 +757,7 @@ async function writeEligibilityRow(input: {
       SET status=EXCLUDED.status, decision_reason=EXCLUDED.decision_reason,
           suppression_status=EXCLUDED.suppression_status, source_kind=EXCLUDED.source_kind,
           paid_candidate_evidence_id=EXCLUDED.paid_candidate_evidence_id, candidate_id=EXCLUDED.candidate_id,
+          contact_id=EXCLUDED.contact_id,
           consent_tier=EXCLUDED.consent_tier, reason_codes=EXCLUDED.reason_codes, updated_at=NOW()
   `);
 }
