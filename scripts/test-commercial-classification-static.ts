@@ -226,7 +226,22 @@ for (const file of walk(path.join(process.cwd(), "server"))) {
   if (!file.endsWith(".ts")) continue;
   const relative = path.relative(process.cwd(), file).replace(/\\/g, "/");
   if (allowedRecordClassWriters.has(relative)) continue;
-  const content = fs.readFileSync(file, "utf8");
+  let content = fs.readFileSync(file, "utf8");
+  if (relative === "server/services/sunbiz-bootstrap.ts") {
+    // One reviewed, operator-confirmed historical repair may reclassify only
+    // proven Sunbiz-created rows that still have the old 'unknown' default.
+    // Remove only that exact function from the scan; other writers in this
+    // file must still fail the guard.
+    const repair = content.match(/export async function runSunbizRecordClassRepair\([\s\S]*?\n}/)?.[0];
+    assert(
+      !!repair &&
+        repair.includes("SET record_class = 'canonical'") &&
+        repair.includes("AND record_class = 'unknown'") &&
+        repair.includes("RECORD_CLASS_REPAIR_COHORT_SQL"),
+      "Sunbiz historical repair retains its proven-cohort and unknown-only fences",
+    );
+    content = content.replace(repair, "");
+  }
   if (/\.set\(\s*\{[^}]*recordClass\s*:|SET\s+record_class\s*=/s.test(content)) {
     directWriteViolations.push(relative);
   }
