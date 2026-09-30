@@ -233,7 +233,7 @@ export async function previewSfpPaidWaterfall(cohortRunId: string) {
  * Outscraper (business identity) escalation for a frozen cohort. Runs after
  * the Serper domain-discovery stage. Every reservation/settlement reuses
  * reserveSfpProviderOperation/settleSfpProviderOperation exactly like the
- * Serper stage above (same cohort/stage-run authority, same $50 cap), so
+ * Serper stage above (same cohort/stage-run authority and durable receipts), so
  * this never becomes a second, ungoverned paid-I/O path. A resolved gap
  * dimension stops ONLY that provider for that business — Apollo is skipped
  * only when a verified named decision-maker already exists (C4 reuse);

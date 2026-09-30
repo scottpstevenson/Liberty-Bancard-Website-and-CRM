@@ -30,7 +30,7 @@ const CALLER = "server/services/cro03/sfp-classification-bridge.ts";
 /**
  * Governed default OpenAI escalation used whenever a caller (in particular
  * the production route) does not inject `deps.openAiClassify`. Tests must
- * always inject a fake here — this default reserves real budget and, when
+ * always inject a fake here — this default records a real operation and, when
  * transport is enabled, makes a real OpenAI call.
  *
  * Response schema is intentionally the same 3-value taxonomy the rest of
@@ -176,7 +176,7 @@ async function defaultOpenAiClassify(input: {
       }).catch(() => {});
     }
     // Reservation-time failures (transport disabled, credential missing,
-    // manifest/budget/circuit-breaker denial) mean OpenAI escalation was
+    // manifest/approval/provider-control denial) mean OpenAI escalation was
     // never actually attempted -- this is distinct from a real call that
     // executed and returned unusable output, so the caller can record an
     // accurate, distinguishable reason code rather than a generic failure.
@@ -699,7 +699,7 @@ export async function runPreCohortClassificationBridge(
       // only lever is which rows this lookup is willing to treat as a valid
       // cache hit. A 'completed' row whose reason_codes show the OpenAI
       // escalation was never actually attempted (transport disabled,
-      // credential missing, or the paid-budget gate not yet granted) is not
+      // credential missing, or explicit paid approval not yet granted) is not
       // a real classification result; excluding it here is what lets a
       // later run with the same evidence_hash retry for real once the
       // underlying gap is fixed, without ever mutating the historical row.
@@ -787,7 +787,7 @@ export async function runPreCohortClassificationBridge(
           // The default classifier throws a distinguishable
           // "OPENAI_ESCALATION_NOT_CONFIGURED:..." error when escalation was
           // never actually attempted (transport disabled, credential
-          // missing, manifest/budget denial) -- record that specific reason
+          // missing, manifest/approval denial) -- record that specific reason
           // rather than the generic "call executed but failed" code, so
           // operators can tell "never tried" apart from "tried and failed".
           const message = String(error?.message ?? error ?? "");
@@ -813,7 +813,7 @@ export async function runPreCohortClassificationBridge(
       // A review_required outcome that fell back to OPENAI_UNAVAILABLE or
       // OPENAI_ESCALATION_NOT_CONFIGURED means the OpenAI escalation was
       // never actually attempted (transport disabled, credential missing, or
-      // the paid-budget authorization gate hadn't been granted yet) -- it is
+      // the explicit paid-approval gate hadn't been granted yet) -- it is
       // not a real classification result and must not be cached as
       // terminal_state='completed', or the cache lookup above would keep
       // replaying that non-attempt forever, even after the underlying

@@ -36,7 +36,6 @@ import { SourceRegistryPanel } from "@/pages/dashboard/SourceRegistryPanel";
 import { ProgramHealthPanel } from "@/pages/dashboard/LeadOps/ProgramHealthPanel";
 import { BusinessDetailPanel } from "@/pages/dashboard/LeadOps/BusinessDetailPanel";
 import { MobileBusinessCard, type BusinessListItem } from "@/pages/dashboard/LeadOps/MobileBusinessCard";
-import { BudgetPreviewModal, useBudgetPreview } from "@/pages/dashboard/LeadOps/BudgetPreviewModal";
 import MasterLeadDatabase, { PipelineReviewTab } from "@/pages/dashboard/MasterLeadDatabase";
 import Prospects from "@/pages/dashboard/Prospects";
 import LeadImports from "@/pages/dashboard/LeadImports";
@@ -897,9 +896,6 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
   const { toast } = useToast();
   const [lookupId, setLookupId] = useState("");
   const [businessId, setBusinessId] = useState<number | null>(null);
-  // BudgetPreviewModal: gates billable ZeroBounce intent approval
-  const budget = useBudgetPreview();
-
   const businessQuery = useQuery<BusinessQueryResponse>({
     queryKey: [`/api/lead-ops/businesses/${businessId}`],
     queryFn: async () => {
@@ -1122,11 +1118,6 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
                 </div>
               )}
 
-              {/* Credit cost preview from price schedule — never hardcoded */}
-              <div className="text-[10px] text-muted-foreground">
-                Pricing: loaded from active price schedule (not hardcoded)
-              </div>
-
               {/* Catch-all approval banner */}
               {biz.email_discovery_status === "provider_catch_all" && !biz.email_outreach_catch_all_approved_at && (
                 <div className="rounded border border-amber-200 bg-amber-50 dark:bg-amber-900/20 p-2 space-y-1.5">
@@ -1160,44 +1151,29 @@ function CanonicalBusinessPanel({ healthQueueDepth }: { healthQueueDepth: number
                 </div>
               )}
 
-              {/* Medium-confidence approval banner — ZeroBounce is billable,
-                  so the budget preview modal is shown before the action fires */}
+              {/* Medium-confidence approval banner — explicit operator approval
+                  is required before attempting ZeroBounce validation. */}
               {pendingIntent && pendingIntent.approval_required && (
                 <div className="rounded border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-2 space-y-1.5">
                   <div className="text-xs font-medium text-blue-800 dark:text-blue-300">
                     🔵 Apollo returned medium-confidence match. Approve to attempt ZeroBounce validation?
                   </div>
                   <div className="text-[10px] text-blue-700 dark:text-blue-400">
-                    This does NOT approve for outreach — ZeroBounce must confirm validity first.{" "}
-                    ZeroBounce validation is a <strong>billable action</strong>; a cost preview will appear before proceeding.
+                    This does NOT approve for outreach — ZeroBounce must confirm validity first.
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-6 text-[10px] gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
                     onClick={() => {
-                      // Show budget preview modal before the billable ZeroBounce action.
-                      // The actual approval is executed only after the operator confirms.
-                      budget.requireBudgetConfirmation({
-                        businessId: biz.id,
-                        businessName: biz.canonical_name ?? undefined,
-                        actionType: "zerobounce_validation",
-                        action: () => approveMediumConfidenceMutation.mutate({ id: biz.id, intentId: pendingIntent.id }),
-                      });
+                      if (confirm("Approve this medium-confidence match for ZeroBounce validation? This does not approve the result for outreach.")) {
+                        approveMediumConfidenceMutation.mutate({ id: biz.id, intentId: pendingIntent.id });
+                      }
                     }}
-                    disabled={approveMediumConfidenceMutation.isPending || budget.state.open}
+                    disabled={approveMediumConfidenceMutation.isPending}
                   >
-                    Approve for validation…
+                    Approve for validation
                   </Button>
-                  {/* Budget preview modal — non-dismissible, blocks action until confirmed or cancelled */}
-                  <BudgetPreviewModal
-                    open={budget.state.open}
-                    businessId={budget.state.businessId}
-                    businessName={budget.state.businessName}
-                    actionType={budget.state.actionType}
-                    onConfirm={budget.handleConfirm}
-                    onCancel={budget.handleCancel}
-                  />
                 </div>
               )}
             </div>
@@ -3432,16 +3408,11 @@ function SfpEnrichmentControlCenter() {
   });
 
   const overview = overviewQuery.data;
-  const providerControls: Array<{ provider: string; enabled: boolean; circuit_state: string; local_budget_units: number | null; reserved_units: number; consumed_units: number }> =
+  const providerControls: Array<{ provider: string; enabled: boolean; circuit_state: string }> =
     overview?.providerControls ?? [];
   const serper = providerControls.find((p) => p.provider === "serper");
   const zerobounce = providerControls.find((p) => p.provider === "zerobounce");
-  const aggregateBudget = overview?.aggregateBudget;
   const override = overrideQuery.data?.override ?? null;
-
-  const remainingPct = aggregateBudget && aggregateBudget.capMicros > 0
-    ? Math.max(0, 100 - Math.round(((aggregateBudget.settledMicros + aggregateBudget.reservedMicros) / aggregateBudget.capMicros) * 100))
-    : null;
 
   return (
     <Card data-testid="card-sfp-enrichment-control-center">
@@ -3460,33 +3431,16 @@ function SfpEnrichmentControlCenter() {
           <div className="text-sm text-destructive">Failed to load pipeline status.</div>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="rounded-md border p-3" data-testid="stat-serper-budget">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="rounded-md border p-3" data-testid="stat-serper-status">
                 <div className="text-xs text-muted-foreground">Serper (discovery)</div>
-                <div className="text-lg font-semibold">
-                  {serper ? `${Number(serper.consumed_units) + Number(serper.reserved_units)} / ${serper.local_budget_units ?? "∞"}` : "—"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {serper ? (serper.enabled && serper.circuit_state === "closed" ? "healthy" : `${serper.circuit_state}${serper.enabled ? "" : ", disabled"}`) : "unknown"}
-                </div>
+                <div className="text-lg font-semibold">{serper ? (serper.enabled ? "enabled" : "disabled") : "unknown"}</div>
+                <div className="text-xs text-muted-foreground">{serper?.circuit_state ?? "unavailable"}</div>
               </div>
-              <div className="rounded-md border p-3" data-testid="stat-zerobounce-budget">
+              <div className="rounded-md border p-3" data-testid="stat-zerobounce-status">
                 <div className="text-xs text-muted-foreground">ZeroBounce (validation)</div>
-                <div className="text-lg font-semibold">
-                  {zerobounce ? `${Number(zerobounce.consumed_units) + Number(zerobounce.reserved_units)} / ${zerobounce.local_budget_units ?? "∞"}` : "—"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {zerobounce ? (zerobounce.enabled && zerobounce.circuit_state === "closed" ? "healthy" : `${zerobounce.circuit_state}${zerobounce.enabled ? "" : ", disabled"}`) : "unknown"}
-                </div>
-              </div>
-              <div className="rounded-md border p-3" data-testid="stat-aggregate-budget">
-                <div className="text-xs text-muted-foreground">$50 aggregate paid cap</div>
-                <div className="text-lg font-semibold">
-                  {aggregateBudget ? usdFromMicros(aggregateBudget.remainingMicros) : "—"} left
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {remainingPct !== null ? `${remainingPct}% remaining` : ""}{aggregateBudget?.overCap ? " · OVER CAP" : ""}
-                </div>
+                <div className="text-lg font-semibold">{zerobounce ? (zerobounce.enabled ? "enabled" : "disabled") : "unknown"}</div>
+                <div className="text-xs text-muted-foreground">{zerobounce?.circuit_state ?? "unavailable"}</div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-ready-held">
                 <div className="text-xs text-muted-foreground">Ready-held enrollments</div>
@@ -3676,7 +3630,7 @@ function SfpProviderResultsPanel() {
 // straight from the server. All mutating actions are gated by the run's
 // actual state so an operator cannot skip a step the server would reject
 // anyway — the server-side checks remain the real authority.
-const PAID_BUDGET_CONFIRMATION = "AUTHORIZE $50 PAID PILOT";
+const PAID_APPROVAL_CONFIRMATION = "AUTHORIZE PAID PILOT";
 
 function usdFromMicros(micros: number | undefined | null): string {
   return `$${((Number(micros ?? 0)) / 1_000_000).toFixed(2)}`;
@@ -3696,7 +3650,7 @@ function PilotStatusPanel() {
   const { toast } = useToast();
   const [executingRunId, setExecutingRunId] = useState<string | null>(null);
   const [reconciliationReport, setReconciliationReport] = useState<any>(null);
-  const [budgetConfirmText, setBudgetConfirmText] = useState("");
+  const [paidApprovalConfirmText, setPaidApprovalConfirmText] = useState("");
   const [newDefLevel, setNewDefLevel] = useState<"1" | "2" | "3">("1");
   const [newDefCounties, setNewDefCounties] = useState("");
   const [newDefVerticals, setNewDefVerticals] = useState("");
@@ -3737,10 +3691,10 @@ function PilotStatusPanel() {
     staleTime: 30_000,
   });
 
-  const budgetQuery = useQuery<{ summary: any; authorization: any }>({
-    queryKey: ["/api/lead-ops/pilot/budget-summary"],
+  const paidApprovalQuery = useQuery<{ authorization: any }>({
+    queryKey: ["/api/lead-ops/pilot/paid-provider-approval"],
     queryFn: async () => {
-      const r = await fetch("/api/lead-ops/pilot/budget-summary", { credentials: "include" });
+      const r = await fetch("/api/lead-ops/pilot/paid-provider-approval", { credentials: "include" });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
@@ -3808,7 +3762,7 @@ function PilotStatusPanel() {
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/preflight"] });
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/runs"] });
     queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/definitions"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/paid-provider-approval"] });
   };
 
   const errToast = (err: unknown) => {
@@ -3866,7 +3820,6 @@ function PilotStatusPanel() {
           conflictPct: 5,
           apolloYieldPct: 0,
           zbUnknownPct: 20,
-          spendCapMicros: level === 1 ? 0 : 50_000_000,
         },
       });
       if (!res.ok) throw new Error(await res.text());
@@ -3963,13 +3916,13 @@ function PilotStatusPanel() {
     onError: errToast,
   });
 
-  const authorizeBudgetMutation = useMutation({
+  const authorizePaidPilotMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/lead-ops/pilot/authorize-paid-budget", { typedConfirmation: budgetConfirmText });
+      const res = await apiRequest("POST", "/api/lead-ops/pilot/paid-provider-approval", { typedConfirmation: paidApprovalConfirmText });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: () => { toast({ title: "Paid budget authorized ($50 aggregate cap)" }); setBudgetConfirmText(""); queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] }); },
+    onSuccess: () => { toast({ title: "Paid pilot approved" }); setPaidApprovalConfirmText(""); queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/paid-provider-approval"] }); },
     onError: errToast,
   });
 
@@ -3984,7 +3937,7 @@ function PilotStatusPanel() {
         title: "All paid providers stopped",
         description: `Disabled ${data.providersDisabled ?? 0} provider control(s); ${data.inFlightCount ?? 0} in-flight operation(s) require reconciliation.`,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/budget-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/paid-provider-approval"] });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/pilot/status-overview"] });
     },
     onError: errToast,
@@ -4038,9 +3991,8 @@ function PilotStatusPanel() {
   const preflight = preflightQuery.data;
   const runs = runsQuery.data ?? [];
   const defs = defsQuery.data ?? [];
-  const budget = budgetQuery.data?.summary;
-  const budgetAuth = budgetQuery.data?.authorization;
-  const budgetAuthorized = !!budgetAuth && !budgetAuth.revokedAt;
+  const paidApproval = paidApprovalQuery.data?.authorization;
+  const paidPilotApproved = !!paidApproval && !paidApproval.revokedAt;
 
   const checkEntries = preflight ? Object.entries(preflight.checks) : [];
   const passedCount = checkEntries.filter(([, c]) => c.passed).length;
@@ -4057,12 +4009,6 @@ function PilotStatusPanel() {
               <div className={check.passed ? "text-green-600" : "text-red-500"}>{check.detail ?? (check.passed ? "OK" : "missing")}</div>
             </div>
           ))}
-          <div className="rounded border p-2">
-            <div className="text-muted-foreground font-mono">aggregatePaidBudget</div>
-            <div className={budget?.overCap ? "text-red-500" : "text-green-600"}>
-              {budget ? `${usdFromMicros(budget.settledMicros + budget.reservedMicros)} / ${usdFromMicros(budget.capMicros)}` : "—"}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -4142,10 +4088,6 @@ function PilotStatusPanel() {
               <div className="text-muted-foreground">master_leads rows</div>
               <div>{statusOverviewQuery.data.eligibleCounts?.master_leads_count ?? "—"}</div>
             </div>
-            <div className="rounded border p-2">
-              <div className="text-muted-foreground">Aggregate spend</div>
-              <div>{usdFromMicros((statusOverviewQuery.data.aggregateBudget?.settledMicros ?? 0) + (statusOverviewQuery.data.aggregateBudget?.reservedMicros ?? 0))} / {usdFromMicros(statusOverviewQuery.data.aggregateBudget?.capMicros ?? 0)}</div>
-            </div>
           </div>
         )}
         {statusOverviewQuery.data?.funnel && (
@@ -4195,18 +4137,6 @@ function PilotStatusPanel() {
             </div>
           </div>
         )}
-        {statusOverviewQuery.data?.spendByProvider?.length > 0 && (
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Spend by provider</div>
-            <div className="flex flex-wrap gap-1">
-              {statusOverviewQuery.data.spendByProvider.map((p: any) => (
-                <span key={p.provider} className="text-xs px-2 py-0.5 rounded bg-muted font-mono">
-                  {p.provider}: {usdFromMicros(p.settledMicros + p.reservedMicros)} ({p.operationCount} ops)
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
         {statusOverviewQuery.data?.providerControls?.length > 0 && (
           <div>
             <div className="text-xs text-muted-foreground mb-2">Paid Provider Controls</div>
@@ -4221,7 +4151,6 @@ function PilotStatusPanel() {
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 mt-1 font-mono text-[11px]">
                     <span>credential: {String(p.credentialPresent)}</span>
-                    <span>cap: {p.budgetCapUnits ?? "—"}</span>
                     <span>reserved: {p.reservedUnits ?? 0}</span>
                     <span>consumed: {p.consumedUnits ?? 0}</span>
                     <span className="col-span-2 truncate">price: {p.currentPriceArtifactReference ?? "unavailable"}</span>
@@ -4341,64 +4270,29 @@ function PilotStatusPanel() {
         )}
       </div>
 
-      {/* Aggregate paid budget & emergency stop */}
+      {/* Explicit paid-provider approval */}
       <div className="rounded-lg border bg-card p-4 space-y-3">
-        <h3 className="font-semibold text-sm">Aggregate Paid Budget (Level 2–3, all providers combined)</h3>
-        {budget && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-            <div className="rounded border p-2"><div className="text-muted-foreground">Settled</div><div className="font-mono">{usdFromMicros(budget.settledMicros)}</div></div>
-            <div className="rounded border p-2"><div className="text-muted-foreground">Reserved (in-flight)</div><div className="font-mono">{usdFromMicros(budget.reservedMicros)}</div></div>
-            <div className="rounded border p-2"><div className="text-muted-foreground">Remaining</div><div className="font-mono">{usdFromMicros(budget.remainingMicros)}</div></div>
-            <div className="rounded border p-2"><div className="text-muted-foreground">Cap</div><div className="font-mono">{usdFromMicros(budget.capMicros)}</div></div>
-            {budget.byProvider?.map((p: any) => (
-              <div key={p.provider} className="rounded border p-2 col-span-2">
-                <div className="text-muted-foreground">{p.provider}</div>
-                <div className="font-mono">settled {usdFromMicros(p.settledMicros)} · reserved {usdFromMicros(p.reservedMicros)} · {p.operationCount} ops</div>
-              </div>
-            ))}
-          </div>
-        )}
+        <h3 className="font-semibold text-sm">Paid Provider Approval</h3>
         <div className="text-xs text-muted-foreground">
-          Status: {budgetAuthorized ? <span className="text-green-600 font-medium">Authorized by {budgetAuth.authorizedBy} at {new Date(budgetAuth.authorizedAt).toLocaleString()}</span> : <span className="text-red-500 font-medium">Not authorized — paid Level 2/3 phases are blocked</span>}
+          Status: {paidPilotApproved ? <span className="text-green-600 font-medium">Approved by {paidApproval.authorizedBy} at {new Date(paidApproval.authorizedAt).toLocaleString()}</span> : <span className="text-red-500 font-medium">Not approved — paid pilot phases remain blocked</span>}
         </div>
-        {!budgetAuthorized && (
+        {!paidPilotApproved && (
           <div className="flex items-center gap-2">
             <Input
-              value={budgetConfirmText}
-              onChange={(e) => setBudgetConfirmText(e.target.value)}
-              placeholder={PAID_BUDGET_CONFIRMATION}
+              value={paidApprovalConfirmText}
+              onChange={(e) => setPaidApprovalConfirmText(e.target.value)}
+              placeholder={PAID_APPROVAL_CONFIRMATION}
               className="text-xs h-8 max-w-xs font-mono"
             />
             <Button
               size="sm"
               variant="destructive"
-              disabled={budgetConfirmText !== PAID_BUDGET_CONFIRMATION || authorizeBudgetMutation.isPending}
-              onClick={() => authorizeBudgetMutation.mutate()}
+              disabled={paidApprovalConfirmText !== PAID_APPROVAL_CONFIRMATION || authorizePaidPilotMutation.isPending}
+              onClick={() => authorizePaidPilotMutation.mutate()}
             >
-              Authorize $50 Paid Pilot
+              Approve paid pilot
             </Button>
           </div>
-        )}
-        {budgetAuthorized && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button size="sm" variant="destructive"><ShieldAlert className="h-3.5 w-3.5 mr-1" /> Emergency Stop All Paid Providers</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Stop all paid pilot enrichment?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This disables Serper, Outscraper, OpenAI, Apollo, and ZeroBounce, turns off automatic ZeroBounce,
-                  deactivates recurring CRO-08A schedules, and leaves in-flight operations visible for reconciliation.
-                  It does not change the global outbound-pause state.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => emergencyStopMutation.mutate()}>Stop paid enrichment</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         )}
       </div>
 
@@ -4573,7 +4467,7 @@ function PilotStatusPanel() {
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <h3 className="font-semibold text-sm">CRO-08A Schedules</h3>
         <div className="text-xs text-muted-foreground">
-          Activation requires the MI-09 pilot ladder (Levels 1-3) to be complete, plus the existing $50 aggregate spend cap enforced per command. The certification-receipt ceremony was removed on 2026-09-13.
+          Activation requires the MI-09 pilot ladder (Levels 1–3) to be complete and the paid-provider approval to remain active. The certification-receipt ceremony was removed on 2026-09-13.
         </div>
         {(scheduleDefsQuery.data ?? []).map((s: any) => (
           <div key={s.id} className="rounded border p-2 text-xs flex items-center justify-between">

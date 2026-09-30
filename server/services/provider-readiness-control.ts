@@ -391,14 +391,13 @@ export async function processValidationIntent(
   }
 
   // A control row is operator-owned. Do not create an enabled row from a
-  // secret or from a queue job; enablement and budget are explicit controls.
+  // secret or from a queue job; enablement and circuit state are explicit controls.
   const control = await db.execute(sql`
-    SELECT provider, enabled, circuit_state, local_budget_units,
-           reserved_units, consumed_units, version
+    SELECT provider, enabled, circuit_state, reserved_units, consumed_units, version
       FROM provider_controls WHERE provider = 'zerobounce' LIMIT 1
   `);
   const c = (control as any).rows?.[0];
-  if (!c?.enabled || c.circuit_state !== "closed" || c.local_budget_units == null) {
+  if (!c?.enabled || c.circuit_state !== "closed") {
     await db.execute(sql`
       UPDATE validation_intents
          SET state = 'pending', enqueue_state = 'deferred',
@@ -437,15 +436,14 @@ export async function processValidationIntent(
     `);
     return "failed";
   }
-  // Reservation and operation ownership commit together. If the budget race is
-  // lost, no operation exists and the intent is safely recoverable (not
-  // ambiguously billed).
+  // Usage accounting and operation ownership commit together. This reservation
+  // records in-flight work and supports idempotent reconciliation; it is not a
+  // local credit ceiling.
   const allocation = await db.execute(sql`
     WITH reservation AS (
       UPDATE provider_controls
          SET reserved_units = reserved_units + 1, version = version + 1, updated_at = NOW()
        WHERE provider = 'zerobounce' AND enabled = TRUE AND circuit_state = 'closed'
-         AND reserved_units + consumed_units < local_budget_units
        RETURNING provider
     )
     INSERT INTO provider_operations
@@ -461,7 +459,7 @@ export async function processValidationIntent(
     await db.execute(sql`
       UPDATE validation_intents
          SET state = 'pending', enqueue_state = 'deferred',
-             terminal_code = 'budget_exhausted', lease_expires_at = NULL,
+             terminal_code = 'provider_control_unavailable', lease_expires_at = NULL,
              claim_token = NULL, updated_at = NOW()
        WHERE id = ${intentId}::uuid AND claim_token = ${claimToken}::uuid
     `);

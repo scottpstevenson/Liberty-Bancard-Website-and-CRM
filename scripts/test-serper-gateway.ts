@@ -10,7 +10,7 @@
  *  3. 20 configured failures open the circuit
  *  4. 401/403 and confirmed quota exhaustion open immediately
  *  5. 200 with zero results = provider success, zero yield
- *  6. concurrent budget claims cannot exceed local_budget
+ *  6. concurrent requests are not blocked by local credit settings
  *  7. concurrent half-open claims result in only one probe
  *  8. monthly rollover preserves lifetime totals, resets window, quota-open → half_open
  *  9. manual recovery enters half_open and is audited
@@ -22,7 +22,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { pool } from "../server/db";
+import { db, pool } from "../server/db";
 import { SerperGateway, type SerperControlRow } from "../server/services/serper-gateway";
 
 process.env.SERPER_API_KEY = process.env.SERPER_API_KEY || "test-key-fake";
@@ -50,6 +50,11 @@ async function getRow(): Promise<SerperControlRow> {
   return rows[0];
 }
 
+async function getProviderControl(): Promise<any | null> {
+  const { rows } = await pool.query(`SELECT * FROM provider_controls WHERE provider = 'serper'`);
+  return rows[0] ?? null;
+}
+
 async function setRow(fields: Record<string, any>) {
   const keys = Object.keys(fields);
   const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
@@ -71,12 +76,42 @@ const RESET_BASE = {
 
 async function main() {
   const original = await getRow();
+  const originalProviderControl = await getProviderControl();
   if (!original) {
     console.error("serper_control row missing — run migrations first.");
     process.exit(1);
   }
 
   try {
+    // ── Case 0: toggling enablement does not reset an open circuit ────────
+    console.log("\nCase 0: enable toggle preserves open circuit");
+    await setRow({ ...RESET_BASE, enabled: false, state: "open", reason_code: "test_open_circuit" });
+    await pool.query(
+      `INSERT INTO provider_controls (provider, capability, enabled, circuit_state)
+       VALUES ('serper', 'business_discovery', false, 'open')
+       ON CONFLICT (provider) DO UPDATE SET circuit_state = 'open'`,
+    );
+    {
+      const gw = new SerperGateway({ dbOverride: db });
+      await gw.setEnabled(true, {
+        actorId: null,
+        reason: "test enable while circuit is open",
+        correlationId: "test-serper-enable-open-circuit",
+      });
+      const providerControl = await getProviderControl();
+      const row = await getRow();
+      check(
+        "provider_controls remains open after enable toggle",
+        providerControl?.circuit_state === "open",
+        `circuit_state=${providerControl?.circuit_state}`,
+      );
+      check(
+        "serper_control remains open after enable toggle",
+        row.enabled && row.state === "open",
+        `enabled=${row.enabled} state=${row.state}`,
+      );
+    }
+
     // ── Case 1: blocked while enabled=false ─────────────────────────────
     console.log("\nCase 1: enabled=false blocks");
     await setRow({ ...RESET_BASE, enabled: false });
@@ -156,8 +191,8 @@ async function main() {
       check("zero yield recorded", Number(row.yield_websites) === 0 && Number(row.yield_emails) === 0 && Number(row.yield_phones) === 0);
     }
 
-    // ── Case 6: concurrent budget claims capped at local_budget ─────────
-    console.log("\nCase 6: concurrent budget claims");
+    // ── Case 6: local credit settings do not gate requests ─────────────
+    console.log("\nCase 6: concurrent calls are accounted without a local ceiling");
     await setRow({ ...RESET_BASE, local_budget: 5 });
     {
       const f = fakeFetch(200, { organic: [] });
@@ -166,12 +201,11 @@ async function main() {
         Array.from({ length: 12 }, (_, i) => gw.executeSearch("/search", { q: String(i) }, "test6")),
       );
       const okCount = results.filter(r => r.ok).length;
-      const budgetBlocked = results.filter(r => r.blockReason === "budget_exhausted").length;
       const row = await getRow();
-      check("exactly budget succeeded", okCount === 5, `ok=${okCount}`);
-      check("rest budget-blocked", budgetBlocked === 7, `blocked=${budgetBlocked}`);
-      check("window_calls == budget", row.window_calls === 5, `wc=${row.window_calls}`);
-      check("HTTP calls == budget", f.calls() === 5, `fetches=${f.calls()}`);
+      check("all requests succeeded", okCount === 12, `ok=${okCount}`);
+      check("no local budget blocks", results.every(r => !r.blocked), "unexpected blocked result");
+      check("window_calls reports every request", row.window_calls === 12, `wc=${row.window_calls}`);
+      check("HTTP calls == requests", f.calls() === 12, `fetches=${f.calls()}`);
     }
 
     // ── Case 7: only one half-open probe ────────────────────────────────
@@ -296,6 +330,36 @@ async function main() {
       yield_emails: original.yield_emails,
       yield_phones: original.yield_phones,
     });
+    if (originalProviderControl) {
+      await pool.query(
+        `UPDATE provider_controls
+            SET enabled = $2, circuit_state = $3, local_budget_units = $4,
+                reserved_units = $5, consumed_units = $6,
+                window_started_at = $7, window_ends_at = $8,
+                last_completed_at = $9, last_outcome = $10,
+                last_error_code = $11, observed_at = $12,
+                version = $13, updated_at = $14
+          WHERE provider = $1`,
+        [
+          originalProviderControl.provider,
+          originalProviderControl.enabled,
+          originalProviderControl.circuit_state,
+          originalProviderControl.local_budget_units,
+          originalProviderControl.reserved_units,
+          originalProviderControl.consumed_units,
+          originalProviderControl.window_started_at,
+          originalProviderControl.window_ends_at,
+          originalProviderControl.last_completed_at,
+          originalProviderControl.last_outcome,
+          originalProviderControl.last_error_code,
+          originalProviderControl.observed_at,
+          originalProviderControl.version,
+          originalProviderControl.updated_at,
+        ],
+      );
+    } else {
+      await pool.query(`DELETE FROM provider_controls WHERE provider = 'serper'`);
+    }
   }
 
   console.log(`\n══ Serper Gateway suite: ${pass} passed, ${fail} failed ══`);

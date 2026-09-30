@@ -45,7 +45,6 @@ interface CampaignResponse {
     createdAt: string;
   } | null;
   counts?: CampaignCounts;
-  dailyBudget?: { used: number; limit: number };
   latestRun?: CampaignRun | null;
 }
 
@@ -67,7 +66,7 @@ function relativeTime(iso: string | null): string {
 type CardState =
   | "not_started"
   | "running"
-  | "budget_stopped"
+  | "paused"
   | "interrupted"
   | "run_finished" // day's run done (contact limit / cohort pass), campaign not complete
   | "completed"
@@ -80,12 +79,9 @@ type CardState =
  */
 export function ZeroBounceCampaign({
   fallbackEligible,
-  fallbackDailyLimit,
 }: {
   /** Eligible-contact count from quality-summary, used before a campaign exists. */
   fallbackEligible: number | undefined;
-  /** ZeroBounce daily limit from quality-summary, used before a campaign exists. */
-  fallbackDailyLimit: number | undefined;
 }) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -158,7 +154,6 @@ export function ZeroBounceCampaign({
   const counts = data.counts;
   const initialTotal = data.campaign?.initialEligibleTotal ?? 0;
   const remaining = counts?.remainingEligible ?? 0;
-  const dailyLimit = data.dailyBudget?.limit ?? fallbackDailyLimit ?? 500;
 
   // Heartbeat staleness (client-side display guard; the server also marks
   // stale runs interrupted on every read).
@@ -173,20 +168,19 @@ export function ZeroBounceCampaign({
   else if (run?.state === "running" && !heartbeatStale) cardState = "running";
   else if (run?.state === "running" && heartbeatStale) cardState = "interrupted";
   else if (remaining === 0 && (counts?.pending ?? 0) === 0) cardState = "completed";
-  else if (run?.state === "budget_stopped") cardState = "budget_stopped";
+  else if (run?.state === "budget_stopped") cardState = "paused";
   else if (run?.state === "interrupted") cardState = "interrupted";
   else if (run?.state === "completed") cardState = "run_finished";
   else cardState = "not_started";
 
   const isRunning = cardState === "running";
-  const estDays = remaining > 0 ? Math.ceil(remaining / dailyLimit) : 0;
   const progressPct =
     initialTotal > 0 ? Math.min(100, ((counts?.providerCompleted ?? 0) / initialTotal) * 100) : 0;
 
   const stateBadge: Record<CardState, { label: string; cls: string }> = {
     not_started:   { label: "Not started",        cls: "text-gray-600 border-gray-300 bg-gray-50" },
     running:       { label: "Running",            cls: "text-blue-700 border-blue-300 bg-blue-50" },
-    budget_stopped:{ label: "Daily limit reached", cls: "text-amber-700 border-amber-300 bg-amber-50" },
+    paused:        { label: "Paused",              cls: "text-amber-700 border-amber-300 bg-amber-50" },
     interrupted:   { label: "Interrupted",         cls: "text-red-700 border-red-300 bg-red-50" },
     run_finished:  { label: "Run finished",        cls: "text-amber-700 border-amber-300 bg-amber-50" },
     completed:     { label: "Completed",           cls: "text-green-700 border-green-300 bg-green-50" },
@@ -194,7 +188,7 @@ export function ZeroBounceCampaign({
   };
 
   const startLabel =
-    cardState === "budget_stopped" ? "Start Next Day's Run"
+    cardState === "paused" ? "Resume"
     : cardState === "interrupted" ? "Resume"
     : cardState === "run_finished" ? "Resume"
     : "Start Batch Run";
@@ -208,7 +202,7 @@ export function ZeroBounceCampaign({
               <CalendarClock className="h-4 w-4" /> Validation Campaign
             </CardTitle>
             <CardDescription>
-              Durable multi-day ZeroBounce validation of all eligible contacts.
+              Campaign-based ZeroBounce validation of eligible contacts.
             </CardDescription>
           </div>
           <Badge variant="outline" className={`text-xs ${stateBadge[cardState].cls}`} data-testid="zb-campaign-state">
@@ -223,11 +217,7 @@ export function ZeroBounceCampaign({
             No campaign yet. {fallbackEligible != null ? (
               <>
                 <span className="font-medium text-foreground">{fallbackEligible.toLocaleString()}</span>{" "}
-                contacts have unvalidated emails — estimated minimum{" "}
-                <span className="font-medium text-foreground">
-                  {Math.ceil(fallbackEligible / dailyLimit).toLocaleString()} days
-                </span>{" "}
-                at the current limit of {dailyLimit}/day.
+                contacts have unvalidated emails.
               </>
             ) : "Start a batch run to begin."}
           </p>
@@ -238,10 +228,10 @@ export function ZeroBounceCampaign({
             Campaign cancelled. Starting a new run will create a fresh campaign.
           </div>
         )}
-        {cardState === "budget_stopped" && (
+        {cardState === "paused" && (
           <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            Daily limit reached — resume tomorrow.
+            The last validation run paused. You can resume it when ready.
           </div>
         )}
         {cardState === "run_finished" && (
@@ -294,19 +284,6 @@ export function ZeroBounceCampaign({
               )}
             </div>
 
-            {/* Estimated timeline */}
-            <p className="text-xs text-muted-foreground">
-              {remaining === 0 ? (
-                <span className="text-green-700 font-medium">Complete</span>
-              ) : (
-                <>
-                  Estimated minimum:{" "}
-                  <span className="font-medium text-foreground">{estDays.toLocaleString()} days</span>{" "}
-                  at current limit of {dailyLimit}/day
-                </>
-              )}
-            </p>
-
             {/* Heartbeat while running */}
             {isRunning && (
               <p className="text-xs text-muted-foreground">
@@ -332,7 +309,7 @@ export function ZeroBounceCampaign({
               {startLabel}
             </Button>
           )}
-          {isAdmin && data.active && run && (cardState === "running" || cardState === "budget_stopped" || cardState === "interrupted" || cardState === "run_finished") && (
+          {isAdmin && data.active && run && (cardState === "running" || cardState === "paused" || cardState === "interrupted" || cardState === "run_finished") && (
             <Button
               size="sm"
               variant="outline"

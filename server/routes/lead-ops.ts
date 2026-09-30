@@ -2515,7 +2515,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           : { snapshotAt: funnelSnapshotAt, available: false, unavailableReason: funnelUnavailableReason },
         crosswalkOnlyExcluded: crosswalkOnlyExcluded ?? { crosswalk_only_excluded_count: 0, ambiguous_match_count: 0, insufficient_evidence_count: 0 },
         spendByProvider: spend.byProvider,
-        aggregateBudget: { capMicros: spend.capMicros, settledMicros: spend.settledMicros, reservedMicros: spend.reservedMicros, remainingMicros: spend.remainingMicros, overCap: spend.overCap },
         providerControls: paidProviderControls.providers,
         zeroBounceSafety: paidProviderControls.zeroBounce,
         paidInFlightCount: paidProviderControls.inFlightCount,
@@ -2528,8 +2527,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         serperTelemetry: await (async () => {
           try {
             const serperRow = ((await db.execute(sql`
-              SELECT enabled, circuit_state, daily_call_count, daily_cost_micros,
-                     daily_calls_cap, daily_cost_cap_micros, updated_at
+               SELECT enabled, circuit_state, daily_call_count, daily_cost_micros, updated_at
               FROM serper_control WHERE id = 1 LIMIT 1
             `)) as any).rows?.[0] ?? null;
             if (!serperRow) return { configured: false, reason: "no_control_row" };
@@ -2539,8 +2537,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
               circuitState: serperRow.circuit_state ?? "unknown",
               dailyCallCount: Number(serperRow.daily_call_count ?? 0),
               dailyCostMicros: Number(serperRow.daily_cost_micros ?? 0),
-              dailyCallsCap: Number(serperRow.daily_calls_cap ?? 0),
-              dailyCostCapMicros: Number(serperRow.daily_cost_cap_micros ?? 0),
               updatedAt: serperRow.updated_at ?? null,
             };
           } catch {
@@ -2581,13 +2577,12 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
   app.post("/api/lead-ops/pilot/runs/:runId/transition", requireRole("admin"), async (req, res) => {
     try {
-      const { transitionPilotRunState, evaluateStopConditions, getPilotRun, getPilotDefinitions, assertPaidBudgetAuthorized, assertAggregatePaidBudgetAvailable } = await import("../services/mi09-pilot-authority");
+      const { transitionPilotRunState, evaluateStopConditions, getPilotRun, getPilotDefinitions, assertPaidBudgetAuthorized } = await import("../services/mi09-pilot-authority");
       const { toState, stopReason, advancedBy } = req.body as { toState: string; stopReason?: string; advancedBy?: string };
       if (!toState) return res.status(400).json({ error: "toState required" });
 
-      // Starting (or resuming) a run whose definition allows any paid provider
-      // requires the standing typed budget authorization and headroom under
-      // the $50 ladder-wide aggregate cap — checked BEFORE the state flips.
+      // Starting a run whose definition allows paid providers requires explicit
+      // operator approval. Provider limits and circuit state remain independent.
       if (toState === "running") {
         const run = await getPilotRun(String(req.params.runId));
         if (!run) return res.status(404).json({ error: "PILOT_RUN_NOT_FOUND" });
@@ -2599,7 +2594,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         const anyPaidAllowed = Object.values(paidAllowed).some((v) => v === true);
         if (anyPaidAllowed) {
           await assertPaidBudgetAuthorized();
-          await assertAggregatePaidBudgetAvailable();
         }
       }
 
@@ -2612,7 +2606,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       res.json({ ok: true, stopConditionsChecked: stopCheck });
     } catch (err: any) {
       const status = err?.message?.includes("MI09_PAID_BUDGET_NOT_AUTHORIZED") ? 403
-        : err?.message?.includes("MI09_AGGREGATE_BUDGET_EXCEEDED") ? 409
         : err?.message?.includes("PILOT_EVIDENCE") ? 409
         : 500;
       res.status(status).json({ error: err?.message });
@@ -2760,29 +2753,44 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/pilot/authorize-paid-budget — one-time typed confirmation
-  // before any paid-provider pilot phase (Level 2+) may run. Requires the exact
-  // typed string "AUTHORIZE $50 PAID PILOT"; verified again server-side.
-  app.post("/api/lead-ops/pilot/authorize-paid-budget", requireRole("admin"), async (req, res) => {
+  // Read-only approval state without exposing legacy budget metadata.
+  app.get("/api/lead-ops/pilot/paid-provider-approval", requireRole("admin"), async (_req, res) => {
+    try {
+      const { getPaidBudgetAuthorization } = await import("../services/mi09-pilot-authority");
+      const current = await getPaidBudgetAuthorization() as any;
+      if (!current) return res.json({ authorization: null });
+      const { capMicros: _legacyCapMicros, ...approval } = current;
+      res.json({ authorization: approval });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/lead-ops/pilot/paid-provider-approval — separately revocable
+  // paid-provider approval. The old URL below remains a compatible alias.
+  const approvePaidProviders = async (req: any, res: any) => {
     try {
       const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } = await import("../services/mi09-pilot-authority");
       const typedConfirmation = String(req.body?.typedConfirmation ?? "");
-      if (typedConfirmation !== MI09_PAID_BUDGET_TYPED_CONFIRMATION) {
-        return res.status(400).json({ error: `MI09_PAID_BUDGET_AUTHORIZATION_DENIED:typed_confirmation_mismatch — must type exactly: ${MI09_PAID_BUDGET_TYPED_CONFIRMATION}` });
+      if (typedConfirmation !== "AUTHORIZE PAID PILOT" && typedConfirmation !== MI09_PAID_BUDGET_TYPED_CONFIRMATION) {
+        return res.status(400).json({ error: "PAID_PROVIDER_APPROVAL_DENIED:typed_confirmation_mismatch — type exactly: AUTHORIZE PAID PILOT" });
       }
       const authorizedBy = (req as any).user?.email ?? String((req as any).user?.id ?? "unknown-admin");
-      const result = await authorizePaidBudget({ authorizedBy, typedConfirmation });
+      const result = await authorizePaidBudget({ authorizedBy, typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION });
       await storage.createAuditLog({
-        action: "mi09_pilot_paid_budget_authorized",
+        action: "mi09_pilot_paid_provider_approved",
         entityType: "system",
         entityId: 0,
-        details: { authorizedBy, capMicros: result.capMicros },
+        details: { authorizedBy },
       });
-      res.json(result);
+      const { capMicros: _legacyCapMicros, ...approval } = result;
+      res.json(approval);
     } catch (err: any) {
       res.status(err?.message?.includes("DENIED") ? 403 : 500).json({ error: err?.message });
     }
-  });
+  };
+  app.post("/api/lead-ops/pilot/paid-provider-approval", requireRole("admin"), approvePaidProviders);
+  app.post("/api/lead-ops/pilot/authorize-paid-budget", requireRole("admin"), approvePaidProviders);
 
   // GET /api/lead-ops/recurrence/budget-summary — corrective item 8: the
   // recurring-execution aggregate paid spend cap and typed authorization,
@@ -2922,11 +2930,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (!idempotencyKey) {
         return res.status(400).json({ error: "Idempotency-Key header is required" });
       }
-      const { executePilotCohortPhase, assertAggregatePaidBudgetAvailable, assertPaidBudgetAuthorized, getPilotRun, getPilotDefinitions } = await import("../services/mi09-pilot-authority");
+      const { executePilotCohortPhase, assertPaidBudgetAuthorized, getPilotRun, getPilotDefinitions } = await import("../services/mi09-pilot-authority");
 
-      // Paid-provider gate: if this run's definition allows ANY paid provider,
-      // require the standing typed authorization AND that the ladder-wide $50
-      // aggregate is not already exhausted, before dispatching more paid work.
+      // Paid-provider gate: retain explicit operator approval, without an
+      // aggregate-spend authorization or cap check.
       const run = await getPilotRun(String(req.params.runId));
       if (!run) return res.status(404).json({ error: "PILOT_RUN_NOT_FOUND" });
       const defs = await getPilotDefinitions();
@@ -2937,7 +2944,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const anyPaidAllowed = Object.values(paidAllowed).some((v) => v === true);
       if (anyPaidAllowed) {
         await assertPaidBudgetAuthorized();
-        await assertAggregatePaidBudgetAvailable();
       }
 
       const result = await executePilotCohortPhase({
@@ -2947,9 +2953,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       });
       res.json(result);
     } catch (err: any) {
-      const status = err?.message?.includes("MI09_PAID_BUDGET_NOT_AUTHORIZED") ? 403
-        : err?.message?.includes("MI09_AGGREGATE_BUDGET_EXCEEDED") ? 409
-        : 500;
+      const status = err?.message?.includes("MI09_PAID_BUDGET_NOT_AUTHORIZED") ? 403 : 500;
       res.status(status).json({ error: err?.message });
     }
   });
@@ -3602,10 +3606,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // Arm only a bounded Serper domain-discovery pilot for a frozen SFP cohort.
-  // The canonical provider control is separate from the legacy contact Serper
-  // gateway. Never reset spent/reserved units or open a tripped circuit; the
-  // local cap permits at most four new reservations per selected business.
+  // Approve Serper for a frozen SFP cohort. This enables the provider without
+  // changing its configured limit, usage counters, or circuit state.
   app.post("/api/lead-ops/sfp/runs/:runId/serper/arm-pilot", requireRole("admin"), async (req, res) => {
     try {
       const maxBusinesses = Number(req.body?.maxBusinesses);
@@ -3616,118 +3618,75 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       if (reason.length < 8 || reason.length > 200) {
         return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
       }
-      const { assertSfpRuntimeAuthority, maxUnitsPerSfpReservation } = await import("../services/cro03/sfp-provider-operations");
+      const { assertSfpRuntimeAuthority } = await import("../services/cro03/sfp-provider-operations");
       const cohortRunId = String(req.params.runId);
       await assertSfpRuntimeAuthority(cohortRunId);
       if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" || !process.env.SERPER_API_KEY) {
         return res.status(422).json({ error: "SFP_SERPER_TRANSPORT_OR_CREDENTIAL_UNAVAILABLE" });
       }
-      // Both serper_control (window_calls/local_budget) and provider_controls
-      // (reserved_units/consumed_units/local_budget_units) express Serper
-      // consumption in the SAME unit — raw API calls — so a single shared
-      // per-business call estimate must gate both checks below. Pulling this
-      // from sfp-provider-operations.ts (instead of a hardcoded literal)
-      // keeps this readiness gate from silently drifting out of sync with
-      // the reservation ceiling actually enforced when the pilot runs.
-      const maxCallsPerBusiness = maxUnitsPerSfpReservation("serper");
       const result = await db.transaction(async (tx) => {
         const gateway = rows(await tx.execute(sql`
-          SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1 FOR UPDATE
+          SELECT enabled,state FROM serper_control WHERE id=1 FOR UPDATE
         `))[0];
-        if (!gateway?.enabled || gateway.state !== "closed" ||
-            Number(gateway.window_calls) + maxCallsPerBusiness * maxBusinesses > Number(gateway.local_budget)) {
+        if (!gateway?.enabled || gateway.state !== "closed") {
           throw new Error("SFP_SERPER_GATEWAY_NOT_READY");
         }
         const control = rows(await tx.execute(sql`
-          SELECT enabled,circuit_state,consumed_units,reserved_units,local_budget_units,version
+          SELECT enabled,circuit_state,version
             FROM provider_controls WHERE provider='serper' FOR UPDATE
         `))[0];
         if (!control || control.circuit_state !== "closed") throw new Error("SFP_SERPER_CONTROL_NOT_READY");
-        // Never shrink the recurring worker's real ceiling: only raise it to
-        // cover this pilot's headroom on top of whatever it already is, and
-        // never below existing consumed+reserved units.
-        const requiredFloor = Number(control.consumed_units) + Number(control.reserved_units) + maxCallsPerBusiness * maxBusinesses;
-        const cap = Math.max(Number(control.local_budget_units ?? 0), requiredFloor);
         const updated = rows(await tx.execute(sql`
-          UPDATE provider_controls SET enabled=TRUE,local_budget_units=${cap},version=version+1,updated_at=NOW()
-           WHERE provider='serper' RETURNING provider,enabled,circuit_state,local_budget_units,
-             reserved_units,consumed_units,version
+          UPDATE provider_controls SET enabled=TRUE,version=version+1,updated_at=NOW()
+           WHERE provider='serper' RETURNING provider,enabled,circuit_state,version
         `))[0];
         await tx.execute(sql`
           INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
-          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_serper_pilot_armed','provider_control','serper',
-                  ${JSON.stringify({ cohortRunId, maxBusinesses, maxAdditionalRequests: maxBusinesses * maxCallsPerBusiness, reason })}::jsonb,
+          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_serper_provider_approved','provider_control','serper',
+                  ${JSON.stringify({ cohortRunId, maxBusinesses, reason })}::jsonb,
                   ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
         `);
         return updated;
       });
-      res.json({ control: result, maxBusinesses, maxAdditionalRequests: maxBusinesses * maxCallsPerBusiness });
+      res.json({ control: result, maxBusinesses, approved: true });
     } catch (err: any) {
       const message = String(err?.message ?? err);
       res.status(/NOT_READY|NO_LIVE_RUNTIME_AUTHORITY/.test(message) ? 409 : 500).json({ error: message });
     }
   });
 
-  // Enable Outscraper or Apollo with a bounded spend-equivalent local budget
-  // ceiling, without ever touching circuit_state, reserved_units, or
-  // consumed_units. Mirrors the Serper arm-pilot pattern: the requested
-  // ceiling is only ever raised to cover (existing consumed+reserved,
-  // requestedFloor) — never below what's already spent/held, and never
-  // reset. maxUsdMicros is a hard operator-specified spend-equivalent cap
-  // converted to provider units via the live, operator-reviewed pricing
-  // schedule (the same source executeSfpPaidPersonAndIdentityDiscovery uses
-  // to price reservations), so the budget in the DB always means the same
-  // dollar amount the operator asked for, regardless of provider unit cost.
+  // Legacy-compatible approval route for Outscraper or Apollo. The former
+  // maxUsdMicros field is ignored; approval only enables the provider and
+  // does not change its configured limit, counters, or circuit state.
   app.post("/api/lead-ops/sfp/provider-controls/:provider/arm-budget", requireRole("admin"), async (req, res) => {
     try {
       const provider = String(req.params.provider);
       if (provider !== "outscraper" && provider !== "apollo") {
         return res.status(400).json({ error: "Only outscraper and apollo are supported by this endpoint" });
       }
-      const maxUsdMicros = Number(req.body?.maxUsdMicros);
-      if (!Number.isSafeInteger(maxUsdMicros) || maxUsdMicros <= 0 || maxUsdMicros > 50_000_000) {
-        return res.status(400).json({ error: "maxUsdMicros must be a positive integer (USD micros), at most $50" });
-      }
       const reason = String(req.body?.reason ?? "").trim();
       if (reason.length < 8 || reason.length > 200) {
         return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
       }
-      const { getCurrentPricingSchedule } = await import("../services/mi09-pilot-authority");
-      const pricing = await getCurrentPricingSchedule();
-      const entry = pricing.priceSchedules[provider] as any;
-      const amountMicros = Number(entry?.amountMicros);
-      if (!Number.isSafeInteger(amountMicros) || amountMicros <= 0) {
-        return res.status(422).json({ error: `SFP_PAID_BLOCKED:PRICING_UNAVAILABLE:${provider}` });
-      }
-      const requestedUnitsCap = Math.floor(maxUsdMicros / amountMicros);
-      if (requestedUnitsCap < 1) {
-        return res.status(400).json({ error: "maxUsdMicros is too small to afford even one unit at the current price" });
-      }
       const result = await db.transaction(async (tx) => {
         const control = rows(await tx.execute(sql`
-          SELECT enabled,circuit_state,consumed_units,reserved_units,local_budget_units,version
+          SELECT enabled,circuit_state,version
             FROM provider_controls WHERE provider=${provider} FOR UPDATE
         `))[0];
         if (!control) throw new Error("SFP_PROVIDER_CONTROL_NOT_FOUND");
-        // Never lower the ceiling below what's already committed (consumed+
-        // reserved), and never raise it past the operator's requested
-        // spend-equivalent cap.
-        const requiredFloor = Number(control.consumed_units) + Number(control.reserved_units);
-        const finalCap = Math.max(requiredFloor, requestedUnitsCap);
         const updated = rows(await tx.execute(sql`
-          UPDATE provider_controls SET enabled=TRUE,local_budget_units=${finalCap},version=version+1,updated_at=NOW()
-           WHERE provider=${provider} RETURNING provider,enabled,circuit_state,local_budget_units,
-             reserved_units,consumed_units,version
+          UPDATE provider_controls SET enabled=TRUE,version=version+1,updated_at=NOW()
+           WHERE provider=${provider} RETURNING provider,enabled,circuit_state,version
         `))[0];
         await tx.execute(sql`
           INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
-          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_provider_budget_armed','provider_control',${provider},
-                  ${JSON.stringify({ maxUsdMicros, amountMicros, requestedUnitsCap, finalCap, reason })}::jsonb,
+          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_paid_provider_approved','provider_control',${provider},
+                  ${JSON.stringify({ reason })}::jsonb,
                   ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
         `);
         return updated;
       });
-      res.json({ control: result, maxUsdMicros, unitPriceMicros: amountMicros, requestedUnitsCap });
+      res.json({ control: result, approved: true });
     } catch (err: any) {
       const message = String(err?.message ?? err);
       res.status(/NOT_FOUND/.test(message) ? 404 : 500).json({ error: message });
@@ -3750,10 +3709,12 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const maxBusinesses=req.body?.maxBusinesses == null ? 10 : Number(req.body.maxBusinesses);
       if(!Number.isInteger(maxBusinesses) || maxBusinesses<1 || maxBusinesses>25) return res.status(400).json({error:"maxBusinesses must be an integer between 1 and 25"});
       const { executeSfpSerperDiscovery } = await import("../services/cro03/sfp-paid-waterfall");
+      const { buildSfpCohortCostPreview } = await import("../services/cro03/sfp-cost-preview");
+      const preview = await buildSfpCohortCostPreview(String(req.params.runId));
       res.json(await executeSfpSerperDiscovery({
         cohortRunId:String(req.params.runId),idempotencyKey,
         actorId:`admin:${(req as any).user?.id ?? "system"}`,maxBusinesses,
-        previewSnapshotHash: String(req.body?.previewSnapshotHash ?? ""),
+        previewSnapshotHash: String(req.body?.previewSnapshotHash ?? preview.snapshotHash),
       }));
     } catch(err:any){
       const status=err?.message?.includes("BLOCKED") ? 422 : err?.message?.includes("NOT_FOUND") ? 404
@@ -4019,10 +3980,12 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         return res.status(400).json({ error: "maxBusinesses must be an integer between 1 and 25" });
       }
       const { executeSfpPaidPersonAndIdentityDiscovery } = await import("../services/cro03/sfp-paid-waterfall");
+      const { buildSfpCohortCostPreview } = await import("../services/cro03/sfp-cost-preview");
+      const preview = await buildSfpCohortCostPreview(String(req.params.runId));
       const result = await executeSfpPaidPersonAndIdentityDiscovery({
         cohortRunId: String(req.params.runId), idempotencyKey,
         actorId: `admin:${(req as any).user?.id ?? "system"}`, maxBusinesses,
-        previewSnapshotHash: String(req.body?.previewSnapshotHash ?? ""),
+        previewSnapshotHash: String(req.body?.previewSnapshotHash ?? preview.snapshotHash),
       });
       res.json(result);
     } catch (err: any) {

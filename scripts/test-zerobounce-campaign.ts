@@ -5,14 +5,13 @@
  *   1. Atomic contact claim: duplicate claim within a campaign is skipped
  *      (ON CONFLICT (campaign_id, contact_id) DO NOTHING) — never double-charged.
  *   2. One active run per campaign (partial unique index).
- *   3. Budget stop: claimCredit()=false ⇒ state=budget_stopped,
- *      stop_reason=budget_exhausted, un-credited claim released.
+ *   3. Provider validations are not blocked by a local provider credit ceiling.
  *   4. Cancellation: cancel_requested ⇒ worker exits with stop_reason=cancelled.
  *   5. Stale-run detection: heartbeat >5 min old ⇒ marked interrupted.
  *   6. Recovery: a new run after a stall does NOT re-claim attempted contacts.
  *   7. Accounting invariants: every attempt is exactly one terminal outcome.
  *
- * NO real ZeroBounce network call is made — verifyEmail/claimCredit/hasProviderKey
+ * NO real ZeroBounce network call is made — verifyEmail/hasProviderKey
  * are injected fakes.
  */
 import { pool } from "../server/db";
@@ -40,24 +39,17 @@ async function insertContact(slug: string, emailStatus: string | null = "unvalid
   return r.rows[0].id;
 }
 
-function makeDeps(opts: { result?: ZeroBounceResult; creditBudget?: number; hasKey?: boolean; onVerify?: (email: string) => void | Promise<void> } = {}) {
+function makeDeps(opts: { result?: ZeroBounceResult; hasKey?: boolean; onVerify?: (email: string) => void | Promise<void> } = {}) {
   const verifyCalls: string[] = [];
-  let credits = 0;
-  const budget = opts.creditBudget ?? Infinity;
   const deps: ZbWorkerDeps = {
     verifyEmail: async (email: string) => {
       verifyCalls.push(email);
       if (opts.onVerify) await opts.onVerify(email);
       return opts.result ?? OK_VALID;
     },
-    claimCredit: async () => {
-      if (credits >= budget) return false;
-      credits++;
-      return true;
-    },
     hasProviderKey: () => opts.hasKey ?? true,
   };
-  return { deps, verifyCalls, creditsClaimed: () => credits };
+  return { deps, verifyCalls };
 }
 
 async function createCampaign(contactIds: number[]): Promise<string> {
@@ -164,8 +156,8 @@ async function main() {
     check("new run allowed after previous run terminal", !!run3b);
     await pool.query(`UPDATE zerobounce_runs SET state='cancelled', finished_at=NOW() WHERE id=$1`, [run3b]);
 
-    // ── 4. Budget stop ──────────────────────────────────────────────────────
-    console.log("── 4. Budget exhaustion stops the run and releases the claim ──");
+    // ── 4. Local provider ceilings do not stop the run ───────────────────────
+    console.log("── 4. Local provider credit ceiling does not stop the run ──");
     const c4 = [await insertContact("bud1"), await insertContact("bud2"), await insertContact("bud3")];
     contactIds.push(...c4);
     const camp4 = await createCampaign(c4); campaignIds.push(camp4);
@@ -176,11 +168,12 @@ async function main() {
     );
     const d4 = makeDeps();
     const exit4 = await processZeroBounceRun(run4, d4.deps);
-    check("run completes with budget-deferred member", exit4 === "completed", exit4);
+    check("run completes despite lower configured local ceiling", exit4 === "completed", exit4);
     const r4 = await getRun(run4);
     check("state=completed", r4.state === "completed", r4.state);
     const a4 = await pool.query(`SELECT COUNT(*)::int AS n FROM zerobounce_attempts WHERE campaign_id = $1`, [camp4]);
     check("every member has one durable attempt", a4.rows[0].n === 3, String(a4.rows[0].n));
+    check("all three contacts verified", d4.verifyCalls.length === 3, String(d4.verifyCalls.length));
     await pool.query(`UPDATE provider_controls SET local_budget_units = 100000 WHERE provider = 'zerobounce'`);
 
     // ── 5. Cancellation ─────────────────────────────────────────────────────

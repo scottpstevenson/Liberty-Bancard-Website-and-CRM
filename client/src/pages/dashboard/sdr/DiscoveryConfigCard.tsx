@@ -11,7 +11,6 @@ export interface SearchMatrixConfig {
   limitPerSearch: number;
   enabled: boolean;
   schedule: string;
-  dailyBudgetCap: number;
 }
 
 export interface SourceStatusData {
@@ -127,10 +126,6 @@ export function DiscoveryConfigCard({ config, sourceStatus, updateDataSources, a
             <div className="flex justify-between">
               <span className="text-muted-foreground">Schedule:</span>
               <span className="font-medium">{config.schedule}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Daily budget cap:</span>
-              <span className="font-medium">${config.dailyBudgetCap}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">State:</span>

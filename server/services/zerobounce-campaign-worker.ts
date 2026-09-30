@@ -12,17 +12,14 @@
  *    HEARTBEAT_EVERY contacts so a crashed/restarted server leaves a run that
  *    is detectable as stalled (markStaleRunsInterrupted) instead of stuck
  *    "running" forever.
- *  - Budget stop: when claimZeroBounceCredit() reports the daily cap reached,
- *    the claim row for the un-credited contact is DELETED (so it stays
- *    claimable tomorrow) and the run ends as budget_stopped.
  *  - Cancellation: cancel_requested is polled between contacts.
  *  - Accounting: zerobounce_attempts is the source of truth for all counts;
  *    the counter columns on zerobounce_runs are a denormalized copy refreshed
  *    from attempts at every heartbeat and on exit.
  *
- * NOTE on credits: credit_state='reserved' means a LOCAL daily-cap credit was
- * claimed via claimZeroBounceCredit(). Local reservation is NOT confirmation
- * of provider-side billing (e.g. ZeroBounce may not bill failed HTTP calls).
+ * NOTE on credits: credit_state records whether validation work reached the
+ * provider-operation reservation stage; it is reporting/reconciliation state,
+ * not an application-local credit ceiling.
  */
 
 import { db, pool } from "../db";
@@ -44,13 +41,12 @@ const SELECT_CHUNK = 50;             // candidate ids fetched per DB round-trip
 
 export interface ZbWorkerDeps {
   verifyEmail: (email: string) => Promise<ZeroBounceResult>;
-  claimCredit: () => Promise<boolean>;
   hasProviderKey: () => boolean;
 }
 
 async function defaultDeps(): Promise<ZbWorkerDeps> {
   const { verifyEmail } = await import("./sdr/zerobounce");
-  return { verifyEmail, claimCredit: async () => false, hasProviderKey: isZeroBounceConfigured };
+  return { verifyEmail, hasProviderKey: isZeroBounceConfigured };
 }
 
 /**
@@ -224,7 +220,6 @@ export type ZbRunExit =
 export type ZbAutoRunOutcome =
   | { outcome: "skipped"; reason: string }
   | { outcome: "already_running"; runId: string }
-  | { outcome: "budget_exhausted" }
   | { outcome: "enqueued"; runId: string; bullJobId: string }
   | { outcome: "enqueue_failed"; runId: string }
   | { outcome: "error"; error: string };
@@ -323,9 +318,8 @@ export async function runZeroBounceAutoRun(): Promise<ZbAutoRunOutcome> {
     }
 
     // ── 7. Insert the run row ─────────────────────────────────────────────────
-    // contact_limit is set high (5000) so the budget cap — not the contact limit
-    // — is the primary throttle. The budget system stops the run as soon as the
-    // daily cap is exhausted regardless of how many contacts remain.
+    // Keep a bounded per-run contact limit independent of any provider credit
+    // ceiling so operators can reason about and stop individual runs.
     let run: any;
     try {
       run = (await pool.query(
@@ -495,7 +489,7 @@ export async function processZeroBounceRun(runId: string, injectedDeps?: ZbWorke
         // through to the heartbeat bookkeeping below — a provider outage
         // producing a long streak of retryable failures must still heartbeat,
         // or stale-run detection would falsely interrupt a live worker.
-        const step = await (async (): Promise<"processed" | "budget_stopped"> => {
+        await (async (): Promise<"processed"> => {
           try {
             const contact = await storage.getContact(contactId);
             const email = contact?.email ?? null;
@@ -571,15 +565,6 @@ export async function processZeroBounceRun(runId: string, injectedDeps?: ZbWorke
             return "processed";
           }
         })();
-
-        if (step === "budget_stopped") {
-          await syncRunCounters(runId, true);
-          await pool.query(
-            `UPDATE zerobounce_runs SET state = 'budget_stopped', stop_reason = 'budget_exhausted', finished_at = NOW() WHERE id = $1 AND state = 'running'`,
-            [runId],
-          );
-          return "budget_stopped";
-        }
 
         // ── Heartbeat: every HEARTBEAT_EVERY claimed attempts OR when more
         //    than HEARTBEAT_MAX_MS has elapsed since the last write (a slow

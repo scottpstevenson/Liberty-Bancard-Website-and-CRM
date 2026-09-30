@@ -6,17 +6,20 @@
  *  1. readSignedProviderPricing() reads live from signed-pricing.json and
  *     returns a numeric price for every paid provider MI-09 can select.
  *  2. createPilotDefinition() independently rejects a provider whose
- *     required secret is absent from this environment, even though the
- *     signed price schedule exists for it (secret and pricing are checked
+ *     required secret is absent from this environment, even though a
+ *     persisted pricing artifact exists for it (secret and pricing are checked
  *     separately, neither substitutes for the other).
  *  3. createPilotDefinition() accepts a level-2 definition when every
- *     selected provider has both its secret and a live signed price.
+ *     selected provider has both its secret and a persisted price artifact.
  *  4. Level 1 still rejects any paid provider (pre-existing invariant,
  *     re-verified since it shares code with the new gate).
+ *  5. A missing app pricing-snapshot row is not required to define paid work;
+ *     runtime still requires recent provider artifacts for auditable amounts.
  *
  * Run with: npx tsx scripts/test-mi09-provider-selector.ts
  */
 import { pool } from "../server/db";
+import { readFileSync } from "node:fs";
 import { readSignedProviderPricing } from "../server/services/signed-pricing-reader";
 import { createPilotDefinition } from "../server/services/mi09-pilot-authority";
 
@@ -53,7 +56,7 @@ async function main() {
     createdBy: `test-1956-${RUN_ID}`,
   };
 
-  // --- 2. Missing-secret rejection ---
+   // --- 2. Missing-secret rejection ---
   const savedApolloKey = process.env.APOLLO_API_KEY;
   delete process.env.APOLLO_API_KEY;
   try {
@@ -96,6 +99,17 @@ async function main() {
     }
     assert("level 1 still rejects any paid provider", threw && message.includes("pilot_1_must_exclude_all_paid_providers"), message);
   }
+
+  const pilotAuthoritySource = readFileSync("server/services/mi09-pilot-authority.ts", "utf8");
+  const createDefinitionSource = pilotAuthoritySource.slice(
+    pilotAuthoritySource.indexOf("export async function createPilotDefinition"),
+    pilotAuthoritySource.indexOf("export async function getPilotDefinitions"),
+  );
+  assert(
+    "paid definition validation uses persisted provider artifacts without requiring the app schedule snapshot",
+    /FROM mi09_pricing_artifacts/.test(createDefinitionSource) &&
+      !/getCurrentPricingSchedule\(/.test(createDefinitionSource),
+  );
 
   await pool.end();
   console.log(`\n[test-mi09-provider-selector] ${passed} passed, ${failed} failed`);

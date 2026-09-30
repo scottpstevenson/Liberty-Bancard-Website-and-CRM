@@ -60,13 +60,14 @@ export type SfpZbOutcome =
   | "do_not_mail" | "unknown" | "failed";
 
 /**
- * The single snapshot computation shared by preview and execute. Covers the
- * cohort manifest, the ranked winner references/hashes selected from the
- * unified free+paid pool, the active policy document's id/hash, the
- * ZeroBounce unit price, the aggregate cap, and the requested maximum.
+ * The single input snapshot computation shared by preview and execute.
+ * Covers the cohort manifest, ranked winner references/hashes selected from
+ * the unified free+paid pool, the active policy document's id/hash, and the
+ * requested maximum. Pricing and financial headroom are deliberately not
+ * part of provider authorization or this freshness fence.
  * Preview and execute must derive this identically — execute recomputes it
  * fresh and requires it to match the hash the caller captured from preview,
- * so a cohort/candidate/policy/price change between preview and execute
+ * so a cohort/candidate/policy change between preview and execute
  * fails closed instead of silently validating against stale state.
  */
 export async function computeSfpValidationSnapshot(
@@ -77,8 +78,6 @@ export async function computeSfpValidationSnapshot(
   const bizIds = await getUndecidedCohortBizIds(cohortRunId);
   const winners = await selectWinnersPerBusiness(bizIds, cohortRunId, policy.version);
   const selected = Array.from(winners.entries()).slice(0, maxValidations);
-  const unitPrice = await currentSfpUnitPrice("zerobounce");
-  const { MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS } = await import("../mi09-pilot-authority");
   const cohort = rows(await db.execute(sql`
     SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid
   `))[0];
@@ -89,8 +88,6 @@ export async function computeSfpValidationSnapshot(
     maxValidations,
     policyId: policy.id,
     policyDocumentHash: policy.documentHash,
-    unitPriceMicros: unitPrice,
-    aggregateBudgetCapMicros: MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS,
     batchMaxItems: SFP_VALIDATION_MAX,
     winners: selected
       .map(([bizId, cand]) => ({
@@ -114,6 +111,7 @@ export interface SfpValidationPreview {
   provider: "zerobounce";
   estimatedCostMicros: number;
   worstCaseCostMicros: number;
+  pricingAvailable: boolean;
   maxValidations: number;
   selectedCandidates: Array<{
     businessId: number;
@@ -378,15 +376,11 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
     await assertSfpRuntimeAuthority(cohortRunId);
     const { assertPaidBudgetAuthorized } = await import("../mi09-pilot-authority");
     await assertPaidBudgetAuthorized();
-    await currentSfpUnitPrice("zerobounce");
     const control = rows(await db.execute(sql`
-      SELECT enabled,circuit_state,local_budget_units,reserved_units,consumed_units
+      SELECT enabled,circuit_state
         FROM provider_controls WHERE provider='zerobounce'
     `))[0];
     if (!control?.enabled || control.circuit_state !== "closed") throw new Error("ZEROBOUNCE_PROVIDER_DISABLED");
-    if (control.local_budget_units == null || Number(control.reserved_units)+Number(control.consumed_units)+selected.length > Number(control.local_budget_units)) {
-      throw new Error("ZEROBOUNCE_LOCAL_BUDGET_EXHAUSTED");
-    }
   } catch (error: any) {
     gateBlockedReason = String(error?.message ?? error);
   }
@@ -399,8 +393,9 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
     addressesForValidation: selected.length,
     businessesWithoutCandidate: bizIds.length - winners.size,
     provider: "zerobounce",
-    estimatedCostMicros: selected.length * unitPrice,
-    worstCaseCostMicros: SFP_VALIDATION_MAX * unitPrice,
+    estimatedCostMicros: selected.length * (unitPrice ?? 0),
+    worstCaseCostMicros: SFP_VALIDATION_MAX * (unitPrice ?? 0),
+    pricingAvailable: unitPrice !== null,
     maxValidations: SFP_VALIDATION_MAX,
     selectedCandidates: selected.map(([businessId, c]) => ({
       businessId,
@@ -459,11 +454,9 @@ export async function executeSfpValidation(
 
   const policy = await getActiveSfpOutreachPolicy();
 
-  // Snapshot-bound execution: recompute the identical snapshot preview used,
-  // and require it to still match. Any drift in the cohort manifest,
-  // candidate pool, active policy, or unit price between preview and
-  // execute fails closed rather than silently validating against state the
-  // caller never actually saw.
+  // Input-bound execution: recompute the candidate/policy snapshot preview
+  // and require it to still match. A pricing schedule is not a prerequisite
+  // or part of the authorization snapshot.
   const currentSnapshot = await computeSfpValidationSnapshot(cohortRunId, maxValidations);
   if (currentSnapshot.snapshotHash !== opts.snapshotHash) {
     throw new Error("SFP_VALIDATION_SNAPSHOT_MISMATCH:preview_stale_reissue_preview");
@@ -939,8 +932,6 @@ export async function executeSfpValidation(
              normalizedAddressHashVersion: cand.normalizedValueHashVersion ?? 1,
             policyVersion: policy.version, outcome: decision.zb_outcome ?? null, status: decision.status,
             policyDocumentHash: currentSnapshot.payload.policyDocumentHash,
-            priceMicros: currentSnapshot.payload.unitPriceMicros,
-            aggregateBudgetCapMicros: currentSnapshot.payload.aggregateBudgetCapMicros,
             snapshotHash: opts.snapshotHash,
           })}::jsonb,
           CASE WHEN ${isRetry} THEN NULL ELSE NOW() END

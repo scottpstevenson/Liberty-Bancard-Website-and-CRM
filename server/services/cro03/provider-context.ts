@@ -20,8 +20,8 @@ function rows(result: any): any[] {
 }
 
 /**
- * The adapter context is issued only after the provider operation and budget
- * reservation are committed.  Credentials and application role are not
+ * The adapter context is issued only after the provider operation reservation
+ * is committed. Credentials and application role are not
  * sufficient to construct an authorized context.
  */
 export async function reserveCro03ProviderOperation(input: {
@@ -79,8 +79,6 @@ export async function reserveCro03ProviderOperation(input: {
          SET reserved_units = reserved_units + ${units}, version = version + 1, updated_at = NOW()
        WHERE provider = ${input.provider}
          AND enabled = TRUE AND circuit_state = 'closed'
-         AND local_budget_units IS NOT NULL
-         AND reserved_units + consumed_units + ${units} <= local_budget_units
        RETURNING provider
     `))[0];
     if (!reservation) return null;

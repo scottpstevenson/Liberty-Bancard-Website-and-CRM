@@ -3497,7 +3497,7 @@ function ChannelSafetyMatrix({ query }: { query: ReturnType<typeof useQuery<Chan
             riskColor: "text-amber-700 dark:text-amber-400",
             borderColor: "border-amber-300 dark:border-amber-700",
             what: "Runs the nightly lead discovery engine (Serper, Outscraper, Apify, Apollo) to import new prospect contacts.",
-            prerequisites: ["At least one discovery API key configured (SERPER_API_KEY or OUTSCRAPER_API_KEY)", "Discovery budget limits reviewed"],
+            prerequisites: ["At least one discovery API key configured (SERPER_API_KEY or OUTSCRAPER_API_KEY)", "Provider enablement and circuit controls reviewed"],
             killLines: ["All discovered leads start as cold_no_consent — no outreach until consent tier updated", "NIGHTLY_DISCOVERY_ENABLED=false by default"],
             verifyCmd: "npx tsx scripts/compliance-scan.ts",
             queueDep: "discovery (24h)",

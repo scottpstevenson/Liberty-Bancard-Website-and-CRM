@@ -435,7 +435,6 @@ export async function approveCr06Program(input: {
 type Cr06QueryExecutor = Pick<import("pg").PoolClient, "query">;
 const CR06_CONTROL_SETTING_KEYS = [
   "compliance_mailing_address",
-  "outboundDailyEmailCap",
   "deliveryWarmupEnabled",
   "deliveryWarmupStartDate",
   "zerobounce_auto_run_enabled",
@@ -595,7 +594,7 @@ async function loadPreflightRows(
       [CR06_CONTROL_SETTING_KEYS],
     ),
     executor.query(
-      `SELECT provider,capability,enabled,circuit_state,local_budget_units,reserved_units,
+      `SELECT provider,capability,enabled,circuit_state,reserved_units,
               consumed_units,window_started_at,window_ends_at,last_outcome,observed_at,version,updated_at
          FROM provider_controls WHERE provider='zerobounce'`,
     ),
@@ -734,12 +733,12 @@ export async function preflightCr06(
   if (!environmentAuthority.origin) unavailable.push("COMPLIANCE_APP_URL_INVALID");
   if (!environmentAuthority.secretFingerprint) unavailable.push("COMPLIANCE_UNSUBSCRIBE_SECRET_MISSING");
   if (!rows.providerControl) unavailable.push("PROVIDER_CONTROL_UNAVAILABLE");
+  else {
+    if (!rows.providerControl.enabled) blockers.push("PROVIDER_DISABLED");
+    if (rows.providerControl.circuit_state !== "closed") blockers.push("PROVIDER_CIRCUIT_NOT_CLOSED");
+  }
   if (!rows.controlSettings.some((row) => row.key === "compliance_mailing_address")) {
     unavailable.push("COMPLIANCE_CONFIGURATION_UNAVAILABLE");
-  }
-  const outboundCap = rows.controlSettings.find((row) => row.key === "outboundDailyEmailCap")?.value;
-  if (!Number.isFinite(Number(outboundCap)) || Number(outboundCap) < 1) {
-    unavailable.push("OUTBOUND_EMAIL_CAP_UNAVAILABLE");
   }
   const packageRows = rows.program ? await executor.query(
     `WITH RECURSIVE family AS (
@@ -759,7 +758,6 @@ export async function preflightCr06(
     capability: rows.providerControl.capability,
     enabled: rows.providerControl.enabled,
     circuitState: rows.providerControl.circuit_state,
-    localBudgetUnits: rows.providerControl.local_budget_units,
     reservedUnits: rows.providerControl.reserved_units,
     consumedUnits: rows.providerControl.consumed_units,
     windowStartedAt: rows.providerControl.window_started_at

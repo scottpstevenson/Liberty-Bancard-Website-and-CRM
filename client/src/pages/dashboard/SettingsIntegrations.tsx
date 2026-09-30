@@ -987,18 +987,14 @@ function ProxycurlTab() {
   );
 }
 
-function ZeroBounceDailyCapTab() {
+function ZeroBounceSafetyTab() {
   const { toast } = useToast();
-  const [capInput, setCapInput] = useState<string>("");
-  const [dirty, setDirty] = useState(false);
-
-  const { data, isLoading, refetch } = useQuery<{ dailyCap: number; usedToday: number }>({
-    queryKey: ["/api/admin/settings/zerobounce-daily-cap"],
+  const { data: usage, isLoading } = useQuery<{ usedToday: number }>({
+    queryKey: ["/api/admin/settings/zerobounce-usage"],
   });
   const safetyQuery = useQuery<{
     enabled: boolean;
     circuitState: string;
-    dailyCap: number | null;
     autoRunEnabled: boolean;
     nextAutomaticRunAt: string;
     authorizedPurposes: string[];
@@ -1014,48 +1010,6 @@ function ZeroBounceDailyCapTab() {
     onError: (err: any) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
   });
 
-  // Sync server → local once loaded (only if not dirty)
-  useState(() => {
-    if (data && !dirty) setCapInput(String(data.dailyCap));
-  });
-
-  // Keep input in sync when data loads initially
-  if (data && capInput === "" && !dirty) {
-    setCapInput(String(data.dailyCap));
-  }
-
-  const saveMutation = useMutation({
-    mutationFn: (dailyCap: number) =>
-      apiRequest("PUT", "/api/admin/settings/zerobounce-daily-cap", { dailyCap }),
-    onSuccess: (_res, dailyCap) => {
-      toast({ title: "ZeroBounce daily cap saved", description: `New cap: ${dailyCap.toLocaleString()} validations/day` });
-      setDirty(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/zerobounce-daily-cap"] });
-    },
-    onError: (err: any) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
-  });
-
-  function handleSave() {
-    const n = parseInt(capInput, 10);
-    if (!Number.isFinite(n) || n < 1 || n > 100_000) {
-      toast({ title: "Invalid value", description: "Enter a whole number between 1 and 100 000", variant: "destructive" });
-      return;
-    }
-    saveMutation.mutate(n);
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground py-4">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading ZeroBounce settings…
-      </div>
-    );
-  }
-
-  const used = data?.usedToday ?? 0;
-  const cap  = data?.dailyCap  ?? 5000;
-  const pct  = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
-
   return (
     <div className="space-y-6">
       {/* MI-09 safety controls are independent from the legacy/manual batch lane. */}
@@ -1070,8 +1024,7 @@ function ZeroBounceDailyCapTab() {
           </Badge>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          <div className="rounded border p-2"><div className="text-muted-foreground">Daily cap</div><div className="font-mono">{(safetyQuery.data?.dailyCap ?? cap).toLocaleString()}</div></div>
-          <div className="rounded border p-2"><div className="text-muted-foreground">Used today</div><div className="font-mono">{used.toLocaleString()}</div></div>
+          <div className="rounded border p-2"><div className="text-muted-foreground">Validations today</div><div className="font-mono">{isLoading ? "…" : (usage?.usedToday ?? 0).toLocaleString()}</div></div>
           <div className="rounded border p-2"><div className="text-muted-foreground">MI-09 auto-run</div><div className="font-mono">{safetyQuery.data?.autoRunEnabled ? "ON" : "OFF"}</div></div>
           <div className="rounded border p-2"><div className="text-muted-foreground">Next scheduled</div><div className="font-mono">{safetyQuery.data?.nextAutomaticRunAt ? new Date(safetyQuery.data.nextAutomaticRunAt).toLocaleString() : "—"}</div></div>
         </div>
@@ -1090,69 +1043,7 @@ function ZeroBounceDailyCapTab() {
           Purposes: {(safetyQuery.data?.authorizedPurposes ?? []).join(", ") || "none"} · Callers: {(safetyQuery.data?.authorizedCallers ?? []).join(", ") || "none"}
         </div>
       </div>
-      {/* Usage banner */}
-      <div className="rounded-md border p-4 bg-muted/40 space-y-2">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium">Today's usage</span>
-          <span className={pct >= 90 ? "text-red-600 font-semibold" : pct >= 70 ? "text-amber-600 font-semibold" : "text-muted-foreground"}>
-            {used.toLocaleString()} / {cap.toLocaleString()} ({pct}%)
-          </span>
-        </div>
-        <div className="h-2 rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500"}`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <p className="text-xs text-muted-foreground">Counter resets at midnight UTC. Refresh to see the latest count.</p>
-      </div>
-
-      {/* Cap editor */}
-      <div className="space-y-2 max-w-xs">
-        <Label htmlFor="zb-daily-cap" className="text-sm font-medium">
-          Daily cap (validations per day)
-        </Label>
-        <p className="text-xs text-muted-foreground">
-          Maximum ZeroBounce API calls the system will make in a single calendar day (UTC). The change takes effect on the next validation attempt — no restart required.
-        </p>
-        <div className="flex gap-2">
-          <Input
-            id="zb-daily-cap"
-            type="number"
-            min={1}
-            max={100000}
-            step={100}
-            value={capInput}
-            onChange={(e) => { setCapInput(e.target.value); setDirty(true); }}
-            className="w-36"
-            data-testid="input-zb-daily-cap"
-          />
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={saveMutation.isPending || !dirty}
-            data-testid="btn-save-zb-daily-cap"
-          >
-            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            <span className="ml-1.5">Save</span>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => refetch()}
-            title="Refresh usage count"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-md border p-4 bg-card text-sm space-y-1 text-muted-foreground">
-        <p className="font-medium text-foreground text-xs uppercase tracking-wide mb-2">How it works</p>
-        <p>• Each email validation costs one ZeroBounce API credit and one daily cap credit.</p>
-        <p>• When the cap is reached, new validations are queued until midnight UTC when the counter resets.</p>
-        <p>• The default cap is <strong>5 000</strong> validations/day. Raise it only if your ZeroBounce plan supports a higher volume.</p>
-      </div>
+      <p className="text-xs text-muted-foreground">Daily validation count is reported for visibility; the application does not impose a local credit ceiling.</p>
     </div>
   );
 }
@@ -1262,14 +1153,14 @@ export default function SettingsIntegrations() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <ShieldX className="w-4 h-4 text-violet-600" />
-                ZeroBounce Daily Cap
+                ZeroBounce
               </CardTitle>
               <CardDescription>
-                Control how many email addresses ZeroBounce validates per day. The cap is read on every validation attempt — changes apply immediately without a restart.
+                Review provider safety controls and validation usage.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <ZeroBounceDailyCapTab />
+              <ZeroBounceSafetyTab />
             </CardContent>
           </Card>
         </TabsContent>

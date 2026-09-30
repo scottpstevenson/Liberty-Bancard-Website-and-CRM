@@ -232,7 +232,6 @@ interface SerperControl {
   window_failures: number;
   window_started_at: string;
   window_ends_at: string;
-  local_budget: number;
   lifetime_calls: string | number;
   lifetime_successes: string | number;
   lifetime_failures: string | number;
@@ -363,7 +362,7 @@ function SerperControlPanel() {
         <Card><CardContent className="p-4">
           <div className="text-xs text-muted-foreground mb-1">Window Usage</div>
           <div className="text-sm font-medium" data-testid="text-serper-window-usage">
-            {control.window_calls} / {control.local_budget}
+            {control.window_calls} requests
           </div>
           <div className="text-xs text-muted-foreground mt-1">
             {control.window_successes} ok · {control.window_failures} failed
@@ -7095,7 +7094,6 @@ interface ScoringProgress {
 
 interface QualitySummary {
   unvalidated_email: number;
-  zerobounce: { usedToday: number; dailyLimit: number; remainingToday: number };
 }
 
 function ZbBacklogPanel() {
@@ -7106,15 +7104,6 @@ function ZbBacklogPanel() {
   });
 
   const backlog = data?.unvalidated_email ?? 0;
-  const dailyLimit = data?.zerobounce.dailyLimit ?? 5000;
-  const usedToday = data?.zerobounce.usedToday ?? 0;
-  const remainingToday = data?.zerobounce.remainingToday ?? dailyLimit;
-
-  // Estimated clearance: remaining contacts / daily limit, rounded up, from today
-  const estDays = backlog > 0 ? Math.ceil(backlog / dailyLimit) : 0;
-  const clearanceDate = estDays > 0
-    ? new Date(Date.now() + estDays * 86_400_000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-    : null;
 
   return (
     <div className="space-y-4 max-w-2xl">
@@ -7130,7 +7119,7 @@ function ZbBacklogPanel() {
           <Loader2 className="h-4 w-4 animate-spin" /> Loading backlog stats…
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3">
           <Card>
             <CardContent className="py-4">
               <p className="text-xs text-muted-foreground">Backlog</p>
@@ -7138,48 +7127,6 @@ function ZbBacklogPanel() {
               <p className="text-xs text-muted-foreground">unvalidated</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="py-4">
-              <p className="text-xs text-muted-foreground">Daily Limit</p>
-              <p className="text-2xl font-bold mt-1">{dailyLimit.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">per day</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4">
-              <p className="text-xs text-muted-foreground">Used Today</p>
-              <p className="text-2xl font-bold mt-1">{usedToday.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">{remainingToday.toLocaleString()} remaining</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4">
-              <p className="text-xs text-muted-foreground">Est. Clearance</p>
-              {estDays > 0 ? (
-                <>
-                  <p className="text-2xl font-bold mt-1">{estDays.toLocaleString()}d</p>
-                  <p className="text-xs text-muted-foreground">{clearanceDate}</p>
-                </>
-              ) : (
-                <>
-                  <p className="text-2xl font-bold mt-1 text-green-600">Done</p>
-                  <p className="text-xs text-muted-foreground">backlog clear</p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {!isLoading && backlog > 0 && (
-        <div className="rounded-md border bg-amber-50 border-amber-200 px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>
-            At {dailyLimit.toLocaleString()} validations/day, the backlog of{" "}
-            <span className="font-semibold">{backlog.toLocaleString()}</span> contacts clears in approximately{" "}
-            <span className="font-semibold">{estDays.toLocaleString()} days</span> (~{clearanceDate}).
-            Start or resume the batch campaign below.
-          </span>
         </div>
       )}
 

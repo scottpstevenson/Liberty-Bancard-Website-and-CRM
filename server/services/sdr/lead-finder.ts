@@ -35,7 +35,6 @@ interface SearchMatrixConfig {
   limitPerSearch: number;
   enabled: boolean;
   schedule: "nightly" | "weekly" | "manual";
-  dailyBudgetCap: number;
 }
 
 interface NormalizedBusiness {
@@ -237,7 +236,6 @@ export async function getSearchMatrix(): Promise<SearchMatrixConfig> {
     limitPerSearch: 200,
     enabled: true,
     schedule: "nightly",
-    dailyBudgetCap: 50,
   };
 }
 

@@ -1,12 +1,12 @@
 /**
- * Single serialized authority for the $50 ladder-wide aggregate paid-provider
- * budget (Liberty Bancard enrichment Gate 2 hardening).
+ * Shared historical accounting ledger used by the legacy ladder-wide paid
+ * spend authority. SFP execution no longer uses this ledger for a financial
+ * reservation gate; its operation receipts remain included in accounting reads.
  *
  * Two independent paid-spend paths exist in this codebase and, before this
  * module, each had its own accounting pool and its own lock scope:
  *  - SFP (south-florida-prospecting): sfp_stage_runs / sfp_classification_runs /
- *    sfp_classification_evidence, serialized by a single global advisory
- *    lock (`reserveSfpAggregateBudgetInTransaction` in sfp-provider-operations.ts).
+ *    sfp_classification_evidence records retained for historical accounting.
  *  - MI-09/CRO-03C: cro03c_stage_operations, serialized only by a per-command
  *    row lock (`FOR UPDATE OF c` in reserveCro03cProviderOperation /
  *    reserveCro03cStageOperation, live-execution.ts) — never global.
@@ -17,12 +17,9 @@
  * reservations — one SFP, one MI-09 — could each read a summary that showed
  * headroom and both commit, letting combined real spend exceed $50.
  *
- * Fix: both paths now acquire the SAME advisory-lock key before reserving,
- * and both check the SAME combined sum (SFP tables + cro03c_stage_operations
- * together) against the SAME $50 constant, inside the transaction that
- * performs their own reservation write. This does not change the cap value,
- * does not reset any counter, and does not merge the two tables — it only
- * makes them share one serialized read-then-decide boundary.
+ * The legacy shared authority serializes its own read/decide operation. SFP
+ * retains the lock around receipt/settlement transitions for safe accounting,
+ * but does not use financial headroom to gate provider execution.
  */
 import { sql } from "drizzle-orm";
 
@@ -110,27 +107,6 @@ export async function computeLadderBudgetLedger(executor: SqlExecutor): Promise<
 export async function computeLadderCommittedMicros(executor: SqlExecutor): Promise<number> {
   const ledger = await computeLadderBudgetLedger(executor);
   return ledger.settledMicros + ledger.reservedMicros;
-}
-
-/**
- * Acquires the shared lock, computes the combined committed total, and
- * throws unless `reservationMicros` still fits under `capMicros`. The caller
- * is responsible for performing its own actual reservation write in the same
- * transaction immediately afterward — this function makes no writes itself,
- * so it never touches either pool's counters or the cap value.
- */
-export async function assertLadderBudgetHeadroom(
-  executor: SqlExecutor,
-  input: { reservationMicros: number; capMicros: number },
-): Promise<{ committedMicros: number }> {
-  await executor.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${LADDER_BUDGET_LOCK_KEY}, 0))`);
-  const committedMicros = await computeLadderCommittedMicros(executor);
-  if (committedMicros + input.reservationMicros > input.capMicros) {
-    throw new Error(
-      `LADDER_AGGREGATE_BUDGET_EXCEEDED:committed=${committedMicros} reservation=${input.reservationMicros} cap=${input.capMicros}`,
-    );
-  }
-  return { committedMicros };
 }
 
 /** Acquire the same serialization boundary before changing any ledger amount. */

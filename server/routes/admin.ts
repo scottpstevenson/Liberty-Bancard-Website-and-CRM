@@ -2314,13 +2314,11 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // #1619 — ZeroBounce daily cap (readable/writable without a redeploy)
-  // GET /api/admin/settings/zerobounce-daily-cap
-  app.get("/api/admin/settings/zerobounce-daily-cap", requireRole("admin", "manager"), async (_req, res) => {
+  // ZeroBounce daily usage reporting. Usage is observed, not capped locally.
+  app.get("/api/admin/settings/zerobounce-usage", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const { getZeroBounceDailyLimit, getZeroBounceUsageToday } = await import("../services/zerobounce-daily-limiter");
-      const [limit, usedToday] = await Promise.all([getZeroBounceDailyLimit(), getZeroBounceUsageToday()]);
-      res.json({ dailyCap: limit, usedToday });
+      const { getZeroBounceUsageToday } = await import("../services/zerobounce-daily-limiter");
+      res.json({ usedToday: await getZeroBounceUsageToday() });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -2362,32 +2360,11 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // PUT /api/admin/settings/zerobounce-daily-cap
-  // Body: { dailyCap: number } — must be a positive integer ≤ 100 000
-  app.put("/api/admin/settings/zerobounce-daily-cap", requireRole("admin"), async (req, res) => {
-    try {
-      const { dailyCap } = req.body as { dailyCap?: unknown };
-      if (typeof dailyCap !== "number" || !Number.isInteger(dailyCap) || dailyCap < 1 || dailyCap > 100_000) {
-        return res.status(400).json({ message: "dailyCap must be a positive integer ≤ 100 000" });
-      }
-      await storage.setSystemSetting("zerobounce_validation_daily_limit", dailyCap);
-      await storage.createAuditLog({
-        action: "zerobounce_daily_cap_updated",
-        entityType: "system",
-        userId: (req.user as any)?.id ?? null,
-        details: { dailyCap },
-      });
-      res.json({ dailyCap });
-    } catch (err: any) {
-      serverError(res, err);
-    }
-  });
-
-  // BT-10 provider control. Credentials never enable spend: an administrator
-  // explicitly supplies a bounded local budget and enablement is audited.
+  // BT-10 provider control. Credentials never enable spend: enablement is
+  // explicitly controlled by an administrator and audited.
   app.get("/api/admin/provider-controls/zerobounce", requireRole("admin", "manager"), async (_req, res) => {
     const result = await db.execute(sql`
-      SELECT provider, enabled, circuit_state, local_budget_units, reserved_units,
+      SELECT provider, enabled, circuit_state, reserved_units,
              consumed_units, last_completed_at, last_outcome, updated_at
         FROM provider_controls WHERE provider = 'zerobounce'
     `);
@@ -2395,22 +2372,22 @@ export function registerAdminRoutes(app: Express) {
   });
   app.put("/api/admin/provider-controls/zerobounce", requireRole("admin"), async (req, res) => {
     try {
-      const { enabled, budgetUnits } = req.body as { enabled?: unknown; budgetUnits?: unknown };
-      if (typeof enabled !== "boolean" || !Number.isInteger(budgetUnits) || Number(budgetUnits) < 0 || Number(budgetUnits) > 1_000_000) {
-        return res.status(400).json({ message: "enabled must be boolean and budgetUnits must be an integer from 0 to 1000000" });
+      const { enabled } = req.body as { enabled?: unknown };
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled must be boolean" });
       }
       const result = await db.execute(sql`
-        INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version, updated_at)
-        VALUES ('zerobounce', 'email_validation', ${enabled}, 'closed', ${Number(budgetUnits)}, 0, 0, 1, NOW())
+        INSERT INTO provider_controls (provider, capability, enabled, circuit_state, reserved_units, consumed_units, version, updated_at)
+        VALUES ('zerobounce', 'email_validation', ${enabled}, 'closed', 0, 0, 1, NOW())
         ON CONFLICT (provider) DO UPDATE
-          SET enabled=EXCLUDED.enabled, local_budget_units=EXCLUDED.local_budget_units,
+          SET enabled=EXCLUDED.enabled,
               version=provider_controls.version+1, updated_at=NOW()
-        RETURNING provider, enabled, circuit_state, local_budget_units, reserved_units, consumed_units, version
+        RETURNING provider, enabled, circuit_state, reserved_units, consumed_units, version
       `);
       await storage.createAuditLog({
         action: "provider_control_updated", entityType: "provider_control",
         userId: (req.user as any)?.id ?? null,
-        details: { provider: "zerobounce", enabled, budgetUnits: Number(budgetUnits) },
+        details: { provider: "zerobounce", enabled },
       });
       res.json({ control: (result as any).rows?.[0] });
     } catch (err: any) { serverError(res, err); }

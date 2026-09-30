@@ -1,8 +1,8 @@
 /**
  * Disposable, transaction-rolled-back certification for two fixes:
- *  1. getSfpProviderReadiness() correctly reports disabled/circuit-open/
- *     budget-unset/budget-exhausted providers as NOT ready, and a properly
- *     configured provider as ready.
+ *  1. getSfpProviderReadiness() correctly reports disabled/circuit-open
+ *     providers as NOT ready, while unset/exhausted local credit ceilings do
+ *     not override an enabled, closed provider.
  *  2. claimStageRun() (sfp-paid-waterfall.ts) can reclaim a stage_run left
  *     in 'partial' state (lease already cleared), which was the root cause
  *     of the SFP_STAGE_ALREADY_RUNNING retry-storm bug.
@@ -27,8 +27,8 @@ async function main() {
     await client.query("BEGIN");
 
     // ---- Test 1: provider readiness semantics, mirrored against the real
-    // getSfpProviderReadiness() logic (enabled + circuit closed + budget set
-    // + headroom), exercised via SQL inside the transaction so no other
+    // getSfpProviderReadiness() logic (enabled + circuit closed), exercised
+    // via SQL inside the transaction so no other
     // connection (including the live BullMQ workers) ever observes these
     // intermediate states.
     const originalSerper = (await client.query(
@@ -46,17 +46,17 @@ async function main() {
     row = (await client.query(`SELECT enabled, circuit_state FROM provider_controls WHERE provider='serper'`)).rows[0];
     check("open-circuit provider computed as not-ready", row.circuit_state === "open");
 
-    // 1c. enabled, closed circuit, budget exhausted -> not ready
-    await client.query(`UPDATE provider_controls SET circuit_state='closed', local_budget_units=100, reserved_units=100, consumed_units=0 WHERE provider='serper'`);
-    row = (await client.query(`SELECT local_budget_units, reserved_units, consumed_units FROM provider_controls WHERE provider='serper'`)).rows[0];
-    const headroomExhausted = Number(row.local_budget_units) - Number(row.reserved_units) - Number(row.consumed_units);
-    check("budget-exhausted provider computed as not-ready", headroomExhausted <= 0, headroomExhausted);
+    // 1c. enabled, closed circuit, no local ceiling -> ready
+    await client.query(`UPDATE provider_controls SET circuit_state='closed', local_budget_units=NULL, reserved_units=100, consumed_units=0 WHERE provider='serper'`);
+    row = (await client.query(`SELECT enabled, circuit_state, local_budget_units FROM provider_controls WHERE provider='serper'`)).rows[0];
+    check("unset local ceiling does not block enabled/closed provider", row.enabled === true && row.circuit_state === "closed" && row.local_budget_units === null);
 
-    // 1d. enabled, closed circuit, headroom available -> ready (modulo credential presence, checked separately by the real fn)
-    await client.query(`UPDATE provider_controls SET local_budget_units=50000, reserved_units=0, consumed_units=0 WHERE provider='serper'`);
+    // 1d. enabled, closed circuit, exhausted historical units -> ready
+    await client.query(`UPDATE provider_controls SET local_budget_units=1, reserved_units=100, consumed_units=0 WHERE provider='serper'`);
     row = (await client.query(`SELECT enabled, circuit_state, local_budget_units, reserved_units, consumed_units FROM provider_controls WHERE provider='serper'`)).rows[0];
-    const headroomOk = Number(row.local_budget_units) - Number(row.reserved_units) - Number(row.consumed_units);
-    check("fully-configured provider computed as ready", row.enabled === true && row.circuit_state === "closed" && headroomOk > 0);
+    check("exhausted local ceiling does not block enabled/closed provider",
+      row.enabled === true && row.circuit_state === "closed" &&
+      Number(row.reserved_units) + Number(row.consumed_units) > Number(row.local_budget_units));
 
     // ---- Test 2: claimStageRun can now reclaim a 'partial' stage run.
     // Reuse a real (but rolled-back) cohort_run_id FK target so the insert

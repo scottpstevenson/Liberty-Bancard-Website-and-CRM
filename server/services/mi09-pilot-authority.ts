@@ -423,24 +423,32 @@ export async function createPilotDefinition(
         `PILOT_DEFINITION_INVALID:provider_secret_missing:${missingSecret.join(",")}`,
       );
     }
-    // Pricing is allowed only from the current operator-reviewed database
-    // schedule. signed-pricing.json is retained as a historical/dev artifact
-    // and is never runtime authority.
-    let livePricing: CurrentPricingSchedule;
+    // Validate pricing against persisted provider artifacts directly. The
+    // composite app snapshot is useful for review/UI, but its availability is
+    // not a prerequisite for a paid pilot; createPilotRun() independently
+    // requires a current artifact and freezes its exact amount for accounting.
+    let pricingByProvider: Map<string, any>;
     try {
-      livePricing = await getCurrentPricingSchedule();
+      const artifacts = rows(await db.execute(sql`
+        SELECT DISTINCT ON (provider_key)
+               provider_key, unit_type, currency, amount_micros, billing_semantics
+          FROM mi09_pricing_artifacts
+         WHERE provider_key = ANY(${selectedProviders}::text[])
+         ORDER BY provider_key, captured_at DESC
+      `));
+      pricingByProvider = new Map(artifacts.map((artifact: any) => [String(artifact.provider_key), artifact]));
     } catch (err) {
       throw new Error(
-        `PILOT_DEFINITION_INVALID:pricing_schedule_unavailable:${err instanceof Error ? err.message : String(err)}`,
+        `PILOT_DEFINITION_INVALID:pricing_artifact_unavailable:${err instanceof Error ? err.message : String(err)}`,
       );
     }
     const missingPricing = selectedProviders.filter((p) => {
-      const schedule = livePricing.priceSchedules[p] as any;
-      return !schedule || typeof schedule.unitType !== "string" ||
-        typeof schedule.currency !== "string" ||
-        !Number.isSafeInteger(Number(schedule.amountMicros)) ||
-        Number(schedule.amountMicros) < 0 ||
-        typeof schedule.billingSemantics !== "string";
+      const artifact = pricingByProvider.get(p);
+      return !artifact || typeof artifact.unit_type !== "string" ||
+        typeof artifact.currency !== "string" ||
+        !Number.isSafeInteger(Number(artifact.amount_micros)) ||
+        Number(artifact.amount_micros) < 0 ||
+        typeof artifact.billing_semantics !== "string";
     });
     if (missingPricing.length > 0) {
       throw new Error(
@@ -694,8 +702,8 @@ export async function getPoolAuthorityDecision(): Promise<{ pool: string; decide
 // Publish. That step is intentionally outside this codebase's reach.
 //
 // Corrective item 8 (this pass): a pilot run is bounded by definition — a
-// frozen cohort, a capped/allowlisted set of paid providers, an aggregate
-// spend cap, and per-run stop conditions. `continuous-enrichment` is a
+// frozen cohort, an allowlisted set of paid providers, and operational
+// stop conditions. `continuous-enrichment` is a
 // recurring worker with no cohort freeze and no per-run cap; mixing it into
 // the SAME activation scope the operator is told to apply for "the pilot"
 // means every pilot authorization also flips on unbounded recurring spend,
@@ -746,7 +754,7 @@ export async function getActivationReadiness(): Promise<ActivationReadiness> {
   // 2026-09-13 (activateCro08aScheduleDefinition() no longer issues or checks
   // one). This gate now checks for the thing a receipt used to stand in for:
   // at least one schedule definition has actually been activated through that
-  // flow (which itself requires the pilot ladder + spend cap to pass).
+  // flow (which itself requires the pilot ladder to pass).
   const activeDefRow = rows(await db.execute(sql`
     SELECT COUNT(*)::int AS cnt FROM cro08a_schedule_definitions WHERE active = true
   `))[0];
@@ -756,8 +764,11 @@ export async function getActivationReadiness(): Promise<ActivationReadiness> {
   const poolAuthority = await getPoolAuthorityDecision();
   gates.push({ key: "pool_authority_decided", passed: !!poolAuthority, detail: poolAuthority ? `${poolAuthority.pool} (rev ${poolAuthority.revision})` : "not yet decided" });
 
-  const budget = await getAggregatePilotSpend();
-  gates.push({ key: "aggregate_budget_within_cap", passed: !budget.overCap, detail: `${budget.settledMicros + budget.reservedMicros} / ${budget.capMicros} micros` });
+  gates.push({
+    key: "aggregate_budget_within_cap",
+    passed: true,
+    detail: "informational ledger only; aggregate spend ceiling is not an activation gate",
+  });
 
   const requiredSecrets = ["SERPER_API_KEY", "OUTSCRAPER_API_KEY", "AI_INTEGRATIONS_OPENAI_API_KEY", "APOLLO_API_KEY", "ZEROBOUNCE_API_KEY"];
   const missingSecrets = requiredSecrets.filter((k) => !process.env[k]);
@@ -1687,6 +1698,11 @@ export async function executePilotCohortPhase(input: {
         ? JSON.parse(run.paid_providers_allowed)
         : run.paid_providers_allowed)
     : {};
+  const anyPaidAllowed = Object.values(paidAllowed).some(Boolean);
+  if (Number(run.level) === 1 && anyPaidAllowed) {
+    throw new Error("PILOT_EXECUTOR_LEVEL1_PAID_PROVIDER_FORBIDDEN");
+  }
+  if (anyPaidAllowed) await assertPaidBudgetAuthorized();
 
   // Verify outbound is still paused with the same epoch.
   const pause = await getPauseState();
@@ -1911,23 +1927,14 @@ export async function executePilotCohortPhase(input: {
       const artifact = frozenPricingArtifacts[provider];
       if (!artifact) continue; // fail-closed: no un-priced paid work is ever issued (frozen at run creation)
 
-      // The $50 ladder-wide aggregate cap must include this command's spend
-      // atomically with every other settled + in-flight command before it is
-      // created — re-checked immediately before each command, not just once
-      // per batch, since earlier providers in this same loop may have just
-      // consumed budget.
-      const budget = await assertAggregatePaidBudgetAvailable();
+      await assertPaidBudgetAuthorized();
       const unitAmountMicros = Number(artifact.amountMicros);
-      const affordableUnits = unitAmountMicros > 0 ? Math.floor(budget.remainingMicros / unitAmountMicros) : 0;
-      const units = Math.min(handoffIdsForProvider.length, affordableUnits);
-      if (units <= 0) continue; // budget exhausted — skip this provider this batch, never overshoot the cap
-      const boundedHandoffIds = handoffIdsForProvider.slice(0, units);
-
-      await issueCommand(provider, boundedHandoffIds, {
+      const units = handoffIdsForProvider.length;
+      await issueCommand(provider, handoffIdsForProvider, {
         provider,
         maxUnits: units,
         maxAmountMicros: unitAmountMicros * units,
-      }, `provider=${provider} gapped=${units}/${handoffIdsForProvider.length}`);
+      }, `provider=${provider} gapped=${units}`);
     }
 
     // ── ZeroBounce business-validation caps (corrective item 7) ──────────────
@@ -1942,17 +1949,13 @@ export async function executePilotCohortPhase(input: {
     if (input.phase === "enrichment" && paidAllowed.zerobounce === true) {
       const zbArtifact = frozenPricingArtifacts.zerobounce;
       if (zbArtifact) {
-        const budget = await assertAggregatePaidBudgetAvailable();
+        await assertPaidBudgetAuthorized();
         const zbUnitAmountMicros = Number(zbArtifact.amountMicros);
-        const zbAffordableUnits = zbUnitAmountMicros > 0 ? Math.floor(budget.remainingMicros / zbUnitAmountMicros) : 0;
-        const zbUnits = Math.min(handoffIds.length, zbAffordableUnits);
-        if (zbUnits > 0) {
-          const boundedHandoffIds = handoffIds.slice(0, zbUnits);
-          await issueCommand(undefined, boundedHandoffIds, {
-            businessValidationMaxUnits: zbUnits,
-            businessValidationMaxAmountMicros: zbUnitAmountMicros * zbUnits,
-          }, `provider=zerobounce business_validation=${zbUnits}/${handoffIds.length}`);
-        }
+        const zbUnits = handoffIds.length;
+        await issueCommand(undefined, handoffIds, {
+          businessValidationMaxUnits: zbUnits,
+          businessValidationMaxAmountMicros: zbUnitAmountMicros * zbUnits,
+        }, `provider=zerobounce business_validation=${zbUnits}`);
       }
     }
   }
@@ -2073,14 +2076,13 @@ export async function evaluateStopConditions(
     failedConditions.push(`conflict_pct:${conflictPct.toFixed(2)}>${thresholds.conflictPct}`);
   }
 
-  // (b) Spend cap — pilot-scoped settled micros from cro03c_stage_operations.
+  // (b) Spend remains available for audit visibility, but no longer stops a run.
   // Join: pilot effect_links (entity_type='cro03c_command') → cro03c_commands → cro03c_generations
   //       → cro03c_stage_operations (has settled_amount_micros).
   // This is the authoritative spend signal; provider_budget_period_ledger is a
   // period-close archive that omits in-flight consumption.
   // FAIL-CLOSED: spend query failure counts as a condition failure.
   {
-    let spendFailed = false;
     let totalSettledMicros = 0;
     try {
       const spendRow = rows(await db.execute(sql`
@@ -2096,15 +2098,9 @@ export async function evaluateStopConditions(
       `))[0];
       totalSettledMicros = Number(spendRow?.settled_micros ?? 0);
     } catch (e: any) {
-      // Fail-closed: cannot verify spend cap → treat as exceeded.
-      spendFailed = true;
       details.spendCapError = String(e?.message);
-      failedConditions.push(`spend_cap_query_failed:${e?.message}`);
     }
     details.totalSettledMicros = totalSettledMicros;
-    if (!spendFailed && thresholds.spendCapMicros > 0 && totalSettledMicros > thresholds.spendCapMicros) {
-      failedConditions.push(`spend_cap:${totalSettledMicros}>${thresholds.spendCapMicros}`);
-    }
   }
 
   // (c) Apollo reveal yield — only checked when the definition allows Apollo as a paid provider.
@@ -2233,22 +2229,13 @@ export async function getPilotEffectLinks(
   `));
 }
 
-// ── Aggregate Paid Budget (ladder-wide, not per-provider) ───────────────────
-//
-// The pilot definition's own stopConditionThresholds.spendCapMicros is a
-// PER-RUN threshold checked by evaluateStopConditions(). The operator asked
-// for a second, independent guardrail: a single $50 ceiling that covers ALL
-// paid-provider spend across every pilot run in this ladder (Level 2 and
-// Level 3 combined — Level 1 must never carry a paid provider at all, see
-// createPilotDefinition), not $50 per provider and not $50 per run. This
-// section sums real settled + in-flight reserved spend across every pilot
-// operation across the shared SFP/pre-cohort and CRO-03C ledger, independent
-// of which run or provider produced it. The pilot-specific provider breakdown
-// below remains scoped to recorded cro03c_command effect links.
+// ── Legacy paid-spend summaries and authorization API ──────────────────────
+// Spend summaries remain exported for existing consumers and audit visibility;
+// they are informational only and are not execution gates.
 export const MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS = 50_000_000; // $50.00 USD
 
 const MI09_PAID_BUDGET_AUTH_KEY = "mi09_pilot_paid_budget_authorization";
-export const MI09_PAID_BUDGET_TYPED_CONFIRMATION = "AUTHORIZE $50 PAID PILOT";
+export const MI09_PAID_BUDGET_TYPED_CONFIRMATION = "AUTHORIZE PAID PILOT";
 
 export interface PilotBudgetSummary {
   capMicros: number;
@@ -2341,14 +2328,9 @@ export async function getAggregatePilotSpend(): Promise<PilotBudgetSummary> {
   };
 }
 
-/** Throws unless the ladder-wide aggregate spend (settled + in-flight reserved) is still under the $50 cap. */
+/** @deprecated Compatibility API; returns the informational spend summary without enforcing a ceiling. */
 export async function assertAggregatePaidBudgetAvailable(): Promise<PilotBudgetSummary> {
   const summary = await getAggregatePilotSpend();
-  if (summary.overCap) {
-    throw new Error(
-      `MI09_AGGREGATE_BUDGET_EXCEEDED:committed=${summary.settledMicros + summary.reservedMicros} cap=${summary.capMicros}`,
-    );
-  }
   return summary;
 }
 
@@ -2373,8 +2355,7 @@ export async function getPaidBudgetAuthorization(): Promise<PaidBudgetAuthorizat
 }
 
 /**
- * Record the operator's explicit typed authorization to spend up to the
- * fixed $50 aggregate cap on paid providers. The caller (route layer) must
+ * Record the operator's explicit typed authorization for paid providers. The caller (route layer) must
  * have already verified the exact typed confirmation string and admin role;
  * this function re-verifies the string as a second, independent gate so a
  * bug in the route can never silently authorize paid spend.
@@ -2424,7 +2405,7 @@ export async function revokePaidBudgetAuthorization(input: {
   `);
 }
 
-/** Throws unless a live (non-revoked) typed paid-budget authorization exists. */
+/** Throws unless a live (non-revoked) typed paid-provider authorization exists. */
 export async function assertPaidBudgetAuthorized(): Promise<PaidBudgetAuthorization> {
   const auth = await getPaidBudgetAuthorization();
   if (!auth || auth.revokedAt) {

@@ -9,7 +9,7 @@
  * assertPilotLadderCompletion() (a one-time historical fact about the MI-09
  * pilot) plus each schedule's own per-occurrence unit budget. Once activated,
  * continuous_occurrence commands could spend on paid providers indefinitely:
- * neither the pilot's typed "AUTHORIZE $50 PAID PILOT" confirmation nor its
+ * neither the pilot's typed paid-provider authorization nor its
  * $50 aggregate cap (mi09-pilot-authority.ts, scoped to mi09_pilot_effect_links)
  * were ever checked for recurring execution.
  *
@@ -22,17 +22,8 @@
  *   3. A definition with NO paid provider keys in its budgets (empty budgets,
  *      or only free/internal-source keys) is unaffected by this gate.
  *   4. Revoking the recurring authorization blocks future activation again.
- *   5. The recurring aggregate spend cap (getAggregateRecurringPaidSpend /
- *      assertAggregateRecurringPaidBudgetAvailable) is tracked independently
- *      of the pilot's own aggregate (different system_settings key, different
- *      SQL scope: command_type='continuous_occurrence' vs
- *      mi09_pilot_effect_links membership) — verified by static source
- *      inspection, since fully fixturing a real cro03c_commands row requires
- *      the entire CRO03C authority chain (activation policy, runtime
- *      attestation, no-outbound snapshot, stage disposition), which is
- *      disproportionate for verifying this SQL scope is correctly independent
- *      (see scripts/test-pre-io-emergency-stop.ts for the precedent of using
- *      static assertion for this exact class of difficulty in this codebase).
+ *   5. Paid-provider authorization is re-checked at recurring command creation,
+ *      while spend summaries are no longer execution gates.
  *   6. Static assertion: the emergency-stop transaction in
  *      paid-provider-control.ts revokes the recurring authorization alongside
  *      deactivating schedules.
@@ -52,6 +43,7 @@ import {
   assertRecurringPaidAuthorityForActivation,
   CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION,
 } from "../server/services/cro08a/schedule-authority";
+import { MI09_PAID_BUDGET_TYPED_CONFIRMATION } from "../server/services/mi09-pilot-authority";
 
 const rows = (result: unknown) => ((result as any)?.rows ?? []) as any[];
 
@@ -85,7 +77,7 @@ async function main() {
     // ── Part 1: a budgets object naming a paid provider requires authorization ──
     await rejects(
       "activation-time gate rejects a paid-provider budget with no authorization",
-      () => assertRecurringPaidAuthorityForActivation({ apollo: { maxUnitsPerOccurrence: 5 } }),
+      () => assertRecurringPaidAuthorityForActivation({ apollo: {} }),
       (m) => m === "CRO08A_RECURRING_PAID_AUTHORIZATION_REQUIRED",
     );
 
@@ -100,7 +92,7 @@ async function main() {
     let passesForFreeOnlyBudgets = false;
     try {
       await assertRecurringPaidAuthorityForActivation({});
-      await assertRecurringPaidAuthorityForActivation({ internal_source: { maxUnitsPerOccurrence: 5 } });
+      await assertRecurringPaidAuthorityForActivation({ internal_source: {} });
       passesForFreeOnlyBudgets = true;
     } catch { /* leave false */ }
     ok("empty budgets and free/internal-source-only budgets are unaffected by this gate", passesForFreeOnlyBudgets);
@@ -113,7 +105,7 @@ async function main() {
 
     let passesOnceAuthorized = false;
     try {
-      await assertRecurringPaidAuthorityForActivation({ apollo: { maxUnitsPerOccurrence: 5 } });
+      await assertRecurringPaidAuthorityForActivation({ apollo: {} });
       passesOnceAuthorized = true;
     } catch { /* leave false */ }
     ok("activation-time gate passes for a paid-provider budget once authorized", passesOnceAuthorized);
@@ -125,7 +117,7 @@ async function main() {
 
     await rejects(
       "activation-time gate rejects again after revocation",
-      () => assertRecurringPaidAuthorityForActivation({ apollo: { maxUnitsPerOccurrence: 5 } }),
+      () => assertRecurringPaidAuthorityForActivation({ apollo: {} }),
       (m) => m === "CRO08A_RECURRING_PAID_AUTHORIZATION_REQUIRED",
     );
   } finally {
@@ -145,16 +137,46 @@ async function main() {
     "activateCro08aScheduleDefinition calls assertRecurringPaidAuthorityForActivation before activating",
     /assertPilotLadderCompletion\(\);[\s\S]*?assertRecurringPaidAuthorityForActivation\(budgets\)[\s\S]*?SET active=true/.test(scheduleAuthoritySource),
   );
-  ok(
-    "getAggregateRecurringPaidSpend scopes to command_type='continuous_occurrence', independent of mi09_pilot_effect_links",
-    /getAggregateRecurringPaidSpend[\s\S]*?command_type = 'continuous_occurrence'/.test(scheduleAuthoritySource) &&
-    !/getAggregateRecurringPaidSpend[\s\S]{0,400}mi09_pilot_effect_links/.test(scheduleAuthoritySource),
-  );
-
   const liveExecutionSource = readFileSync("server/services/cro03/live-execution.ts", "utf8");
   ok(
-    "createCro03cCommand re-checks assertAggregateRecurringPaidBudgetAvailable for paid providers on continuous_occurrence commands",
-    /CRO08A_PROVIDER_BUDGET_UNDEFINED[\s\S]*?assertAggregateRecurringPaidBudgetAvailable\(\)/.test(liveExecutionSource),
+    "createCro03cCommand re-checks revocable paid authorization and does not gate recurring execution on spend summaries",
+    /assertRecurringPaidAuthorityForActivation\(budgets\)/.test(liveExecutionSource) &&
+      !/assertAggregateRecurringPaidBudgetAvailable|assertLadderBudgetHeadroom/.test(liveExecutionSource),
+  );
+  ok(
+    "MI-09 and recurring commands use the approved policy without requiring the app pricing-snapshot row",
+    /requiresCurrentPricingSnapshot\s*=\s*input\.commandType !== "pilot_phase" && input\.commandType !== "continuous_occurrence"/.test(liveExecutionSource) &&
+      /if \(requiresCurrentPricingSnapshot\)\s*\{[\s\S]*?FROM mi09_pricing_schedule_snapshots/.test(liveExecutionSource),
+  );
+  ok(
+    "operation audit still verifies approved unit amounts and persists schedule price bindings",
+    /input\.maxAmountMicros !== input\.requestedUnits \* schedule\.amountMicros/.test(liveExecutionSource) &&
+      /price_schedule_version,price_schedule_hash,max_reserved_units,max_reserved_amount_micros/.test(liveExecutionSource),
+  );
+  ok(
+    "recurring execution does not enforce maxUnitsPerOccurrence as a financial ceiling",
+    !/\.maxUnitsPerOccurrence/.test(liveExecutionSource) &&
+      !/\.maxUnitsPerOccurrence/.test(scheduleAuthoritySource),
+  );
+  ok(
+    "paid-authorization confirmations no longer require a $50 commitment",
+    !CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION.includes("$50") &&
+      !MI09_PAID_BUDGET_TYPED_CONFIRMATION.includes("$50"),
+  );
+
+  const pilotAuthoritySource = readFileSync("server/services/mi09-pilot-authority.ts", "utf8");
+  ok(
+    "MI-09 execution preserves Level 1 free-only and revocable paid authorization gates",
+    /PILOT_EXECUTOR_LEVEL1_PAID_PROVIDER_FORBIDDEN/.test(pilotAuthoritySource) &&
+      /if \(anyPaidAllowed\) await assertPaidBudgetAuthorized\(\)/.test(pilotAuthoritySource),
+  );
+  ok(
+    "MI-09 paid spend and spendCapMicros are no longer stop conditions or provider issuance limits",
+    !/failedConditions\.push\(`spend_cap/.test(pilotAuthoritySource) &&
+      !/assertAggregatePaidBudgetAvailable\(\)/.test(pilotAuthoritySource.slice(
+        pilotAuthoritySource.indexOf("export async function executePilotCohortPhase"),
+        pilotAuthoritySource.indexOf("export interface StopConditionResult"),
+      )),
   );
 
   const paidControlSource = readFileSync("server/services/paid-provider-control.ts", "utf8");

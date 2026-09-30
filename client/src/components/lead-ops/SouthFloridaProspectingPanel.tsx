@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Building2, MapPin, CheckCircle, Clock, AlertCircle, Loader2,
+  Building2, MapPin, CheckCircle, Clock, Loader2,
   ShieldCheck, Eye, Play, RefreshCw, Mail, Users, Target,
   TrendingUp, BarChart3, ChevronDown, ChevronRight, Lock,
 } from "lucide-react";
@@ -110,11 +110,8 @@ type SfpValidationPreview = {
   cohortRunId: string;
   cohortSize: number;
   addressesForValidation: number;
-  estimatedCostMicros: number;
-  worstCaseCostMicros: number;
   maxValidations: number;
   gateOpen: boolean;
-  gateBlockedReason: string | null;
   selectedCandidates: Array<{
     businessId: number;
     candidateId: string;
@@ -192,13 +189,6 @@ type PaidWaterfallPreview = {
   providers: Array<{provider:string;credentialPresent:boolean;enabled:boolean;circuitState:string;executableForSfp:boolean;unitPriceMicros:number|null;role:string}>;
   note: string;
 };
-type SfpCohortCostPreview = {
-  snapshotHash: string;
-  selectedBusinessCount: number;
-  totalEstimatedCostMicros: number;
-  totalWorstCaseCostMicros: number;
-  lines: Array<{ provider: string; gapCountDrivingCall: number; estimatedCostMicros: number; worstCaseCostMicros: number }>;
-};
 type SfpPhaseAPreview = {
   snapshotHash: string;
   candidateCount: number;
@@ -206,10 +196,6 @@ type SfpPhaseAPreview = {
 };
 
 // ── Helper ─────────────────────────────────────────────────────────────────────
-
-function fmtMicros(micros: number): string {
-  return `$${(micros / 1_000_000).toFixed(4)}`;
-}
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -359,11 +345,6 @@ export function SouthFloridaProspectingPanel() {
 
   const paidPreviewQuery = useQuery<PaidWaterfallPreview>({
     queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`],
-    enabled: !!activeRunId,
-    retry: false,
-  });
-  const cohortCostPreviewQuery = useQuery<SfpCohortCostPreview>({
-    queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`],
     enabled: !!activeRunId,
     retry: false,
   });
@@ -592,7 +573,7 @@ export function SouthFloridaProspectingPanel() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      toast({ title: "Serper pilot armed", description: `At most ${data.maxAdditionalRequests} additional requests. No call made yet.` });
+      toast({ title: "Serper provider approved", description: "Provider control enabled. No provider call was made." });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`] });
     },
     onError: (e: any) => toast({ title: "Serper pilot blocked", description: e?.message, variant: "destructive" }),
@@ -603,7 +584,6 @@ export function SouthFloridaProspectingPanel() {
       if(!activeRunId) throw new Error("No active run");
       const res=await apiRequest("POST",`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/serper`,{
         idempotencyKey:`sfp-serper-${discoveryIdempotencyKey}`,maxBusinesses:serperBatchSize,
-        previewSnapshotHash:cohortCostPreviewQuery.data?.snapshotHash,
       });
       return res.json();
     },
@@ -614,16 +594,14 @@ export function SouthFloridaProspectingPanel() {
       setDiscoveryIdempotencyKey(nextKey);
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/free-evidence`]});
       queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall-preview`]});
-      queryClient.invalidateQueries({queryKey:[`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`]});
     },
     onError:(e:any)=>toast({title:"Paid discovery blocked",description:e?.message,variant:"destructive"}),
   });
   const runPaidWaterfall = useMutation({
     mutationFn: async () => {
-      if (!activeRunId || !cohortCostPreviewQuery.data?.snapshotHash) throw new Error("Load the current cost preview before execution");
+      if (!activeRunId) throw new Error("No active run");
       const res = await apiRequest("POST", `/api/lead-ops/sfp/runs/${activeRunId}/paid-waterfall/person-identity`, {
         idempotencyKey: `sfp-paid-${discoveryIdempotencyKey}`, maxBusinesses: 10,
-        previewSnapshotHash: cohortCostPreviewQuery.data.snapshotHash,
       });
       return res.json();
     },
@@ -633,7 +611,6 @@ export function SouthFloridaProspectingPanel() {
       const nextKey = crypto.randomUUID();
       try { window.localStorage.setItem(SFP_DISCOVERY_IDEMPOTENCY_STORAGE_KEY, nextKey); } catch { /* best-effort */ }
       setDiscoveryIdempotencyKey(nextKey);
-      queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/cost-preview`] });
       queryClient.invalidateQueries({ queryKey: [`/api/lead-ops/sfp/runs/${activeRunId}/candidates`] });
     },
     onError: (e: any) => toast({ title: "Paid waterfall blocked", description: e?.message, variant: "destructive" }),
@@ -1323,7 +1300,6 @@ export function SouthFloridaProspectingPanel() {
           </CardHeader>
           <CardContent className="pt-0">
             {paidPreviewQuery.isError && <QueryFailure label="Paid-provider readiness" error={paidPreviewQuery.error} />}
-            {cohortCostPreviewQuery.isError && <QueryFailure label="Cohort cost preview" error={cohortCostPreviewQuery.error} />}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               {(paidPreviewQuery.data?.providers ?? []).map((p) => (
                 <div key={p.provider} className={`border rounded p-2 ${p.executableForSfp ? "" : "opacity-60"}`}>
@@ -1343,12 +1319,16 @@ export function SouthFloridaProspectingPanel() {
               <input id="sfp-serper-batch-size" type="number" min={1} max={10} value={serperBatchSize}
                 onChange={(e) => setSerperBatchSize(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
                 className="border rounded px-2 py-1 text-xs w-16" />
-              <Button size="sm" variant="outline" onClick={() => armSerperPilot.mutate()}
+              <Button size="sm" variant="outline" onClick={() => {
+                if (confirm("Approve Serper for this frozen cohort? This enables the existing provider control, does not change its configured limit, and makes no provider call.")) {
+                  armSerperPilot.mutate();
+                }
+              }}
                 disabled={armSerperPilot.isPending || paidPreviewQuery.isError || !activeRunId || !paidPreviewQuery.data?.serperEligibleNow}>
-                Arm Serper pilot (at most {serperBatchSize * 4} requests)
+                Approve Serper provider for this cohort
               </Button>
               <Button size="sm" onClick={()=>runSerperDiscovery.mutate()}
-                disabled={runSerperDiscovery.isPending || paidPreviewQuery.isError || cohortCostPreviewQuery.isError || !paidPreviewQuery.data?.serperEligibleNow || !cohortCostPreviewQuery.data?.snapshotHash || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
+                disabled={runSerperDiscovery.isPending || paidPreviewQuery.isError || !paidPreviewQuery.data?.serperEligibleNow || !(paidPreviewQuery.data?.providers.find(p=>p.provider==='serper')?.enabled)}>
                 {runSerperDiscovery.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1"/> : <Play className="h-3 w-3 mr-1"/>}
                 Run Serper discovery ({serperBatchSize} business{serperBatchSize === 1 ? "" : "es"})
               </Button>
@@ -1356,22 +1336,11 @@ export function SouthFloridaProspectingPanel() {
                 <span className="text-xs text-muted-foreground">No paid retry is due in this frozen cohort. A larger new cohort can include unattempted businesses; recent no-results become retryable after 24 hours.</span>
               )}
               <Button size="sm" variant="outline" onClick={() => runPaidWaterfall.mutate()}
-                disabled={runPaidWaterfall.isPending || cohortCostPreviewQuery.isError || !cohortCostPreviewQuery.data?.snapshotHash}>
+                disabled={runPaidWaterfall.isPending || paidPreviewQuery.isError}>
                 {runPaidWaterfall.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
                 Outscraper + Apollo (max 10)
               </Button>
             </div>
-            {cohortCostPreviewQuery.data && (
-              <div className="mt-3 space-y-1 text-xs">
-                <div className="font-medium">Server-derived snapshot-bound cost preview · {cohortCostPreviewQuery.data.selectedBusinessCount} frozen members</div>
-                <div className="flex flex-wrap gap-3">
-                  {cohortCostPreviewQuery.data.lines.map((line) => (
-                    <span key={line.provider}>{line.provider}: {line.gapCountDrivingCall} gaps · est. {fmtMicros(line.estimatedCostMicros)} / max {fmtMicros(line.worstCaseCostMicros)}</span>
-                  ))}
-                </div>
-                <div>Estimated {fmtMicros(cohortCostPreviewQuery.data.totalEstimatedCostMicros)} · worst case {fmtMicros(cohortCostPreviewQuery.data.totalWorstCaseCostMicros)}</div>
-              </div>
-            )}
             {lastPaidResult?.gapVectors?.length > 0 && (
               <div className="mt-2 text-xs">
                 <div className="font-medium">Per-business gap vectors (before → after)</div>
@@ -1384,7 +1353,7 @@ export function SouthFloridaProspectingPanel() {
               {paidPreviewQuery.data?.note ?? (paidPreviewQuery.isError ? "Provider readiness is unavailable; no provider request is authorized." : "Loading provider controls…")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Arm sets the canonical Serper control to allow at most the selected batch's requests beyond current spent and reserved units; it makes no provider call.
+              Provider approval enables the existing control without changing its configured limit or circuit state.
               A completed or no-result business is skipped on later batches of this cohort.
             </p>
           </CardContent>
@@ -1409,23 +1378,9 @@ export function SouthFloridaProspectingPanel() {
                 </div>
                 <div className="bg-muted/50 rounded p-2">
                   <div className="text-base font-bold">{validationPreviewQuery.data.maxValidations}</div>
-                  <div className="text-muted-foreground">Max (hard cap)</div>
-                </div>
-                <div className="bg-muted/50 rounded p-2">
-                  <div className="text-base font-bold font-mono">{fmtMicros(validationPreviewQuery.data.estimatedCostMicros)}</div>
-                  <div className="text-muted-foreground">Estimated cost</div>
-                </div>
-                <div className="bg-muted/50 rounded p-2">
-                  <div className="text-base font-bold font-mono">{fmtMicros(validationPreviewQuery.data.worstCaseCostMicros)}</div>
-                  <div className="text-muted-foreground">Worst-case cost</div>
+                  <div className="text-muted-foreground">Maximum validations</div>
                 </div>
               </div>
-            )}
-            {validationPreviewQuery.data?.gateBlockedReason && (
-              <p className="text-xs text-red-500 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
-                Gate blocked: {validationPreviewQuery.data.gateBlockedReason}
-              </p>
             )}
             {validationPreviewQuery.isError && <QueryFailure label="Validation preview" error={validationPreviewQuery.error} />}
             <div className="flex gap-2">
@@ -1438,7 +1393,7 @@ export function SouthFloridaProspectingPanel() {
               <Button
                 size="sm"
                 onClick={() => validateCohort.mutate()}
-                disabled={validateCohort.isPending || validationPreviewQuery.isError || validationPreviewQuery.data?.gateBlockedReason !== null}
+                disabled={validateCohort.isPending || validationPreviewQuery.isError}
               >
                 {validateCohort.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
                 Authorize Bounded Validation (max 25)

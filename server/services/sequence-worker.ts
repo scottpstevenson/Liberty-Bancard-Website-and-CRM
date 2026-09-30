@@ -504,8 +504,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           // Only runs for email-typed step-0 sequences and only when the contact
           // hasn't been validated yet (null / 'active' / 'unvalidated').
           //
-          // Budget exhaustion or a failed credit claim → defer enrollment (status:
-          // paused + audit log). Next worker tick retries the same step naturally.
+          // A missing/currently invalid validation observation is handled by the
+          // durable provider-readiness queue below; there is no local credit cap.
           {
             const firstStep = steps.find(s => s.stepOrder === 1) ?? steps[0];
             if (firstStep?.actionType === "email") {
@@ -547,128 +547,6 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 // validation/credit code below.
                 processed++;
                 continue;
-
-                const budgetCheck = { allowed: false, used: 0, limit: 0 };
-                if (!budgetCheck.allowed) {
-                  // ZB budget exhausted — cannot validate. Keep enrollment ACTIVE and
-                  // set nextActionAt to 1 h from now so the worker retries automatically.
-                  console.warn(
-                    `[SequenceWorker] ZeroBounce budget exhausted (${budgetCheck.used}/${budgetCheck.limit}) — deferring unvalidated contact ${enrollment.contactId} for 1 h`,
-                  );
-                  await storage.updateSequenceEnrollment(enrollment.id, {
-                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
-                  });
-                  await storage.createAuditLog({
-                    action: "sequence_enrollment_deferred_zb_budget",
-                    entityType: "contact",
-                    entityId: enrollment.contactId,
-                    actorType: "system",
-                    details: {
-                      enrollmentId: enrollment.id,
-                      sequenceId: sequence.id,
-                      sequenceName: sequence.name,
-                      reason: "ZeroBounce budget exhausted; contact email unvalidated — retrying in 1 h",
-                      zbUsed: budgetCheck.used,
-                      zbLimit: budgetCheck.limit,
-                      retryAfter: new Date(Date.now() + ZB_RETRY_DELAY_MS).toISOString(),
-                    },
-                  });
-                  processed++;
-                  continue;
-                }
-
-                const credited = false;
-                if (!credited) {
-                  // Credit claim race (atomicity race against another worker process) —
-                  // treat like budget exhaustion: keep ACTIVE, retry in 1 h.
-                  console.warn(
-                    `[SequenceWorker] ZeroBounce credit claim failed at pre-enrollment for contact ${enrollment.contactId} — deferring for 1 h`,
-                  );
-                  await storage.updateSequenceEnrollment(enrollment.id, {
-                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
-                  });
-                  await storage.createAuditLog({
-                    action: "sequence_enrollment_deferred_zb_budget",
-                    entityType: "contact",
-                    entityId: enrollment.contactId,
-                    actorType: "system",
-                    details: {
-                      enrollmentId: enrollment.id,
-                      sequenceId: sequence.id,
-                      sequenceName: sequence.name,
-                      reason: "ZeroBounce credit claim race; contact email unvalidated — retrying in 1 h",
-                      retryAfter: new Date(Date.now() + ZB_RETRY_DELAY_MS).toISOString(),
-                    },
-                  });
-                  processed++;
-                  continue;
-                }
-
-                try {
-                  const zbResult = { status: "unknown", outcome: "unavailable", reason: "durable_intent_required" };
-                  // Project only terminal provider evidence. A timeout/transport
-                  // result must not become a trusted email status.
-                  const { db: zbDb } = await import("../db");
-                  const { sql: zbSql } = await import("drizzle-orm");
-                  if (zbResult.outcome === "completed" && !zbResult.reason) {
-                    await zbDb.execute(zbSql`
-                      UPDATE contacts
-                      SET email_status = ${zbResult.status},
-                          email_token_hash = ${hashEmailToken(preEnrollContact!.email)},
-                          email_validation_updated_at = NOW()
-                      WHERE id = ${preEnrollContact!.id}
-                    `);
-                  }
-
-                  await storage.createAuditLog({
-                    action: "zerobounce_email_validated",
-                    entityType: "contact",
-                    entityId: preEnrollContact!.id,
-                    actorType: "system",
-                    details: {
-                      enrollmentId: enrollment.id,
-                      sequenceId: sequence.id,
-                      emailTokenHash: hashEmailToken(preEnrollContact!.email),
-                      zbStatus: zbResult.status,
-                      source: "sequence_worker_pre_enrollment",
-                    },
-                  });
-
-                  // Every non-positive result blocks marketing enrollment.
-                  if (zbResult.status !== "valid" || zbResult.outcome !== "completed" || zbResult.reason) {
-                    const terminal = ZB_UNDELIVERABLE.has(zbResult.status) || zbResult.status === "unverified";
-                    await storage.updateSequenceEnrollment(enrollment.id, terminal
-                      ? { status: "paused" }
-                      : { nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS) });
-                    await storage.createAuditLog({
-                      action: terminal ? "sequence_enrollment_blocked_zb_nonpositive" : "sequence_enrollment_deferred_zb_unavailable",
-                      entityType: "contact",
-                      entityId: preEnrollContact!.id,
-                      actorType: "system",
-                      details: {
-                        enrollmentId: enrollment.id,
-                        sequenceId: sequence.id,
-                        sequenceName: sequence.name,
-                        emailTokenHash: hashEmailToken(preEnrollContact!.email),
-                        zbStatus: zbResult.status,
-                        reason: "ZeroBounce did not produce positive current evidence",
-                      },
-                    });
-                    processed++;
-                    continue;
-                  }
-                } catch (zbErr: any) {
-                  console.warn(
-                    `[SequenceWorker] ZeroBounce pre-enrollment API error for contact ${enrollment.contactId}:`,
-                    zbErr.message,
-                  );
-                  // Provider failure defers rather than authorizing enrollment.
-                  await storage.updateSequenceEnrollment(enrollment.id, {
-                    nextActionAt: new Date(Date.now() + ZB_RETRY_DELAY_MS),
-                  });
-                  processed++;
-                  continue;
-                }
               }
             }
           }
@@ -972,8 +850,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           // Fire once per contact, only for email steps, when emailStatus is unknown.
           // Writes the result back to contacts.email_status so we never re-spend credits.
           //
-          // Fail-closed: budget exhaustion OR credit-claim race → defer the step
-          // (advance nextActionAt by 1 h, keep enrollment ACTIVE for natural retry).
+          // Unvalidated addresses remain deferred until current provider evidence
+          // is available; no local credit ceiling is applied here.
           // This path is reached for steps beyond step 0 (or sequences that begin
           // with a non-email step); the pre-enrollment gate covers step 0.
           if (
@@ -997,63 +875,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             // retired inline ZeroBounce/credit-claim lane.
             processed++;
             continue;
-            const budgetCheck = { allowed: false, used: 0, limit: 0 };
-            if (!budgetCheck.allowed) {
-              console.warn(
-                `[SequenceWorker] ZeroBounce daily cap reached (${budgetCheck.used}/${budgetCheck.limit}) — deferring unvalidated contact ${contact.id} for 1 h`,
-              );
-              await storage.updateSequenceEnrollment(enrollment.id, {
-                nextActionAt: new Date(Date.now() + ZB_RETRY_MS),
-              });
-              await storage.createAuditLog({
-                action: "sequence_enrollment_deferred_zb_budget",
-                entityType: "contact",
-                entityId: contact.id,
-                actorType: "system",
-                details: {
-                  enrollmentId: enrollment.id,
-                  sequenceId: sequence.id,
-                  sequenceName: sequence.name,
-                  reason: "ZeroBounce budget exhausted; contact email unvalidated — retrying in 1 h",
-                  zbUsed: budgetCheck.used,
-                  zbLimit: budgetCheck.limit,
-                  retryAfter: new Date(Date.now() + ZB_RETRY_MS).toISOString(),
-                },
-              });
-              processed++;
-              continue;
-            }
-
-            if (!contact.email) {
-              // No email address — let the downstream contactability gate handle it.
-            } else {
-              const credited = false;
-              if (!credited) {
-                // Atomicity race — another process claimed the last credit.
-                // Fail-closed: defer this step rather than sending to an unvalidated address.
-                console.warn(
-                  `[SequenceWorker] ZeroBounce credit claim failed for contact ${contact.id} — deferring for 1 h`,
-                );
-                await storage.updateSequenceEnrollment(enrollment.id, {
-                  nextActionAt: new Date(Date.now() + ZB_RETRY_MS),
-                });
-                await storage.createAuditLog({
-                  action: "sequence_enrollment_deferred_zb_budget",
-                  entityType: "contact",
-                  entityId: contact.id,
-                  actorType: "system",
-                  details: {
-                    enrollmentId: enrollment.id,
-                    sequenceId: sequence.id,
-                    sequenceName: sequence.name,
-                    reason: "ZeroBounce credit claim race; contact email unvalidated — retrying in 1 h",
-                    retryAfter: new Date(Date.now() + ZB_RETRY_MS).toISOString(),
-                  },
-                });
-                processed++;
-                continue;
-              }
-
+            if (contact.email) {
               try {
                 const zbResult = { status: "unknown", subStatus: null, outcome: "unavailable", reason: "durable_intent_required", skipped: true };
                 // Project only completed evidence for the current token.

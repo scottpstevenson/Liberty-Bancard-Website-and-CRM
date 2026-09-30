@@ -2059,13 +2059,12 @@ async function testCase35(): Promise<void> {
 }
 
 // ── Case 36: Pre-enrollment ZeroBounce gate ───────────────────────────────
-// Part A: 'unvalidated' contact + ZB budget exhausted → enrollment DEFERRED
-//         (paused with audit log "sequence_enrollment_deferred_zb_budget"),
-//         NOT permanently blocked.
+// Part A: 'unvalidated' contact is deferred only while durable provider evidence
+//         is unavailable; a legacy daily limit setting must not gate it.
 // Part B: 'valid' contact (already ZB-confirmed) → step-0 contactability does
 //         NOT block due to email status (regression guard for pre-existing validated contacts).
 async function testCase36(): Promise<void> {
-  console.log("\nCase 36 (Pre-enrollment ZB gate): unvalidated + budget exhausted → deferred; valid → not blocked");
+  console.log("\nCase 36 (Pre-enrollment ZB gate): provider readiness deferral; valid → not blocked");
   const savedMode = process.env.TEST_MODE;
   const savedDry = process.env.DRY_RUN;
   const savedSkipAi = process.env.SKIP_AI;
@@ -2073,19 +2072,14 @@ async function testCase36(): Promise<void> {
   process.env.DRY_RUN = "true";
   process.env.SKIP_AI = "true";
 
-  const todayKey = `zerobounce_validation_count_${new Date().toISOString().slice(0, 10)}`;
-
   try {
     await applyPauseMutation({ correlationId: TEST_CORRELATION_ID, outboundGlobalPaused: false, actor: "test-case36", reason: "case 36 — disable canonical pause for ZB-gate test" });
     // Clear coordinator holds so canExecute("sequences") returns true
     await clearTestHolds(TEST_CORRELATION_ID);
-    // Exhaust ZB budget: set daily limit to 1 and today's count to 1
+    // Retain a legacy limit value as inert data: it must not block the worker.
     await storage.setSystemSetting("zerobounce_validation_daily_limit", 1);
-    await storage.setSystemSetting(todayKey, 1);
 
-    // ── Part A: Unvalidated + budget exhausted → deferred (ACTIVE, not paused) ──
-    // Prove the enrollment is retryable: first tick defers, second tick (after budget
-    // is restored and nextActionAt is rewound) processes normally.
+    // ── Part A: Unvalidated contact is deferred by provider readiness ─────────
     const { seqId: seqIdA } = await makeDailyCapSequence();
     const unvalidatedId = await makeContact({
       emailStatus: "unvalidated",
@@ -2095,7 +2089,7 @@ async function testCase36(): Promise<void> {
     await insertPewcEvidence(unvalidatedId);
     const enrollIdA = await makeEnrollment(unvalidatedId, seqIdA);
 
-    // First tick — budget exhausted → enrollment stays ACTIVE, nextActionAt advanced
+    // First tick — no current evidence → enrollment stays ACTIVE, nextActionAt advanced
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
@@ -2104,7 +2098,7 @@ async function testCase36(): Promise<void> {
       .from(sequenceEnrollments)
       .where(eq(sequenceEnrollments.id, enrollIdA));
     assert(
-      "Case 36A: unvalidated + budget exhausted → enrollment stays ACTIVE (retryable, not permanently blocked)",
+      "Case 36A: unvalidated contact stays ACTIVE while provider evidence is unavailable",
       enrollA1?.status === "active",
       `status=${enrollA1?.status}`,
     );
@@ -2123,8 +2117,7 @@ async function testCase36(): Promise<void> {
         eq(auditLogs.entityId, unvalidatedId),
       ));
     const truthfulDeferral = deferLogs.some((log) =>
-      log.action === "sequence_enrollment_deferred_provider_readiness" ||
-      log.action === "sequence_enrollment_deferred_zb_budget"
+      log.action === "sequence_enrollment_deferred_provider_readiness"
     );
     assert(
       "Case 36A: truthful provider-readiness deferral audit log written",
@@ -2132,10 +2125,7 @@ async function testCase36(): Promise<void> {
       `actions=${deferLogs.map((log) => log.action).join(",")}`,
     );
 
-    // Second tick: restore budget and rewind nextActionAt so the enrollment is due.
-    // This proves the deferral is genuinely retryable on the next worker invocation.
-    await storage.setSystemSetting("zerobounce_validation_daily_limit", 500);
-    await storage.setSystemSetting(todayKey, 0);
+    // Rewind nextActionAt so the enrollment is due for a second worker invocation.
     await db.execute(
       `UPDATE sequence_enrollments SET next_action_at = NOW() - INTERVAL '1 second' WHERE id = ${enrollIdA}`
     );
@@ -2143,8 +2133,7 @@ async function testCase36(): Promise<void> {
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
-    // After budget restored, the worker picks up the enrollment. Because DRY_RUN=true
-    // and ZB validations are live calls (no real API), the enrollment may be blocked at
+    // Because DRY_RUN=true and ZB validations are live calls (no real API), the enrollment may be blocked at
     // contactability (Step 9) or paused for other reasons — but NOT for "still deferred".
     // The key guarantee is that it was NOT left permanently stuck.
     const [enrollA2] = await db
@@ -2156,16 +2145,12 @@ async function testCase36(): Promise<void> {
     // which would mean it was deferred again (also acceptable) OR processed.
     const secondTickProcessed = enrollA2?.status !== undefined;
     assert(
-      "Case 36A: enrollment is retried by the worker after budget is restored",
+      "Case 36A: enrollment is retried by the worker",
       secondTickProcessed,
       `status after second tick=${enrollA2?.status}`,
     );
 
     // ── Part B: Valid contact → NOT blocked at step-0 contactability ────────
-    // Restore ZB budget so it doesn't interfere with the contactability check.
-    await storage.setSystemSetting("zerobounce_validation_daily_limit", 500);
-    await storage.setSystemSetting(todayKey, 0);
-
     const { seqId: seqIdB } = await makeDailyCapSequence();
     const validContactId = await makeContact({
       emailStatus: "valid",
@@ -2184,7 +2169,7 @@ async function testCase36(): Promise<void> {
       .where(eq(sequenceEnrollments.id, enrollIdB));
 
     // Check that any block was NOT due to email status (other blocks like
-    // missing GHL ID or daily-cap are acceptable in TEST_MODE / DRY_RUN).
+    // missing GHL ID are acceptable in TEST_MODE / DRY_RUN).
     const emailStatusBlockLogs = await db
       .select({ id: auditLogs.id })
       .from(auditLogs)
@@ -2200,8 +2185,6 @@ async function testCase36(): Promise<void> {
       `found ${emailStatusBlockLogs.length} contactability block(s) for emailStatus='valid' contact`,
     );
   } finally {
-    await storage.setSystemSetting("zerobounce_validation_daily_limit", 500);
-    await storage.setSystemSetting(todayKey, 0);
     if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
     if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
     if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;

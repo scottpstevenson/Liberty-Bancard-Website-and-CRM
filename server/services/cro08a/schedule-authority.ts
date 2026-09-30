@@ -18,7 +18,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { Cro08aCertificationDeniedError } from "./certification-gate";
 import { assertCro08aSourceScope } from "./source-scope";
-import { PAID_PROVIDER_KEYS, type PaidProviderKey } from "../paid-provider-control";
+import { PAID_PROVIDER_KEYS } from "../paid-provider-control";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 
@@ -52,14 +52,9 @@ function stableHash(value: unknown): string {
 
 /**
  * Reject a malformed `budgets` JSON shape at schedule-definition creation
- * time rather than letting a bad shape surface only much later, inside
- * createCro03cCommand's per-provider budget lookup (CRO08A_PROVIDER_BUDGET_
- * UNDEFINED). Each provider key present must map to an object carrying a
- * non-negative integer `maxUnitsPerOccurrence`; the object may be empty
- * (`{}`, meaning "no provider budgets configured yet" — a definition with an
- * empty budgets object can still be created and activated, it simply cannot
- * back any continuous_occurrence command until a provider entry is added via
- * a new definition version).
+ * time rather than letting a bad shape surface later. Provider entries are
+ * allowlist/configuration metadata; maxUnitsPerOccurrence is not an execution
+ * or financial ceiling. The object may be empty.
  */
 function assertValidCro08aBudgetsShape(budgets: Record<string, unknown>): void {
   if (!budgets || typeof budgets !== "object" || Array.isArray(budgets)) {
@@ -68,10 +63,6 @@ function assertValidCro08aBudgetsShape(budgets: Record<string, unknown>): void {
   for (const [provider, entry] of Object.entries(budgets)) {
     if (!provider) throw new Error("CRO08A_SCHEDULE_BUDGETS_INVALID");
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new Error("CRO08A_SCHEDULE_BUDGETS_INVALID");
-    }
-    const maxUnitsPerOccurrence = (entry as Record<string, unknown>).maxUnitsPerOccurrence;
-    if (!Number.isInteger(maxUnitsPerOccurrence) || (maxUnitsPerOccurrence as number) < 0) {
       throw new Error("CRO08A_SCHEDULE_BUDGETS_INVALID");
     }
   }
@@ -143,13 +134,12 @@ export async function createCro08aScheduleDefinition(input: Cro08aScheduleDefini
 }
 
 /**
- * Flip a schedule definition's active pointer to true. Gated only by the
- * MI-09 pilot ladder (assertPilotLadderCompletion) and the aggregate $50
- * spend cap enforced per-command in live-execution.ts — the separate
- * certification-receipt ceremony (typed confirmation + pricing snapshot +
- * runtime attestation) was removed at the operator's request; a solo
- * operator repeating that ceremony on every release added no additional
- * protection beyond the pilot ladder and the spend cap. Deactivates any
+ * Flip a schedule definition's active pointer to true. Gated by the
+ * MI-09 pilot ladder and a separate, revocable paid-provider authorization
+ * when the definition names paid providers. Spend caps are not execution
+ * gates. The certification-receipt ceremony (typed confirmation + pricing
+ * snapshot + runtime attestation) was removed at the operator's request.
+ * Deactivates any
  * prior active definition for the same logical key in the same transaction
  * (CAS: partial unique index enforces at most one active row per logical
  * key even under a race).
@@ -280,33 +270,13 @@ export async function deactivateCro08aScheduleDefinition(definitionId: string): 
   `);
 }
 
-// ── Corrective item 8 (Task #1971 continuation): split pilot vs recurrence
-// authorization scopes ────────────────────────────────────────────────────
-//
-// Before this, activateCro08aScheduleDefinition() was gated ONLY by
-// assertPilotLadderCompletion() — a one-time historical fact (the MI-09
-// pilot ladder completed at some point in the past) — plus each schedule's
-// own per-occurrence unit budgets (maxUnitsPerOccurrence, which bound
-// volume per run but not total dollar spend). Once a schedule activated,
-// its continuous_occurrence commands could spend on paid providers
-// indefinitely: they never checked getPaidBudgetAuthorization() (the
-// operator's one-time typed "AUTHORIZE $50 PAID PILOT" confirmation) or
-// assertAggregatePaidBudgetAvailable() (the pilot's $50 aggregate cap) —
-// both of those are pilot-run-scoped (mi09-pilot-authority.ts, tracked via
-// mi09_pilot_effect_links) and were never wired into the recurring
-// execution path at all.
-//
-// This gives recurrence its OWN explicit, revocable operator authorization
-// and its OWN aggregate spend cap, tracked independently from the pilot's:
-// a completed pilot ladder authorizes recurring schedules to be created and
-// activated, but never implicitly authorizes them to spend on paid
-// providers, and a pilot's typed confirmation never carries over to
-// recurring spend either. An admin must explicitly type a distinct
-// confirmation string before ANY schedule definition naming a paid
-// provider in its budgets may activate, and every continuous_occurrence
-// command re-checks the recurring aggregate cap immediately before
-// creation (mirroring the pilot's own per-command re-check pattern).
-export const CRO08A_RECURRING_PAID_BUDGET_MICROS = 50_000_000; // $50.00 USD — mirrors the pilot's own starting ceiling; a separate, independently-tracked pool.
+// ── Independent recurring paid-provider authorization ─────────────────────
+// Completing MI-09 never implicitly authorizes recurring spend. Paid schedule
+// definitions require their own revocable operator approval, checked at
+// activation and again at command/operation creation. Spend summaries below
+// remain available for audit/UI compatibility but impose no ceiling.
+/** @deprecated Retained for existing consumers; no recurring spend ceiling is enforced. */
+export const CRO08A_RECURRING_PAID_BUDGET_MICROS = 50_000_000;
 const CRO08A_RECURRING_BUDGET_AUTH_KEY = "cro08a_recurring_paid_budget_authorization";
 export const CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION = "AUTHORIZE RECURRING PAID ENRICHMENT";
 
@@ -320,9 +290,9 @@ export interface Cro08aRecurringBudgetAuthorization {
   revokedReason?: string;
 }
 
-function paidProviderKeysIn(budgets: Record<string, unknown>): PaidProviderKey[] {
-  return Object.keys(budgets).filter((key): key is PaidProviderKey =>
-    (PAID_PROVIDER_KEYS as readonly string[]).includes(key));
+function paidProviderKeysIn(budgets: Record<string, unknown>): string[] {
+  return Object.keys(budgets).filter((key) =>
+    (PAID_PROVIDER_KEYS as readonly string[]).includes(key) || key === "zerobounce_business");
 }
 
 /** Read the current typed recurring-paid-budget authorization, if any. Revoked authorizations are returned (with revokedAt set) so callers can distinguish "never authorized" from "authorized then revoked". */
@@ -422,13 +392,9 @@ export async function getAggregateRecurringPaidSpend(): Promise<Cro08aRecurringB
   };
 }
 
-/** Throws unless the recurring aggregate spend (settled + in-flight reserved) is still under its own cap. Independent of the pilot's assertAggregatePaidBudgetAvailable(). */
+/** @deprecated Compatibility API; returns informational recurrence spend without enforcing a ceiling. */
 export async function assertAggregateRecurringPaidBudgetAvailable(): Promise<Cro08aRecurringBudgetSummary> {
-  const summary = await getAggregateRecurringPaidSpend();
-  if (summary.overCap) {
-    throw new Error(`CRO08A_RECURRING_BUDGET_EXCEEDED:committed=${summary.settledMicros + summary.reservedMicros} cap=${summary.capMicros}`);
-  }
-  return summary;
+  return getAggregateRecurringPaidSpend();
 }
 
 /**

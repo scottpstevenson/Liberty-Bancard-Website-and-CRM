@@ -25,8 +25,6 @@ import {
   AlertTriangle, CheckCircle, Clock, XCircle,
 } from "lucide-react";
 import { BusinessListItem } from "./MobileBusinessCard";
-// BudgetPreviewModal is imported when paid-action command endpoints are wired.
-// import { BudgetPreviewModal, type PaidActionType } from "./BudgetPreviewModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -443,11 +441,6 @@ export function BusinessDetailPanel({ businessId, onClose }: Props) {
                   </div>
                 )}
               </Section>
-
-              {/* NOTE: BudgetPreviewModal is wired into paid-action entry points
-                  (Apollo Reveal, bulk paid enrichment, ZeroBounce) when those
-                  gated command endpoints are added. The modal and useBudgetPreview
-                  hook are ready to import from ./BudgetPreviewModal. */}
 
               {/* 6. Email status */}
               <Section icon={Mail} title="6 · Email Status">

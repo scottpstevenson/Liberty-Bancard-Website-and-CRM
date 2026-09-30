@@ -60,7 +60,7 @@ export async function getPaidProviderControls(): Promise<{
   inFlightOperations: Array<Record<string, unknown>>;
 }> {
   const controls = rows(await db.execute(sql`
-    SELECT provider, capability, enabled, circuit_state, local_budget_units,
+    SELECT provider, capability, enabled, circuit_state,
            reserved_units, consumed_units, last_completed_at, last_outcome,
            last_error_code, observed_at, updated_at
       FROM provider_controls
@@ -80,7 +80,7 @@ export async function getPaidProviderControls(): Promise<{
   let serper: any = null;
   try {
     serper = rows(await db.execute(sql`
-      SELECT enabled, state, local_budget, window_calls, last_success_at,
+      SELECT enabled, state, window_calls, last_success_at,
              last_failure_at, reason_code, updated_at
         FROM serper_control WHERE id = 1
     `))[0] ?? null;
@@ -135,7 +135,6 @@ export async function getPaidProviderControls(): Promise<{
       credentialPresent: Boolean(process.env[SECRET_BY_PROVIDER[provider]]),
       enabled,
       circuitState,
-      budgetCapUnits: provider === "serper" ? (serper?.local_budget ?? row?.local_budget_units ?? null) : (row?.local_budget_units ?? null),
       reservedUnits: row?.reserved_units ?? 0,
       consumedUnits: row?.consumed_units ?? (provider === "serper" ? serper?.window_calls ?? 0 : 0),
       currentPriceArtifactReference: pricingAvailable && price
@@ -158,7 +157,6 @@ export async function getPaidProviderControls(): Promise<{
     zeroBounce: {
       enabled: zb.enabled,
       circuitState: zb.circuitState,
-      dailyCap: (await storage.getSystemSetting("zerobounce_validation_daily_limit").catch(() => null)) ?? zb.budgetCapUnits,
       autoRunEnabled: autoRunValue === true || autoRunValue === "true",
       nextAutomaticRunAt: nextSixUtc(),
       authorizedPurposes: zb.authorizedPurposes,
@@ -229,8 +227,8 @@ export async function emergencyStopPaidProviders(input: {
        RETURNING id
     `));
 
-    // Corrective item 8: an emergency stop must also revoke the recurring
-    // paid-budget authorization (not just deactivate schedules), so a future
+    // Emergency stop also revokes recurring paid approval (not just deactivates
+    // schedules), so a future
     // re-activation can never silently ride on a stale operator confirmation
     // — the operator must explicitly re-type the recurring confirmation.
     await tx.execute(sql`

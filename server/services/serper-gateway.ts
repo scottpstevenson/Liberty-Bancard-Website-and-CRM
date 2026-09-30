@@ -8,7 +8,7 @@
  * Durable state lives in the `serper_control` singleton row (id=1):
  *  - Global kill switch (`enabled`, deployed false by default)
  *  - Distributed circuit breaker (`closed` | `open` | `half_open`)
- *  - Billing-window accounting with atomic budget claims
+ *  - Billing-window and lifetime request accounting for reporting
  *  - Lifetime + yield counters
  *
  * Fail-closed: a missing, malformed, or unreadable control row blocks calls.
@@ -32,7 +32,6 @@ export type SerperBlockReason =
   | "state_unreadable"
   | "circuit_open"
   | "half_open_probe_in_flight"
-  | "budget_exhausted"
   | "no_api_key"
   | "canonical_control_disabled"
   | "canonical_control_open"
@@ -99,7 +98,6 @@ function isMalformed(row: any): boolean {
     !row ||
     typeof row.enabled !== "boolean" ||
     !VALID_STATES.has(row.state) ||
-    typeof row.local_budget !== "number" ||
     typeof row.window_calls !== "number" ||
     !row.window_ends_at
   );
@@ -244,23 +242,15 @@ export class SerperGateway {
       wasHalfOpenProbe = true;
     }
 
-    // 4. Atomic budget claim for this billing window.
-    const claim = await this.pool.query(
+    // 4. Atomically account for the request for reporting. Provider-side
+    // billing/quota remains visible through the provider response and circuit.
+    await this.pool.query(
       `UPDATE serper_control
           SET window_calls = window_calls + 1,
               lifetime_calls = lifetime_calls + 1,
               updated_at = now()
-        WHERE id = 1 AND window_calls < local_budget
-        RETURNING id`,
+        WHERE id = 1`,
     );
-    if (claim.rows.length === 0) {
-      if (wasHalfOpenProbe) {
-        await this.pool.query(
-          `UPDATE serper_control SET half_open_probe_claimed_at = NULL, updated_at = now() WHERE id = 1`,
-        );
-      }
-      return blocked("budget_exhausted");
-    }
 
     // 5. Execute the provider fetch with a bounded timeout.
     let response: Response | null = null;
@@ -620,16 +610,14 @@ export class SerperGateway {
       // itself is enabled and healthy. Mirror serper_control's own
       // local_budget as the cap so enabling here also clears that gap; it
       // never lowers an existing cap an admin may have set some other way.
-      // Also mirror circuit_state='closed' on conflict, not just on first
-      // insert: the previous ON CONFLICT clause never touched circuit_state,
-      // so a row already marked 'open' from an earlier trip stayed 'open'
-      // forever even after this same call re-enables and this gateway's own
-      // circuit (serper_control.state) has already recovered to 'closed'.
+      // Circuit state is deliberately initialized only on insert. Toggling
+      // enablement must not recover/reset an existing open circuit; only the
+      // explicit recovery flow or a verified probe may close it.
       await tx.execute(sql`
         INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units)
         VALUES ('serper', 'business_discovery', ${enabled}, 'closed', ${localBudget})
         ON CONFLICT (provider) DO UPDATE SET
-          enabled = ${enabled}, circuit_state = 'closed', version = provider_controls.version + 1, updated_at = NOW(),
+          enabled = ${enabled}, version = provider_controls.version + 1, updated_at = NOW(),
           local_budget_units = COALESCE(provider_controls.local_budget_units, ${localBudget})
       `);
 

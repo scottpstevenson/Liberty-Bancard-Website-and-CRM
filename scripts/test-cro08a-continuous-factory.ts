@@ -13,6 +13,8 @@ import { sql } from "drizzle-orm";
 import { db } from "../server/db";
 import {
   createCro08aScheduleDefinition, activateCro08aScheduleDefinition,
+  assertPilotLadderCompletion, deactivateCro08aScheduleDefinition,
+  authorizeRecurringPaidBudget, CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION,
   CRO08A_OWNED_LOGICAL_KEYS, CRO08A_EXCLUDED_SCHEDULE_KEYS, Cro08aCertificationDeniedError,
 } from "../server/services/cro08a/schedule-authority";
 import {
@@ -38,6 +40,87 @@ const hex64 = (seed: string) => crypto.createHash("sha256").update(seed).digest(
 const hex40 = (seed: string) => crypto.createHash("sha1").update(seed).digest("hex");
 process.env.RELEASE_SHA ??= hex40(`cro08a-release:${RUN}`);
 let failures = 0;
+const RECURRING_AUTH_KEY = "cro08a_recurring_paid_budget_authorization";
+let priorRecurringAuthorizationRow: any = null;
+let installedRecurringAuthorization = false;
+let priorZeroBounceControl: any = null;
+let insertedZeroBounceControl = false;
+
+async function installRecurringPaidAuthorizationFixture() {
+  priorRecurringAuthorizationRow = rows(await db.execute(sql`
+    SELECT value FROM system_settings WHERE key=${RECURRING_AUTH_KEY} LIMIT 1
+  `))[0] ?? null;
+  const priorValue = priorRecurringAuthorizationRow?.value;
+  const priorAuthorization = typeof priorValue === "string" ? JSON.parse(priorValue) : priorValue;
+  if (!priorAuthorization || priorAuthorization.revokedAt) {
+    await authorizeRecurringPaidBudget({
+      authorizedBy: RUN,
+      typedConfirmation: CRO08A_RECURRING_BUDGET_TYPED_CONFIRMATION,
+    });
+    installedRecurringAuthorization = true;
+  }
+}
+
+async function restoreRecurringPaidAuthorizationFixture() {
+  if (!installedRecurringAuthorization) return;
+  const previousJson = priorRecurringAuthorizationRow
+    ? JSON.stringify(priorRecurringAuthorizationRow.value)
+    : null;
+  if (priorRecurringAuthorizationRow) {
+    await db.execute(sql`
+      UPDATE system_settings
+         SET value=${previousJson}::jsonb
+       WHERE key=${RECURRING_AUTH_KEY}
+         AND value->>'authorizedBy'=${RUN}
+    `);
+  } else {
+    await db.execute(sql`
+      DELETE FROM system_settings
+       WHERE key=${RECURRING_AUTH_KEY}
+         AND value->>'authorizedBy'=${RUN}
+    `);
+  }
+  installedRecurringAuthorization = false;
+}
+
+async function installZeroBounceControlFixture() {
+  priorZeroBounceControl = rows(await db.execute(sql`
+    SELECT enabled, circuit_state, version
+      FROM provider_controls WHERE provider='zerobounce' LIMIT 1
+  `))[0] ?? null;
+  if (priorZeroBounceControl) {
+    await db.execute(sql`
+      UPDATE provider_controls
+         SET enabled=true, circuit_state='closed', version=version+1
+       WHERE provider='zerobounce' AND version=${priorZeroBounceControl.version}
+    `);
+  } else {
+    await db.execute(sql`
+      INSERT INTO provider_controls (provider, capability, enabled, circuit_state, local_budget_units)
+      VALUES ('zerobounce', 'test_fixture', true, 'closed', NULL)
+    `);
+    insertedZeroBounceControl = true;
+  }
+}
+
+async function restoreZeroBounceControlFixture() {
+  if (priorZeroBounceControl) {
+    await db.execute(sql`
+      UPDATE provider_controls
+         SET enabled=${priorZeroBounceControl.enabled},
+             circuit_state=${priorZeroBounceControl.circuit_state},
+             version=${priorZeroBounceControl.version}
+       WHERE provider='zerobounce' AND version=${Number(priorZeroBounceControl.version) + 1}
+    `);
+  } else if (insertedZeroBounceControl) {
+    await db.execute(sql`
+      DELETE FROM provider_controls WHERE provider='zerobounce' AND capability='test_fixture'
+    `).catch((err: any) => {
+      console.log(`  (leaving test provider_controls fixture for zerobounce in place: ${err?.cause?.message ?? err?.message})`);
+    });
+    insertedZeroBounceControl = false;
+  }
+}
 
 function ok(name: string, fn: () => Promise<void>) {
   return fn().then(() => console.log(`  PASS  ${name}`)).catch((err) => {
@@ -57,6 +140,8 @@ async function main() {
   await db.execute(sql`DELETE FROM cro08a_occurrence_selected_handoffs WHERE occurrence_id IN (SELECT id FROM cro08a_schedule_occurrences WHERE schedule_definition_id IN (SELECT id FROM cro08a_schedule_definitions WHERE downstream_owner='cro08a-test'))`);
   await db.execute(sql`DELETE FROM cro08a_schedule_occurrences WHERE schedule_definition_id IN (SELECT id FROM cro08a_schedule_definitions WHERE downstream_owner='cro08a-test')`);
   await db.execute(sql`DELETE FROM cro08a_schedule_definitions WHERE downstream_owner='cro08a-test'`);
+  await installRecurringPaidAuthorizationFixture();
+  await installZeroBounceControlFixture();
   // cro03c_commands/cro03c_runs are NOT append-only themselves, but any run
   // that has an append-only cro03c_forbidden_effects row FK-referencing it
   // (cro03c_forbidden_effects_run_id_fkey) cannot be deleted transitively —
@@ -96,11 +181,13 @@ async function main() {
       cursorSemantics: {}, timeoutMs: 120000, leaseMs: 120000, heartbeatMs: 30000,
       retryPolicy: {}, deadLetterPolicy: {}, downstreamOwner: "cro08a-test", createdBy: RUN,
     };
-    await assert.rejects(createCro08aScheduleDefinition({ ...base, budgets: { zerobounce: { maxUnitsPerOccurrence: -1 } } }), /CRO08A_SCHEDULE_BUDGETS_INVALID/);
-    await assert.rejects(createCro08aScheduleDefinition({ ...base, budgets: { zerobounce: { maxUnitsPerOccurrence: 1.5 } } }), /CRO08A_SCHEDULE_BUDGETS_INVALID/);
-    await assert.rejects(createCro08aScheduleDefinition({ ...base, budgets: { zerobounce: {} } }), /CRO08A_SCHEDULE_BUDGETS_INVALID/);
+    await assert.rejects(createCro08aScheduleDefinition({ ...base, budgets: { zerobounce: null } }), /CRO08A_SCHEDULE_BUDGETS_INVALID/);
     await assert.rejects(createCro08aScheduleDefinition({ ...base, budgets: { zerobounce: "unlimited" as any } }), /CRO08A_SCHEDULE_BUDGETS_INVALID/);
     await assert.rejects(createCro08aScheduleDefinition({ ...base, budgets: [1, 2] as any }), /CRO08A_SCHEDULE_BUDGETS_INVALID/);
+    const legacyUnitField = await createCro08aScheduleDefinition({
+      ...base, budgets: { zerobounce: { maxUnitsPerOccurrence: -1 } },
+    });
+    assert.ok(legacyUnitField.id, "legacy maxUnitsPerOccurrence data is ignored rather than treated as an execution ceiling");
     // An empty budgets object is still a valid (if inert) definition — it
     // simply cannot back any continuous_occurrence command yet.
     const empty = await createCro08aScheduleDefinition({ ...base, budgets: {} });
@@ -113,7 +200,7 @@ async function main() {
     const def = await createCro08aScheduleDefinition({
       logicalKey: "candidate_enrichment", purpose: "test enrichment schedule", sourceRecipePolicyVersions: { recipe: 1 },
       cadenceCron: "*/10 * * * *", windowSeconds: 600, batchSize: 25, concurrencyLimit: 2,
-      cursorSemantics: { sourceSystem: "sunbiz" }, budgets: { zerobounce: { maxUnitsPerOccurrence: 100 } },
+      cursorSemantics: { sourceSystem: "sunbiz" }, budgets: { zerobounce: {} },
       timeoutMs: 120000, leaseMs: 120000, heartbeatMs: 30000, retryPolicy: { maxAttempts: 3 },
       deadLetterPolicy: { maxAttempts: 5 }, downstreamOwner: "cro08a-test", createdBy: RUN,
     });
@@ -124,18 +211,29 @@ async function main() {
 
   // --- Correction 4: certification gate -----------------------------------
   // 2026-09-13: the certification-receipt gate was removed at the operator's
-  // request. The only remaining pre-activation gate is the MI-09 pilot
-  // ladder (assertPilotLadderCompletion), which this definition has not
-  // satisfied yet at this point in the test, so activation must still be
-  // denied — just for a different reason (pilot_ladder_not_complete instead
-  // of a missing certification receipt), via the same error class.
-  await ok("schedule activation is denied before the MI-09 pilot ladder is complete", async () => {
-    await assert.rejects(
-      activateCro08aScheduleDefinition({ definitionId, activatedBy: RUN, reason: "test" }),
-      Cro08aCertificationDeniedError,
-    );
+  // request. The pilot ladder is a pre-activation gate; append-only residue
+  // from earlier test runs means the test must accommodate either readiness
+  // state rather than assuming the ladder is incomplete.
+  await ok("schedule activation follows MI-09 pilot-ladder readiness", async () => {
+    let ladderComplete = true;
+    try {
+      await assertPilotLadderCompletion();
+    } catch (error) {
+      if (!(error instanceof Cro08aCertificationDeniedError)) throw error;
+      ladderComplete = false;
+    }
+    if (ladderComplete) {
+      const activation = await activateCro08aScheduleDefinition({ definitionId, activatedBy: RUN, reason: "test" });
+      assert.equal(activation.activated, true, "a completed ladder should permit activation when recurring authorization is present");
+      await deactivateCro08aScheduleDefinition(definitionId);
+    } else {
+      await assert.rejects(
+        activateCro08aScheduleDefinition({ definitionId, activatedBy: RUN, reason: "test" }),
+        Cro08aCertificationDeniedError,
+      );
+    }
     const row = rows(await db.execute(sql`SELECT active FROM cro08a_schedule_definitions WHERE id=${definitionId}::uuid`))[0];
-    assert.equal(row.active, false, "definition must remain inactive after a denied activation attempt");
+    assert.equal(row.active, false, "the test leaves its schedule inactive after checking ladder readiness");
   });
 
   // --- Correction 2: durable occurrence + dual checkpoints ----------------
@@ -599,8 +697,8 @@ async function main() {
 
     // 2026-09-13: the certification-receipt ceremony (typed confirmation +
     // pricing snapshot + runtime attestation record) was removed at the
-    // operator's request — activation is now gated solely by the MI-09
-    // pilot ladder and the aggregate spend cap, so this test no longer
+    // operator's request — activation is gated by the MI-09 pilot ladder and
+    // separate recurring paid-provider authorization, so this test no longer
     // issues a certification receipt here. The runtime attestation created
     // above is retained because it is still exercised by other assertions
     // in this file (e.g. `(globalThis as any).__cro08aFullPathAttestationId`).
@@ -669,7 +767,7 @@ async function main() {
       logicalKey: "candidate_enrichment", purpose: "cro08a full-path test enrichment schedule",
       sourceRecipePolicyVersions: { recipe: 1 }, cadenceCron: "*/10 * * * *", windowSeconds: 600,
       batchSize: 25, concurrencyLimit: 2, cursorSemantics: { sourceSystem: "sunbiz" },
-      budgets: { zerobounce: { maxUnitsPerOccurrence: 5 } },
+      budgets: { zerobounce: {} },
       timeoutMs: 120000, leaseMs: 120000, heartbeatMs: 30000, retryPolicy: { maxAttempts: 3 },
       deadLetterPolicy: { maxAttempts: 5 }, downstreamOwner: "cro08a-test", createdBy: RUN,
     });
@@ -679,8 +777,7 @@ async function main() {
     assert.equal(activation.activated, true);
     // 2026-09-13: activation no longer requires or returns a certification
     // receipt (removed at the operator's request) — the pilot ladder check
-    // above and the aggregate spend cap enforced in reserveCro03cProviderOperation
-    // are now the only activation gates.
+    // above and recurring paid-provider authorization are the activation gates.
   });
 
   await ok("createCro03cCommand's occurrence validation and server-derived caps clear every gate for a fully valid request", async () => {
@@ -766,17 +863,15 @@ async function main() {
     assert.equal(occRow.cro03c_command_id, null, "a rejected membership check must not leave a partial bind behind");
   });
 
-  // --- reviewer finding #1: aggregate occurrence/command budget enforcement
-  await ok("reserveCro03cProviderOperation enforces the command's aggregate budget cap across multiple reservations", async () => {
+  // Recurring unit/credit ceilings are removed; operation-level accounting and
+  // pricing identity remain intact while reservations can exceed legacy command caps.
+  await ok("reserveCro03cProviderOperation does not enforce a recurring aggregate credit ceiling", async () => {
     const aggAttestationId = (globalThis as any).__cro08aFullPathAttestationId as string;
     const aggPolicy = rows(await db.execute(sql`SELECT id FROM cro03c_activation_policies WHERE idempotency_key=${`cro08a-fullpath-policy:${RUN}`}`))[0];
     const aggCommandId = crypto.randomUUID();
     const aggRunId = crypto.randomUUID();
-    // Server-derived cap of 3 units total for this command (mirrors what
-    // createCro03cCommand would have derived from occurrence.selected_count
-    // and the definition's provider budget) -- deliberately small so two
-    // individually-legal reservations of 2 units each must collide in
-    // aggregate.
+    // Legacy caps stay in command metadata for API/audit compatibility, but
+    // recurring execution no longer treats them as financial ceilings.
     const aggCaps = { provider: "zerobounce", maxUnits: 3, maxAmountMicros: 3 };
     await db.execute(sql`INSERT INTO cro03c_commands (id,command_key,idempotency_key,command_type,actor_id,activation_policy_id,activation_revision,recipe_version,recipe_hash,stage_plan_hash,runtime_attestation_id,caps,stop_policy_hash,approval_evidence,expires_at,reason,pre_pause_epoch,state)
       VALUES (${aggCommandId}::uuid,${`agg-key:${RUN}`},${`agg-idem:${RUN}`},'continuous_occurrence',${RUN},${aggPolicy.id}::uuid,${fullPathRevision},1,${hex64(`agg-recipe:${RUN}`)},${hex64(`agg-stageplan:${RUN}`)},${aggAttestationId}::uuid,${JSON.stringify(aggCaps)}::jsonb,${hex64(`agg-stoppolicy:${RUN}`)},'{}'::jsonb,NOW()+interval '1 hour','agg budget test',0,'running')`);
@@ -817,31 +912,18 @@ async function main() {
       activationRevision: fullPathRevision,
     });
     assert.equal(reserveA.replayed, false);
-    // A second reservation of 2 more units would bring the aggregate to 4,
-    // exceeding the command's 3-unit cap -- must be denied even though 2
-    // units alone is well under the per-operation ceiling.
-    await assert.rejects(
-      reserveCro03cProviderOperation({
-        generationId: genB, stageKey: "zerobounce_validation_b", provider: "zerobounce", operationType: "validate",
-        operationKey: `agg-op-b:${RUN}`, caller: "server/services/cro03/test-cro08a-continuous-factory",
-        requestedUnits: 2, maxAmountMicros: 2, priceScheduleVersion: 1, priceScheduleHash: stableCro03RecipeHash(fullPathPricing.zerobounce),
-        activationRevision: fullPathRevision,
-      }),
-      /CRO08A_OCCURRENCE_AGGREGATE_BUDGET_EXCEEDED/,
-    );
-    // A reservation of exactly the remaining 1 unit must succeed.
-    const reserveC = await reserveCro03cProviderOperation({
+    const reserveB = await reserveCro03cProviderOperation({
       generationId: genB, stageKey: "zerobounce_validation_b", provider: "zerobounce", operationType: "validate",
-      operationKey: `agg-op-c:${RUN}`, caller: "server/services/cro03/test-cro08a-continuous-factory",
-      requestedUnits: 1, maxAmountMicros: 1, priceScheduleVersion: 1, priceScheduleHash: stableCro03RecipeHash(fullPathPricing.zerobounce),
+      operationKey: `agg-op-b:${RUN}`, caller: "server/services/cro03/test-cro08a-continuous-factory",
+      requestedUnits: 2, maxAmountMicros: 2, priceScheduleVersion: 1, priceScheduleHash: stableCro03RecipeHash(fullPathPricing.zerobounce),
       activationRevision: fullPathRevision,
     });
-    assert.equal(reserveC.replayed, false);
+    assert.equal(reserveB.replayed, false);
     const total = rows(await db.execute(sql`
       SELECT COALESCE(SUM(max_reserved_units),0)::int AS units FROM cro03c_stage_operations o
        JOIN cro03c_generations g ON g.id=o.generation_id WHERE g.command_id=${aggCommandId}::uuid
     `))[0];
-    assert.equal(total.units, 3, "aggregate reserved units across the command must exactly equal the cap after the mix of accepted/rejected reservations");
+    assert.equal(total.units, 4, "recurring reservations are not stopped by legacy command-unit metadata");
   });
 
   await ok("createCro03cCommand rejects a continuous_occurrence request against a nonexistent occurrence", async () => {
@@ -898,7 +980,7 @@ async function main() {
     const inactiveDef = await createCro08aScheduleDefinition({
       logicalKey: "candidate_freshness_refresh", purpose: "cro08a inactive-definition negative test",
       sourceRecipePolicyVersions: { recipe: 1 }, cadenceCron: "*/15 * * * *", windowSeconds: 900,
-      batchSize: 10, concurrencyLimit: 1, cursorSemantics: {}, budgets: { zerobounce: { maxUnitsPerOccurrence: 5 } },
+      batchSize: 10, concurrencyLimit: 1, cursorSemantics: {}, budgets: { zerobounce: {} },
       timeoutMs: 60000, leaseMs: 60000, heartbeatMs: 15000, retryPolicy: {}, deadLetterPolicy: {},
       downstreamOwner: "cro08a-test", createdBy: RUN,
     });
@@ -929,7 +1011,7 @@ async function main() {
     const noBudgetDef = await createCro08aScheduleDefinition({
       logicalKey: "candidate_backfill", purpose: "cro08a missing-provider-budget negative test",
       sourceRecipePolicyVersions: { recipe: 1 }, cadenceCron: "0 3 * * *", windowSeconds: 900,
-      batchSize: 10, concurrencyLimit: 1, cursorSemantics: {}, budgets: { serper: { maxUnitsPerOccurrence: 5 } },
+      batchSize: 10, concurrencyLimit: 1, cursorSemantics: {}, budgets: { serper: {} },
       timeoutMs: 60000, leaseMs: 60000, heartbeatMs: 15000, retryPolicy: {}, deadLetterPolicy: {},
       downstreamOwner: "cro08a-test", createdBy: RUN,
     });
@@ -985,6 +1067,8 @@ async function main() {
     await db.execute(sql`UPDATE cro08a_schedule_definitions SET active=false WHERE id=${fullPathDefinitionId}::uuid`);
     await db.execute(sql`DELETE FROM cro08a_schedule_definitions WHERE id=${fullPathDefinitionId}::uuid`);
   }
+  await restoreZeroBounceControlFixture();
+  await restoreRecurringPaidAuthorizationFixture();
   // The approved activation policy and runtime attestation/deployment
   // inventory created for the full-path test are all append-only; left in
   // place as test-tagged (RUN-suffixed) residue, matching the pattern used
@@ -1000,5 +1084,7 @@ async function main() {
 
 main().catch((err) => {
   console.error("FATAL", err);
-  process.exit(1);
+  Promise.all([restoreRecurringPaidAuthorizationFixture(), restoreZeroBounceControlFixture()])
+    .catch((restoreErr) => console.error("Failed to restore test authorization/provider-control fixtures", restoreErr))
+    .finally(() => process.exit(1));
 });

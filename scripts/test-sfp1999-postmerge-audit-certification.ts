@@ -104,6 +104,39 @@ try {
   }), /PROVIDER_TRANSPORT_DISABLED/, "unset transport is a hard provider reservation denial");
 
   const nonce = randomUUID().slice(0, 10);
+  const serperControlBefore = rows(await pool.query(`
+    SELECT enabled,circuit_state,local_budget_units,reserved_units,consumed_units
+      FROM provider_controls WHERE provider='serper'
+  `))[0];
+  const priorSerperKey = process.env.SERPER_API_KEY;
+  process.env.SERPER_API_KEY = "test-only-readiness-credential";
+  try {
+    await pool.query(`
+      UPDATE provider_controls SET enabled=TRUE,circuit_state='closed',local_budget_units=NULL,
+             reserved_units=0,consumed_units=0 WHERE provider='serper'
+    `);
+    check((await providerOps.getSfpProviderReadiness("serper")).ready,
+      "enabled/closed provider remains ready when its local credit ceiling is unset");
+    await pool.query(`
+      UPDATE provider_controls SET local_budget_units=0,reserved_units=0,consumed_units=100 WHERE provider='serper'
+    `);
+    check((await providerOps.getSfpProviderReadiness("serper")).ready,
+      "enabled/closed provider remains ready when historical local units are exhausted");
+    await pool.query(`UPDATE provider_controls SET enabled=FALSE WHERE provider='serper'`);
+    check(!(await providerOps.getSfpProviderReadiness("serper")).ready,
+      "disabled provider remains blocked regardless of financial headroom");
+    await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='open' WHERE provider='serper'`);
+    check(!(await providerOps.getSfpProviderReadiness("serper")).ready,
+      "circuit-open provider remains blocked regardless of financial headroom");
+  } finally {
+    if (priorSerperKey === undefined) delete process.env.SERPER_API_KEY;
+    else process.env.SERPER_API_KEY = priorSerperKey;
+    await pool.query(`
+      UPDATE provider_controls SET enabled=$1,circuit_state=$2,local_budget_units=$3,
+             reserved_units=$4,consumed_units=$5 WHERE provider='serper'
+    `, [serperControlBefore.enabled, serperControlBefore.circuit_state, serperControlBefore.local_budget_units,
+      serperControlBefore.reserved_units, serperControlBefore.consumed_units]);
+  }
   const providerControlStateBefore = rows(await pool.query(`
     SELECT provider,enabled,circuit_state,local_budget_units,reserved_units,consumed_units FROM provider_controls
      WHERE provider IN ('serper','outscraper','apollo','openai') ORDER BY provider
@@ -111,55 +144,19 @@ try {
   const program = await prospecting.ensureProgram({ createdBy: "task1999-certification", maxCohortSize: 1 });
   const targetVertical = `SFP Certification Vertical ${nonce}`;
   await pool.query(`UPDATE sfp_programs SET vertical_ids=ARRAY['${targetVertical}'] WHERE id='${program.id}'::uuid`);
-  const capRaceRunIds = [randomUUID(), randomUUID()];
-  for (const runId of capRaceRunIds) {
-    await pool.query(`
-      INSERT INTO sfp_classification_runs(
-        id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,config_hash
-      ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6)
-    `, [runId, program.id, `sfp1999-cap-race-${runId}`, program.policyVersion, classifier.CLASSIFIER_VERSION, `cap-race-${runId}`]);
-  }
-  const capRaceResults = await Promise.allSettled(capRaceRunIds.map((runId) =>
-    db.transaction((tx: any) => providerOps.reserveSfpAggregateBudgetInTransaction(tx, {
-      reservationMicros: 30_000_000, capMicros: 50_000_000, externalSpendMicros: 0,
-      target: { kind: "precohort", runId },
-    })),
-  ));
-  const capRaceSpend = Number(rows(await pool.query(`
-    SELECT COALESCE(SUM(reserved_cost_micros),0)::bigint AS reserved
-      FROM sfp_classification_runs WHERE id=ANY($1::uuid[])
-  `, [capRaceRunIds]))[0].reserved);
-  check(capRaceResults.filter((result) => result.status === "fulfilled").length === 1 &&
-    capRaceResults.filter((result) => result.status === "rejected" &&
-      /AGGREGATE_BUDGET_EXCEEDED/.test(String((result as PromiseRejectedResult).reason?.message))).length === 1 &&
-    capRaceSpend <= 50_000_000,
-  "overlapping PostgreSQL Phase A reservations serialize under the shared advisory lock and cannot exceed the $50 cap");
-  await pool.query(`
-    UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed',updated_at=NOW()
-     WHERE id=ANY($1::uuid[])
-  `, [capRaceRunIds]);
-  const previewReservationRunId = randomUUID();
-  const previewBeforeReservation = await costPreview.buildSfpCostPreview({
+  const costPreviewResult = await costPreview.buildSfpCostPreview({
     officialDomainGapCount: 0, businessIdentityGapCount: 0,
     decisionMakerGapCount: 0, ambiguousVerticalGapCount: 0,
   });
-  await pool.query(`
-    INSERT INTO sfp_classification_runs(
-      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
-      config_hash,reserved_cost_micros
-    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,12345)
-  `, [previewReservationRunId, program.id, `sfp1999-preview-reservation-${nonce}`,
-    program.policyVersion, classifier.CLASSIFIER_VERSION, `preview-reservation-${nonce}`]);
-  const previewWithReservation = await costPreview.buildSfpCostPreview({
-    officialDomainGapCount: 0, businessIdentityGapCount: 0,
-    decisionMakerGapCount: 0, ambiguousVerticalGapCount: 0,
-  });
-  check(previewBeforeReservation.aggregateRemainingMicros - previewWithReservation.aggregateRemainingMicros === 12345,
-    "cost preview includes in-flight pre-cohort classification reservations in aggregate headroom");
-  await pool.query(`
-    UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed',updated_at=NOW()
-     WHERE id=$1::uuid
-  `, [previewReservationRunId]);
+  check(!("aggregateCapMicros" in costPreviewResult) && !("aggregateRemainingMicros" in costPreviewResult) &&
+    costPreviewResult.lines.every((line: any) => !("remainingProviderControlUnits" in line)),
+  "cost preview contains optional estimates, not financial ceilings or provider-credit headroom");
+  check(providerOps.sfpPriceEstimateReceipt(null).unitPriceEstimateStatus === "unknown" &&
+    providerOps.sfpPriceEstimateReceipt(null).unitPriceEstimateMicros === null &&
+    providerOps.sfpPriceEstimateReceipt(null).costEstimateStatus === "unknown" &&
+    providerOps.sfpPriceEstimateReceipt(123).unitPriceEstimateStatus === "estimate" &&
+    providerOps.sfpPriceEstimateReceipt(123).costEstimateStatus === "estimate",
+  "provider-operation receipts distinguish unknown pricing from an estimated amount");
 
   const settlementReplayRunId = randomUUID();
   const settlementReplayOperationId = randomUUID();
@@ -235,6 +232,52 @@ try {
   check(killLineTransportCalls === 0, "fake provider transport spy remains at zero calls after kill-line rejection");
   await pool.query(`UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed' WHERE id=$1::uuid`, [killRunId]);
   await pool.query(`UPDATE provider_operations SET state='failed',billing_state='released',claim_token=NULL,lease_expires_at=NULL WHERE id=$1::uuid`, [killOperationId]);
+
+  const providerControlForZeroCost = rows(await pool.query(`
+    SELECT enabled,circuit_state FROM provider_controls WHERE provider='serper'
+  `))[0];
+  const zeroCostRunId = randomUUID();
+  const zeroCostOperationId = randomUUID();
+  const zeroCostAttemptId = randomUUID();
+  const zeroCostClaimToken = randomUUID();
+  await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='serper'`);
+  await pool.query(`
+    INSERT INTO sfp_classification_runs(
+      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
+      config_hash,reserved_cost_micros
+    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,0)
+  `, [zeroCostRunId, program.id, `sfp1999-zero-cost-run-${nonce}`, program.policyVersion,
+    classifier.CLASSIFIER_VERSION, `zero-cost-run-${nonce}`]);
+  await pool.query(`
+    INSERT INTO provider_operations(
+      id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
+      requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
+    ) VALUES ($1::uuid,'serper','sfp_precohort_classification','unknown-price-fence-test',$2,'user',
+      'task1999-certification',$4,'running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
+  `, [zeroCostOperationId, `sfp1999-zero-cost-op-${nonce}`, zeroCostClaimToken,
+    `business:cert-fixture-zero-cost-${nonce}`]);
+  await pool.query(`
+    INSERT INTO provider_attempts(id,operation_id,attempt_number,outcome,started_at)
+    VALUES ($1::uuid,$2::uuid,1,'pending',NOW())
+  `, [zeroCostAttemptId, zeroCostOperationId]);
+  let zeroCostTransportCalls = 0;
+  const fakeZeroCostResult = await providerOps.invokePreCohortSfpProviderTransport({
+    operationId: zeroCostOperationId, claimToken: zeroCostClaimToken, provider: "serper",
+    controlProvider: "serper", amountMicros: 0, units: 1, runId: zeroCostRunId,
+  }, async () => {
+    zeroCostTransportCalls++;
+    return "fake-zero-cost-transport";
+  });
+  check(zeroCostTransportCalls === 1 && fakeZeroCostResult === "fake-zero-cost-transport",
+    "Phase-A fake transport passes its final fence with a running run and zero monetary reservation");
+  await pool.query(`UPDATE sfp_classification_runs SET state='failed' WHERE id=$1::uuid`, [zeroCostRunId]);
+  await pool.query(`
+    UPDATE provider_operations SET state='failed',billing_state='released',claim_token=NULL,lease_expires_at=NULL
+     WHERE id=$1::uuid
+  `, [zeroCostOperationId]);
+  await pool.query(`DELETE FROM provider_attempts WHERE id=$1::uuid`, [zeroCostAttemptId]);
+  await pool.query(`UPDATE provider_controls SET enabled=$1,circuit_state=$2 WHERE provider='serper'`,
+    [providerControlForZeroCost.enabled, providerControlForZeroCost.circuit_state]);
 
   const seedSouthFloridaBusiness = async (name: string, vertical: string, status = "active") => {
     const seeded = rows(await pool.query(`
@@ -480,40 +523,6 @@ try {
     VALUES ($1::uuid,$2,'zerobounce',$3::uuid,'completed','valid',NOW())
   `, [validationStage.id, businessId, freeCandidate.id]);
   check(zeroBounceItem.rowCount === 1, "real ZeroBounce-style valid/invalid candidate linkage remains legal under the provider-scoped CHECK");
-  const mixedCapRunId = randomUUID();
-  const mixedCapStageRunId = randomUUID();
-  await pool.query(`
-    INSERT INTO sfp_classification_runs(
-      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,config_hash
-    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6)
-  `, [mixedCapRunId, program.id, `sfp1999-mixed-cap-${nonce}`, program.policyVersion, classifier.CLASSIFIER_VERSION, `mixed-cap-${nonce}`]);
-  await pool.query(`
-    INSERT INTO sfp_stage_runs(
-      id,cohort_run_id,stage,idempotency_key,actor_id,state,max_items,reserved_cost_micros
-    ) VALUES ($1::uuid,$2::uuid,'paid_waterfall',$3,'task1999-certification','running',1,0)
-  `, [mixedCapStageRunId, frozen.run.id, `sfp1999-mixed-stage-${nonce}`]);
-  const mixedCapResults = await Promise.allSettled([
-    db.transaction((tx: any) => providerOps.reserveSfpAggregateBudgetInTransaction(tx, {
-      reservationMicros: 30_000_000, capMicros: 50_000_000, externalSpendMicros: 0,
-      target: { kind: "precohort", runId: mixedCapRunId },
-    })),
-    db.transaction((tx: any) => providerOps.reserveSfpAggregateBudgetInTransaction(tx, {
-      reservationMicros: 30_000_000, capMicros: 50_000_000, externalSpendMicros: 0,
-      target: { kind: "cohort", stageRunId: mixedCapStageRunId },
-    })),
-  ]);
-  const mixedCapSpend = Number(rows(await pool.query(`
-    SELECT
-      (SELECT reserved_cost_micros FROM sfp_classification_runs WHERE id=$1::uuid) +
-      (SELECT reserved_cost_micros FROM sfp_stage_runs WHERE id=$2::uuid) AS reserved
-  `, [mixedCapRunId, mixedCapStageRunId]))[0].reserved);
-  check(mixedCapResults.filter((result) => result.status === "fulfilled").length === 1 &&
-    mixedCapResults.filter((result) => result.status === "rejected" &&
-      /AGGREGATE_BUDGET_EXCEEDED/.test(String((result as PromiseRejectedResult).reason?.message))).length === 1 &&
-    mixedCapSpend <= 50_000_000,
-  "overlapping Phase A and cohort-bound PostgreSQL reservations share the advisory-locked $50 cap");
-  await pool.query(`UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed' WHERE id=$1::uuid`, [mixedCapRunId]);
-  await pool.query(`UPDATE sfp_stage_runs SET reserved_cost_micros=0,state='failed' WHERE id=$1::uuid`, [mixedCapStageRunId]);
   const decision = rows(await pool.query(`
     SELECT classification_evidence_id,classification_evidence_hash,classification_model_version,
            classification_prompt_version,classification_classifier_version

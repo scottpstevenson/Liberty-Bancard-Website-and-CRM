@@ -13,7 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { ZeroBounceCampaign } from "@/components/ZeroBounceCampaign";
 import {
   Users, Mail, Phone, Tag, User, CheckCircle2, XCircle, AlertCircle,
-  RefreshCw, Loader2, ShieldCheck, ShieldX, ShieldAlert, Zap,
+  Loader2, ShieldCheck, ShieldX, ShieldAlert, Zap,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -27,11 +27,6 @@ interface QualitySummary {
   missing_phone: number;
   verified_valid: number;
   catch_all: number;
-  zerobounce: {
-    usedToday: number;
-    dailyLimit: number;
-    remainingToday: number;
-  };
 }
 
 interface QualityContact {
@@ -57,7 +52,6 @@ interface QualityScanResult {
 interface BatchJobResult {
   jobId: string;
   queued: number;
-  budgetRemaining: number;
   message: string;
 }
 
@@ -128,7 +122,7 @@ export default function DataQuality() {
   const [validatingId, setValidatingId] = useState<number | null>(null);
   const [batchJobId, setBatchJobId] = useState<string | null>(null);
 
-  const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useQuery<QualitySummary>({
+  const { data: summary, isLoading: summaryLoading } = useQuery<QualitySummary>({
     queryKey: ["/api/contacts/quality-summary"],
     refetchInterval: 30_000,
   });
@@ -189,29 +183,12 @@ export default function DataQuality() {
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       <PageHeader
         title="Data Quality Scanner"
-        subtitle="Surface contacts with incomplete or unvalidated data. Validate emails lazily via ZeroBounce — you only spend credits on contacts that need it."
+        subtitle="Surface contacts with incomplete or unvalidated data. Validate eligible emails via ZeroBounce."
       />
-
-      {/* ── ZeroBounce budget banner ── */}
-      {summary && (
-        <div className="flex items-center gap-3 rounded-lg border bg-blue-50 border-blue-200 px-4 py-3 text-blue-800 text-sm">
-          <ShieldCheck className="h-4 w-4 shrink-0" />
-          <div className="flex-1">
-            <span className="font-medium">ZeroBounce credits today: </span>
-            {summary.zerobounce.usedToday} used / {summary.zerobounce.dailyLimit} daily cap
-            {" — "}
-            <span className="font-semibold">{summary.zerobounce.remainingToday} remaining</span>
-          </div>
-          <Button size="sm" variant="ghost" onClick={() => refetchSummary()} className="text-blue-700">
-            <RefreshCw className="h-3 w-3" />
-          </Button>
-        </div>
-      )}
 
       {/* ── Validation campaign tracker (task 1540C) ── */}
       <ZeroBounceCampaign
         fallbackEligible={summary?.unvalidated_email}
-        fallbackDailyLimit={summary?.zerobounce.dailyLimit}
       />
 
       {/* ── Aggregate stat cards ── */}
@@ -293,7 +270,7 @@ export default function DataQuality() {
                 size="sm"
                 variant="outline"
                 onClick={() => batchMutation.mutate()}
-                disabled={batchMutation.isPending || (summary?.zerobounce.remainingToday === 0)}
+                disabled={batchMutation.isPending}
                 data-testid="btn-validate-batch"
               >
                 {batchMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}

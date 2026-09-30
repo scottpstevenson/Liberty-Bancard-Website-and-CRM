@@ -1,18 +1,13 @@
 /**
  * sfp-cost-preview.ts
  *
- * Task #1999 (C8): billing-semantic cost preview for the SFP paid waterfall
- * and the pre-cohort classification bridge's own Serper/OpenAI usage.
- *
- * Reuses the EXISTING pricing/budget authority (getCurrentPricingSchedule,
- * currentSfpUnitPrice, the same $50 aggregate cap sfp-provider-operations.ts
- * already enforces at reservation time) rather than inventing a second price
- * source — this module is read-only and must never diverge from what
- * reserveSfpProviderOperation will actually charge.
+ * Informational SFP usage estimate for the paid waterfall and pre-cohort
+ * classification bridge. Estimates are not authorization, provider limits,
+ * or execution prerequisites.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
-import { getCurrentPricingSchedule, MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS, getAggregatePilotSpend } from "../mi09-pilot-authority";
+import { getCurrentPricingSchedule } from "../mi09-pilot-authority";
 import { currentSfpUnitPrice } from "./sfp-provider-operations";
 import {
   computeContactLinkReuse,
@@ -51,11 +46,10 @@ export interface SfpCostPreviewLine {
   worstCaseUnits: number;
   unitLabel: string;
   priceScheduleVersion: string | number | null;
+  pricingAvailable: boolean;
   unitAmountMicros: number;
   estimatedCostMicros: number;
   worstCaseCostMicros: number;
-  remainingAggregateBudgetMicros: number;
-  remainingProviderControlUnits: number | null;
 }
 
 export interface SfpCostPreview {
@@ -63,9 +57,6 @@ export interface SfpCostPreview {
   lines: SfpCostPreviewLine[];
   totalEstimatedCostMicros: number;
   totalWorstCaseCostMicros: number;
-  aggregateCapMicros: number;
-  aggregateRemainingMicros: number;
-  overCapIfWorstCase: boolean;
 }
 
 export interface SfpGapCounts {
@@ -75,39 +66,17 @@ export interface SfpGapCounts {
   ambiguousVerticalGapCount: number; // drives openai_classification
 }
 
-async function currentSfpAggregateSpendMicros(): Promise<{ settledMicros: number; reservedMicros: number }> {
-  // This is the same operation-level ledger used by reservations and pilot
-  // readiness. Do not add local SFP totals: they are already included there.
-  const aggregate = await getAggregatePilotSpend();
-  return { settledMicros: aggregate.settledMicros, reservedMicros: aggregate.reservedMicros };
-}
-
-/** Read-only remaining local_budget_units headroom per control provider. */
-async function remainingControlUnits(controlProvider: string): Promise<number | null> {
-  const row = rows(await db.execute(sql`
-    SELECT local_budget_units, reserved_units, consumed_units
-      FROM provider_controls WHERE provider = ${controlProvider} LIMIT 1
-  `))[0];
-  if (!row || row.local_budget_units === null || row.local_budget_units === undefined) return null;
-  return Math.max(0, Number(row.local_budget_units) - Number(row.reserved_units ?? 0) - Number(row.consumed_units ?? 0));
-}
-
 const CONTROL_KEY: Record<SfpCostPreviewProvider, string> = {
   serper: "serper", outscraper: "outscraper", apollo: "apollo", openai_classification: "openai",
 };
 
 /**
- * Read-only preview. Reservation/settlement (sfp-provider-operations.ts)
- * MUST reconcile to this same plan: it uses the identical
- * currentSfpUnitPrice()/getCurrentPricingSchedule() source and the identical
- * $50 aggregate-cap accounting, so a preview never promises headroom the
- * real reservation call would then deny.
+ * Read-only estimates. Pricing is optional and is surfaced as unavailable
+ * when the current schedule cannot provide an estimate.
  */
 export async function buildSfpCostPreview(gapCounts: SfpGapCounts): Promise<SfpCostPreview> {
-  const pricing = await getCurrentPricingSchedule();
-  const { settledMicros, reservedMicros } = await currentSfpAggregateSpendMicros();
-  const capMicros = MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS;
-  const remainingMicros = Math.max(0, capMicros - settledMicros - reservedMicros);
+  let pricing: Awaited<ReturnType<typeof getCurrentPricingSchedule>> | null = null;
+  try { pricing = await getCurrentPricingSchedule(); } catch { /* estimates may be unavailable */ }
 
   const gapByProvider: Record<SfpCostPreviewProvider, number> = {
     serper: gapCounts.officialDomainGapCount,
@@ -123,9 +92,11 @@ export async function buildSfpCostPreview(gapCounts: SfpGapCounts): Promise<SfpC
     const perBiz = ESTIMATED_UNITS_PER_BUSINESS[provider];
     let unitAmountMicros = 0;
     try {
-      unitAmountMicros = await currentSfpUnitPrice(provider as any);
-    } catch { /* pricing unavailable for this provider — surface as zero-cost/blocked line */ }
-    const scheduleEntry = (pricing.priceSchedules as any)[controlProviderKey];
+      unitAmountMicros = await currentSfpUnitPrice(provider as any) ?? 0;
+    } catch { /* estimates are optional */ }
+    const scheduleEntry = (pricing?.priceSchedules as any)?.[controlProviderKey];
+    const scheduledAmount = Number(scheduleEntry?.amountMicros);
+    const pricingAvailable = Number.isSafeInteger(scheduledAmount) && scheduledAmount >= 0;
     const estimatedUnits = gapCount * perBiz.estimated;
     const worstCaseUnits = gapCount * perBiz.worstCase;
     lines.push({
@@ -136,11 +107,10 @@ export async function buildSfpCostPreview(gapCounts: SfpGapCounts): Promise<SfpC
       worstCaseUnits,
       unitLabel: perBiz.unitLabel,
       priceScheduleVersion: scheduleEntry?.version ?? scheduleEntry?.effectiveAt ?? null,
+      pricingAvailable,
       unitAmountMicros,
       estimatedCostMicros: estimatedUnits * unitAmountMicros,
       worstCaseCostMicros: worstCaseUnits * unitAmountMicros,
-      remainingAggregateBudgetMicros: remainingMicros,
-      remainingProviderControlUnits: await remainingControlUnits(controlProviderKey),
     });
   }
 
@@ -152,9 +122,6 @@ export async function buildSfpCostPreview(gapCounts: SfpGapCounts): Promise<SfpC
     lines,
     totalEstimatedCostMicros,
     totalWorstCaseCostMicros,
-    aggregateCapMicros: capMicros,
-    aggregateRemainingMicros: remainingMicros,
-    overCapIfWorstCase: (settledMicros + reservedMicros + totalWorstCaseCostMicros) > capMicros,
   };
 }
 

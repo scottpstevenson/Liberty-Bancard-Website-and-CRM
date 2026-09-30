@@ -83,9 +83,6 @@ interface LeadOpsHealth {
   workerHeartbeats?: Record<string, WorkerHeartbeat>;
   pipelineCounts?: PipelineCountsMetric;
   freeEnrichQueueDepth?: FreeEnrichQueueDepth;
-  apolloDailySpend?: MetricCell;
-  outscraperDailySpend?: MetricCell;
-  serperDailySpend?: MetricCell;
   // Correction #7: scheduler status + stuck count + candidate funnel
   freeEnrichmentSchedulerStatus?: SchedulerStatus;
   businessStuckProcessingCount?: { value: number | null; available: boolean; error?: string };
@@ -559,36 +556,6 @@ export function ProgramHealthPanel() {
             ].map(({ label, cell }) => (
               <MetricDisplay key={label} label={label} cell={cell} unit={label === "Success Rate" ? "%" : ""} />
             ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Provider spend ───────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Provider Spend (24 h)</CardTitle>
-          <CardDescription className="text-xs">
-            From cro03c_stage_operations. Shows unknown when pricing data is unavailable.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-             {[
-               { label: "Apollo", cell: h?.apolloDailySpend },
-               { label: "Outscraper", cell: h?.outscraperDailySpend },
-               { label: "Serper", cell: h?.serperDailySpend },
-             ].map(({ label, cell }) => (
-               <div key={label} className="rounded-md border bg-muted/10 px-3 py-2">
-                 <div className="text-xs text-muted-foreground mb-0.5">{label}</div>
-                 <div className="text-sm font-medium">
-                   {/* available:true + value:0 → "$0.0000" (no spend today, not failed)
-                       available:false or null → "unknown" (query failed) */}
-                   {cell?.available && typeof cell.value === "number"
-                     ? `$${(cell.value / 1_000_000).toFixed(4)}`
-                     : "unknown"}
-                 </div>
-               </div>
-             ))}
           </div>
         </CardContent>
       </Card>

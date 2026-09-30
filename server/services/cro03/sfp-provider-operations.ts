@@ -2,22 +2,21 @@
  * Durable paid-provider boundary for the independent SFP program.
  *
  * A credential is never authority.  Live I/O requires, in order: program
- * activation, a current runtime attestation, typed aggregate-budget authority,
- * an unexpired reviewed price, provider manifest admission, an enabled/closed
- * control row, a committed unit/cost reservation, and a final pre-I/O lease
+ * activation, a current runtime attestation, explicit paid approval, provider
+ * manifest admission, an enabled/closed control row, an operation receipt,
+ * and a final pre-I/O lease
  * check.  Tests may inject a fake transport; fake execution never reserves or
- * consumes provider budget.
+ * updates operational usage receipts.
  */
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { assertProviderActivation, type ProviderSourceId } from "../provider-manifest";
 import {
-  assertAggregatePaidBudgetAvailable,
   assertPaidBudgetAuthorized,
   getCurrentPricingSchedule,
 } from "../mi09-pilot-authority";
-import { acquireLadderBudgetLock, assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
+import { acquireLadderBudgetLock } from "./shared-paid-budget-ledger";
 import { getCurrentSfpRuntimeFence } from "./sfp-runtime-fence";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -77,54 +76,6 @@ export interface SfpProviderReservation {
   resultData?: any;
 }
 
-/**
- * Shared in-transaction aggregate ledger gate for Phase A and cohort-bound
- * SFP reservations. Callers must not add a pilot/SFP "external spend"
- * subtotal to this canonical combined amount. The caller must commit the
- * returned reservation in the same
- * transaction as its provider operation/control-unit reservation. Exported
- * for deterministic disposable-Postgres race certification; it performs no
- * provider I/O and cannot authorize transport.
- */
-export async function reserveSfpAggregateBudgetInTransaction(
-  executor: { execute: (query: any) => Promise<any> },
-  input: {
-    reservationMicros: number;
-    capMicros: number;
-    target: { kind: "precohort"; runId: string } | { kind: "cohort"; stageRunId: string };
-  },
-): Promise<void> {
-  // Both pools are already present in the canonical ledger. Adding an
-  // external pilot subtotal here would count CRO-03C a second time.
-  try {
-    await assertLadderBudgetHeadroom(executor, {
-      reservationMicros: input.reservationMicros,
-      capMicros: input.capMicros,
-    });
-  } catch (err: any) {
-    if (String(err?.message ?? "").startsWith("LADDER_AGGREGATE_BUDGET_EXCEEDED")) {
-      throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
-    }
-    throw err;
-  }
-  const reserved = input.target.kind === "precohort"
-    ? rows(await executor.execute(sql`
-        UPDATE sfp_classification_runs
-           SET reserved_cost_micros=reserved_cost_micros+${input.reservationMicros},
-               state='running',updated_at=NOW()
-         WHERE id=${input.target.runId}::uuid AND state IN ('running','authorized')
-         RETURNING id
-      `))[0]
-    : rows(await executor.execute(sql`
-        UPDATE sfp_stage_runs
-           SET state='running',reserved_cost_micros=reserved_cost_micros+${input.reservationMicros},
-               last_heartbeat_at=NOW(),updated_at=NOW()
-         WHERE id=${input.target.stageRunId}::uuid AND state IN ('authorized','running')
-         RETURNING id
-      `))[0];
-  if (!reserved) throw new Error("SFP_BUDGET_RESERVATION_TARGET_NOT_RUNNING");
-}
-
 export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ attestationId: string }> {
   const fence = await getCurrentSfpRuntimeFence();
   if (!fence) throw new Error("SFP_PAID_BLOCKED:NO_LIVE_RUNTIME_AUTHORITY");
@@ -150,30 +101,27 @@ export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<{ 
 }
 
 /**
- * Fast, side-effect-free readiness check for the shared provider_controls
- * gate (enabled + circuit closed + a real budget ceiling with headroom).
+ * Fast, side-effect-free readiness check for provider_controls
+ * (enabled + circuit closed).
  * Continuous background ticks call this BEFORE touching any cohort/stage
- * row so a disabled/exhausted provider becomes a durable "paused" outcome —
+ * row so a disabled or circuit-open provider becomes a durable "paused" outcome —
  * no cohort freeze, no stage claim, no reservation attempt, nothing to get
  * stuck in a partial state and no retry storm. This deliberately duplicates
  * (rather than weakens) the authoritative checks inside
  * reserveSfpProviderOperation/previewSfpValidation, which still run their
- * own full gate at actual reservation time.
+ * authoritative checks at actual reservation time.
  */
 export async function getSfpProviderReadiness(
   provider: SfpPaidProvider,
 ): Promise<{ ready: boolean; reason: string | null }> {
   const controlProvider = CONTROL_KEY[provider];
   const control = rows(await db.execute(sql`
-    SELECT enabled, circuit_state, local_budget_units, reserved_units, consumed_units
+    SELECT enabled, circuit_state
       FROM provider_controls WHERE provider=${controlProvider}
   `))[0];
   if (!control) return { ready: false, reason: `provider_control_missing:${controlProvider}` };
   if (!control.enabled) return { ready: false, reason: `provider_disabled:${controlProvider}` };
   if (control.circuit_state !== "closed") return { ready: false, reason: `provider_circuit_${control.circuit_state}:${controlProvider}` };
-  if (control.local_budget_units == null) return { ready: false, reason: `provider_budget_unset:${controlProvider}` };
-  const headroom = Number(control.local_budget_units) - Number(control.reserved_units) - Number(control.consumed_units);
-  if (headroom <= 0) return { ready: false, reason: `provider_budget_exhausted:${controlProvider}` };
   if (!process.env[SECRET_KEY[provider]]) return { ready: false, reason: `credential_missing:${SECRET_KEY[provider]}` };
   return { ready: true, reason: null };
 }
@@ -215,15 +163,30 @@ export async function getSfpAttestationReadiness(
   return { ready: true, reason: null };
 }
 
-export async function currentSfpUnitPrice(provider: SfpPaidProvider): Promise<number> {
-  const pricing = await getCurrentPricingSchedule();
-  const key = provider === "openai_classification" ? "openai" : provider;
-  const entry = pricing.priceSchedules[key] as any;
-  const amount = Number(entry?.amountMicros);
-  if (!Number.isSafeInteger(amount) || amount < 0) {
-    throw new Error(`SFP_PAID_BLOCKED:PRICING_UNAVAILABLE:${key}`);
+export async function currentSfpUnitPrice(provider: SfpPaidProvider): Promise<number | null> {
+  try {
+    const pricing = await getCurrentPricingSchedule();
+    const key = provider === "openai_classification" ? "openai" : provider;
+    const entry = pricing.priceSchedules[key] as any;
+    const amount = Number(entry?.amountMicros);
+    // Keep price data for historical estimates only. Its absence must never
+    // authorize or prevent a paid provider request.
+    return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+  } catch {
+    return null;
   }
-  return amount;
+}
+
+export function sfpPriceEstimateReceipt(unitPriceEstimateMicros: number | null): {
+  unitPriceEstimateMicros: number | null;
+  unitPriceEstimateStatus: "estimate" | "unknown";
+  costEstimateStatus: "estimate" | "unknown";
+} {
+  return {
+    unitPriceEstimateMicros,
+    unitPriceEstimateStatus: unitPriceEstimateMicros === null ? "unknown" : "estimate",
+    costEstimateStatus: unitPriceEstimateMicros === null ? "unknown" : "estimate",
+  };
 }
 
 /**
@@ -321,13 +284,9 @@ export async function reserveSfpProviderOperation(input: {
   await releaseExpiredPreDispatchSfpReservations();
   const authority = await assertSfpRuntimeAuthority(input.cohortRunId);
   const budgetAuth = await assertPaidBudgetAuthorized();
-  const aggregate = await assertAggregatePaidBudgetAvailable();
   const units = Math.max(1, Math.min(MAX_UNITS_PER_RESERVATION[input.provider] ?? 100, Number(input.units ?? 1)));
-  const amountMicros = await currentSfpUnitPrice(input.provider);
-  const reservedMicros = units * amountMicros;
-  if (!Number.isSafeInteger(reservedMicros) || reservedMicros > aggregate.remainingMicros) {
-    throw new Error("SFP_PAID_BLOCKED:AGGREGATE_BUDGET_EXCEEDED");
-  }
+  const unitPriceEstimateMicros = await currentSfpUnitPrice(input.provider);
+  const amountMicros = unitPriceEstimateMicros ?? 0;
   const controlProvider = CONTROL_KEY[input.provider];
 
   return db.transaction(async (tx) => {
@@ -352,18 +311,9 @@ export async function reserveSfpProviderOperation(input: {
       };
     }
 
-    // Include independent SFP reservations/settlements in the same fixed $50
-    // ceiling used by the pilot authority; getAggregatePilotSpend cannot see
-    // SFP rows because they are intentionally not MI-09 pilot effect links.
-    await reserveSfpAggregateBudgetInTransaction(tx, {
-      reservationMicros: reservedMicros, capMicros: aggregate.capMicros,
-      target: { kind: "cohort", stageRunId: input.stageRunId },
-    });
     const reserved = rows(await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=reserved_units+${units},version=version+1,updated_at=NOW()
        WHERE provider=${controlProvider} AND enabled=TRUE AND circuit_state='closed'
-         AND local_budget_units IS NOT NULL
-         AND reserved_units+consumed_units+${units}<=local_budget_units
        RETURNING provider
     `))[0];
     if (!reserved) throw new Error(`SFP_PAID_BLOCKED:PROVIDER_CONTROL:${controlProvider}`);
@@ -374,7 +324,11 @@ export async function reserveSfpProviderOperation(input: {
           state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at,sfp_result_data)
       VALUES (${controlProvider},'sfp_enrichment',${input.purpose},${input.idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-               NOW()+INTERVAL '5 minutes',NOW(),${JSON.stringify({ reservedUnitAmountMicros: amountMicros })}::jsonb) RETURNING id
+                NOW()+INTERVAL '5 minutes',NOW(),
+                ${JSON.stringify({
+                  reservedUnitAmountMicros: unitPriceEstimateMicros,
+                  ...sfpPriceEstimateReceipt(unitPriceEstimateMicros),
+                })}::jsonb) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
@@ -406,12 +360,8 @@ export async function reserveSfpProviderOperation(input: {
  * sfp_stage_runs/sfp_stage_items — so this omits `assertSfpRuntimeAuthority`
  * (which requires a frozen `sfp_cohort_runs` row) and the stage-run/item
  * writes, but keeps every other real guardrail: provider transport flag,
- * credential presence, provider-manifest admission, paid-budget authorization,
- * the provider_controls enabled/circuit-breaker/local-budget gate, and the
- * shared aggregate cap. The common in-transaction cap gate sums Phase A's
- * outstanding reservations and `sfp_classification_evidence` spend together
- * with cohort-bound stage-run reservations/settlements, so neither ledger
- * can race the other past the shared ceiling.
+ * credential presence, provider-manifest admission, explicit paid approval,
+ * and the provider_controls enabled/circuit-breaker gate.
  */
 export interface SfpPreCohortProviderReservation {
   operationId: string;
@@ -444,10 +394,9 @@ export async function reservePreCohortSfpProviderOperation(input: {
   assertProviderActivation({ sourceId, caller: "server/services/cro03/sfp-classification-bridge.ts", explicitPaidApproval: true });
   await releaseExpiredPreDispatchSfpReservations();
   await assertPaidBudgetAuthorized();
-  const aggregate = await assertAggregatePaidBudgetAvailable();
   const units = Math.max(1, Math.min(MAX_UNITS_PER_RESERVATION[input.provider] ?? 100, Number(input.units ?? 1)));
-  const amountMicros = await currentSfpUnitPrice(input.provider);
-  const reservedMicros = units * amountMicros;
+  const unitPriceEstimateMicros = await currentSfpUnitPrice(input.provider);
+  const amountMicros = unitPriceEstimateMicros ?? 0;
   const controlProvider = CONTROL_KEY[input.provider];
   // Include the owning run as durable lineage so an expired, provably
   // pre-dispatch reservation can be returned to precisely that run ledger.
@@ -474,18 +423,9 @@ export async function reservePreCohortSfpProviderOperation(input: {
          replayed:true,resultData:publicProviderResultData(existing.sfp_result_data),
       };
     }
-    // Same $50 aggregate ceiling as reserveSfpProviderOperation, but also
-    // folding in Phase A's own classification-evidence spend ledger (see
-    // doc comment above) so both ledgers share one authoritative cap check.
-    await reserveSfpAggregateBudgetInTransaction(tx, {
-      reservationMicros: reservedMicros, capMicros: aggregate.capMicros,
-      target: { kind: "precohort", runId: input.runId },
-    });
     const reserved = rows(await tx.execute(sql`
       UPDATE provider_controls SET reserved_units=reserved_units+${units},version=version+1,updated_at=NOW()
        WHERE provider=${controlProvider} AND enabled=TRUE AND circuit_state='closed'
-         AND local_budget_units IS NOT NULL
-         AND reserved_units+consumed_units+${units}<=local_budget_units
        RETURNING provider
     `))[0];
     if (!reserved) throw new Error(`SFP_PAID_BLOCKED:PROVIDER_CONTROL:${controlProvider}`);
@@ -496,7 +436,11 @@ export async function reservePreCohortSfpProviderOperation(input: {
           state,requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at,sfp_result_data)
        VALUES (${controlProvider},'sfp_precohort_classification',${input.purpose},${idempotencyKey},'user',${input.actorId},
               ${`business:${input.businessId}`},'running',${units},${units},'reserved',1,${claimToken}::uuid,
-               NOW()+INTERVAL '5 minutes',NOW(),${JSON.stringify({ reservedUnitAmountMicros: amountMicros })}::jsonb) RETURNING id
+                NOW()+INTERVAL '5 minutes',NOW(),
+                ${JSON.stringify({
+                  reservedUnitAmountMicros: unitPriceEstimateMicros,
+                  ...sfpPriceEstimateReceipt(unitPriceEstimateMicros),
+                })}::jsonb) RETURNING id
     `))[0];
     await tx.execute(sql`
       INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
@@ -599,7 +543,6 @@ export async function assertCurrentPreCohortSfpProviderReservation(
         AND EXISTS (
           SELECT 1 FROM sfp_classification_runs r
            WHERE r.id=${reservation.runId}::uuid AND r.state='running'
-             AND r.reserved_cost_micros>0
         )
   `))[0];
   if (!current) throw new Error("SFP_PROVIDER_RESERVATION_INVALID");

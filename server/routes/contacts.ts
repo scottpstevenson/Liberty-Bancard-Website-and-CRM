@@ -565,7 +565,7 @@ export function registerContactsRoutes(app: Express) {
 
   // GET /api/contacts/quality-summary
   // Returns aggregate counts for the quality health dashboard.
-  app.get("/api/contacts/quality-summary", requireRole("admin", "manager"), async (req, res) => {
+  app.get("/api/contacts/quality-summary", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const result = await pool.query(`
         SELECT
@@ -580,17 +580,7 @@ export function registerContactsRoutes(app: Express) {
         FROM contacts
         WHERE archived_at IS NULL
       `);
-      const { data: zbData } = await import("../services/zerobounce-daily-limiter").then(m =>
-        m.checkZeroBounceBudget().then(b => ({ data: b }))
-      );
-      res.json({
-        ...result.rows[0],
-        zerobounce: {
-          usedToday: zbData.used,
-          dailyLimit: zbData.limit,
-          remainingToday: Math.max(0, zbData.limit - zbData.used),
-        },
-      });
+      res.json(result.rows[0]);
     } catch (err: any) {
       serverError(res, err);
     }
@@ -890,7 +880,6 @@ export function registerContactsRoutes(app: Express) {
     try {
       const { markStaleRunsInterrupted } = await import("../services/zerobounce-campaign-worker");
       const { buildZbEligibilityWhere } = await import("../services/zerobounce-eligibility");
-      const { checkZeroBounceBudget } = await import("../services/zerobounce-daily-limiter");
       await markStaleRunsInterrupted();
 
       const campaign = (await pool.query(
@@ -898,7 +887,7 @@ export function registerContactsRoutes(app: Express) {
       )).rows[0];
       if (!campaign) return res.json({ active: false, campaign: null, latestRun: null });
 
-      const [latestRun, counts, budget] = await Promise.all([
+      const [latestRun, counts] = await Promise.all([
         pool.query(
           `SELECT * FROM zerobounce_runs WHERE campaign_id = $1 ORDER BY created_at DESC LIMIT 1`,
           [campaign.id],
@@ -916,7 +905,6 @@ export function registerContactsRoutes(app: Express) {
            FROM zerobounce_attempts WHERE campaign_id = $1`,
           [campaign.id],
         ).then(r => r.rows[0]),
-        checkZeroBounceBudget(),
       ]);
 
       const filter = (campaign.filter_definition ?? {}) as ZbCampaignFilter;
@@ -948,7 +936,6 @@ export function registerContactsRoutes(app: Express) {
           blocked: counts.blocked,
           remainingEligible: remainingRow.rows[0]?.n ?? 0,
         },
-        dailyBudget: { used: budget.used, limit: budget.limit },
         latestRun: latestRun ? {
           id: latestRun.id,
           state: latestRun.state,
@@ -2448,7 +2435,7 @@ export function registerContactsRoutes(app: Express) {
       const budget = await checkZeroBounceBudget();
       if (!budget.allowed) {
         return res.status(429).json({
-          message: `ZeroBounce daily cap reached (${budget.used}/${budget.limit}). Resets tomorrow.`,
+          message: "ZeroBounce validation is temporarily unavailable. Try again later.",
         });
       }
 
@@ -2501,7 +2488,6 @@ export function registerContactsRoutes(app: Express) {
           campaignId: campaign.id,
           alreadyRunning: true,
           queued: 0,
-          budgetRemaining: budget.limit - budget.used,
           message: `A validation run is already in progress. Poll /api/contacts/validate-emails-batch/${existingRunning.id} for status.`,
         });
       }
@@ -2526,7 +2512,6 @@ export function registerContactsRoutes(app: Express) {
             return res.status(200).json({
               jobId: winner.id, runId: winner.id, campaignId: campaign.id,
               alreadyRunning: true, queued: 0,
-              budgetRemaining: budget.limit - budget.used,
               message: `A validation run is already in progress. Poll /api/contacts/validate-emails-batch/${winner.id} for status.`,
             });
           }
@@ -2551,7 +2536,6 @@ export function registerContactsRoutes(app: Express) {
         runId: run.id,
         campaignId: campaign.id,
         queued: run.contact_limit,
-        budgetRemaining: budget.limit - budget.used,
         message: `Validation run started (up to ${run.contact_limit} contacts). Poll /api/contacts/validate-emails-batch/${run.id} for status.`,
       });
     } catch (err: any) {

@@ -32,9 +32,7 @@ import {
 } from "./deployment-inventory";
 import { sanitizeAuditPayload } from "../audit-sanitizer";
 import { PAID_PROVIDER_KEYS } from "../paid-provider-control";
-import { assertAggregateRecurringPaidBudgetAvailable } from "../cro08a/schedule-authority";
-import { assertLadderBudgetHeadroom } from "./shared-paid-budget-ledger";
-import { MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS } from "../mi09-pilot-authority";
+import { assertRecurringPaidAuthorityForActivation } from "../cro08a/schedule-authority";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const SHA256 = /^[0-9a-f]{64}$/i;
@@ -976,24 +974,31 @@ export async function createCro03cCommand(input: {
     assertCro03cApprovalEvidence(policy.required_approvals ?? {});
     const pricing = policy.price_schedules ?? {};
     assertCro03cPriceSchedules(pricing);
-    // The approved policy is executable only while it is bound to the current
-    // operator-reviewed database snapshot. This prevents a stale ceremony
-    // policy (or a missing schedule) from becoming reservation authority.
-    const currentPricingSnapshot = rows(await tx.execute(sql`
-      SELECT schedule_json
-        FROM mi09_pricing_schedule_snapshots
-       WHERE expires_at > NOW()
-       ORDER BY captured_at DESC
-       LIMIT 1
-    `))[0];
-    if (!currentPricingSnapshot) {
-      throw new Error("CRO03C_PRICING_SCHEDULE_UNAVAILABLE: no unexpired operator-reviewed database schedule");
-    }
-    const currentSchedule = typeof currentPricingSnapshot.schedule_json === "string"
-      ? JSON.parse(currentPricingSnapshot.schedule_json)
-      : currentPricingSnapshot.schedule_json;
-    if (stableCro03RecipeHash(currentSchedule) !== stableCro03RecipeHash(pricing)) {
-      throw new Error("CRO03C_PRICING_SNAPSHOT_POLICY_MISMATCH: approved policy is not bound to current database schedule");
+    // MI-09 and recurring commands already carry an approved policy snapshot
+    // with provider approvals and price schedules. Do not make those execution
+    // paths depend on the separately maintained app pricing-snapshot row:
+    // operation records below still bind unit price/version/hash from the
+    // approved policy. Keep the extra live-snapshot ceremony for canary and
+    // initial-batch commands.
+    const requiresCurrentPricingSnapshot =
+      input.commandType !== "pilot_phase" && input.commandType !== "continuous_occurrence";
+    if (requiresCurrentPricingSnapshot) {
+      const currentPricingSnapshot = rows(await tx.execute(sql`
+        SELECT schedule_json
+          FROM mi09_pricing_schedule_snapshots
+         WHERE expires_at > NOW()
+         ORDER BY captured_at DESC
+         LIMIT 1
+      `))[0];
+      if (!currentPricingSnapshot) {
+        throw new Error("CRO03C_PRICING_SCHEDULE_UNAVAILABLE: no unexpired operator-reviewed database schedule");
+      }
+      const currentSchedule = typeof currentPricingSnapshot.schedule_json === "string"
+        ? JSON.parse(currentPricingSnapshot.schedule_json)
+        : currentPricingSnapshot.schedule_json;
+      if (stableCro03RecipeHash(currentSchedule) !== stableCro03RecipeHash(pricing)) {
+        throw new Error("CRO03C_PRICING_SNAPSHOT_POLICY_MISMATCH: approved policy is not bound to current database schedule");
+      }
     }
     const validationMaxUnits = input.commandType === "initial_batch" ? distinctHandoffs.length : 0;
     const validationUnitAmountMicros = Number(pricing.zerobounce.amountMicros);
@@ -1031,36 +1036,25 @@ export async function createCro03cCommand(input: {
       if (occurrence.cro03c_command_id) throw new Error("CRO08A_OCCURRENCE_ALREADY_BOUND_TO_COMMAND");
       if (!occurrence.active) throw new Error("CRO08A_SCHEDULE_DEFINITION_NOT_ACTIVE");
       // Certification-receipt requirement removed 2026-09-13 at the operator's
-      // request — activateCro08aScheduleDefinition() no longer issues one, so
-      // this can never be satisfied. The pilot ladder (checked at activation)
-      // and the aggregate spend cap (checked below/at reservation time) are
-      // the remaining gates for continuous_occurrence command creation.
-      const budgets = (occurrence.budgets ?? {}) as Record<string, { maxUnitsPerOccurrence?: number }>;
+      // request — activateCro08aScheduleDefinition() no longer issues one.
+      const budgets = (occurrence.budgets ?? {}) as Record<string, unknown>;
       const providerBudget = budgets[input.provider!];
-      if (!providerBudget || !Number.isInteger(providerBudget.maxUnitsPerOccurrence) || providerBudget.maxUnitsPerOccurrence! < 0) {
+      if (!providerBudget || typeof providerBudget !== "object" || Array.isArray(providerBudget)) {
         throw new Error("CRO08A_PROVIDER_BUDGET_UNDEFINED");
       }
-      // Corrective item 8: re-check the recurring aggregate spend cap
-      // immediately before every continuous_occurrence command is created —
-      // mirroring the pilot's own per-command re-check pattern
-      // (assertAggregatePaidBudgetAvailable in mi09-pilot-authority.ts).
-      // The per-occurrence maxUnitsPerOccurrence budget above bounds volume
-      // for a single occurrence; this is the separate, independently-tracked
-      // dollar ceiling for ALL recurring paid spend combined.
-      if ((PAID_PROVIDER_KEYS as readonly string[]).includes(input.provider!)) {
-        await assertAggregateRecurringPaidBudgetAvailable();
+      if ((PAID_PROVIDER_KEYS as readonly string[]).includes(input.provider!) || budgets.zerobounce_business) {
+        await assertRecurringPaidAuthorityForActivation(budgets);
       }
-      continuousDerivedMaxUnits = Math.min(Number(occurrence.selected_count), providerBudget.maxUnitsPerOccurrence!);
-      // Derive business email validation cap from 'zerobounce_business' budget key.
-      // If the operator did not include this key in the occurrence budgets, the command
-      // gets businessValidationMaxUnits=0 and cannot authorize business ZeroBounce calls.
-      const bizBudgetRaw = budgets["zerobounce_business"];
-      if (bizBudgetRaw && Number.isInteger(bizBudgetRaw.maxUnitsPerOccurrence) &&
-          (bizBudgetRaw.maxUnitsPerOccurrence as number) >= 0) {
-        continuousBizValMaxUnits = Math.min(
-          Number(occurrence.selected_count), bizBudgetRaw.maxUnitsPerOccurrence as number,
-        );
+      const businessValidationBudget = budgets.zerobounce_business;
+      if (businessValidationBudget && typeof businessValidationBudget === "object" &&
+          !Array.isArray(businessValidationBudget)) {
+        // The occurrence's selected population is the scope boundary; there
+        // is no separate per-occurrence credit allowance.
+        continuousBizValMaxUnits = Number(occurrence.selected_count);
       }
+      // Durable occurrence membership and technical command-size bounds
+      // constrain work scope; maxUnitsPerOccurrence is not a credit ceiling.
+      continuousDerivedMaxUnits = distinctHandoffs.length;
       // The occurrence's frozen enumeration is the sole authority for which
       // handoffs may receive provider work under this command: every
       // caller-supplied handoffId must be exact membership of the durable
@@ -1198,10 +1192,10 @@ export async function createCro03cCommand(input: {
       ? {
           // A continuous_occurrence command reserves and settles real
           // provider spend (unlike initial_batch) but, unlike micro_canary,
-          // its unit ceiling is server-derived above from the locked
-          // schedule occurrence/definition budgets — never from the caller.
-          // Business validation caps are not supported on continuous_occurrence
-          // commands — use an initial_batch command or a dedicated validation command.
+          // its authority is derived from the locked occurrence and its
+          // frozen handoff population — never from caller-supplied caps.
+          // Business validation is separately opt-in via the schedule's
+          // zerobounce_business provider entry.
           provider: input.provider, maxUnits: continuousDerivedMaxUnits, maxAmountMicros: continuousDerivedMaxAmountMicros,
           businessValidationMaxUnits: continuousBizValMaxUnits,
           businessValidationMaxAmountMicros: continuousBizValMaxAmountMicros,
@@ -1213,8 +1207,7 @@ export async function createCro03cCommand(input: {
         }
       : {
           // pilot_phase: business-validation (ZeroBounce) caps are now real and
-          // caller-supplied (bounded upstream by the pilot's $50 aggregate cap in
-          // mi09-pilot-authority.ts), not hardcoded to zero. Without this, ZeroBounce
+          // caller-supplied and cohort-scoped, not hardcoded to zero. Without this, ZeroBounce
           // business validation — and therefore master_leads creation — could never
           // occur via the MI-09 pilot path no matter what the pilot definition allowed.
           provider: input.provider, maxUnits: input.maxUnits, maxAmountMicros: input.maxAmountMicros,
@@ -1856,7 +1849,7 @@ export async function reserveCro03cBusinessValidationOperation(input: {
 
     // Step 3: Validate command authority and price schedule.
     const authority = rows(await tx.execute(sql`
-      SELECT c.id AS command_id, c.state, c.cancel_requested_at, c.expires_at,
+       SELECT c.id AS command_id, c.command_type, c.state, c.cancel_requested_at, c.expires_at,
              c.caps, a.price_schedules
         FROM cro03c_generations g
         JOIN cro03c_commands c ON c.id = g.command_id
@@ -1886,6 +1879,10 @@ export async function reserveCro03cBusinessValidationOperation(input: {
     if (caps.businessValidationMaxUnits !== undefined &&
         Number(caps.businessValidationMaxUnits) < 1) {
       throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
+    }
+    if (authority.command_type === "continuous_occurrence" &&
+        Number(caps.businessValidationMaxUnits ?? 0) > 0) {
+      await assertRecurringPaidAuthorityForActivation({ zerobounce_business: {} });
     }
 
     // Step 4: Insert the operation. ON CONFLICT DO NOTHING is a safety net;
@@ -1954,12 +1951,8 @@ export async function reserveCro03cProviderOperation(input: {
     return { id: String(prior.id), replayed: true };
   }
   // The remainder runs inside a transaction that locks the owning command row
-  // (FOR UPDATE OF c). That lock serializes every concurrent reservation
-  // attempt against the same command, which is what makes the continuous_
-  // occurrence aggregate-budget check below atomic: two concurrent stage
-  // operations for the same command can never both read the same "sum so
-  // far" and both slip under the cap — the second reservation always sees
-  // the first one's committed row before it computes its own sum.
+  // (FOR UPDATE OF c), serializing concurrent reservation attempts for the
+  // same command and preserving command revocation/idempotency semantics.
   return db.transaction(async (tx) => {
     const authority = rows(await tx.execute(sql`
       SELECT c.id AS command_id,c.caps,c.command_type,c.state,c.cancel_requested_at,c.expires_at,a.price_schedules
@@ -1971,10 +1964,8 @@ export async function reserveCro03cProviderOperation(input: {
     `))[0];
     if (!authority || authority.state !== "running" || authority.cancel_requested_at ||
         new Date(authority.expires_at).getTime() <= Date.now()) throw new Error("CRO03C_AUTHORITY_REVOKED");
-    // continuous_occurrence commands carry their own server-derived, per-command
-    // caps.maxUnits ceiling (validated below against authority.caps) rather than
-    // the fixed micro-canary sample-size ceiling; the canary ceiling only
-    // applies to actual micro_canary commands and legacy initial_batch stages.
+    // The fixed micro-canary sample-size ceiling only applies to actual
+    // micro_canary commands and legacy initial_batch stages.
     if (input.requestedUnits > contract.maxCanaryUnits && input.stageKey !== "initial_batch" &&
         authority.command_type !== "continuous_occurrence") {
       throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
@@ -1983,8 +1974,15 @@ export async function reserveCro03cProviderOperation(input: {
     if (!schedule || schedule.version !== input.priceScheduleVersion ||
         stableCro03RecipeHash(schedule) !== input.priceScheduleHash) throw new Error("CRO03C_PRICE_SCHEDULE_UNKNOWN");
     const caps = authority.caps ?? {};
-    if (caps.provider !== input.provider || input.requestedUnits > Number(caps.maxUnits) ||
-        input.maxAmountMicros > Number(caps.maxAmountMicros) ||
+    const occurrenceScoped = authority.command_type === "continuous_occurrence";
+    if (occurrenceScoped && (PAID_PROVIDER_KEYS as readonly string[]).includes(input.provider)) {
+      // A recurring command can outlive an operator's approval. Re-check the
+      // revocable authority at reservation time as well as command creation.
+      await assertRecurringPaidAuthorityForActivation({ [input.provider]: {} });
+    }
+    if (caps.provider !== input.provider ||
+        (!occurrenceScoped && (input.requestedUnits > Number(caps.maxUnits) ||
+          input.maxAmountMicros > Number(caps.maxAmountMicros))) ||
         input.maxAmountMicros !== input.requestedUnits * schedule.amountMicros) {
       throw new Error("CRO03C_PROVIDER_CAP_EXCEEDED");
     }
@@ -1995,42 +1993,9 @@ export async function reserveCro03cProviderOperation(input: {
     // provider without pausing all of them. Reuse the existing shared
     // provider_controls table/columns (already used for zerobounce) instead
     // of building a parallel Outscraper/OpenAI-specific control system.
-    // Budget (command-level caps above) and idempotency (operation_key
-    // uniqueness) were already confirmed present for every CRO03C provider
-    // via this same function, so only this gate is new.
+    // Command authority and idempotency (operation_key uniqueness) remain
+    // enforced here alongside provider circuit state.
     await assertCro03cSharedProviderControlOpen(input.provider, tx);
-    if (authority.command_type === "continuous_occurrence") {
-      // Aggregate cap: sum every reservation already made under this command
-      // (across all its generations/stages, excluding ones that were fully
-      // released back with zero settlement) plus this new request must not
-      // exceed the command's own caps.maxUnits/maxAmountMicros ceiling. A
-      // per-reservation check alone (above) is not sufficient — many small
-      // reservations under the per-op ceiling could otherwise sum past the
-      // occurrence's overall provider budget.
-      const agg = rows(await tx.execute(sql`
-        SELECT COALESCE(SUM(o.max_reserved_units),0)::bigint AS units,
-               COALESCE(SUM(o.max_reserved_amount_micros),0)::bigint AS amount
-          FROM cro03c_stage_operations o
-          JOIN cro03c_generations g2 ON g2.id=o.generation_id
-         WHERE g2.command_id=${authority.command_id}::uuid
-           AND o.terminal_disposition IS DISTINCT FROM 'released'
-      `))[0] ?? { units: 0, amount: 0 };
-      if (Number(agg.units) + input.requestedUnits > Number(caps.maxUnits) ||
-          Number(agg.amount) + input.maxAmountMicros > Number(caps.maxAmountMicros)) {
-        throw new Error("CRO08A_OCCURRENCE_AGGREGATE_BUDGET_EXCEEDED");
-      }
-    }
-    // Gate 2 hardening: the FOR UPDATE OF c row lock above only serializes
-    // reservations against THIS command, and only against other CRO-03C
-    // reservations — it never sees a concurrent SFP reservation, which uses
-    // an entirely separate table pool and its own (previously separate)
-    // advisory lock. Acquire the SAME shared ladder-budget lock SFP now
-    // uses, and check the SAME combined SFP+CRO-03C sum, before committing
-    // this reservation, so the two paths can never jointly exceed $50.
-    await assertLadderBudgetHeadroom(tx, {
-      reservationMicros: input.maxAmountMicros,
-      capMicros: MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS,
-    });
     const operation = rows(await tx.execute(sql`
       INSERT INTO cro03c_stage_operations
         (generation_id,stage_key,provider,operation_type,operation_key,caller,unit_type,currency,
