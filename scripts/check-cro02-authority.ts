@@ -198,17 +198,9 @@ for (const file of TYPESCRIPT_ROOTS.flatMap(filesUnder)) {
     if (/update contacts set[^;]*(is_decision_maker|decision_maker_confidence)\s*=/.test(sqlText) &&
         !SOLE_WRITERS.relationshipProjection.has(file)) violations.push(`${file}: raw SQL decision-maker writer`);
     const setClause = sqlText.split(/\bwhere\b/i, 1)[0];
-    // Operator-confirmed historical repair: only Sunbiz-bootstrap-created
-    // businesses proven by their canonical source link and still 'unknown'.
-    // This is not an unrestricted commercial-class projection writer.
-    const isProvenSunbizRepair = file === "server/services/sunbiz-bootstrap.ts" &&
-      /update businesses set record_class\s*=\s*'canonical'/.test(setClause) &&
-      /and record_class\s*=\s*'unknown'/.test(sqlText) &&
-      sqlText.includes("record_class_repair_cohort_sql");
     if (/update (contacts|deals|prospects|companies|businesses) set[^;]*record_class\s*=/.test(setClause) &&
         !SOLE_WRITERS.classProjection.has(file) &&
-        !(file === HISTORICAL_CLASS_BACKFILL && /where record_class = 'unknown'/.test(sqlText)) &&
-        !isProvenSunbizRepair) {
+        !(file === HISTORICAL_CLASS_BACKFILL && /where record_class = 'unknown'/.test(sqlText))) {
       violations.push(`${file}: raw SQL class writer`);
     }
   });

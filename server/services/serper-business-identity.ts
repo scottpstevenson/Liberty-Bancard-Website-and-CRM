@@ -13,7 +13,7 @@
  *  - No raw query, response, email, phone, personal name, or address in logs
  */
 
-import type { SerperGateway } from "./serper-gateway";
+import { serperGateway, type SerperGateway } from "./serper-gateway";
 
 // ── Threshold constants (named + justified by fixture tests) ─────────────────
 
@@ -522,10 +522,7 @@ export async function lookupBusinessIdentity(
   input: BusinessIdentityInput,
   context: BusinessIdentityContext,
 ): Promise<LookupOutcome> {
-  // Static/fake-gateway callers must not import the DB-bound singleton merely
-  // by loading this module. Production still resolves the same governed
-  // gateway when an explicit test gateway was not supplied.
-  const gateway = context.gateway ?? (await import("./serper-gateway")).serperGateway;
+  const gateway = context.gateway ?? serperGateway;
   const startedAt = Date.now();
   const strategyVersion = input.requireGeographicCorroboration ? 2 : 1;
   let requestsUsed = 0;
