@@ -118,6 +118,13 @@ const KNOWN_MISMATCHES = new Set<string>([
   "/api/field-routes/my-today",
   // POST /api/field-visits — server handler exists
   "/api/field-visits",
+  // Contact-business reconciliation uses shared client path constants and
+  // dynamically appends the suffix. The concrete guarded GET/POST handlers
+  // are registered in server/routes/admin.ts; these are scanner artifacts.
+  "/api/admin/contact-business-reconciliation",
+  "/api/admin/contact-business-reconciliation/preview",
+  "/api/admin/contact-business-reconciliation/progress",
+  "/api/admin/contact-business-suggestions",
 ]);
 
 function main() {
