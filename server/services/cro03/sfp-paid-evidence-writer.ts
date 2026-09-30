@@ -14,7 +14,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { seal, unseal } from "./candidate-evidence-service";
-import { candidateTier } from "./candidate-selector";
+import { candidateTier, rejectEmailCandidate } from "./candidate-selector";
 import { maskCandidate } from "./contracts";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -216,7 +216,9 @@ export async function resolveSfpCandidateReference(
     SELECT c.id,c.business_id,c.email,c.email_status,c.created_at
       FROM contacts c
       JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
-     WHERE c.id=${reference.contactId}::int
+      JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=b.id
+       AND d.decision='verified' AND d.superseded_at IS NULL
+     WHERE c.id=${reference.contactId}::int AND c.archived_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                         WHERE q.business_id=c.business_id AND q.cleared_at IS NULL)
      LIMIT 1
@@ -281,8 +283,13 @@ export async function openSfpCandidatePlaintext<T>(
         SELECT id,business_id,provider,field,subject_type,masked_value,confidence,disposition,created_at
           FROM sfp_paid_candidate_evidence WHERE id=${input.reference.paidCandidateEvidenceId}::uuid LIMIT 1
       `)))[0]
-    : (await rows(await executor.execute(sql`
-        SELECT id,business_id,email,email_status,created_at FROM contacts WHERE id=${input.reference.contactId}::int LIMIT 1
+      : (await rows(await executor.execute(sql`
+        SELECT c.id,c.business_id,c.email,c.email_status,c.created_at
+          FROM contacts c
+          JOIN businesses b ON b.id=c.business_id AND b.record_class='canonical'
+          JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=b.id
+           AND d.decision='verified' AND d.superseded_at IS NULL
+         WHERE c.id=${input.reference.contactId}::int AND c.archived_at IS NULL LIMIT 1
       `)))[0];
   const resolvedRef: ResolvedSfpCandidateReference | null = !resolvedRow ? null : input.reference.sourceKind === "free"
     ? {
@@ -325,7 +332,7 @@ export async function openSfpCandidatePlaintext<T>(
   `))[0];
   if (!memberRow) throw new Error("SFP_CANDIDATE_BUSINESS_NOT_IN_COHORT");
 
-  const envelopeRow = resolved.sourceKind === "free"
+  const envelopeRow = resolved.sourceKind === "contact" ? null : resolved.sourceKind === "free"
     ? rows(await executor.execute(sql`
         SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
           FROM free_discovery_candidates WHERE id=${resolved.evidenceId}::uuid LIMIT 1
@@ -334,14 +341,17 @@ export async function openSfpCandidatePlaintext<T>(
         SELECT envelope_ciphertext, envelope_nonce, envelope_tag, envelope_key_version
           FROM sfp_paid_candidate_evidence WHERE id=${resolved.evidenceId}::uuid LIMIT 1
       `))[0];
-  if (!envelopeRow) throw new Error("SFP_CANDIDATE_ENVELOPE_NOT_FOUND");
-
-  const plaintext = unseal("email", {
-    ciphertext: String(envelopeRow.envelope_ciphertext),
-    nonce: String(envelopeRow.envelope_nonce),
-    tag: String(envelopeRow.envelope_tag),
-    keyVersion: Number(envelopeRow.envelope_key_version ?? 1),
-  });
+  const plaintext = resolved.sourceKind === "contact"
+    ? String(resolvedRow.email ?? "")
+    : envelopeRow
+      ? unseal("email", {
+          ciphertext: String(envelopeRow.envelope_ciphertext),
+          nonce: String(envelopeRow.envelope_nonce),
+          tag: String(envelopeRow.envelope_tag),
+          keyVersion: Number(envelopeRow.envelope_key_version ?? 1),
+        })
+      : "";
+  if (!plaintext.trim()) throw new Error(resolved.sourceKind === "contact" ? "SFP_CONTACT_EMAIL_MISSING" : "SFP_CANDIDATE_ENVELOPE_NOT_FOUND");
 
   await executor.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
@@ -424,10 +434,14 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
   // free/paid row for the same address; the exact address is still verified
   // against real plaintext at validation time regardless.
   const contactRows = rows(await db.execute(sql`
-     SELECT c.id, c.business_id, c.email, c.email_token_hash, c.email_status, c.created_at
+     SELECT c.id, c.business_id, c.email, c.email_token_hash, c.email_status,
+            c.first_name, c.last_name, c.title, c.created_at
        FROM contacts c
        JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
+       JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=b.id
+        AND d.decision='verified' AND d.superseded_at IS NULL
       WHERE c.business_id = ANY(ARRAY[${idList}]::integer[])
+        AND c.archived_at IS NULL
         AND c.email IS NOT NULL AND c.email <> ''
         AND COALESCE(c.do_not_contact, FALSE) = FALSE
         AND COALESCE(c.do_not_auto_contact, FALSE) = FALSE
@@ -436,7 +450,9 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
         AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
         AND c.complaint_status IS DISTINCT FROM 'reported'
         AND c.bounce_status IS DISTINCT FROM 'hard'
-        AND c.email_status NOT IN ('bounced', 'invalid')
+        AND c.email_status IS DISTINCT FROM 'bounced'
+        AND c.email_status IS DISTINCT FROM 'invalid'
+        AND c.email_status IS DISTINCT FROM 'opted_out'
         AND c.suppression_reason IS NULL
         AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                          WHERE q.business_id = c.business_id AND q.cleared_at IS NULL)
@@ -497,6 +513,8 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       // sfp-validation.ts's freshness-reuse check (findFreshProviderObservation)
       // is the sole authority that decides whether spend is actually
       // skipped; this disposition alone never bypasses a live re-check.
+      const isRoleInbox = rejectEmailCandidate(String(c.email), "person") === "role_address_rejected_for_person";
+      const personName = [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || null;
       const disposition = c.email_status === "valid" ? "validation_admitted" : "staged";
       return {
         sourceKind: "contact" as const,
@@ -507,12 +525,12 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
         maskedValue: maskCandidate("email", String(c.email)),
         confidence: 60, // existing CRM contact, unranked by any provider signal
         disposition,
-        personNameEvidence: null,
-        personTitleEvidence: null,
+        personNameEvidence: isRoleInbox ? null : personName,
+        personTitleEvidence: isRoleInbox ? null : c.title ?? null,
         createdAt: String(c.created_at),
         duplicateOfEvidenceId: null,
         stageKey: "contact",
-        subjectType: "person",
+        subjectType: isRoleInbox ? "business" : "person",
         apolloMatchConfidence: null,
         candidateMetadata: null,
         _hashKey: `${c.business_id}:email:${c.email_token_hash ?? `contact:${c.id}`}`,
