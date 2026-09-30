@@ -42,7 +42,7 @@ export class SfpStagingV2Error extends Error {
 export interface StagingV2PreviewRow {
   eligibilityId: string;
   businessId: number;
-  sourceKind: "free" | "paid";
+  sourceKind: "free" | "paid" | "contact";
   vertical: string | null;
   packageKey: string | null;
   disposition: "eligible" | "blocked";
@@ -154,7 +154,7 @@ export async function previewStagingV2(opts: {
 
   const activePolicy = await getActiveSfpOutreachPolicy();
   const eligibilityRows = rows(await db.execute(sql`
-    SELECT soe.id, soe.business_id, soe.source_kind, soe.candidate_id, soe.paid_candidate_evidence_id,
+    SELECT soe.id, soe.business_id, soe.source_kind, soe.candidate_id, soe.paid_candidate_evidence_id, soe.contact_id,
            soe.status, soe.validation_at, soe.validation_expires_at, soe.masked_email, soe.staging_intent_id,
            soe.normalized_value_hash, soe.policy_version,
            b.vertical
@@ -187,7 +187,7 @@ export async function previewStagingV2(opts: {
   const hashInputRows: Array<{ id: string; disposition: string; packageKey: string | null; packageContentHash: string | null; effectiveExpiresAtIso: string | null }> = [];
 
   for (const row of eligibilityRows) {
-    const sourceKind = (row.source_kind === "paid" ? "paid" : "free") as "free" | "paid";
+    const sourceKind = (row.source_kind === "paid" ? "paid" : row.source_kind === "contact" ? "contact" : "free") as "free" | "paid" | "contact";
     const base: StagingV2PreviewRow = {
       eligibilityId: String(row.id), businessId: Number(row.business_id), sourceKind,
       vertical: row.vertical ?? null, packageKey: null, disposition: "eligible", maskedEmail: row.masked_email ?? null,
@@ -548,7 +548,7 @@ export async function executeStagingV2(opts: {
 }
 
 async function stageOneRowTransactional(opts: {
-  cohortRunId: string; eligibilityId: string; businessId: number; sourceKind: "free" | "paid";
+  cohortRunId: string; eligibilityId: string; businessId: number; sourceKind: "free" | "paid" | "contact";
   packageKey: string; actorId: string; commandKey: string; payloadHash: string; snapshotHash: string;
   stageItemId: string; incrementAttempt?: boolean;
 }): Promise<void> {
@@ -577,7 +577,7 @@ async function stageOneRowTransactional(opts: {
 
     // Lock the eligibility row for the duration of this transaction.
     const eligRow = rows(await tx.execute(sql`
-      SELECT soe.id, soe.status, soe.candidate_id, soe.paid_candidate_evidence_id, soe.normalized_value_hash,
+      SELECT soe.id, soe.status, soe.candidate_id, soe.paid_candidate_evidence_id, soe.contact_id, soe.normalized_value_hash,
              soe.masked_email, soe.role_inbox, soe.staging_intent_id, soe.policy_version,
              soe.validation_at, soe.validation_expires_at,
              b.canonical_name, b.website_domain, b.main_phone, b.vertical, b.city, b.state
@@ -686,7 +686,7 @@ async function stageOneRowTransactional(opts: {
 
     let idempotencyKey = opts.commandKey;
     let intentValues: {
-      candidateId: string | null; paidCandidateEvidenceId: string | null;
+      candidateId: string | null; paidCandidateEvidenceId: string | null; contactId: number | null;
       contactEmailTokenHash: string; maskedEmailForLead: string | null;
     };
     // masterLeadEmail is written ONLY inside the openSfpCandidatePlaintext
@@ -701,6 +701,11 @@ async function stageOneRowTransactional(opts: {
       ? (() => {
           if (!eligRow.candidate_id) throw new SfpStagingV2Error("SFP_STAGING_CANDIDATE_MISSING", "free-source row missing candidate_id", 422);
           return { sourceKind: "free" as const, freeDiscoveryCandidateId: String(eligRow.candidate_id) };
+        })()
+      : opts.sourceKind === "contact"
+      ? (() => {
+          if (!eligRow.contact_id) throw new SfpStagingV2Error("SFP_STAGING_CONTACT_MISSING", "contact-source row missing contact_id", 422);
+          return { sourceKind: "contact" as const, contactId: String(eligRow.contact_id) };
         })()
       : (() => {
           if (!eligRow.paid_candidate_evidence_id) throw new SfpStagingV2Error("SFP_STAGING_PAID_EVIDENCE_MISSING", "paid-source row missing paid_candidate_evidence_id", 422);
@@ -718,7 +723,13 @@ async function stageOneRowTransactional(opts: {
         if (resolved.businessId !== opts.businessId) {
           throw new SfpStagingV2Error("SFP_STAGING_EVIDENCE_BUSINESS_MISMATCH", "candidate/paid evidence resolves to a different business than this eligibility row", 422);
         }
+        if (reference.sourceKind === "contact" && String(resolved.evidenceId) !== String(eligRow.contact_id)) {
+          throw new SfpStagingV2Error("SFP_STAGING_CONTACT_IDENTITY_DRIFTED", "resolved contact no longer matches the validated contact reference", 409);
+        }
         const contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
+        if (contactEmailTokenHash !== String(eligRow.normalized_value_hash ?? "")) {
+          throw new SfpStagingV2Error("SFP_STAGING_VALIDATED_EMAIL_DRIFTED", "candidate email differs from the address that passed validation", 409);
+        }
         const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash], tx);
         if (stillSuppressed) throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "resolved address is suppressed", 422);
         // Master-lead insert happens HERE, inside this callback, using the
@@ -749,6 +760,7 @@ async function stageOneRowTransactional(opts: {
     intentValues = {
       candidateId: reference.sourceKind === "free" ? reference.freeDiscoveryCandidateId : null,
       paidCandidateEvidenceId: reference.sourceKind === "paid" ? reference.paidCandidateEvidenceId : null,
+      contactId: reference.sourceKind === "contact" ? Number(reference.contactId) : null,
       contactEmailTokenHash: hash, maskedEmailForLead: eligRow.masked_email ?? null,
     };
 
@@ -761,12 +773,12 @@ async function stageOneRowTransactional(opts: {
 
     const intent = rows(await tx.execute(sql`
       INSERT INTO sfp_campaign_staging_intents
-        (cohort_run_id, eligibility_id, business_id, candidate_id, paid_candidate_evidence_id, source_kind,
+        (cohort_run_id, eligibility_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
          idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage,
          package_version_id, package_key, policy_document_hash, snapshot_hash, payload_hash, command_key,
          operator_selected_at, operator_selected_by, ready_held_at)
       VALUES (${opts.cohortRunId}::uuid, ${opts.eligibilityId}::uuid, ${opts.businessId},
-              ${intentValues.candidateId}::uuid, ${intentValues.paidCandidateEvidenceId}::uuid, ${opts.sourceKind},
+              ${intentValues.candidateId}::uuid, ${intentValues.paidCandidateEvidenceId}::uuid, ${intentValues.contactId}::int, ${opts.sourceKind},
               ${idempotencyKey}, ${opts.actorId}, 'ready_held', ${Number(eligRow.policy_version ?? 1)},
               ${JSON.stringify({ status: eligRow.status, pinnedPackageContentHash, pinnedPolicyHash, validationExpiresAt: effectiveExpiresAt.toISOString() })}::jsonb,
               ${JSON.stringify({ source: "sfp_staging_v2", cohortRunId: opts.cohortRunId, eligibilityId: opts.eligibilityId })}::jsonb,
