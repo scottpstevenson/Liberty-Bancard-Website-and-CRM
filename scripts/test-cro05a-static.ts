@@ -37,6 +37,7 @@ function withoutRetiredProposalHelper(routes: string): string {
 }
 
 const authority = source("server/services/inbound-request-authority.ts");
+const lifecycle = source("server/services/inbound-request-lifecycle.ts");
 const publicRoutes = source("server/routes/public.ts");
 const importsRoutes = source("server/routes/imports.ts");
 const leadOpsRoutes = source("server/routes/lead-ops.ts");
@@ -277,10 +278,11 @@ check("statement request handoff and worker lifecycle share durable authority ev
 });
 
 check("request lifecycle is gated by required internal effects only", () => {
-  assert.match(authority, /export function decideInboundLifecycle/);
+  assert.match(authority, /export \{ decideInboundLifecycle \} from "\.\/inbound-request-lifecycle"/);
+  assert.match(lifecycle, /export function decideInboundLifecycle/);
   assert.match(authority, /eq\(inboundRequestEffects\.required, true\)/);
   assert.match(authority, /eq\(inboundRequestEffects\.externalSideEffect, false\)/);
-  assert.match(authority, /effects\.some\(\(effect\) => effect\.state !== "sent"\)/);
+  assert.match(lifecycle, /effects\.some\(\(effect\) => effect\.state !== "sent"\)/);
   assert.match(authority, /reconcileInboundRequestLifecycle\(\{/);
   assert.match(authority, /completedState:\s*"accepted"/);
 });

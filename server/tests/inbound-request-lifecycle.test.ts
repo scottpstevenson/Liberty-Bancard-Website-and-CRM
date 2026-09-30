@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { decideInboundLifecycle } from "../services/inbound-request-authority";
+import { decideInboundLifecycle } from "../services/inbound-request-lifecycle";
 
 assert.equal(
   decideInboundLifecycle([{ state: "sent" }, { state: "sent" }]),

@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
+import { decideInboundLifecycle } from "./inbound-request-lifecycle";
+export { decideInboundLifecycle } from "./inbound-request-lifecycle";
 import {
   inboundAssignmentDecisions,
   inboundRequestEffects,
@@ -327,22 +329,6 @@ export async function transitionInboundEffect(effectId: string, input: {
     updatedAt: new Date(),
   }).where(and(eq(inboundRequestEffects.id, effectId), inArray(inboundRequestEffects.state, ["held", "ready", "attempting"]))).returning({ id: inboundRequestEffects.id });
   return result.length === 1;
-}
-
-type RequiredInternalEffectState = Pick<typeof inboundRequestEffects.$inferSelect, "state">;
-
-/**
- * External intents are deliberately excluded: a held acknowledgement must not
- * prevent the internal request from advancing. Required internal intents do.
- */
-export function decideInboundLifecycle(
-  effects: readonly RequiredInternalEffectState[],
-  incompleteState: "processing" | "review_required" = "processing",
-  completedState: "accepted" | "completed" = "accepted",
-): "processing" | "review_required" | "accepted" | "completed" | "failed" {
-  if (effects.some((effect) => effect.state === "failed")) return "failed";
-  if (effects.some((effect) => effect.state !== "sent")) return incompleteState;
-  return completedState;
 }
 
 export async function reconcileInboundRequestLifecycle(input: {
