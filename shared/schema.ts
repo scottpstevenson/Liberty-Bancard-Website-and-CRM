@@ -396,6 +396,11 @@ export const providerOperations = pgTable("provider_operations", {
   state: text("state").notNull().default("pending"),
   requestedUnits: integer("requested_units").notNull().default(0),
   reservedUnits: integer("reserved_units").notNull().default(0),
+  // Exact reviewed-price snapshot cost for SFP operations. Legacy and
+  // non-SFP provider operations remain NULL rather than being backfilled
+  // from today's price as if it were historical fact.
+  unitPriceMicros: bigint("unit_price_micros", { mode: "number" }),
+  settledCostMicros: bigint("settled_cost_micros", { mode: "number" }),
   billingState: text("billing_state").notNull().default("none"),
   attemptCount: integer("attempt_count").notNull().default(0),
   claimToken: uuid("claim_token"),
@@ -9521,6 +9526,7 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "set null" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "set null" }),
   policyVersion: integer("policy_version").notNull().default(1),
   status: text("status").notNull(),
   decisionReason: text("decision_reason").notNull().default(""),
@@ -9539,9 +9545,9 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   stagingIntentId: uuid("staging_intent_id"),
   campaignStagedAt: timestamp("campaign_staged_at", { withTimezone: true }),
   campaignStagedBy: text("campaign_staged_by"),
-  // Task #2000: additive typed source lineage + policy pin. candidateId (above)
-  // remains the legacy free-candidate compatibility FK; sourceKind/paidCandidateEvidenceId
-  // are the new one-of typed reference for unified free+paid candidate handoff.
+  // Task #2000+: additive typed source lineage + policy pin. The one-of source
+  // reference is free candidate, paid evidence, or an existing verified-linked
+  // contact whose email is revalidated through the same ZeroBounce policy.
   sourceKind: text("source_kind"),
   paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "set null" }),
   normalizedValueHash: text("normalized_value_hash"),
@@ -9567,8 +9573,9 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
     "sfp_outreach_eligibility_source_ref_one_of_chk",
     sql`
       source_kind IS NULL
-      OR (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
-      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL)
+      OR (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'contact' AND contact_id IS NOT NULL AND candidate_id IS NULL AND paid_candidate_evidence_id IS NULL)
     `,
   ),
 ]);
@@ -9878,11 +9885,11 @@ export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents",
   cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "restrict" }),
   eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
-  // Legacy free-candidate FK — nullable as of Task #2001 (Defect 5). Exactly
-  // one of candidateId / paidCandidateEvidenceId is set, enforced by the
-  // sourceKind-driven CHECK (see migration 0290).
+  // Exactly one candidate/evidence/contact identity is pinned, enforced by
+  // the sourceKind-driven CHECK (migration 0309).
   candidateId: uuid("candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "restrict" }),
   paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
   sourceKind: text("source_kind"),
   idempotencyKey: text("idempotency_key").notNull(), actorId: text("actor_id").notNull(),
   state: text("state").notNull().default("staged"), policyVersion: integer("policy_version").notNull(),
@@ -9910,8 +9917,9 @@ export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents",
   check(
     "sfp_campaign_staging_intents_source_ref_one_of_chk",
     sql`
-      (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
-      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL)
+      (source_kind = 'free' AND candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'paid' AND paid_candidate_evidence_id IS NOT NULL AND candidate_id IS NULL AND contact_id IS NULL)
+      OR (source_kind = 'contact' AND contact_id IS NOT NULL AND candidate_id IS NULL AND paid_candidate_evidence_id IS NULL)
     `,
   ),
   // 'promoted' is a retained LEGACY-ONLY value (pre-migration-0290 rows only).
