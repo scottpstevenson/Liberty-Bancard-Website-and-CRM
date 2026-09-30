@@ -49,7 +49,7 @@ export async function computeLadderCommittedMicros(executor: SqlExecutor): Promi
       (SELECT COALESCE(SUM(reserved_cost_micros + settled_cost_micros), 0)
          FROM sfp_stage_runs WHERE state IN ('authorized', 'running', 'completed', 'partial')) +
       (SELECT COALESCE(SUM(reserved_cost_micros), 0)
-         FROM sfp_classification_runs WHERE state IN ('authorized', 'running')) +
+         FROM sfp_classification_runs WHERE state IN ('authorized', 'running', 'partial')) +
       (SELECT COALESCE(SUM(cost_micros), 0) FROM sfp_classification_evidence) AS micros
   `))[0];
   const cro03c = rows(await executor.execute(sql`
