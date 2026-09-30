@@ -25,6 +25,15 @@ export interface BusinessListItem {
   free_enrichment_status: string | null;
   free_enrichment_attempt_count: number | null;
   email_discovery_status: string | null;
+  emailEvidenceDisplay?: {
+    candidateCount: number;
+    maskedCandidateEmailPreview: string | null;
+    candidateValidationState: "unvalidated" | "none";
+    providerValidated: boolean;
+    statusLabel: string;
+    selectedWinner: { state: string | null; maskedValue: string | null } | null;
+    validationIntent: { state: string | null } | null;
+  };
   email_validation_updated_at: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -136,10 +145,10 @@ export function MobileBusinessCard({ business: b, onTap }: MobileBusinessCardPro
           <Badge
             variant="outline"
             className={`text-[11px] px-2 py-0.5 ${emailStatusColor(b.email_discovery_status)}`}
-            aria-label={`Email status: ${b.email_discovery_status.replace(/_/g, " ")}`}
+            aria-label={`Email status: ${b.emailEvidenceDisplay?.statusLabel ?? (b.email_discovery_status === "discovered" ? "discovered — not a validated address" : b.email_discovery_status.replace(/_/g, " "))}`}
           >
             <Mail className="h-3 w-3 mr-1" aria-hidden />
-            {b.email_discovery_status.replace(/_/g, " ")}
+            {b.emailEvidenceDisplay?.statusLabel ?? (b.email_discovery_status === "discovered" ? "discovered · not validated" : b.email_discovery_status.replace(/_/g, " "))}
           </Badge>
         )}
         {b.free_enrichment_status && (
@@ -152,6 +161,32 @@ export function MobileBusinessCard({ business: b, onTap }: MobileBusinessCardPro
           </Badge>
         )}
       </div>
+
+      {b.emailEvidenceDisplay && (
+        <div className="text-xs text-muted-foreground" aria-label="Staged email candidates">
+          {b.emailEvidenceDisplay.candidateCount} staged free-discovery email candidate(s)
+          {b.emailEvidenceDisplay.candidateCount > 0 && (
+            <>
+              <span className="block">Candidate evidence is unvalidated.</span>
+              {b.emailEvidenceDisplay.maskedCandidateEmailPreview
+                ? <span className="block font-mono">{b.emailEvidenceDisplay.maskedCandidateEmailPreview}</span>
+                : null}
+              <span className="block">Candidate cannot be used for sending.</span>
+            </>
+          )}
+        </div>
+      )}
+      {b.emailEvidenceDisplay?.selectedWinner && (
+        <div className="text-xs text-muted-foreground">
+          Selected winner: {b.emailEvidenceDisplay.selectedWinner.state ?? "state unavailable"}
+          {b.emailEvidenceDisplay.selectedWinner.maskedValue ? ` · ${b.emailEvidenceDisplay.selectedWinner.maskedValue}` : ""}
+        </div>
+      )}
+      {b.emailEvidenceDisplay?.validationIntent && (
+        <div className="text-xs text-muted-foreground">
+          Validation intent: {b.emailEvidenceDisplay.validationIntent.state ?? "state unavailable"}
+        </div>
+      )}
 
       {/* Safe next action */}
       {b.safeNextAction && (

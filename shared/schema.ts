@@ -8266,10 +8266,23 @@ export const contactBusinessLinkDecisions = pgTable("contact_business_link_decis
   businessId: integer("business_id").references(() => businesses.id), decision: text("decision").notNull(),
   decisionKey: text("decision_key").notNull().unique(), actorId: text("actor_id"), revision: integer("revision").notNull().default(1),
   evidenceSourceEventId: integer("evidence_source_event_id").references(() => contactSourceEvents.id, { onDelete: "restrict" }),
+  systemEvidenceId: uuid("system_evidence_id").references(() => contactBusinessSystemLinkEvidence.id, { onDelete: "restrict" }),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), supersededAt: timestamp("superseded_at", { withTimezone: true }),
 });
+export const contactBusinessSystemLinkEvidence = pgTable("contact_business_system_link_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  decisionKey: text("decision_key").notNull().unique(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  sourceLinkId: uuid("source_link_id").notNull().references(() => canonicalSourceLinks.id, { onDelete: "restrict" }),
+  sourceEntityId: integer("source_entity_id").notNull().references(() => sunbizEntities.id, { onDelete: "restrict" }),
+  ruleVersion: text("rule_version").notNull(),
+  factsHash: text("facts_hash").notNull(),
+  facts: jsonb("facts").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("contact_business_system_link_evidence_subject_idx").on(t.contactId, t.businessId, t.createdAt)]);
 export const contactBusinessLinkCandidates = pgTable("contact_business_link_candidates", {
   id: uuid("id").primaryKey().defaultRandom(),
   contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),

@@ -23,6 +23,82 @@ import { getPilotRepIdsAsync, invalidatePilotCache } from "./field-territories";
 
 export function registerAdminRoutes(app: Express) {
 
+  app.get(
+    "/api/admin/contact-business-system-links/preview",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const afterContactId = req.query.afterContactId === undefined ? 0 : Number(req.query.afterContactId);
+      const limit = req.query.limit === undefined ? 25 : Number(req.query.limit);
+      if (!Number.isSafeInteger(afterContactId) || afterContactId < 0) {
+        return res.status(400).json({ message: "afterContactId must be a non-negative integer" });
+      }
+      if (!Number.isInteger(limit) || limit < 1 || limit > 25) {
+        return res.status(400).json({ message: "limit must be an integer between 1 and 25" });
+      }
+      try {
+        const { previewContactBusinessSystemLinks } = await import("../services/contact-business-system-links");
+        const preview = await previewContactBusinessSystemLinks({ afterContactId, limit });
+        res.json(preview);
+      } catch (err) {
+        if ((err as Error)?.message === "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") {
+          return res.status(409).json({ message: "SFP contact-link database contracts are not installed on this environment" });
+        }
+        serverError(res, err);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-business-system-links/apply",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const parsed = z.object({
+        items: z.array(z.object({
+          contactId: z.number().int().positive(),
+          businessId: z.number().int().positive(),
+          sourceLinkId: z.string().uuid(),
+          sourceEntityId: z.number().int().positive(),
+          snapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
+        }).strict()).min(1).max(25),
+      }).strict().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid system link apply request", errors: parsed.error.errors });
+      }
+      try {
+        const { applyContactBusinessSystemLink } = await import("../services/contact-business-system-links");
+        const outcomes = [];
+        for (const item of parsed.data.items) {
+          outcomes.push(await applyContactBusinessSystemLink(item));
+        }
+        await auditChange({
+          userId: String((req.user as any)?.id ?? ""),
+          action: "contact_business_system_link_batch_applied",
+          entityType: "contact_business_system_link_batch",
+          entityKey: parsed.data.items.map(item => item.contactId).join(","),
+          details: {
+            outcomes: outcomes.map((outcome: any) => ({
+              contactId: outcome.contactId, businessId: outcome.businessId ?? null,
+              status: outcome.status, code: outcome.code ?? null, decisionId: outcome.decisionId ?? null,
+            })),
+            paidProviderCalls: 0,
+          },
+        });
+        res.json({
+          outcomes,
+          writes: outcomes.filter((outcome: any) => outcome.status === "applied").length,
+          paidProviderCalls: 0,
+        });
+      } catch (err) {
+        if ((err as Error)?.message === "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") {
+          return res.status(409).json({ message: "SFP contact-link database contracts are not installed on this environment" });
+        }
+        serverError(res, err);
+      }
+    },
+  );
+
   // ── Field Sales Pilot management ──────────────────────────────────────────
   // GET  /api/admin/field-sales-pilot  — list all reps with pilot status
   app.get("/api/admin/field-sales-pilot", requireRole("admin", "manager"), async (req, res) => {

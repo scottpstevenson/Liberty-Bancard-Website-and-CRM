@@ -35,6 +35,7 @@ import { SouthFloridaProspectingPanel } from "@/components/lead-ops/SouthFlorida
 import { SourceRegistryPanel } from "@/pages/dashboard/SourceRegistryPanel";
 import { ProgramHealthPanel } from "@/pages/dashboard/LeadOps/ProgramHealthPanel";
 import { BusinessDetailPanel } from "@/pages/dashboard/LeadOps/BusinessDetailPanel";
+import { SystemContactBusinessLinksPanel } from "@/pages/dashboard/LeadOps/SystemContactBusinessLinksPanel";
 import { MobileBusinessCard, type BusinessListItem } from "@/pages/dashboard/LeadOps/MobileBusinessCard";
 import MasterLeadDatabase, { PipelineReviewTab } from "@/pages/dashboard/MasterLeadDatabase";
 import Prospects from "@/pages/dashboard/Prospects";
@@ -1915,21 +1916,34 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                             }
                           </TableCell>
                           <TableCell>
-                            {b.email_discovery_status ? (
+                            <div className="space-y-1">
                               <Badge
                                 variant="outline"
-                                className={`text-[10px] px-1.5 py-0 h-5 ${
+                                className={`text-[10px] px-1.5 py-0 h-auto whitespace-normal ${
                                   b.email_discovery_status === "provider_valid" ? "bg-green-100 text-green-800" :
                                   b.email_discovery_status === "provider_catch_all" ? "bg-amber-100 text-amber-800" :
                                   b.email_discovery_status === "provider_invalid" ? "bg-red-100 text-red-800" :
-                                  b.email_discovery_status === "discovered" ? "bg-blue-100 text-blue-800" :
-                                  "bg-gray-100 text-gray-600"
+                                  "bg-blue-100 text-blue-800"
                                 }`}
-                                aria-label={`Email: ${b.email_discovery_status.replace(/_/g, " ")}`}
+                                aria-label={`Email: ${b.emailEvidenceDisplay?.statusLabel ?? "not started"}`}
                               >
-                                {b.email_discovery_status.replace(/_/g, " ")}
+                                {b.emailEvidenceDisplay?.statusLabel ?? "not started"}
                               </Badge>
-                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                              {b.emailEvidenceDisplay && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {b.emailEvidenceDisplay.candidateCount} unvalidated email candidate(s)
+                                  {b.emailEvidenceDisplay.maskedCandidateEmailPreview && (
+                                    <span className="block font-mono">{b.emailEvidenceDisplay.maskedCandidateEmailPreview}</span>
+                                  )}
+                                  {b.emailEvidenceDisplay.selectedWinner && (
+                                    <span className="block">Winner: {b.emailEvidenceDisplay.selectedWinner.state ?? "unknown"}</span>
+                                  )}
+                                  {b.emailEvidenceDisplay.validationIntent && (
+                                    <span className="block">Validation: {b.emailEvidenceDisplay.validationIntent.state ?? "unknown"}</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell>
                             {b.free_enrichment_status ? (
@@ -2400,6 +2414,7 @@ export default function LeadOpsCenter() {
         {/* ── Businesses tab ─────────────────────────────────────────────── */}
         <TabsContent value="businesses" className="space-y-4">
           {user?.role === "admin" && <ContactBusinessReconciliationPanel />}
+          {user?.role === "admin" && <SystemContactBusinessLinksPanel />}
           <BusinessesTab userRole={user?.role ?? "agent"} />
         </TabsContent>
 

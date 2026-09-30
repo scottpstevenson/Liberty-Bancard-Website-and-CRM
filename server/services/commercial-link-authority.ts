@@ -15,6 +15,51 @@ export class CommercialRevisionConflict extends Error {
   constructor() { super("Commercial link revision is stale"); }
 }
 
+export async function assertSystemLinkDatabaseGuard(executor: any) {
+  const triggerCheck = (await executor.execute(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM pg_trigger t
+      JOIN pg_class c ON c.oid=t.tgrelid
+      JOIN pg_proc p ON p.oid=t.tgfoid
+      WHERE c.relname='contact_business_link_decisions'
+        AND t.tgname='contact_business_link_review_contract'
+        AND t.tgenabled <> 'D'
+        AND p.proname='enforce_reviewed_contact_business_link'
+        AND position('COMMERCIAL_SYSTEM_LINK_CONTRACT_REQUIRED' in pg_get_functiondef(p.oid)) > 0
+        AND position('contact_business_system_link_evidence' in pg_get_functiondef(p.oid)) > 0
+    ) AS installed,
+    EXISTS (
+      SELECT 1 FROM pg_trigger t
+      JOIN pg_class c ON c.oid=t.tgrelid
+      JOIN pg_proc p ON p.oid=t.tgfoid
+      WHERE c.relname='contact_business_system_link_evidence'
+        AND t.tgname='contact_business_system_link_evidence_append_only'
+        AND t.tgenabled <> 'D'
+        AND p.proname='cro02_system_link_evidence_append_only'
+    ) AS immutable_evidence_trigger,
+    to_regclass('contact_business_system_link_evidence') IS NOT NULL AS evidence_table,
+    EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name='contact_business_link_decisions' AND column_name='system_evidence_id'
+    ) AS evidence_column,
+    (SELECT COUNT(*) = 2 FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid=con.conrelid
+      WHERE (rel.relname,con.conname) IN (
+        ('sfp_outreach_eligibility','sfp_outreach_eligibility_source_ref_one_of_chk'),
+        ('sfp_campaign_staging_intents','sfp_campaign_staging_intents_source_ref_one_of_chk')
+      )
+      AND con.contype='c'
+      AND position('contact_business_link_decision_id' in pg_get_constraintdef(con.oid)) > 0
+      AND position('contact' in pg_get_constraintdef(con.oid)) > 0
+    ) AS sfp_contact_checks
+  `) as any).rows?.[0];
+  if (!triggerCheck?.installed || !triggerCheck?.immutable_evidence_trigger
+      || !triggerCheck?.evidence_table || !triggerCheck?.evidence_column
+      || !triggerCheck?.sfp_contact_checks) {
+    throw new Error("COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING");
+  }
+}
+
 function requiresBusiness(decision: LinkDecision | MappingDecision) {
   return decision === "verified";
 }
@@ -125,6 +170,68 @@ export async function decideContactBusinessLink(input: {
     // Projection belongs in the same authority transaction as immutable truth.
     await tx.execute(sql`UPDATE contacts SET business_id=${input.decision === "verified" ? input.businessId! : null},updated_at=now() WHERE id=${input.contactId}`);
     return row;
+  });
+}
+
+/**
+ * Separate strict system-authority writer. It shares the canonical graph locks,
+ * revision fence, append-only decision ledger and projection transaction with
+ * admin decisions, but never supplies a reviewer identity or contact event.
+ */
+export async function decideSystemContactBusinessLink(input: {
+  contactId: number;
+  businessId: number;
+  sourceLinkId: string;
+  sourceEntityId: number;
+  decisionKey: string;
+  ruleVersion: string;
+  factsHash: string;
+  facts: Record<string, unknown>;
+  authorityCheck: (tx: any) => Promise<boolean>;
+}) {
+  return db.transaction(async (tx) => {
+    // Publish schema-diff can add tables/columns but does not reliably install
+    // PL/pgSQL trigger functions. Never let automatic system authority silently
+    // proceed without the database-enforced system/admin decision split.
+    await assertSystemLinkDatabaseGuard(tx);
+    const contactNode: CommercialGraphNode = { type: "contact", id: input.contactId };
+    const businessNode: CommercialGraphNode = { type: "business", id: input.businessId };
+    await lockCommercialGraphNodes(tx, [contactNode, businessNode]);
+    await lockCommercialGraphMembershipSets(tx, [contactNode, businessNode], ["contact_business"]);
+    const contact = (await tx.execute(sql`SELECT id FROM contacts WHERE id=${input.contactId} FOR UPDATE`) as any).rows?.[0];
+    const business = (await tx.execute(sql`SELECT id FROM businesses WHERE id=${input.businessId} FOR UPDATE`) as any).rows?.[0];
+    if (!contact || !business) throw new Error("CRM_OBJECT_NOT_FOUND");
+
+    const replay = (await tx.execute(sql`SELECT d.id,d.contact_id,d.business_id,e.facts_hash,
+        e.source_link_id,e.source_entity_id
+      FROM contact_business_link_decisions d
+      JOIN contact_business_system_link_evidence e ON e.id=d.system_evidence_id
+      WHERE d.decision_key=${input.decisionKey} FOR UPDATE`) as any).rows?.[0];
+    if (replay) {
+      if (Number(replay.contact_id) !== input.contactId || Number(replay.business_id) !== input.businessId
+          || replay.facts_hash !== input.factsHash || String(replay.source_link_id) !== input.sourceLinkId
+          || Number(replay.source_entity_id) !== input.sourceEntityId) {
+        throw new Error("COMMERCIAL_LINK_DIVERGENT_REPLAY");
+      }
+      return { ...replay, replayed: true };
+    }
+
+    if (!(await input.authorityCheck(tx))) throw new Error("SYSTEM_LINK_SNAPSHOT_STALE");
+    const current = (await tx.execute(sql`SELECT id,revision FROM contact_business_link_decisions
+      WHERE contact_id=${input.contactId} AND superseded_at IS NULL FOR UPDATE`) as any).rows?.[0];
+    if (current) throw new Error("CURRENT_LINK_DECISION_EXISTS");
+    const evidence = (await tx.execute(sql`INSERT INTO contact_business_system_link_evidence
+      (decision_key,contact_id,business_id,source_link_id,source_entity_id,rule_version,facts_hash,facts)
+      VALUES (${input.decisionKey},${input.contactId},${input.businessId},${input.sourceLinkId}::uuid,
+        ${input.sourceEntityId},${input.ruleVersion},${input.factsHash},${JSON.stringify(input.facts)}::jsonb)
+      RETURNING id`) as any).rows?.[0];
+    const revision = Number(current?.revision ?? 0) + 1;
+    const decision = (await tx.execute(sql`INSERT INTO contact_business_link_decisions
+      (contact_id,business_id,decision,decision_key,actor_id,revision,system_evidence_id,reviewed_by,reviewed_at)
+      VALUES (${input.contactId},${input.businessId},'verified',${input.decisionKey},'system',${revision},
+        ${evidence.id},NULL,NULL) RETURNING *`) as any).rows?.[0];
+    await tx.execute(sql`UPDATE contacts SET business_id=${input.businessId},updated_at=now() WHERE id=${input.contactId}`);
+    return decision;
   });
 }
 

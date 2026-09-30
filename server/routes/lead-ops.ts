@@ -7,6 +7,8 @@ import OpenAI from "openai";
 import { featureFlags } from "../services/feature-flags";
 import { listInboundRequests } from "../services/inbound-request-authority";
 import { businessLacksDbprLineageSql } from "../services/dbpr";
+import { deriveCanonicalBusinessSafeNextAction } from "../services/canonical-business-safe-next-action";
+import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-business-email-display";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 
 /**
@@ -1474,7 +1476,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
       // MI-06: load winner selection and pending intent for this business (if any).
       // MI-08: load evidence chain in parallel.
-      const [winnerResult, intentResult, sourceLinksResult, qualDecisionResult, fieldClaimResult, masterLeadResult, sourceObservationsResult, existingContactResult] = await Promise.all([
+      const [winnerResult, intentResult, sourceLinksResult, qualDecisionResult, fieldClaimResult, masterLeadResult, sourceObservationsResult, existingContactResult, emailCandidatesResult] = await Promise.all([
         db.execute(sql`
           SELECT ws.id, ws.source, ws.subject_type, ws.confidence, ws.state,
                  ws.normalized_value_hash, ce.masked_value
@@ -1594,10 +1596,27 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             )
           LIMIT 1
         `).catch(() => null),
+        db.execute(sql`
+          SELECT COUNT(*)::int AS candidate_count,
+                 (SELECT fdc.masked_value
+                    FROM free_discovery_candidates fdc
+                   WHERE fdc.business_id = ${businessId}
+                     AND fdc.field = 'email'
+                     AND fdc.subject_type = 'business'
+                     AND fdc.disposition = 'staged'
+                   ORDER BY fdc.created_at DESC
+                   LIMIT 1) AS masked_candidate_email_preview
+            FROM free_discovery_candidates fdc
+           WHERE fdc.business_id = ${businessId}
+             AND fdc.field = 'email'
+             AND fdc.subject_type = 'business'
+             AND fdc.disposition = 'staged'
+        `),
       ]);
 
       const winnerSelection = winnerResult ? (((winnerResult as any).rows ?? winnerResult)[0] ?? null) : null;
       const pendingIntent = intentResult ? (((intentResult as any).rows ?? intentResult)[0] ?? null) : null;
+      const emailCandidates = (((emailCandidatesResult as any).rows ?? emailCandidatesResult)[0] ?? null);
       const sourceLinks = (sourceLinksResult as any)?.rows ?? sourceLinksResult ?? [];
       const qualDecision = qualDecisionResult ? (((qualDecisionResult as any).rows ?? qualDecisionResult)[0] ?? null) : null;
       const fieldClaim = fieldClaimResult ? (((fieldClaimResult as any).rows ?? fieldClaimResult)[0] ?? null) : null;
@@ -1643,43 +1662,27 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         main_phone: canSeeContactDetails ? biz.main_phone : null,
       };
 
-      // MI-08: derive safe next action using authoritative predicates:
-      // - conflict evidence from canonical_conflict_evidence (not a denormalized column)
-      // - email validity from businesses.email_discovery_status = 'provider_valid'
-      //   (matches the readiness predicate in /api/master-leads/pipeline-stats)
-      // CRITICAL: promoted/suppressed lifecycle states are TERMINAL — they must be
-      // checked first. Enrichment and readiness guidance must NEVER override terminal state.
-      // This matches the list endpoint which also prioritizes promoted/suppressed first.
-      const emailValid = biz.email_discovery_status === "provider_valid";
-      let safeNextAction: string;
-      if (masterLead?.status === "promoted") {
-        safeNextAction = "already_promoted";
-      } else if (masterLead?.status === "suppressed") {
-        safeNextAction = "suppressed_no_action";
-      } else if (masterLead?.status === "staged" && !conflictEvidenceAvailable) {
-        // Cannot determine conflict state — do not derive promotable. Fail closed.
-        safeNextAction = "resolve_conflicts_before_promotion";
-      } else if (masterLead?.status === "staged" && !contactMatchAvailable) {
-        // Cannot determine contact duplicate state — do not derive promotable. Fail closed.
-        safeNextAction = "resolve_conflicts_before_promotion";
-      } else if (masterLead?.status === "staged" && openConflictCount > 0) {
-        safeNextAction = "resolve_conflicts_before_promotion";
-      } else if (masterLead?.status === "staged" && emailValid && openConflictCount === 0 && existingContact) {
-        // A duplicate contact match exists — must be resolved before promotion
-        safeNextAction = "resolve_duplicate_contact_before_promotion";
-      } else if (masterLead?.status === "staged" && emailValid && openConflictCount === 0) {
-        safeNextAction = "ready_to_promote";
-      } else if (!biz.email_discovery_status || biz.email_discovery_status === "no_valid_candidate") {
-        safeNextAction = "run_email_discovery";
-      } else if (biz.email_discovery_status === "provider_catch_all" && !biz.email_outreach_catch_all_approved_at) {
-        safeNextAction = "approve_catch_all_for_outreach";
-      } else if (!emailValid) {
-        safeNextAction = "run_email_discovery";
-      } else if (biz.free_enrichment_status === null || biz.free_enrichment_status === "failed") {
-        safeNextAction = "run_free_enrichment";
-      } else {
-        safeNextAction = "monitor";
-      }
+      const safeNextAction = deriveCanonicalBusinessSafeNextAction({
+        masterLeadStatus: masterLead?.status,
+        emailDiscoveryStatus: biz.email_discovery_status,
+        mainEmail: biz.main_email,
+        freeEnrichmentStatus: biz.free_enrichment_status,
+        catchAllOutreachApprovedAt: biz.email_outreach_catch_all_approved_at,
+        openConflictCount,
+        conflictEvidenceAvailable,
+        contactMatchAvailable,
+        hasExistingContact: Boolean(existingContact),
+      });
+      const emailEvidenceDisplay = buildCanonicalBusinessEmailDisplay({
+        emailDiscoveryStatus: biz.email_discovery_status,
+        candidateCount: emailCandidates?.candidate_count,
+        maskedCandidateEmailPreview: emailCandidates?.masked_candidate_email_preview,
+        selectedWinner: winnerSelection,
+        validationIntent: pendingIntent,
+      });
+      const displayWinnerSelection = winnerSelection
+        ? { ...winnerSelection, masked_value: emailEvidenceDisplay.selectedWinner?.maskedValue ?? null }
+        : null;
 
       res.json({
         business: redactedBiz,
@@ -1687,8 +1690,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         emailDiscoveryStatus: biz.email_discovery_status ?? null,
         emailValidationUpdatedAt: biz.email_validation_updated_at ?? null,
         isStale,
-        winnerSelection,
+        winnerSelection: displayWinnerSelection,
         pendingIntent,
+        emailEvidenceDisplay,
         // ── MI-08: evidence chain ────────────────────────────────────────────
         sourceLinks,
         qualificationDecision: qualDecision,
@@ -1933,6 +1937,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           b.record_class,
           b.free_enrichment_status,
           b.email_discovery_status,
+          b.email_outreach_catch_all_approved_at,
           b.email_validation_updated_at,
           b.latitude,
           b.longitude,
@@ -1942,12 +1947,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             WHERE ml.canonical_business_id = b.id
             ORDER BY ml.created_at DESC LIMIT 1)              AS county_fips,
           b.main_phone,
-          b.main_email,
           b.created_at,
           -- Latest master_lead fit_tier for this business
           (SELECT ml.fit_tier FROM master_leads ml
            WHERE ml.canonical_business_id = b.id
            ORDER BY ml.created_at DESC LIMIT 1)              AS fit_tier,
+          (SELECT ml.status FROM master_leads ml
+            WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
+            ORDER BY ml.created_at DESC LIMIT 1)              AS latest_master_lead_status,
           -- Active field claim
           (SELECT frs.status FROM field_route_stops frs
            WHERE frs.business_id = b.id AND frs.status = 'claimed'
@@ -1960,23 +1967,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             LEFT JOIN users u ON u.id = frs.claimed_by_user_id
             WHERE frs.business_id = b.id AND frs.status = 'claimed'
             ORDER BY frs.claimed_at DESC LIMIT 1)              AS field_claimed_by_email,
-           CASE
-             WHEN (SELECT ml.status FROM master_leads ml
-                   WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
-                   ORDER BY ml.created_at DESC LIMIT 1) = 'promoted' THEN 'already_promoted'
-             WHEN (SELECT ml.status FROM master_leads ml
-                   WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
-                   ORDER BY ml.created_at DESC LIMIT 1) = 'suppressed' THEN 'suppressed_no_action'
-             WHEN b.email_discovery_status IS NULL OR b.email_discovery_status = 'no_valid_candidate' THEN 'run_email_discovery'
-             WHEN b.email_discovery_status = 'provider_catch_all'
-               AND b.email_outreach_catch_all_approved_at IS NULL THEN 'approve_catch_all_for_outreach'
-             WHEN b.free_enrichment_status IS NULL OR b.free_enrichment_status = 'failed' THEN 'run_free_enrichment'
-             WHEN (SELECT ml.status FROM master_leads ml
-                   WHERE ml.canonical_business_id = b.id AND ml.pipeline_origin = 'cro03_pipeline'
-                   ORDER BY ml.created_at DESC LIMIT 1) = 'staged'
-               AND b.email_discovery_status = 'provider_valid' THEN 'staged_awaiting_review'
-             ELSE 'monitor'
-           END                                                  AS safe_next_action,
           COUNT(*) OVER()::int                               AS total_count
         FROM businesses b
         WHERE b.record_class = 'canonical'
@@ -1988,8 +1978,86 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       `);
       const data = (rows as any).rows ?? rows;
       const total = Number(data[0]?.total_count ?? 0);
+      const emailEvidenceByBusiness = new Map<number, any>();
+      if (data.length > 0) {
+        const ids = sql.join(data.map((row: any) => sql`${row.id}`), sql`, `);
+        const emailEvidenceRows = await db.execute(sql`
+          WITH displayed_businesses AS (
+            SELECT unnest(ARRAY[${ids}]::int[]) AS business_id
+          )
+          SELECT displayed.business_id,
+                 COALESCE(candidates.candidate_count, 0)::int AS candidate_count,
+                 candidates.masked_candidate_email_preview,
+                 winner.state AS winner_state,
+                 winner.masked_value AS winner_masked_value,
+                 winner.source AS winner_source,
+                 winner.confidence AS winner_confidence,
+                 intent.state AS intent_state,
+                 intent.approval_required AS intent_approval_required,
+                 intent.disposition AS intent_disposition,
+                 intent.attempt_count AS intent_attempt_count
+            FROM displayed_businesses displayed
+            LEFT JOIN LATERAL (
+              SELECT COUNT(*)::int AS candidate_count,
+                     (array_agg(fdc.masked_value ORDER BY fdc.created_at DESC))[1]
+                       AS masked_candidate_email_preview
+                FROM free_discovery_candidates fdc
+               WHERE fdc.business_id = displayed.business_id
+                 AND fdc.field = 'email'
+                 AND fdc.subject_type = 'business'
+                 AND fdc.disposition = 'staged'
+            ) candidates ON true
+            LEFT JOIN LATERAL (
+              SELECT ws.state, ce.masked_value, ws.source, ws.confidence
+                FROM cro03c_email_winner_selections ws
+                LEFT JOIN cro03c_candidate_evidence ce ON ce.id = ws.candidate_evidence_id
+               WHERE ws.business_id = displayed.business_id AND ws.state = 'selected'
+               ORDER BY ws.created_at DESC LIMIT 1
+            ) winner ON true
+            LEFT JOIN LATERAL (
+              SELECT vi.state, vi.approval_required, vi.disposition, vi.attempt_count
+                FROM business_validation_intents vi
+               WHERE vi.business_id = displayed.business_id
+                 AND vi.state NOT IN ('superseded','revoked','completed','failed')
+               ORDER BY vi.created_at DESC LIMIT 1
+            ) intent ON true
+        `);
+        const evidenceRows = (emailEvidenceRows as any).rows ?? emailEvidenceRows;
+        for (const evidence of evidenceRows) emailEvidenceByBusiness.set(Number(evidence.business_id), evidence);
+      }
       const businesses = data.map((r: any) => {
         const { total_count, ...rest } = r;
+        rest.safeNextAction = deriveCanonicalBusinessSafeNextAction({
+          masterLeadStatus: rest.latest_master_lead_status,
+          emailDiscoveryStatus: rest.email_discovery_status,
+          mainEmail: rest.main_email,
+          freeEnrichmentStatus: rest.free_enrichment_status,
+          catchAllOutreachApprovedAt: rest.email_outreach_catch_all_approved_at,
+          // The list does not load authoritative conflict/contact evidence.
+          // Keep staged records explicitly non-promotable until detail checks.
+          conflictEvidenceAvailable: false,
+          contactMatchAvailable: false,
+        });
+        const emailEvidence = emailEvidenceByBusiness.get(Number(rest.id));
+        rest.emailEvidenceDisplay = buildCanonicalBusinessEmailDisplay({
+          emailDiscoveryStatus: rest.email_discovery_status,
+          candidateCount: emailEvidence?.candidate_count,
+          maskedCandidateEmailPreview: emailEvidence?.masked_candidate_email_preview,
+          selectedWinner: emailEvidence?.winner_state ? {
+            state: emailEvidence.winner_state,
+            masked_value: emailEvidence.winner_masked_value,
+            source: emailEvidence.winner_source,
+            confidence: emailEvidence.winner_confidence,
+          } : null,
+          validationIntent: emailEvidence?.intent_state ? {
+            state: emailEvidence.intent_state,
+            approval_required: emailEvidence.intent_approval_required,
+            disposition: emailEvidence.intent_disposition,
+            attempt_count: emailEvidence.intent_attempt_count,
+          } : null,
+        });
+        delete rest.latest_master_lead_status;
+        delete rest.email_outreach_catch_all_approved_at;
         if ("field_claim_status" in rest) {
           rest.fieldClaim = rest.field_claim_status
             ? {
@@ -2001,10 +2069,6 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           delete rest.field_claim_status;
           delete rest.field_claimed_by_email;
           delete rest.field_claimed_at;
-        }
-        if ("safe_next_action" in rest) {
-          rest.safeNextAction = rest.safe_next_action;
-          delete rest.safe_next_action;
         }
         return rest;
       });

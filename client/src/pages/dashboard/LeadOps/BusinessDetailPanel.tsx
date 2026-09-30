@@ -95,6 +95,15 @@ interface BusinessDetailResponse {
   isStale: boolean;
   winnerSelection: { source: string; confidence: number; masked_value: string | null } | null;
   pendingIntent: { state: string; approval_required: boolean; attempt_count: number } | null;
+  emailEvidenceDisplay?: {
+    candidateCount: number;
+    maskedCandidateEmailPreview: string | null;
+    candidateValidationState: "unvalidated" | "none";
+    providerValidated: boolean;
+    statusLabel: string;
+    selectedWinner: { state: string | null; maskedValue: string | null; source: string | null; confidence: number | null } | null;
+    validationIntent: { state: string | null; approvalRequired: boolean; disposition: string | null; attemptCount: number } | null;
+  };
   sourceLinks: SourceLink[];
   qualificationDecision: QualificationDecision | null;
   fieldClaim: FieldClaim | null;
@@ -161,7 +170,8 @@ function emailStatusBadge(s: string | null) {
     s === "provider_catch_all" ? "bg-amber-100 text-amber-800" :
     s === "provider_invalid"   ? "bg-red-100 text-red-800" :
     s === "discovered"         ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600";
-  return <Badge variant="outline" className={cls} aria-label={`Email status: ${s.replace(/_/g,' ')}`}>{s.replace(/_/g," ")}</Badge>;
+  const label = s === "discovered" ? "discovered · not validated" : s.replace(/_/g, " ");
+  return <Badge variant="outline" className={cls} aria-label={`Email status: ${s === "discovered" ? "discovered — not a validated address" : label}`}>{label}</Badge>;
 }
 
 function dispositionBadge(d: string | null) {
@@ -445,6 +455,11 @@ export function BusinessDetailPanel({ businessId, onClose }: Props) {
               {/* 6. Email status */}
               <Section icon={Mail} title="6 · Email Status">
                 <Row label="Discovery status" value={emailStatusBadge(d!.emailDiscoveryStatus)} />
+                {d!.emailDiscoveryStatus === "discovered" && (
+                  <p className="text-xs text-blue-800 rounded bg-blue-50 border border-blue-200 px-2 py-1">
+                    Discovery found evidence; this is not a validated address.
+                  </p>
+                )}
                 <Row label="Validation updated" value={
                   d!.emailValidationUpdatedAt
                     ? new Date(d!.emailValidationUpdatedAt).toLocaleDateString()
@@ -455,8 +470,26 @@ export function BusinessDetailPanel({ businessId, onClose }: Props) {
                     <Clock className="h-3 w-3" aria-hidden /> Validation is stale (&gt;90 days)
                   </div>
                 )}
+                {d!.emailEvidenceDisplay && (
+                  <Row label="Staged free-discovery email candidates" value={d!.emailEvidenceDisplay.candidateCount} />
+                )}
                 {d!.winnerSelection && (
                   <Row label="Winner (masked)" value={d!.winnerSelection.masked_value ?? "—"} />
+                )}
+                {d!.emailEvidenceDisplay && d!.emailEvidenceDisplay.candidateCount > 0 && (
+                  <div className="rounded border bg-muted/10 px-2 py-1.5 text-xs space-y-1">
+                    <div>Candidate evidence is unvalidated.</div>
+                    {d!.emailEvidenceDisplay.maskedCandidateEmailPreview && (
+                      <div className="font-mono">{d!.emailEvidenceDisplay.maskedCandidateEmailPreview}</div>
+                    )}
+                    <div className="text-muted-foreground">Candidate evidence is not a validated address and cannot be used for sending.</div>
+                  </div>
+                )}
+                {d!.emailEvidenceDisplay?.selectedWinner && (
+                  <Row label="Selected winner state" value={`${d!.emailEvidenceDisplay.selectedWinner.state ?? "unknown"} · ${d!.emailEvidenceDisplay.selectedWinner.maskedValue ?? "masked value unavailable"}`} />
+                )}
+                {d!.emailEvidenceDisplay?.validationIntent && (
+                  <Row label="Validation intent" value={`${d!.emailEvidenceDisplay.validationIntent.state ?? "unknown"}${d!.emailEvidenceDisplay.validationIntent.disposition ? ` · ${d!.emailEvidenceDisplay.validationIntent.disposition}` : ""}`} />
                 )}
                 {b.email_outreach_catch_all_approved_at && (
                   <Row label="Catch-all approved" value={new Date(b.email_outreach_catch_all_approved_at).toLocaleDateString()} />
