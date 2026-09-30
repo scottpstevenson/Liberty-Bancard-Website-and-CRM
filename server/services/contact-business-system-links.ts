@@ -297,18 +297,21 @@ async function loadPage(executor: any, afterContactId: number, limit: number, on
   };
 }
 
-export async function previewContactBusinessSystemLinks(input: { afterContactId: number; limit: number }) {
+export async function previewContactBusinessSystemLinks(
+  input: { afterContactId: number; limit: number },
+  executor: Pick<typeof db, "execute"> = db,
+) {
   const limit = Math.max(1, Math.min(25, Math.floor(input.limit)));
   // The read-only inventory remains useful before the production SQL contracts
   // are installed. Only the write path is gated on those contracts.
   let schemaReady = true;
   try {
-    await assertSystemLinkDatabaseGuard(db);
+    await assertSystemLinkDatabaseGuard(executor);
   } catch (error: any) {
     if (error?.message !== "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") throw error;
     schemaReady = false;
   }
-  const page = await loadPage(db, input.afterContactId, limit);
+  const page = await loadPage(executor, input.afterContactId, limit);
   return {
     rows: page.previews,
     nextCursor: page.hasMore ? page.lastContactId : null,

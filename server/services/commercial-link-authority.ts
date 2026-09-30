@@ -15,47 +15,111 @@ export class CommercialRevisionConflict extends Error {
   constructor() { super("Commercial link revision is stale"); }
 }
 
+// Pinned from the exact 0312_contact_business_system_links.sql PL/pgSQL
+// function bodies after installation on the migration-certification
+// PostgreSQL version. Keep these as code-owned constants: production readiness
+// never depends on reading migration files from the running filesystem. These
+// exact body hashes intentionally fail closed even for formatting-only rewrites;
+// update them only from a reviewed, freshly migrated schema.
+const SYSTEM_LINK_EVIDENCE_TRIGGER_BODY_MD5 = "0851a20c34b3ce424364b5c3fc6e556b";
+const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "08832cf0204fbdd3207ff815d10fb9c7";
+
+// Fingerprints of PostgreSQL's canonical pg_get_expr(conbin, conrelid, true)
+// output for the 0309 typed-contact source contracts. Whitespace is folded and
+// case normalized before hashing, so DDL formatting-only changes are accepted;
+// semantic changes and server deparser changes fail closed for review.
+const SFP_ELIGIBILITY_CONTACT_CHECK_MD5 = "e83217cf6cea8fb0a75857ac2100d4e3";
+const SFP_STAGING_CONTACT_CHECK_MD5 = "ddb906e4ac5e57a0700b1ea776bf8ed6";
+
 export async function assertSystemLinkDatabaseGuard(executor: any) {
   const triggerCheck = (await executor.execute(sql`
     SELECT EXISTS (
       SELECT 1 FROM pg_trigger t
       JOIN pg_class c ON c.oid=t.tgrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
       JOIN pg_proc p ON p.oid=t.tgfoid
-      WHERE c.relname='contact_business_link_decisions'
+      WHERE n.nspname='public' AND c.relname='contact_business_link_decisions'
         AND t.tgname='contact_business_link_review_contract'
-        AND t.tgenabled <> 'D'
+        AND t.tgenabled IN ('O','A')
+        AND NOT t.tgisinternal AND t.tgqual IS NULL
+        AND t.tgtype=23
         AND p.proname='enforce_reviewed_contact_business_link'
-        AND position('COMMERCIAL_SYSTEM_LINK_CONTRACT_REQUIRED' in pg_get_functiondef(p.oid)) > 0
-        AND position('contact_business_system_link_evidence' in pg_get_functiondef(p.oid)) > 0
+        AND p.pronamespace='public'::regnamespace
+        AND md5(p.prosrc)=${SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5}
     ) AS installed,
     EXISTS (
       SELECT 1 FROM pg_trigger t
       JOIN pg_class c ON c.oid=t.tgrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
       JOIN pg_proc p ON p.oid=t.tgfoid
-      WHERE c.relname='contact_business_system_link_evidence'
+      WHERE n.nspname='public' AND c.relname='contact_business_system_link_evidence'
         AND t.tgname='contact_business_system_link_evidence_append_only'
-        AND t.tgenabled <> 'D'
+        AND t.tgenabled IN ('O','A')
+        AND NOT t.tgisinternal AND t.tgqual IS NULL
+        AND t.tgtype=27
         AND p.proname='cro02_system_link_evidence_append_only'
+        AND p.pronamespace='public'::regnamespace
+        AND md5(p.prosrc)=${SYSTEM_LINK_EVIDENCE_TRIGGER_BODY_MD5}
     ) AS immutable_evidence_trigger,
-    to_regclass('contact_business_system_link_evidence') IS NOT NULL AS evidence_table,
+    to_regclass('public.contact_business_system_link_evidence') IS NOT NULL AS evidence_table,
     EXISTS (
       SELECT 1 FROM information_schema.columns
-      WHERE table_name='contact_business_link_decisions' AND column_name='system_evidence_id'
+      WHERE table_schema='public' AND table_name='contact_business_link_decisions'
+        AND column_name='system_evidence_id' AND data_type='uuid'
     ) AS evidence_column,
-    (SELECT COUNT(*) = 2 FROM pg_constraint con
+    (SELECT bool_and(EXISTS (
+        SELECT 1
+          FROM pg_constraint con
+          JOIN pg_class rel ON rel.oid=con.conrelid
+          JOIN pg_namespace ns ON ns.oid=rel.relnamespace
+          JOIN pg_attribute local_col ON local_col.attrelid=con.conrelid
+                                    AND local_col.attnum=con.conkey[1]
+          JOIN pg_class referenced_rel ON referenced_rel.oid=con.confrelid
+          JOIN pg_namespace referenced_ns ON referenced_ns.oid=referenced_rel.relnamespace
+          JOIN pg_attribute referenced_col ON referenced_col.attrelid=con.confrelid
+                                          AND referenced_col.attnum=con.confkey[1]
+         WHERE ns.nspname='public' AND rel.relname=expected.table_name
+           AND con.conname=expected.constraint_name AND con.contype='f'
+           AND con.convalidated AND con.confdeltype='r'
+           AND array_length(con.conkey,1)=1 AND array_length(con.confkey,1)=1
+           AND local_col.attname=expected.column_name
+           AND referenced_ns.nspname='public'
+           AND referenced_rel.relname=expected.referenced_table
+           AND referenced_col.attname=expected.referenced_column
+      ))
+       FROM (VALUES
+         ('contact_business_system_link_evidence','contact_business_system_link_evidence_contact_id_fkey','contact_id','contacts','id'),
+         ('contact_business_system_link_evidence','contact_business_system_link_evidence_business_id_fkey','business_id','businesses','id'),
+         ('contact_business_system_link_evidence','contact_business_system_link_evidence_source_link_id_fkey','source_link_id','canonical_source_links','id'),
+         ('contact_business_system_link_evidence','contact_business_system_link_evidence_source_entity_id_fkey','source_entity_id','sunbiz_entities','id'),
+         ('contact_business_link_decisions','contact_business_link_decisions_system_evidence_id_fkey','system_evidence_id','contact_business_system_link_evidence','id')
+       ) AS expected(table_name,constraint_name,column_name,referenced_table,referenced_column)
+    ) AS evidence_foreign_keys,
+    (SELECT COUNT(*) = 2 AND bool_and(
+        CASE rel.relname
+          WHEN 'sfp_outreach_eligibility' THEN
+            md5(lower(regexp_replace(btrim(pg_get_expr(con.conbin,con.conrelid,true)),
+                                     '[[:space:]]+',' ','g')))=${SFP_ELIGIBILITY_CONTACT_CHECK_MD5}
+          WHEN 'sfp_campaign_staging_intents' THEN
+            md5(lower(regexp_replace(btrim(pg_get_expr(con.conbin,con.conrelid,true)),
+                                     '[[:space:]]+',' ','g')))=${SFP_STAGING_CONTACT_CHECK_MD5}
+          ELSE false
+        END
+      )
+       FROM pg_constraint con
       JOIN pg_class rel ON rel.oid=con.conrelid
+      JOIN pg_namespace ns ON ns.oid=rel.relnamespace
       WHERE (rel.relname,con.conname) IN (
         ('sfp_outreach_eligibility','sfp_outreach_eligibility_source_ref_one_of_chk'),
         ('sfp_campaign_staging_intents','sfp_campaign_staging_intents_source_ref_one_of_chk')
       )
-      AND con.contype='c'
-      AND position('contact_business_link_decision_id' in pg_get_constraintdef(con.oid)) > 0
-      AND position('contact' in pg_get_constraintdef(con.oid)) > 0
+       AND ns.nspname='public' AND con.contype='c' AND con.convalidated
+       AND con.conislocal AND con.coninhcount=0
     ) AS sfp_contact_checks
   `) as any).rows?.[0];
   if (!triggerCheck?.installed || !triggerCheck?.immutable_evidence_trigger
       || !triggerCheck?.evidence_table || !triggerCheck?.evidence_column
-      || !triggerCheck?.sfp_contact_checks) {
+      || !triggerCheck?.evidence_foreign_keys || !triggerCheck?.sfp_contact_checks) {
     throw new Error("COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING");
   }
 }

@@ -67,10 +67,21 @@ export function registerAdminRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid system link apply request", errors: parsed.error.errors });
       }
       try {
+        // Reject an unready batch before applying any link or writing its audit.
+        const { assertSystemLinkDatabaseGuard } = await import("../services/commercial-link-authority");
+        await assertSystemLinkDatabaseGuard(db);
         const { applyContactBusinessSystemLink } = await import("../services/contact-business-system-links");
         const outcomes = [];
         for (const item of parsed.data.items) {
           outcomes.push(await applyContactBusinessSystemLink(item));
+        }
+        if (outcomes.some((outcome: any) => outcome.code === "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING")) {
+          return res.status(409).json({
+            message: "SFP contact-link database contracts changed during apply; inspect per-item outcomes",
+            outcomes,
+            writes: outcomes.filter((outcome: any) => outcome.status === "applied").length,
+            paidProviderCalls: 0,
+          });
         }
         await auditChange({
           userId: String((req.user as any)?.id ?? ""),
