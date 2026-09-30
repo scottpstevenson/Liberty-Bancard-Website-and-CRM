@@ -38,6 +38,14 @@ const CALLERS_BY_PROVIDER: Record<PaidProviderKey, string[]> = {
   zerobounce: ["server/services/zerobounce-campaign-worker.ts", "server/services/cro03/live-provider-executors.ts", "server/services/cro03/business-validation-service.ts"],
 };
 
+const PRICING_KEY_FOR_CONTROL: Record<PaidProviderKey, string> = {
+  serper: "serper",
+  outscraper: "outscraper",
+  openai: "openai",
+  apollo: "apollo",
+  zerobounce: "zerobounce",
+};
+
 function rows(result: any): any[] {
   return result?.rows ?? [];
 }
@@ -71,11 +79,23 @@ export async function getPaidProviderControls(): Promise<{
            requested_units, reserved_units, created_at, started_at
       FROM provider_operations
      WHERE provider IN ('serper', 'outscraper', 'openai', 'apollo', 'zerobounce')
-       AND (state IN ('pending', 'deferred', 'running') OR billing_state = 'reserved')
+       AND (state IN ('pending', 'deferred', 'running') OR billing_state IN ('reserved','ambiguous'))
      ORDER BY created_at ASC
      LIMIT 100
   `));
+  const sfpCostRows = rows(await db.execute(sql`
+    SELECT provider,
+           COALESCE(SUM(settled_cost_micros) FILTER (WHERE settled_cost_micros IS NOT NULL), 0)::bigint AS settled_micros,
+           COALESCE(SUM(CASE WHEN billing_state IN ('reserved','ambiguous') AND unit_price_micros IS NOT NULL
+                             THEN reserved_units::bigint * unit_price_micros ELSE 0 END), 0)::bigint AS reserved_micros,
+           COUNT(*) FILTER (WHERE unit_price_micros IS NULL)::int AS unpriced_operations,
+           COUNT(*) FILTER (WHERE billing_state='ambiguous')::int AS ambiguous_operations
+      FROM provider_operations
+     WHERE purpose LIKE 'sfp_%'
+     GROUP BY provider
+  `));
   const byProvider = new Map(controls.map((row) => [String(row.provider), row]));
+  const sfpCostsByProvider = new Map(sfpCostRows.map((row) => [String(row.provider), row]));
 
   let serper: any = null;
   try {
@@ -130,14 +150,30 @@ export async function getPaidProviderControls(): Promise<{
       : row?.enabled === true;
     const price = pricing[provider];
     const manifest = PROVIDER_SOURCE_MANIFEST.find((entry) => entry.id === provider);
+    const canonicalBudgetUnits = row?.local_budget_units == null ? null : Number(row.local_budget_units);
+    const gatewayBudgetUnits = provider === "serper" && serper?.local_budget != null ? Number(serper.local_budget) : null;
+    const budgetCapUnits = provider === "serper"
+      ? canonicalBudgetUnits == null ? gatewayBudgetUnits : gatewayBudgetUnits == null ? canonicalBudgetUnits : Math.min(canonicalBudgetUnits, gatewayBudgetUnits)
+      : canonicalBudgetUnits;
+    const canonicalConsumedUnits = Number(row?.consumed_units ?? 0);
+    const gatewayConsumedUnits = provider === "serper" ? Number(serper?.window_calls ?? 0) : 0;
+    const sfpCost = sfpCostsByProvider.get(provider);
     return {
       provider,
       credentialPresent: Boolean(process.env[SECRET_BY_PROVIDER[provider]]),
       enabled,
       circuitState,
-      budgetCapUnits: provider === "serper" ? (serper?.local_budget ?? row?.local_budget_units ?? null) : (row?.local_budget_units ?? null),
+      budgetCapUnits,
+      providerControlBudgetUnits: canonicalBudgetUnits,
+      gatewayBudgetUnits,
       reservedUnits: row?.reserved_units ?? 0,
-      consumedUnits: row?.consumed_units ?? (provider === "serper" ? serper?.window_calls ?? 0 : 0),
+      consumedUnits: provider === "serper" ? Math.max(canonicalConsumedUnits, gatewayConsumedUnits) : canonicalConsumedUnits,
+      providerControlConsumedUnits: canonicalConsumedUnits,
+      gatewayConsumedUnits,
+      sfpSettledCostMicros: Number(sfpCost?.settled_micros ?? 0),
+      sfpReservedCostMicros: Number(sfpCost?.reserved_micros ?? 0),
+      sfpUnpricedOperationCount: Number(sfpCost?.unpriced_operations ?? 0),
+      sfpAmbiguousOperationCount: Number(sfpCost?.ambiguous_operations ?? 0),
       currentPriceArtifactReference: pricingAvailable && price
         ? (pricingArtifactRefs.get(provider) ?? `mi09_pricing_schedule_snapshots:${pricingSnapshotId}:${provider}:v${price.version}`)
         : null,
@@ -167,6 +203,131 @@ export async function getPaidProviderControls(): Promise<{
     inFlightCount: inFlightOperations.length,
     inFlightOperations,
   };
+}
+
+/**
+ * Audited operator control for SFP provider execution. Provider-local caps are
+ * spend-equivalent ceilings derived from the exact active pricing snapshot.
+ * The shared aggregate MI-09/SFP cap remains a separate final gate and is
+ * never changed here. Disabling never resets counters or opens/closes a
+ * circuit. Enabling requires a closed circuit, transport, and credential.
+ */
+export async function updateSfpPaidProviderControl(input: {
+  provider: PaidProviderKey;
+  enabled: boolean;
+  maxSpendUsdMicros?: number;
+  reason: string;
+  actorId: string;
+}): Promise<Record<string, unknown>> {
+  if (typeof input.enabled !== "boolean") throw new Error("PROVIDER_ENABLED_BOOLEAN_REQUIRED");
+  const reason = String(input.reason ?? "").trim();
+  if (reason.length < 8 || reason.length > 200) throw new Error("PROVIDER_CONTROL_REASON_REQUIRED");
+
+  const requestedMicros = input.maxSpendUsdMicros;
+  if (requestedMicros !== undefined && (!Number.isSafeInteger(requestedMicros) || requestedMicros <= 0 || requestedMicros > 50_000_000)) {
+    throw new Error("PROVIDER_SPEND_CAP_MUST_BE_USD_MICROS_1_TO_50000000");
+  }
+  if (input.enabled) {
+    if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") throw new Error("PROVIDER_TRANSPORT_DISABLED");
+    if (!process.env[SECRET_BY_PROVIDER[input.provider]]) throw new Error(`PROVIDER_CREDENTIAL_MISSING:${SECRET_BY_PROVIDER[input.provider]}`);
+  }
+
+  let amountMicros: number | null = null;
+  let requestedUnitsCap: number | null = null;
+  if (requestedMicros !== undefined) {
+    const { getCurrentPricingSchedule } = await import("./mi09-pilot-authority");
+    const schedule = await getCurrentPricingSchedule();
+    const entry = schedule.priceSchedules[PRICING_KEY_FOR_CONTROL[input.provider]] as any;
+    amountMicros = Number(entry?.amountMicros);
+    if (!Number.isSafeInteger(amountMicros) || amountMicros <= 0) throw new Error(`PROVIDER_PRICING_UNAVAILABLE:${input.provider}`);
+    requestedUnitsCap = Math.floor(requestedMicros / amountMicros);
+    if (requestedUnitsCap < 1) throw new Error("PROVIDER_SPEND_CAP_BELOW_ONE_BILLABLE_UNIT");
+  }
+
+  return db.transaction(async (tx) => {
+    const current = rows(await tx.execute(sql`
+      SELECT provider,enabled,circuit_state,local_budget_units,reserved_units,consumed_units,version
+        FROM provider_controls WHERE provider=${input.provider} FOR UPDATE
+    `))[0];
+    if (!current) throw new Error(`PROVIDER_CONTROL_NOT_FOUND:${input.provider}`);
+
+    let gateway: any = null;
+    if (input.provider === "serper") {
+      gateway = rows(await tx.execute(sql`
+        SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1 FOR UPDATE
+      `))[0];
+      if (!gateway) throw new Error("SERPER_GATEWAY_CONTROL_NOT_FOUND");
+    }
+
+    if (input.enabled && current.circuit_state !== "closed") throw new Error(`PROVIDER_CIRCUIT_NOT_CLOSED:${current.circuit_state}`);
+    if (input.enabled && input.provider === "serper" && gateway.state !== "closed") throw new Error(`SERPER_GATEWAY_CIRCUIT_NOT_CLOSED:${gateway.state}`);
+
+    const committedUnits = Math.max(
+      Number(current.consumed_units ?? 0) + Number(current.reserved_units ?? 0),
+      input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : 0,
+    );
+    let finalCapUnits: number | null = current.local_budget_units == null ? null : Number(current.local_budget_units);
+    if (requestedUnitsCap !== null) {
+      if (input.enabled && requestedUnitsCap < committedUnits) throw new Error("PROVIDER_SPEND_CAP_BELOW_COMMITTED_USAGE");
+      finalCapUnits = Math.max(requestedUnitsCap, committedUnits);
+    }
+    if (input.enabled && (finalCapUnits == null || finalCapUnits <= committedUnits)) {
+      throw new Error("PROVIDER_BUDGET_HAS_NO_HEADROOM");
+    }
+    if (input.enabled && input.provider === "serper" && gateway.local_budget != null && requestedUnitsCap === null) {
+      finalCapUnits = Math.min(finalCapUnits ?? Number(gateway.local_budget), Number(gateway.local_budget));
+      if (finalCapUnits <= committedUnits) throw new Error("SERPER_GATEWAY_BUDGET_HAS_NO_HEADROOM");
+    }
+
+    const updated = rows(await tx.execute(sql`
+      UPDATE provider_controls
+         SET enabled=${input.enabled},
+             local_budget_units=${finalCapUnits},
+             version=version+1,updated_at=NOW()
+       WHERE provider=${input.provider}
+       RETURNING provider,enabled,circuit_state,local_budget_units,reserved_units,consumed_units,version
+    `))[0];
+
+    if (input.provider === "serper") {
+      await tx.execute(sql`
+        UPDATE serper_control
+           SET enabled=${input.enabled},
+               local_budget=COALESCE(${finalCapUnits},local_budget),
+               updated_at=NOW()
+         WHERE id=1
+      `);
+    }
+
+    const auditPayload = sanitizeAuditPayload({
+      provider: input.provider,
+      enabled: input.enabled,
+      reason,
+      requestedSpendCapUsd: requestedMicros == null ? null : requestedMicros / 1_000_000,
+      requestedSpendCapMicros: requestedMicros ?? null,
+      unitPriceMicros: amountMicros,
+      requestedUnitsCap,
+      effectiveUnitsCap: finalCapUnits,
+      committedUnits,
+      sharedAggregateCapMicros: 50_000_000,
+      sharedAggregateCapChanged: false,
+    });
+    await tx.execute(sql`
+      INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,before_state,after_state,actor_type,actor_id)
+      VALUES (${input.actorId},'sfp_provider_control_changed','provider_control',${input.provider},
+              ${JSON.stringify(auditPayload)}::jsonb,
+              ${JSON.stringify({ enabled: current.enabled, circuitState: current.circuit_state, budgetCapUnits: current.local_budget_units, consumedUnits: current.consumed_units, reservedUnits: current.reserved_units })}::jsonb,
+              ${JSON.stringify(updated)}::jsonb,'user',${input.actorId})
+    `);
+    return {
+      ...updated,
+      gatewayBudgetUnits: input.provider === "serper" ? finalCapUnits : null,
+      gatewayConsumedUnits: input.provider === "serper" ? Number(gateway?.window_calls ?? 0) : null,
+      committedUnits,
+      requestedUnitsCap,
+      unitPriceMicros: amountMicros,
+      effectiveCapUsdMicros: finalCapUnits != null && amountMicros != null ? finalCapUnits * amountMicros : null,
+    };
+  });
 }
 
 /**
