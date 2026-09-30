@@ -2380,6 +2380,171 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           (SELECT COUNT(*)::int FROM contacts WHERE do_not_contact = true OR email_status IN ('bounced', 'invalid', 'opted_out', 'unsafe')) AS contacts_suppressed
       `))[0] ?? {};
 
+      const sourcePool = rows(await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::int FROM contacts) AS contacts_total,
+          (SELECT COUNT(*)::int FROM contacts WHERE archived_at IS NULL AND NULLIF(BTRIM(email),'') IS NOT NULL) AS active_contacts_with_email,
+          (SELECT COUNT(DISTINCT c.id)::int
+             FROM contacts c
+             JOIN businesses b ON b.id=c.business_id AND b.record_class='canonical'
+             JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=b.id
+              AND d.decision='verified' AND d.superseded_at IS NULL
+            WHERE c.archived_at IS NULL AND NULLIF(BTRIM(c.email),'') IS NOT NULL) AS verified_canonical_linked_contacts_with_email,
+          (SELECT COUNT(DISTINCT c.id)::int
+             FROM contacts c
+             JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id IS NOT NULL
+              AND d.decision='verified' AND d.superseded_at IS NULL
+             JOIN businesses b ON b.id=d.business_id AND b.record_class='canonical'
+             JOIN sfp_cohort_members cm ON cm.business_id=b.id
+             JOIN sfp_cohort_runs cr ON cr.id=cm.cohort_run_id AND cr.cohort_state='frozen'
+             JOIN sfp_programs sp ON sp.id=cr.program_id AND sp.is_active=TRUE AND sp.taxonomy_version=2
+            WHERE c.id=d.contact_id AND c.business_id=b.id AND c.archived_at IS NULL
+              AND NULLIF(BTRIM(c.email),'') IS NOT NULL
+              AND cr.voided_at IS NULL AND cr.superseded_at IS NULL) AS v2_sfp_cohort_linked_contacts_with_email
+      `))[0] ?? {};
+
+      // Count actual business/record movement over the last rolling 24 hours.
+      // Provider operations are attempts, paid evidence rows are returned
+      // facts, eligibility rows are validation/policy decisions, and staging
+      // intents are usable ready_held outputs. These are separate measures;
+      // no queue tick is counted as a lead.
+      const throughput24h = rows(await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*)::int FROM provider_operations
+            WHERE purpose LIKE 'sfp_%' AND created_at >= NOW()-INTERVAL '24 hours') AS provider_attempts,
+          (SELECT COUNT(*)::int FROM provider_operations
+            WHERE purpose LIKE 'sfp_%' AND state='completed' AND created_at >= NOW()-INTERVAL '24 hours') AS provider_completed_operations,
+          (SELECT COUNT(DISTINCT target_fingerprint)::int FROM provider_operations
+            WHERE purpose LIKE 'sfp_%' AND created_at >= NOW()-INTERVAL '24 hours') AS distinct_provider_targets,
+          (SELECT COUNT(*)::int FROM sfp_paid_candidate_evidence
+            WHERE created_at >= NOW()-INTERVAL '24 hours') AS paid_evidence_rows,
+          (SELECT COUNT(DISTINCT business_id)::int FROM sfp_paid_candidate_evidence
+            WHERE created_at >= NOW()-INTERVAL '24 hours') AS businesses_with_paid_evidence,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility
+            WHERE created_at >= NOW()-INTERVAL '24 hours') AS validation_decisions,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility
+            WHERE created_at >= NOW()-INTERVAL '24 hours' AND status='validated_outreach_eligible') AS validation_eligible,
+          (SELECT COUNT(*)::int FROM sfp_outreach_eligibility
+            WHERE created_at >= NOW()-INTERVAL '24 hours' AND source_kind='contact') AS contact_source_decisions,
+          (SELECT COUNT(*)::int FROM sfp_campaign_staging_intents
+            WHERE state='ready_held' AND ready_held_at >= NOW()-INTERVAL '24 hours') AS ready_held_created,
+          (SELECT COUNT(*)::int FROM sfp_campaign_staging_intents
+            WHERE state='ready_held' AND source_kind='contact' AND ready_held_at >= NOW()-INTERVAL '24 hours') AS contact_source_ready_held,
+          (SELECT COUNT(*)::int FROM sfp_ready_held_enrollments
+            WHERE created_at >= NOW()-INTERVAL '24 hours') AS paused_enrollment_bridges
+      `))[0] ?? {};
+      const paidEvidenceByProvider24h = rows(await db.execute(sql`
+        SELECT provider,field,COUNT(*)::int AS evidence_rows,COUNT(DISTINCT business_id)::int AS businesses
+          FROM sfp_paid_candidate_evidence
+         WHERE created_at >= NOW()-INTERVAL '24 hours'
+         GROUP BY provider,field ORDER BY provider,field
+      `));
+      const validationBySourceStatus24h = rows(await db.execute(sql`
+        SELECT COALESCE(source_kind,'legacy_or_unknown') AS source_kind,status,COUNT(*)::int AS rows,
+               COUNT(DISTINCT business_id)::int AS businesses
+          FROM sfp_outreach_eligibility
+         WHERE created_at >= NOW()-INTERVAL '24 hours'
+         GROUP BY COALESCE(source_kind,'legacy_or_unknown'),status
+         ORDER BY source_kind,status
+      `));
+      const v2VerticalFunnel24h = rows(await db.execute(sql`
+        WITH active_v2_program AS (
+          SELECT id, vertical_ids FROM sfp_programs WHERE is_active=TRUE AND taxonomy_version=2
+        ),
+        verticals AS (
+          SELECT DISTINCT v.vertical
+            FROM active_v2_program p
+            CROSS JOIN LATERAL UNNEST(p.vertical_ids) AS v(vertical)
+        ),
+        v2_businesses AS (
+          SELECT DISTINCT b.id AS business_id,b.vertical
+            FROM businesses b
+            JOIN sfp_cohort_members cm ON cm.business_id=b.id
+            JOIN sfp_cohort_runs cr ON cr.id=cm.cohort_run_id AND cr.cohort_state='frozen'
+            JOIN active_v2_program p ON p.id=cr.program_id
+           WHERE b.record_class='canonical' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+        ),
+        population AS (
+          SELECT vertical,COUNT(DISTINCT business_id)::int AS frozen_businesses
+            FROM v2_businesses GROUP BY vertical
+        ),
+        contacts AS (
+          SELECT v.vertical,COUNT(DISTINCT c.id)::int AS verified_contact_candidates
+            FROM v2_businesses v
+            JOIN businesses b ON b.id=v.business_id AND b.record_class='canonical'
+            JOIN contacts c ON c.business_id=b.id
+            JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=b.id
+             AND d.decision='verified' AND d.superseded_at IS NULL
+           WHERE c.archived_at IS NULL AND NULLIF(BTRIM(c.email),'') IS NOT NULL
+             AND COALESCE(c.do_not_contact,FALSE)=FALSE AND COALESCE(c.do_not_auto_contact,FALSE)=FALSE
+             AND COALESCE(c.opted_out_email,FALSE)=FALSE AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+             AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed' AND c.complaint_status IS DISTINCT FROM 'reported'
+             AND c.bounce_status IS DISTINCT FROM 'hard' AND c.email_status IS DISTINCT FROM 'bounced'
+             AND c.email_status IS DISTINCT FROM 'invalid' AND c.email_status IS DISTINCT FROM 'opted_out'
+             AND c.suppression_reason IS NULL
+             AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q WHERE q.business_id=b.id AND q.cleared_at IS NULL)
+           GROUP BY v.vertical
+        ),
+        free_email_candidates AS (
+          SELECT v.vertical,COUNT(DISTINCT f.id)::int AS candidates,COUNT(DISTINCT f.business_id)::int AS businesses
+            FROM v2_businesses v
+            JOIN free_discovery_candidates f ON f.business_id=v.business_id AND f.field='email'
+             AND f.disposition IN ('staged','validation_admitted')
+            LEFT JOIN sfp_identity_quarantines q ON q.business_id=v.business_id AND q.cleared_at IS NULL
+           WHERE q.business_id IS NULL
+           GROUP BY v.vertical
+        ),
+        paid_email_candidates AS (
+          SELECT v.vertical,COUNT(DISTINCT e.id)::int AS candidates,COUNT(DISTINCT e.business_id)::int AS businesses
+            FROM v2_businesses v
+            JOIN sfp_paid_candidate_evidence e ON e.business_id=v.business_id AND e.field='email'
+             AND e.disposition IN ('staged','accepted')
+            LEFT JOIN sfp_identity_quarantines q ON q.business_id=v.business_id AND q.cleared_at IS NULL
+            LEFT JOIN sfp_discredited_paid_evidence d ON d.evidence_id=e.id
+           WHERE q.business_id IS NULL AND d.evidence_id IS NULL
+           GROUP BY v.vertical
+        ),
+        validation_24h AS (
+          SELECT v.vertical,COUNT(e.id)::int AS decisions,
+                 COUNT(e.id) FILTER (WHERE e.status='validated_outreach_eligible')::int AS eligible,
+                 COUNT(e.id) FILTER (WHERE e.status IN ('invalid','validated_suppressed','validated_policy_ineligible','validated_review_required','catch_all_review'))::int AS held_or_rejected
+            FROM v2_businesses v
+            JOIN sfp_outreach_eligibility e ON e.business_id=v.business_id
+           WHERE e.created_at >= NOW()-INTERVAL '24 hours'
+           GROUP BY v.vertical
+        ),
+        ready_held_24h AS (
+          SELECT b.vertical,COUNT(DISTINCT i.id)::int AS created
+            FROM sfp_campaign_staging_intents i
+            JOIN sfp_cohort_runs cr ON cr.id=i.cohort_run_id AND cr.cohort_state='frozen'
+            JOIN active_v2_program p ON p.id=cr.program_id
+            JOIN businesses b ON b.id=i.business_id AND b.record_class='canonical'
+           WHERE i.state='ready_held' AND i.package_key LIKE 'sfp.%.v2'
+             AND i.ready_held_at >= NOW()-INTERVAL '24 hours'
+             AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+           GROUP BY b.vertical
+        )
+        SELECT v.vertical,
+               COALESCE(p.frozen_businesses,0)::int AS frozen_businesses,
+               COALESCE(c.verified_contact_candidates,0)::int AS verified_contact_candidates,
+               COALESCE(f.candidates,0)::int AS free_email_candidates,
+               COALESCE(f.businesses,0)::int AS businesses_with_free_email_candidate,
+               COALESCE(pe.candidates,0)::int AS paid_email_candidates,
+               COALESCE(pe.businesses,0)::int AS businesses_with_paid_email_candidate,
+               COALESCE(val.decisions,0)::int AS validation_decisions_24h,
+               COALESCE(val.eligible,0)::int AS validation_eligible_24h,
+               COALESCE(val.held_or_rejected,0)::int AS validation_held_or_rejected_24h,
+               COALESCE(rh.created,0)::int AS ready_held_created_24h
+          FROM verticals v
+          LEFT JOIN population p ON p.vertical=v.vertical
+          LEFT JOIN contacts c ON c.vertical=v.vertical
+          LEFT JOIN free_email_candidates f ON f.vertical=v.vertical
+          LEFT JOIN paid_email_candidates pe ON pe.vertical=v.vertical
+          LEFT JOIN validation_24h val ON val.vertical=v.vertical
+          LEFT JOIN ready_held_24h rh ON rh.vertical=v.vertical
+         ORDER BY v.vertical
+      `));
+
       res.json({
         poolAuthority,
         releaseSha: process.env.RELEASE_SHA ?? "unknown",
@@ -2406,6 +2571,11 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         eligibleCounts,
         zbOutcomes,
         funnel: { snapshotAt: funnelSnapshotAt, ...funnel },
+        sourcePool,
+        throughput24h: { windowStartedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), ...throughput24h },
+        paidEvidenceByProvider24h,
+        validationBySourceStatus24h,
+        v2VerticalFunnel24h,
         crosswalkOnlyExcluded: crosswalkOnlyExcluded ?? { crosswalk_only_excluded_count: 0, ambiguous_match_count: 0, insufficient_evidence_count: 0 },
         spendByProvider: spend.byProvider,
         aggregateBudget: { capMicros: spend.capMicros, settledMicros: spend.settledMicros, reservedMicros: spend.reservedMicros, remainingMicros: spend.remainingMicros, overCap: spend.overCap },
@@ -2414,26 +2584,37 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         paidInFlightCount: paidProviderControls.inFlightCount,
         paidInFlightOperations: paidProviderControls.inFlightOperations,
         // ── Serper gateway state telemetry ──────────────────────────────────
-        // Exposes the live circuit-breaker state from serper_control so the
-        // Paid Pilot panel can show correct enabled/closed status without
+        // Exposes the live legacy gateway control and rolling-window counts
+        // alongside provider_controls; all selected fields exist in the
+        // current schema (do not infer freshness from this query).
+        // Enrichment Control Center can show correct enabled/closed status without
         // relying on env-var guessing. This is read-only; actual Serper calls
         // still go through SerperGateway.executeSearch().
         serperTelemetry: await (async () => {
           try {
             const serperRow = ((await db.execute(sql`
-              SELECT enabled, circuit_state, daily_call_count, daily_cost_micros,
-                     daily_calls_cap, daily_cost_cap_micros, updated_at
+              SELECT enabled, state, local_budget, window_calls, window_successes, window_failures,
+                     lifetime_calls, lifetime_successes, lifetime_failures, yield_websites, yield_emails, yield_phones,
+                     window_started_at, window_ends_at, updated_at
               FROM serper_control WHERE id = 1 LIMIT 1
             `)) as any).rows?.[0] ?? null;
             if (!serperRow) return { configured: false, reason: "no_control_row" };
             return {
               configured: !!process.env.SERPER_API_KEY,
               enabled: Boolean(serperRow.enabled),
-              circuitState: serperRow.circuit_state ?? "unknown",
-              dailyCallCount: Number(serperRow.daily_call_count ?? 0),
-              dailyCostMicros: Number(serperRow.daily_cost_micros ?? 0),
-              dailyCallsCap: Number(serperRow.daily_calls_cap ?? 0),
-              dailyCostCapMicros: Number(serperRow.daily_cost_cap_micros ?? 0),
+              circuitState: serperRow.state ?? "unknown",
+              windowCalls: Number(serperRow.window_calls ?? 0),
+              windowSuccesses: Number(serperRow.window_successes ?? 0),
+              windowFailures: Number(serperRow.window_failures ?? 0),
+              windowCallCap: Number(serperRow.local_budget ?? 0),
+              lifetimeCalls: Number(serperRow.lifetime_calls ?? 0),
+              lifetimeSuccesses: Number(serperRow.lifetime_successes ?? 0),
+              lifetimeFailures: Number(serperRow.lifetime_failures ?? 0),
+              yieldWebsites: Number(serperRow.yield_websites ?? 0),
+              yieldEmails: Number(serperRow.yield_emails ?? 0),
+              yieldPhones: Number(serperRow.yield_phones ?? 0),
+              windowStartedAt: serperRow.window_started_at ?? null,
+              windowEndsAt: serperRow.window_ends_at ?? null,
               updatedAt: serperRow.updated_at ?? null,
             };
           } catch {
@@ -3430,9 +3611,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const candidateRows = (await db.execute(sql`
         SELECT e.id, e.provider, e.field, e.subject_type, e.disposition, e.confidence,
                e.masked_value, e.person_name_evidence, e.person_title_evidence,
-               e.created_at, b.id AS business_id, b.canonical_name AS business_name
+               e.created_at, b.id AS business_id, b.canonical_name AS business_name,
+               po.unit_price_micros,po.settled_cost_micros,po.billing_state
           FROM sfp_paid_candidate_evidence e
           JOIN businesses b ON b.id = e.business_id
+          LEFT JOIN LATERAL (
+            SELECT i.provider_operation_id
+              FROM sfp_stage_items i
+             WHERE i.paid_candidate_evidence_id=e.id AND i.provider_operation_id IS NOT NULL
+             ORDER BY i.updated_at DESC LIMIT 1
+          ) si ON TRUE
+          LEFT JOIN provider_operations po ON po.id=si.provider_operation_id
          WHERE (${provider}::text IS NULL OR e.provider = ${provider}::text)
          ORDER BY e.created_at DESC
          LIMIT ${limit}
@@ -3444,11 +3633,24 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
                b.id AS business_id, b.canonical_name AS business_name
           FROM sfp_classification_evidence e
           JOIN businesses b ON b.id = e.business_id
+         WHERE (${provider}::text IS NULL OR ${provider}::text = 'openai')
          ORDER BY e.created_at DESC
          LIMIT ${limit}
       `) as any).rows ?? [];
 
-      res.json({ candidateResults: candidateRows, classificationResults: classificationRows });
+      const validationRows = (await db.execute(sql`
+        SELECT e.id,e.business_id,b.canonical_name AS business_name,e.source_kind,e.discovery_source,
+               e.status,e.zb_outcome,e.masked_email,e.validation_at,e.reused_from_operation_id,
+               e.validation_operation_id,po.unit_price_micros,po.settled_cost_micros,po.billing_state
+          FROM sfp_outreach_eligibility e
+          JOIN businesses b ON b.id=e.business_id
+          LEFT JOIN provider_operations po ON po.id=e.validation_operation_id
+         WHERE (${provider}::text IS NULL OR ${provider}::text = 'zerobounce')
+         ORDER BY COALESCE(e.validation_at,e.created_at) DESC
+         LIMIT ${limit}
+      `) as any).rows ?? [];
+
+      res.json({ candidateResults: candidateRows, classificationResults: classificationRows, validationResults: validationRows });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
@@ -3495,70 +3697,44 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // Arm only a bounded Serper domain-discovery pilot for a frozen SFP cohort.
-  // The canonical provider control is separate from the legacy contact Serper
-  // gateway. Never reset spent/reserved units or open a tripped circuit; the
-  // local cap permits at most four new reservations per selected business.
-  app.post("/api/lead-ops/sfp/runs/:runId/serper/arm-pilot", requireRole("admin"), async (req, res) => {
+  // One provider-wide operator control surface is authoritative for all SFP
+  // providers. The request changes only the selected provider switch and its
+  // local spend-equivalent ceiling; the independent shared $50 ledger remains
+  // unchanged and is still checked atomically at reservation time.
+  app.put("/api/lead-ops/sfp/provider-controls/:provider", requireRole("admin"), async (req, res) => {
     try {
-      const maxBusinesses = Number(req.body?.maxBusinesses);
-      if (!Number.isInteger(maxBusinesses) || maxBusinesses < 1 || maxBusinesses > 10) {
-        return res.status(400).json({ error: "maxBusinesses must be an integer from 1 to 10" });
-      }
+      const allowed = new Set(["serper", "outscraper", "openai", "apollo", "zerobounce"]);
+      const provider = String(req.params.provider);
+      if (!allowed.has(provider)) return res.status(404).json({ error: "SFP_PROVIDER_NOT_FOUND" });
+      if (typeof req.body?.enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
+      const maxSpendUsdMicros = req.body?.maxSpendUsdMicros == null ? undefined : Number(req.body.maxSpendUsdMicros);
       const reason = String(req.body?.reason ?? "").trim();
-      if (reason.length < 8 || reason.length > 200) {
-        return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
-      }
-      const { assertSfpRuntimeAuthority, maxUnitsPerSfpReservation } = await import("../services/cro03/sfp-provider-operations");
-      const cohortRunId = String(req.params.runId);
-      await assertSfpRuntimeAuthority(cohortRunId);
-      if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" || !process.env.SERPER_API_KEY) {
-        return res.status(422).json({ error: "SFP_SERPER_TRANSPORT_OR_CREDENTIAL_UNAVAILABLE" });
-      }
-      // Both serper_control (window_calls/local_budget) and provider_controls
-      // (reserved_units/consumed_units/local_budget_units) express Serper
-      // consumption in the SAME unit — raw API calls — so a single shared
-      // per-business call estimate must gate both checks below. Pulling this
-      // from sfp-provider-operations.ts (instead of a hardcoded literal)
-      // keeps this readiness gate from silently drifting out of sync with
-      // the reservation ceiling actually enforced when the pilot runs.
-      const maxCallsPerBusiness = maxUnitsPerSfpReservation("serper");
-      const result = await db.transaction(async (tx) => {
-        const gateway = rows(await tx.execute(sql`
-          SELECT enabled,state,local_budget,window_calls FROM serper_control WHERE id=1 FOR UPDATE
-        `))[0];
-        if (!gateway?.enabled || gateway.state !== "closed" ||
-            Number(gateway.window_calls) + maxCallsPerBusiness * maxBusinesses > Number(gateway.local_budget)) {
-          throw new Error("SFP_SERPER_GATEWAY_NOT_READY");
-        }
-        const control = rows(await tx.execute(sql`
-          SELECT enabled,circuit_state,consumed_units,reserved_units,local_budget_units,version
-            FROM provider_controls WHERE provider='serper' FOR UPDATE
-        `))[0];
-        if (!control || control.circuit_state !== "closed") throw new Error("SFP_SERPER_CONTROL_NOT_READY");
-        // Never shrink the recurring worker's real ceiling: only raise it to
-        // cover this pilot's headroom on top of whatever it already is, and
-        // never below existing consumed+reserved units.
-        const requiredFloor = Number(control.consumed_units) + Number(control.reserved_units) + maxCallsPerBusiness * maxBusinesses;
-        const cap = Math.max(Number(control.local_budget_units ?? 0), requiredFloor);
-        const updated = rows(await tx.execute(sql`
-          UPDATE provider_controls SET enabled=TRUE,local_budget_units=${cap},version=version+1,updated_at=NOW()
-           WHERE provider='serper' RETURNING provider,enabled,circuit_state,local_budget_units,
-             reserved_units,consumed_units,version
-        `))[0];
-        await tx.execute(sql`
-          INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
-          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_serper_pilot_armed','provider_control','serper',
-                  ${JSON.stringify({ cohortRunId, maxBusinesses, maxAdditionalRequests: maxBusinesses * maxCallsPerBusiness, reason })}::jsonb,
-                  ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
-        `);
-        return updated;
+      const actorId = `admin:${(req.user as any)?.id ?? "system"}`;
+      const { updateSfpPaidProviderControl } = await import("../services/paid-provider-control");
+      const { MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS } = await import("../services/mi09-pilot-authority");
+      const control = await updateSfpPaidProviderControl({
+        provider: provider as any,
+        enabled: req.body.enabled,
+        maxSpendUsdMicros,
+        reason,
+        actorId,
       });
-      res.json({ control: result, maxBusinesses, maxAdditionalRequests: maxBusinesses * maxCallsPerBusiness });
+      res.json({ control, aggregateCapMicros: MI09_LADDER_AGGREGATE_PAID_BUDGET_MICROS, aggregateCapChanged: false });
     } catch (err: any) {
       const message = String(err?.message ?? err);
-      res.status(/NOT_READY|NO_LIVE_RUNTIME_AUTHORITY/.test(message) ? 409 : 500).json({ error: message });
+      const status = /REASON_REQUIRED|BOOLEAN_REQUIRED|USD_MICROS|SPEND_CAP_BELOW_ONE/.test(message) ? 400
+        : /NOT_FOUND/.test(message) ? 404
+        : /TRANSPORT_DISABLED|CREDENTIAL_MISSING|PRICING_UNAVAILABLE|NO_HEADROOM|CIRCUIT_NOT_CLOSED|SPEND_CAP_BELOW_COMMITTED_USAGE/.test(message) ? 409
+        : 500;
+      res.status(status).json({ error: message });
     }
+  });
+
+  // Retired legacy endpoints. Older clients may still hold these routes in
+  // cache, so return an explicit error instead of allowing a cohort-sized
+  // pilot operation to rewrite a shared provider ceiling.
+  app.post("/api/lead-ops/sfp/runs/:runId/serper/arm-pilot", requireRole("admin"), async (req, res) => {
+    res.status(410).json({ error: "SFP_COHORT_ARM_RETIRED", message: "Use the provider-wide audited control surface; this route no longer changes shared provider caps." });
   });
 
   // Enable Outscraper or Apollo with a bounded spend-equivalent local budget
@@ -3572,59 +3748,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // to price reservations), so the budget in the DB always means the same
   // dollar amount the operator asked for, regardless of provider unit cost.
   app.post("/api/lead-ops/sfp/provider-controls/:provider/arm-budget", requireRole("admin"), async (req, res) => {
-    try {
-      const provider = String(req.params.provider);
-      if (provider !== "outscraper" && provider !== "apollo") {
-        return res.status(400).json({ error: "Only outscraper and apollo are supported by this endpoint" });
-      }
-      const maxUsdMicros = Number(req.body?.maxUsdMicros);
-      if (!Number.isSafeInteger(maxUsdMicros) || maxUsdMicros <= 0 || maxUsdMicros > 50_000_000) {
-        return res.status(400).json({ error: "maxUsdMicros must be a positive integer (USD micros), at most $50" });
-      }
-      const reason = String(req.body?.reason ?? "").trim();
-      if (reason.length < 8 || reason.length > 200) {
-        return res.status(400).json({ error: "An operator reason (8-200 characters) is required" });
-      }
-      const { getCurrentPricingSchedule } = await import("../services/mi09-pilot-authority");
-      const pricing = await getCurrentPricingSchedule();
-      const entry = pricing.priceSchedules[provider] as any;
-      const amountMicros = Number(entry?.amountMicros);
-      if (!Number.isSafeInteger(amountMicros) || amountMicros <= 0) {
-        return res.status(422).json({ error: `SFP_PAID_BLOCKED:PRICING_UNAVAILABLE:${provider}` });
-      }
-      const requestedUnitsCap = Math.floor(maxUsdMicros / amountMicros);
-      if (requestedUnitsCap < 1) {
-        return res.status(400).json({ error: "maxUsdMicros is too small to afford even one unit at the current price" });
-      }
-      const result = await db.transaction(async (tx) => {
-        const control = rows(await tx.execute(sql`
-          SELECT enabled,circuit_state,consumed_units,reserved_units,local_budget_units,version
-            FROM provider_controls WHERE provider=${provider} FOR UPDATE
-        `))[0];
-        if (!control) throw new Error("SFP_PROVIDER_CONTROL_NOT_FOUND");
-        // Never lower the ceiling below what's already committed (consumed+
-        // reserved), and never raise it past the operator's requested
-        // spend-equivalent cap.
-        const requiredFloor = Number(control.consumed_units) + Number(control.reserved_units);
-        const finalCap = Math.max(requiredFloor, requestedUnitsCap);
-        const updated = rows(await tx.execute(sql`
-          UPDATE provider_controls SET enabled=TRUE,local_budget_units=${finalCap},version=version+1,updated_at=NOW()
-           WHERE provider=${provider} RETURNING provider,enabled,circuit_state,local_budget_units,
-             reserved_units,consumed_units,version
-        `))[0];
-        await tx.execute(sql`
-          INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
-          VALUES (${String((req.user as any)?.id ?? "system")},'sfp_provider_budget_armed','provider_control',${provider},
-                  ${JSON.stringify({ maxUsdMicros, amountMicros, requestedUnitsCap, finalCap, reason })}::jsonb,
-                  ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
-        `);
-        return updated;
-      });
-      res.json({ control: result, maxUsdMicros, unitPriceMicros: amountMicros, requestedUnitsCap });
-    } catch (err: any) {
-      const message = String(err?.message ?? err);
-      res.status(/NOT_FOUND/.test(message) ? 404 : 500).json({ error: message });
-    }
+    res.status(410).json({ error: "SFP_PROVIDER_ARM_BUDGET_RETIRED", message: "Use PUT /api/lead-ops/sfp/provider-controls/:provider with an explicit enable state, USD ceiling, and reason." });
   });
 
   app.get("/api/lead-ops/sfp/runs/:runId/paid-waterfall-preview", requireRole("admin"), async (req, res) => {
