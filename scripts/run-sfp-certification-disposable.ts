@@ -42,6 +42,8 @@ const SCRIPTS = [
   "scripts/sfp-certification.ts",
   "scripts/test-sfp2000-disposable-certification.ts",
   "scripts/test-sfp2001-campaign-staging-certification.ts",
+  "scripts/test-sfp-paid-waterfall-apollo-outscraper.ts",
+  "scripts/test-sfp-provider-controls-disposable.ts",
   "scripts/test-sfp-full-drain-certification.ts",
   "scripts/test-sfp-continuous-tick-orchestration-certification.ts",
 ];
