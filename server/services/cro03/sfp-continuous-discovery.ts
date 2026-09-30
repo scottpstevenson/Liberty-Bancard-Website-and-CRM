@@ -128,8 +128,8 @@ async function _claimNextDiscoveryCohort(programId: string): Promise<{ cohortRun
 
 /** Rolling cohort rotation + a bounded-time DRAIN of Serper discovery work. */
 export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuousDiscoveryTickResult> {
-  if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true" || !process.env.SERPER_API_KEY) {
-    return { ran: false, reason: "transport_or_credential_unavailable" };
+  if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
+    return { ran: false, reason: "provider_transport_unavailable" };
   }
   const program = await getProgramReadOnly();
   if (!program || !program.isActive) {
@@ -152,7 +152,8 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   const exhaustedCohorts = new Set<string>();
   let sawWorkThisTick = false;
 
-  while (Date.now() < phase1End && calls < MAX_CALLS_PER_TICK) {
+  if (!process.env.SERPER_API_KEY) stopReason = "provider_paused:serper_credential_missing";
+  while (Boolean(process.env.SERPER_API_KEY) && Date.now() < phase1End && calls < MAX_CALLS_PER_TICK) {
     try {
       await assertAggregatePaidBudgetAvailable();
     } catch (err: any) {
@@ -312,8 +313,13 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
             cohortRunId,
             idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${waterfallCalls}`,
             actorId: "system:sfp-continuous-discovery",
-            maxBusinesses: SERPER_BATCH_PER_CALL,
+            maxBusinesses: 25,
             previewSnapshotHash: snapshot.snapshotHash,
+            includeSerperDiscovery: false,
+            enabledProviders: [
+              ...(outscraperReady.ready ? ["outscraper" as const] : []),
+              ...(apolloReady.ready ? ["apollo" as const] : []),
+            ],
           });
           waterfallCalls++;
           waterfallCohortRunIds.add(cohortRunId);
@@ -347,7 +353,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   for (const id of waterfallCohortRunIds) cohortRunIds.add(id);
 
   const summary = {
-    ran: calls > 0,
+    ran: calls > 0 || waterfallCalls > 0,
     cohortRunIds: [...cohortRunIds],
     newlyFrozenCount,
     calls, processed, succeeded, failed, noResult,
