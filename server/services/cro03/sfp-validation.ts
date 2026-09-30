@@ -422,6 +422,8 @@ export async function executeSfpValidation(
     snapshotHash: string;
     /** Fake transport for tests. (candidateId, REAL decrypted email) → ZbOutcome */
     zbTransport?: (candidateId: string, realEmail: string) => Promise<SfpZbOutcome>;
+    /** Test seam for MX checks; production always uses the real DNS resolver. */
+    mxCheck?: typeof checkMxRecord;
   },
 ): Promise<SfpValidationResult> {
   if (!opts.snapshotHash) throw new Error("SFP_VALIDATION_BLOCKED:snapshotHash_required");
@@ -618,7 +620,7 @@ export async function executeSfpValidation(
           const realDomain = realEmail.split("@")[1]?.toLowerCase() ?? "";
           let mx: "ok" | "no_mx" | "dns_indeterminate" = "dns_indeterminate";
           try {
-            mx = realDomain ? await checkMxRecord(realDomain) : "no_mx";
+            mx = realDomain ? await (opts.mxCheck ?? checkMxRecord)(realDomain) : "no_mx";
           } catch {
             mx = "dns_indeterminate";
           }

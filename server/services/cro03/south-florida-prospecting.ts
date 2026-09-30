@@ -131,6 +131,7 @@ export interface SfpProgram {
   taxonomyVersion: 1 | 2;
   isActive: boolean;
   recurringEnabled: boolean;
+  campaignStagingBatchSize: number;
   activatedAt: string | null;
   createdAt: string;
   createdBy: string;
@@ -188,7 +189,7 @@ export async function ensureProgram(opts: {
 
   const created = rows(await db.execute(sql`
     INSERT INTO sfp_programs
-      (name, county_fips, vertical_ids, max_cohort_size, policy_version, taxonomy_version, is_active, created_by)
+      (name, county_fips, vertical_ids, max_cohort_size, policy_version, taxonomy_version, schedule_config, is_active, created_by)
     VALUES (
       ${PROGRAM_NAME},
       ARRAY[${sql.join(countyFips.map((f) => sql`${f}`), sql`, `)}],
@@ -196,6 +197,7 @@ export async function ensureProgram(opts: {
       ${Math.max(1, Math.min(100, opts.maxCohortSize ?? 100))},
       ${SFP_POLICY_VERSION},
       ${TAXONOMY_VERSION_V2},
+      ${JSON.stringify({ freeBatch: 25, paidBatch: 10, validationBatch: 25, campaignStaging: 0 })}::jsonb,
       false,
       ${opts.createdBy ?? "system:sfp"}
     )
@@ -342,6 +344,7 @@ function _mapProgram(row: any): SfpProgram {
     taxonomyVersion: Number(row.taxonomy_version) === 2 ? 2 : 1,
     isActive: Boolean(row.is_active),
     recurringEnabled: Boolean(row.recurring_enabled),
+    campaignStagingBatchSize: Number((row.schedule_config && (row.schedule_config.campaignStaging ?? row.schedule_config.campaign_staging)) ?? 0),
     activatedAt: row.activated_at ? String(row.activated_at) : null,
     createdAt: String(row.created_at),
     createdBy: String(row.created_by),
@@ -355,10 +358,11 @@ export async function setProgramActivation(input: {
   recurringEnabled?: boolean;
 }): Promise<SfpProgram> {
   const program = await ensureProgram({ createdBy: input.actorId });
+  const recurringEnabled = input.active && input.recurringEnabled === true;
   const updated = rows(await db.execute(sql`
     UPDATE sfp_programs
        SET is_active = ${input.active},
-           recurring_enabled = ${input.active && input.recurringEnabled === true},
+           recurring_enabled = ${recurringEnabled},
            activated_at = CASE WHEN ${input.active} THEN NOW() ELSE activated_at END,
            activated_by = CASE WHEN ${input.active} THEN ${input.actorId} ELSE activated_by END
      WHERE id = ${program.id}::uuid
@@ -367,7 +371,7 @@ export async function setProgramActivation(input: {
   await db.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_program_activation_changed', 'sfp_program', ${program.id}, 'user', ${input.actorId},
-            ${JSON.stringify({ active: input.active, recurringEnabled: input.active && input.recurringEnabled === true })}::jsonb)
+            ${JSON.stringify({ active: input.active, recurringEnabled, campaignStagingBatchSize: Number(updated?.schedule_config?.campaignStaging ?? 0) })}::jsonb)
   `);
   return _mapProgram(updated);
 }

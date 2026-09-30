@@ -218,7 +218,7 @@ export async function getSfpCohortGapSnapshot(cohortRunId: string): Promise<{
   });
   const gapCounts: SfpGapCounts = {
     officialDomainGapCount: gaps.filter((g) => !g.domain).length,
-    businessIdentityGapCount: gaps.filter((g) => !g.identity).length,
+    businessIdentityGapCount: gaps.filter((g) => !g.domain && !g.identity).length,
     decisionMakerGapCount: gaps.filter((g) => !g.named).length,
     ambiguousVerticalGapCount: 0,
   };

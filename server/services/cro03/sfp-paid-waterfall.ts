@@ -237,7 +237,9 @@ export async function previewSfpPaidWaterfall(cohortRunId: string) {
  * this never becomes a second, ungoverned paid-I/O path. A resolved gap
  * dimension stops ONLY that provider for that business — Apollo is skipped
  * only when a verified named decision-maker already exists (C4 reuse);
- * Outscraper is skipped only when the business already has a known domain.
+ * Outscraper is admitted only when the official-domain and business-identity
+ * dimensions both remain open; a known domain stops that provider even when
+ * phone/address/locality fields are still incomplete.
  * Paid results are written to sfp_paid_candidate_evidence (C3) and linked
  * from sfp_stage_items.paidCandidateEvidenceId, never into
  * free_discovery_candidates/cro03c_candidate_evidence.
@@ -249,6 +251,10 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     actorId: string;
     maxBusinesses?: number;
     previewSnapshotHash?: string;
+    /** Continuous discovery has already given Serper its own independent phase. */
+    includeSerperDiscovery?: boolean;
+    /** Providers that passed their own control, circuit, and credential preflight. */
+    enabledProviders?: Array<"outscraper" | "apollo">;
   },
   deps: { fetchImpl?: typeof fetch } = {},
 ) {
@@ -260,10 +266,20 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${input.cohortRunId}::uuid
   `))[0];
   if (!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const includeSerperDiscovery = input.includeSerperDiscovery !== false;
+  const enabledProviders = new Set(input.enabledProviders ?? ["outscraper", "apollo"]);
+  const providers = [
+    ...(includeSerperDiscovery ? ["serper"] : []),
+    ...(enabledProviders.has("outscraper") ? ["outscraper"] : []),
+    ...(enabledProviders.has("apollo") ? ["apollo"] : []),
+  ];
+  const order = includeSerperDiscovery
+    ? ["serper", "free_first_party_recrawl", ...providers.slice(1)]
+    : [...providers];
   const payloadHash = sha256({
     cohortRunId: input.cohortRunId, cohortHash: cohortHashRow.cohort_hash, maxBusinesses,
-    providers: ["serper", "outscraper", "apollo"],
-    order: ["serper", "free_first_party_recrawl", "outscraper", "apollo"],
+    providers,
+    order,
     previewSnapshotHash: input.previewSnapshotHash ?? null,
   });
   const existing = rows(await db.execute(sql`
@@ -277,22 +293,99 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   }
   const stage = existing ?? rows(await db.execute(sql`
     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
-    VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper","outscraper","apollo"]'::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
+    VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},${JSON.stringify(providers)}::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
   const stageClaimToken = await claimStageRun(String(stage.id));
-  const serperResult = await executeSfpSerperDiscovery({
-    cohortRunId: input.cohortRunId,
-    idempotencyKey: `${input.idempotencyKey}:serper`,
-    actorId: input.actorId,
-    maxBusinesses,
-    previewSnapshotHash: input.previewSnapshotHash,
-    internalSkipPreviewCheck: true,
-  });
+  // Serper is a separate discovery phase in the recurring worker. Never let
+  // a Serper circuit or credential gate independent providers.
+  let serperProviderRequests = 0;
+  if (includeSerperDiscovery) {
+    const serperResult = await executeSfpSerperDiscovery({
+      cohortRunId: input.cohortRunId,
+      idempotencyKey: `${input.idempotencyKey}:serper`,
+      actorId: input.actorId,
+      maxBusinesses,
+      previewSnapshotHash: input.previewSnapshotHash,
+      internalSkipPreviewCheck: true,
+    });
+    serperProviderRequests = Number(serperResult.providerRequests ?? 0);
+  }
   const targets = rows(await db.execute(sql`
     SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,b.main_phone,m.roi_score
       FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
      WHERE m.cohort_run_id=${input.cohortRunId}::uuid
+       AND b.record_class='canonical'
+       AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q WHERE q.business_id=b.id AND q.cleared_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM sfp_cohort_decisions d WHERE d.cohort_run_id=m.cohort_run_id
+                        AND d.business_id=b.id AND d.suppression_business_wide_rule_applied=TRUE)
+       AND (
+         (
+           ${enabledProviders.has("outscraper")}
+           AND b.website_domain IS NULL
+           AND (NULLIF(BTRIM(b.main_phone),'') IS NULL OR NULLIF(BTRIM(b.street_address),'') IS NULL OR NULLIF(BTRIM(b.city),'') IS NULL)
+           AND NOT EXISTS (
+             SELECT 1 FROM provider_operations po
+              WHERE po.provider='outscraper' AND po.purpose='sfp_business_identity_discovery'
+                AND po.target_fingerprint = ('business:' || b.id::text)
+                AND (po.state IN ('pending','deferred','running') OR po.billing_state IN ('reserved','ambiguous'))
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM provider_operations po
+              WHERE po.provider='outscraper' AND po.purpose='sfp_business_identity_discovery'
+                AND po.target_fingerprint = ('business:' || b.id::text)
+                AND po.state='completed' AND po.created_at >= NOW()-INTERVAL '24 hours'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM provider_operations po
+              WHERE po.provider='outscraper' AND po.purpose='sfp_business_identity_discovery'
+                AND po.target_fingerprint = ('business:' || b.id::text)
+                AND po.state='failed' AND po.created_at >= NOW()-INTERVAL '15 minutes'
+           )
+           AND (SELECT COUNT(*) FROM provider_operations po
+                 WHERE po.provider='outscraper' AND po.purpose='sfp_business_identity_discovery'
+                   AND po.target_fingerprint = ('business:' || b.id::text)
+                   AND po.state='failed' AND po.created_at >= NOW()-INTERVAL '24 hours') < 3
+         )
+         OR
+         (
+           ${enabledProviders.has("apollo")}
+           AND NOT EXISTS (
+             SELECT 1 FROM sfp_paid_candidate_evidence e WHERE e.business_id=b.id AND e.provider='apollo'
+               AND e.subject_type='person' AND NULLIF(BTRIM(e.person_name_evidence),'') IS NOT NULL
+               AND NULLIF(BTRIM(e.person_title_evidence),'') IS NOT NULL AND e.disposition IN ('staged','accepted')
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM contact_business_link_decisions d JOIN contacts c ON c.id=d.contact_id
+              WHERE d.business_id=b.id AND d.decision='verified' AND d.superseded_at IS NULL
+                AND c.business_id=d.business_id
+                AND NULLIF(BTRIM(CONCAT_WS(' ',NULLIF(c.first_name,''),NULLIF(c.last_name,''))),'') IS NOT NULL
+                AND NULLIF(BTRIM(c.title),'') IS NOT NULL
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM provider_operations po
+              WHERE po.provider='apollo' AND po.purpose='sfp_named_decision_maker_discovery'
+                AND po.target_fingerprint = ('business:' || b.id::text)
+                AND (po.state IN ('pending','deferred','running') OR po.billing_state IN ('reserved','ambiguous'))
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM provider_operations po
+              WHERE po.provider='apollo' AND po.purpose='sfp_named_decision_maker_discovery'
+                AND po.target_fingerprint = ('business:' || b.id::text)
+                AND po.state='completed' AND po.created_at >= NOW()-INTERVAL '24 hours'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM provider_operations po
+              WHERE po.provider='apollo' AND po.purpose='sfp_named_decision_maker_discovery'
+                AND po.target_fingerprint = ('business:' || b.id::text)
+                AND po.state='failed' AND po.created_at >= NOW()-INTERVAL '15 minutes'
+           )
+           AND (SELECT COUNT(*) FROM provider_operations po
+                 WHERE po.provider='apollo' AND po.purpose='sfp_named_decision_maker_discovery'
+                   AND po.target_fingerprint = ('business:' || b.id::text)
+                   AND po.state='failed' AND po.created_at >= NOW()-INTERVAL '24 hours') < 3
+         )
+       )
       ORDER BY COALESCE((
         SELECT MAX(i.completed_at) FROM sfp_stage_items i
         JOIN sfp_stage_runs prior ON prior.id=i.stage_run_id
@@ -306,7 +399,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   const businessIds = targets.map((t: any) => Number(t.id));
   const reuse = await computeContactLinkReuse(businessIds);
   let succeeded = 0, failed = 0, skipped = 0;
-  let providerRequests = Number(serperResult.providerRequests ?? 0);
+  let providerRequests = serperProviderRequests;
   const gapVectors: Array<Awaited<ReturnType<typeof computeSfpGapVector>>> = [];
 
   for (const target of targets) {
@@ -317,11 +410,16 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
       cohortRunId: input.cohortRunId, businessId, reuse: linkReuse,
     });
     const gapOpen = (dimension: string) => beforeVector.before.some((entry) => entry.dimension === dimension && entry.open);
-    let apolloSkipReason: string | null = gapOpen("named_decision_maker") ? null : (linkReuse.skipReason ?? "named_decision_maker_gap_closed");
-    let outscraperSkipReason: string | null = gapOpen("business_identity") ? null : "business_identity_gap_closed";
+    let apolloSkipReason: string | null = !enabledProviders.has("apollo")
+      ? "apollo_provider_not_ready"
+      : gapOpen("named_decision_maker") ? null : (linkReuse.skipReason ?? "named_decision_maker_gap_closed");
+    let outscraperSkipReason: string | null = !enabledProviders.has("outscraper")
+      ? "outscraper_provider_not_ready"
+      : !gapOpen("official_domain") ? "official_domain_gap_closed"
+        : gapOpen("business_identity") ? null : "business_identity_gap_closed";
 
-    // Outscraper follows Serper plus the canonical free recrawl, and only runs
-    // while the business-identity dimension remains open.
+    // Outscraper follows Serper plus the canonical free recrawl, and requires
+    // both the official-domain and business-identity dimensions to remain open.
     if (!outscraperSkipReason) {
       let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
       try {

@@ -315,8 +315,11 @@ async function makeReadyHeldFixture(opts: {
   const successResult = await bridgeReadyHeldIntentToPausedEnrollment(success.intentId, `${RUN_ID}-actor`);
   check(successResult.status === "created" && successResult.contactResolution === "created_new", `${RUN_ID}-I4-C`, "success path creates a new contact");
   check(successResult.enrollmentStatus === "paused", `${RUN_ID}-I4-D`, "created enrollment status is 'paused'");
-  const enrollmentRow = rows(await db.execute(sql`SELECT status FROM sequence_enrollments WHERE id=${successResult.sequenceEnrollmentId}`))[0];
+  const enrollmentRow = rows(await db.execute(sql`SELECT status, metadata FROM sequence_enrollments WHERE id=${successResult.sequenceEnrollmentId}`))[0];
   check(enrollmentRow.status === "paused", `${RUN_ID}-I4-E`, "enrollment row in DB is genuinely paused");
+  check(enrollmentRow.metadata?.cr06LifecycleDecision?.allowed === false &&
+    enrollmentRow.metadata?.cr06LifecycleDecision?.reasonCode === "CR06_PROMOTIONAL_EXECUTION_DISABLED",
+    `${RUN_ID}-I4-E2`, "the paused review artifact records CR-06's promotional denial without authorizing execution");
 
   // 4c. Repeat call on the SAME intent -> idempotent, returns the same bridge row, no duplicate contact/enrollment.
   const repeat = await bridgeReadyHeldIntentToPausedEnrollment(success.intentId, `${RUN_ID}-actor`);
