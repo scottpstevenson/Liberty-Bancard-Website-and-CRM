@@ -40,9 +40,11 @@ test("terminal settlement replay is an explicit no-op", () => {
   assert.ok(count(files.providerOps, "AND completed_at IS NULL") >= 2);
 });
 
-test("aggregate headroom includes pre-cohort reservations", () => {
-  has(files.preview, "FROM sfp_classification_runs WHERE state IN ('authorized','running')");
-  has(files.preview, "Number(classificationReservations?.reserved ?? 0)");
+test("provider operation costs remain auditable without an in-app spending ceiling", () => {
+  has(files.providerOps, "unit_price_micros");
+  has(files.providerOps, "settled_cost_micros");
+  has(files.providerOps, "noResultBillable");
+  assert.doesNotMatch(files.preview, /aggregateHeadroom|spendCapMicros|local_budget_units/);
 });
 
 test("business identity is a distinct gap dimension", () => {
@@ -69,7 +71,7 @@ test("geography closes only on the positive resolver outcome", () => {
 test("disposable certification exercises accounting replay and gap closure", () => {
   has(files.certification, "pre-cohort settlement replay is a fenced no-op");
   has(files.certification, "cohort-bound settlement replay is a fenced no-op");
-  has(files.certification, "cost preview includes in-flight pre-cohort classification reservations");
+  has(files.certification, "cost preview contains optional estimates, not financial ceilings or provider-credit headroom");
   has(files.certification, "persisted Apollo person evidence closes the live decision-maker gap");
 });
 
