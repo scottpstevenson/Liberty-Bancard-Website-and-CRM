@@ -4,9 +4,9 @@ description: Architecture and implementation details of the unavoidable global o
 ---
 
 ## Rule
-Every external provider action (GHL email/SMS/workflow, SMTP, Gmail, RVM/voice) MUST obtain an `AuthorizedSendDecision` from `OutboundPauseAuthority.authorize()` before making network I/O, and call `recheckEpoch()` immediately before the network call. No caller-controlled boolean can bypass this gate. The gate lives at the transport boundary (ghl.ts, smtp-email.ts) — not only at the orchestrator level.
+Every external provider action (GHL email/SMS/workflow, SMTP, Gmail, RVM/voice, Slack webhooks) MUST obtain an `AuthorizedSendDecision` from `OutboundPauseAuthority.authorize()` before making network I/O, and call `recheckEpoch()` immediately before the network call. No caller-controlled boolean can bypass this gate. The gate lives at the transport boundary — not only at the orchestrator level.
 
-**Why:** Reviewer rejection confirmed that orchestrator-level checks alone don't prevent direct callers (e.g. digest-service.ts, replitAuth.ts) from bypassing the pause.
+**Why:** Reviewer rejection confirmed that orchestrator-level checks alone don't prevent direct callers from bypassing the pause. Even a caller-side check before asynchronous notification preparation is too early: a pause can complete before the eventual webhook fetch unless the transport registers an in-flight send and rechecks the epoch itself.
 
 ## Architecture
 

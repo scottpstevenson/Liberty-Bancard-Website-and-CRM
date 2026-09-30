@@ -347,6 +347,14 @@ const CALL_SITE_ALLOWLIST: Array<{
     reviewDate: "2026-06-26",
   },
   {
+    file: "server/services/provider-credit-alert.ts",
+    lineContains: "const result = await sendSmtpEmail(",
+    channel: "email",
+    category: "internal_admin",
+    reason: "Credit exhaustion alert goes only to the configured admin address, not to prospects; global pause authority and monitoring coordinator hold are checked before sending.",
+    reviewDate: "2026-09-30",
+  },
+  {
     file: "server/routes/analytics.ts",
     lineContains: "sendGhlEmailForMerchant",
     channel: "email",

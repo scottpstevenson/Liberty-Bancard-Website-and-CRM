@@ -711,6 +711,11 @@ const MANDATORY_SUITES: Suite[] = [
     requiresDisposableTestDatabase: true,
   },
   {
+    name: "Slack Pause Boundary (no webhook after pause during alert preparation)",
+    script: "scripts/test-slack-pause-boundary.ts",
+    timeoutSecs: 30,
+  },
+  {
     name: "Outbound Boundary Denial (#1626: form-sync/delete/SMTP pause denial, drain fail-closed, epoch interleaving, audit sanitizer)",
     script: "scripts/test-outbound-boundary-1626.ts",
     timeoutSecs: 60,

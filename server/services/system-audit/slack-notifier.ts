@@ -1,5 +1,45 @@
 import type { ProbeResult } from "./probes/ghl-sync";
 import { createHash } from "crypto";
+import { randomUUID } from "crypto";
+
+type SlackPauseDependencies = {
+  authorize: () => Promise<{ allowed: boolean; epoch: bigint }>;
+  registerInflight: (token: string, epoch: bigint) => Promise<void>;
+  recheckEpoch: (epoch: bigint) => Promise<boolean>;
+  deregisterInflight: (token: string) => void;
+  send: typeof fetch;
+};
+
+// Shared transport boundary for both weekly reports and critical alerts.
+// Do not rely on caller checks: alert-feed/Redis preparation may take long
+// enough for a pause to activate before the Slack HTTP request.
+export async function postSlackWithPause(
+  url: string,
+  body: unknown,
+  injected?: SlackPauseDependencies,
+): Promise<Response | null> {
+  const deps = injected ?? await (async (): Promise<SlackPauseDependencies> => {
+    const [{ authorize, recheckEpoch }, { registerInflight, deregisterInflight }] = await Promise.all([
+      import("../outbound-pause-authority"),
+      import("../outbound-control-service"),
+    ]);
+    return { authorize: () => authorize({}), recheckEpoch, registerInflight, deregisterInflight, send: fetch };
+  })();
+  const decision = await deps.authorize();
+  if (!decision.allowed) return null;
+  const token = randomUUID();
+  await deps.registerInflight(token, decision.epoch);
+  try {
+    if (!await deps.recheckEpoch(decision.epoch)) return null;
+    return await deps.send(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } finally {
+    deps.deregisterInflight(token);
+  }
+}
 
 function webhookUrl(): string | null {
   return process.env.SLACK_AUDIT_WEBHOOK_URL ?? null;
@@ -87,11 +127,8 @@ export async function sendAuditReport(opts: {
       ],
     });
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks }),
-    });
+    const response = await postSlackWithPause(url, { blocks });
+    if (!response) return { status: "failed", error: "Outbound paused" };
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
@@ -106,7 +143,7 @@ export async function sendAuditReport(opts: {
 export type CriticalAlertResult = {
   claimStatus: "claimed" | "duplicate" | "unavailable";
   feedStatus: "persisted" | "duplicate" | "failed";
-  transportStatus: "sent" | "not_configured" | "skipped_duplicate" | "skipped_test" | "skipped_unclaimed" | "failed";
+  transportStatus: "sent" | "not_configured" | "skipped_duplicate" | "skipped_test" | "skipped_unclaimed" | "skipped_paused" | "failed";
   incidentFingerprint: string;
   alertId?: number;
   feedCreatedAt?: string;
@@ -195,11 +232,11 @@ export async function sendCriticalAlert(probe: ProbeResult, context?: string): P
       ],
     };
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const response = await postSlackWithPause(url, body);
+    if (!response) {
+      if (redis && claimKey) await redis.del(claimKey).catch(() => 0);
+      return { ...base, transportStatus: "skipped_paused" };
+    }
     if (!response.ok) {
       const retryAt = new Date(Date.now() + retryLeaseSeconds * 1000).toISOString();
       return { ...base, transportStatus: "failed", retryAt, error: `Slack HTTP ${response.status}` };

@@ -21,6 +21,8 @@
  * resets the consecutive counter for that provider.
  */
 import { pool } from "../db";
+import { authorize, recheckEpoch } from "./outbound-pause-authority";
+import { canExecute } from "./outbound-queue-coordinator";
 
 export type PaidCreditProvider = "outscraper" | "apollo" | "zerobounce";
 
@@ -81,6 +83,14 @@ async function sendAlert(provider: PaidCreditProvider, failureCount: number, las
   const label = PROVIDER_LABEL[provider];
   const timestamp = new Date().toISOString();
 
+  // A paused alert must not claim the cooldown: it should remain eligible
+  // after outbound sending is resumed. Fail closed if the authority is unavailable.
+  const decision = await authorize({});
+  if (!decision.allowed) return;
+  // Credit alerts are internal monitoring notifications; use the monitoring
+  // queue's logical hold so a pending release cannot dispatch them either.
+  if (!await canExecute("system-audit")) return;
+
   // Claim the cooldown BEFORE notifying anyone, on both channels. Otherwise
   // every failure past the threshold re-fires Slack (with a changing count
   // in the summary/details, defeating downstream dedup) even while the
@@ -89,19 +99,35 @@ async function sendAlert(provider: PaidCreditProvider, failureCount: number, las
   const won = await claimAlertCooldown(cooldownKey);
   if (!won) return;
 
+  if (!await recheckEpoch(decision.epoch) || !await canExecute("system-audit")) {
+    await releaseAlertCooldown(cooldownKey);
+    return;
+  }
+
   // Keep a stable incident identity across the whole cooldown window: always
   // report the threshold count, not the current (still-growing) streak, so
   // the alert fingerprint doesn't change on every subsequent failure.
-  import("./system-audit/slack-notifier").then(({ sendCriticalAlert }) => {
-    sendCriticalAlert({
+  try {
+    const { sendCriticalAlert } = await import("./system-audit/slack-notifier");
+    const slack = await sendCriticalAlert({
       subsystem: `paid-provider-credit:${provider}`,
       status: "error",
       summary: `${label} looks out of credits — reached ${CONSECUTIVE_FAILURE_THRESHOLD} consecutive auth/billing-type failures.`,
       details: { provider, consecutiveFailures: CONSECUTIVE_FAILURE_THRESHOLD, lastReason, threshold: CONSECUTIVE_FAILURE_THRESHOLD },
-    }).catch(() => {});
-  }).catch(() => {});
+    });
+    if (slack.transportStatus === "skipped_paused") {
+      await releaseAlertCooldown(cooldownKey);
+      return;
+    }
+  } catch {
+    // Slack is best-effort; SMTP can still deliver the alert.
+  }
 
   try {
+    if (!await recheckEpoch(decision.epoch) || !await canExecute("system-audit")) {
+      await releaseAlertCooldown(cooldownKey);
+      return;
+    }
     const { sendSmtpEmail, isSmtpConfigured } = await import("./smtp-email");
     if (!isSmtpConfigured()) {
       await releaseAlertCooldown(cooldownKey);

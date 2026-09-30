@@ -365,6 +365,12 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "pure sanitizer and source contract assertions; no database, network, queues, or providers",
   },
   {
+    name: "Slack Pause Boundary",
+    script: "scripts/test-slack-pause-boundary.ts",
+    capability: "deterministic-static",
+    providerDenial: "injected authority and webhook spy; no database, network, queues, or providers",
+  },
+  {
     name: "CR-06 Content, Cadence, and Deterministic Renderer Certification",
     script: "scripts/test-cr06-governance.ts",
     capability: "deterministic-integration",
