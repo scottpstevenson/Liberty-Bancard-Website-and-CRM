@@ -33,6 +33,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
+import { decideCr06SequenceLifecycle } from "../cr06-promotional-lifecycle-decision";
 import { writeContact } from "../contact-writer";
 import { evaluateContactDecisions, evaluateBusinessPromotionEligibility } from "../contactability";
 
@@ -94,6 +95,20 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
   `))[0];
   if (!packageVersion) throw new Error("SFP_PACKAGE_VERSION_NOT_FOUND");
   const sequenceId = Number(packageVersion.sequence_id);
+  const sequence = rows(await tx.execute(sql`
+    SELECT id, status, trigger_config FROM follow_up_sequences WHERE id=${sequenceId} FOR SHARE
+  `))[0];
+  if (!sequence) throw new Error("SFP_PACKAGE_SEQUENCE_NOT_FOUND");
+  if (sequence.status !== "paused") throw new Error(`SFP_PACKAGE_SEQUENCE_NOT_PAUSED:${sequence.status}`);
+
+  // Consult the canonical CR-06 lifecycle authority for every sequence
+  // enrollment write. A promotional decision remains denied; this bridge only
+  // records a paused review artifact, never activation or dispatch. Requiring
+  // the pinned sequence itself to be paused keeps that distinction durable.
+  const cr06LifecycleDecision = decideCr06SequenceLifecycle(
+    { triggerConfig: sequence.trigger_config },
+    "sequence_enrollment",
+  );
 
   const business = rows(await tx.execute(sql`
     SELECT id, canonical_name, main_email, main_phone, vertical FROM businesses WHERE id=${Number(intent.business_id)}
@@ -279,7 +294,11 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
       if (!enrollmentRow) {
         enrollmentRow = rows(await tx.execute(sql`
           INSERT INTO sequence_enrollments (sequence_id, contact_id, current_step, status, metadata)
-          VALUES (${sequenceId}, ${contactId}, 0, 'paused', ${JSON.stringify({ source: "sfp_ready_held_bridge", stagingIntentId })}::jsonb)
+          VALUES (${sequenceId}, ${contactId}, 0, 'paused', ${JSON.stringify({
+            source: "sfp_ready_held_bridge",
+            stagingIntentId,
+            cr06LifecycleDecision,
+          })}::jsonb)
           RETURNING id, status
         `))[0];
       }
