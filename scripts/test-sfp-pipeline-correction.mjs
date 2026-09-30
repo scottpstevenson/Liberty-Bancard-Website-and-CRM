@@ -159,13 +159,18 @@ test("UI actions parse API responses and do not display fake provider status", (
   has(files.ui, ")).json()");
   has(files.ui, "paidPreviewQuery.data?.providers");
   has(files.ui, "Run free discovery");
-  has(files.ui, "Authorize Serper batch (max 10)");
+  has(files.ui, "Provider status below is live.");
+  lacks(files.ui, "Authorize Serper batch (max 10)");
   lacks(files.ui, "All paid providers are disabled by default");
 });
-test("paid and free execution routes are admin-only", () => {
+test("SFP routes carry appropriate admin and read-only role guards", () => {
   const routeLines = files.routes.split("\n").filter((line) => line.includes("/api/lead-ops/sfp/") && (line.includes("app.post") || line.includes("app.get")));
   assert.ok(routeLines.length >= 8, "expected SFP route surface");
-  assert.ok(routeLines.every((line) => line.includes('requireRole("admin")')), "an SFP route is not admin-only");
+  assert.ok(routeLines.every((line) => line.includes("requireRole(")), "an SFP route has no explicit role guard");
+  const mutationRoutes = routeLines.filter((line) => line.includes("app.post"));
+  assert.ok(mutationRoutes.every((line) => line.includes('requireRole("admin"')), "an SFP mutation is not admin-only");
+  const readRoutes = routeLines.filter((line) => line.includes("app.get"));
+  assert.ok(readRoutes.every((line) => /requireRole\("admin"(?:,\s*"manager")?\)/.test(line)), "an SFP read route has an unexpected role set");
 });
 test("operator batch inputs are integer-validated at the HTTP boundary", () => {
   // Program cohort cap is 100 everywhere (not the legacy 500 bound).
