@@ -13,6 +13,13 @@ visibility is not proof of GoHighLevel projection.
 
 ## Refreshed production baseline — October 1, 2026
 
+**Latest continuation:** see
+[`../sfp2060-production-execution-status.md`](../sfp2060-production-execution-status.md).
+Publication is now confirmed, but production has six missing safety triggers,
+an outdated reviewed-link function and an unverified deployment identity.
+Ready-held/bridge output remains zero; Task 2060 is still in progress. The
+morning baseline below is historical, not the latest execution status.
+
 The following are read-only production-replica observations, not observations
 of the development database or evidence that workspace changes are live.
 Measurements span 12:00–12:04 UTC (8:00–8:04 a.m. Eastern); they are not one

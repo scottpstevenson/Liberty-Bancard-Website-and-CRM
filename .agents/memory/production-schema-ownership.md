@@ -19,6 +19,6 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 
 **Migration-only triggers also need separate verification:** Publish can create a new table and its declarative constraints without executing a migration's `CREATE FUNCTION`/`CREATE TRIGGER`; the table's existence does not prove its append-only audit guard exists.
 
-**Why:** A published audit-review table had its columns and CHECKs but lacked the migration-defined append-only trigger, while the publish diff reported no outstanding changes.
+**Why:** Published tables can have their columns and CHECKs while migration-defined guards remain absent and the Publish diff reports no outstanding changes. An existing trigger can also survive publication with its older function body, so trigger-name presence alone is insufficient.
 
-**How to apply:** Compare `pg_trigger` and `pg_proc` on production with the intended migration before allowing audit writes; do not mistake a healthy deployment or a no-diff Publish report for trigger parity.
+**How to apply:** Compare `pg_trigger` and `pg_proc` on production with the intended reviewed definitions, including function-body fingerprints, before allowing guarded writes or claiming a pipeline ready. Do not mistake a healthy deployment or a no-diff Publish report for trigger parity.
