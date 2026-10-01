@@ -18,14 +18,33 @@ import { sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { hashEmailToken } from "../provider-readiness-control";
 import { db } from "../../db";
-import { getActiveSfpOutreachPolicy, evaluateSfpEmailTypePolicy } from "./sfp-outreach-policy";
+import {
+  lockCommercialGraphMembershipSets,
+  lockCommercialGraphNodes,
+  type CommercialGraphNode,
+} from "../commercial-graph-locks";
+import {
+  getActiveSfpOutreachPolicy,
+  evaluateSfpEmailTypePolicy,
+  lockCurrentSfpOutreachPolicy,
+} from "./sfp-outreach-policy";
 import { isCanonicallySuppressed } from "./sfp-outreach-policy";
 import { businessLacksDbprLineageSql } from "../dbpr";
 import { getCurrentPackageForVertical, computeLivePackageContentHash } from "./sfp-campaign-packages";
 import { openSfpCandidatePlaintext } from "./sfp-paid-evidence-writer";
+import { lockSfpContactAddress } from "./sfp-contact-address-lock";
 import { evaluateSfpMutableSafetyGates, lookupConsentTierByEmailHash } from "./sfp-outreach-policy";
 import { getOrCreateStageRun, ensureStageItem, markStageItemCompletedInTx, markStageItemDeadLetter, reconcileStageRunCounters } from "./sfp-stage-ledger";
-import { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from "./sfp-vertical-classifier";
+import {
+  checkCurrentSfpEligibilityAndPackage,
+  isCurrentSfpValidationReceiptFresh,
+  isFrozenSfpV2ClassificationAdmissible,
+  isValidSfpSourceReference,
+  mapSfpEligibilitySourceReference,
+  normalizedSfpEmailHash,
+  sfpRecipientIdentityHash,
+  SFP_INITIAL_RECIPIENT_OBJECTIVE_KEY,
+} from "./sfp-recipient-link-predicates";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const MAX_BATCH_SIZE = 25;
@@ -42,16 +61,7 @@ export function isFrozenV2ClassificationAdmissible(input: {
   decisionEvidenceHash: unknown;
   evidenceHash: unknown;
 }): boolean {
-  const target = String(input.targetVertical ?? "");
-  return Number(input.taxonomyVersion) === TAXONOMY_VERSION_V2 &&
-    Number(input.currentTaxonomyVersion) === TAXONOMY_VERSION_V2 &&
-    Number(input.classifierVersion) === CLASSIFIER_VERSION &&
-    input.classificationPolicyVersion != null &&
-    Number(input.classificationPolicyVersion) === Number(input.currentPolicyVersion) &&
-    input.decisionEvidenceHash === input.evidenceHash &&
-    input.decisionTarget === input.evidenceTarget &&
-    input.evidenceOutcome === "target" &&
-    SFP_TARGET_VERTICALS_V2.includes(target as any);
+  return isFrozenSfpV2ClassificationAdmissible(input);
 }
 
 function sha256(value: unknown): string {
@@ -59,11 +69,7 @@ function sha256(value: unknown): string {
 }
 
 function normalizedContactHash(email: unknown, version: unknown): string | null {
-  const normalizedEmail = String(email ?? "").trim().toLowerCase();
-  if (!normalizedEmail || !normalizedEmail.includes("@")) return null;
-  if (Number(version) === 0) return createHash("sha256").update(normalizedEmail).digest("hex");
-  if (Number(version) === 1) return createHash("sha256").update(`email\u0000${normalizedEmail}`).digest("hex");
-  return null;
+  return normalizedSfpEmailHash(email, version);
 }
 
 /** True only when the row's pinned hash matches this exact source value using
@@ -825,6 +831,47 @@ async function stageOneRowTransactional(opts: {
 }): Promise<string> {
   const activePolicy = await getActiveSfpOutreachPolicy();
   return db.transaction(async (tx) => {
+    await lockCurrentSfpOutreachPolicy(tx, activePolicy);
+    let initialSourceAddress: string | null = null;
+    if (opts.sourceKind === "contact" && Number.isSafeInteger(Number(opts.sourceReferenceId))) {
+      const sourceContactNode: CommercialGraphNode = { type: "contact", id: Number(opts.sourceReferenceId) };
+      const sourceBusinessNode: CommercialGraphNode = { type: "business", id: opts.businessId };
+      const sourceGraphNodes = [sourceContactNode, sourceBusinessNode];
+      await lockCommercialGraphNodes(tx, sourceGraphNodes);
+      await lockCommercialGraphMembershipSets(tx, sourceGraphNodes, ["contact_business"]);
+      const sourceContact = rows(await tx.execute(sql`
+        SELECT email FROM contacts WHERE id=${Number(opts.sourceReferenceId)} AND archived_at IS NULL
+      `))[0];
+      initialSourceAddress = sourceContact?.email == null ? null : String(sourceContact.email);
+    }
+    const sharedCurrentGate = await checkCurrentSfpEligibilityAndPackage(tx, {
+      eligibilityId: opts.eligibilityId,
+      businessId: opts.businessId,
+      cohortRunId: opts.cohortRunId,
+      packageKey: opts.packageKey,
+      eligibilityReviewId: opts.eligibilityReviewId,
+      expectedSourceKind: opts.sourceKind,
+      emailAddress: initialSourceAddress,
+      projectionWrite: true,
+    });
+    if (!sharedCurrentGate.eligible) {
+      throw new SfpStagingV2Error(
+        `SFP_STAGING_${sharedCurrentGate.reason.toUpperCase()}`,
+        `current eligibility/package predicate failed: ${sharedCurrentGate.reason}`,
+        409,
+      );
+    }
+    if (!isValidSfpSourceReference(mapSfpEligibilitySourceReference(sharedCurrentGate.row))) {
+      throw new SfpStagingV2Error("SFP_STAGING_SOURCE_REFERENCE_INVALID", "source reference is not a valid one-of source", 422);
+    }
+    if (!sharedCurrentGate.row.normalized_value_hash
+        || ![0, 1].includes(Number(sharedCurrentGate.row.normalized_value_hash_version))) {
+      throw new SfpStagingV2Error(
+        "SFP_STAGING_ADDRESS_IDENTITY_PIN_MISSING",
+        "all typed source kinds require a versioned validated address identity",
+        422,
+      );
+    }
     // Cohort/program still authorize staging as of the exact moment this row
     // is written (Defect 12). previewStagingV2()/executeStagingV2()'s fresh
     // preview only re-checks eligibility rows and package status — it never
@@ -945,10 +992,18 @@ async function stageOneRowTransactional(opts: {
       // lets a resumed executeStagingV2() loop reconverge to the true
       // persisted count instead of a stale in-memory one.
       const existingIntent = rows(await tx.execute(sql`
-        SELECT command_key, state FROM sfp_campaign_staging_intents WHERE id = ${String(eligRow.staging_intent_id)}::uuid
+        SELECT command_key, state, validation_snapshot
+          FROM sfp_campaign_staging_intents WHERE id = ${String(eligRow.staging_intent_id)}::uuid
       `))[0];
       if (existingIntent && existingIntent.command_key === opts.commandKey && existingIntent.state === "ready_held") {
         await markStageItemCompletedInTx(tx, opts.stageItemId, "ready_held", { incrementAttempt: opts.incrementAttempt ?? true });
+        if (!(await isCurrentSfpValidationReceiptFresh(tx, {
+          eligibilityId: opts.eligibilityId,
+          businessId: opts.businessId,
+          emailTokenHash: String(existingIntent.validation_snapshot?.validatedEmailTokenHash ?? ""),
+        }))) {
+          throw new SfpStagingV2Error("SFP_STAGING_VALIDATION_EXPIRED_AT_COMMIT", "provider receipt expired before transaction commit", 409);
+        }
         return String(eligRow.staging_intent_id);
       }
       throw new SfpStagingV2Error("SFP_STAGING_ALREADY_HAS_INTENT", "eligibility already has a staging intent", 409);
@@ -1054,16 +1109,21 @@ async function stageOneRowTransactional(opts: {
     // second, duplicated inline implementation — bound to `tx` so it reads
     // the same locked snapshot as everything else in this transaction.
     let consentEmailHash = String(eligRow.normalized_value_hash ?? "");
+    let consentEmailAddress: string | null = null;
     if (eligRow.source_kind === "contact" && eligRow.contact_id) {
-      const sourceEmail = rows(await tx.execute(sql`
+      const consentSource = rows(await tx.execute(sql`
         SELECT email FROM contacts WHERE id=${Number(eligRow.contact_id)} AND archived_at IS NULL
-      `))[0]?.email;
-      consentEmailHash = hashEmailToken(String(sourceEmail ?? "")) ?? "";
+      `))[0];
+      consentEmailAddress = consentSource?.email == null ? null : String(consentSource.email);
+      consentEmailHash = hashEmailToken(String(consentEmailAddress ?? "")) ?? "";
     }
     const consentTier = consentEmailHash
       ? await lookupConsentTierByEmailHash(consentEmailHash, tx)
       : null;
-    const gate = await evaluateSfpMutableSafetyGates({ businessId: opts.businessId, consentTier, policy: activePolicy }, tx);
+    const gate = await evaluateSfpMutableSafetyGates({
+      businessId: opts.businessId, consentTier, policy: activePolicy,
+      emailAddress: consentEmailAddress,
+    }, tx);
     if (!gate.eligible) {
       throw new SfpStagingV2Error(`SFP_STAGING_${gate.reasonCode.toUpperCase()}`, `safety gate failed: ${gate.reasonCode}`, 422);
     }
@@ -1080,15 +1140,12 @@ async function stageOneRowTransactional(opts: {
       candidateId: string | null; paidCandidateEvidenceId: string | null; sourceContactId: number | null;
       contactEmailTokenHash: string; maskedEmailForLead: string | null;
       sourceContactLinkDecisionId: string | null; sourceContactLinkRevision: number | null;
-      normalizedValueHash: string | null; normalizedValueHashVersion: number | null;
+      normalizedValueHash: string; normalizedValueHashVersion: number;
     };
-    // masterLeadEmail is written ONLY inside the openSfpCandidatePlaintext
-    // callback below, in the same statement, bound to `tx` — plaintext is
-    // never assigned to an outer variable or returned across the boundary
-    // (PM-03: the previous implementation returned `{ ..., plaintext }`
-    // from this callback, which is exactly the escape the audited boundary
-    // exists to prevent).
-    let masterLeadEmailWritten = false;
+    // Plaintext remains inside the audited callback. It is used to claim the
+    // program/address identity before any master-lead projection is written.
+    let sourceContactName: string | null = null;
+    let sourceContactTitle: string | null = null;
 
     const reference = opts.sourceKind === "free"
       ? (() => {
@@ -1109,7 +1166,8 @@ async function stageOneRowTransactional(opts: {
            }
           const sourceContactId = Number(eligRow.contact_id);
           const verifiedLink = rows(await tx.execute(sql`
-            SELECT c.id, c.email, c.email_token_hash, d.id AS decision_id, d.revision
+             SELECT c.id, c.email, c.email_token_hash, c.first_name,c.last_name,c.title,
+                    d.id AS decision_id, d.revision
               FROM contacts c
               JOIN contact_business_link_decisions d ON d.contact_id=c.id
              WHERE c.id=${sourceContactId}
@@ -1120,12 +1178,14 @@ async function stageOneRowTransactional(opts: {
                 AND d.revision=${Number(eligRow.contact_business_link_revision)}
                AND d.decision='verified' AND d.superseded_at IS NULL
              LIMIT 2
-             FOR SHARE OF c, d
+              FOR SHARE OF d
           `));
           if (verifiedLink.length !== 1) {
             throw new SfpStagingV2Error("SFP_STAGING_CONTACT_LINK_NOT_VERIFIED", "source contact has no unique current verified link to this business", 422);
           }
           const linkedContact = verifiedLink[0];
+           sourceContactName = [linkedContact.first_name, linkedContact.last_name].filter(Boolean).join(" ").trim() || null;
+           sourceContactTitle = linkedContact.title == null ? null : String(linkedContact.title);
           if (String(linkedContact.decision_id) !== String(opts.sourceContactLinkDecisionId ?? "") ||
               Number(linkedContact.revision) !== Number(opts.sourceContactLinkRevision)) {
             throw new SfpStagingV2Error("SFP_STAGING_CONTACT_LINK_REVISION_DRIFTED", "verified source-contact link changed after preview", 409);
@@ -1136,7 +1196,7 @@ async function stageOneRowTransactional(opts: {
               String(linkedContact.email_token_hash ?? "") !== contactTokenHash) {
             throw new SfpStagingV2Error("SFP_STAGING_CONTACT_EMAIL_DRIFTED", "source contact email changed since validation", 409);
           }
-          if (await isCanonicallySuppressed([contactTokenHash], tx)) {
+          if (await isCanonicallySuppressed([contactTokenHash], tx, [String(linkedContact.email)])) {
             throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "source contact address is suppressed", 422);
           }
            return {
@@ -1150,7 +1210,7 @@ async function stageOneRowTransactional(opts: {
            };
         })();
 
-    const hash = await openSfpCandidatePlaintext(
+    const staged = await openSfpCandidatePlaintext(
       { reference, cohortRunId: opts.cohortRunId, actorId: opts.actorId, purpose: "sfp_campaign_staging_v2_master_lead_projection" },
       async (plaintext, resolved) => {
         // The candidate reference resolves to SOME business that is a
@@ -1167,7 +1227,10 @@ async function stageOneRowTransactional(opts: {
         const contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
         const tokenHashForSuppression = hashEmailToken(plaintext);
         if (!tokenHashForSuppression) throw new SfpStagingV2Error("SFP_STAGING_EMAIL_INVALID", "resolved source is not a valid normalized email", 422);
-        const stillSuppressed = await isCanonicallySuppressed([contactEmailTokenHash, tokenHashForSuppression], tx);
+        await lockSfpContactAddress(tx, plaintext);
+        const stillSuppressed = await isCanonicallySuppressed(
+          [contactEmailTokenHash, tokenHashForSuppression], tx, [plaintext],
+        );
         if (!isValidatedSfpSourceEmailUnchanged(
           reference.sourceKind,
           plaintext,
@@ -1176,103 +1239,191 @@ async function stageOneRowTransactional(opts: {
         )) {
           throw new SfpStagingV2Error("SFP_STAGING_VALIDATED_EMAIL_DRIFTED", "candidate email differs from the address that passed validation", 409);
         }
+        const exactCurrentGate = await checkCurrentSfpEligibilityAndPackage(tx, {
+          eligibilityId: opts.eligibilityId,
+          businessId: opts.businessId,
+          cohortRunId: opts.cohortRunId,
+          packageKey: opts.packageKey,
+          packageVersionId: String(sharedCurrentGate.package.id),
+          eligibilityReviewId: opts.eligibilityReviewId,
+          expectedSourceKind: opts.sourceKind,
+          emailTokenHash: contactEmailTokenHash,
+          emailAddress: plaintext,
+          projectionWrite: true,
+        });
+        if (!exactCurrentGate.eligible) {
+          throw new SfpStagingV2Error(
+            `SFP_STAGING_${exactCurrentGate.reason.toUpperCase()}`,
+            `exact address receipt/source gate failed: ${exactCurrentGate.reason}`,
+            409,
+          );
+        }
         if (stillSuppressed) throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "resolved address is suppressed", 422);
-        // Master-lead insert happens HERE, inside this callback, using the
-        // plaintext directly — it never leaves this stack frame. `tx` is
-        // passed as the executor so this write is part of the same
-        // transaction as the eligibility lock and intent insert below.
-        await tx.execute(sql`
-          INSERT INTO master_leads
-            (status, company, normalized_company, domain, email, email_type, phone, vertical,
-             outreach_readiness, readiness_reason, source, source_path, city, state, website, email_valid,
-             pipeline_origin, canonical_business_id, email_token_hash, masked_email, created_at, updated_at)
-          VALUES ('staged', ${eligRow.canonical_name}, LOWER(TRIM(${eligRow.canonical_name})), ${eligRow.website_domain},
-                   ${plaintext}, ${eligRow.role_inbox ? "role" : eligRow.named_contact ? "person" : "business"}, ${eligRow.main_phone}, ${targetVertical},
-                  'not_ready', 'ready_held_package_pinned_pending_separate_activation', 'sfp_validated',
-                  ${`sfp:${opts.cohortRunId}:${opts.eligibilityId}`}, ${eligRow.city}, ${eligRow.state}, ${eligRow.website_domain}, TRUE,
-                  'sfp_pipeline', ${opts.businessId}, ${contactEmailTokenHash}, ${eligRow.masked_email ?? null}, NOW(), NOW())
-          ON CONFLICT (canonical_business_id, email_token_hash)
-            WHERE pipeline_origin = 'sfp_pipeline' AND canonical_business_id IS NOT NULL AND email_token_hash IS NOT NULL
-          DO UPDATE SET status = 'staged', email_valid = TRUE, updated_at = NOW()
-        `);
-        masterLeadEmailWritten = true;
-        return contactEmailTokenHash;
-      },
-      tx,
-    );
-    if (!masterLeadEmailWritten) throw new SfpStagingV2Error("SFP_STAGING_MASTER_LEAD_WRITE_FAILED", "master lead projection did not complete", 422);
+         let contactName = sourceContactName;
+         let contactTitle = sourceContactTitle;
+         if (reference.sourceKind === "free") {
+           const sourcePerson = rows(await tx.execute(sql`
+             SELECT person_name_evidence,person_title_evidence
+               FROM free_discovery_candidates
+              WHERE id=${reference.freeDiscoveryCandidateId}::uuid AND business_id=${opts.businessId}
+                AND field='email'
+           `))[0];
+           contactName = sourcePerson?.person_name_evidence == null ? null : String(sourcePerson.person_name_evidence);
+           contactTitle = sourcePerson?.person_title_evidence == null ? null : String(sourcePerson.person_title_evidence);
+         } else if (reference.sourceKind === "paid") {
+           const sourcePerson = rows(await tx.execute(sql`
+             SELECT person_name_evidence,person_title_evidence
+               FROM sfp_paid_candidate_evidence
+              WHERE id=${reference.paidCandidateEvidenceId}::uuid AND business_id=${opts.businessId}
+                AND field='email'
+           `))[0];
+           contactName = sourcePerson?.person_name_evidence == null ? null : String(sourcePerson.person_name_evidence);
+           contactTitle = sourcePerson?.person_title_evidence == null ? null : String(sourcePerson.person_title_evidence);
+         }
+         if (eligRow.role_inbox === true) {
+           contactName = null;
+           contactTitle = null;
+         }
+         const recipientIdentityHash = sfpRecipientIdentityHash(plaintext);
+         if (!recipientIdentityHash) {
+           throw new SfpStagingV2Error("SFP_STAGING_RECIPIENT_IDENTITY_INVALID", "recipient address cannot be normalized", 422);
+         }
+         intentValues = {
+           candidateId: reference.sourceKind === "free" ? reference.freeDiscoveryCandidateId : null,
+           paidCandidateEvidenceId: reference.sourceKind === "paid" ? reference.paidCandidateEvidenceId : null,
+           sourceContactId: reference.sourceKind === "contact" ? reference.sourceContactId : null,
+           contactEmailTokenHash, maskedEmailForLead: eligRow.masked_email ?? null,
+           sourceContactLinkDecisionId: reference.sourceKind === "contact" ? String(eligRow.contact_business_link_decision_id) : null,
+           sourceContactLinkRevision: reference.sourceKind === "contact" ? Number(eligRow.contact_business_link_revision) : null,
+           normalizedValueHash: String(eligRow.normalized_value_hash),
+           normalizedValueHashVersion: Number(eligRow.normalized_value_hash_version),
+         };
+         const intent = rows(await tx.execute(sql`
+           INSERT INTO sfp_campaign_staging_intents
+             (cohort_run_id, eligibility_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id,
+              contact_business_link_decision_id, contact_business_link_revision, normalized_value_hash, normalized_value_hash_version,
+              source_kind,idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage,
+              package_version_id, package_key, policy_document_hash, snapshot_hash, payload_hash, command_key,
+              operator_selected_at, operator_selected_by, ready_held_at)
+           VALUES (${opts.cohortRunId}::uuid, ${opts.eligibilityId}::uuid, ${opts.businessId},
+                    ${intentValues.candidateId}::uuid, ${intentValues.paidCandidateEvidenceId}::uuid, ${intentValues.sourceContactId},
+                    ${intentValues.sourceContactLinkDecisionId}::uuid, ${intentValues.sourceContactLinkRevision},
+                    ${intentValues.normalizedValueHash}, ${intentValues.normalizedValueHashVersion}, ${opts.sourceKind},
+                   ${idempotencyKey}, ${opts.actorId}, 'ready_held', ${Number(eligRow.policy_version ?? 1)},
+                    ${JSON.stringify({
+                      status: eligRow.status, pinnedPackageContentHash, pinnedPolicyHash, validationExpiresAt: effectiveExpiresAt.toISOString(),
+                      eligibilityReviewId: opts.eligibilityReviewId ?? null,
+                      classifierVersion: Number(eligRow.classifier_version), taxonomyVersion: Number(eligRow.taxonomy_version),
+                      classificationEvidenceId: String(eligRow.classification_evidence_id),
+                      classificationEvidenceHash: String(eligRow.classification_evidence_hash),
+                      classificationPolicyVersion: Number(eligRow.classification_policy_version),
+                      targetVertical, sourceContactId: intentValues.sourceContactId,
+                      validatedEmailTokenHash: intentValues.contactEmailTokenHash,
+                      sourceContactLinkDecisionId: intentValues.sourceContactLinkDecisionId,
+                      sourceContactLinkRevision: intentValues.sourceContactLinkRevision,
+                      normalizedValueHash: intentValues.normalizedValueHash,
+                      normalizedValueHashVersion: intentValues.normalizedValueHashVersion,
+                    })}::jsonb,
+                    ${JSON.stringify({
+                      source: "sfp_staging_v2", cohortRunId: opts.cohortRunId, eligibilityId: opts.eligibilityId,
+                      eligibilityReviewId: opts.eligibilityReviewId ?? null,
+                      classificationEvidenceId: String(eligRow.classification_evidence_id),
+                      classificationEvidenceHash: String(eligRow.classification_evidence_hash),
+                      targetVertical, sourceContactId: intentValues.sourceContactId,
+                      sourceContactLinkDecisionId: intentValues.sourceContactLinkDecisionId,
+                      sourceContactLinkRevision: intentValues.sourceContactLinkRevision,
+                      normalizedValueHash: intentValues.normalizedValueHash,
+                      normalizedValueHashVersion: intentValues.normalizedValueHashVersion,
+                    })}::jsonb,
+                   ${pkgRow.id}::uuid, ${opts.packageKey}, ${pinnedPolicyHash}, ${opts.snapshotHash}, ${opts.payloadHash}, ${opts.commandKey},
+                   NOW(), ${opts.actorId}, NOW())
+           RETURNING id
+         `))[0];
+         if (!intent) throw new SfpStagingV2Error("SFP_STAGING_INTENT_WRITE_FAILED", "staging intent was not persisted", 422);
 
-    intentValues = {
-      candidateId: reference.sourceKind === "free" ? reference.freeDiscoveryCandidateId : null,
-      paidCandidateEvidenceId: reference.sourceKind === "paid" ? reference.paidCandidateEvidenceId : null,
-      sourceContactId: reference.sourceKind === "contact" ? reference.sourceContactId : null,
-      contactEmailTokenHash: hash, maskedEmailForLead: eligRow.masked_email ?? null,
-      sourceContactLinkDecisionId: reference.sourceKind === "contact" ? String(eligRow.contact_business_link_decision_id) : null,
-      sourceContactLinkRevision: reference.sourceKind === "contact" ? Number(eligRow.contact_business_link_revision) : null,
-      normalizedValueHash: reference.sourceKind === "contact" ? String(eligRow.normalized_value_hash) : null,
-      normalizedValueHashVersion: reference.sourceKind === "contact" ? Number(eligRow.normalized_value_hash_version) : null,
-    };
+         const claimed = rows(await tx.execute(sql`
+           INSERT INTO sfp_recipient_address_commitments
+             (program_id,objective_key,recipient_identity_hash,recipient_identity_hash_version,
+              business_id,package_version_id,staging_intent_id,state)
+           VALUES (${String(sharedCurrentGate.row.program_id)}::uuid,${SFP_INITIAL_RECIPIENT_OBJECTIVE_KEY},
+                   ${recipientIdentityHash},1,${opts.businessId},${String(pkgRow.id)}::uuid,
+                   ${String(intent.id)}::uuid,'claimed')
+           ON CONFLICT (program_id,objective_key,recipient_identity_hash) DO NOTHING
+           RETURNING id
+         `))[0];
+         let recipientCommitmentId = claimed ? String(claimed.id) : "";
+         if (!recipientCommitmentId) {
+           const existingCommitment = rows(await tx.execute(sql`
+             SELECT id FROM sfp_recipient_address_commitments
+              WHERE program_id=${String(sharedCurrentGate.row.program_id)}::uuid
+                AND objective_key=${SFP_INITIAL_RECIPIENT_OBJECTIVE_KEY}
+                AND recipient_identity_hash=${recipientIdentityHash}
+              FOR UPDATE
+           `))[0];
+           if (!existingCommitment) {
+             throw new SfpStagingV2Error("SFP_STAGING_RECIPIENT_CLAIM_RACE_LOST", "unique recipient claim could not be resolved", 409);
+           }
+           recipientCommitmentId = String(existingCommitment.id);
+         }
+         await tx.execute(sql`
+           UPDATE sfp_campaign_staging_intents
+              SET recipient_commitment_id=${recipientCommitmentId}::uuid,updated_at=NOW()
+            WHERE id=${String(intent.id)}::uuid
+         `);
 
-    const masterLead = rows(await tx.execute(sql`
-      SELECT id FROM master_leads
-       WHERE pipeline_origin = 'sfp_pipeline' AND canonical_business_id = ${opts.businessId}
-         AND email_token_hash = ${intentValues.contactEmailTokenHash}
-       LIMIT 1
-    `))[0];
-
-    const intent = rows(await tx.execute(sql`
-      INSERT INTO sfp_campaign_staging_intents
-        (cohort_run_id, eligibility_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id,
-         contact_business_link_decision_id, contact_business_link_revision, normalized_value_hash, normalized_value_hash_version,
-         source_kind,
-         idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage,
-         package_version_id, package_key, policy_document_hash, snapshot_hash, payload_hash, command_key,
-         operator_selected_at, operator_selected_by, ready_held_at)
-      VALUES (${opts.cohortRunId}::uuid, ${opts.eligibilityId}::uuid, ${opts.businessId},
-               ${intentValues.candidateId}::uuid, ${intentValues.paidCandidateEvidenceId}::uuid, ${intentValues.sourceContactId},
-               ${intentValues.sourceContactLinkDecisionId}::uuid, ${intentValues.sourceContactLinkRevision},
-               ${intentValues.normalizedValueHash}, ${intentValues.normalizedValueHashVersion}, ${opts.sourceKind},
-              ${idempotencyKey}, ${opts.actorId}, 'ready_held', ${Number(eligRow.policy_version ?? 1)},
-               ${JSON.stringify({
-                 status: eligRow.status, pinnedPackageContentHash, pinnedPolicyHash, validationExpiresAt: effectiveExpiresAt.toISOString(),
-                  eligibilityReviewId: opts.eligibilityReviewId ?? null,
-                 classifierVersion: Number(eligRow.classifier_version), taxonomyVersion: Number(eligRow.taxonomy_version),
-                 classificationEvidenceId: String(eligRow.classification_evidence_id),
-                 classificationEvidenceHash: String(eligRow.classification_evidence_hash),
-                 classificationPolicyVersion: Number(eligRow.classification_policy_version),
-                 targetVertical, sourceContactId: intentValues.sourceContactId,
-                  validatedEmailTokenHash: intentValues.contactEmailTokenHash,
-                  sourceContactLinkDecisionId: intentValues.sourceContactLinkDecisionId,
-                  sourceContactLinkRevision: intentValues.sourceContactLinkRevision,
-                  normalizedValueHash: intentValues.normalizedValueHash,
-                  normalizedValueHashVersion: intentValues.normalizedValueHashVersion,
-               })}::jsonb,
-               ${JSON.stringify({
-                 source: "sfp_staging_v2", cohortRunId: opts.cohortRunId, eligibilityId: opts.eligibilityId,
-                  eligibilityReviewId: opts.eligibilityReviewId ?? null,
-                 classificationEvidenceId: String(eligRow.classification_evidence_id),
-                 classificationEvidenceHash: String(eligRow.classification_evidence_hash),
-                 targetVertical, sourceContactId: intentValues.sourceContactId,
-                  sourceContactLinkDecisionId: intentValues.sourceContactLinkDecisionId,
-                  sourceContactLinkRevision: intentValues.sourceContactLinkRevision,
-                  normalizedValueHash: intentValues.normalizedValueHash,
-                  normalizedValueHashVersion: intentValues.normalizedValueHashVersion,
-               })}::jsonb,
-              ${pkgRow.id}::uuid, ${opts.packageKey}, ${pinnedPolicyHash}, ${opts.snapshotHash}, ${opts.payloadHash}, ${opts.commandKey},
-              NOW(), ${opts.actorId}, NOW())
-      RETURNING id
-    `))[0];
-
-    if (!masterLead) throw new SfpStagingV2Error("SFP_STAGING_MASTER_LEAD_LOOKUP_FAILED", "master lead row could not be located after projection", 422);
+         let masterLeadId: string | null = null;
+         if (claimed) {
+           const sourceReferenceId = reference.sourceKind === "free"
+             ? reference.freeDiscoveryCandidateId
+             : reference.sourceKind === "paid"
+               ? reference.paidCandidateEvidenceId
+               : String(reference.sourceContactId);
+           await tx.execute(sql`
+             INSERT INTO sfp_recipient_commitment_aliases
+               (commitment_id,staging_intent_id,source_kind,source_reference_id,
+                normalized_value_hash,normalized_value_hash_version,disposition)
+             VALUES (${recipientCommitmentId}::uuid,${String(intent.id)}::uuid,${reference.sourceKind},
+               ${sourceReferenceId},${intentValues.normalizedValueHash},
+               ${intentValues.normalizedValueHashVersion},'initial')
+           `);
+           const masterLead = rows(await tx.execute(sql`
+             INSERT INTO master_leads
+               (status, company, normalized_company, domain, email, email_type, phone, contact_name,contact_title,vertical,
+                outreach_readiness, readiness_reason, source, source_path, city, state, website, email_valid,
+                pipeline_origin, canonical_business_id, email_token_hash, masked_email, created_at, updated_at)
+             VALUES ('staged', ${eligRow.canonical_name}, LOWER(TRIM(${eligRow.canonical_name})), ${eligRow.website_domain},
+                     ${plaintext}, ${eligRow.role_inbox ? "role" : eligRow.named_contact ? "person" : "business"},
+                     ${eligRow.main_phone}, ${contactName},${contactTitle},${targetVertical},
+                     'not_ready', 'ready_held_package_pinned_pending_separate_activation', 'sfp_validated',
+                     ${`sfp:${opts.cohortRunId}:${opts.eligibilityId}`}, ${eligRow.city}, ${eligRow.state},
+                     ${eligRow.website_domain}, TRUE, 'sfp_pipeline', ${opts.businessId},
+                     ${contactEmailTokenHash}, ${eligRow.masked_email ?? null}, NOW(), NOW())
+             ON CONFLICT (canonical_business_id, email_token_hash)
+               WHERE pipeline_origin = 'sfp_pipeline' AND canonical_business_id IS NOT NULL AND email_token_hash IS NOT NULL
+             DO UPDATE SET status = 'staged', email_valid = TRUE,
+                           contact_name=COALESCE(EXCLUDED.contact_name,master_leads.contact_name),
+                           contact_title=COALESCE(EXCLUDED.contact_title,master_leads.contact_title),
+                           updated_at = NOW()
+             RETURNING id
+           `))[0];
+           if (!masterLead) {
+             throw new SfpStagingV2Error("SFP_STAGING_MASTER_LEAD_WRITE_FAILED", "master lead projection did not complete", 422);
+           }
+           masterLeadId = String(masterLead.id);
+           await tx.execute(sql`
+             UPDATE sfp_campaign_staging_intents SET master_lead_id=${masterLeadId}::uuid,updated_at=NOW()
+              WHERE id=${String(intent.id)}::uuid
+           `);
+         }
+         return { contactEmailTokenHash, intentId: String(intent.id), masterLeadId, recipientIdentityHash };
+       },
+       tx,
+     );
 
     await tx.execute(sql`
       UPDATE sfp_outreach_eligibility
-      SET campaign_staged_at = NOW(), campaign_staged_by = ${opts.actorId}, staging_intent_id = ${String(intent.id)}::uuid, updated_at = NOW()
+       SET campaign_staged_at = NOW(), campaign_staged_by = ${opts.actorId}, staging_intent_id = ${String(staged.intentId)}::uuid
       WHERE id = ${opts.eligibilityId}::uuid
-    `);
-    await tx.execute(sql`
-      UPDATE sfp_campaign_staging_intents SET master_lead_id = ${String(masterLead.id)}::uuid, updated_at = NOW()
-      WHERE id = ${String(intent.id)}::uuid
     `);
 
     // PM-10 correction: the item's completion is written in THIS SAME
@@ -1281,6 +1432,16 @@ async function stageOneRowTransactional(opts: {
     // ready_held intent whose stage item still reads pending/claimed, and
     // no separate reconciliation step is needed to catch that split state.
     await markStageItemCompletedInTx(tx, opts.stageItemId, "ready_held", { incrementAttempt: opts.incrementAttempt ?? true });
-    return String(intent.id);
+     if (await isCanonicallySuppressed([String(staged.contactEmailTokenHash)], tx)) {
+       throw new SfpStagingV2Error("SFP_STAGING_SUPPRESSED", "address became suppressed before transaction commit", 409);
+     }
+     if (!(await isCurrentSfpValidationReceiptFresh(tx, {
+       eligibilityId: opts.eligibilityId,
+       businessId: opts.businessId,
+       emailTokenHash: String(staged.contactEmailTokenHash),
+     }))) {
+       throw new SfpStagingV2Error("SFP_STAGING_VALIDATION_EXPIRED_AT_COMMIT", "provider receipt expired before transaction commit", 409);
+     }
+     return String(staged.intentId);
   });
 }

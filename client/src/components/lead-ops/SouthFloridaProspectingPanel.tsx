@@ -7,10 +7,11 @@
  * No outreach is sent automatically.
  */
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -171,17 +172,45 @@ type SfpCampaignStagingTelemetry = {
   capability: { profile: string; selectiveGroups: string[]; active: boolean };
   program: { name: string; isActive: boolean; recurringEnabled: boolean; campaignStagingBatchSize: number } | null;
   effectiveEnablement: boolean;
+  outbound: { globalState: string; globalPaused: boolean; pauseEpoch: string; stateSource: string };
+  packageControls: { ok: boolean; issues: string[] };
   lastRun: { id: string; state: string; selected: number; processed: number; succeeded: number; failed: number; terminalReason: string | null; createdAt: string; startedAt: string | null; completedAt: string | null } | null;
   lastCompletedRun: { id: string; state: string; completedAt: string | null } | null;
   currentlyRunning: { id: string; leaseExpiresAt: string | null; lastHeartbeatAt: string | null } | null;
   cancellableRun: { id: string; state: string; leaseExpiresAt: string | null } | null;
-  backlog: { eligibleAwaitingStaging: number; freshAwaitingStaging: number };
+  backlog: { eligibleAwaitingStaging: number; freshAwaitingStaging: number; meaning: string; configuredBatchSize: number };
+  readyHeldConsumer: {
+    unqueuedReadyHeld: number; pending: number; claimed: number; staleClaims: number; retrying: number; held: number;
+    completed: number; deadLettered: number; completedLast24h: number; lastProgressAt: string | null;
+    batchLimit: number; scheduleActive: boolean;
+    heldSample: Array<{
+      id: string; stagingIntentId: string; businessId: number; packageKey: string | null;
+      state: string; attemptCount: number; reason: string | null; updatedAt: string;
+    }>;
+  };
   throughput: { completedLast24h: number; deadLetteredLast24h: number };
   retries: { currentlyRetrying: number; staleLeases: number };
   deadLetters: { total: number; sample: Array<{ id: string; businessId: number; outcomeCode: string | null; attemptCount: number; completedAt: string | null }> };
   cost: { reportedCostMicros: number; note: string };
   workerHealth: { queueManagerReady: boolean; repeatableJobRegistered: boolean; nextRunEstimateAt: string | null; intervalMs: number | null };
   capturedAt: string;
+};
+
+type SfpRuntimeReleaseSelectionStatus = {
+  selectedRelease: {
+    artifactSha: string; deploymentIdentity: string; environmentIdentity: string; queueTopologyHash: string;
+    selectedBy: string; selectedAt: string; selectionVersion: number; selectionEventId: string;
+    publisherVerifiedArtifactSha: string;
+    publisherVerifiedDeploymentIdentity: string; verificationReference: string;
+  } | null;
+  currentRelease: {
+    artifactSha: string; deploymentIdentity: string; environmentIdentity: string; queueTopologyHash: string;
+  } | null;
+  currentReleaseSelected: boolean;
+  ownerLeaseExpiresAt: string | null;
+  ownerLive: boolean;
+  ready: boolean;
+  reason: string | null;
 };
 
 type PaidWaterfallPreview = {
@@ -237,6 +266,7 @@ function QueryFailure({ label, error }: { label: string; error: unknown }) {
 
 export function SouthFloridaProspectingPanel() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [showProspects, setShowProspects] = useState(false);
   const [stagingResult, setStagingResult] = useState<{ created: number; skipped: number; rejected: number; reasons: Record<string, number> } | null>(null);
@@ -278,6 +308,11 @@ export function SouthFloridaProspectingPanel() {
   const [freeOnlySnapshotId, setFreeOnlySnapshotId] = useState<string | null>(null);
   const [freeOnlyFreezeResult, setFreeOnlyFreezeResult] = useState<{ businessIds: number[]; rejectedAtFreeze: Array<{ businessId: number; reason: string }> } | null>(null);
   const [freeOnlyRunResult, setFreeOnlyRunResult] = useState<{ processed: number; targetCount: number; nonTargetCount: number; reviewRequiredCount: number; costMicros: number } | null>(null);
+  const [stagingBatchDraft, setStagingBatchDraft] = useState("25");
+  const [publisherVerifiedArtifactSha, setPublisherVerifiedArtifactSha] = useState("");
+  const [publisherVerifiedDeploymentIdentity, setPublisherVerifiedDeploymentIdentity] = useState("");
+  const [runtimeVerificationReference, setRuntimeVerificationReference] = useState("");
+  const [runtimePublisherEvidenceConfirmed, setRuntimePublisherEvidenceConfirmed] = useState(false);
 
   useEffect(() => {
     setSelectedEligibilityIds([]);
@@ -289,6 +324,9 @@ export function SouthFloridaProspectingPanel() {
     queryKey: ["/api/lead-ops/sfp/program"],
     retry: false,
   });
+  useEffect(() => {
+    if (programQuery.data) setStagingBatchDraft(String(programQuery.data.campaignStagingBatchSize || 25));
+  }, [programQuery.data?.id, programQuery.data?.campaignStagingBatchSize]);
 
   const runsQuery = useQuery<{ runs: SfpCohortRun[] }>({
     queryKey: ["/api/lead-ops/sfp/runs"],
@@ -347,6 +385,80 @@ export function SouthFloridaProspectingPanel() {
     queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"],
     refetchInterval: 30_000,
     retry: false,
+  });
+
+  const runtimeReleaseSelectionQuery = useQuery<SfpRuntimeReleaseSelectionStatus>({
+    queryKey: ["/api/lead-ops/sfp/runtime-release-selection"],
+    enabled: user?.role === "admin",
+    refetchInterval: 30_000,
+    retry: false,
+  });
+
+  const selectRuntimeReleaseMutation = useMutation({
+    mutationFn: async () => {
+      const status = runtimeReleaseSelectionQuery.data;
+      if (!status?.currentRelease) throw new Error("This worker has no verified runtime release identity to select.");
+      return await (await apiRequest("POST", "/api/lead-ops/sfp/runtime-release-selection/select", {
+        expectedPreviousSelectionVersion: status.selectedRelease?.selectionVersion ?? null,
+        expectedPreviousArtifactSha: status.selectedRelease?.artifactSha ?? null,
+        publisherVerifiedArtifactSha: publisherVerifiedArtifactSha.trim(),
+        publisherVerifiedDeploymentIdentity: publisherVerifiedDeploymentIdentity.trim(),
+        verificationReference: runtimeVerificationReference.trim(),
+      })).json() as {
+        selection: { action: "bootstrap" | "transfer"; eventId: string };
+        status: SfpRuntimeReleaseSelectionStatus;
+      };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(["/api/lead-ops/sfp/runtime-release-selection"], result.status);
+      setRuntimePublisherEvidenceConfirmed(false);
+      toast({
+        title: result.selection.action === "bootstrap" ? "Published SFP runtime selected" : "SFP runtime release transferred",
+        description: `Audited event ${result.selection.eventId}. Readiness: ${result.status.ready ? "ready" : result.status.reason ?? "held"}. No paid permission or outbound state changed.`,
+      });
+    },
+    onError: (error: Error) => {
+      runtimeReleaseSelectionQuery.refetch();
+      toast({ title: "Runtime release selection failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const stagingScheduleMutation = useMutation({
+    mutationFn: async ({ recurringEnabled, batchSize }: { recurringEnabled: boolean; batchSize: number }) =>
+      (await apiRequest("POST", "/api/lead-ops/sfp/program/campaign-staging-schedule", { recurringEnabled, batchSize })).json(),
+    onSuccess: (result: any) => {
+      queryClient.setQueryData(["/api/lead-ops/sfp/program"], result.program);
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/campaign-staging/telemetry"] });
+      toast({
+        title: result.program.recurringEnabled ? "SFP recurrence enabled" : "SFP recurrence disabled",
+        description: "Only bounded campaign preparation and paused bridge work are scheduled. Outbound remains paused.",
+      });
+    },
+    onError: (error: Error) => toast({ title: "Schedule update failed", description: error.message, variant: "destructive" }),
+  });
+
+  const readyHeldConsumerMutation = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("POST", "/api/lead-ops/sfp/ready-held-consumer/run", { limit: 25 })).json(),
+    onSuccess: (result: any) => {
+      stagingTelemetryQuery.refetch();
+      toast({
+        title: "Paused enrollment batch finished",
+        description: result.enabled === false
+          ? `No work was claimed. Queue held: ${result.stopReason ?? "runtime readiness unavailable"}. No activation or sends.`
+          : `Attempted ${result.attempted}; paused bridge receipts ${result.completed}; held ${result.held}; retrying ${result.retrying}. No activation or sends.`,
+      });
+    },
+    onError: (error: Error) => toast({ title: "Paused enrollment batch failed", description: error.message, variant: "destructive" }),
+  });
+  const retryReadyHeldConsumerItem = useMutation({
+    mutationFn: async (id: string) =>
+      (await apiRequest("POST", `/api/lead-ops/sfp/ready-held-consumer/items/${id}/retry`, {})).json(),
+    onSuccess: () => {
+      stagingTelemetryQuery.refetch();
+      toast({ title: "Held item requeued", description: "It will be rechecked by the canonical paused bridge before any new local side effect." });
+    },
+    onError: (error: Error) => toast({ title: "Consumer item retry failed", description: error.message, variant: "destructive" }),
   });
 
   const paidPreviewQuery = useQuery<PaidWaterfallPreview>({
@@ -1119,9 +1231,11 @@ export function SouthFloridaProspectingPanel() {
           <CardContent className="pt-0">
             <div className="space-y-1">
               {runs.slice(0, 10).map((run) => (
-                <div
+                <button
+                  type="button"
                   key={run.id}
-                  className={`flex items-center justify-between p-2 rounded cursor-pointer text-xs border ${run.id === activeRunId ? "bg-blue-50 border-blue-200" : "bg-muted/30 border-transparent hover:border-muted"}`}
+                  aria-label={`Select cohort run ${run.id}`}
+                  className={`flex w-full items-center justify-between p-2 rounded cursor-pointer text-xs border text-left ${run.id === activeRunId ? "bg-blue-50 border-blue-200" : "bg-muted/30 border-transparent hover:border-muted"}`}
                   onClick={() => setActiveRunId(run.id)}
                 >
                   <div className="flex items-center gap-2">
@@ -1134,7 +1248,7 @@ export function SouthFloridaProspectingPanel() {
                     {(run as any).supersededAt && <Badge variant="secondary">Superseded</Badge>}
                   </div>
                   {run.id === activeRunId && <Badge variant="outline">Active</Badge>}
-                </div>
+                </button>
               ))}
             </div>
           </CardContent>
@@ -1585,6 +1699,142 @@ export function SouthFloridaProspectingPanel() {
               </div>
               <div className="rounded border p-2 text-xs space-y-1">
                 <div className="font-medium">SFP staging worker telemetry</div>
+                {user?.role === "admin" && (
+                  <div className="rounded border border-amber-500/50 bg-amber-50/50 p-2 dark:bg-amber-950/20">
+                    <div className="font-medium">Published runtime-release ownership</div>
+                    {runtimeReleaseSelectionQuery.isLoading ? (
+                      <div className="text-muted-foreground">Reading durable release selection…</div>
+                    ) : runtimeReleaseSelectionQuery.data ? (
+                      <>
+                        <div className={runtimeReleaseSelectionQuery.data.ready ? "text-green-700" : "font-medium text-amber-800 dark:text-amber-200"}>
+                          {runtimeReleaseSelectionQuery.data.ready
+                            ? "Selected published release has a live runtime owner."
+                            : `Queue work held · ${runtimeReleaseSelectionQuery.data.reason ?? "runtime readiness unavailable"}`}
+                        </div>
+                        {runtimeReleaseSelectionQuery.data.ownerLeaseExpiresAt && (
+                          <div className="text-muted-foreground">
+                            Owner lease expires {new Date(runtimeReleaseSelectionQuery.data.ownerLeaseExpiresAt).toLocaleString()} · live {runtimeReleaseSelectionQuery.data.ownerLive ? "yes" : "no"}
+                          </div>
+                        )}
+                        {runtimeReleaseSelectionQuery.data.currentRelease ? (
+                          <div className="break-all text-muted-foreground">
+                            This worker: {runtimeReleaseSelectionQuery.data.currentRelease.artifactSha} · deployment {runtimeReleaseSelectionQuery.data.currentRelease.deploymentIdentity}
+                            {runtimeReleaseSelectionQuery.data.currentReleaseSelected ? " (selected)" : " (not selected)"}
+                          </div>
+                        ) : (
+                          <div className="text-muted-foreground">This process has no verified runtime release identity.</div>
+                        )}
+                        {runtimeReleaseSelectionQuery.data.selectedRelease ? (
+                          <div className="break-all text-muted-foreground">
+                            Selected: {runtimeReleaseSelectionQuery.data.selectedRelease.artifactSha} · deployment {runtimeReleaseSelectionQuery.data.selectedRelease.deploymentIdentity}
+                            {" · "}selection version {runtimeReleaseSelectionQuery.data.selectedRelease.selectionVersion}
+                            {" · "}audited event {runtimeReleaseSelectionQuery.data.selectedRelease.selectionEventId}
+                            {" · "}publisher evidence{" "}
+                            {/^https:\/\//i.test(runtimeReleaseSelectionQuery.data.selectedRelease.verificationReference) ? (
+                              <a
+                                className="underline"
+                                href={runtimeReleaseSelectionQuery.data.selectedRelease.verificationReference}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {runtimeReleaseSelectionQuery.data.selectedRelease.verificationReference}
+                              </a>
+                            ) : runtimeReleaseSelectionQuery.data.selectedRelease.verificationReference}
+                            {" · "}selected by {runtimeReleaseSelectionQuery.data.selectedRelease.selectedBy}
+                          </div>
+                        ) : (
+                          <div className="text-muted-foreground">No published release selection is recorded; scheduled SFP work is held.</div>
+                        )}
+                        {runtimeReleaseSelectionQuery.data.currentRelease &&
+                          !runtimeReleaseSelectionQuery.data.currentReleaseSelected && (
+                            <div className="mt-2 space-y-2 border-t pt-2">
+                              <div className="font-medium">
+                                {runtimeReleaseSelectionQuery.data.selectedRelease
+                                  ? `Transfer selection from version ${runtimeReleaseSelectionQuery.data.selectedRelease.selectionVersion} using compare-and-set.`
+                                  : "Bootstrap the first published-release selection."}
+                              </div>
+                              <div className="text-muted-foreground">
+                                Enter publisher-verified values from the live deployment record and its HTTPS evidence URL. The service checks the values against this worker’s release/deployment identity; do not use its displayed RELEASE_SHA alone as proof. The selection is audited and does not change paid-provider permissions, outreach, or global outbound state.
+                              </div>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <label className="space-y-1">
+                                  <span className="block font-medium">Publisher-verified artifact SHA</span>
+                                  <input
+                                    aria-label="Publisher-verified artifact SHA"
+                                    autoComplete="off"
+                                    maxLength={40}
+                                    value={publisherVerifiedArtifactSha}
+                                    onChange={(event) => setPublisherVerifiedArtifactSha(event.target.value)}
+                                    className="h-8 w-full rounded-md border bg-background px-2 font-mono text-xs"
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="block font-medium">Publisher-verified deployment identity</span>
+                                  <input
+                                    aria-label="Publisher-verified deployment identity"
+                                    autoComplete="off"
+                                    maxLength={240}
+                                    value={publisherVerifiedDeploymentIdentity}
+                                    onChange={(event) => setPublisherVerifiedDeploymentIdentity(event.target.value)}
+                                    className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                                  />
+                                </label>
+                                <label className="space-y-1 sm:col-span-2">
+                                  <span className="block font-medium">HTTPS publisher verification evidence URL</span>
+                                  <input
+                                    aria-label="HTTPS publisher verification evidence URL"
+                                    type="url"
+                                    autoComplete="url"
+                                    maxLength={500}
+                                    value={runtimeVerificationReference}
+                                    onChange={(event) => setRuntimeVerificationReference(event.target.value)}
+                                    className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                                  />
+                                </label>
+                              </div>
+                              <label className="flex items-start gap-2 text-muted-foreground">
+                                <input
+                                  aria-label="Confirm independently verified published release evidence"
+                                  type="checkbox"
+                                  checked={runtimePublisherEvidenceConfirmed}
+                                  onChange={(event) => setRuntimePublisherEvidenceConfirmed(event.target.checked)}
+                                  className="mt-0.5"
+                                />
+                                <span>I independently verified these SHA/deployment values against the publisher evidence above.</span>
+                              </label>
+                              <Button
+                                size="sm"
+                                disabled={
+                                  selectRuntimeReleaseMutation.isPending ||
+                                  !/^[0-9a-f]{40}$/i.test(publisherVerifiedArtifactSha.trim()) ||
+                                  !publisherVerifiedDeploymentIdentity.trim() ||
+                                  !/^https:\/\/\S+$/i.test(runtimeVerificationReference.trim()) ||
+                                  !runtimePublisherEvidenceConfirmed
+                                }
+                                onClick={() => selectRuntimeReleaseMutation.mutate()}
+                              >
+                                {selectRuntimeReleaseMutation.isPending
+                                  ? "Recording audited selection…"
+                                  : runtimeReleaseSelectionQuery.data.selectedRelease
+                                    ? "Transfer selection to this published release"
+                                    : "Bootstrap current published release selection"}
+                              </Button>
+                            </div>
+                          )}
+                        {runtimeReleaseSelectionQuery.data.currentReleaseSelected && (
+                          <div className="text-muted-foreground">
+                            This release is selected. Owner lease state is shown above; heartbeat/consumer acquisition is separate from release selection.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-destructive">
+                        Runtime selection status unavailable; do not infer readiness.
+                        {runtimeReleaseSelectionQuery.error instanceof Error ? ` ${runtimeReleaseSelectionQuery.error.message}` : ""}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {stagingTelemetryQuery.isLoading ? (
                   <span className="text-muted-foreground">Loading worker telemetry…</span>
                 ) : stagingTelemetryQuery.data ? (
@@ -1598,15 +1848,140 @@ export function SouthFloridaProspectingPanel() {
                         {stagingTelemetryQuery.data.program ? `, batch=${stagingTelemetryQuery.data.program.campaignStagingBatchSize}` : ", no program"})
                       </span>
                     </div>
+                    <div className={`text-xs font-medium ${stagingTelemetryQuery.data.outbound.globalPaused ? "text-green-700" : "text-destructive"}`}>
+                      Global outbound: {stagingTelemetryQuery.data.outbound.globalState.toUpperCase()}
+                      {" · "}epoch {stagingTelemetryQuery.data.outbound.pauseEpoch}
+                      {" · "}source {stagingTelemetryQuery.data.outbound.stateSource}
+                    </div>
+                    <div className={`text-xs ${stagingTelemetryQuery.data.packageControls.ok ? "text-green-700" : "text-destructive"}`}>
+                      Current v2 package controls: {stagingTelemetryQuery.data.packageControls.ok ? "draft campaigns + paused sequences verified" : "not ready"}
+                    </div>
+                    {!stagingTelemetryQuery.data.packageControls.ok && (
+                      <ul className="list-disc pl-5 text-xs text-destructive">
+                        {stagingTelemetryQuery.data.packageControls.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                      </ul>
+                    )}
+                    {user?.role === "admin" && (
+                      <div className="flex flex-wrap items-end gap-2 rounded border p-2">
+                        <label className="space-y-1 text-xs">
+                          <span className="block font-medium">Campaign staging batch (1–25, configured capacity)</span>
+                          <input
+                            aria-label="Campaign staging batch size"
+                            type="number"
+                            min={1}
+                            max={25}
+                            step={1}
+                            value={stagingBatchDraft}
+                            onChange={(event) => setStagingBatchDraft(event.target.value)}
+                            className="h-8 w-24 rounded-md border bg-background px-2 text-sm"
+                          />
+                        </label>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={stagingScheduleMutation.isPending || !program?.isActive || !Number.isInteger(Number(stagingBatchDraft)) || Number(stagingBatchDraft) < 1 || Number(stagingBatchDraft) > 25}
+                          onClick={() => stagingScheduleMutation.mutate({
+                            recurringEnabled: program?.recurringEnabled === true,
+                            batchSize: Number(stagingBatchDraft),
+                          })}
+                        >
+                          {stagingScheduleMutation.isPending ? "Saving…" : "Save bounded schedule"}
+                        </Button>
+                        {program?.recurringEnabled ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={stagingScheduleMutation.isPending}
+                            onClick={() => stagingScheduleMutation.mutate({
+                              recurringEnabled: false,
+                              batchSize: Math.min(25, Math.max(1, Number(program.campaignStagingBatchSize) || Number(stagingBatchDraft) || 1)),
+                            })}
+                          >
+                            Pause recurrence
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            disabled={
+                              stagingScheduleMutation.isPending || !program?.isActive ||
+                              !stagingTelemetryQuery.data.packageControls.ok ||
+                              runtimeReleaseSelectionQuery.data?.ready !== true
+                            }
+                            onClick={() => stagingScheduleMutation.mutate({
+                              recurringEnabled: true,
+                              batchSize: Number(stagingBatchDraft),
+                            })}
+                          >
+                            Enable recurrence
+                          </Button>
+                        )}
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
                       <span>Backlog (fresh): {stagingTelemetryQuery.data.backlog.freshAwaitingStaging}</span>
                       <span>Backlog (total): {stagingTelemetryQuery.data.backlog.eligibleAwaitingStaging}</span>
+                      <span>Configured stage batch: {stagingTelemetryQuery.data.backlog.configuredBatchSize}</span>
+                      <span className="col-span-2">{stagingTelemetryQuery.data.backlog.meaning}</span>
                       <span>Completed (24h): {stagingTelemetryQuery.data.throughput.completedLast24h}</span>
                       <span>Retrying: {stagingTelemetryQuery.data.retries.currentlyRetrying}</span>
                       <span>Stale leases: {stagingTelemetryQuery.data.retries.staleLeases}</span>
                       <span className={stagingTelemetryQuery.data.deadLetters.total > 0 ? "text-destructive" : ""}>
                         Dead letters: {stagingTelemetryQuery.data.deadLetters.total}
                       </span>
+                    </div>
+                    <div className="rounded border p-2">
+                      <div className="font-medium text-foreground">Ready-held → paused enrollment consumer</div>
+                      <div className="grid grid-cols-2 gap-x-3 text-muted-foreground">
+                        <span>Ready-held not yet queued: {stagingTelemetryQuery.data.readyHeldConsumer.unqueuedReadyHeld}</span>
+                        <span>Pending / claimed: {stagingTelemetryQuery.data.readyHeldConsumer.pending} / {stagingTelemetryQuery.data.readyHeldConsumer.claimed}</span>
+                        <span>Stale claims: {stagingTelemetryQuery.data.readyHeldConsumer.staleClaims}</span>
+                        <span>Retrying / held: {stagingTelemetryQuery.data.readyHeldConsumer.retrying} / {stagingTelemetryQuery.data.readyHeldConsumer.held}</span>
+                        <span>Completed / dead-letter: {stagingTelemetryQuery.data.readyHeldConsumer.completed} / {stagingTelemetryQuery.data.readyHeldConsumer.deadLettered}</span>
+                        <span>Completed last 24h: {stagingTelemetryQuery.data.readyHeldConsumer.completedLast24h}</span>
+                        <span>Last progress: {stagingTelemetryQuery.data.readyHeldConsumer.lastProgressAt ? new Date(stagingTelemetryQuery.data.readyHeldConsumer.lastProgressAt).toLocaleString() : "none recorded"}</span>
+                      </div>
+                      {user?.role === "admin" && (
+                        <Button
+                          size="sm"
+                          className="mt-2"
+                          disabled={
+                            readyHeldConsumerMutation.isPending || !program?.isActive ||
+                            !stagingTelemetryQuery.data.outbound.globalPaused ||
+                            !stagingTelemetryQuery.data.packageControls.ok ||
+                            runtimeReleaseSelectionQuery.data?.ready !== true
+                          }
+                          onClick={() => readyHeldConsumerMutation.mutate()}
+                        >
+                          {readyHeldConsumerMutation.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
+                          Process up to 25 ready-held intents (paused only)
+                        </Button>
+                      )}
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Durable per-intent claims/leases/retries; blocked items stay held. No activation or sends.
+                      </p>
+                      {stagingTelemetryQuery.data.readyHeldConsumer.heldSample.length > 0 && (
+                        <div className="mt-2 space-y-1 border-t pt-2">
+                          <div className="text-xs font-medium">Recent held consumer items</div>
+                          {stagingTelemetryQuery.data.readyHeldConsumer.heldSample.map((item) => (
+                            <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                              <span className="min-w-0 truncate">
+                                biz#{item.businessId} · {item.state} · {item.reason ?? "reason unavailable"} · {item.attemptCount} attempts
+                                {item.packageKey ? ` · ${item.packageKey}` : ""}
+                              </span>
+                              {user?.role === "admin" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={retryReadyHeldConsumerItem.isPending}
+                                  onClick={() => retryReadyHeldConsumerItem.mutate(item.id)}
+                                >
+                                  Retry after review
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {stagingTelemetryQuery.data.lastRun && (
                       <div className="text-muted-foreground">
@@ -1675,7 +2050,7 @@ export function SouthFloridaProspectingPanel() {
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Lock className="h-3 w-3" />
               Staging is idempotent. All re-verification gates run at execution time.
-              No email is sent. No sequence enrolled. No GHL write. Outbound stays paused.
+              No email is sent or GHL write occurs. The ready-held bridge may create only a paused local enrollment; campaigns remain draft and outbound stays paused.
             </p>
             {stagingResult && Object.keys(stagingResult.reasons ?? {}).length > 0 && (
               <div className="flex flex-wrap gap-1 text-xs">

@@ -161,6 +161,40 @@ export async function computeLivePackageContentHash(
   return sha256({ campaignRow, campaignStepRows, sequenceRow, sequenceStepRows });
 }
 
+/**
+ * Acquire a writer-compatible fence around all package content before the
+ * canonical hash is read. Parent FOR UPDATE locks conflict with the KEY SHARE
+ * locks taken by the campaign_steps.campaign_id and
+ * sequence_steps.sequence_id foreign keys, fencing concurrent child inserts;
+ * locking every current child fences edits/deletes. Keep this fixed order in
+ * every commit-time package consumer.
+ */
+export async function lockLivePackageContentRows(
+  exec: { execute: (q: any) => Promise<any> },
+  campaignId: number,
+  sequenceId: number,
+): Promise<{ campaign: any; sequence: any }> {
+  const campaign = rows(await exec.execute(sql`
+    SELECT id,status FROM campaigns WHERE id=${campaignId} FOR UPDATE
+  `))[0];
+  if (!campaign) throw new Error("SFP_PACKAGE_CAMPAIGN_NOT_FOUND");
+  const sequence = rows(await exec.execute(sql`
+    SELECT id,status,trigger_config FROM follow_up_sequences WHERE id=${sequenceId} FOR UPDATE
+  `))[0];
+  if (!sequence) throw new Error("SFP_PACKAGE_SEQUENCE_NOT_FOUND");
+  await exec.execute(sql`
+    SELECT id FROM campaign_steps
+     WHERE campaign_id=${campaignId}
+     ORDER BY id FOR UPDATE
+  `);
+  await exec.execute(sql`
+    SELECT id FROM sequence_steps
+     WHERE sequence_id=${sequenceId}
+     ORDER BY id FOR UPDATE
+  `);
+  return { campaign, sequence };
+}
+
 export interface PackageConvergencePreviewRow {
   packageKey: SfpPackageKey;
   vertical: string;

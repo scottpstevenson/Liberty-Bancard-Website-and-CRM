@@ -10,6 +10,11 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
+import {
+  lockSfpContactAddress,
+  normalizeSfpContactAddress,
+} from "./cro03/sfp-contact-address-lock";
+import { lockSfpBusinessSafetySentinel } from "./cro03/sfp-eligibility-locks";
 
 export const CONSENT_SCHEMA_VERSION = 1;
 export const DEFAULT_CONSENT_PURPOSE = "outreach";
@@ -88,8 +93,7 @@ interface ChannelStateRow {
 }
 
 function normalizeEmail(value: string | null | undefined): string | null {
-  const normalized = value?.trim().toLowerCase();
-  return normalized || null;
+  return normalizeSfpContactAddress(value);
 }
 
 export function normalizeConsentPhone(value: string | null | undefined): string | null {
@@ -143,6 +147,28 @@ function assertCommandShape(command: ConsentCommand, receiptAt: Date): void {
   if (command.effectiveAt && command.effectiveAt.getTime() > receiptAt.getTime() + MAX_PUBLIC_FUTURE_MS) {
     throw new Error("Consent effective time cannot be materially in the future");
   }
+}
+
+async function lockConsentSubjectAddress(tx: any, ref: ConsentSubjectRef): Promise<void> {
+  const entity = ref.type === "contact"
+    ? rows(await tx.execute(sql`
+        SELECT id,email,business_id FROM contacts WHERE id=${ref.id} FOR UPDATE
+      `))[0]
+    : ref.type === "prospect"
+      ? rows(await tx.execute(sql`SELECT id,email FROM prospects WHERE id=${ref.id}`))[0]
+      : ref.type === "sdr_lead_state"
+        ? rows(await tx.execute(sql`SELECT id,email FROM sdr_lead_state WHERE id=${ref.id}`))[0]
+        : rows(await tx.execute(sql`SELECT id,email FROM sdr_merchant_contacts WHERE id=${ref.id}`))[0];
+  if (!entity) throw new Error(`Consent subject ${ref.type}:${ref.id} does not exist`);
+
+  // A contact row is locked first because this command also maintains its
+  // compatibility projection; contact writers use tuple -> business sentinel
+  // -> normalized-address order. SFP readers never take a contact tuple lock.
+  if (ref.type === "contact" && entity.business_id != null &&
+      Number.isSafeInteger(Number(entity.business_id))) {
+    await lockSfpBusinessSafetySentinel(tx, Number(entity.business_id));
+  }
+  await lockSfpContactAddress(tx, entity.email);
 }
 
 async function resolveSubject(tx: any, ref: ConsentSubjectRef): Promise<SubjectRow> {
@@ -414,6 +440,7 @@ export async function applyConsentCommand(command: ConsentCommand): Promise<Cons
   const effectiveAt = command.effectiveAt ?? receiptAt;
 
   return db.transaction(async (tx) => {
+    await lockConsentSubjectAddress(tx, command.subject);
     const subject = await resolveSubject(tx, command.subject);
     // Occurrence identity spans both accepted facts and rejected decision
     // traces. Check it under the subject fence before re-evaluating state, so a

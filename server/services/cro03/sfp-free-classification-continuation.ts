@@ -1,17 +1,16 @@
-/** Restart-safe, strictly free SFP Phase A continuation. One tick scans at
- * most 250 canonical records and classifies at most 25. No paid transport,
- * contact, enrollment, GHL, campaign, or send path is reachable here. */
+/** Restart-safe SFP Phase A continuation. One tick advances a bounded
+ * 25-business watermark. The deterministic pass is always provider-free;
+ * unresolved verticals are separately retried only through the existing,
+ * authorized OpenAI SFP adapter. No contact, enrollment, campaign, or send
+ * path is reachable here. */
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { CLASSIFIER_VERSION } from "./sfp-vertical-classifier";
-import {
-  freezeClassificationSnapshot,
-  previewHighConfidenceClassificationCandidates,
-  runFrozenClassificationSnapshot,
-} from "./sfp-classification-bridge";
+import { runPreCohortClassificationBridge } from "./sfp-classification-bridge";
+import { getSfpProviderReadiness } from "./sfp-provider-operations";
+import { resolveGeographyForBusiness } from "./sfp-geography-resolver";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
-const SCAN_LIMIT = 250;
 const RUN_LIMIT = 25;
 
 export async function getSfpFreeClassificationContinuation(programId: string) {
@@ -21,7 +20,8 @@ export async function getSfpFreeClassificationContinuation(programId: string) {
   `))[0] ?? null;
 }
 
-/** An explicit admin action, never triggered by deployment or program activation. */
+/** Start a bounded pass for explicit operator use. The scheduled worker also
+ * opens/reopens passes automatically for the active SFP v2 program. */
 export async function startSfpFreeClassificationContinuation(programId: string) {
   const program = rows(await db.execute(sql`
     SELECT id,policy_version,taxonomy_version,is_active FROM sfp_programs
@@ -48,16 +48,16 @@ export async function startSfpFreeClassificationContinuation(programId: string) 
     `))[0] ?? existing;
   }
   // The upper bound is pinned for this pass so ongoing Sunbiz ingestion
-  // cannot keep moving the finish line; a later explicit start begins a new
-  // pass. Existing current-version evidence makes rescans inexpensive.
+  // cannot keep moving the finish line. The worker advances the watermark
+  // automatically after completion.
   const started = rows(await db.execute(sql`
     INSERT INTO sfp_free_classification_continuations
       (program_id,state,high_water_business_id,stop_business_id,policy_version,taxonomy_version,classifier_version,
        scanned_count,processed_count,target_count,rejected_count,lease_token,lease_expires_at,last_error,last_tick_at,started_at,updated_at)
-    VALUES (${programId}::uuid,'running',0,(SELECT COALESCE(MAX(id),0) FROM businesses),
+     VALUES (${programId}::uuid,'running',0,(SELECT COALESCE(MAX(id),0) FROM businesses WHERE record_class='canonical'),
             ${Number(program.policy_version)},2,${CLASSIFIER_VERSION},0,0,0,0,NULL,NULL,NULL,NULL,NOW(),NOW())
     ON CONFLICT (program_id) DO UPDATE SET
-       state='running',high_water_business_id=0,stop_business_id=EXCLUDED.stop_business_id,
+        state='running',high_water_business_id=0,stop_business_id=EXCLUDED.stop_business_id,
        policy_version=EXCLUDED.policy_version,taxonomy_version=2,classifier_version=${CLASSIFIER_VERSION},
        scanned_count=0,processed_count=0,target_count=0,rejected_count=0,
        lease_token=NULL,lease_expires_at=NULL,last_error=NULL,last_tick_at=NULL,started_at=NOW(),updated_at=NOW()
@@ -74,25 +74,216 @@ export async function pauseSfpFreeClassificationContinuation(programId: string) 
   `))[0] ?? await getSfpFreeClassificationContinuation(programId);
 }
 
-/** Queue tick. A DB lease fences overlapping BullMQ workers; the cursor only
- * advances after the frozen, provider-free run finishes. A crash replays the
- * same window once the lease expires; current evidence avoids reclassifying
- * already completed target/non-target records. */
-export async function processSfpFreeClassificationTick(): Promise<{
+async function getAutomaticSfpProgram() {
+  return rows(await db.execute(sql`
+    SELECT id,policy_version,taxonomy_version,is_active,vertical_ids
+      FROM sfp_programs WHERE name='south-florida-v1' AND is_active=TRUE
+        AND taxonomy_version=2
+      ORDER BY created_at DESC LIMIT 1
+  `))[0];
+}
+
+async function ensureAutomaticSfpPass(program: any): Promise<void> {
+  if (!program) return;
+  const programId = String(program.id);
+  const existing = await getSfpFreeClassificationContinuation(programId);
+  if (!existing) {
+    await startSfpFreeClassificationContinuation(programId);
+    return;
+  }
+  // An explicit pause remains authoritative. New records wait for the
+  // operator to resume rather than silently overriding that control.
+  if (existing.state !== "completed") return;
+  const latest = Number(rows(await db.execute(sql`
+    SELECT COALESCE(MAX(id),0) AS latest_id
+      FROM businesses WHERE record_class='canonical'
+  `))[0]?.latest_id ?? 0);
+  const versionChanged =
+    Number(existing.policy_version) !== Number(program.policy_version) ||
+    Number(existing.taxonomy_version) !== 2 ||
+    Number(existing.classifier_version) !== CLASSIFIER_VERSION;
+  if (!versionChanged && latest <= Number(existing.stop_business_id)) return;
+  await db.execute(sql`
+    UPDATE sfp_free_classification_continuations
+       SET state='running',
+           high_water_business_id=${versionChanged ? 0 : Number(existing.stop_business_id)},
+           stop_business_id=${latest},
+           policy_version=${Number(program.policy_version)},
+           taxonomy_version=2,
+           classifier_version=${CLASSIFIER_VERSION},
+           lease_token=NULL,lease_expires_at=NULL,last_error=NULL,last_tick_at=NULL,
+           started_at=NOW(),updated_at=NOW()
+     WHERE program_id=${programId}::uuid AND state='completed'
+  `);
+}
+
+async function processPendingVerticalEscalations(program: any): Promise<{ escalated: number; costMicros: number }> {
+  if (!program || process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
+    return { escalated: 0, costMicros: 0 };
+  }
+  const readiness = await getSfpProviderReadiness("openai_classification");
+  if (!readiness.ready) return { escalated: 0, costMicros: 0 };
+  const pending = rows(await db.execute(sql`
+    SELECT DISTINCT ON (e.business_id) e.business_id
+      FROM sfp_classification_evidence e
+     WHERE e.policy_version=${Number(program.policy_version)}
+       AND e.taxonomy_version=2 AND e.classifier_version=${CLASSIFIER_VERSION}
+       AND e.terminal_state='provisional' AND e.outcome='review_required'
+       AND (e.reason_codes @> '["FREE_ONLY_NO_ESCALATION"]'::jsonb
+            OR e.reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb
+            OR e.reason_codes @> '["OPENAI_ESCALATION_NOT_CONFIGURED"]'::jsonb)
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_classification_evidence done
+          WHERE done.business_id=e.business_id
+            AND done.policy_version=e.policy_version
+            AND done.taxonomy_version=e.taxonomy_version
+            AND done.classifier_version=e.classifier_version
+            AND done.terminal_state='completed'
+            AND NOT (done.reason_codes @> '["FREE_ONLY_NO_ESCALATION"]'::jsonb
+                     OR done.reason_codes @> '["OPENAI_UNAVAILABLE"]'::jsonb
+                     OR done.reason_codes @> '["OPENAI_ESCALATION_NOT_CONFIGURED"]'::jsonb)
+       )
+     ORDER BY e.business_id,e.created_at DESC,e.evidence_hash ASC
+     LIMIT ${RUN_LIMIT}
+  `));
+  const businessIds = pending.map((row: any) => Number(row.business_id));
+  if (businessIds.length === 0) return { escalated: 0, costMicros: 0 };
+
+  const priorRuns = rows(await db.execute(sql`
+    SELECT COUNT(*)::bigint AS run_count FROM sfp_classification_runs
+     WHERE program_id=${String(program.id)}::uuid
+  `))[0];
+  const result = await runPreCohortClassificationBridge({
+    programId: String(program.id),
+    idempotencyKey: `sfp-free-continuation:${String(program.id)}:paid-escalation:${Number(priorRuns?.run_count ?? 0) + 1}:${businessIds.join(",")}`,
+    actorId: "system:sfp-free-continuation",
+    maxBusinesses: RUN_LIMIT,
+    targetIds: (Array.isArray(program.vertical_ids) ? program.vertical_ids : []).map(String),
+    policyVersion: Number(program.policy_version),
+    taxonomyVersion: 2,
+    businessIdFilter: businessIds,
+    allowGovernedSerperDomainDiscovery: false,
+    freeOnly: false,
+  });
+  return { escalated: result.processed, costMicros: result.costMicros };
+}
+
+async function processResolvedGeographyFollowups(program: any): Promise<number> {
+  if (!program) return 0;
+  const pending = rows(await db.execute(sql`
+    SELECT DISTINCT ON (i.business_id) i.business_id
+      FROM sfp_classification_items i
+      JOIN sfp_classification_runs r ON r.id=i.run_id
+      JOIN businesses b ON b.id=i.business_id
+     WHERE r.program_id=${String(program.id)}::uuid
+       AND r.policy_version=${Number(program.policy_version)}
+       AND i.state='skipped'
+       AND (
+         CASE WHEN left(i.outcome_code,1)='{' THEN i.outcome_code::jsonb ELSE '{}'::jsonb END
+           @> '{"route":"geography_review"}'::jsonb
+         OR CASE WHEN left(i.outcome_code,1)='{' THEN i.outcome_code::jsonb ELSE '{}'::jsonb END
+           @> '{"route":"outside_territory"}'::jsonb
+       )
+       AND (
+         b.updated_at > i.created_at
+         OR EXISTS (
+           SELECT 1 FROM business_locations l
+            WHERE l.business_id=i.business_id
+              AND COALESCE(l.updated_at,l.created_at) > i.created_at
+         )
+       )
+     ORDER BY i.business_id,i.created_at DESC
+     LIMIT ${RUN_LIMIT}
+  `));
+  const checkedIds: number[] = [];
+  const resolvedIds: number[] = [];
+  for (const row of pending) {
+    const businessId = Number(row.business_id);
+    checkedIds.push(businessId);
+    const resolution = await resolveGeographyForBusiness(businessId, db);
+    if (resolution.outcome === "resolved") resolvedIds.push(businessId);
+  }
+  if (checkedIds.length === 0) return 0;
+
+  const priorRuns = rows(await db.execute(sql`
+    SELECT COUNT(*)::bigint AS run_count FROM sfp_classification_runs
+     WHERE program_id=${String(program.id)}::uuid
+  `))[0];
+  const result = await runPreCohortClassificationBridge({
+    programId: String(program.id),
+    idempotencyKey: `sfp-free-continuation:${String(program.id)}:geography-followup:${Number(priorRuns?.run_count ?? 0) + 1}:${resolvedIds.join(",")}`,
+    actorId: "system:sfp-free-continuation",
+    maxBusinesses: RUN_LIMIT,
+    targetIds: (Array.isArray(program.vertical_ids) ? program.vertical_ids : []).map(String),
+    policyVersion: Number(program.policy_version),
+    taxonomyVersion: 2,
+    businessIdFilter: checkedIds,
+    freeOnly: true,
+  });
+  if (result.costMicros !== 0) throw new Error("SFP_GEOGRAPHY_FOLLOWUP_NONZERO_COST");
+  await db.execute(sql`
+    UPDATE sfp_classification_items i
+       SET state='completed',
+           outcome_code=jsonb_build_object(
+             'route',CASE WHEN i.business_id=ANY(ARRAY[${sql.join(resolvedIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+                          THEN 'geography_review_revisited' ELSE 'geography_review_rechecked' END,
+             'prior',CASE WHEN left(i.outcome_code,1)='{' THEN i.outcome_code::jsonb ELSE '{}'::jsonb END,
+              'classificationRunId',${String(result.runId)}::text
+           )::text,
+           completed_at=NOW(),updated_at=NOW()
+      FROM sfp_classification_runs r
+     WHERE r.id=i.run_id AND r.program_id=${String(program.id)}::uuid
+       AND r.policy_version=${Number(program.policy_version)}
+       AND i.business_id=ANY(ARRAY[${sql.join(checkedIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+       AND i.run_id<>${result.runId}::uuid
+       AND i.state='skipped'
+       AND (
+         CASE WHEN left(i.outcome_code,1)='{' THEN i.outcome_code::jsonb ELSE '{}'::jsonb END
+           @> '{"route":"geography_review"}'::jsonb
+         OR CASE WHEN left(i.outcome_code,1)='{' THEN i.outcome_code::jsonb ELSE '{}'::jsonb END
+           @> '{"route":"outside_territory"}'::jsonb
+       )
+  `);
+  return checkedIds.length;
+}
+
+/** Queue tick. A DB lease fences overlapping workers; the cursor advances
+ * only after its idempotent evidence run finishes. A crash replays the same
+ * window after lease expiry; current evidence avoids reclassifying completed
+ * target/non-target records. */
+export async function processSfpFreeClassificationTick(programIdFilter?: string): Promise<{
   claimed: boolean; programId?: string; scanned?: number; processed?: number; target?: number; state?: string;
+  escalated?: number; escalationCostMicros?: number;
 }> {
+  const automaticProgram = programIdFilter ? null : await getAutomaticSfpProgram();
+  if (automaticProgram) await ensureAutomaticSfpPass(automaticProgram);
+  const automaticContinuation = automaticProgram
+    ? await getSfpFreeClassificationContinuation(String(automaticProgram.id))
+    : null;
+  const followupsEnabled = Boolean(automaticProgram && automaticContinuation &&
+    !["paused", "idle"].includes(String(automaticContinuation.state)));
+  const geographyFollowups = followupsEnabled
+    ? await processResolvedGeographyFollowups(automaticProgram)
+    : 0;
+  const escalation = followupsEnabled
+    ? await processPendingVerticalEscalations(automaticProgram)
+    : { escalated: 0, costMicros: 0 };
   const claimed = rows(await db.execute(sql`
     UPDATE sfp_free_classification_continuations AS c
        SET lease_token=gen_random_uuid(),lease_expires_at=NOW()+INTERVAL '60 minutes',last_tick_at=NOW(),updated_at=NOW()
      WHERE c.program_id=(
        SELECT program_id FROM sfp_free_classification_continuations
         WHERE state='running' AND (lease_expires_at IS NULL OR lease_expires_at<NOW())
+           ${programIdFilter ? sql`AND program_id=${programIdFilter}::uuid` : sql``}
         ORDER BY started_at,program_id FOR UPDATE SKIP LOCKED LIMIT 1
      ) AND c.state='running'
        AND (c.lease_expires_at IS NULL OR c.lease_expires_at<NOW())
      RETURNING c.*
   `))[0];
-  if (!claimed) return { claimed: false };
+  if (!claimed) return {
+    claimed: false, escalated: escalation.escalated, escalationCostMicros: escalation.costMicros,
+    processed: geographyFollowups,
+  };
   const programId = String(claimed.program_id);
   const token = String(claimed.lease_token);
   try {
@@ -106,7 +297,7 @@ export async function processSfpFreeClassificationTick(): Promise<{
     const window = rows(await db.execute(sql`
       SELECT id FROM businesses WHERE record_class='canonical'
         AND id>${Number(claimed.high_water_business_id)} AND id<=${Number(claimed.stop_business_id)}
-       ORDER BY id LIMIT ${SCAN_LIMIT}
+       ORDER BY id LIMIT ${RUN_LIMIT}
     `));
     if (window.length === 0) {
       await db.execute(sql`
@@ -114,50 +305,41 @@ export async function processSfpFreeClassificationTick(): Promise<{
            SET state='completed',lease_token=NULL,lease_expires_at=NULL,updated_at=NOW()
          WHERE program_id=${programId}::uuid AND state='running' AND lease_token=${token}::uuid AND lease_expires_at>NOW()
       `);
-      return { claimed: true, programId, scanned: 0, processed: 0, target: 0, state: "completed" };
+       return {
+         claimed: true, programId, scanned: 0, processed: geographyFollowups, target: 0, state: "completed",
+         escalated: escalation.escalated, escalationCostMicros: escalation.costMicros,
+       };
     }
     const windowIds = window.map((r: any) => Number(r.id));
-    const preview = await previewHighConfidenceClassificationCandidates(programId, {
-      businessIdFilter: windowIds, limit: SCAN_LIMIT,
-    });
-    // Read-only preview includes exclusions for operator visibility. Never
-    // send them to freeze. Sort by ID so the cursor cannot skip an eligible
-    // candidate if a window contains more than 25 safe names.
-    const selected = preview.candidates.filter((c) => c.exclusionStatus === null)
-      .sort((a, b) => a.businessId - b.businessId).slice(0, RUN_LIMIT);
-    const selectedIds = selected.map((c) => c.businessId);
     let processed = 0;
     let target = 0;
     let rejected = 0;
-    if (selectedIds.length > 0) {
-      const stillCurrent = rows(await db.execute(sql`
-        SELECT policy_version,taxonomy_version,is_active FROM sfp_programs WHERE id=${programId}::uuid
-      `))[0];
-      if (!stillCurrent?.is_active || Number(stillCurrent.policy_version) !== Number(claimed.policy_version) ||
-          Number(stillCurrent.taxonomy_version) !== 2) throw new Error("SFP_FREE_CONTINUATION_POLICY_CHANGED");
-      const frozen = await freezeClassificationSnapshot({
-        programId,actorId:"system:sfp-free-continuation",businessIds:selectedIds,
-        targetIds:preview.targetIds,policyVersion:preview.policyVersion,taxonomyVersion:2,
-        allowedProvider:"none",maxUnits:RUN_LIMIT,ttlMinutes:60,
-      });
-      rejected += frozen.rejectedAtFreeze.length;
-      if (frozen.businessIds.length > 0) {
-        const run = await runFrozenClassificationSnapshot({
-          snapshotId:frozen.snapshotId,actorId:"system:sfp-free-continuation",
-        });
-        if (run.costMicros !== 0) throw new Error("SFP_FREE_CONTINUATION_NONZERO_COST");
-        processed = run.processed;
-        target = run.targetCount;
-        rejected += run.rejectedAtRun.length;
-      }
-    }
-    const nextCursor = selectedIds.length === RUN_LIMIT
-      ? selectedIds[selectedIds.length - 1]
-      : windowIds[windowIds.length - 1];
+    const stillCurrent = rows(await db.execute(sql`
+      SELECT policy_version,taxonomy_version,is_active,vertical_ids
+        FROM sfp_programs WHERE id=${programId}::uuid
+    `))[0];
+    if (!stillCurrent?.is_active || Number(stillCurrent.policy_version) !== Number(claimed.policy_version) ||
+        Number(stillCurrent.taxonomy_version) !== 2) throw new Error("SFP_FREE_CONTINUATION_POLICY_CHANGED");
+    const bridgeRun = await runPreCohortClassificationBridge({
+      programId,
+      idempotencyKey: `sfp-free-continuation:${programId}:policy:${Number(claimed.policy_version)}:window:${Number(claimed.high_water_business_id)}-${windowIds[windowIds.length - 1]}`,
+      actorId: "system:sfp-free-continuation",
+      maxBusinesses: RUN_LIMIT,
+      targetIds: (Array.isArray(stillCurrent.vertical_ids) ? stillCurrent.vertical_ids : []).map(String),
+      policyVersion: Number(claimed.policy_version),
+      taxonomyVersion: 2,
+      businessIdFilter: windowIds,
+      freeOnly: true,
+    });
+    if (bridgeRun.costMicros !== 0) throw new Error("SFP_FREE_CONTINUATION_NONZERO_COST");
+    processed = bridgeRun.processed;
+    target = bridgeRun.targetCount;
+    rejected = bridgeRun.reviewRequiredCount;
+    const nextCursor = windowIds[windowIds.length - 1];
     const updated = rows(await db.execute(sql`
       UPDATE sfp_free_classification_continuations
          SET high_water_business_id=${nextCursor},
-             scanned_count=scanned_count+${windowIds.filter((id) => id <= nextCursor).length},
+              scanned_count=scanned_count+${windowIds.length},
              processed_count=processed_count+${processed},target_count=target_count+${target},
              rejected_count=rejected_count+${rejected},
              lease_token=NULL,lease_expires_at=NULL,last_error=NULL,updated_at=NOW()
@@ -165,8 +347,9 @@ export async function processSfpFreeClassificationTick(): Promise<{
        RETURNING program_id
     `));
     if (updated.length === 0) throw new Error("SFP_FREE_CONTINUATION_LEASE_LOST");
-    return { claimed: true,programId,scanned:windowIds.filter((id) => id <= nextCursor).length,
-      processed,target,state:"running" };
+    return { claimed: true,programId,scanned:windowIds.length,
+      processed:processed + geographyFollowups,target,state:"running",escalated:escalation.escalated,
+      escalationCostMicros:escalation.costMicros };
   } catch (error: any) {
     await db.execute(sql`
       UPDATE sfp_free_classification_continuations

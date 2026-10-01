@@ -6,6 +6,10 @@ import { randomUUID } from "node:crypto";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 await assertDisposableTestInfrastructure({ operation: "SFP free classification continuation certification", requireRedis: false });
+// This certificate proves only the zero-provider lane; keep both the normal
+// adapter gate and any site-evidence branch closed even on a misconfigured
+// disposable environment.
+process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "false";
 const { pool } = await import("../server/db");
 const {
   startSfpFreeClassificationContinuation,
@@ -44,28 +48,36 @@ await pool.query(`UPDATE sfp_free_classification_continuations
   SET high_water_business_id=$2,stop_business_id=$3 WHERE program_id=$1`,
   [programId, roofing - 1, restaurant]);
 assert.equal((await pauseSfpFreeClassificationContinuation(programId))?.state, "paused");
-assert.equal((await processSfpFreeClassificationTick()).claimed, false);
+assert.equal((await processSfpFreeClassificationTick(programId)).claimed, false);
 assert.equal((await startSfpFreeClassificationContinuation(programId))?.state, "running");
-const first = await processSfpFreeClassificationTick();
+const first = await processSfpFreeClassificationTick(programId);
 assert.equal(first.claimed, true);
-assert.equal(first.processed, 1);
+assert.equal(first.processed, 3);
 assert.equal(first.target, 1);
 assert.equal(first.scanned, 3);
-const done = await processSfpFreeClassificationTick();
+const done = await processSfpFreeClassificationTick(programId);
 assert.equal(done.state, "completed");
-assert.equal((await processSfpFreeClassificationTick()).claimed, false);
+assert.equal((await processSfpFreeClassificationTick(programId)).claimed, false);
 const cursor = await getSfpFreeClassificationContinuation(programId);
-assert.equal(Number(cursor.processed_count), 1);
+assert.equal(Number(cursor.processed_count), 3);
 assert.equal(Number(cursor.high_water_business_id), restaurant);
 const evidence = (await pool.query(`
-  SELECT business_id,outcome,admission_tier,resolved_vertical_id,cost_micros
+  SELECT business_id,outcome,admission_tier,resolved_vertical_id,cost_micros,reason_codes,terminal_state
     FROM sfp_classification_evidence WHERE business_id=ANY($1::int[]) AND policy_version=41
 `, [[roofing, supplier, restaurant]])).rows;
-assert.equal(evidence.length, 1);
-assert.equal(Number(evidence[0].business_id), roofing);
-assert.equal(evidence[0].outcome, "target");
-assert.equal(evidence[0].admission_tier, "resolved_high");
-assert.equal(Number(evidence[0].cost_micros), 0);
+assert.equal(evidence.length, 3, "the bounded pass records target, non-target, and unresolved vertical evidence");
+const targetEvidence = evidence.find((row: any) => Number(row.business_id) === roofing);
+const supplierEvidence = evidence.find((row: any) => Number(row.business_id) === supplier);
+const restaurantEvidence = evidence.find((row: any) => Number(row.business_id) === restaurant);
+assert.equal(targetEvidence?.outcome, "target");
+assert.equal(targetEvidence?.admission_tier, "resolved_high");
+assert.equal(supplierEvidence?.outcome, "review_required");
+const supplierReasons = Array.isArray(supplierEvidence?.reason_codes)
+  ? supplierEvidence.reason_codes : JSON.parse(supplierEvidence?.reason_codes ?? "[]");
+assert.ok(supplierReasons.includes("FREE_ONLY_NO_ESCALATION"));
+assert.equal(supplierEvidence?.terminal_state, "provisional");
+assert.equal(restaurantEvidence?.outcome, "non_target");
+assert.ok(evidence.every((row: any) => Number(row.cost_micros) === 0), "all classification evidence is provider-free");
 const after = (await pool.query(`SELECT
   (SELECT COUNT(*)::int FROM provider_operations) AS providers,
   (SELECT COUNT(*)::int FROM contacts WHERE business_id=ANY($1::int[])) AS contacts,

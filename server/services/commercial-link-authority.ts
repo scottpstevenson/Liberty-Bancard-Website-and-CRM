@@ -22,7 +22,7 @@ export class CommercialRevisionConflict extends Error {
 // exact body hashes intentionally fail closed even for formatting-only rewrites;
 // update them only from a reviewed, freshly migrated schema.
 const SYSTEM_LINK_EVIDENCE_TRIGGER_BODY_MD5 = "0851a20c34b3ce424364b5c3fc6e556b";
-const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "08832cf0204fbdd3207ff815d10fb9c7";
+const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "30910090e380e90ea27bff572d2c5847";
 
 // Fingerprints of PostgreSQL's canonical pg_get_expr(conbin, conrelid, true)
 // output for the 0309 typed-contact source contracts. Whitespace is folded and
@@ -30,6 +30,10 @@ const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "08832cf0204fbdd3207ff815d10fb9c7";
 // semantic changes and server deparser changes fail closed for review.
 const SFP_ELIGIBILITY_CONTACT_CHECK_MD5 = "e83217cf6cea8fb0a75857ac2100d4e3";
 const SFP_STAGING_CONTACT_CHECK_MD5 = "ddb906e4ac5e57a0700b1ea776bf8ed6";
+const SFP_LINK_EVIDENCE_TRIGGER_BODY_MD5 = "21f201cf1e11660637a43dc6f2176b29";
+const SFP_RECIPIENT_TRANSITION_TRIGGER_BODY_MD5 = "e5315a402bb4f800ae1240a547c163e4";
+const SFP_RECIPIENT_ALIAS_TRIGGER_BODY_MD5 = "bcbaf3c57b9cc79abf0574e73c17cb9e";
+const SFP_BRIDGE_HOLD_TRIGGER_BODY_MD5 = "9e57bf5845f626fc2e58bfdc6849d3a4";
 
 export async function assertSystemLinkDatabaseGuard(executor: any) {
   const triggerCheck = (await executor.execute(sql`
@@ -121,6 +125,211 @@ export async function assertSystemLinkDatabaseGuard(executor: any) {
       || !triggerCheck?.evidence_table || !triggerCheck?.evidence_column
       || !triggerCheck?.evidence_foreign_keys || !triggerCheck?.sfp_contact_checks) {
     throw new Error("COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING");
+  }
+}
+
+/** Additional exact schema fence for typed free/paid SFP system links. */
+export async function assertSfpLinkDatabaseGuard(executor: any) {
+  await assertSystemLinkDatabaseGuard(executor);
+  const result = (await executor.execute(sql`
+    SELECT
+      to_regclass('public.contact_business_sfp_link_evidence') IS NOT NULL AS evidence_table,
+      EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='contact_business_link_decisions'
+           AND column_name='sfp_evidence_id' AND data_type='uuid'
+      ) AS evidence_column,
+      EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid=t.tgrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_proc p ON p.oid=t.tgfoid
+        WHERE n.nspname='public' AND c.relname='contact_business_sfp_link_evidence'
+          AND t.tgname='contact_business_sfp_link_evidence_append_only'
+          AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal AND t.tgqual IS NULL
+          AND t.tgtype=27 AND p.proname='cro02_sfp_link_evidence_append_only'
+          AND p.pronamespace='public'::regnamespace
+          AND md5(p.prosrc)=${SFP_LINK_EVIDENCE_TRIGGER_BODY_MD5}
+      ) AS immutable_evidence_trigger,
+      (SELECT bool_and(EXISTS (
+        SELECT 1 FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid=con.conrelid
+        JOIN pg_namespace ns ON ns.oid=rel.relnamespace
+        JOIN pg_attribute local_col ON local_col.attrelid=con.conrelid AND local_col.attnum=con.conkey[1]
+        JOIN pg_class ref_rel ON ref_rel.oid=con.confrelid
+        JOIN pg_namespace ref_ns ON ref_ns.oid=ref_rel.relnamespace
+        JOIN pg_attribute ref_col ON ref_col.attrelid=con.confrelid AND ref_col.attnum=con.confkey[1]
+        WHERE ns.nspname='public' AND rel.relname=expected.table_name
+          AND con.conname=expected.constraint_name AND con.contype='f'
+          AND con.convalidated AND con.confdeltype='r'
+          AND array_length(con.conkey,1)=1 AND array_length(con.confkey,1)=1
+          AND local_col.attname=expected.column_name
+          AND ref_ns.nspname='public' AND ref_rel.relname=expected.referenced_table
+          AND ref_col.attname=expected.referenced_column
+      ))
+       FROM (VALUES
+         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_contact_id_fkey','contact_id','contacts','id'),
+         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_business_id_fkey','business_id','businesses','id'),
+         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_eligibility_id_fkey','eligibility_id','sfp_outreach_eligibility','id'),
+         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_free_candidate_id_fkey','free_candidate_id','free_discovery_candidates','id'),
+         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_paid_candidate_evidence_id_fkey','paid_candidate_evidence_id','sfp_paid_candidate_evidence','id'),
+         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_validation_operation_id_fkey','validation_operation_id','provider_operations','id'),
+         ('contact_business_link_decisions','contact_business_link_decisions_sfp_evidence_id_fkey','sfp_evidence_id','contact_business_sfp_link_evidence','id')
+       ) AS expected(table_name,constraint_name,column_name,referenced_table,referenced_column)
+      ) AS evidence_foreign_keys,
+      EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid=t.tgrelid
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_proc p ON p.oid=t.tgfoid
+        WHERE n.nspname='public' AND c.relname='contact_business_link_decisions'
+          AND t.tgname='contact_business_link_review_contract'
+          AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal AND t.tgqual IS NULL
+          AND t.tgtype=23 AND p.proname='enforce_reviewed_contact_business_link'
+          AND md5(p.prosrc)=${SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5}
+      ) AS combined_decision_trigger
+  `) as any).rows?.[0];
+  if (!result?.evidence_table || !result?.evidence_column || !result?.immutable_evidence_trigger
+      || !result?.evidence_foreign_keys || !result?.combined_decision_trigger) {
+    throw new Error("COMMERCIAL_SFP_LINK_DATABASE_GUARD_MISSING");
+  }
+}
+
+/** Full C1-C3 bridge schema fence; blocks readiness if Publish omitted SQL bodies. */
+export async function assertSfpPipelineDatabaseGuard(executor: any) {
+  await assertSfpLinkDatabaseGuard(executor);
+  const result = (await executor.execute(sql`
+    SELECT
+      to_regclass('public.sfp_recipient_address_commitments') IS NOT NULL AS commitments_table,
+      to_regclass('public.sfp_recipient_commitment_aliases') IS NOT NULL AS aliases_table,
+      to_regclass('public.sfp_enrollment_bridge_holds') IS NOT NULL AS holds_table,
+      (SELECT count(*)=1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='sfp_campaign_staging_intents'
+          AND column_name='recipient_commitment_id' AND data_type='uuid') AS staging_intent_commitment_column,
+      (SELECT count(*)=3 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='sfp_recipient_address_commitments'
+          AND (column_name,data_type) IN
+            (('objective_key','text'),('recipient_identity_hash','text'),
+             ('recipient_identity_hash_version','integer'))) AS recipient_columns,
+      (SELECT count(*)=3 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='sfp_ready_held_enrollments'
+          AND (column_name,data_type) IN
+            (('contact_business_link_decision_id','uuid'),
+             ('contact_business_link_revision','integer'),
+             ('recipient_commitment_id','uuid'))) AS ledger_columns,
+      EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public'
+        AND indexname='sfp_recipient_address_commitments_program_hash_uidx'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+        AND indexdef ILIKE '%(program_id, objective_key, recipient_identity_hash)%') AS recipient_unique_index,
+      EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public'
+        AND indexname='sfp_recipient_commitment_aliases_attempt_uidx'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%') AS aliases_unique_index,
+      EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public'
+        AND indexname='sfp_ready_held_enrollments_commitment_uidx'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%') AS ledger_commitment_unique_index,
+      (SELECT bool_and(EXISTS (
+        SELECT 1 FROM pg_constraint con
+         WHERE con.connamespace='public'::regnamespace
+           AND con.conrelid=to_regclass('public.'||expected.table_name)
+           AND con.conname=expected.constraint_name AND con.convalidated
+           AND con.contype=expected.constraint_type
+      ))
+       FROM (VALUES
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_identity_chk','c'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_objective_chk','c'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_state_chk','c'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_commit_state_chk','c'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_staging_intent_uidx','u'),
+         ('sfp_recipient_commitment_aliases','sfp_recipient_commitment_aliases_source_chk','c'),
+         ('sfp_recipient_commitment_aliases','sfp_recipient_commitment_aliases_hash_version_chk','c'),
+         ('sfp_recipient_commitment_aliases','sfp_recipient_commitment_aliases_disposition_chk','c'),
+         ('sfp_recipient_commitment_aliases','sfp_recipient_commitment_aliases_attempt_uidx','u')
+       ) expected(table_name,constraint_name,constraint_type)) AS recipient_constraints,
+      (SELECT bool_and(EXISTS (
+        SELECT 1 FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid=con.conrelid
+        JOIN pg_namespace ns ON ns.oid=rel.relnamespace
+        JOIN pg_attribute local_col ON local_col.attrelid=con.conrelid AND local_col.attnum=con.conkey[1]
+        JOIN pg_class ref_rel ON ref_rel.oid=con.confrelid
+        JOIN pg_namespace ref_ns ON ref_ns.oid=ref_rel.relnamespace
+        JOIN pg_attribute ref_col ON ref_col.attrelid=con.confrelid AND ref_col.attnum=con.confkey[1]
+        WHERE ns.nspname='public' AND rel.relname=expected.table_name
+          AND con.conname=expected.constraint_name AND con.contype='f'
+          AND con.convalidated AND con.confdeltype='r'
+          AND array_length(con.conkey,1)=1 AND array_length(con.confkey,1)=1
+          AND local_col.attname=expected.column_name
+          AND ref_ns.nspname='public' AND ref_rel.relname=expected.referenced_table
+          AND ref_col.attname=expected.referenced_column
+      ))
+       FROM (VALUES
+          ('sfp_campaign_staging_intents','sfp_campaign_staging_intents_recipient_commitment_id_fkey','recipient_commitment_id','sfp_recipient_address_commitments','id'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_program_id_fkey','program_id','sfp_programs','id'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_business_id_fkey','business_id','businesses','id'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_package_version_id_fkey','package_version_id','sfp_campaign_package_versions','id'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_staging_intent_id_fkey','staging_intent_id','sfp_campaign_staging_intents','id'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_contact_id_fkey','contact_id','contacts','id'),
+         ('sfp_recipient_address_commitments','sfp_recipient_address_commitments_contact_business_link_decision_id_fkey','contact_business_link_decision_id','contact_business_link_decisions','id'),
+         ('sfp_recipient_commitment_aliases','sfp_recipient_commitment_aliases_commitment_id_fkey','commitment_id','sfp_recipient_address_commitments','id'),
+         ('sfp_recipient_commitment_aliases','sfp_recipient_commitment_aliases_staging_intent_id_fkey','staging_intent_id','sfp_campaign_staging_intents','id'),
+         ('sfp_ready_held_enrollments','sfp_ready_held_enrollments_recipient_commitment_id_fkey','recipient_commitment_id','sfp_recipient_address_commitments','id'),
+         ('sfp_enrollment_bridge_holds','sfp_enrollment_bridge_holds_staging_intent_id_fkey','staging_intent_id','sfp_campaign_staging_intents','id'),
+         ('sfp_enrollment_bridge_holds','sfp_enrollment_bridge_holds_eligibility_id_fkey','eligibility_id','sfp_outreach_eligibility','id')
+       ) expected(table_name,constraint_name,column_name,referenced_table,referenced_column)
+      ) AS recipient_foreign_keys,
+      EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_proc p ON p.oid=t.tgfoid
+        WHERE n.nspname='public' AND c.relname='sfp_recipient_address_commitments'
+          AND t.tgname='sfp_recipient_commitment_transition' AND t.tgenabled IN ('O','A')
+          AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgtype=27
+          AND p.proname='sfp_recipient_commitment_transition'
+          AND md5(p.prosrc)=${SFP_RECIPIENT_TRANSITION_TRIGGER_BODY_MD5}
+      ) AS commitment_transition_trigger,
+      EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_proc p ON p.oid=t.tgfoid
+        WHERE n.nspname='public' AND c.relname='sfp_recipient_commitment_aliases'
+          AND t.tgname='sfp_recipient_commitment_aliases_append_only' AND t.tgenabled IN ('O','A')
+          AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgtype=27
+          AND p.proname='sfp_recipient_commitment_aliases_append_only'
+          AND md5(p.prosrc)=${SFP_RECIPIENT_ALIAS_TRIGGER_BODY_MD5}
+      ) AS alias_append_only_trigger,
+      EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_proc p ON p.oid=t.tgfoid
+        WHERE n.nspname='public' AND c.relname='sfp_enrollment_bridge_holds'
+          AND t.tgname='sfp_enrollment_bridge_holds_append_only' AND t.tgenabled IN ('O','A')
+          AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgtype=27
+          AND p.proname='sfp_enrollment_bridge_holds_append_only'
+          AND md5(p.prosrc)=${SFP_BRIDGE_HOLD_TRIGGER_BODY_MD5}
+      ) AS hold_append_only_trigger,
+      EXISTS (
+        SELECT 1 FROM pg_trigger t
+        JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        JOIN pg_proc p ON p.oid=t.tgfoid
+        WHERE n.nspname='public' AND c.relname='contacts'
+          AND t.tgname='cro03_sfp_contact_address_commit_serialization_trg'
+          AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal
+          AND t.tgqual IS NULL AND t.tgtype=23
+          AND p.proname='cro03_sfp_contact_address_commit_serialization'
+          AND p.prosrc ILIKE '%pg_advisory_xact_lock(hashtextextended%'
+          AND p.prosrc ILIKE '%sfp-contact-address-v1:%'
+          AND p.prosrc ILIKE '%NEW.opted_out_email%'
+          AND p.prosrc ILIKE '%NEW.suppression_reason%'
+      ) AS contact_address_serialization_trigger
+  `) as any).rows?.[0];
+  if (!result?.commitments_table || !result?.aliases_table || !result?.holds_table
+      || !result?.staging_intent_commitment_column
+      || !result?.recipient_columns || !result?.ledger_columns
+      || !result?.recipient_unique_index || !result?.aliases_unique_index
+      || !result?.ledger_commitment_unique_index || !result?.recipient_constraints
+      || !result?.recipient_foreign_keys || !result?.commitment_transition_trigger
+      || !result?.alias_append_only_trigger || !result?.hold_append_only_trigger
+      || !result?.contact_address_serialization_trigger) {
+    throw new Error("COMMERCIAL_SFP_PIPELINE_DATABASE_GUARD_MISSING");
   }
 }
 
@@ -235,6 +444,181 @@ export async function decideContactBusinessLink(input: {
     await tx.execute(sql`UPDATE contacts SET business_id=${input.decision === "verified" ? input.businessId! : null},updated_at=now() WHERE id=${input.contactId}`);
     return row;
   });
+}
+
+/**
+ * Writes an SFP free/paid evidence-backed business relationship through this
+ * same commercial-link authority. The transaction is supplied by the bridge
+ * so contact creation, immutable evidence, decision/projection, commitment,
+ * enrollment, and bridge receipt share one rollback boundary.
+ */
+export async function decideSfpContactBusinessLink(input: {
+  executor: { execute: (query: any) => Promise<any> };
+  contactId: number;
+  businessId: number;
+  eligibilityId: string;
+  sourceKind: "free" | "paid";
+  sourceReferenceId: string;
+  normalizedValueHash: string;
+  normalizedValueHashVersion: number;
+  contactEmailTokenHash: string;
+  decisionKey: string;
+  facts?: Record<string, unknown>;
+}) {
+  const tx = input.executor;
+  if (!Number.isSafeInteger(input.contactId) || !Number.isSafeInteger(input.businessId)
+      || !["free", "paid"].includes(input.sourceKind)
+      || ![0, 1].includes(input.normalizedValueHashVersion)
+      || !/^[0-9a-f]{64}$/i.test(input.normalizedValueHash)
+      || !/^[0-9a-f]{64}$/i.test(input.contactEmailTokenHash)
+      || !input.sourceReferenceId || !input.eligibilityId || !input.decisionKey) {
+    throw new Error("COMMERCIAL_SFP_LINK_TYPED_EVIDENCE_INVALID");
+  }
+  await assertSfpLinkDatabaseGuard(tx);
+
+  const contactNode: CommercialGraphNode = { type: "contact", id: input.contactId };
+  const businessNode: CommercialGraphNode = { type: "business", id: input.businessId };
+  await lockCommercialGraphNodes(tx, [contactNode]);
+  const currentHint = (await tx.execute(sql`
+    SELECT business_id FROM contact_business_link_decisions
+     WHERE contact_id=${input.contactId} AND superseded_at IS NULL
+  `) as any).rows?.[0];
+  const graphNodes: CommercialGraphNode[] = [
+    contactNode,
+    businessNode,
+    ...(currentHint?.business_id ? [{ type: "business" as const, id: Number(currentHint.business_id) }] : []),
+  ];
+  await lockCommercialGraphNodes(tx, graphNodes.filter(node => node.type === "business"));
+  await lockCommercialGraphMembershipSets(tx, graphNodes, ["contact_business"]);
+
+  const contact = (await tx.execute(sql`
+    SELECT id,business_id,email_token_hash FROM contacts WHERE id=${input.contactId} FOR UPDATE
+  `) as any).rows?.[0];
+  const business = (await tx.execute(sql`
+    SELECT id,record_class,do_not_visit FROM businesses WHERE id=${input.businessId} FOR UPDATE
+  `) as any).rows?.[0];
+  if (!contact || !business) throw new Error("CRM_OBJECT_NOT_FOUND");
+  if (String(contact.email_token_hash ?? "") !== input.contactEmailTokenHash
+      || business.record_class !== "canonical" || business.do_not_visit === true) {
+    throw new Error("COMMERCIAL_SFP_LINK_CONTACT_OR_BUSINESS_CHANGED");
+  }
+  const current = (await tx.execute(sql`
+    SELECT id,business_id,decision,revision FROM contact_business_link_decisions
+     WHERE contact_id=${input.contactId} AND superseded_at IS NULL FOR UPDATE
+  `) as any).rows?.[0];
+  if (current) {
+    if (Number(current.business_id) === input.businessId && current.decision === "verified"
+        && Number(contact.business_id) === input.businessId) return { ...current, replayed: true };
+    throw new Error("COMMERCIAL_SFP_LINK_CURRENT_RELATIONSHIP_CONFLICT");
+  }
+  if (contact.business_id != null) throw new Error("COMMERCIAL_SFP_LINK_UNAUTHORIZED_BUSINESS_PROJECTION");
+
+  const source = input.sourceKind === "free"
+    ? (await tx.execute(sql`
+        SELECT e.id,e.business_id,e.candidate_id,e.paid_candidate_evidence_id,
+               e.normalized_value_hash,e.normalized_value_hash_version,
+               COALESCE(e.validation_operation_id,e.reused_from_operation_id) AS validation_operation_id,
+               e.status,e.zb_outcome,e.suppression_status,e.policy_document_id,e.policy_document_hash,
+               fc.normalized_value_hash AS source_hash
+          FROM sfp_outreach_eligibility e
+          JOIN free_discovery_candidates fc ON fc.id=e.candidate_id
+         WHERE e.id=${input.eligibilityId}::uuid AND e.business_id=${input.businessId}
+           AND e.source_kind='free' AND e.candidate_id=${input.sourceReferenceId}::uuid
+           AND e.paid_candidate_evidence_id IS NULL
+         FOR SHARE OF e,fc
+      `) as any).rows?.[0]
+    : (await tx.execute(sql`
+        SELECT e.id,e.business_id,e.candidate_id,e.paid_candidate_evidence_id,
+               e.normalized_value_hash,e.normalized_value_hash_version,
+               COALESCE(e.validation_operation_id,e.reused_from_operation_id) AS validation_operation_id,
+               e.status,e.zb_outcome,e.suppression_status,e.policy_document_id,e.policy_document_hash,
+               pe.normalized_value_hash AS source_hash
+          FROM sfp_outreach_eligibility e
+          JOIN sfp_paid_candidate_evidence pe ON pe.id=e.paid_candidate_evidence_id
+         WHERE e.id=${input.eligibilityId}::uuid AND e.business_id=${input.businessId}
+           AND e.source_kind='paid' AND e.paid_candidate_evidence_id=${input.sourceReferenceId}::uuid
+           AND e.candidate_id IS NULL
+         FOR SHARE OF e,pe
+      `) as any).rows?.[0];
+  if (!source
+      || !["validated_outreach_eligible", "validated_review_required"].includes(String(source.status))
+      || source.zb_outcome !== "valid" || source.suppression_status !== "not_suppressed"
+      || String(source.normalized_value_hash ?? "") !== input.normalizedValueHash
+      || Number(source.normalized_value_hash_version) !== input.normalizedValueHashVersion
+      || (input.normalizedValueHashVersion === 1 && String(source.source_hash ?? "") !== input.normalizedValueHash)
+      || !source.validation_operation_id) {
+    throw new Error("COMMERCIAL_SFP_LINK_SOURCE_EVIDENCE_STALE");
+  }
+  const policy = (await tx.execute(sql`
+     SELECT d.id,d.document_hash,d.validation_ttl_days
+      FROM sfp_outreach_policy_control c
+      JOIN sfp_outreach_policy_documents d ON d.id=c.active_policy_id
+     WHERE c.singleton=TRUE AND d.id=${String(source.policy_document_id ?? "")}::uuid
+       AND d.document_hash=${String(source.policy_document_hash ?? "")}
+     FOR SHARE OF c,d
+  `) as any).rows?.[0];
+  if (!policy) throw new Error("COMMERCIAL_SFP_LINK_POLICY_STALE");
+  const receipt = (await tx.execute(sql`
+    SELECT po.operation_id FROM provider_observations po
+    JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
+     WHERE po.operation_id=${String(source.validation_operation_id)}::uuid
+       AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
+       AND po.subject_type='business' AND po.subject_id=${input.businessId}
+       AND po.email_token_hash=${input.contactEmailTokenHash}
+        AND po.observed_at<=NOW()
+        AND LEAST(
+          COALESCE(po.expires_at,po.observed_at+(${Number(policy.validation_ttl_days)}::text||' days')::interval),
+          po.observed_at+(${Number(policy.validation_ttl_days)}::text||' days')::interval
+        )>NOW()
+        AND EXISTS (
+          SELECT 1 FROM sfp_outreach_eligibility e
+           WHERE e.id=${input.eligibilityId}::uuid
+             AND e.validation_at BETWEEN po.observed_at-INTERVAL '5 minutes'
+                                     AND po.observed_at+INTERVAL '5 minutes'
+             AND e.validation_expires_at<=LEAST(
+               COALESCE(po.expires_at,po.observed_at+(${Number(policy.validation_ttl_days)}::text||' days')::interval),
+               po.observed_at+(${Number(policy.validation_ttl_days)}::text||' days')::interval
+             )
+        )
+     LIMIT 1 FOR SHARE OF po,op
+  `) as any).rows?.[0];
+  if (!receipt) throw new Error("COMMERCIAL_SFP_LINK_VALIDATION_RECEIPT_MISMATCH");
+
+  const facts = {
+    contract: "sfp_typed_source_v1",
+    sourceKind: input.sourceKind,
+    sourceReferenceId: input.sourceReferenceId,
+    eligibilityId: input.eligibilityId,
+    normalizedValueHash: input.normalizedValueHash,
+    normalizedValueHashVersion: input.normalizedValueHashVersion,
+    contactEmailTokenHash: input.contactEmailTokenHash,
+    validationOperationId: String(source.validation_operation_id),
+    ...(input.facts ?? {}),
+  };
+  const factsHash = crypto.createHash("sha256").update(JSON.stringify(facts)).digest("hex");
+  const evidence = (await tx.execute(sql`
+    INSERT INTO contact_business_sfp_link_evidence
+      (decision_key,contact_id,business_id,eligibility_id,source_kind,free_candidate_id,
+       paid_candidate_evidence_id,normalized_value_hash,normalized_value_hash_version,
+       contact_email_token_hash,validation_operation_id,facts_hash,facts)
+    VALUES (${input.decisionKey},${input.contactId},${input.businessId},${input.eligibilityId}::uuid,
+      ${input.sourceKind},${input.sourceKind === "free" ? input.sourceReferenceId : null}::uuid,
+      ${input.sourceKind === "paid" ? input.sourceReferenceId : null}::uuid,
+      ${input.normalizedValueHash},${input.normalizedValueHashVersion},${input.contactEmailTokenHash},
+      ${String(source.validation_operation_id)}::uuid,${factsHash},${JSON.stringify(facts)}::jsonb)
+    RETURNING id
+  `) as any).rows?.[0];
+  if (!evidence) throw new Error("COMMERCIAL_SFP_LINK_EVIDENCE_WRITE_FAILED");
+  const decision = (await tx.execute(sql`
+    INSERT INTO contact_business_link_decisions
+      (contact_id,business_id,decision,decision_key,actor_id,revision,sfp_evidence_id)
+    VALUES (${input.contactId},${input.businessId},'verified',${input.decisionKey},'system',1,${String(evidence.id)}::uuid)
+    RETURNING *
+  `) as any).rows?.[0];
+  await tx.execute(sql`
+    UPDATE contacts SET business_id=${input.businessId},updated_at=now() WHERE id=${input.contactId}
+  `);
+  return decision;
 }
 
 /**

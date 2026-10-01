@@ -101,6 +101,7 @@ try {
   await rejects(() => providerOps.reserveSfpProviderOperation({
     stageRunId: randomUUID(), cohortRunId: randomUUID(), businessId: 1, provider: "serper",
     purpose: "task1999_denial_certification", idempotencyKey: randomUUID(), actorId: "certification",
+    workUnit: "request",
   }), /PROVIDER_TRANSPORT_DISABLED/, "unset transport is a hard provider reservation denial");
 
   const nonce = randomUUID().slice(0, 10);

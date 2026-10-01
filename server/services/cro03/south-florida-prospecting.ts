@@ -34,7 +34,23 @@ import { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } from
 import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 // The selector loads latest admissible evidence for the complete census in the
 // same transaction snapshot and attaches it to each decision candidate.
-import { getActiveSfpOutreachPolicy } from "./sfp-outreach-policy";
+import {
+  getActiveSfpOutreachPolicy,
+  evaluateSfpMutableSafetyGates,
+  isCanonicallySuppressed,
+  lookupConsentTierByEmailHash,
+  lockCurrentSfpOutreachPolicy,
+} from "./sfp-outreach-policy";
+import { lockSfpContactAddress } from "./sfp-contact-address-lock";
+import {
+  lockSfpBusinessSafetySentinel,
+  lockSfpEligibilityProjectionKey,
+  lockSfpEligibilityProjectionWriteGate,
+} from "./sfp-eligibility-locks";
+import {
+  isCurrentSfpValidationReceiptFresh,
+  normalizedSfpEmailHash,
+} from "./sfp-recipient-link-predicates";
 import { storage } from "../../storage";
 import {
   SFP_SELECTED_CONTACTS_MAX,
@@ -381,6 +397,54 @@ export async function setProgramActivation(input: {
             ${JSON.stringify({ active: input.active, recurringEnabled, campaignStagingBatchSize: Number(updated?.schedule_config?.campaignStaging ?? 0) })}::jsonb)
   `);
   return _mapProgram(updated);
+}
+
+/**
+ * Configure only the recurring campaign-staging boundary. This deliberately
+ * does not activate the program or change outbound/channel authority.
+ */
+export async function setCampaignStagingSchedule(input: {
+  recurringEnabled: boolean;
+  batchSize: number;
+  actorId: string;
+}): Promise<SfpProgram> {
+  if (!Number.isInteger(input.batchSize) || input.batchSize < 0 || input.batchSize > 25) {
+    throw new Error("SFP_CAMPAIGN_STAGING_BATCH_MUST_BE_0_TO_25");
+  }
+  if (input.recurringEnabled && input.batchSize < 1) {
+    throw new Error("SFP_CAMPAIGN_STAGING_REQUIRES_POSITIVE_BATCH");
+  }
+
+  return db.transaction(async (tx) => {
+    const current = rows(await tx.execute(sql`
+      SELECT * FROM sfp_programs WHERE name=${PROGRAM_NAME} FOR UPDATE
+    `))[0];
+    if (!current) throw new Error("SFP_PROGRAM_NOT_CONFIGURED");
+    if (input.recurringEnabled && current.is_active !== true) {
+      throw new Error("SFP_PROGRAM_MUST_BE_ACTIVE_FOR_RECURRING_STAGING");
+    }
+    const updated = rows(await tx.execute(sql`
+      UPDATE sfp_programs
+         SET recurring_enabled=${input.recurringEnabled},
+             schedule_config=jsonb_set(
+               COALESCE(schedule_config,'{}'::jsonb),
+               '{campaignStaging}', to_jsonb(${input.batchSize}::int), TRUE
+             )
+       WHERE id=${String(current.id)}::uuid
+       RETURNING *
+    `))[0];
+    await tx.execute(sql`
+      INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
+      VALUES ('sfp_campaign_staging_schedule_changed','sfp_program',${String(current.id)},
+              'user',${input.actorId},
+              ${JSON.stringify({
+                recurringEnabled: input.recurringEnabled,
+                campaignStagingBatchSize: input.batchSize,
+                programActive: current.is_active === true,
+              })}::jsonb)
+    `);
+    return _mapProgram(updated);
+  });
 }
 
 // ── Funnel preview (read-only) ─────────────────────────────────────────────────
@@ -1903,7 +1967,8 @@ export async function stageForCampaign(opts: {
   // rejected below with an exact, visible count and reason code, never
   // silently staged and never silently omitted.
   const eligibleRows = rows(await db.execute(sql`
-    SELECT soe.id, soe.business_id, soe.candidate_id, soe.paid_candidate_evidence_id, soe.source_kind,
+    SELECT soe.id, soe.cohort_run_id, soe.business_id, soe.candidate_id, soe.paid_candidate_evidence_id, soe.source_kind,
+           soe.policy_version,
            soe.status, soe.zb_outcome, soe.validation_at, soe.validation_expires_at, soe.masked_email, soe.role_inbox,
            soe.campaign_staged_at, soe.decision_reason, fdc.normalized_value_hash,
            b.canonical_name,b.website_domain,b.main_phone,b.vertical,b.city,b.state
@@ -2086,42 +2151,172 @@ export async function stageForCampaign(opts: {
     // the arbiter index and this insert would raise
     // "there is no unique or exclusion constraint matching the ON CONFLICT
     // specification" for every row.
-    const intent = rows(await db.execute(sql`
-      INSERT INTO sfp_campaign_staging_intents
-        (cohort_run_id,eligibility_id,business_id,candidate_id,source_kind,idempotency_key,actor_id,
-         state,policy_version,validation_snapshot,lineage)
-      VALUES (${cohortRunId}::uuid,${String(row.id)}::uuid,${Number(row.business_id)},
-              ${String(row.candidate_id)}::uuid,'free',${idempotencyKey},${actorId},'staged',${SFP_POLICY_VERSION},
-              ${JSON.stringify({ zbOutcome: row.zb_outcome, validationAt: row.validation_at, status: row.status })}::jsonb,
-              ${JSON.stringify({ source: "sfp", cohortRunId, eligibilityId: String(row.id) })}::jsonb)
-      ON CONFLICT (eligibility_id) WHERE state NOT IN ('rejected','cancelled','superseded')
-      DO UPDATE SET updated_at=NOW()
-      RETURNING id
-    `))[0];
-    const masterLead = rows(await db.execute(sql`
-      INSERT INTO master_leads
-        (status,company,normalized_company,domain,email,email_type,phone,vertical,
-         outreach_readiness,readiness_reason,source,source_path,city,state,website,email_valid,
-         pipeline_origin,canonical_business_id,email_token_hash,masked_email,created_at,updated_at)
-      VALUES ('staged',${row.canonical_name},LOWER(TRIM(${row.canonical_name})),${row.website_domain},${plaintextEmail},
-              ${row.role_inbox ? "role" : "business"},${row.main_phone},${row.vertical},
-              'not_ready','awaiting_explicit_campaign_authorization','sfp_validated',
-              ${`sfp:${cohortRunId}:${String(row.candidate_id)}`},${row.city},${row.state},${row.website_domain},TRUE,
-              'sfp_pipeline',${Number(row.business_id)},${contactEmailTokenHash},${row.masked_email},NOW(),NOW())
-      ON CONFLICT (canonical_business_id,email_token_hash)
-        WHERE pipeline_origin='sfp_pipeline' AND canonical_business_id IS NOT NULL AND email_token_hash IS NOT NULL
-      DO UPDATE SET status='staged',email_valid=TRUE,masked_email=EXCLUDED.masked_email,updated_at=NOW()
-      RETURNING id
-    `))[0];
-    await db.execute(sql`
-      UPDATE sfp_outreach_eligibility
-         SET campaign_staged_at=NOW(),campaign_staged_by=${actorId},staging_intent_id=${String(intent.id)}::uuid,updated_at=NOW()
-       WHERE id=${String(row.id)}::uuid
-    `);
-    await db.execute(sql`
-      UPDATE sfp_campaign_staging_intents SET master_lead_id=${String(masterLead.id)}::uuid,updated_at=NOW()
-       WHERE id=${String(intent.id)}::uuid
-    `);
+    const staged = await db.transaction(async (tx) => {
+      await lockCurrentSfpOutreachPolicy(tx, activePolicy);
+      await lockSfpBusinessSafetySentinel(tx, Number(row.business_id));
+      await lockSfpContactAddress(tx, plaintextEmail);
+      await lockSfpEligibilityProjectionWriteGate(tx);
+      await lockSfpEligibilityProjectionKey(
+        tx, String(row.cohort_run_id), Number(row.business_id), Number(activePolicy.version),
+      );
+      const current = rows(await tx.execute(sql`
+        SELECT e.id,e.cohort_run_id,e.business_id,e.candidate_id,e.policy_version,
+               e.status,e.campaign_staged_at,e.normalized_value_hash,e.normalized_value_hash_version,
+               e.validation_at,e.validation_expires_at,b.canonical_name,b.website_domain,
+               b.main_phone,b.vertical,b.city,b.state
+          FROM sfp_outreach_eligibility e
+          JOIN businesses b ON b.id=e.business_id
+         WHERE e.id=${String(row.id)}::uuid
+           AND e.cohort_run_id=${cohortRunId}::uuid
+           AND e.business_id=${Number(row.business_id)}
+         FOR UPDATE OF e
+         FOR SHARE OF b
+      `))[0];
+      if (!current || current.status !== "validated_outreach_eligible" ||
+          String(current.candidate_id) !== String(row.candidate_id)) {
+        return { staged: false, reason: "eligibility_source_changed_at_commit" };
+      }
+      if (current.campaign_staged_at) return { staged: false, reason: "already_staged" };
+      if (Number(current.policy_version) !== activePolicy.version) {
+        await tx.execute(sql`
+          UPDATE sfp_outreach_eligibility
+             SET status='validated_policy_ineligible',
+                 decision_reason='outreach_policy_changed_at_staging_commit',updated_at=NOW()
+           WHERE id=${String(current.id)}::uuid
+        `);
+        return { staged: false, reason: "outreach_policy_changed_at_staging_commit" };
+      }
+
+      const currentAddressHash = normalizedSfpEmailHash(plaintextEmail, current.normalized_value_hash_version);
+      const currentSource = rows(await tx.execute(sql`
+        SELECT id,business_id,field,disposition,normalized_value_hash
+          FROM free_discovery_candidates
+         WHERE id=${String(current.candidate_id)}::uuid
+           AND business_id=${Number(current.business_id)}
+           AND field='email' AND subject_type='business'
+           AND disposition='staged' AND contact_id IS NULL
+         FOR SHARE
+      `))[0];
+      if (!currentAddressHash || currentAddressHash !== String(current.normalized_value_hash ?? "") ||
+          !currentSource || String(currentSource.normalized_value_hash ?? "") !== String(current.normalized_value_hash ?? "")) {
+        await tx.execute(sql`
+          UPDATE sfp_outreach_eligibility
+             SET status='validated_review_required',
+                 decision_reason='candidate_or_address_pin_stale_at_staging_commit',
+                 updated_at=NOW()
+           WHERE id=${String(current.id)}::uuid
+        `);
+        return { staged: false, reason: "candidate_or_address_pin_stale_at_staging_commit" };
+      }
+
+      const consentTier = await lookupConsentTierByEmailHash(contactEmailTokenHash, tx);
+      const suppressed = await isCanonicallySuppressed(
+        [contactEmailTokenHash, String(current.normalized_value_hash)], tx, [plaintextEmail],
+      );
+      const gate = await evaluateSfpMutableSafetyGates({
+        businessId: Number(current.business_id),
+        consentTier,
+        policy: activePolicy,
+        emailAddress: plaintextEmail,
+      }, tx);
+      if (suppressed || !gate.eligible) {
+        let status = "validated_suppressed";
+        if (!suppressed && !gate.eligible) status = gate.status;
+        const reason = suppressed ? "canonical_suppression_match_at_staging_commit" : gate.reasonCode;
+        await tx.execute(sql`
+          UPDATE sfp_outreach_eligibility
+             SET status=${status},decision_reason=${reason},
+                 suppression_status=${suppressed ? "suppressed" : "not_suppressed"},updated_at=NOW()
+           WHERE id=${String(current.id)}::uuid
+        `);
+        return { staged: false, reason };
+      }
+      if (!(await isCurrentSfpValidationReceiptFresh(tx, {
+        eligibilityId: String(current.id),
+        businessId: Number(current.business_id),
+        emailTokenHash: contactEmailTokenHash,
+      }))) {
+        await tx.execute(sql`
+          UPDATE sfp_outreach_eligibility
+             SET status='validation_pending',
+                 decision_reason='provider_observation_expired_before_staging_commit',
+                 updated_at=NOW()
+           WHERE id=${String(current.id)}::uuid
+        `);
+        return { staged: false, reason: "provider_observation_expired_before_staging_commit" };
+      }
+
+      const intent = rows(await tx.execute(sql`
+        INSERT INTO sfp_campaign_staging_intents
+          (cohort_run_id,eligibility_id,business_id,candidate_id,source_kind,idempotency_key,actor_id,
+           state,policy_version,validation_snapshot,lineage)
+        VALUES (${cohortRunId}::uuid,${String(current.id)}::uuid,${Number(current.business_id)},
+                ${String(current.candidate_id)}::uuid,'free',${idempotencyKey},${actorId},'staged',${activePolicy.version},
+                ${JSON.stringify({ zbOutcome: row.zb_outcome, validationAt: current.validation_at, status: current.status })}::jsonb,
+                ${JSON.stringify({ source: "sfp", cohortRunId, eligibilityId: String(current.id) })}::jsonb)
+        ON CONFLICT (eligibility_id) WHERE state NOT IN ('rejected','cancelled','superseded')
+        DO UPDATE SET updated_at=NOW()
+        RETURNING id
+      `))[0];
+      const masterLead = rows(await tx.execute(sql`
+        INSERT INTO master_leads
+          (status,company,normalized_company,domain,email,email_type,phone,vertical,
+           outreach_readiness,readiness_reason,source,source_path,city,state,website,email_valid,
+           pipeline_origin,canonical_business_id,email_token_hash,masked_email,created_at,updated_at)
+        VALUES ('staged',${current.canonical_name},LOWER(TRIM(${current.canonical_name})),${current.website_domain},${plaintextEmail},
+                ${row.role_inbox ? "role" : "business"},${current.main_phone},${current.vertical},
+                'not_ready','awaiting_explicit_campaign_authorization','sfp_validated',
+                ${`sfp:${cohortRunId}:${String(current.candidate_id)}`},${current.city},${current.state},${current.website_domain},TRUE,
+                'sfp_pipeline',${Number(current.business_id)},${contactEmailTokenHash},${row.masked_email},NOW(),NOW())
+        ON CONFLICT (canonical_business_id,email_token_hash)
+          WHERE pipeline_origin='sfp_pipeline' AND canonical_business_id IS NOT NULL AND email_token_hash IS NOT NULL
+        DO UPDATE SET status='staged',email_valid=TRUE,masked_email=EXCLUDED.masked_email,updated_at=NOW()
+        RETURNING id
+      `))[0];
+      await tx.execute(sql`
+        UPDATE sfp_outreach_eligibility
+           SET campaign_staged_at=NOW(),campaign_staged_by=${actorId},
+               staging_intent_id=${String(intent.id)}::uuid,updated_at=NOW()
+         WHERE id=${String(current.id)}::uuid
+      `);
+      await tx.execute(sql`
+        UPDATE sfp_campaign_staging_intents
+           SET master_lead_id=${String(masterLead.id)}::uuid,updated_at=NOW()
+         WHERE id=${String(intent.id)}::uuid
+      `);
+      if (!(await isCurrentSfpValidationReceiptFresh(tx, {
+        eligibilityId: String(current.id),
+        businessId: Number(current.business_id),
+        emailTokenHash: contactEmailTokenHash,
+      }))) {
+        await tx.execute(sql`
+          UPDATE sfp_campaign_staging_intents
+             SET state='rejected',updated_at=NOW()
+           WHERE id=${String(intent.id)}::uuid
+        `);
+        await tx.execute(sql`
+          UPDATE sfp_outreach_eligibility
+             SET status='validation_pending',
+                 decision_reason='provider_observation_expired_at_staging_commit',
+                 campaign_staged_at=NULL,campaign_staged_by=NULL,staging_intent_id=NULL,
+                 updated_at=NOW()
+           WHERE id=${String(current.id)}::uuid
+        `);
+        return { staged: false, reason: "provider_observation_expired_at_staging_commit" };
+      }
+      return { staged: true };
+    });
+    if (!staged.staged) {
+      if (staged.reason === "already_staged") {
+        skipped++;
+        reasons.already_staged = (reasons.already_staged ?? 0) + 1;
+      } else {
+        rejected++;
+        reasons[staged.reason ?? "staging_commit_rejected"] =
+          (reasons[staged.reason ?? "staging_commit_rejected"] ?? 0) + 1;
+      }
+      continue;
+    }
     created++;
   }
 

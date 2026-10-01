@@ -338,6 +338,23 @@ export async function processSfpCampaignStagingTick() {
   if (!capabilityIsActive()) return { enabled: false, processed: 0, succeeded: 0, failed: 0, stopReason: "capability_inactive" };
   const baseConfig = await getRecurringStageConfig();
   if (!baseConfig) return { enabled: false, processed: 0, succeeded: 0, failed: 0, stopReason: "recurring_disabled" };
+  try {
+    const { claimSfpRuntimeDeploymentOwner } = await import("./sfp-provider-operations");
+    await claimSfpRuntimeDeploymentOwner();
+  } catch (error: any) {
+    const reason = String(error?.message ?? error);
+    if (!reason.startsWith("SFP_RUNTIME_OWNER_BLOCKED:") &&
+        !reason.startsWith("SFP_RUNTIME_OWNER_FENCE")) throw error;
+    return {
+      enabled: false,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      runsRun: 0,
+      stopReason: "runtime_release_held",
+      runtimeOwnerReason: reason,
+    };
+  }
 
   const end = Date.now() + DRAIN_TIME_BUDGET_MS;
   let totalProcessed = 0, totalSucceeded = 0, totalFailed = 0, runsRun = 0;
@@ -381,6 +398,29 @@ export async function processSfpCampaignStagingTick() {
   if (Date.now() >= end) stopReason = "time_budget_exhausted";
   if (runsRun >= MAX_RUNS_PER_TICK) stopReason = "max_runs_per_tick_reached";
 
+  // Enrollment is an adjacent, separately-ledgered operation. It is invoked
+  // only from the same active recurring SFP staging configuration and its
+  // own consumer rechecks current eligibility through the canonical bridge.
+  // It cannot change campaign/sequence state or dispatch outbound activity.
+  let pausedEnrollment: any = {
+    enabled: false, attempted: 0, completed: 0, held: 0, retrying: 0,
+    deadLettered: 0, persistenceFailures: 0, stopReason: "not_run",
+  };
+  try {
+    const { processSfpReadyHeldConsumerBatch } = await import("./sfp-ready-held-consumer");
+    pausedEnrollment = await processSfpReadyHeldConsumerBatch({
+      limit: baseConfig.batchSize,
+      actorId: "system:sfp-ready-held-consumer",
+      recurringOnly: true,
+    });
+  } catch (error: any) {
+    pausedEnrollment = {
+      ...pausedEnrollment,
+      stopReason: "consumer_error",
+      error: String(error?.message ?? error).slice(0, 300),
+    };
+  }
+
   return {
     enabled: true,
     processed: totalProcessed,
@@ -388,5 +428,6 @@ export async function processSfpCampaignStagingTick() {
     failed: totalFailed,
     runsRun,
     stopReason,
+    pausedEnrollment,
   };
 }

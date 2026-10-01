@@ -6,7 +6,9 @@ export interface SfpRuntimeFence {
   queueTopologyHash: string;
 }
 
-/** Derive the current process's fence using the same topology hash as fleet attestation. */
+export const SFP_RUNTIME_OWNER_LEASE_MS = 2 * 60_000;
+
+/** Derive the current deployment/process identity used by durable SFP ownership. */
 export async function getCurrentSfpRuntimeFence(): Promise<SfpRuntimeFence | null> {
   const { getCro03cQueueTopologyHash } = await import("../queue-manager");
   return buildSfpRuntimeFence({
@@ -19,11 +21,7 @@ export async function getCurrentSfpRuntimeFence(): Promise<SfpRuntimeFence | nul
   });
 }
 
-/**
- * Build the identity tuple a live paid SFP call must match.
- * Keeping this separate makes it possible to prove a stale process cannot
- * borrow another release's short-lived attestation.
- */
+/** Build the identity tuple persisted with each durable SFP owner/job lease. */
 export function buildSfpRuntimeFence(input: {
   releaseSha?: string | null;
   deploymentIdentity?: string | null;
@@ -32,7 +30,7 @@ export function buildSfpRuntimeFence(input: {
   processId: number;
   queueTopologyHash: string;
 }): SfpRuntimeFence | null {
-  const artifactSha = input.releaseSha?.trim() ?? "";
+  const artifactSha = input.releaseSha?.trim().toLowerCase() ?? "";
   const deploymentIdentity = input.deploymentIdentity?.trim() ?? "";
   const environmentIdentity = input.environmentIdentity?.trim() ?? "";
   const processIdentity = input.processIdentity?.trim() || `process:${input.processId}`;
@@ -44,27 +42,57 @@ export function buildSfpRuntimeFence(input: {
     deploymentIdentity,
     environmentIdentity,
     processIdentity,
-    queueTopologyHash: input.queueTopologyHash,
+    queueTopologyHash: input.queueTopologyHash.trim().toLowerCase(),
   };
 }
 
-/** Pure equivalent of the attestation SQL fence, used by certification. */
-export function sfpAttestationMatchesRuntimeFence(
-  fence: SfpRuntimeFence,
-  attestation: {
-    artifactSha: string;
-    deploymentIdentity: string;
-    environmentIdentity: string;
-    workerIdentities: unknown;
-    queueTopologyHash: string;
-  },
+export interface PersistedSfpRuntimeOwner {
+  artifactSha: string;
+  deploymentIdentity: string;
+  environmentIdentity: string;
+  queueTopologyHash: string;
+  leaseExpiresAt: string | Date;
+  revokedAt?: string | Date | null;
+}
+
+export type SfpAuthorizedRelease = Pick<
+  SfpRuntimeFence,
+  "artifactSha" | "deploymentIdentity" | "environmentIdentity" | "queueTopologyHash"
+>;
+
+export type SfpRuntimeOwnerDecision =
+  | "renew_current"
+  | "acquire_selected_release"
+  | "release_not_selected";
+
+export function sameSfpRuntimeRelease(
+  left: SfpAuthorizedRelease,
+  right: SfpAuthorizedRelease,
 ): boolean {
-  const identities = Array.isArray(attestation.workerIdentities)
-    ? attestation.workerIdentities.map(String)
-    : [];
-  return attestation.artifactSha === fence.artifactSha &&
-    attestation.deploymentIdentity === fence.deploymentIdentity &&
-    attestation.environmentIdentity === fence.environmentIdentity &&
-    attestation.queueTopologyHash === fence.queueTopologyHash &&
-    identities.includes(fence.processIdentity);
+  return left.artifactSha === right.artifactSha &&
+    left.deploymentIdentity === right.deploymentIdentity &&
+    left.environmentIdentity === right.environmentIdentity &&
+    left.queueTopologyHash === right.queueTopologyHash;
+}
+
+/**
+ * The durable release selector, not owner-row absence/expiry/revocation,
+ * decides whether a process may acquire ownership. A selected process may
+ * establish a new owner epoch when the prior lease is gone; an unselected
+ * process may never acquire merely because the row is absent or expired.
+ */
+export function decideSfpRuntimeOwnerClaim(
+  current: PersistedSfpRuntimeOwner | null,
+  candidate: SfpRuntimeFence,
+  nowMs: number,
+  selectedRelease: SfpAuthorizedRelease | null,
+): SfpRuntimeOwnerDecision {
+  if (!selectedRelease || !sameSfpRuntimeRelease(selectedRelease, candidate)) {
+    return "release_not_selected";
+  }
+  if (!current) return "acquire_selected_release";
+  const sameDeployment = sameSfpRuntimeRelease(current, candidate);
+  const live = Date.parse(String(current.leaseExpiresAt)) > nowMs;
+  if (sameDeployment && !current.revokedAt && live) return "renew_current";
+  return "acquire_selected_release";
 }

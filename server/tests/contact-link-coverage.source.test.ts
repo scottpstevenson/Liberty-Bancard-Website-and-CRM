@@ -47,6 +47,7 @@ function contact(overrides: Partial<ContactLinkCoverageContact> = {}): ContactLi
     currentRevision: 0,
     currentDecisionConsistent: false,
     primarySourceEventId: 901,
+    rawSunbizCandidates: [],
     sourceEvents: [{
       eventId: 901,
       eventKey: "import:source:row:1",
@@ -76,6 +77,7 @@ function business(overrides: Partial<ContactLinkCoverageBusiness> = {}): Contact
     recordClass: "canonical",
     doNotVisit: false,
     domainBusinessCount: 1,
+    rawSunbizMatches: [],
     sourceLinks: [{
       sourceLinkId: "source-link-1",
       businessId: 20,
@@ -112,11 +114,11 @@ function testClassifierVariants() {
       }],
     })],
   }));
-  assert.equal(legalAndDba.bucket, "RECOVERABLE_RECONCILIATION", "DBA plus retained phone/site/address corroboration should be recoverable, not strict");
+  assert.equal(legalAndDba.bucket, "RECOVERABLE_IDENTITY", "DBA plus retained phone/site/address corroboration should be recoverable, not strict");
   assert.equal(legalAndDba.candidates[0].signals.find(signal => signal.kind === "name")?.matched, true);
 
   const gmail = classifyContactLinkCoverage(contact({ emailDomain: "gmail.com" }));
-  assert.equal(gmail.bucket, "RECOVERABLE_RECONCILIATION", "personal email must not reject a proven business relationship");
+  assert.equal(gmail.bucket, "RECOVERABLE_IDENTITY", "personal email must not reject a proven business relationship");
   assert.ok(gmail.candidates[0].reasons.includes("personal_email_not_identity_rejection"));
   assert.ok(gmail.candidates[0].reasons.includes("email_domain_not_independent_corporate_domain"),
     "Gmail remains a strict-auto ineligibility reason while not rejecting the broader identity candidate");
@@ -128,7 +130,7 @@ function testClassifierVariants() {
     state: null,
     phone: null,
   }));
-  assert.equal(domainOnly.bucket, "REQUIRES_REVIEW",
+  assert.equal(domainOnly.bucket, "REVIEW",
     "website and matching corporate email are one domain signal, not two independent identity signals");
   assert.equal(domainOnly.candidates[0].independentSignalCount, 1);
 
@@ -141,7 +143,7 @@ function testClassifierVariants() {
       }],
     })],
   }));
-  assert.equal(missingSunbizSite.bucket, "RECOVERABLE_RECONCILIATION");
+  assert.equal(missingSunbizSite.bucket, "RECOVERABLE_IDENTITY");
   assert.ok(missingSunbizSite.candidates[0].reasons.includes("sunbiz_website_missing"));
   assert.equal(missingSunbizSite.candidates[0].signals.find(signal => signal.kind === "phone")?.matched, true);
 
@@ -166,7 +168,7 @@ function testClassifierVariants() {
       }),
     ],
   }));
-  assert.equal(ambiguous.bucket, "REQUIRES_REVIEW");
+  assert.equal(ambiguous.bucket, "REVIEW");
   assert.ok(ambiguous.reasons.includes("multiple_business_candidates"));
 
   const filingConflict = classifyContactLinkCoverage(contact({
@@ -179,7 +181,7 @@ function testClassifierVariants() {
       }],
     })],
   }));
-  assert.equal(filingConflict.bucket, "REQUIRES_REVIEW", "conflicting source-link and entity filing identifiers require review");
+  assert.equal(filingConflict.bucket, "REVIEW", "conflicting source-link and entity filing identifiers require review");
   assert.ok(filingConflict.candidates[0].conflicts.some(conflict => conflict.code === "source_link_filing_number_mismatch"));
 
   const projectedOnly = classifyContactLinkCoverage(contact({
@@ -188,7 +190,7 @@ function testClassifierVariants() {
     currentDecision: null,
     businesses: [],
   }));
-  assert.equal(projectedOnly.bucket, "REJECTED", "contacts.business_id alone is never authoritative");
+  assert.equal(projectedOnly.bucket, "REVIEW", "contacts.business_id alone is never authoritative and requires reconciliation");
   assert.ok(projectedOnly.reasons.includes("projection_is_not_link_authority"));
 
   const authoritative = classifyContactLinkCoverage(contact({
@@ -203,12 +205,63 @@ function testClassifierVariants() {
   assert.equal(authoritative.bucket, "ALREADY_VERIFIED");
 }
 
+function testHonestDiscoveryAndRawSourceRecoveryBuckets() {
+  const unlinkedRaw = {
+    sourceEntityId: 701,
+    filingNumber: "RAW-701",
+    entityName: "Sunrise Dental LLC",
+    dba: "Sunrise Family Dentistry",
+    website: "https://sunrisedental.com",
+    principalAddress: "100 Main Street",
+    principalCity: "Miami",
+    principalState: "FL",
+    principalZip: "33101",
+    phone: "3055550188",
+    ownerPhone: null,
+    entitySource: "cordata",
+  };
+  const rawRecovered = classifyContactLinkCoverage(contact({
+    companyName: "Sunrise Family Dentistry",
+    businesses: [business({ sourceLinks: [], rawSunbizMatches: [unlinkedRaw] })],
+    rawSunbizCandidates: [unlinkedRaw],
+  }));
+  assert.equal(rawRecovered.bucket, "RECOVERABLE_IDENTITY");
+  assert.notEqual(rawRecovered.candidates[0].status, "STRICT_AUTO_ELIGIBLE",
+    "unlinked raw source evidence cannot bypass the unchanged system-link source requirement");
+  assert.ok(rawRecovered.candidates[0].reasons.includes(
+    "raw_sunbiz_identity_requires_supported_canonical_source_materialization",
+  ));
+  assert.equal((rawRecovered.candidates[0].evidence.rawSunbizCandidates as any[])[0].canonicalSourceLinkMaterialized, false);
+
+  const rawNeedsBusiness = classifyContactLinkCoverage(contact({
+    businesses: [],
+    rawSunbizCandidates: [unlinkedRaw],
+  }));
+  assert.equal(rawNeedsBusiness.bucket, "NEEDS_BUSINESS_DISCOVERY",
+    "retrieved filing without a canonical business is discovery work, not rejection");
+  assert.equal(classifyContactLinkCoverage(contact({ businesses: [] })).bucket, "NEEDS_BUSINESS_DISCOVERY",
+    "a usable named organization without a canonical match still needs discovery");
+  assert.equal(classifyContactLinkCoverage(contact({
+    companyName: null, website: null, emailDomain: null, phone: null, address: null, businesses: [],
+  })).bucket, "UNUSABLE", "unusable is reserved for records without a usable business identity");
+  assert.equal(classifyContactLinkCoverage(contact({ archived: true })).bucket, "OUT_OF_SCOPE");
+  assert.equal(classifyContactLinkCoverage(contact({ doNotContact: true })).bucket, "SUPPRESSED");
+
+  const ambiguousRaw = classifyContactLinkCoverage(contact({
+    businesses: [business({ sourceLinks: [], rawSunbizMatches: [
+      unlinkedRaw,
+      { ...unlinkedRaw, sourceEntityId: 702, filingNumber: "RAW-702", entityName: "Sunrise Dental Inc" },
+    ] })],
+  }));
+  assert.equal(ambiguousRaw.bucket, "REVIEW", "multiple raw filings remain ambiguous even with matching names");
+}
+
 function testStrictPrerequisiteAndReviewerIndependence() {
   const strict = classifyContactLinkCoverage(contact());
   assert.equal(strict.bucket, "STRICT_AUTO_ELIGIBLE");
   const personalEmail = classifyContactLinkCoverage(contact({ emailDomain: "gmail.com" }));
   assert.notEqual(personalEmail.bucket, "STRICT_AUTO_ELIGIBLE");
-  assert.equal(personalEmail.bucket, "RECOVERABLE_RECONCILIATION");
+  assert.equal(personalEmail.bucket, "RECOVERABLE_IDENTITY");
   assert.equal(isContactLinkEvidenceIndependent({ actorType: "user", actorId: "reviewer-a" }, "reviewer-a"), false);
   assert.equal(isContactLinkEvidenceIndependent({ actorType: "user", actorId: "other-admin" }, "reviewer-a"), true);
   assert.equal(isContactLinkEvidenceIndependent({ actorType: "system", actorId: "contact-link-coverage" }, "reviewer-a"), true);
@@ -294,7 +347,10 @@ function testStrictPrerequisiteAndReviewerIndependence() {
 function testOverlappingReasonsAndResumableDenominator() {
   const row = contact({ emailDomain: "gmail.com" });
   const pageOne = classifyContactLinkCoveragePage([row]);
-  assert.equal(pageOne.counts.RECOVERABLE_RECONCILIATION, 1);
+  assert.equal(pageOne.counts.RECOVERABLE_IDENTITY, 1);
+  assert.equal(pageOne.denominator, 1);
+  assert.equal(Object.values(pageOne.counts).reduce((total, count) => total + count, 0), pageOne.denominator,
+    "the mutually-exclusive coverage buckets reconcile to the page denominator");
   assert.equal(pageOne.reasonCounts.personal_email_not_identity_rejection, 1,
     "a reason appearing on the contact and candidate counts once for that contact");
 
@@ -356,9 +412,15 @@ function testBatchedSqlShape() {
   assert.doesNotMatch(CONTACT_LINK_COVERAGE_BATCH_SQL, /coalesce\(\s*e\.metadata->>/);
   assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /GROUP BY[^;]+c\.email_has_exactly_one_at/s);
   assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /LIMIT \$3/);
+  assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /raw_unlinked_sunbiz_by_contact AS MATERIALIZED/);
+  assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /rawSunbizMatches/);
+  assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /csl\.stable_key = se\.filing_number/);
+  assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /LIMIT 21/);
+  assert.doesNotMatch(CONTACT_LINK_COVERAGE_BATCH_SQL, /JOIN\s+sunbiz_entities\s+se\s+ON\s+TRUE/i);
 }
 
 testClassifierVariants();
+testHonestDiscoveryAndRawSourceRecoveryBuckets();
 testStrictPrerequisiteAndReviewerIndependence();
 testOverlappingReasonsAndResumableDenominator();
 testBatchedSqlShape();

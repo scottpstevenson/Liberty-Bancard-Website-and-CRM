@@ -2,15 +2,40 @@ import type { Express } from "express";
 import { z } from "zod";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { serverError } from "../utils/server-error";
-import {
-  getContactLinkCoverageStatus,
-  listContactLinkCoverageCandidates,
-  pauseContactLinkCoverage,
-  resumeContactLinkCoverage,
-  reviewContactLinkCoverageBatch,
-  startContactLinkCoverage,
-  stepContactLinkCoverage,
-} from "../services/contact-link-coverage";
+
+export interface ContactLinkCoverageRouteDependencies {
+  getStatus: () => Promise<unknown>;
+  listCandidates: (input: { afterCreatedAt?: string; afterId?: string; limit?: number }) => Promise<unknown>;
+  start: (actorId: string) => Promise<unknown>;
+  step: (actorId: string) => Promise<unknown>;
+  pause: (actorId: string) => Promise<unknown>;
+  resume: (actorId: string) => Promise<unknown>;
+  reviewBatch: (items: unknown[], reviewerId: string) => Promise<unknown>;
+  previewSourceRecoveryBatch: (items: unknown[]) => Promise<unknown>;
+  applySourceRecoveryBatch: (items: unknown[]) => Promise<unknown>;
+  auditSourceRecovery: (input: {
+    action: string; entityType: string; entityKey: string; userId: string; details: Record<string, unknown>;
+  }) => Promise<void>;
+}
+
+const productionDependencies: ContactLinkCoverageRouteDependencies = {
+  getStatus: async () => (await import("../services/contact-link-coverage")).getContactLinkCoverageStatus(),
+  listCandidates: async (input) => (await import("../services/contact-link-coverage")).listContactLinkCoverageCandidates(input),
+  start: async (actorId) => (await import("../services/contact-link-coverage")).startContactLinkCoverage(actorId),
+  step: async (actorId) => (await import("../services/contact-link-coverage")).stepContactLinkCoverage(actorId),
+  pause: async (actorId) => (await import("../services/contact-link-coverage")).pauseContactLinkCoverage(actorId),
+  resume: async (actorId) => (await import("../services/contact-link-coverage")).resumeContactLinkCoverage(actorId),
+  reviewBatch: async (items, reviewerId) =>
+    (await import("../services/contact-link-coverage")).reviewContactLinkCoverageBatch(items as any[], reviewerId),
+  previewSourceRecoveryBatch: async (items) =>
+    (await import("../services/contact-link-source-recovery")).previewContactLinkSourceRecoveryBatch(items as any[]),
+  applySourceRecoveryBatch: async (items) =>
+    (await import("../services/contact-link-source-recovery")).applyContactLinkSourceRecoveryBatch(items as any[]),
+  auditSourceRecovery: async (input) => {
+    const { storage } = await import("../storage");
+    await storage.createAuditLog(input);
+  },
+};
 
 const candidateCursorSchema = z.object({
   afterCreatedAt: z.string().datetime().optional(),
@@ -27,16 +52,107 @@ const reviewItemSchema = z.object({
   snapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
   evidenceSourceEventId: z.number().int().positive().optional(),
 }).strict();
+const sourceRecoveryIdentitySchema = z.object({
+  candidateId: z.string().uuid(),
+  contactId: z.number().int().positive(),
+  businessId: z.number().int().positive(),
+  sourceEntityId: z.number().int().positive(),
+  filingNumber: z.string().trim().min(1).max(200),
+}).strict();
+const sourceRecoveryPreviewBatchSchema = z.object({
+  items: z.array(sourceRecoveryIdentitySchema).min(1).max(25),
+}).strict();
+const sourceRecoveryApplyBatchSchema = z.object({
+  items: z.array(sourceRecoveryIdentitySchema.extend({
+    expectedSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  })).min(1).max(25),
+}).strict();
 
-export function registerContactLinkCoverageRoutes(app: Express) {
+function authenticatedOperatorId(req: { user?: unknown }): string | null {
+  const id = String((req.user as any)?.id ?? "").trim();
+  return id || null;
+}
+
+export function registerContactLinkCoverageRoutes(
+  app: Express,
+  dependencies: ContactLinkCoverageRouteDependencies = productionDependencies,
+) {
   app.get(
     "/api/admin/contact-link-coverage/status",
     isDashboardUser,
     requireRole("admin"),
     async (_req, res) => {
       try {
-        res.json(await getContactLinkCoverageStatus());
+        res.json(await dependencies.getStatus());
       } catch (error) {
+        serverError(res, error);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-link-coverage/source-recovery/preview",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const parsed = sourceRecoveryPreviewBatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid bounded source-recovery preview", errors: parsed.error.errors });
+      }
+      try {
+        res.json(await dependencies.previewSourceRecoveryBatch(parsed.data.items));
+      } catch (error: any) {
+        const message = String(error?.message ?? error);
+        if (message.startsWith("CONTACT_LINK_SOURCE_RECOVERY_BATCH_LIMIT_")) {
+          return res.status(400).json({ message });
+        }
+        serverError(res, error);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contact-link-coverage/source-recovery/apply",
+    isDashboardUser,
+    requireRole("admin"),
+    async (req, res) => {
+      const actorId = authenticatedOperatorId(req);
+      if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
+      const parsed = sourceRecoveryApplyBatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid bounded source-recovery apply", errors: parsed.error.errors });
+      }
+      try {
+        const result = await dependencies.applySourceRecoveryBatch(parsed.data.items) as {
+          results?: Array<{
+            identity: { candidateId: string; contactId: number; businessId: number; sourceEntityId: number; filingNumber: string };
+            status: string; reasonCodes: string[]; sourceLinkId: string | null; snapshotHash: string | null;
+          }>;
+        };
+        for (const outcome of result.results ?? []) {
+          await dependencies.auditSourceRecovery({
+            action: "contact_link_source_recovery_applied",
+            entityType: "contact_link_source_recovery",
+            entityKey: outcome.identity.candidateId,
+            userId: actorId,
+            details: {
+              contactId: outcome.identity.contactId,
+              businessId: outcome.identity.businessId,
+              sourceEntityId: outcome.identity.sourceEntityId,
+              filingNumber: outcome.identity.filingNumber,
+              status: outcome.status,
+              reasonCodes: outcome.reasonCodes,
+              sourceLinkId: outcome.sourceLinkId,
+              snapshotHash: outcome.snapshotHash,
+            },
+          });
+        }
+        res.json(result);
+      } catch (error: any) {
+        const message = String(error?.message ?? error);
+        if (message.startsWith("CONTACT_LINK_SOURCE_RECOVERY_BATCH_LIMIT_")) {
+          return res.status(400).json({ message });
+        }
         serverError(res, error);
       }
     },
@@ -47,8 +163,10 @@ export function registerContactLinkCoverageRoutes(app: Express) {
     isDashboardUser,
     requireRole("admin"),
     async (req, res) => {
+      const actorId = authenticatedOperatorId(req);
+      if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
       try {
-        const result = await startContactLinkCoverage(String((req.user as any)?.id ?? ""));
+        const result = await dependencies.start(actorId);
         res.json(result);
       } catch (error: any) {
         if (error?.message === "CONTACT_LINK_COVERAGE_ALREADY_RUNNING"
@@ -65,8 +183,10 @@ export function registerContactLinkCoverageRoutes(app: Express) {
     isDashboardUser,
     requireRole("admin"),
     async (req, res) => {
+      const actorId = authenticatedOperatorId(req);
+      if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
       try {
-        res.json(await stepContactLinkCoverage(String((req.user as any)?.id ?? "")));
+        res.json(await dependencies.step(actorId));
       } catch (error: any) {
         if (String(error?.message ?? "").startsWith("CONTACT_LINK_COVERAGE_")) {
           return res.status(409).json({ message: error.message });
@@ -81,8 +201,10 @@ export function registerContactLinkCoverageRoutes(app: Express) {
     isDashboardUser,
     requireRole("admin"),
     async (req, res) => {
+      const actorId = authenticatedOperatorId(req);
+      if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
       try {
-        res.json(await pauseContactLinkCoverage(String((req.user as any)?.id ?? "")));
+        res.json(await dependencies.pause(actorId));
       } catch (error: any) {
         if (String(error?.message ?? "").startsWith("CONTACT_LINK_COVERAGE_")) {
           return res.status(409).json({ message: error.message });
@@ -97,8 +219,10 @@ export function registerContactLinkCoverageRoutes(app: Express) {
     isDashboardUser,
     requireRole("admin"),
     async (req, res) => {
+      const actorId = authenticatedOperatorId(req);
+      if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
       try {
-        res.json(await resumeContactLinkCoverage(String((req.user as any)?.id ?? "")));
+        res.json(await dependencies.resume(actorId));
       } catch (error: any) {
         if (String(error?.message ?? "").startsWith("CONTACT_LINK_COVERAGE_")) {
           return res.status(409).json({ message: error.message });
@@ -122,7 +246,7 @@ export function registerContactLinkCoverageRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid contact-link candidate cursor", errors: parsed.error.errors });
       }
       try {
-        res.json(await listContactLinkCoverageCandidates(parsed.data));
+        res.json(await dependencies.listCandidates(parsed.data));
       } catch (error) {
         serverError(res, error);
       }
@@ -134,6 +258,8 @@ export function registerContactLinkCoverageRoutes(app: Express) {
     isDashboardUser,
     requireRole("admin"),
     async (req, res) => {
+      const reviewerId = authenticatedOperatorId(req);
+      if (!reviewerId) return res.status(401).json({ message: "Authenticated admin identity required" });
       const parsed = z.object({
         items: z.array(reviewItemSchema).min(1).max(500),
       }).strict().safeParse(req.body);
@@ -141,9 +267,9 @@ export function registerContactLinkCoverageRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid contact-link review batch", errors: parsed.error.errors });
       }
       try {
-        res.json(await reviewContactLinkCoverageBatch(
+        res.json(await dependencies.reviewBatch(
           parsed.data.items,
-          String((req.user as any)?.id ?? ""),
+          reviewerId,
         ));
       } catch (error) {
         serverError(res, error);

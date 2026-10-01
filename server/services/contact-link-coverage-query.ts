@@ -7,6 +7,75 @@
  * lineage joins use exact filing-key equality so the existing indexes remain
  * usable; this never scans the full Sunbiz universe.
  */
+const SUNBIZ_NAME_KEY_ENTITY_SQL = `btrim(regexp_replace(
+  regexp_replace(
+    lower(regexp_replace(coalesce(se.entity_name, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+    '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+  ),
+  '\\s+', ' ', 'g'
+))`;
+const SUNBIZ_NAME_KEY_DBA_SQL = `btrim(regexp_replace(
+  regexp_replace(
+    lower(regexp_replace(coalesce(se.dba, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+    '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+  ),
+  '\\s+', ' ', 'g'
+))`;
+
+/**
+ * Reconciliation's single-contact probe uses the same indexed legal-name and
+ * DBA keys as the batched coverage query. $1 is a normalizeCoverageName key;
+ * $2 is a bounded candidate limit.
+ */
+export const CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL = `
+SELECT DISTINCT ON (matches.source_entity_id)
+  matches.source_entity_id AS "sourceEntityId",
+  matches.filing_number AS "filingNumber",
+  matches.entity_name AS "entityName",
+  matches.dba,
+  matches.website,
+  matches.principal_address AS "principalAddress",
+  matches.principal_city AS "principalCity",
+  matches.principal_state AS "principalState",
+  matches.principal_zip AS "principalZip",
+  matches.phone,
+  matches.owner_phone AS "ownerPhone",
+  matches.source AS "entitySource",
+  matches.match_type AS "matchType"
+FROM (
+  SELECT se.id AS source_entity_id, se.filing_number, se.entity_name, se.dba,
+    se.website, se.principal_address, se.principal_city, se.principal_state,
+    se.principal_zip, se.phone, se.owner_phone, se.source,
+    'legal_name'::text AS match_type
+  FROM sunbiz_entities se
+  WHERE ${SUNBIZ_NAME_KEY_ENTITY_SQL} = $1::text
+    AND se.filing_number IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM canonical_source_links csl
+      WHERE csl.stable_key = se.filing_number
+        AND ((csl.source_system = 'sunbiz' AND csl.source_type = 'sunbiz_entity')
+          OR (csl.source_system = 'sunbiz_entities' AND csl.source_type = 'sunbiz_filing'))
+    )
+  UNION ALL
+  SELECT se.id AS source_entity_id, se.filing_number, se.entity_name, se.dba,
+    se.website, se.principal_address, se.principal_city, se.principal_state,
+    se.principal_zip, se.phone, se.owner_phone, se.source,
+    'dba'::text AS match_type
+  FROM sunbiz_entities se
+  WHERE ${SUNBIZ_NAME_KEY_DBA_SQL} = $1::text
+    AND se.dba IS NOT NULL
+    AND se.filing_number IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM canonical_source_links csl
+      WHERE csl.stable_key = se.filing_number
+        AND ((csl.source_system = 'sunbiz' AND csl.source_type = 'sunbiz_entity')
+          OR (csl.source_system = 'sunbiz_entities' AND csl.source_type = 'sunbiz_filing'))
+    )
+) matches
+ORDER BY matches.source_entity_id
+LIMIT $2::integer
+`;
+
 export const CONTACT_LINK_COVERAGE_BATCH_SQL = `
 WITH page AS MATERIALIZED (
   SELECT
@@ -71,6 +140,11 @@ contact_names AS MATERIALIZED (
   )) AS key
   FROM page p
   WHERE nullif(trim(p.company_name), '') IS NOT NULL
+),
+contact_source_name_keys AS MATERIALIZED (
+  SELECT contact_id, key
+  FROM contact_names
+  WHERE length(key) >= 4
 ),
 contact_filing_keys AS MATERIALIZED (
   SELECT DISTINCT p.contact_id, lower(key_value) AS key
@@ -206,6 +280,68 @@ all_sunbiz_source_links AS MATERIALIZED (
   WHERE csl.source_system = 'sunbiz'
     AND csl.source_type = 'sunbiz_entity'
 ),
+raw_unlinked_sunbiz_by_contact AS MATERIALIZED (
+  SELECT
+    p.contact_id,
+    raw.source_entity_id,
+    raw.filing_number,
+    raw.entity_name,
+    raw.dba,
+    raw.website,
+    raw.principal_address,
+    raw.principal_city,
+    raw.principal_state,
+    raw.principal_zip,
+    raw.phone,
+    raw.owner_phone,
+    raw.source
+  FROM page p
+  JOIN contact_source_name_keys contact_key ON contact_key.contact_id = p.contact_id
+  CROSS JOIN LATERAL (
+    SELECT DISTINCT ON (matches.source_entity_id)
+      matches.source_entity_id,
+      matches.filing_number,
+      matches.entity_name,
+      matches.dba,
+      matches.website,
+      matches.principal_address,
+      matches.principal_city,
+      matches.principal_state,
+      matches.principal_zip,
+      matches.phone,
+      matches.owner_phone,
+      matches.source
+    FROM (
+      SELECT se.id AS source_entity_id, se.filing_number, se.entity_name, se.dba,
+        se.website, se.principal_address, se.principal_city, se.principal_state,
+        se.principal_zip, se.phone, se.owner_phone, se.source
+      FROM sunbiz_entities se
+      WHERE ${SUNBIZ_NAME_KEY_ENTITY_SQL} = contact_key.key
+        AND se.filing_number IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM canonical_source_links csl
+          WHERE csl.stable_key = se.filing_number
+            AND ((csl.source_system = 'sunbiz' AND csl.source_type = 'sunbiz_entity')
+              OR (csl.source_system = 'sunbiz_entities' AND csl.source_type = 'sunbiz_filing'))
+        )
+      UNION ALL
+      SELECT se.id AS source_entity_id, se.filing_number, se.entity_name, se.dba,
+        se.website, se.principal_address, se.principal_city, se.principal_state,
+        se.principal_zip, se.phone, se.owner_phone, se.source
+      FROM sunbiz_entities se
+      WHERE ${SUNBIZ_NAME_KEY_DBA_SQL} = contact_key.key
+        AND se.filing_number IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM canonical_source_links csl
+          WHERE csl.stable_key = se.filing_number
+            AND ((csl.source_system = 'sunbiz' AND csl.source_type = 'sunbiz_entity')
+              OR (csl.source_system = 'sunbiz_entities' AND csl.source_type = 'sunbiz_filing'))
+        )
+    ) matches
+    ORDER BY matches.source_entity_id
+    LIMIT 21
+  ) raw
+),
 source_identity_keys AS MATERIALIZED (
   SELECT business_id, 'name'::text AS kind, trim(regexp_replace(
     regexp_replace(
@@ -279,6 +415,18 @@ candidate_pairs AS MATERIALIZED (
     ON business_keys.kind = contact_keys.kind
    AND business_keys.key = contact_keys.key
   UNION
+  SELECT DISTINCT raw.contact_id, business_name.business_id
+  FROM raw_unlinked_sunbiz_by_contact raw
+  CROSS JOIN LATERAL (VALUES (raw.entity_name), (raw.dba)) source_name(value)
+  JOIN business_name_keys business_name
+    ON business_name.key = trim(regexp_replace(
+      regexp_replace(
+        lower(regexp_replace(coalesce(source_name.value, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+      ),
+      '\\s+', ' ', 'g'
+    ))
+  UNION
   SELECT p.contact_id, p.projected_business_id
   FROM page p WHERE p.projected_business_id IS NOT NULL
   UNION
@@ -315,6 +463,36 @@ source_links_by_business AS MATERIALIZED (
   JOIN all_sunbiz_source_links source ON source.business_id = candidate.business_id
   GROUP BY source.business_id
 ),
+raw_sunbiz_by_contact_business AS MATERIALIZED (
+  SELECT
+    raw.contact_id,
+    business_name.business_id,
+    jsonb_agg(jsonb_build_object(
+      'sourceEntityId', raw.source_entity_id,
+      'filingNumber', raw.filing_number,
+      'entityName', raw.entity_name,
+      'dba', raw.dba,
+      'website', raw.website,
+      'principalAddress', raw.principal_address,
+      'principalCity', raw.principal_city,
+      'principalState', raw.principal_state,
+      'principalZip', raw.principal_zip,
+      'phone', raw.phone,
+      'ownerPhone', raw.owner_phone,
+      'entitySource', raw.source
+    ) ORDER BY raw.source_entity_id) AS matches
+  FROM raw_unlinked_sunbiz_by_contact raw
+  CROSS JOIN LATERAL (VALUES (raw.entity_name), (raw.dba)) source_name(value)
+  JOIN business_name_keys business_name
+    ON business_name.key = trim(regexp_replace(
+      regexp_replace(
+        lower(regexp_replace(coalesce(source_name.value, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+      ),
+      '\\s+', ' ', 'g'
+    ))
+  GROUP BY raw.contact_id, business_name.business_id
+),
 contact_data AS (
   SELECT
     p.*,
@@ -322,7 +500,8 @@ contact_data AS (
     (p.current_decision = 'verified'
       AND p.current_decision_business_id IS NOT NULL
       AND p.projected_business_id = p.current_decision_business_id) AS current_decision_consistent,
-    COALESCE(events.source_events, '[]'::jsonb) AS source_events
+    COALESCE(events.source_events, '[]'::jsonb) AS source_events,
+    COALESCE(raw_sources.raw_candidates, '[]'::jsonb) AS raw_sunbiz_candidates
   FROM page p
   LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
@@ -338,6 +517,24 @@ contact_data AS (
     FROM contact_source_events e
     WHERE e.contact_id = p.contact_id
   ) events ON true
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object(
+      'sourceEntityId', raw.source_entity_id,
+      'filingNumber', raw.filing_number,
+      'entityName', raw.entity_name,
+      'dba', raw.dba,
+      'website', raw.website,
+      'principalAddress', raw.principal_address,
+      'principalCity', raw.principal_city,
+      'principalState', raw.principal_state,
+      'principalZip', raw.principal_zip,
+      'phone', raw.phone,
+      'ownerPhone', raw.owner_phone,
+      'entitySource', raw.source
+    ) ORDER BY raw.source_entity_id) AS raw_candidates
+    FROM raw_unlinked_sunbiz_by_contact raw
+    WHERE raw.contact_id = p.contact_id
+  ) raw_sources ON true
 ),
 business_data AS (
   SELECT
@@ -354,11 +551,14 @@ business_data AS (
     b.record_class,
     b.do_not_visit,
     b.domain_business_count,
-    COALESCE(source_links.source_links, '[]'::jsonb) AS source_links
+    COALESCE(source_links.source_links, '[]'::jsonb) AS source_links,
+    COALESCE(raw_sunbiz.matches, '[]'::jsonb) AS raw_sunbiz_matches
   FROM candidate_pairs cp
   JOIN page p ON p.contact_id = cp.contact_id
   JOIN canonical_businesses b ON b.business_id = cp.business_id
   LEFT JOIN source_links_by_business source_links ON source_links.business_id = b.business_id
+  LEFT JOIN raw_sunbiz_by_contact_business raw_sunbiz
+    ON raw_sunbiz.contact_id = p.contact_id AND raw_sunbiz.business_id = b.business_id
 )
 SELECT
   c.contact_id AS "contactId",
@@ -391,6 +591,7 @@ SELECT
   c.current_decision_consistent AS "currentDecisionConsistent",
   c.primary_source_event_id AS "primarySourceEventId",
   c.source_events AS "sourceEvents",
+  c.raw_sunbiz_candidates AS "rawSunbizCandidates",
   COALESCE(jsonb_agg(jsonb_build_object(
     'businessId', b.business_id,
     'canonicalName', b.canonical_name,
@@ -404,7 +605,8 @@ SELECT
     'recordClass', b.record_class,
     'doNotVisit', b.do_not_visit,
     'domainBusinessCount', b.domain_business_count,
-    'sourceLinks', b.source_links
+     'sourceLinks', b.source_links,
+     'rawSunbizMatches', b.raw_sunbiz_matches
   ) ORDER BY b.business_id) FILTER (WHERE b.business_id IS NOT NULL), '[]'::jsonb) AS businesses
 FROM contact_data c
 LEFT JOIN business_data b ON b.contact_id = c.contact_id
@@ -414,7 +616,7 @@ GROUP BY c.contact_id,c.company_name,c.email_domain_key,c.email_has_exactly_one_
   c.do_not_contact,c.do_not_auto_contact,c.opted_out_email,c.opt_out_status,c.unsubscribe_status,
   c.bounce_status,c.complaint_status,c.suppression_reason,c.projected_business_id,
   c.current_decision_id,c.current_decision,c.current_decision_business_id,c.current_revision,
-  c.current_decision_consistent,c.primary_source_event_id,c.source_events
+   c.current_decision_consistent,c.primary_source_event_id,c.source_events,c.raw_sunbiz_candidates
 ORDER BY c.contact_id
 `;
 

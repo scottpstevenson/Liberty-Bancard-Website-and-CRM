@@ -32,7 +32,6 @@ await assertDisposableTestInfrastructure({
   operation: "SFP full drain (validation -> ready_held) disposable certification",
   requireRedis: false,
 });
-const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
 process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED = "true";
@@ -50,6 +49,8 @@ await runDrizzleMigrations();
 const { db } = await import("../server/db");
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const RUN_ID = `sfpfd-${randomUUID().slice(0, 8)}`;
+await (await import("./helpers/sfp-runtime-test-identity"))
+  .selectSfpRuntimeTestRelease(`cert:${RUN_ID}`);
 
 const { ensureProgram, setProgramActivation } = await import(
   "../server/services/cro03/south-florida-prospecting"
@@ -95,30 +96,6 @@ await db.execute(sql`
      SET enabled = TRUE, circuit_state = 'closed', local_budget_units = 1000000, version = version + 1, updated_at = NOW()
    WHERE provider = 'zerobounce'
 `);
-
-// Live attestation fixture (same seam as test-sfp-validation-handoff-repair-certification.ts)
-{
-  const certIdemKey = `cert-fd-att-${RUN_ID}`;
-  const certAttHash = createHash("sha256").update(certIdemKey).digest("hex");
-  await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
-       environment_identity, web_boot_identity, worker_boot_identity,
-       queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
-       captured_at, expires_at, attestation_hash, created_by)
-    VALUES (
-      ${certIdemKey}, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${sfpRuntimeIdentity.artifactSha},
-      ${createHash("sha256").update("cert-fd-migration-head").digest("hex").slice(0, 40)},
-      ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity},
-      ${`cert-fd-web-${RUN_ID}`}, ${`cert-fd-worker-${RUN_ID}`},
-      ${sfpRuntimeIdentity.queueTopologyHash},
-      NOW() - INTERVAL '30 seconds', true, true,
-      NOW(), NOW() + INTERVAL '1 hour',
-      ${certAttHash}, ${"cert-fd:" + RUN_ID}
-    )
-    ON CONFLICT (idempotency_key) DO NOTHING
-  `);
-}
 
 // ── Fixture: 5 raw-NULL businesses with staged email candidates and frozen
 // v2 Healthcare classification evidence. The raw vertical intentionally does

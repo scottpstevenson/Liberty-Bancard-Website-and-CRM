@@ -10,6 +10,7 @@ import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { deriveCanonicalBusinessSafeNextAction } from "../services/canonical-business-safe-next-action";
 import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-business-email-display";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
+import { registerSfpReadyHeldOperatorRoutes } from "./sfp-ready-held-operator";
 
 /**
  * Truthful worker/queue health for the SFP campaign-staging telemetry
@@ -89,6 +90,7 @@ export function incrementLegacyEnrichAttemptCounter(): void {
 }
 
 export function registerLeadOpsRoutes(app: Express) {
+  registerSfpReadyHeldOperatorRoutes(app);
   app.get("/api/lead-ops/inbound-requests", requireRole("admin", "manager"), async (req, res) => {
     try {
       const rows = await listInboundRequests({
@@ -3323,34 +3325,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/candidates/promotion-state", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const enabled = process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true";
-      // A live attestation from another release/topology/process must not make
-      // this deployment's promotion badge look open. Match the exact runtime
-      // identity required again at the provider reservation boundary.
-      const { getCurrentSfpRuntimeFence } = await import("../services/cro03/sfp-runtime-fence");
-      const runtimeFence = await getCurrentSfpRuntimeFence();
-      let attestationLive = false;
-      let attestationReason = runtimeFence ? "NO_LIVE_RUNTIME_ATTESTATION" : "RUNTIME_IDENTITY_UNVERIFIED";
-      try {
-        const attestRows = runtimeFence ? ((await db.execute(sql`
-          SELECT id FROM cro03c_runtime_attestations
-          WHERE expires_at > NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
-            AND artifact_sha=${runtimeFence.artifactSha}
-            AND deployment_identity=${runtimeFence.deploymentIdentity}
-            AND environment_identity=${runtimeFence.environmentIdentity}
-            AND queue_topology_hash=${runtimeFence.queueTopologyHash}
-            AND worker_identities @> ${JSON.stringify([runtimeFence.processIdentity])}::jsonb
-          ORDER BY captured_at DESC
-          LIMIT 1
-        `)) as any).rows ?? [] : [];
-        attestationLive = attestRows.length > 0;
-        if (attestationLive) attestationReason = "OK";
-      } catch (attestErr: any) {
-        const msg: string = attestErr?.message ?? "";
-        attestationReason = /relation.*does not exist|column.*does not exist/i.test(msg)
-          ? "ATTESTATION_SCHEMA_ERROR"
-          : "ATTESTATION_QUERY_ERROR";
-      }
-      const gateOpen = enabled && attestationLive;
+      const { getSfpDeploymentOwnerReadiness } = await import("../services/cro03/sfp-provider-operations");
+      const runtimeOwner = await getSfpDeploymentOwnerReadiness();
+      const gateOpen = enabled && runtimeOwner.ready;
       const stagedCount = ((await db.execute(sql`
         SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'staged'
       `)) as any).rows?.[0]?.cnt ?? 0;
@@ -3360,17 +3337,15 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       let note: string;
       if (!enabled) {
         note = "Promotion gate is CLOSED — set FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true to enable.";
-      } else if (!runtimeFence) {
-        note = "Promotion gate is CLOSED — this runtime cannot prove its release, deployment, or queue identity.";
-      } else if (!attestationLive) {
-        note = `Promotion gate is CLOSED — no live runtime attestation matches this release, deployment, topology, and worker (${attestationReason}).`;
+      } else if (!runtimeOwner.ready) {
+        note = `Promotion gate is CLOSED — durable routine-SFP deployment ownership is not ready (${runtimeOwner.reason}).`;
       } else {
         note = "Promotion gate is OPEN — promoteCandidateForValidation() will advance staged candidates.";
       }
       res.json({
         promotionEnabled: enabled,
-        attestationLive,
-        attestationReason,
+        runtimeOwnerReady: runtimeOwner.ready,
+        runtimeOwnerReason: runtimeOwner.reason,
         gateOpen,
         staged: Number(stagedCount),
         validationAdmitted: Number(validationAdmittedCount),
@@ -4605,6 +4580,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           }
           return replay;
         }
+        const lockedPolicy = rows(await tx.execute(sql`
+          SELECT d.id,d.document_hash
+            FROM sfp_outreach_policy_control pc
+            JOIN sfp_outreach_policy_documents d ON d.id=pc.active_policy_id
+           WHERE pc.singleton=TRUE
+           FOR UPDATE OF pc,d
+        `))[0];
+        if (!lockedPolicy || String(lockedPolicy.id) !== String(policy.id)
+            || String(lockedPolicy.document_hash) !== String(policy.documentHash)) {
+          throw Object.assign(new Error("OUTREACH_POLICY_CHANGED"), { status: 409 });
+        }
         const current = rows(await tx.execute(sql`
           SELECT e.*, p.id AS active_policy_id, p.document_hash AS active_policy_hash,
                  p.role_inbox_policy->>'named_or_unclassified_requires_review' AS named_requires_review,
@@ -4832,8 +4818,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // strand a contact; no unpause/send path is invoked by this route.
   app.post("/api/lead-ops/sfp/staging-intents/:intentId/bridge-to-paused-enrollment", requireRole("admin"), async (req, res) => {
     try {
-      const { bridgeReadyHeldIntentToPausedEnrollment } = await import("../services/cro03/sfp-enrollment-bridge");
-      const result = await bridgeReadyHeldIntentToPausedEnrollment(
+      const { bridgeReadyHeldIntentAsOperator } = await import("../services/cro03/sfp-ready-held-consumer");
+      const result = await bridgeReadyHeldIntentAsOperator(
         String(req.params.intentId), `admin:${(req as any).user?.id ?? "system"}`,
       );
       res.json(result);
@@ -4999,6 +4985,49 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
          LIMIT 10
       `));
 
+      const readyHeldConsumerStats = rows(await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE state='pending')::int AS pending,
+          COUNT(*) FILTER (WHERE state='claimed' AND lease_expires_at>NOW())::int AS claimed,
+          COUNT(*) FILTER (WHERE state='claimed' AND (lease_expires_at IS NULL OR lease_expires_at<=NOW()))::int AS stale_claims,
+          COUNT(*) FILTER (WHERE state='retry')::int AS retrying,
+          COUNT(*) FILTER (WHERE state='held')::int AS held,
+          COUNT(*) FILTER (WHERE state='completed')::int AS completed,
+          COUNT(*) FILTER (WHERE state='dead_letter')::int AS dead_letter,
+          MAX(updated_at) AS last_progress_at,
+          COUNT(*) FILTER (WHERE state='completed' AND completed_at>NOW()-INTERVAL '24 hours')::int AS completed_24h
+        FROM sfp_ready_held_consumer_items
+      `))[0] ?? {};
+      const readyHeldUnqueued = rows(await db.execute(sql`
+        SELECT COUNT(*)::int AS count
+          FROM sfp_campaign_staging_intents i
+          JOIN sfp_cohort_runs c ON c.id=i.cohort_run_id
+          JOIN sfp_programs p ON p.id=c.program_id
+         WHERE p.name='south-florida-v1'
+           AND c.cohort_state='frozen' AND c.voided_at IS NULL AND c.superseded_at IS NULL
+           AND i.state='ready_held'
+           AND NOT EXISTS (
+             SELECT 1 FROM sfp_ready_held_consumer_items q WHERE q.staging_intent_id=i.id
+           )
+      `))[0];
+      const readyHeldConsumerHolds = rows(await db.execute(sql`
+        SELECT q.id, q.staging_intent_id, q.state, q.attempt_count, q.outcome_code, q.updated_at,
+               i.business_id, i.package_key
+          FROM sfp_ready_held_consumer_items q
+          JOIN sfp_campaign_staging_intents i ON i.id=q.staging_intent_id
+         WHERE q.state IN ('held','dead_letter')
+         ORDER BY q.updated_at DESC, q.id
+         LIMIT 10
+      `));
+      const [{ verifyPackageConvergenceV2 }, { getPauseState }] = await Promise.all([
+        import("../services/cro03/sfp-campaign-packages"),
+        import("../services/outbound-pause-authority"),
+      ]);
+      const [packageReadiness, outboundPause] = await Promise.all([
+        verifyPackageConvergenceV2(),
+        getPauseState(),
+      ]);
+
       res.json({
         capability: {
           profile,
@@ -5012,6 +5041,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           campaignStagingBatchSize: Number(program.campaign_staging_batch),
         } : null,
         effectiveEnablement: capabilityActive && scheduleEnabled,
+        outbound: {
+          globalState: outboundPause.state,
+          globalPaused: outboundPause.state === "paused",
+          pauseEpoch: outboundPause.epoch.toString(),
+          stateSource: outboundPause.source,
+        },
+        packageControls: packageReadiness,
         lastRun: lastRun ? {
           id: String(lastRun.id), state: String(lastRun.state),
           selected: Number(lastRun.selected_count), processed: Number(lastRun.processed_count),
@@ -5031,6 +5067,32 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         backlog: {
           eligibleAwaitingStaging: Number(backlogRow?.backlog_eligible ?? 0),
           freshAwaitingStaging: Number(backlogRow?.backlog_fresh ?? 0),
+          meaning: "Eligibility readiness count; not a per-tick or hourly throughput promise.",
+          configuredBatchSize: program ? Number(program.campaign_staging_batch) : 0,
+        },
+        readyHeldConsumer: {
+          unqueuedReadyHeld: Number(readyHeldUnqueued?.count ?? 0),
+          pending: Number(readyHeldConsumerStats.pending ?? 0),
+          claimed: Number(readyHeldConsumerStats.claimed ?? 0),
+          staleClaims: Number(readyHeldConsumerStats.stale_claims ?? 0),
+          retrying: Number(readyHeldConsumerStats.retrying ?? 0),
+          held: Number(readyHeldConsumerStats.held ?? 0),
+          completed: Number(readyHeldConsumerStats.completed ?? 0),
+          deadLettered: Number(readyHeldConsumerStats.dead_letter ?? 0),
+          completedLast24h: Number(readyHeldConsumerStats.completed_24h ?? 0),
+          lastProgressAt: readyHeldConsumerStats.last_progress_at ?? null,
+          batchLimit: 25,
+          scheduleActive: capabilityActive && scheduleEnabled,
+          heldSample: readyHeldConsumerHolds.map((item: any) => ({
+            id: String(item.id),
+            stagingIntentId: String(item.staging_intent_id),
+            businessId: Number(item.business_id),
+            packageKey: item.package_key ?? null,
+            state: String(item.state),
+            attemptCount: Number(item.attempt_count),
+            reason: item.outcome_code ?? null,
+            updatedAt: item.updated_at,
+          })),
         },
         throughput: {
           completedLast24h: Number(itemStats?.completed_24h ?? 0),
@@ -5175,40 +5237,22 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         return res.status(400).json({ error: "limit must be an integer between 1 and 25" });
       }
 
-      // ── Shared attestation preflight (run ONCE before processing the batch) ──
-      // Gate 6 inside promoteCandidateForValidation would query cro03c_runtime_attestations
-      // once per candidate.  A schema or policy failure on the first candidate would
-      // repeat 50 identical DB errors.  Instead we probe the attestation table here,
-      // distinguish schema errors from legitimate policy denial, and abort early with
-      // a clear failure reason so the UI does not show a misleading "failed: 50".
-      let sharedAttestationReason: string | null = null;
+      // Bind this administrative batch to the concrete deployment owner once;
+      // each paid provider reservation still claims its own token/epoch job lease.
+      let runtimeOwnerReason: string | null = null;
       try {
-        const { getCurrentSfpRuntimeFence } = await import("../services/cro03/sfp-runtime-fence");
-        const runtimeFence = await getCurrentSfpRuntimeFence();
-        const attRow = runtimeFence ? ((await db.execute(sql`
-          SELECT id FROM cro03c_runtime_attestations
-          WHERE expires_at > NOW() AND db_healthy=TRUE AND redis_healthy=TRUE
-            AND artifact_sha=${runtimeFence.artifactSha}
-            AND deployment_identity=${runtimeFence.deploymentIdentity}
-            AND environment_identity=${runtimeFence.environmentIdentity}
-            AND queue_topology_hash=${runtimeFence.queueTopologyHash}
-            AND worker_identities @> ${JSON.stringify([runtimeFence.processIdentity])}::jsonb
-          ORDER BY captured_at DESC LIMIT 1
-        `)) as any).rows?.[0] : null;
-        if (!attRow) sharedAttestationReason = runtimeFence ? "NO_LIVE_RUNTIME_ATTESTATION" : "RUNTIME_IDENTITY_UNVERIFIED";
-      } catch (attErr: any) {
-        const msg = String(attErr?.message ?? "");
-        sharedAttestationReason = /column.*does not exist|relation.*does not exist/i.test(msg)
-          ? "ATTESTATION_SCHEMA_ERROR"
-          : "ATTESTATION_QUERY_ERROR";
-        console.error("[BackfillPromotion] Attestation preflight failed:", msg);
+        const { claimSfpRuntimeDeploymentOwner } = await import("../services/cro03/sfp-provider-operations");
+        await claimSfpRuntimeDeploymentOwner();
+      } catch (ownerErr: any) {
+        runtimeOwnerReason = String(ownerErr?.message ?? ownerErr);
+        console.error("[BackfillPromotion] Routine-SFP owner claim failed:", runtimeOwnerReason);
       }
-      if (sharedAttestationReason) {
+      if (runtimeOwnerReason) {
         return res.status(422).json({
           examined: 0, promoted: 0, skipped: 0, failed: 0,
           preflight: "FAILED",
-          preflightReason: sharedAttestationReason,
-          message: `Attestation preflight failed: ${sharedAttestationReason}. No candidates were processed. Repair the attestation table/schema and retry.`,
+          preflightReason: "RUNTIME_OWNER_BLOCKED",
+          message: `Durable routine-SFP owner claim failed: ${runtimeOwnerReason}. No candidates were processed.`,
         });
       }
 

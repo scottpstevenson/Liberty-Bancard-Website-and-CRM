@@ -28,6 +28,7 @@
     "test:db-rehearsal:integration": "npx tsx scripts/test-local-rehearsal-integration.ts",
     "test:consent-authority": "npx tsx scripts/test-consent-authority.ts",
     "test:consent-writer-dominance": "npx tsx scripts/test-consent-writer-dominance.ts",
+    "test:sfp-provider-contracts": "npx tsx scripts/test-sfp-provider-contracts.ts",
     "test:task1721-structure": "npx tsx scripts/test-task1721-inbox-statement-structure.ts && npx tsx scripts/test-task1721-inbox-pagination.ts"
   },
   "dependencies": {

@@ -16,6 +16,9 @@
 
 import { pool } from "../db";
 
+/** Shared bridge lock / exclusive outbound-control mutation lock. */
+export const OUTBOUND_PAUSE_CONTROL_ADVISORY_LOCK_KEY = 1_531_1522n;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------

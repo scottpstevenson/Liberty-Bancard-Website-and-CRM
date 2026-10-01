@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,9 +17,12 @@ const PATH = "/api/admin/contact-link-coverage";
 const CENSUS_CATEGORIES = [
   "STRICT_AUTO_ELIGIBLE",
   "ALREADY_VERIFIED",
-  "RECOVERABLE_RECONCILIATION",
-  "REQUIRES_REVIEW",
-  "REJECTED",
+  "RECOVERABLE_IDENTITY",
+  "NEEDS_BUSINESS_DISCOVERY",
+  "REVIEW",
+  "OUT_OF_SCOPE",
+  "SUPPRESSED",
+  "UNUSABLE",
 ] as const;
 type CensusCategory = (typeof CENSUS_CATEGORIES)[number];
 type CoverageStatus = {
@@ -46,6 +50,35 @@ type ContactLinkCandidate = {
   category?: string;
   classification?: string;
   isVerified?: boolean;
+};
+type RawSunbizCandidate = {
+  sourceEntityId: number;
+  filingNumber: string;
+  entityName: string;
+  dba?: string | null;
+  canonicalSourceLinkMaterialized?: boolean;
+};
+type SourceRecoveryIdentity = {
+  candidateId: string;
+  contactId: number;
+  businessId: number;
+  sourceEntityId: number;
+  filingNumber: string;
+};
+type SourceRecoveryPreview = {
+  identity: SourceRecoveryIdentity;
+  status: "READY" | "ALREADY_MATERIALIZED" | "HOLD";
+  reasonCodes: string[];
+  snapshotHash: string | null;
+  source: { entityName: string; dba: string | null } | null;
+  canonicalBusiness: { businessId: number; canonicalName: string } | null;
+};
+type SourceRecoveryOutcome = {
+  identity: SourceRecoveryIdentity;
+  status: string;
+  reasonCodes: string[];
+  sourceLinkId: string | null;
+  snapshotHash: string | null;
 };
 type CandidateCursor = { createdAt: string; id: string };
 type CandidatePage = {
@@ -91,6 +124,7 @@ const REFERENCE_KEYS = new Set([
   "officialwebsite", "officialwebsiteurl", "domain", "domainname", "url",
   "reference", "referenceid", "confidence", "field", "value", "detail", "summary",
   "contactcompanyname", "contactwebsitedomain", "contactphonelast4", "contactaddressmatched",
+  "rawsunbizcandidates",
   "business", "canonicalname", "websitedomain", "recordclass", "sunbizname", "sunbizdba",
   "sunbizfilingnumber", "sunbizwebsitedomain", "sunbizaddress", "sunbizcity", "sunbizstate",
   "sunbizentitysource", "sourcecategory", "eventid", "matchedsignals", "kind", "matched",
@@ -169,19 +203,52 @@ function EvidenceReferences({ label, value }: { label: string; value: unknown })
 function getReviewBlockReason(candidate: ContactLinkCandidate): string | null {
   const category = candidate.category ?? candidate.classification;
   if (candidate.isVerified || category === "ALREADY_VERIFIED") return "This contact is already verified.";
-  if (category === "STRICT_AUTO_ELIGIBLE" || category === "REJECTED") {
+  if (category === "STRICT_AUTO_ELIGIBLE") {
     return `This record is classified as ${category.replace(/_/g, " ").toLowerCase()} and is not in the human-review queue.`;
+  }
+  if (["OUT_OF_SCOPE", "SUPPRESSED", "UNUSABLE"].includes(String(category))) {
+    return `This record is classified as ${String(category).replace(/_/g, " ").toLowerCase()} and cannot be reviewed through this queue.`;
   }
   return null;
 }
 
+function getRawSunbizCandidates(candidate: ContactLinkCandidate): RawSunbizCandidate[] {
+  const evidence = candidate.evidence as { rawSunbizCandidates?: unknown } | null;
+  if (!Array.isArray(evidence?.rawSunbizCandidates)) return [];
+  return evidence.rawSunbizCandidates.filter((source): source is RawSunbizCandidate =>
+    Boolean(source)
+      && Number.isInteger((source as RawSunbizCandidate).sourceEntityId)
+      && (source as RawSunbizCandidate).sourceEntityId > 0
+      && typeof (source as RawSunbizCandidate).filingNumber === "string"
+      && (source as RawSunbizCandidate).filingNumber.trim().length > 0,
+  );
+}
+
+function sourceRecoveryKey(identity: SourceRecoveryIdentity): string {
+  return `${identity.candidateId}:${identity.sourceEntityId}:${identity.filingNumber}`;
+}
+
 export function ContactLinkCoveragePanel() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) {
+    return <Card><CardContent className="p-4 text-sm text-muted-foreground">Checking contact-link coverage access…</CardContent></Card>;
+  }
+  if (user?.role !== "admin") {
+    return <Card><CardContent className="p-4 text-sm text-muted-foreground" role="note">Contact-link coverage census and review are available to admins only.</CardContent></Card>;
+  }
+  return <ContactLinkCoveragePanelAdmin />;
+}
+
+function ContactLinkCoveragePanelAdmin() {
   const { toast } = useToast();
   const [cursor, setCursor] = useState<CandidateCursor | null>(null);
   const [cursorHistory, setCursorHistory] = useState<Array<CandidateCursor | null>>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
   const [reviewOutcomes, setReviewOutcomes] = useState<Record<string, ReviewOutcome>>({});
+  const [sourceRecoverySelectedKeys, setSourceRecoverySelectedKeys] = useState<string[]>([]);
+  const [sourceRecoveryPreviews, setSourceRecoveryPreviews] = useState<Record<string, SourceRecoveryPreview>>({});
+  const [sourceRecoveryOutcomes, setSourceRecoveryOutcomes] = useState<Record<string, SourceRecoveryOutcome>>({});
   const [autoRunning, setAutoRunning] = useState(false);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const stopAutoRun = useRef(false);
@@ -198,6 +265,7 @@ export function ContactLinkCoveragePanel() {
     setCursor(null);
     setCursorHistory([]);
     setSelectedCandidateIds([]);
+    setSourceRecoverySelectedKeys([]);
   }, [runId]);
   const candidatesQueryKey = [PATH, "candidates", runId, cursor] as const;
   const candidatesQuery = useQuery<CandidatePage>({
@@ -266,6 +334,75 @@ export function ContactLinkCoveragePanel() {
   const nextCandidatesCursor = candidatesQuery.data?.nextCursor ?? null;
   const selectedRows = visibleCandidates.filter((candidate) =>
     selectedCandidateIds.includes(candidate.candidateId) && !getReviewBlockReason(candidate));
+  const sourceRecoveryOptions = visibleCandidates.flatMap((candidate) =>
+    getRawSunbizCandidates(candidate).map((source) => {
+      const identity: SourceRecoveryIdentity = {
+        candidateId: candidate.candidateId,
+        contactId: candidate.contactId,
+        businessId: candidate.businessId,
+        sourceEntityId: source.sourceEntityId,
+        filingNumber: source.filingNumber,
+      };
+      return { key: sourceRecoveryKey(identity), identity, source };
+    }));
+  const selectedSourceRecoveryOptions = sourceRecoveryOptions.filter((option) =>
+    sourceRecoverySelectedKeys.includes(option.key));
+  const readySourceRecoveryOptions = selectedSourceRecoveryOptions.filter((option) =>
+    sourceRecoveryPreviews[option.key]?.status === "READY"
+      && Boolean(sourceRecoveryPreviews[option.key]?.snapshotHash));
+  const sourceRecoveryPreviewMutation = useMutation({
+    mutationFn: async () => {
+      if (selectedSourceRecoveryOptions.length < 1 || selectedSourceRecoveryOptions.length > 25) {
+        throw new Error("Select between 1 and 25 raw Sunbiz identities from this page.");
+      }
+      return await (await apiRequest("POST", `${PATH}/source-recovery/preview`, {
+        items: selectedSourceRecoveryOptions.map((option) => option.identity),
+      })).json() as { denominator: number; results: SourceRecoveryPreview[] };
+    },
+    onSuccess: (result) => {
+      setSourceRecoveryPreviews((current) => ({
+        ...current,
+        ...Object.fromEntries(result.results.map((preview) => [sourceRecoveryKey(preview.identity), preview])),
+      }));
+      setSourceRecoveryOutcomes((current) => {
+        const next = { ...current };
+        for (const option of selectedSourceRecoveryOptions) delete next[option.key];
+        return next;
+      });
+      toast({
+        title: "Source-recovery preview received",
+        description: `${result.results.filter((item) => item.status === "READY").length} of ${result.denominator} selected identities are ready for exact-snapshot apply.`,
+      });
+    },
+    onError: (error: Error) => toast({ title: "Source-recovery preview failed", description: error.message, variant: "destructive" }),
+  });
+  const sourceRecoveryApplyMutation = useMutation({
+    mutationFn: async () => {
+      if (readySourceRecoveryOptions.length < 1 || readySourceRecoveryOptions.length > 25) {
+        throw new Error("Apply only ready source-recovery previews from this page (maximum 25).");
+      }
+      return await (await apiRequest("POST", `${PATH}/source-recovery/apply`, {
+        items: readySourceRecoveryOptions.map((option) => ({
+          ...option.identity,
+          expectedSnapshotHash: sourceRecoveryPreviews[option.key]!.snapshotHash!,
+        })),
+      })).json() as { denominator: number; results: SourceRecoveryOutcome[] };
+    },
+    onSuccess: (result) => {
+      const materialized = result.results.filter((item) => item.status === "MATERIALIZED").length;
+      setSourceRecoveryOutcomes((current) => ({
+        ...current,
+        ...Object.fromEntries(result.results.map((outcome) => [sourceRecoveryKey(outcome.identity), outcome])),
+      }));
+      toast({
+        title: "Source-recovery results received",
+        description: `${result.results.filter((item) => item.status === "MATERIALIZED" || item.status === "ALREADY_MATERIALIZED").length} materialized/already present · ${result.results.filter((item) => item.status === "HOLD" || item.status === "STALE_PREVIEW").length} held or stale.${materialized ? " Next: run the separate system-link policy preview/apply, then start a fresh census; this did not approve the contact relationship." : ""}`,
+      });
+      invalidateCoverage();
+      queryClient.invalidateQueries({ queryKey: candidatesQueryKey });
+    },
+    onError: (error: Error) => toast({ title: "Source-recovery apply failed", description: error.message, variant: "destructive" }),
+  });
   const reviewBatchMutation = useMutation({
     mutationFn: async () => {
       if (selectedRows.length === 0) throw new Error("Select at least one reviewable record on this page.");
@@ -346,7 +483,7 @@ export function ContactLinkCoveragePanel() {
         await apiRequest("POST", `${PATH}/pause`, {});
         current = await refreshStatus();
       }
-      if (current.complete) setOperatorMessage("Full-pool census is complete. Review-category counts are exclusive; reason counts below may overlap.");
+      if (current.complete) setOperatorMessage("Full contact-pool census is complete. The eight source-recovery buckets are exclusive per processed contact; reason counts may overlap.");
       else if (stopAutoRun.current) setOperatorMessage("Auto-run paused by operator.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -427,18 +564,21 @@ export function ContactLinkCoveragePanel() {
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               {CENSUS_CATEGORIES.map((category) => (
-                <div key={category} className="min-w-0 rounded-md border bg-background px-2.5 py-2">
+                <div key={category} className="min-w-0 rounded-md border bg-background px-2.5 py-2" data-testid={`coverage-bucket-${category}`}>
                   <div className="text-lg font-semibold tabular-nums">{Number(status.counts?.[category] ?? 0).toLocaleString()}</div>
                   <div className="text-[11px] leading-tight text-muted-foreground">{category.replace(/_/g, " ")}</div>
                 </div>
               ))}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Exclusive category sum: {exclusiveTotal?.toLocaleString() ?? "unavailable"}
-              {exclusiveTotal !== status.processed ? ` · processed count ${status.processed.toLocaleString()} is reported separately` : ""}
+              Bucket denominator: {status.processed.toLocaleString()} processed contacts of {status.total.toLocaleString()} contacts in the census pool.
+              {" "}Exclusive bucket sum: {exclusiveTotal?.toLocaleString() ?? "unavailable"}
+              {exclusiveTotal !== status.processed ? ` · bucket sum differs from processed count ${status.processed.toLocaleString()}` : ""}
             </p>
             <div className="rounded-md border border-amber-300/70 bg-amber-50/70 p-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-              Categories above are exclusive per record. Reason counts are intentionally separate and may overlap. A Gmail address
+              The eight categories above are exclusive per processed contact; the total pool is a separate denominator.
+              A contact with no canonical business candidate is classified as needing business discovery or unusable based on identity evidence,
+              never as invalid solely for lacking a candidate. Reason counts are separate and may overlap. A Gmail address
               is not an identity rejection; identity matching, email syntax/deliverability validation, and outbound authorization
               are independent decisions.
             </div>
@@ -504,6 +644,124 @@ export function ContactLinkCoveragePanel() {
             </p>
           </section>
         ) : null}
+
+        <section aria-label="Bounded Sunbiz source recovery" className="space-y-3 rounded-lg border p-3">
+          <div>
+            <h3 className="text-sm font-semibold">Bounded raw-to-canonical source recovery</h3>
+            <p className="text-xs text-muted-foreground">
+              Preview and, only for exact unique source-to-canonical identity matches, materialize a Sunbiz source link from retained raw evidence.
+              This does not create or reassign a business, change a contact link, record a verified decision, validate email, or authorize outreach.
+              The server rechecks the full snapshot before each apply; every result is independently audited to the authenticated admin.
+            </p>
+            <p className="mt-1 text-xs font-medium text-amber-900 dark:text-amber-100">
+              After a materialization, rerun the separate System Contact Business Links preview/apply policy and start a fresh full-pool census.
+              Only the normal independent Human Review queue can approve or reject the contact↔business relationship.
+            </p>
+          </div>
+          {sourceRecoveryOptions.length ? (
+            <>
+              <div className="space-y-2">
+                {sourceRecoveryOptions.map(({ key, identity, source }) => {
+                  const preview = sourceRecoveryPreviews[key];
+                  const outcome = sourceRecoveryOutcomes[key];
+                  const selected = sourceRecoverySelectedKeys.includes(key);
+                  return (
+                    <article key={key} className="space-y-1 rounded border bg-background p-2 text-xs">
+                      <div className="flex flex-wrap items-start gap-2">
+                        <Checkbox
+                          checked={selected}
+                          disabled={sourceRecoveryPreviewMutation.isPending || sourceRecoveryApplyMutation.isPending}
+                          aria-label={`Select raw Sunbiz filing ${source.filingNumber} for source recovery`}
+                          onCheckedChange={(checked) => {
+                            setSourceRecoverySelectedKeys((current) => checked === true
+                              ? current.includes(key) ? current : [...current, key]
+                              : current.filter((entry) => entry !== key));
+                            setSourceRecoveryPreviews((current) => {
+                              if (!current[key]) return current;
+                              const next = { ...current };
+                              delete next[key];
+                              return next;
+                            });
+                            setSourceRecoveryOutcomes((current) => {
+                              if (!current[key]) return current;
+                              const next = { ...current };
+                              delete next[key];
+                              return next;
+                            });
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium">{source.entityName || "Unnamed raw Sunbiz entity"}</div>
+                          <div className="break-all font-mono text-[10px] text-muted-foreground">
+                            Filing {source.filingNumber} · source entity #{source.sourceEntityId} · contact #{identity.contactId} · candidate {identity.candidateId}
+                          </div>
+                          {source.dba && <div>DBA: {source.dba}</div>}
+                        </div>
+                        {preview && (
+                          <Badge variant={preview.status === "READY" ? "outline" : "secondary"}>{preview.status.replace(/_/g, " ")}</Badge>
+                        )}
+                      </div>
+                      {preview && (
+                        <div className="ml-8 space-y-1 rounded bg-muted/40 p-2 text-[11px]" data-testid={`source-recovery-preview-${key}`}>
+                          <p>
+                            Target: {preview.canonicalBusiness
+                              ? `${preview.canonicalBusiness.canonicalName} · business #${preview.canonicalBusiness.businessId}`
+                              : "no uniquely bound canonical business"}
+                          </p>
+                          <p>Reasons: {preview.reasonCodes.join(", ") || "none returned"}</p>
+                          {preview.snapshotHash && <p className="break-all font-mono">Snapshot {preview.snapshotHash}</p>}
+                        </div>
+                      )}
+                      {outcome && (
+                        <p className="ml-8 text-[11px]" role="status">
+                          Apply result: <strong>{outcome.status}</strong>
+                          {outcome.reasonCodes.length ? ` · ${outcome.reasonCodes.join(", ")}` : ""}
+                          {outcome.sourceLinkId ? ` · source link ${outcome.sourceLinkId}` : ""}
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline"
+                  onClick={() => sourceRecoveryPreviewMutation.mutate()}
+                  disabled={selectedSourceRecoveryOptions.length === 0 || selectedSourceRecoveryOptions.length > 25
+                    || sourceRecoveryPreviewMutation.isPending || sourceRecoveryApplyMutation.isPending}>
+                  {sourceRecoveryPreviewMutation.isPending ? "Previewing…" : `Preview ${selectedSourceRecoveryOptions.length} selected raw identities`}
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="secondary"
+                      disabled={readySourceRecoveryOptions.length === 0 || sourceRecoveryApplyMutation.isPending}>
+                      Apply {readySourceRecoveryOptions.length} exact-snapshot preview{readySourceRecoveryOptions.length === 1 ? "" : "s"}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Apply exact Sunbiz source recovery?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        The server will re-read each selected source and canonical identity inside a serializable transaction.
+                        Only a unique exact-name binding can add the canonical Sunbiz source tuple; stale, ambiguous, or changed records are held.
+                        No business/contact identity assignment, verification decision, email validation, enrollment, or outreach is performed.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => sourceRecoveryApplyMutation.mutate()}>
+                        Apply {readySourceRecoveryOptions.length} audited source link{readySourceRecoveryOptions.length === 1 ? "" : "s"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </>
+          ) : (
+            <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+              No retained raw Sunbiz candidates are present on this candidate page. Missing raw candidates are not an invalid identity conclusion.
+            </p>
+          )}
+        </section>
 
         <section aria-label="Contact link candidate review" className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-2">

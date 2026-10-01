@@ -8,7 +8,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { getCurrentPricingSchedule } from "../mi09-pilot-authority";
-import { currentSfpUnitPrice } from "./sfp-provider-operations";
+import { currentSfpReviewedPricing } from "./sfp-provider-operations";
 import {
   computeContactLinkReuse,
   hasResolvedBusinessIdentity,
@@ -22,41 +22,45 @@ const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 export type SfpCostPreviewProvider = "serper" | "outscraper" | "apollo" | "openai_classification";
 
 /**
- * Real per-provider billing units: Serper bills per REQUEST (up to 4 per
+ * Read-only billing estimates use explicit provider-billing units, not the
+ * reservation's operation work units. Serper bills per REQUEST (up to 4 per
  * identity lookup — domain, phone, address, and a corroboration pass, per
  * the existing lookupBusinessIdentity call shape); OpenAI bills per TOKEN
  * (approximated here as a bounded classification-call token estimate, not a
- * flat per-business multiplier); Outscraper/Apollo bill per RESULT/unit
- * returned. This map is the single place that encodes "how many raw billing
- * units does one business cost this provider" so a flat per-business
- * multiplier can never silently creep back in.
+ * flat per-business multiplier); Outscraper bills per RESULT. Apollo's exact
+ * per-request credits are recorded from provider receipts, but no defensible
+ * per-business credit estimate exists, so its estimated quantity is unknown.
  */
-const ESTIMATED_UNITS_PER_BUSINESS: Record<SfpCostPreviewProvider, { estimated: number; worstCase: number; unitLabel: string }> = {
-  serper: { estimated: 1, worstCase: 4, unitLabel: "requests" },
-  outscraper: { estimated: 1, worstCase: 2, unitLabel: "results" },
-  apollo: { estimated: 1, worstCase: 1, unitLabel: "units" },
-  openai_classification: { estimated: 800, worstCase: 2000, unitLabel: "tokens" },
+const ESTIMATED_UNITS_PER_BUSINESS: Record<SfpCostPreviewProvider, {
+  estimated: number | null;
+  worstCase: number | null;
+  unit: string;
+}> = {
+  serper: { estimated: 1, worstCase: 4, unit: "request" },
+  outscraper: { estimated: 1, worstCase: 2, unit: "result" },
+  apollo: { estimated: null, worstCase: null, unit: "credit" },
+  openai_classification: { estimated: 800, worstCase: 2000, unit: "token" },
 };
 
 export interface SfpCostPreviewLine {
   provider: SfpCostPreviewProvider;
   controlProviderKey: string;
   gapCountDrivingCall: number;
-  estimatedUnits: number;
-  worstCaseUnits: number;
+  estimatedUnits: number | null;
+  worstCaseUnits: number | null;
   unitLabel: string;
   priceScheduleVersion: string | number | null;
   pricingAvailable: boolean;
-  unitAmountMicros: number;
-  estimatedCostMicros: number;
-  worstCaseCostMicros: number;
+  unitAmountMicros: number | null;
+  estimatedCostMicros: number | null;
+  worstCaseCostMicros: number | null;
 }
 
 export interface SfpCostPreview {
   generatedAt: string;
   lines: SfpCostPreviewLine[];
-  totalEstimatedCostMicros: number;
-  totalWorstCaseCostMicros: number;
+  totalEstimatedCostMicros: number | null;
+  totalWorstCaseCostMicros: number | null;
 }
 
 export interface SfpGapCounts {
@@ -89,33 +93,54 @@ export async function buildSfpCostPreview(gapCounts: SfpGapCounts): Promise<SfpC
   for (const provider of Object.keys(gapByProvider) as SfpCostPreviewProvider[]) {
     const gapCount = gapByProvider[provider];
     const controlProviderKey = CONTROL_KEY[provider];
-    const perBiz = ESTIMATED_UNITS_PER_BUSINESS[provider];
-    let unitAmountMicros = 0;
-    try {
-      unitAmountMicros = await currentSfpUnitPrice(provider as any) ?? 0;
-    } catch { /* estimates are optional */ }
+    const estimate = ESTIMATED_UNITS_PER_BUSINESS[provider];
+    const reviewedPricing = await currentSfpReviewedPricing(provider as any);
+    const unitAmountMicros = reviewedPricing.unitPriceMicros;
+    const pricingUnitMatches = reviewedPricing.unitType === estimate.unit;
     const scheduleEntry = (pricing?.priceSchedules as any)?.[controlProviderKey];
     const scheduledAmount = Number(scheduleEntry?.amountMicros);
     const pricingAvailable = Number.isSafeInteger(scheduledAmount) && scheduledAmount >= 0;
-    const estimatedUnits = gapCount * perBiz.estimated;
-    const worstCaseUnits = gapCount * perBiz.worstCase;
+    const estimatedUnits = estimate.estimated === null
+      ? (gapCount === 0 ? 0 : null)
+      : gapCount * estimate.estimated;
+    const worstCaseUnits = estimate.worstCase === null
+      ? (gapCount === 0 ? 0 : null)
+      : gapCount * estimate.worstCase;
+    const estimatedCostMicros = estimatedUnits === null
+      ? null
+      : estimatedUnits === 0
+        ? 0
+        : pricingUnitMatches && unitAmountMicros !== null
+          ? estimatedUnits * unitAmountMicros
+          : null;
+    const worstCaseCostMicros = worstCaseUnits === null
+      ? null
+      : worstCaseUnits === 0
+        ? 0
+        : pricingUnitMatches && unitAmountMicros !== null
+          ? worstCaseUnits * unitAmountMicros
+          : null;
     lines.push({
       provider,
       controlProviderKey,
       gapCountDrivingCall: gapCount,
       estimatedUnits,
       worstCaseUnits,
-      unitLabel: perBiz.unitLabel,
+      unitLabel: estimate.unit,
       priceScheduleVersion: scheduleEntry?.version ?? scheduleEntry?.effectiveAt ?? null,
-      pricingAvailable,
+      pricingAvailable: pricingAvailable && pricingUnitMatches,
       unitAmountMicros,
-      estimatedCostMicros: estimatedUnits * unitAmountMicros,
-      worstCaseCostMicros: worstCaseUnits * unitAmountMicros,
+      estimatedCostMicros,
+      worstCaseCostMicros,
     });
   }
 
-  const totalEstimatedCostMicros = lines.reduce((s, l) => s + l.estimatedCostMicros, 0);
-  const totalWorstCaseCostMicros = lines.reduce((s, l) => s + l.worstCaseCostMicros, 0);
+  const totalEstimatedCostMicros = lines.every((line) => line.estimatedCostMicros !== null)
+    ? lines.reduce((sum, line) => sum + (line.estimatedCostMicros ?? 0), 0)
+    : null;
+  const totalWorstCaseCostMicros = lines.every((line) => line.worstCaseCostMicros !== null)
+    ? lines.reduce((sum, line) => sum + (line.worstCaseCostMicros ?? 0), 0)
+    : null;
 
   return {
     generatedAt: new Date().toISOString(),

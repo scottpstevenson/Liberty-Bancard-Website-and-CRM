@@ -30,12 +30,13 @@ const phone = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 const address = normalizeCoverageAddress;
 const filingFields = ["filing_number", "filingNumber", "sunbiz_filing_number", "sunbizFilingNumber"];
 function decodeBusiness(row: any): ContactLinkCoverageBusiness {
-  if (!Array.isArray(row)) return row;
+  if (!Array.isArray(row)) return { ...row, rawSunbizMatches: row.rawSunbizMatches ?? [] };
   return {
     businessId: row[0], canonicalName: row[1], normalizedName: row[2],
     websiteDomain: row[3], mainPhone: row[4], streetAddress: row[5],
     city: row[6], state: row[7], postalCode: row[8], recordClass: row[9],
     doNotVisit: row[10], domainBusinessCount: 0,
+    rawSunbizMatches: [],
     sourceLinks: (row[11] ?? []).map((s: any) => !Array.isArray(s) ? s : ({
       sourceLinkId: s[0], businessId: s[1], sourceSystem: s[2], sourceType: s[3],
       stableKey: s[4], rawEvidence: s[17] ?? null, sourceEntityId: s[5], sunbizName: s[6],
@@ -53,6 +54,7 @@ function decodeContact(row: any): ContactLinkCoverageContact {
       : typeof row.rawEmail === "string" || typeof row.email === "string"
         ? String(row.rawEmail ?? row.email).split("@").length === 2
         : false,
+    rawSunbizCandidates: row.rawSunbizCandidates ?? [],
   };
   return {
     contactId: row[0], companyName: row[1], emailDomain: row[2], website: row[3],
@@ -64,7 +66,7 @@ function decodeContact(row: any): ContactLinkCoverageContact {
     projectedBusinessId: row[21], currentDecisionId: row[22], currentDecision: row[23],
     currentDecisionBusinessId: row[24], currentRevision: row[25],
     currentDecisionConsistent: row[26], primarySourceEventId: row[27],
-    sourceEvents: row[28] ?? [], businesses: [],
+    sourceEvents: row[28] ?? [], businesses: [], rawSunbizCandidates: [],
     emailHasExactlyOneAt: typeof row[29] === "boolean"
       ? row[29]
       : typeof row[29] === "string" && row[29].split("@").length === 2,
@@ -221,7 +223,21 @@ for (const shard of shards("contacts-")) {
         lookup(indexes.filing, String(event.sourceExternalId ?? "").toLowerCase());
       }
     }
-    c.businesses = [...candidateIds].sort((a, b) => a - b).map(id => businesses.get(id)!);
+    for (const rawSource of c.rawSunbizCandidates ?? []) {
+      lookup(indexes.name, normalizeCoverageName(rawSource.entityName));
+      lookup(indexes.name, normalizeCoverageName(rawSource.dba));
+    }
+    c.businesses = [...candidateIds].sort((a, b) => a - b).map(id => {
+      const business = businesses.get(id)!;
+      const rawMatches = (c.rawSunbizCandidates ?? []).filter((source: any) => {
+        const sourceNames = [source.entityName, source.dba].map(normalizeCoverageName).filter(Boolean);
+        return sourceNames.some(name =>
+          name === normalizeCoverageName(business.canonicalName)
+          || name === normalizeCoverageName(business.normalizedName),
+        );
+      });
+      return { ...business, rawSunbizMatches: [...(business.rawSunbizMatches ?? []), ...rawMatches] };
+    });
     const classification = classifyContactLinkCoverage(c);
     report.counts[classification.bucket]++;
     for (const reason of new Set(classification.reasons)) {

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { pool } from "../db";
 import { auditChange } from "./audit-change";
 import { recordContactBusinessLinkCandidate } from "./commercial-link-authority";
+import { CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL } from "./contact-link-coverage-query";
 
 const WORKFLOW = "indexed_contact_business_suggestions_v1";
 const CHECKPOINT_ACTION = "contact_business_reconciliation_checkpoint";
@@ -23,6 +24,8 @@ export interface ContactBusinessSuggestionState {
   suggestionsRecorded: number;
   ambiguousContacts: number;
   unmatchedContacts: number;
+  rawSunbizCandidates: number;
+  needsBusinessDiscovery: number;
   batchSize: number;
   startedAt: string | null;
   updatedAt: string;
@@ -33,6 +36,7 @@ export interface ContactBusinessMatchInput {
   companyName: string | null | undefined;
   email: string | null | undefined;
   website: string | null | undefined;
+  sourceDomains?: string[];
 }
 
 export interface ContactBusinessDomainMatch {
@@ -40,15 +44,29 @@ export interface ContactBusinessDomainMatch {
   canonicalName: string;
   normalizedName: string;
   websiteDomain: string;
+  sourceNames?: string[];
+}
+
+export interface ContactBusinessRawSunbizMatch {
+  sourceEntityId: number;
+  filingNumber: string;
+  entityName: string;
+  dba: string | null;
+  website: string | null;
+  principalAddress: string | null;
+  principalCity: string | null;
+  principalState: string | null;
+  principalZip: string | null;
+  phone: string | null;
+  ownerPhone: string | null;
+  entitySource: string | null;
+  matchType: "legal_name" | "dba";
 }
 
 export function normalizeBusinessName(value: string | null | undefined): string {
   return String(value ?? "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
     .toLowerCase()
-    .replace(/[&+]/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
     .replace(LEGAL_SUFFIXES, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -91,22 +109,55 @@ export function matchContactToBusinesses(
   const eligibleDomains = new Set<string>();
   if (websiteDomain) eligibleDomains.add(websiteDomain);
   if (emailDomain && !SHARED_EMAIL_DOMAINS.has(emailDomain)) eligibleDomains.add(emailDomain);
+  for (const sourceDomain of contact.sourceDomains ?? []) {
+    const normalized = normalizeBusinessDomain(sourceDomain);
+    if (normalized) eligibleDomains.add(normalized);
+  }
   const sameDomain = domainBusinesses.filter(business => {
     const domain = normalizeBusinessDomain(business.websiteDomain);
     return Boolean(domain && eligibleDomains.has(domain));
   });
   const matches = sameDomain
-    .filter(business => contactBusinessNameCorroborates(contact.companyName, business.normalizedName)
-      || contactBusinessNameCorroborates(contact.companyName, business.canonicalName))
+    .filter(business => {
+      const canonicalNameMatch = contactBusinessNameCorroborates(contact.companyName, business.normalizedName)
+        || contactBusinessNameCorroborates(contact.companyName, business.canonicalName);
+      const sourceBridgesCanonical = (business.sourceNames ?? []).some(sourceName =>
+        normalizeBusinessName(sourceName) === normalizeBusinessName(business.normalizedName)
+          || normalizeBusinessName(sourceName) === normalizeBusinessName(business.canonicalName),
+      );
+      const contactMatchesRetrievedSource = (business.sourceNames ?? []).some(sourceName =>
+        normalizeBusinessName(contact.companyName) === normalizeBusinessName(sourceName),
+      );
+      return canonicalNameMatch || (sourceBridgesCanonical && contactMatchesRetrievedSource);
+    })
     .map(business => ({
       business,
       // Confidence reflects name corroboration, not a winner chosen from a shared domain.
       confidence: normalizeBusinessName(contact.companyName)
         === normalizeBusinessName(business.normalizedName)
         || normalizeBusinessName(contact.companyName) === normalizeBusinessName(business.canonicalName)
+        || (business.sourceNames ?? []).some(sourceName =>
+          normalizeBusinessName(contact.companyName) === normalizeBusinessName(sourceName)
+            && (normalizeBusinessName(sourceName) === normalizeBusinessName(business.normalizedName)
+              || normalizeBusinessName(sourceName) === normalizeBusinessName(business.canonicalName)),
+        )
         ? 90 : 80,
     }));
   return { matches, ambiguous: sameDomain.length > 1 || matches.length > 1 };
+}
+
+async function findUnlinkedSunbizNameMatches(companyName: string | null): Promise<ContactBusinessRawSunbizMatch[]> {
+  const normalizedName = normalizeBusinessName(companyName);
+  if (normalizedName.length < 4) return [];
+  const { rows } = await pool.query<ContactBusinessRawSunbizMatch>(
+    CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL,
+    [normalizedName, 21],
+  );
+  return rows.map(row => ({
+    ...row,
+    sourceEntityId: Number(row.sourceEntityId),
+    filingNumber: String(row.filingNumber),
+  }));
 }
 
 function boundedLimit(value: number | undefined, fallback = 50): number {
@@ -117,7 +168,11 @@ function asState(details: unknown): ContactBusinessSuggestionState | null {
   const state = details as Partial<ContactBusinessSuggestionState> | null;
   if (!state || typeof state !== "object" || typeof state.jobId !== "string"
       || !["idle", "running", "ready", "paused", "completed", "error"].includes(String(state.status))) return null;
-  return state as ContactBusinessSuggestionState;
+  return {
+    ...state,
+    rawSunbizCandidates: Number(state.rawSunbizCandidates ?? 0),
+    needsBusinessDiscovery: Number(state.needsBusinessDiscovery ?? 0),
+  } as ContactBusinessSuggestionState;
 }
 
 async function loadState(): Promise<ContactBusinessSuggestionState | null> {
@@ -191,12 +246,32 @@ async function discoverContactMatches(contact: {
   email: string;
   website: string | null;
 }, persistCandidates = true) {
+  const rawSunbizMatches = await findUnlinkedSunbizNameMatches(contact.company_name);
   const domains = new Set<string>();
   const emailDomain = normalizeBusinessDomain(contact.email?.split("@").at(-1));
   const websiteDomain = normalizeBusinessDomain(contact.website);
   if (websiteDomain) domains.add(websiteDomain);
   if (emailDomain && !SHARED_EMAIL_DOMAINS.has(emailDomain)) domains.add(emailDomain);
-  if (domains.size === 0 || !normalizeBusinessName(contact.company_name)) return { count: 0, ambiguous: false };
+  for (const source of rawSunbizMatches) {
+    const domain = normalizeBusinessDomain(source.website);
+    if (domain) domains.add(domain);
+  }
+  if (!normalizeBusinessName(contact.company_name)) {
+    return {
+      count: 0,
+      ambiguous: rawSunbizMatches.length > 1,
+      rawCandidateCount: rawSunbizMatches.length,
+      needsBusinessDiscovery: false,
+    };
+  }
+  if (domains.size === 0) {
+    return {
+      count: 0,
+      ambiguous: rawSunbizMatches.length > 1,
+      rawCandidateCount: rawSunbizMatches.length,
+      needsBusinessDiscovery: true,
+    };
+  }
 
   // Exact indexed domain probe only. We never form a contact × Sunbiz Cartesian join.
   const { rows } = await pool.query<ContactBusinessDomainMatch>(`
@@ -208,16 +283,25 @@ async function discoverContactMatches(contact: {
      ORDER BY id
      LIMIT 21
   `, [[...domains]]);
-  if (rows.length > 20) return { count: 0, ambiguous: true };
+  if (rows.length > 20) {
+    return {
+      count: 0,
+      ambiguous: true,
+      rawCandidateCount: rawSunbizMatches.length,
+      needsBusinessDiscovery: false,
+    };
+  }
   const result = matchContactToBusinesses({
     companyName: contact.company_name,
     email: contact.email,
     website: contact.website,
+    sourceDomains: rawSunbizMatches.map(source => source.website).filter((domain): domain is string => Boolean(domain)),
   }, rows.map(row => ({
     businessId: Number(row.businessId),
     canonicalName: row.canonicalName,
     normalizedName: row.normalizedName,
     websiteDomain: row.websiteDomain,
+    sourceNames: rawSunbizMatches.flatMap(source => [source.entityName, source.dba]).filter((name): name is string => Boolean(name)),
   })));
   for (const match of persistCandidates ? result.matches : []) {
     const candidateKey = crypto.createHash("sha256")
@@ -232,7 +316,13 @@ async function discoverContactMatches(contact: {
       confidence: match.confidence,
     });
   }
-  return { count: result.matches.length, ambiguous: result.ambiguous };
+  const distinctRawFilings = new Set(rawSunbizMatches.map(source => source.filingNumber));
+  return {
+    count: result.matches.length,
+    ambiguous: result.ambiguous || distinctRawFilings.size > 1,
+    rawCandidateCount: rawSunbizMatches.length,
+    needsBusinessDiscovery: result.matches.length === 0,
+  };
 }
 
 export async function previewContactBusinessReconciliation(limit = 25) {
@@ -241,11 +331,15 @@ export async function previewContactBusinessReconciliation(limit = 25) {
   let suggested = 0;
   let ambiguous = 0;
   let unmatched = 0;
+  let rawSunbizCandidates = 0;
+  let needsBusinessDiscovery = 0;
   for (const contact of contacts) {
     const matches = await discoverContactMatches(contact, false);
     suggested += matches.count;
     if (matches.ambiguous) ambiguous += 1;
     if (matches.count === 0) unmatched += 1;
+    rawSunbizCandidates += matches.rawCandidateCount;
+    if (matches.needsBusinessDiscovery) needsBusinessDiscovery += 1;
   }
   return {
     mode: "bounded_read_only_preview",
@@ -254,6 +348,8 @@ export async function previewContactBusinessReconciliation(limit = 25) {
     sampleSuggestions: suggested,
     sampleAmbiguousContacts: ambiguous,
     sampleUnmatchedContacts: unmatched,
+    sampleRawUnlinkedSunbizCandidates: rawSunbizCandidates,
+    sampleNeedsBusinessDiscovery: needsBusinessDiscovery,
     eligibleUnlinkedContacts: null,
     totalCountStatus: "not_counted_to_keep_preview_bounded",
     paidProviderCalls: 0,
@@ -275,17 +371,23 @@ async function processOnePage(state: ContactBusinessSuggestionState, actorId: st
     let pageSuggestions = 0;
     let pageAmbiguous = 0;
     let pageUnmatched = 0;
+    let pageRawSunbizCandidates = 0;
+    let pageNeedsBusinessDiscovery = 0;
     for (const contact of page) {
       const matches = await discoverContactMatches(contact);
       pageSuggestions += matches.count;
       if (matches.ambiguous) pageAmbiguous += 1;
       if (matches.count === 0) pageUnmatched += 1;
+      pageRawSunbizCandidates += matches.rawCandidateCount;
+      if (matches.needsBusinessDiscovery) pageNeedsBusinessDiscovery += 1;
     }
     state.cursorContactId = Number(page[page.length - 1].id);
     state.scannedContacts += page.length;
     state.suggestionsRecorded += pageSuggestions;
     state.ambiguousContacts += pageAmbiguous;
     state.unmatchedContacts += pageUnmatched;
+    state.rawSunbizCandidates += pageRawSunbizCandidates;
+    state.needsBusinessDiscovery += pageNeedsBusinessDiscovery;
     // The workflow is operator-stepped: one bounded keyset page per start or
     // resume request. "ready" means safely checkpointed and awaiting an operator,
     // not an invisible background worker.
@@ -318,6 +420,8 @@ export async function startContactBusinessReconciliation(input: { batchSize?: nu
       suggestionsRecorded: 0,
       ambiguousContacts: 0,
       unmatchedContacts: 0,
+      rawSunbizCandidates: 0,
+      needsBusinessDiscovery: 0,
       batchSize,
       startedAt: now,
       updatedAt: now,
@@ -377,6 +481,8 @@ export async function getContactBusinessReconciliationProgress() {
     suggestionsRecorded: 0,
     ambiguousContacts: 0,
     unmatchedContacts: 0,
+    rawSunbizCandidates: 0,
+    needsBusinessDiscovery: 0,
     batchSize: 50,
     startedAt: null,
     updatedAt: null,

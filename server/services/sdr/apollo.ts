@@ -8,10 +8,15 @@ import {
   assertCro03cLiveContext,
   type Cro03cLiveProviderContext,
 } from "../cro03/live-execution";
+import {
+  addExactNonNegativeDecimals, apolloPersonMatchesEmployerScope,
+  parseApolloUsageReceipt, type ApolloEmployerScope,
+} from "./sfp-provider-contracts";
 
 const APOLLO_API_URL = "https://api.apollo.io";
 const APOLLO_ORG_SEARCH_PATH = "/api/v1/mixed_companies/search";
 const APOLLO_PEOPLE_SEARCH_PATH = "/api/v1/mixed_people/api_search";
+const APOLLO_BULK_PEOPLE_ENRICHMENT_PATH = "/api/v1/people/bulk_match";
 const APOLLO_PEOPLE_REVEAL_PATH = "/api/v1/people/match";
 const CRO03C_APOLLO_CALLER = "server/services/cro03/live-provider-executors.ts";
 
@@ -81,9 +86,20 @@ export type ApolloOrganizationResolution =
   | ApolloOrganizationResolutionAmbiguous;
 
 export type ApolloFetch = (url: string, init: RequestInit) => Promise<Response>;
+export interface ApolloDispatchedRequest {
+  response: Response;
+  operationId?: string | null;
+  operationIds?: readonly string[];
+  ambiguousOperationIds?: readonly string[];
+}
+export type ApolloRequestDispatch = (
+  url: string,
+  init: RequestInit,
+  employerScope?: ApolloEmployerScope,
+) => Promise<ApolloDispatchedRequest>;
 
 export interface ApolloSearchInput extends ApolloFrozenOrganizationIdentity {
-  /** Maximum aggregate result credits to consider for this search. */
+  /** Maximum integer number of targeted people to return, independent of credits used. */
   resultCap?: number;
 }
 
@@ -93,6 +109,90 @@ export interface ApolloSearchDependencies {
   fetchImpl?: typeof fetch;
   /** Optional generic checkpoint, invoked adjacent to every outbound request. */
   beforeRequest?: () => Promise<void>;
+  /** SFP dispatches each actual HTTP request through its own durable operation. */
+  dispatchRequest?: ApolloRequestDispatch;
+  /** Test seam; production records its provider-health signal by default. */
+  recordCreditSignal?: (input: { httpStatus: number; message?: string | null; failure: boolean }) => Promise<void>;
+}
+
+export interface ApolloBusinessEmailEnrichmentDependencies {
+  fetchImpl?: typeof fetch;
+  /** Optional generic checkpoint, invoked adjacent to every outbound request. */
+  beforeRequest?: () => Promise<void>;
+  /** SFP dispatches each actual HTTP request through its own durable operation. */
+  dispatchRequest?: ApolloRequestDispatch;
+  /** Test seam; production records its provider-health signal by default. */
+  recordCreditSignal?: (input: { httpStatus: number; message?: string | null; failure: boolean }) => Promise<void>;
+}
+
+type ApolloRetryError = Error & {
+  apolloOperationIds?: readonly string[];
+  apolloAmbiguousOperationIds?: readonly string[];
+};
+
+function isApolloTimeout(error: any): boolean {
+  return error?.name === "AbortError" || error?.message === "APOLLO_TIMEOUT";
+}
+
+/**
+ * Raw fetch has no SDK retry policy, but a timeout can leave a paid request
+ * ambiguous. Permit one explicit retry only through the governed dispatch
+ * boundary; every retry receives a new child operation there.
+ */
+async function dispatchApolloRequestWithTimeoutRetry(input: {
+  url: string;
+  init: RequestInit;
+  dependencies: {
+    fetchImpl?: typeof fetch;
+    beforeRequest?: () => Promise<void>;
+    dispatchRequest?: ApolloRequestDispatch;
+  };
+  employerScope?: ApolloEmployerScope;
+}): Promise<ApolloDispatchedRequest> {
+  const attemptOperationIds: string[] = [];
+  const ambiguousOperationIds: string[] = [];
+  const addOperationIds = (values: readonly string[] | undefined) => {
+    for (const id of values ?? []) if (id && !attemptOperationIds.includes(id)) attemptOperationIds.push(id);
+  };
+  const dispatchAttempts = input.dependencies.dispatchRequest ? 2 : 1;
+  for (let attempt = 0; attempt < dispatchAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      await acquireToken();
+      await input.dependencies.beforeRequest?.();
+      const init = { ...input.init, signal: controller.signal };
+      const dispatched = input.dependencies.dispatchRequest
+        ? await input.dependencies.dispatchRequest(input.url, init, input.employerScope)
+        : {
+          response: await (input.dependencies.fetchImpl ?? fetch)(input.url, init),
+          operationId: null,
+        };
+      addOperationIds(dispatched.operationIds);
+      if (dispatched.operationId) addOperationIds([dispatched.operationId]);
+      for (const id of dispatched.ambiguousOperationIds ?? []) {
+        if (id && !ambiguousOperationIds.includes(id)) ambiguousOperationIds.push(id);
+      }
+      return {
+        ...dispatched,
+        operationIds: [...attemptOperationIds],
+        ambiguousOperationIds: [...ambiguousOperationIds],
+      };
+    } catch (error: any) {
+      addOperationIds(error?.apolloOperationIds);
+      for (const id of error?.apolloAmbiguousOperationIds ?? []) {
+        if (id && !ambiguousOperationIds.includes(id)) ambiguousOperationIds.push(id);
+      }
+      const retryError = (error instanceof Error ? error : new Error(String(error))) as ApolloRetryError;
+      retryError.apolloOperationIds = [...attemptOperationIds];
+      retryError.apolloAmbiguousOperationIds = [...ambiguousOperationIds];
+      if (attempt === 0 && input.dependencies.dispatchRequest && isApolloTimeout(error)) continue;
+      throw retryError;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error("APOLLO_TRANSPORT_ATTEMPTS_EXHAUSTED");
 }
 
 /** A response-safe projection: provider payloads are never durable evidence. */
@@ -100,9 +200,12 @@ export type ApolloRedactedBusiness = Omit<ApolloBusiness, "rawData">;
 
 export interface ApolloCreditCertainty {
   certainty: "exact" | "unknown";
-  /** Present only where Apollo explicitly reported an unambiguous credit count. */
+  /** Apollo-reported exact decimal quantity; never rounded to integer credits. */
+  billedCredits?: string;
+  /** Compatibility projection; may be fractional and is not a work count. */
   creditedUnits?: number;
   providerReference?: string;
+  providerReferences?: readonly string[];
 }
 
 export type Cro03cApolloExecution =
@@ -110,24 +213,37 @@ export type Cro03cApolloExecution =
     outcome: "success";
     organizationId: string;
     organization: ApolloRedactedBusiness;
-    people: ApolloRedactedBusiness[];
-    /**
-     * MI-05: Apollo person IDs (opaque database identifiers, not PII) for the
-     * ranked person list. Preserved so the executor can issue credit-bearing
-     * People Match (reveal) requests per person. Parallel-indexed to `people`.
-     */
+    people: Array<ApolloRedactedBusiness & {
+      personOperationId?: string | null;
+      emailEnrichmentOperationId?: string | null;
+    }>;
+    /** Apollo person IDs, parallel-indexed to people, for business-only enrichment. */
     personIds: string[];
-    billing: ApolloCreditCertainty & { certainty: "exact"; creditedUnits: number };
+    organizationOperationId?: string | null;
+    personOperationIds?: readonly (string | null)[];
+    emailEnrichmentOperationId?: string | null;
+    requestOperationIds?: readonly string[];
+    billing: ApolloCreditCertainty;
   }
   | {
     outcome: "no_result";
-    billing: ApolloCreditCertainty & { certainty: "exact"; creditedUnits: number };
+    requestOperationIds?: readonly string[];
+    billing: ApolloCreditCertainty;
   }
   | {
-    /** A received response whose credit cost cannot be proven is quarantined. */
+    /** Identity ambiguity or an incomplete provider exchange; billing is separate. */
     outcome: "ambiguous";
+    requestOperationIds?: readonly string[];
     billing: ApolloCreditCertainty;
   };
+
+export interface ApolloBusinessEmailEnrichmentResult {
+  outcome: "success" | "no_result" | "ambiguous";
+  people: Array<{ personId: string; email: string | null }>;
+  requestOperationId?: string | null;
+  requestOperationIds?: readonly string[];
+  billing: ApolloCreditCertainty;
+}
 
 interface ApolloUsageStats {
   totalCalls: number;
@@ -336,44 +452,26 @@ function redactedApolloBusiness(value: ApolloBusiness): ApolloRedactedBusiness {
   return evidence;
 }
 
-function exactNonNegativeInteger(value: unknown): number | null {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
-  if (typeof value === "string" && /^(0|[1-9]\d*)$/.test(value)) {
-    const parsed = Number(value);
-    return Number.isSafeInteger(parsed) ? parsed : null;
-  }
-  return null;
-}
-
 /**
  * Apollo does not publish one universal credit receipt field. Only these
  * explicit receipt fields count; rate-limit headers and inferred result counts
- * deliberately do not. Conflicting receipts are not exact billing evidence.
+ * deliberately do not. Decimal `credits_consumed` values remain exact.
  */
 function apolloCreditReceipt(response: Response, body: Record<string, any>): ApolloCreditCertainty {
-  const values: number[] = [];
-  for (const header of ["x-apollo-credits-used", "x-credits-used", "x-credit-cost"]) {
-    const value = response.headers.get(header);
-    if (value !== null) {
-      const parsed = exactNonNegativeInteger(value);
-      if (parsed === null) return { certainty: "unknown" };
-      values.push(parsed);
-    }
+  const receipt = parseApolloUsageReceipt(response.headers, body);
+  if (receipt.certainty !== "exact" || receipt.quantity === undefined) {
+    return { certainty: "unknown", providerReference: receipt.providerReference };
   }
-  for (const key of ["credits_used", "creditsUsed", "credit_cost", "creditCost"]) {
-    if (body[key] !== undefined) {
-      const parsed = exactNonNegativeInteger(body[key]);
-      if (parsed === null) return { certainty: "unknown" };
-      values.push(parsed);
-    }
+  const creditedUnits = Number(receipt.quantity);
+  if (!Number.isFinite(creditedUnits) || creditedUnits < 0 || !Number.isSafeInteger(Math.trunc(creditedUnits))) {
+    return { certainty: "unknown", providerReference: receipt.providerReference };
   }
-  const providerReference = response.headers.get("x-request-id")
-    ?? response.headers.get("x-apollo-request-id")
-    ?? (typeof body.request_id === "string" ? body.request_id : undefined);
-  if (values.length === 0 || values.some((value) => value !== values[0])) {
-    return { certainty: "unknown", providerReference };
-  }
-  return { certainty: "exact", creditedUnits: values[0], providerReference };
+  return {
+    certainty: "exact",
+    billedCredits: receipt.quantity,
+    creditedUnits,
+    providerReference: receipt.providerReference,
+  };
 }
 
 async function postApolloForCro03c(
@@ -427,7 +525,7 @@ export async function performApolloSearch(
     throw new Error("CRO03C_RESULT_CAP_INVALID");
   }
   if (resultCap === 0 || !process.env.APOLLO_API_KEY) {
-    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+    return { outcome: "no_result", billing: { certainty: "exact", billedCredits: "0", creditedUnits: 0 } };
   }
   const identityInput: ApolloFrozenOrganizationIdentity = {
     domain: input.domain, legalName: input.legalName, dbaName: input.dbaName,
@@ -435,24 +533,57 @@ export async function performApolloSearch(
   };
   const identity = normalizedFrozenIdentity(identityInput);
   if (!identity.domain && !identity.legalName && !identity.dbaName) {
-    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits: 0 } };
+    return { outcome: "no_result", billing: { certainty: "exact", billedCredits: "0", creditedUnits: 0 } };
   }
-  await acquireToken();
   const queries: Record<string, unknown>[] = [];
   if (identity.domain) queries.push({ q_organization_domains: [identity.domain] });
   if (identity.legalName) queries.push({ q_organization_name: identity.legalName });
   if (identity.dbaName && identity.dbaName !== identity.legalName) queries.push({ q_organization_name: identity.dbaName });
   const organizations = new Map<string, Record<string, any>>();
-  let creditedUnits = 0;
-  let providerReference: string | undefined;
-  const postSearch = async (path: string, body: Record<string, unknown>) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+  const organizationOperationIds = new Map<string, string>();
+  const personOperationIds = new Map<string, string>();
+  const requestOperationIds: string[] = [];
+  let reportedCredits = "0";
+  let billingKnown = true;
+  const providerReferences: string[] = [];
+  const observeBilling = (billing: ApolloCreditCertainty) => {
+    if (billing.certainty !== "exact" || billing.billedCredits === undefined) {
+      billingKnown = false;
+    } else {
+      const total = addExactNonNegativeDecimals([reportedCredits, billing.billedCredits]);
+      if (total === null) billingKnown = false;
+      else reportedCredits = total;
+    }
+    if (billing.providerReference && !providerReferences.includes(billing.providerReference)) {
+      providerReferences.push(billing.providerReference);
+    }
+  };
+  const billing = (): ApolloCreditCertainty => billingKnown
+    ? {
+      certainty: "exact", billedCredits: String(reportedCredits),
+      creditedUnits: Number(reportedCredits), providerReference: providerReferences.at(-1),
+      providerReferences,
+    }
+    : {
+      certainty: "unknown", providerReference: providerReferences.at(-1), providerReferences,
+    };
+  const reportSignal = async (signal: { httpStatus: number; message?: string | null; failure: boolean }) => {
+    if (deps.recordCreditSignal) return deps.recordCreditSignal(signal);
+    const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+    await recordPaidProviderCreditSignal("apollo", signal);
+  };
+  const postSearch = async (
+    path: string,
+    body: Record<string, unknown>,
+    employerScope?: ApolloEmployerScope,
+  ) => {
     try {
-      await deps.beforeRequest?.();
-      const response = await fetchImpl(`${APOLLO_API_URL}${path}`, {
-        method: "POST", headers: apolloHeaders(), body: JSON.stringify(body), signal: controller.signal,
+      const url = `${APOLLO_API_URL}${path}`;
+      const init = { method: "POST", headers: apolloHeaders(), body: JSON.stringify(body) } satisfies RequestInit;
+      const dispatched = await dispatchApolloRequestWithTimeoutRetry({
+        url, init, dependencies: { ...deps, fetchImpl }, employerScope,
       });
+      const response = dispatched.response;
       let responseBody: Record<string, any>;
       try {
         const parsed = await response.json();
@@ -460,79 +591,216 @@ export async function performApolloSearch(
       } catch {
         responseBody = {};
       }
-      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
       const bodyError = apolloBodyErrorMessage(responseBody);
-      await recordPaidProviderCreditSignal("apollo", {
+      const parsedReceipt = apolloCreditReceipt(response, responseBody);
+      const receipt: ApolloCreditCertainty = dispatched.ambiguousOperationIds?.length
+        ? { certainty: "unknown", providerReference: parsedReceipt.providerReference }
+        : parsedReceipt;
+      await reportSignal({
         httpStatus: response.status, message: bodyError, failure: !response.ok || Boolean(bodyError),
       });
-      return { body: responseBody, billing: apolloCreditReceipt(response, responseBody), ok: response.ok };
+      for (const id of dispatched.operationIds ?? (dispatched.operationId ? [dispatched.operationId] : [])) {
+        if (id && !requestOperationIds.includes(id)) requestOperationIds.push(id);
+      }
+      const operationId = dispatched.operationId ?? null;
+      return { body: responseBody, billing: receipt, ok: response.ok && !bodyError, operationId };
     } catch (err: any) {
-      if (err?.name === "AbortError") throw new Error("APOLLO_TIMEOUT");
+      if (err?.name === "AbortError") {
+        const timeoutError = new Error("APOLLO_TIMEOUT") as ApolloRetryError;
+        timeoutError.apolloOperationIds = err.apolloOperationIds;
+        throw timeoutError;
+      }
       throw err;
-    } finally {
-      clearTimeout(timeout);
     }
   };
+
+  const perPage = Math.min(25, resultCap);
+  const maxPages = Math.ceil(resultCap / perPage);
   for (const query of queries) {
-    const remainingUnits = resultCap - creditedUnits;
-    if (remainingUnits < 1) break;
-    const response = await postSearch(APOLLO_ORG_SEARCH_PATH, {
-      ...query,
-      ...(input.city || input.state
-        ? { organization_locations: [`${input.city?.trim() ?? ""}${input.city && input.state ? ", " : ""}${input.state?.trim() ?? ""}`] }
-        : {}),
-      page: 1, per_page: Math.min(resultCap, remainingUnits),
-    });
-    const responseCredits = response.billing.creditedUnits;
-    if (!response.ok || response.billing.certainty !== "exact" || responseCredits === undefined) {
-      return { outcome: "ambiguous", billing: response.billing };
+    for (let page = 1; page <= maxPages; page++) {
+      const response = await postSearch(APOLLO_ORG_SEARCH_PATH, {
+        ...query,
+        ...(input.city || input.state
+          ? { organization_locations: [`${input.city?.trim() ?? ""}${input.city && input.state ? ", " : ""}${input.state?.trim() ?? ""}`] }
+          : {}),
+        page, per_page: perPage,
+      });
+      observeBilling(response.billing);
+      if (!response.ok) return { outcome: "ambiguous", billing: billing(), requestOperationIds };
+      const pageOrganizations = Array.isArray(response.body.organizations) ? response.body.organizations : [];
+      for (const raw of pageOrganizations) {
+        const id = raw && typeof raw === "object" ? organizationId(raw) : null;
+        if (id) {
+          organizations.set(id, raw);
+          if (response.operationId) organizationOperationIds.set(id, response.operationId);
+        }
+      }
+      const reportedPages = exactPositiveInteger(response.body.pagination?.total_pages);
+      if (organizations.size >= resultCap || pageOrganizations.length < perPage ||
+          (reportedPages !== null && page >= reportedPages)) break;
     }
-    creditedUnits += responseCredits;
-    providerReference ??= response.billing.providerReference;
-    for (const raw of Array.isArray(response.body.organizations) ? response.body.organizations : []) {
-      const id = raw && typeof raw === "object" ? organizationId(raw) : null;
-      if (id) organizations.set(id, raw);
-    }
+    if (organizations.size >= resultCap) break;
   }
   const alternatives = [...organizations.values()].filter((raw) => isExactFrozenOrganizationMatch(raw, identity));
   if (alternatives.length === 0) {
-    return { outcome: "no_result", billing: { certainty: "exact", creditedUnits, providerReference } };
+    return { outcome: "no_result", billing: billing(), requestOperationIds };
   }
   if (alternatives.length !== 1) {
-    return { outcome: "ambiguous", billing: { certainty: "exact", creditedUnits, providerReference } };
+    return { outcome: "ambiguous", billing: billing(), requestOperationIds };
   }
   const selected = alternatives[0];
   const selectedId = organizationId(selected)!;
-  const remainingUnits = resultCap - creditedUnits;
-  if (remainingUnits < 1) {
-    return {
-      outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
-      people: [], personIds: [], billing: { certainty: "exact", creditedUnits, providerReference },
-    };
+  const employerScope: ApolloEmployerScope = {
+    organizationId: selectedId,
+    names: organizationNames(selected),
+    domains: [extractDomain(selected.primary_domain || selected.website_url)]
+      .filter((domain): domain is string => Boolean(domain)),
+  };
+  const requestedOrganizationIds = new Set([selectedId]);
+  const peopleById = new Map<string, Record<string, any>>();
+  const seniorities = ["owner", "founder", "c_suite", "partner"];
+  const personTitles = [
+    "owner", "founder", "co-founder", "chief executive officer", "ceo", "president",
+    "managing partner", "partner", "principal", "practice owner", "practice manager",
+    "medical director", "general manager",
+  ];
+  for (let page = 1; page <= maxPages && peopleById.size < resultCap; page++) {
+    const peopleResponse = await postSearch(APOLLO_PEOPLE_SEARCH_PATH, {
+      organization_ids: [selectedId],
+      person_titles: personTitles,
+      person_seniorities: seniorities,
+      page,
+      per_page: perPage,
+    }, employerScope);
+    observeBilling(peopleResponse.billing);
+    if (!peopleResponse.ok) return { outcome: "ambiguous", billing: billing(), requestOperationIds };
+    const pagePeople = Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [];
+    for (const person of pagePeople) {
+      const id = person && (typeof person.id === "string" || typeof person.person_id === "string")
+        ? String(person.id ?? person.person_id)
+        : null;
+      if (id && apolloPersonMatchesEmployerScope(person, requestedOrganizationIds, employerScope)) {
+        peopleById.set(id, person);
+        if (peopleResponse.operationId) personOperationIds.set(id, peopleResponse.operationId);
+      }
+    }
+    const reportedPages = exactPositiveInteger(peopleResponse.body.pagination?.total_pages);
+    if (pagePeople.length < perPage || (reportedPages !== null && page >= reportedPages)) break;
   }
-  const peopleResponse = await postSearch(APOLLO_PEOPLE_SEARCH_PATH, {
-    organization_ids: [selectedId], page: 1, per_page: Math.min(resultCap, remainingUnits),
-  });
-  const peopleCredits = peopleResponse.billing.creditedUnits;
-  if (!peopleResponse.ok || peopleResponse.billing.certainty !== "exact" || peopleCredits === undefined) {
-    return {
-      outcome: "ambiguous",
-      billing: peopleResponse.billing.certainty === "exact"
-        ? peopleResponse.billing
-        : { certainty: "unknown", providerReference: peopleResponse.billing.providerReference ?? providerReference },
-    };
-  }
-  creditedUnits += peopleCredits;
-  providerReference ??= peopleResponse.billing.providerReference;
-  const rawPeople = (Array.isArray(peopleResponse.body.people) ? peopleResponse.body.people : [])
-    .filter((person: Record<string, any>) => organizationId(person.organization || person) === selectedId)
-    .slice(0, resultCap);
-  const people = rawPeople.map((person: Record<string, any>) => redactedApolloBusiness(parseApolloPerson(person)));
-  const personIds: string[] = rawPeople.map((person: Record<string, any>) => String(person.id ?? person.person_id ?? ""));
+  const rawPeople = [...peopleById.entries()].slice(0, resultCap);
+  const people = rawPeople.map(([, person]) => redactedApolloBusiness(parseApolloPerson(person, false)));
+  const personIds = rawPeople.map(([id]) => id);
   return {
     outcome: "success", organizationId: selectedId, organization: redactedApolloBusiness(parseApolloOrg(selected)),
-    people, personIds, billing: { certainty: "exact", creditedUnits, providerReference },
+    people, personIds, billing: billing(),
+    organizationOperationId: organizationOperationIds.get(selectedId) ?? null,
+    personOperationIds: personIds.map((personId) => personOperationIds.get(personId) ?? null),
+    requestOperationIds,
   };
+}
+
+function exactPositiveInteger(value: unknown): number | null {
+  const number = typeof value === "number" ? value
+    : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN;
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+/**
+ * Apollo's documented Bulk People Enrichment endpoint accepts at most ten
+ * details per call. Search results contain no emails; this adapter deliberately
+ * leaves personal email/phone reveal and webhook-backed waterfall disabled.
+ */
+export async function performApolloBusinessEmailEnrichment(
+  personIds: readonly string[],
+  deps: ApolloBusinessEmailEnrichmentDependencies = {},
+  employerScope?: ApolloEmployerScope,
+): Promise<ApolloBusinessEmailEnrichmentResult> {
+  if (!Array.isArray(personIds) || personIds.length > 10 ||
+      personIds.some((id) => typeof id !== "string" || !id.trim()) ||
+      new Set(personIds).size !== personIds.length) {
+    throw new Error("APOLLO_BULK_ENRICHMENT_INPUT_INVALID");
+  }
+  if (personIds.length === 0 || !process.env.APOLLO_API_KEY) {
+    return {
+      outcome: "no_result", people: [],
+      billing: { certainty: "exact", billedCredits: "0", creditedUnits: 0 },
+    };
+  }
+  try {
+    const url = `${APOLLO_API_URL}${APOLLO_BULK_PEOPLE_ENRICHMENT_PATH}`;
+    const init = {
+      method: "POST",
+      headers: apolloHeaders(),
+      // No reveal_personal_emails, reveal_phone_number, run_waterfall_email,
+      // or run_waterfall_phone: only Apollo's business-email default applies.
+      body: JSON.stringify({ details: personIds.map((id) => ({ id })) }),
+    } satisfies RequestInit;
+    const dispatched = await dispatchApolloRequestWithTimeoutRetry({
+      url, init, dependencies: deps, employerScope,
+    });
+    const response = dispatched.response;
+    let body: Record<string, any>;
+    try {
+      const parsed = await response.json();
+      body = parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      body = {};
+    }
+    const bodyError = apolloBodyErrorMessage(body);
+    const parsedReceipt = apolloCreditReceipt(response, body);
+    const receipt: ApolloCreditCertainty = dispatched.ambiguousOperationIds?.length
+      ? { certainty: "unknown", providerReference: parsedReceipt.providerReference }
+      : parsedReceipt;
+    if (deps.recordCreditSignal) {
+      await deps.recordCreditSignal({
+        httpStatus: response.status, message: bodyError, failure: !response.ok || Boolean(bodyError),
+      });
+    } else {
+      const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
+      await recordPaidProviderCreditSignal("apollo", {
+        httpStatus: response.status, message: bodyError, failure: !response.ok || Boolean(bodyError),
+      });
+    }
+    if (!response.ok || bodyError) {
+      return {
+        outcome: "ambiguous", people: [], requestOperationId: dispatched.operationId ?? null,
+        requestOperationIds: dispatched.operationIds ?? [],
+        billing: receipt,
+      };
+    }
+    const matches = Array.isArray(body.matches) ? body.matches
+      : Array.isArray(body.people) ? body.people
+        : body.person && typeof body.person === "object" ? [body.person] : [];
+    const requested = new Set(personIds);
+    const requestedOrganizationIds = new Set([employerScope?.organizationId ?? ""]);
+    const enriched = new Map<string, string | null>();
+    for (const value of matches) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const person = value as Record<string, any>;
+      const id = person.id ?? person.person_id;
+      if (typeof id !== "string" || !requested.has(id)) continue;
+      if (!apolloPersonMatchesEmployerScope(person, requestedOrganizationIds, employerScope)) continue;
+      // Bulk enrichment returns business email by default. Never use personal
+      // email fields as a fallback, even if a fixture/provider includes them.
+      enriched.set(id, typeof person.email === "string" && person.email.trim() ? person.email.trim() : null);
+    }
+    return {
+      outcome: enriched.size ? "success" : "no_result",
+      requestOperationId: dispatched.operationId ?? null,
+      requestOperationIds: dispatched.operationIds ?? [],
+      people: personIds.filter((id) => enriched.has(id)).map((personId) => ({
+        personId, email: enriched.get(personId) ?? null,
+      })),
+      billing: receipt,
+    };
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("APOLLO_TIMEOUT") as ApolloRetryError;
+      timeoutError.apolloOperationIds = error.apolloOperationIds;
+      throw timeoutError;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -624,13 +892,19 @@ export async function resolveApolloOrganizationForFrozenIdentity(
   if (alternatives.length !== 1) return { outcome: "ambiguous", alternatives };
 
   const selected = alternatives[0];
+  const employerScope: ApolloEmployerScope = {
+    organizationId: selected.organizationId,
+    names: [selected.organization.name].filter(Boolean),
+    domains: selected.organization.website ? [selected.organization.website] : [],
+  };
   const peopleData = await postApollo(APOLLO_PEOPLE_SEARCH_PATH, {
     organization_ids: [selected.organizationId],
     page: 1,
     per_page: 100,
   }, fetchOverride);
   const people = (peopleData.people || [])
-    .filter((person: Record<string, any>) => organizationId(person.organization || person) === selected.organizationId)
+    .filter((person: Record<string, any>) =>
+      apolloPersonMatchesEmployerScope(person, new Set([selected.organizationId]), employerScope))
     .map((person: Record<string, any>) => parseApolloPerson(person));
 
   return { outcome: "success", ...selected, people, alternatives };
@@ -665,15 +939,16 @@ export async function resolveApolloOrganizationForCro03Worker(
   );
 }
 
-function parseApolloPerson(raw: Record<string, any>): ApolloBusiness {
+function parseApolloPerson(raw: Record<string, any>, includeEnrichedBusinessEmail = false): ApolloBusiness {
   const org = raw.organization || {};
   const orgPhone = normalizePhone(org.phone);
   const personPhone = extractFirstPhone(raw.phone_numbers || []);
+  const businessEmail = includeEnrichedBusinessEmail && typeof raw.email === "string" ? raw.email : null;
 
   return {
     name: org.name || "",
     phone: orgPhone || personPhone,
-    email: raw.email || null,
+    email: businessEmail,
     website: extractDomain(org.primary_domain || org.website_url),
     address: org.street_address || null,
     city: org.city || null,
@@ -683,7 +958,7 @@ function parseApolloPerson(raw: Record<string, any>): ApolloBusiness {
     rawData: raw,
     ownerFirstName: raw.first_name || null,
     ownerLastName: raw.last_name || null,
-    ownerEmail: raw.email || null,
+    ownerEmail: businessEmail,
     ownerPhone: personPhone,
     ownerTitle: raw.title || null,
   };
@@ -693,7 +968,9 @@ function parseApolloOrg(raw: Record<string, any>): ApolloBusiness {
   return {
     name: raw.name || "",
     phone: normalizePhone(raw.phone),
-    email: raw.email || null,
+    // Organization/People Search results are identity evidence only. Email is
+    // populated by the dedicated enrichment endpoint, never search response.
+    email: null,
     website: extractDomain(raw.primary_domain || raw.website_url),
     address: raw.street_address || null,
     city: raw.city || null,

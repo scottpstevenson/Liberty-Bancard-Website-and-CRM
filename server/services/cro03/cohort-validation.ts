@@ -29,7 +29,7 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
-import { getCurrentSfpRuntimeFence } from "./sfp-runtime-fence";
+import { getSfpDeploymentOwnerReadiness } from "./sfp-provider-operations";
 import { getPilotRun } from "../mi09-pilot-authority";
 import { getPauseState } from "../outbound-pause-authority";
 import { businessHasDbprLineageSql } from "../dbpr";
@@ -154,21 +154,10 @@ export async function previewCohortValidation(
     // Validation can proceed even while outbound is paused (validation ≠ outreach)
   }
 
-  // Check for live runtime attestation
-  const runtimeFence = await getCurrentSfpRuntimeFence();
-  const attestRow = runtimeFence ? rows(await db.execute(sql`
-    SELECT id FROM cro03c_runtime_attestations
-    WHERE expires_at > NOW() AND db_healthy = true AND redis_healthy = true
-      AND artifact_sha=${runtimeFence.artifactSha}
-      AND deployment_identity=${runtimeFence.deploymentIdentity}
-      AND environment_identity=${runtimeFence.environmentIdentity}
-      AND queue_topology_hash=${runtimeFence.queueTopologyHash}
-      AND worker_identities @> ${JSON.stringify([runtimeFence.processIdentity])}::jsonb
-    ORDER BY captured_at DESC LIMIT 1
-  `))[0] : null;
-  if (!attestRow) {
+  const runtimeReadiness = await getSfpDeploymentOwnerReadiness();
+  if (!runtimeReadiness.ready) {
     gateOpen = false;
-    gateBlockedReason = runtimeFence ? "NO_LIVE_RUNTIME_ATTESTATION" : "RUNTIME_IDENTITY_UNVERIFIED";
+    gateBlockedReason = runtimeReadiness.reason?.toUpperCase() ?? "RUNTIME_IDENTITY_UNVERIFIED";
   }
 
   return {

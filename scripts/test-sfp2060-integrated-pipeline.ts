@@ -1,0 +1,1538 @@
+#!/usr/bin/env npx tsx
+/**
+ * Task 2060 integrated disposable PostgreSQL certification.
+ *
+ * All external provider responses are deterministic fixtures injected at the
+ * real provider transport boundary. Every SFP validation/discovery request
+ * still uses its normal reservation, dispatch, and settlement path. The
+ * fixture authority, users, and all resulting evidence live only in the
+ * private database created by run-sfp2060-certification-disposable.ts; none
+ * of the approvals below is represented as production review.
+ */
+import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import { promises as dns } from "node:dns";
+import { sql } from "drizzle-orm";
+import {
+  applyCertificationProviderDenyBoundary,
+  getBlockedCertificationNetworkAttemptCount,
+} from "./certification-provider-deny";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+await assertDisposableTestInfrastructure({
+  operation: "Task #2060 integrated SFP pipeline certification",
+  requireRedis: false,
+});
+
+process.env.VG_PROVIDER_DENY_MODE = "1";
+applyCertificationProviderDenyBoundary({ fatal: true });
+
+// Replace only the normal ZeroBounce fetch. Any other non-loopback request
+// still reaches the certification deny boundary.
+const denyFetch = globalThis.fetch;
+const fakeZeroBounceKey = "task-2060-disposable-zero-bounce-key";
+process.env.ZEROBOUNCE_API_KEY = fakeZeroBounceKey;
+process.env.OUTSCRAPER_API_KEY = "task-2060-disposable-outscraper-key";
+process.env.APOLLO_API_KEY = "task-2060-disposable-apollo-key";
+process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED = "true";
+
+let zeroBounceCalls = 0;
+globalThis.fetch = (async (input: any, init?: RequestInit) => {
+  const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
+  if (url.origin === "https://api.zerobounce.net" && url.pathname === "/v2/validate") {
+    if (url.searchParams.get("api_key") !== fakeZeroBounceKey) {
+      throw new Error("TASK_2060_FAKE_ZEROBOUNCE_KEY_MISMATCH");
+    }
+    zeroBounceCalls++;
+    return new Response(JSON.stringify({ status: "valid", sub_status: "" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  return denyFetch(input, init);
+}) as typeof fetch;
+
+// The real MX gate remains in the validation path; only its DNS answer is
+// deterministic so the disposable suite never makes a DNS/network request.
+(dns as any).resolveMx = async () => [{ exchange: "mx.task2060.invalid", priority: 10 }];
+
+const rows = (result: any): any[] => result?.rows ?? result ?? [];
+const safeProviderDiagnosticCode = (value: unknown): string | null => {
+  const code = String(value ?? "");
+  if (!code) return null;
+  if (!/^[A-Za-z][A-Za-z0-9_:-]{0,119}$/.test(code) ||
+      /^[a-f0-9]{32,}$/i.test(code) ||
+      /(api[_-]?key|access[_-]?token|secret|password|bearer|authorization)/i.test(code)) {
+    return "[redacted]";
+  }
+  return code;
+};
+const sha256 = (value: unknown): string =>
+  createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
+const runKey = `sfp2060-${randomUUID()}`;
+const actorId = `${runKey}-admin`;
+const sourceActorId = `${runKey}-contact-source-owner`;
+const vertical = "Construction/Trades/Home Services";
+const packageKey = "sfp.construction_trades_home_services.v2";
+const sharedDomain = "suncoast-trades.com";
+const sharedEmail = `info@${sharedDomain}`;
+const paidDomain = `task-2060-${runKey.slice(-12)}.paid.example`;
+const paidEmail = `sales@${paidDomain}`;
+const contactDomain = "palmetto-wellness.com";
+const contactEmail = `frontdesk@${contactDomain}`;
+
+let pool: any;
+
+try {
+  // This helper supplies only process/deployment identity. Runtime ownership
+  // itself is claimed through assertSfpRuntimeAuthority below; no
+  // CRO03C/fleet attestation is inserted or fabricated.
+  await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
+
+  const { db, pool: appPool } = await import("../server/db");
+  pool = appPool;
+  const { writeContact } = await import("../server/services/contact-writer");
+  const {
+    decideContactBusinessLink,
+    recordContactBusinessLinkCandidate,
+  } = await import("../server/services/commercial-link-authority");
+  const {
+    completeFreeDiscoveryGeneration,
+    createFreeDiscoveryGeneration,
+    recordFreeDiscoveryCandidate,
+  } = await import("../server/services/free-discovery/evidence-service");
+  const { hashEmailToken } = await import("../server/services/provider-readiness-decision");
+  const {
+    previewSfpValidation,
+    executeSfpValidation,
+  } = await import("../server/services/cro03/sfp-validation");
+  const { openSfpCandidatePlaintext } =
+    await import("../server/services/cro03/sfp-paid-evidence-writer");
+  const {
+    previewSfpPaidWaterfall,
+    executeSfpPaidPersonAndIdentityDiscovery,
+  } = await import("../server/services/cro03/sfp-paid-waterfall");
+  const { getSfpCohortGapSnapshot } = await import("../server/services/cro03/sfp-cost-preview");
+  const {
+    previewStagingV2,
+    executeStagingV2,
+  } = await import("../server/services/cro03/sfp-campaign-staging-v2");
+  const { computeLivePackageContentHash } = await import("../server/services/cro03/sfp-campaign-packages");
+  const { bridgeReadyHeldIntentToPausedEnrollment } =
+    await import("../server/services/cro03/sfp-enrollment-bridge");
+  const { classifyVertical, CLASSIFIER_VERSION } =
+    await import("../server/services/cro03/sfp-vertical-classifier");
+  const { resolveGeographyFromCandidates } =
+    await import("../server/services/cro03/sfp-geography-resolver");
+  const {
+    assertSfpRuntimeAuthority,
+    finishSfpProviderOperation,
+    invokeSfpProviderTransport,
+    claimSfpRuntimeDeploymentOwner,
+    getSfpRuntimeReleaseSelectionStatus,
+    reconcileSfpProviderUsage,
+    reserveSfpProviderOperation,
+    renewSfpRuntimeDeploymentOwner,
+    selectCurrentSfpRuntimeRelease,
+  } = await import("../server/services/cro03/sfp-provider-operations");
+  const { executeSfpApolloDiscovery } =
+    await import("../server/services/cro03/sfp-live-provider-adapters");
+  const {
+    calculateSfpUsageCostMicros,
+    normalizeSfpProviderUsage,
+  } = await import("../server/services/cro03/sfp-billing-contract");
+  const { sfpRecipientIdentityHash } =
+    await import("../server/services/cro03/sfp-recipient-link-predicates");
+  const {
+    authorizePaidBudget,
+    MI09_PAID_BUDGET_TYPED_CONFIRMATION,
+  } = await import("../server/services/mi09-pilot-authority");
+
+  const originalUsers = rows(await db.execute(sql`
+    INSERT INTO users (id,email,first_name,last_name,role)
+    VALUES
+      (${actorId},${`${runKey}-admin@cert.invalid`},'Task2060','Admin','admin'),
+      (${sourceActorId},${`${runKey}-source@cert.invalid`},'Task2060','Source Owner','user')
+    RETURNING id,role
+  `));
+  assert.equal(originalUsers.length, 2, "the disposable test actors are persisted");
+  assert.notEqual(actorId, sourceActorId, "contact evidence owner and independent reviewer are distinct users");
+  const releaseSelection = await (await import("./helpers/sfp-runtime-test-identity"))
+    .selectSfpRuntimeTestRelease(actorId);
+  assert.equal(releaseSelection.currentReleaseSelected, true,
+    "the disposable admin selects the current test release through the audited selector API");
+  assert.equal(releaseSelection.selectedRelease?.selectedBy, actorId);
+  assert.equal(releaseSelection.selectedRelease?.selectionVersion, 1,
+    "a fresh private database bootstraps exactly the first release-selection version");
+  assert.equal(releaseSelection.ownerLive, true,
+    "audited selection establishes the current process owner lease");
+  assert.equal(releaseSelection.ready, true,
+    "selected release is ready only with its live matching owner lease");
+  const bootstrapSelectionEvent = rows(await db.execute(sql`
+    SELECT action,actor_id,previous_selection,selected_release,publisher_verification_reference
+      FROM sfp_runtime_release_selection_events
+     WHERE id=${releaseSelection.selectedRelease!.selectionEventId}::uuid
+  `))[0];
+  assert.equal(bootstrapSelectionEvent.action, "bootstrap");
+  assert.equal(bootstrapSelectionEvent.actor_id, actorId);
+  assert.equal(bootstrapSelectionEvent.previous_selection, null);
+  assert.equal(
+    bootstrapSelectionEvent.publisher_verification_reference,
+    releaseSelection.selectedRelease?.verificationReference,
+    "the normal selector API persists its publisher-verification audit event",
+  );
+  await assert.rejects(
+    () => selectCurrentSfpRuntimeRelease({
+      actorId,
+      expectedPreviousArtifactSha: releaseSelection.selectedRelease!.artifactSha,
+      expectedPreviousSelectionVersion: releaseSelection.selectedRelease!.selectionVersion + 1,
+      publisherVerifiedArtifactSha: releaseSelection.currentRelease!.artifactSha,
+      publisherVerifiedDeploymentIdentity: releaseSelection.currentRelease!.deploymentIdentity,
+      verificationReference: "https://certification.invalid/sfp-publisher-release/stale-selection-version",
+    }),
+    /SFP_RUNTIME_RELEASE_SELECTION_PREVIOUS_RELEASE_MISMATCH/,
+    "a stale same-SHA selection version cannot transfer runtime authority",
+  );
+  await assert.rejects(
+    () => selectCurrentSfpRuntimeRelease({
+      actorId,
+      expectedPreviousArtifactSha: releaseSelection.selectedRelease!.artifactSha,
+      expectedPreviousSelectionVersion: releaseSelection.selectedRelease!.selectionVersion,
+      publisherVerifiedArtifactSha: releaseSelection.currentRelease!.artifactSha,
+      publisherVerifiedDeploymentIdentity: releaseSelection.currentRelease!.deploymentIdentity,
+      verificationReference: "https://certification.invalid/sfp-publisher-release/already-selected",
+    }),
+    /SFP_RUNTIME_RELEASE_ALREADY_SELECTED/,
+    "the same publisher-verified SHA and deployment cannot create a duplicate selection version",
+  );
+  const unchangedReleaseSelection = await getSfpRuntimeReleaseSelectionStatus();
+  assert.equal(unchangedReleaseSelection.selectedRelease?.selectionVersion, 1,
+    "rejected selector requests do not advance durable selection history");
+
+  // The paid budget uses the real typed-confirmation API and the disposable
+  // admin above. It is not a new provider cap or a production authority.
+  const budgetAuthorization = await authorizePaidBudget({
+    authorizedBy: actorId,
+    typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION,
+  });
+  assert.equal(budgetAuthorization.authorizedBy, actorId);
+  const providerControlRows = rows(await db.execute(sql`
+    UPDATE provider_controls
+       SET enabled=TRUE,circuit_state='closed',version=version+1,updated_at=NOW()
+     WHERE provider IN ('zerobounce','outscraper','apollo')
+     RETURNING provider
+  `));
+  assert.deepEqual(
+    providerControlRows.map((item: any) => String(item.provider)).sort(),
+    ["apollo", "outscraper", "zerobounce"],
+    "only the three disposable provider controls needed by this suite are enabled",
+  );
+
+  const campaign = rows(await db.execute(sql`
+    INSERT INTO campaigns (name,status,target_verticals,created_by,total_steps)
+    VALUES (${`${runKey}-draft-campaign`},'draft',ARRAY[${vertical}],${actorId},1)
+    RETURNING id,name
+  `))[0];
+  const sequence = rows(await db.execute(sql`
+    INSERT INTO follow_up_sequences
+      (name,status,trigger_type,total_steps,sequence_family,channels_allowed,eligible_consent_tiers)
+    VALUES (${`${runKey}-paused-sequence`},'paused','manual',1,${`${runKey}-sequence-family`},
+            ARRAY['email','task'],ARRAY['first_party_role_inbox'])
+    RETURNING id,name
+  `))[0];
+  const packageContentHash = await computeLivePackageContentHash(
+    db, Number(campaign.id), Number(sequence.id),
+  );
+  const packageVersion = rows(await db.execute(sql`
+    INSERT INTO sfp_campaign_package_versions
+      (package_key,vertical,campaign_id,campaign_name,sequence_id,sequence_name,
+       sequence_family,content_hash,lifecycle_state,effective_at,actor_id)
+    VALUES (${packageKey},${vertical},${Number(campaign.id)},${String(campaign.name)},
+            ${Number(sequence.id)},${String(sequence.name)},${`${runKey}-sequence-family`},
+            ${packageContentHash},'current',NOW(),${actorId})
+    RETURNING id
+  `))[0];
+
+  const policy = rows(await db.execute(sql`
+    SELECT d.id,d.document_hash,d.version
+      FROM sfp_outreach_policy_control c
+      JOIN sfp_outreach_policy_documents d ON d.id=c.active_policy_id
+     WHERE c.singleton=TRUE
+  `))[0];
+  assert.ok(policy?.id, "a migrated active SFP outreach policy is required");
+
+  const program = rows(await db.execute(sql`
+    INSERT INTO sfp_programs
+      (name,county_fips,vertical_ids,max_cohort_size,policy_version,is_active,created_by,taxonomy_version)
+    VALUES (${`${runKey}-program`},ARRAY['12086'],ARRAY[${vertical}],10,
+            ${Number(policy.version)},TRUE,${actorId},2)
+    RETURNING id
+  `))[0];
+
+  const businessAName = `${runKey} First Party Trades`;
+  const businessBName = `${runKey} Paid Discovery Trades`;
+  const businessCName = `${runKey} Contact Source Trades`;
+  const businessDName = `${runKey} Shared Recipient Collision Trades`;
+  const insertBusiness = async (name: string, domain: string | null) => Number(rows(await db.execute(sql`
+    INSERT INTO businesses
+      (canonical_name,normalized_name,vertical,state,record_class,city,postal_code,street_address,
+       website_domain,main_phone,created_at)
+    VALUES (${name},${name.toLowerCase()},${vertical},'FL','canonical','Miami','33130',
+            '100 Test Avenue',${domain},NULL,NOW())
+    RETURNING id
+  `))[0].id);
+  const businessA = await insertBusiness(businessAName, sharedDomain);
+  const businessB = await insertBusiness(businessBName, null);
+  const businessC = await insertBusiness(businessCName, contactDomain);
+  const businessD = await insertBusiness(businessDName, null);
+  for (const businessId of [businessA, businessB, businessC, businessD]) {
+    await db.execute(sql`
+      INSERT INTO business_locations
+        (business_id,street_address,city,state,postal_code,county_fips,is_primary,created_at,updated_at)
+      VALUES (${businessId},'100 Test Avenue','Miami','FL','33130','12086',TRUE,NOW(),NOW())
+    `);
+  }
+
+  // Persist classifier evidence from the current pure classifier output and
+  // geography evidence from the current deterministic resolver. The small
+  // canonical business rows and location facts are explicitly disposable
+  // fixtures, not assertions about any production entity.
+  const cohortRunId = randomUUID();
+  const cohortHash = sha256({ runKey, businessIds: [businessA, businessB, businessC, businessD] });
+  const cohortResults: Array<{ businessId: number; name: string; result: any; evidenceId: string }> = [];
+  for (const [businessId, name] of [
+    [businessA, businessAName],
+    [businessB, businessBName],
+    [businessC, businessCName],
+    [businessD, businessDName],
+  ] as const) {
+    const classification = classifyVertical(vertical, [vertical], 2);
+    assert.equal(classification.outcome, "resolved_high");
+    assert.equal(classification.matchedTargetId, vertical);
+    const geography = resolveGeographyFromCandidates([{
+      locationId: null,
+      isPrimary: true,
+      city: "Miami",
+      state: "FL",
+      postalCode: "33130",
+      countyFips: "12086",
+    }]);
+    assert.equal(geography.outcome, "resolved");
+    assert.equal(geography.countyFips, "12086");
+    const evidence = rows(await db.execute(sql`
+      INSERT INTO sfp_classification_evidence
+        (business_id,evidence_hash,source_refs,classifier_version,model_version,prompt_version,
+         policy_version,taxonomy_version,outcome,confidence,reason_codes,idempotency_key,
+         resolved_vertical_id,admission_tier)
+      VALUES (${businessId},${classification.evidenceHash},
+        ${JSON.stringify({
+          source: "task_2060_disposable_canonical_business_fixture",
+          businessId,
+          canonicalName: name,
+          rawVertical: vertical,
+        })}::jsonb,
+        ${CLASSIFIER_VERSION},'pure-taxonomy-classifier','taxonomy-v2',1,2,'target',
+        ${classification.confidence},${JSON.stringify(classification.reasons)}::jsonb,
+        ${`${runKey}-classification-${businessId}`},${vertical},${classification.outcome})
+      RETURNING id
+    `))[0];
+    cohortResults.push({
+      businessId,
+      name,
+      result: { classification, geography },
+      evidenceId: String(evidence.id),
+    });
+  }
+
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs
+      (id,program_id,idempotency_key,status,cohort_size,cohort_hash,release_sha,actor_id,
+       cohort_state,frozen_at,request_hash,config_hash)
+    VALUES (${cohortRunId}::uuid,${String(program.id)},${`${runKey}-cohort`},
+      'freezing',4,${cohortHash},${"a".repeat(40)},${actorId},'freezing',NULL,${cohortHash},${cohortHash})
+  `);
+  for (const entry of cohortResults) {
+    const classification = entry.result.classification;
+    const geography = entry.result.geography;
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_members
+        (cohort_run_id,business_id,roi_score,geography_class,geography_source,county_fips,vertical,
+         classifier_version,classifier_outcome,classifier_confidence,classifier_matched_target,
+         classifier_reasons,classifier_evidence_hash,geography_resolver_version,geography_outcome)
+      VALUES (${cohortRunId}::uuid,${entry.businessId},95,'verified','fips','12086',${vertical},
+        ${classification.version},'target',${classification.confidence},${classification.matchedTargetId},
+        ${JSON.stringify(classification.reasons)}::jsonb,${classification.evidenceHash},
+        ${geography.resolverVersion},${geography.outcome})
+    `);
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_decisions
+        (cohort_run_id,business_id,disposition,geography_class,geography_source,vertical,roi_score,
+         selected,classifier_version,classifier_outcome,classifier_confidence,classifier_matched_target,
+         classifier_reasons,classifier_evidence_hash,classification_evidence_id,
+         classification_policy_version,classification_evidence_hash)
+      VALUES (${cohortRunId}::uuid,${entry.businessId},'selected','verified','fips',${vertical},95,
+        TRUE,${classification.version},'target',${classification.confidence},${classification.matchedTargetId},
+        ${JSON.stringify(classification.reasons)}::jsonb,${classification.evidenceHash},
+        ${entry.evidenceId}::uuid,1,${classification.evidenceHash})
+    `);
+  }
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs
+       SET status='frozen',cohort_state='frozen',frozen_at=NOW()
+     WHERE id=${cohortRunId}::uuid
+  `);
+
+  const testActors = rows(await db.execute(sql`
+    SELECT id,role FROM users WHERE id IN (${actorId},${sourceActorId}) ORDER BY id
+  `));
+  assert.equal(testActors.length, 2);
+  assert.ok(testActors.some((user: any) => user.id === sourceActorId && user.role === "user"));
+  assert.ok(testActors.some((user: any) => user.id === actorId && user.role === "admin"));
+
+  // Create authentic contact evidence through the canonical writer. The
+  // independent admin approval below is exercised through the real
+  // commercial-link authority using a different persisted test user.
+  const contactWrite = await writeContact({
+    mode: "local_only",
+    mutation: {
+      firstName: "Casey",
+      lastName: "Trades",
+      email: contactEmail,
+      phone: "3055550199",
+      companyName: businessCName,
+      status: "New",
+    },
+    provenance: {
+      sourceCategory: "discovery",
+      sourceType: "cro03",
+      eventKey: `${runKey}-contact-source-event`,
+      actorType: "user",
+      actorId: sourceActorId,
+      metadata: { testScope: "task2060_disposable_only" },
+    },
+    actor: { actorType: "user", actorId: sourceActorId },
+    hookPolicy: {
+      source: "cro03",
+      deferValidation: true,
+      deferReadiness: true,
+      deferLeadScoring: true,
+      suppressProviderProjection: true,
+    },
+  });
+  const contactId = Number(contactWrite.id);
+  const sourceEventId = Number(contactWrite._sourceEventId);
+  assert.ok(contactId > 0 && sourceEventId > 0);
+  const linkCandidate = await recordContactBusinessLinkCandidate({
+    contactId,
+    businessId: businessC,
+    source: "legacy_import",
+    sourceVersion: "task-2060-disposable-canonical-writer",
+    candidateKey: `${runKey}-contact-business-candidate`,
+    confidence: 91,
+  });
+  assert.ok(linkCandidate?.id, "the unapproved contact-business candidate is review-only");
+  const approvedContactLink = await decideContactBusinessLink({
+    contactId,
+    businessId: businessC,
+    decision: "verified",
+    decisionKey: `${runKey}-independent-contact-link-review`,
+    reviewerId: actorId,
+    evidenceSourceEventId: sourceEventId,
+    expectedRevision: 0,
+  });
+  assert.equal(approvedContactLink.decision, "verified");
+  assert.notEqual(sourceActorId, actorId, "independent disposable link reviewer is distinct from source owner");
+
+  const freeGeneration = await createFreeDiscoveryGeneration({
+    runKey: `${runKey}-free-discovery`,
+    actorId,
+    reason: "Task 2060 deterministic first-party role-inbox fixture; disposable database only.",
+    purpose: "email_discovery",
+  });
+  const freeCandidate = await recordFreeDiscoveryCandidate({
+    generationId: freeGeneration.id,
+    businessId: businessA,
+    domain: sharedDomain,
+    source: "first_party_contact_page",
+    attributionScope: "role",
+    subjectType: "business",
+    email: sharedEmail,
+    confidence: 92,
+  });
+  await completeFreeDiscoveryGeneration(freeGeneration.id);
+  assert.ok(freeCandidate.id);
+  const duplicateFreeGeneration = await createFreeDiscoveryGeneration({
+    runKey: `${runKey}-duplicate-free-discovery`,
+    actorId,
+    reason: "Task 2060 same-recipient collision fixture for the independent disposable business.",
+    purpose: "email_discovery",
+  });
+  const duplicateFreeCandidate = await recordFreeDiscoveryCandidate({
+    generationId: duplicateFreeGeneration.id,
+    businessId: businessD,
+    domain: sharedDomain,
+    source: "first_party_contact_page",
+    attributionScope: "role",
+    subjectType: "business",
+    email: sharedEmail,
+    confidence: 92,
+  });
+  await completeFreeDiscoveryGeneration(duplicateFreeGeneration.id);
+  assert.ok(duplicateFreeCandidate.id);
+
+  // Provider results arrive through the actual governed OutScraper call.
+  // These fixtures follow the provider's documented business-result shape,
+  // with no task IDs so the adapter parses each completed result synchronously.
+  const paidPreview = await previewSfpPaidWaterfall(cohortRunId);
+  const gapSnapshot = await getSfpCohortGapSnapshot(cohortRunId);
+  assert.ok(paidPreview.programActive && gapSnapshot.snapshotHash);
+  let outScraperCalls = 0;
+  const outScraperFixture = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : (input as Request).url);
+    if (url.origin !== "https://api.outscraper.com" || url.pathname !== "/maps/search") {
+      throw new Error(`TASK_2060_UNEXPECTED_OUTSCRAPER_URL:${url.origin}${url.pathname}`);
+    }
+    if (new Headers(init?.headers).get("X-API-KEY") !== process.env.OUTSCRAPER_API_KEY) {
+      throw new Error("TASK_2060_FAKE_OUTSCRAPER_KEY_MISMATCH");
+    }
+    const query = url.searchParams.get("query") ?? "";
+    const isPaidTarget = query.includes(businessBName) || query.includes(businessDName);
+    assert.ok(isPaidTarget, "paid provider fixture is scoped to one of the two frozen discovery targets");
+    outScraperCalls++;
+    const isBusinessB = query.includes(businessBName);
+    const fixtureName = isBusinessB ? businessBName : businessDName;
+    const fixtureBusinessId = isBusinessB ? businessB : businessD;
+    return new Response(JSON.stringify({
+      data: [[{
+        name: fixtureName,
+        phone: isBusinessB ? "3055550188" : "3055550189",
+        ...(isBusinessB ? { email: paidEmail } : {}),
+        website: `https://${isBusinessB ? paidDomain : `${runKey.slice(-12)}.duplicate.example`}`,
+        address: "100 Test Avenue",
+        city: "Miami",
+        state: "FL",
+        postal_code: "33130",
+        category: "Construction company",
+        place_id: `task2060-place-${fixtureBusinessId}`,
+      }]],
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": `${runKey}-outscraper-request-${fixtureBusinessId}`,
+      },
+    });
+  };
+  const paidDiscovery = await executeSfpPaidPersonAndIdentityDiscovery({
+    cohortRunId,
+    idempotencyKey: `${runKey}-paid-waterfall`,
+    actorId,
+    maxBusinesses: 2,
+    previewSnapshotHash: gapSnapshot.snapshotHash,
+    includeSerperDiscovery: false,
+    enabledProviders: ["outscraper"],
+  }, { fetchImpl: outScraperFixture as typeof fetch });
+  assert.equal(outScraperCalls, 2, "both frozen paid-discovery targets receive deterministic provider results");
+  assert.equal(paidDiscovery.processed, 2);
+  assert.equal(paidDiscovery.providerRequests, 2);
+  assert.equal(paidDiscovery.succeeded, 2);
+  assert.equal(paidDiscovery.zeroOutreachConfirmed, true);
+  const paidEvidence = rows(await db.execute(sql`
+    SELECT id,provider,field,subject_type,disposition,normalized_value_hash,masked_value
+      FROM sfp_paid_candidate_evidence
+     WHERE business_id=${businessB} AND provider='outscraper'
+     ORDER BY created_at DESC LIMIT 5
+  `));
+  assert.ok(paidEvidence.some((item: any) =>
+    item.field === "email" && item.subject_type === "business" && item.disposition === "staged"),
+  "paid provider email is retained as separate typed SFP evidence");
+
+  // Validation is performed with a fresh preview and real provider-operation
+  // reservation/dispatch/settlement; `zbTransport` is deliberately not used.
+  const validationPreview = await previewSfpValidation(cohortRunId);
+  assert.equal(validationPreview.gateOpen, true);
+  const providerFailureCodes: string[] = [];
+  const validation = await executeSfpValidation(cohortRunId, {
+    idempotencyKey: `${runKey}-validation`,
+    actorId,
+    maxValidations: 25,
+    snapshotHash: validationPreview.snapshotHash,
+    onProviderFailureDiagnostic: (phase, safeCode) => providerFailureCodes.push(`${phase}:${safeCode}`),
+  });
+  const validationDiagnostics = rows(await db.execute(sql`
+    SELECT e.business_id,e.status,e.zb_outcome,e.decision_reason,e.reason_codes,
+           e.validation_operation_id,
+           o.state AS operation_state,a.outcome AS attempt_outcome,a.error_code
+      FROM sfp_outreach_eligibility e
+      LEFT JOIN provider_operations o ON o.id=e.validation_operation_id
+      LEFT JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+     WHERE cohort_run_id=${cohortRunId}::uuid
+     ORDER BY e.business_id
+  `));
+  const validationProviderOperations = rows(await db.execute(sql`
+    SELECT o.id,o.provider,o.purpose,o.operation_type,o.state,o.billing_state,o.failure_code,
+           o.requested_units,o.reserved_units,o.settled_units,o.attempt_count,o.runtime_owner_epoch,
+           (o.runtime_owner_token IS NOT NULL) AS has_runtime_owner_binding,
+           a.attempt_number,a.outcome AS attempt_outcome,a.retryable AS attempt_retryable,
+           a.safe_http_class,a.error_code AS attempt_error_code,
+           (a.dispatch_marked_at IS NOT NULL) AS dispatch_marked,
+           l.owner_epoch AS lease_owner_epoch,
+           (l.operation_id IS NOT NULL) AS job_lease_present,
+           (l.owner_epoch=o.runtime_owner_epoch AND l.owner_token=o.runtime_owner_token)
+             AS lease_matches_operation,
+           (l.lease_expires_at>NOW() AND l.revoked_at IS NULL) AS lease_live,
+           c.enabled AS control_enabled,c.circuit_state,c.reserved_units AS control_reserved_units,
+           c.consumed_units AS control_consumed_units,
+           po.outcome AS observation_outcome,po.retryable AS observation_retryable
+      FROM provider_operations o
+      LEFT JOIN provider_attempts a ON a.operation_id=o.id
+      LEFT JOIN sfp_runtime_job_leases l ON l.operation_id=o.id
+      LEFT JOIN provider_controls c ON c.provider=o.provider
+      LEFT JOIN LATERAL (
+        SELECT outcome,retryable
+          FROM provider_observations
+         WHERE operation_id=o.id
+         ORDER BY observed_at DESC
+         LIMIT 1
+      ) po ON TRUE
+     WHERE o.provider='zerobounce'
+       AND o.idempotency_key LIKE ${`${runKey}-validation:zerobounce:%`}
+     ORDER BY o.created_at,o.id,a.attempt_number
+  `));
+  const safeValidationDiagnostics = validationDiagnostics.map((item: any) => ({
+    businessId: Number(item.business_id),
+    status: safeProviderDiagnosticCode(item.status),
+    outcome: safeProviderDiagnosticCode(item.zb_outcome),
+    decisionReason: safeProviderDiagnosticCode(item.decision_reason),
+    reasonCodes: Array.isArray(item.reason_codes)
+      ? item.reason_codes.map(safeProviderDiagnosticCode)
+      : [],
+    operationId: item.validation_operation_id == null ? null : String(item.validation_operation_id),
+    operationState: safeProviderDiagnosticCode(item.operation_state),
+    attemptOutcome: safeProviderDiagnosticCode(item.attempt_outcome),
+    attemptErrorCode: safeProviderDiagnosticCode(item.error_code),
+  }));
+  const safeValidationProviderOperations = validationProviderOperations.map((operation: any) => ({
+    id: String(operation.id),
+    provider: safeProviderDiagnosticCode(operation.provider),
+    purpose: safeProviderDiagnosticCode(operation.purpose),
+    operationType: safeProviderDiagnosticCode(operation.operation_type),
+    state: safeProviderDiagnosticCode(operation.state),
+    billingState: safeProviderDiagnosticCode(operation.billing_state),
+    failureCode: safeProviderDiagnosticCode(operation.failure_code),
+    requestedUnits: Number(operation.requested_units),
+    reservedUnits: Number(operation.reserved_units),
+    settledUnits: Number(operation.settled_units),
+    attemptCount: Number(operation.attempt_count),
+    ownerEpoch: operation.runtime_owner_epoch == null ? null : Number(operation.runtime_owner_epoch),
+    hasRuntimeOwnerBinding: operation.has_runtime_owner_binding === true,
+    attemptNumber: operation.attempt_number == null ? null : Number(operation.attempt_number),
+    attemptOutcome: safeProviderDiagnosticCode(operation.attempt_outcome),
+    attemptRetryable: operation.attempt_retryable == null ? null : operation.attempt_retryable === true,
+    safeHttpClass: safeProviderDiagnosticCode(operation.safe_http_class),
+    attemptErrorCode: safeProviderDiagnosticCode(operation.attempt_error_code),
+    dispatchMarked: operation.dispatch_marked === true,
+    jobLeasePresent: operation.job_lease_present === true,
+    leaseOwnerEpoch: operation.lease_owner_epoch == null ? null : Number(operation.lease_owner_epoch),
+    leaseMatchesOperation: operation.lease_matches_operation === true,
+    leaseLive: operation.lease_live === true,
+    controlEnabled: operation.control_enabled === true,
+    circuitState: safeProviderDiagnosticCode(operation.circuit_state),
+    controlReservedUnits: Number(operation.control_reserved_units ?? 0),
+    controlConsumedUnits: Number(operation.control_consumed_units ?? 0),
+    observationOutcome: safeProviderDiagnosticCode(operation.observation_outcome),
+    observationRetryable: operation.observation_retryable == null ? null : operation.observation_retryable === true,
+  }));
+  const validationFailureDiagnostic = {
+    validation,
+    fakeTransportCalls: zeroBounceCalls,
+    caughtProviderFailureCodes: providerFailureCodes,
+    eligibilities: safeValidationDiagnostics,
+    providerOperations: safeValidationProviderOperations,
+  };
+  assert.equal(validation.failedCount, 0,
+    `validation should complete all four injected responses: ${JSON.stringify(validationFailureDiagnostic)}`);
+  assert.equal(validation.invalidCount, 0);
+  assert.equal(zeroBounceCalls, 4, "all four source candidates traverse the fake ZeroBounce network callback");
+
+  const eligibilities = rows(await db.execute(sql`
+    SELECT id,business_id,source_kind,candidate_id,paid_candidate_evidence_id,contact_id,status,
+           normalized_value_hash,normalized_value_hash_version,validation_at,validation_expires_at,
+           validation_operation_id,contact_business_link_decision_id,contact_business_link_revision
+      FROM sfp_outreach_eligibility
+     WHERE cohort_run_id=${cohortRunId}::uuid
+     ORDER BY business_id
+  `));
+  assert.equal(eligibilities.length, 4, "validation writes one authoritative eligibility per frozen business");
+  assert.deepEqual(
+    [...new Set(eligibilities.map((item: any) => String(item.source_kind)))].sort(),
+    ["contact", "free", "paid"],
+    "free, paid, and canonical-contact source kinds reach the same validation authority",
+  );
+  assert.ok(eligibilities.every((item: any) => item.status === "validated_outreach_eligible"),
+    `all fixture statuses must match the expected role-inbox path: ${JSON.stringify(eligibilities.map((item: any) => ({
+      businessId: Number(item.business_id), sourceKind: item.source_kind, status: item.status,
+    })))}`
+  );
+  const contactEligibility = eligibilities.find((item: any) => item.source_kind === "contact");
+  assert.equal(Number(contactEligibility?.contact_id), contactId);
+  assert.equal(
+    String(contactEligibility?.contact_business_link_decision_id),
+    String(approvedContactLink.id),
+    "validated contact eligibility retains the reviewed link ID",
+  );
+  assert.equal(Number(contactEligibility?.contact_business_link_revision), Number(approvedContactLink.revision));
+  const eligibilityForBusinessB = eligibilities.find((item: any) => Number(item.business_id) === businessB);
+  const eligibilityForBusinessD = eligibilities.find((item: any) => Number(item.business_id) === businessD);
+  assert.equal(eligibilities.find((item: any) => Number(item.business_id) === businessA)?.source_kind, "free");
+  assert.equal(eligibilities.find((item: any) => Number(item.business_id) === businessC)?.source_kind, "contact");
+  assert.equal(eligibilityForBusinessB?.source_kind, "paid");
+  assert.equal(eligibilityForBusinessD?.source_kind, "free");
+  assert.ok(eligibilities.every((item: any) =>
+    item.normalized_value_hash && Number(item.normalized_value_hash_version) === 1 &&
+    item.validation_at && item.validation_expires_at && item.validation_operation_id,
+  ), "eligibilities pin non-null versioned source identity and the original validation operation");
+
+  const validationOps = rows(await db.execute(sql`
+    SELECT o.id,o.state,o.billing_state,a.outcome,a.dispatch_marked_at
+      FROM provider_operations o
+      JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+     WHERE o.purpose='sfp_email_validation'
+       AND o.idempotency_key LIKE ${`${runKey}-validation:%`}
+     ORDER BY o.id
+  `));
+  assert.equal(validationOps.length, 4);
+  assert.ok(validationOps.every((op: any) =>
+    op.state === "completed" && op.billing_state === "committed" &&
+    op.outcome === "completed" && op.dispatch_marked_at,
+  ), "every fake validation response keeps normal governed reserve/attempt/settle lineage");
+
+  const stagingPreview = await previewStagingV2({
+    cohortRunId,
+    eligibilityIds: eligibilities.map((item: any) => String(item.id)),
+    actorId,
+  });
+  assert.equal(stagingPreview.eligibleCount, 4, "all source candidates reach package-pinned ready-held staging");
+  const staged = await executeStagingV2({
+    cohortRunId,
+    eligibilityIds: eligibilities.map((item: any) => String(item.id)),
+    commandKey: stagingPreview.commandKey,
+    snapshotHash: stagingPreview.snapshotHash,
+    actorId,
+    confirmPayloadHash: stagingPreview.payloadHash,
+  });
+  assert.ok(staged);
+  const intents = rows(await db.execute(sql`
+    SELECT id,business_id,eligibility_id,source_kind,candidate_id,paid_candidate_evidence_id,contact_id,
+           contact_business_link_decision_id,contact_business_link_revision,package_version_id,
+           package_key,state,normalized_value_hash,normalized_value_hash_version,master_lead_id
+      FROM sfp_campaign_staging_intents
+     WHERE cohort_run_id=${cohortRunId}::uuid
+     ORDER BY business_id
+  `));
+  assert.equal(intents.length, 4);
+  assert.ok(intents.every((intent: any) =>
+    intent.state === "ready_held" && String(intent.package_version_id) === String(packageVersion.id) &&
+    intent.package_key === packageKey,
+  ), "staging preserves source and exact current package pins while remaining held");
+  const freeIntents = intents.filter((intent: any) => intent.source_kind === "free");
+  const paidIntent = intents.find((intent: any) => intent.source_kind === "paid");
+  const contactIntent = intents.find((intent: any) => intent.source_kind === "contact");
+  const freeIntent = freeIntents.find((intent: any) => Number(intent.business_id) === businessA);
+  const duplicateFreeIntent = freeIntents.find((intent: any) => Number(intent.business_id) === businessD);
+  assert.ok(freeIntent && duplicateFreeIntent && paidIntent && contactIntent);
+  assert.deepEqual(
+    intents.map((intent: any) => String(intent.source_kind)).sort(),
+    ["contact", "free", "free", "paid"],
+    "the mapper persists every selected camelCase API source as the correct database source_kind",
+  );
+  const eligibilityById = new Map(eligibilities.map((item: any) => [String(item.id), item]));
+  assert.ok(intents.every((intent: any) => {
+    const source = eligibilityById.get(String(intent.eligibility_id)) as any;
+    return intent.normalized_value_hash &&
+      intent.normalized_value_hash === source?.normalized_value_hash &&
+      Number(intent.normalized_value_hash_version) === Number(source?.normalized_value_hash_version);
+  }), "free/paid/contact staging persists the exact validated hash and version, never NULL placeholders");
+  assert.ok(intents.every((intent: any) => {
+    if (intent.source_kind === "free") {
+      return Boolean(intent.candidate_id) && intent.paid_candidate_evidence_id == null && intent.contact_id == null;
+    }
+    if (intent.source_kind === "paid") {
+      return Boolean(intent.paid_candidate_evidence_id) && intent.candidate_id == null && intent.contact_id == null;
+    }
+    return intent.source_kind === "contact" && Number(intent.contact_id) === contactId &&
+      Boolean(intent.contact_business_link_decision_id) && Number(intent.contact_business_link_revision) > 0;
+  }), "persisted staging rows retain the matching typed source foreign key, including independent contact-link pins");
+  assert.equal(String(contactIntent.contact_business_link_decision_id), String(approvedContactLink.id));
+  assert.equal(Number(contactIntent.contact_business_link_revision), Number(approvedContactLink.revision));
+  const assertSourceOpensAs = async (
+    reference: Parameters<typeof openSfpCandidatePlaintext>[0]["reference"],
+    expectedEmail: string,
+    expectedBusinessId: number,
+  ) => {
+    const matches = await db.transaction((tx) => openSfpCandidatePlaintext(
+      {
+        reference,
+        cohortRunId,
+        actorId,
+        purpose: "task_2060_integrated_pipeline_source_assertion",
+      },
+      async (plaintext, resolved) =>
+        plaintext === expectedEmail && resolved.businessId === expectedBusinessId,
+      tx,
+    ));
+    assert.equal(matches, true, "the persisted typed source opens only its original plaintext and business identity");
+  };
+  await assertSourceOpensAs(
+    { sourceKind: "free", freeDiscoveryCandidateId: String(freeIntent.candidate_id) },
+    sharedEmail,
+    businessA,
+  );
+  await assertSourceOpensAs(
+    { sourceKind: "free", freeDiscoveryCandidateId: String(duplicateFreeIntent.candidate_id) },
+    sharedEmail,
+    businessD,
+  );
+  await assertSourceOpensAs(
+    { sourceKind: "paid", paidCandidateEvidenceId: String(paidIntent.paid_candidate_evidence_id) },
+    paidEmail,
+    businessB,
+  );
+  await assertSourceOpensAs(
+    {
+      sourceKind: "contact",
+      contactId: String(contactIntent.contact_id),
+      contactBusinessLinkDecisionId: String(contactIntent.contact_business_link_decision_id),
+      contactBusinessLinkRevision: Number(contactIntent.contact_business_link_revision),
+    },
+    contactEmail,
+    businessC,
+  );
+
+  // Reconfirm/renew the selected runtime owner through the real API. This
+  // authority is independent of the older CRO03C fleet-attestation table.
+  const runtimeOwner = await assertSfpRuntimeAuthority(cohortRunId);
+  const ownerProof = rows(await db.execute(sql`
+    SELECT deployment_identity,environment_identity,artifact_sha,queue_topology_hash,
+           owner_epoch,owner_token,lease_expires_at,revoked_at
+      FROM sfp_runtime_owner_authority WHERE authority_key='routine_sfp'
+  `))[0];
+  assert.equal(String(ownerProof.deployment_identity), runtimeOwner.deploymentIdentity);
+  assert.equal(String(ownerProof.owner_token), runtimeOwner.ownerToken);
+  assert.equal(runtimeOwner.deploymentIdentity, process.env.REPL_DEPLOYMENT_ID);
+  assert.ok(new Date(ownerProof.lease_expires_at).getTime() > Date.now());
+  const legacyAttestations = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM cro03c_runtime_attestations
+  `))[0];
+  assert.equal(Number(legacyAttestations.count), 0, "the healthy SFP owner is not backed by fabricated legacy fleet evidence");
+
+  // A recipient-address claim must not survive a hold caused by missing
+  // pinned master-lead data. The same ready-held intent must be retryable
+  // after restoring the master lead and then create one enrollment.
+  const beforeEnrollmentCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sequence_enrollments
+  `))[0].count);
+  const freeRecipientHash = sfpRecipientIdentityHash(sharedEmail);
+  const freeMasterLeadId = String(freeIntent.master_lead_id);
+  assert.ok(freeMasterLeadId && freeMasterLeadId !== "null");
+  await db.execute(sql`
+    UPDATE sfp_campaign_staging_intents SET master_lead_id=NULL
+     WHERE id=${String(freeIntent.id)}::uuid
+  `);
+  const heldMissingMaster = await bridgeReadyHeldIntentToPausedEnrollment(String(freeIntent.id), actorId);
+  assert.equal(heldMissingMaster.status, "left_held");
+  assert.match(String(heldMissingMaster.heldReason), /MASTER_LEAD|PINNED_VALIDATED_EMAIL|REAL_EMAIL_IDENTITY/i);
+  const freeClaimCountAfterHold = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_recipient_address_commitments
+     WHERE program_id=${String(program.id)}::uuid
+       AND recipient_identity_hash=${freeRecipientHash}
+  `))[0].count);
+  assert.equal(freeClaimCountAfterHold, 0, "a held attempt rolls its recipient claim back");
+  const freeLedgerAfterHold = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_ready_held_enrollments
+     WHERE staging_intent_id=${String(freeIntent.id)}::uuid
+  `))[0].count);
+  assert.equal(freeLedgerAfterHold, 0, "a missing-master-lead hold has no success-ledger side effect");
+  await db.execute(sql`
+    UPDATE sfp_campaign_staging_intents SET master_lead_id=${freeMasterLeadId}::uuid
+     WHERE id=${String(freeIntent.id)}::uuid
+  `);
+  const concurrentBridge = await Promise.all([
+    bridgeReadyHeldIntentToPausedEnrollment(String(freeIntent.id), actorId),
+    bridgeReadyHeldIntentToPausedEnrollment(String(freeIntent.id), actorId),
+  ]);
+  assert.deepEqual(
+    concurrentBridge.map((item) => item.status).sort(),
+    ["already_bridged", "created"],
+    "concurrent ready-held retries converge on one committed bridge",
+  );
+  const bridgeReceipt = concurrentBridge.find((item) => item.status === "created")!;
+  assert.ok(bridgeReceipt.contactId && bridgeReceipt.sequenceEnrollmentId);
+  assert.equal(bridgeReceipt.enrollmentStatus, "paused");
+  const afterEnrollmentCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sequence_enrollments
+  `))[0].count);
+  assert.equal(afterEnrollmentCount, beforeEnrollmentCount + 1);
+  const enrollment = rows(await db.execute(sql`
+    SELECT id,status,metadata FROM sequence_enrollments WHERE id=${Number(bridgeReceipt.sequenceEnrollmentId)}
+  `))[0];
+  assert.equal(enrollment.status, "paused");
+  const systemLink = rows(await db.execute(sql`
+    SELECT d.id,d.decision,d.revision,d.reviewed_by,d.system_evidence_id,e.id AS sfp_evidence_id
+      FROM contact_business_link_decisions d
+      LEFT JOIN contact_business_sfp_link_evidence e ON e.decision_id=d.id
+     WHERE d.contact_id=${Number(bridgeReceipt.contactId)}
+       AND d.business_id=${businessA} AND d.superseded_at IS NULL
+     ORDER BY d.revision DESC LIMIT 1
+  `))[0];
+  assert.equal(systemLink.decision, "verified");
+  assert.ok(systemLink.sfp_evidence_id, "system bridge link has source-bound SFP evidence");
+  assert.equal(systemLink.reviewed_by, null, "the system link does not impersonate a human reviewer");
+  assert.equal(systemLink.system_evidence_id, null, "the bridge does not fabricate a separate authority receipt");
+  const bridgeLedgerCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_ready_held_enrollments
+     WHERE staging_intent_id=${String(freeIntent.id)}::uuid
+  `))[0].count);
+  assert.equal(bridgeLedgerCount, 1, "the bridge race creates one success-ledger row");
+  const freeRecipientClaim = rows(await db.execute(sql`
+    SELECT state,business_id,staging_intent_id,contact_id,contact_business_link_decision_id
+      FROM sfp_recipient_address_commitments
+     WHERE program_id=${String(program.id)}::uuid
+       AND recipient_identity_hash=${freeRecipientHash}
+  `))[0];
+  assert.equal(freeRecipientClaim.state, "committed");
+  assert.equal(Number(freeRecipientClaim.business_id), businessA);
+  assert.equal(String(freeRecipientClaim.staging_intent_id), String(freeIntent.id));
+  assert.ok(freeRecipientClaim.contact_id && freeRecipientClaim.contact_business_link_decision_id);
+
+  // Freshness must be derived from the original provider observation, not
+  // copied eligibility timestamps. Make only that original receipt stale
+  // while leaving the eligibility's copied validation window in the future.
+  const paidEligibility = eligibilityById.get(String(paidIntent.eligibility_id)) as any;
+  const originalReceipt = rows(await db.execute(sql`
+    SELECT id,observed_at,expires_at FROM provider_observations
+     WHERE operation_id=${String(paidEligibility.validation_operation_id)}::uuid
+       AND provider='zerobounce' AND outcome='valid' AND retryable=FALSE
+       AND subject_type='business' AND subject_id=${businessB}
+       AND email_token_hash=${hashEmailToken(paidEmail)}
+     ORDER BY observed_at DESC LIMIT 1
+  `))[0];
+  assert.ok(originalReceipt?.id, "the eligibility pins a real original provider observation");
+  const originalObservedAt = originalReceipt.observed_at;
+  const originalExpiresAt = originalReceipt.expires_at;
+  assert.ok(new Date(paidEligibility.validation_expires_at).getTime() > Date.now());
+  await db.execute(sql`
+    UPDATE provider_observations
+       SET observed_at=NOW()-INTERVAL '400 days',expires_at=NOW()-INTERVAL '1 day'
+     WHERE id=${String(originalReceipt.id)}::uuid
+  `);
+  const expiredOriginalReceiptBridge =
+    await bridgeReadyHeldIntentToPausedEnrollment(String(paidIntent.id), actorId);
+  assert.equal(expiredOriginalReceiptBridge.status, "left_held");
+  assert.match(
+    String(expiredOriginalReceiptBridge.heldReason),
+    /validation|receipt|observation|fresh|current/i,
+  );
+  const copiedExpiryStillFresh = rows(await db.execute(sql`
+    SELECT validation_expires_at FROM sfp_outreach_eligibility
+     WHERE id=${String(paidIntent.eligibility_id)}::uuid
+  `))[0];
+  assert.ok(
+    new Date(copiedExpiryStillFresh.validation_expires_at).getTime() > Date.now(),
+    "the stale-original-receipt rejection cannot be explained by a copied eligibility expiry",
+  );
+  await db.execute(sql`
+    UPDATE provider_observations SET observed_at=${new Date(originalObservedAt).toISOString()}::timestamptz,
+           expires_at=${originalExpiresAt ? new Date(originalExpiresAt).toISOString() : null}::timestamptz
+     WHERE id=${String(originalReceipt.id)}::uuid
+  `);
+
+  await db.execute(sql`
+    UPDATE follow_up_sequences SET name=${`${String(sequence.name)}-drift`}
+     WHERE id=${Number(sequence.id)}
+  `);
+  const packageDriftBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(paidIntent.id), actorId);
+  assert.equal(packageDriftBridge.status, "left_held");
+  assert.match(String(packageDriftBridge.heldReason), /live_package_content_changed|package/i);
+  await db.execute(sql`
+    UPDATE follow_up_sequences SET name=${String(sequence.name)}
+     WHERE id=${Number(sequence.id)}
+  `);
+  assert.equal(
+    await computeLivePackageContentHash(db, Number(campaign.id), Number(sequence.id)),
+    packageContentHash,
+    "the disposable package is restored exactly after the drift check",
+  );
+
+  // The paid intent has a unique address, so its exact source/package is
+  // eligible for a positive bridge after the drift checks. A missing pinned
+  // master-lead reference must roll the recipient claim back; restoring that
+  // exact FK then makes a successful retry possible.
+  const paidRecipientHash = sfpRecipientIdentityHash(paidEmail);
+  const paidMasterLeadId = String(paidIntent.master_lead_id);
+  assert.ok(paidMasterLeadId && paidMasterLeadId !== "null");
+  await db.execute(sql`
+    UPDATE sfp_campaign_staging_intents SET master_lead_id=NULL
+     WHERE id=${String(paidIntent.id)}::uuid
+  `);
+  const paidMissingMasterHold =
+    await bridgeReadyHeldIntentToPausedEnrollment(String(paidIntent.id), actorId);
+  assert.equal(paidMissingMasterHold.status, "left_held");
+  const paidClaimCountAfterHold = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_recipient_address_commitments
+     WHERE program_id=${String(program.id)}::uuid
+       AND recipient_identity_hash=${paidRecipientHash}
+  `))[0].count);
+  assert.equal(paidClaimCountAfterHold, 0, "paid hold/retry leaves no committed orphan recipient claim");
+  await db.execute(sql`
+    UPDATE sfp_campaign_staging_intents SET master_lead_id=${paidMasterLeadId}::uuid
+     WHERE id=${String(paidIntent.id)}::uuid
+  `);
+  const paidBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(paidIntent.id), actorId);
+  assert.equal(paidBridge.status, "created", "the paid typed source reaches a positive ready-held bridge");
+  assert.equal(paidBridge.enrollmentStatus, "paused");
+  const paidRecipientClaim = rows(await db.execute(sql`
+    SELECT state,business_id,staging_intent_id,contact_id,contact_business_link_decision_id
+      FROM sfp_recipient_address_commitments
+     WHERE program_id=${String(program.id)}::uuid
+       AND recipient_identity_hash=${paidRecipientHash}
+  `))[0];
+  assert.equal(paidRecipientClaim.state, "committed");
+  assert.equal(Number(paidRecipientClaim.business_id), businessB);
+  assert.equal(String(paidRecipientClaim.staging_intent_id), String(paidIntent.id));
+  assert.ok(paidRecipientClaim.contact_id && paidRecipientClaim.contact_business_link_decision_id);
+
+  const duplicateRecipientBridge =
+    await bridgeReadyHeldIntentToPausedEnrollment(String(duplicateFreeIntent.id), actorId);
+  assert.equal(duplicateRecipientBridge.status, "left_held");
+  assert.match(
+    String(duplicateRecipientBridge.heldReason),
+    /RECIPIENT_ADDRESS_ALREADY_ASSIGNED|RECIPIENT_ACCEPTED_LINK_OR_ENROLLMENT/i,
+  );
+  const duplicateAlias = rows(await db.execute(sql`
+    SELECT disposition,reason_code,staging_intent_id
+      FROM sfp_recipient_commitment_aliases
+     WHERE staging_intent_id=${String(duplicateFreeIntent.id)}::uuid
+  `))[0];
+  assert.equal(duplicateAlias.disposition, "held");
+  assert.equal(String(duplicateAlias.staging_intent_id), String(duplicateFreeIntent.id));
+
+  // An existing verified decision is locked and consulted by the real bridge
+  // path. Inject a transaction-local failure after that lock to verify
+  // rollback, then retry the same contact intent through a positive bridge.
+  await assert.rejects(
+    () => bridgeReadyHeldIntentToPausedEnrollment(
+      String(contactIntent.id),
+      actorId,
+      (stage) => {
+        if (stage === "after_source_contact_locked") {
+          throw new Error("TASK_2060_CONTACT_LINK_LOCK_REACHED");
+        }
+      },
+    ),
+    /TASK_2060_CONTACT_LINK_LOCK_REACHED/,
+  );
+  const contactLedgerAfterFault = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_ready_held_enrollments
+     WHERE staging_intent_id=${String(contactIntent.id)}::uuid
+  `))[0].count);
+  assert.equal(contactLedgerAfterFault, 0, "a fault after locking the current contact decision rolls back bridge writes");
+  const contactBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(contactIntent.id), actorId);
+  assert.equal(contactBridge.status, "created", "the contact-source intent reaches a positive ready-held bridge");
+  assert.equal(contactBridge.enrollmentStatus, "paused");
+  const contactRecipientClaim = rows(await db.execute(sql`
+    SELECT state,business_id,staging_intent_id,contact_id,contact_business_link_decision_id
+      FROM sfp_recipient_address_commitments
+     WHERE program_id=${String(program.id)}::uuid
+       AND recipient_identity_hash=${sfpRecipientIdentityHash(contactEmail)}
+  `))[0];
+  assert.equal(contactRecipientClaim.state, "committed");
+  assert.equal(Number(contactRecipientClaim.business_id), businessC);
+  assert.equal(String(contactRecipientClaim.staging_intent_id), String(contactIntent.id));
+  assert.equal(String(contactRecipientClaim.contact_business_link_decision_id), String(approvedContactLink.id));
+
+  // Revoking the human-reviewed source link after that success is visible on
+  // historical replay; it never deletes or activates the paused enrollment.
+  const revokedContactLink = await decideContactBusinessLink({
+    contactId,
+    decision: "rejected",
+    decisionKey: `${runKey}-revoke-contact-source-link`,
+    reviewerId: actorId,
+    expectedRevision: Number(approvedContactLink.revision),
+  });
+  assert.equal(revokedContactLink.decision, "rejected");
+  const contactBridgeReplay = await bridgeReadyHeldIntentToPausedEnrollment(String(contactIntent.id), actorId);
+  assert.equal(contactBridgeReplay.status, "already_bridged");
+  assert.match(String(contactBridgeReplay.currentHoldReason), /historical_contact_business_link_no_longer_current/i);
+
+  const finalEnrollmentCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sequence_enrollments
+  `))[0].count);
+  assert.equal(finalEnrollmentCount, beforeEnrollmentCount + 3);
+  const allEnrollments = rows(await db.execute(sql`
+    SELECT se.status,s.status AS sequence_status,c.status AS campaign_status
+      FROM sequence_enrollments se
+      JOIN follow_up_sequences s ON s.id=se.sequence_id
+      JOIN sfp_campaign_package_versions p ON p.sequence_id=s.id
+      JOIN campaigns c ON c.id=p.campaign_id
+  `));
+  assert.equal(allEnrollments.length, 3);
+  assert.ok(allEnrollments.every((row: any) =>
+    row.status === "paused" && row.sequence_status === "paused" && row.campaign_status === "draft",
+  ), "free, paid, and contact bridges create only paused enrollments under draft campaigns");
+  const outboundPause = rows(await db.execute(sql`
+    SELECT state FROM outbound_pause_control ORDER BY id LIMIT 1
+  `))[0];
+  assert.equal(outboundPause?.state, "paused", "the global outbound pause remains active");
+  const campaignQueueCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM campaign_queue
+  `))[0].count);
+  assert.equal(campaignQueueCount, 0, "staging and bridge never insert a campaign queue row");
+
+  // Exact-decimal pure contract checks include true zero and fractional units;
+  // unknown and contradictory quantities remain explicit, never rounded.
+  const decimalCases = [
+    ["0", 0],
+    ["0.5", 5_000_000],
+    ["1.5", 15_000_000],
+  ] as const;
+  for (const [quantity, expectedMicros] of decimalCases) {
+    const usage = normalizeSfpProviderUsage({
+      status: "known",
+      quantity,
+      unit: "credit",
+      providerRequestId: `${runKey}-pure-${quantity}`,
+      source: "task_2060_contract_fixture",
+    });
+    assert.equal(usage.status, "known");
+    assert.equal(usage.quantity, quantity);
+    assert.equal(calculateSfpUsageCostMicros({
+      usage,
+      reviewedUnitPriceMicros: 10_000_000,
+      reviewedUnitType: "credit",
+    }), expectedMicros);
+  }
+  assert.equal(normalizeSfpProviderUsage({
+    status: "known", quantity: "unknown", unit: "credit",
+  }).status, "conflict");
+  assert.equal(normalizeSfpProviderUsage({
+    status: "unknown", quantity: null, unit: null,
+  }).quantity, null);
+
+  // Exercise Apollo's documented org -> people -> bulk-business-email path
+  // through an actual SFP reservation and dispatch. The search endpoints
+  // report exact zero credits; the enrichment endpoint reports 1.5 credits,
+  // independently of the integer work reservation.
+  const createAccountingStage = async (suffix: string) => {
+    const id = randomUUID();
+    await db.execute(sql`
+      INSERT INTO sfp_stage_runs
+        (id,cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,
+         payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at,lease_expires_at)
+      VALUES (${id}::uuid,${cohortRunId}::uuid,'paid_waterfall',${`${runKey}-${suffix}`},${actorId},
+        'running',1,'["apollo"]'::jsonb,${sha256(`${runKey}-${suffix}`)},${cohortHash},
+        NOW(),NOW(),NOW()+INTERVAL '30 minutes')
+    `);
+    return id;
+  };
+  let apolloFixtureCalls = 0;
+  const apolloFixture = async (
+    input: RequestInfo | URL,
+    init: RequestInit | undefined,
+    credits: string | null,
+    suffix: string,
+  ): Promise<Response> => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : (input as Request).url);
+    if (url.origin !== "https://api.apollo.io") {
+      throw new Error(`TASK_2060_UNEXPECTED_APOLLO_URL:${url.origin}${url.pathname}`);
+    }
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("X-Api-Key"), process.env.APOLLO_API_KEY);
+    apolloFixtureCalls++;
+    const requestId = `${runKey}-${suffix}-${url.pathname.split("/").at(-1)}`;
+    const body = url.pathname === "/api/v1/mixed_companies/search"
+      ? {
+        organizations: [{
+          id: `${runKey}-organization`,
+          name: businessAName,
+          primary_domain: sharedDomain,
+          website_url: `https://${sharedDomain}`,
+          city: "Miami",
+          state: "FL",
+          street_address: "100 Test Avenue",
+          phone: "3055550111",
+          organization_id: `${runKey}-organization`,
+        }],
+        pagination: { total_pages: 1 },
+      }
+      : url.pathname === "/api/v1/mixed_people/api_search"
+        ? {
+          people: [{
+            id: `${runKey}-person`,
+            organization: { id: `${runKey}-organization` },
+            first_name: "Jordan",
+            last_name: "Sample",
+            title: "Owner",
+          }],
+          pagination: { total_pages: 1 },
+        }
+        : url.pathname === "/api/v1/people/bulk_match"
+          ? {
+            matches: [{
+              id: `${runKey}-person`,
+              email: `owner@${sharedDomain}`,
+              email_status: "verified",
+            }],
+          }
+          : (() => { throw new Error(`TASK_2060_UNEXPECTED_APOLLO_PATH:${url.pathname}`); })();
+    const responseBody: Record<string, unknown> = {
+      ...body,
+      request_id: requestId,
+      ...(credits === null ? {} : { credits_consumed: credits }),
+    };
+    const responseHeaders: Record<string, string> = {
+      "content-type": "application/json",
+      "x-request-id": requestId,
+    };
+    if (credits !== null) responseHeaders["x-credits-used"] = credits;
+    return new Response(JSON.stringify(responseBody), { status: 200, headers: responseHeaders });
+  };
+
+  const exactStageId = await createAccountingStage("apollo-exact-decimal");
+  const exactReservation = await reserveSfpProviderOperation({
+    stageRunId: exactStageId,
+    cohortRunId,
+    businessId: businessA,
+    provider: "apollo",
+    purpose: "sfp_named_decision_maker_discovery",
+    idempotencyKey: `${runKey}-apollo-exact-decimal`,
+    actorId,
+    workUnit: "request",
+    units: 1,
+  });
+  const exactApollo = await invokeSfpProviderTransport(exactReservation, () =>
+    executeSfpApolloDiscovery({
+      businessId: businessA,
+      businessName: businessAName,
+      domain: sharedDomain,
+      city: "Miami",
+      state: "FL",
+      address: "100 Test Avenue",
+      resultCap: 1,
+    }, {
+      fetchImpl: ((input: RequestInfo | URL, init?: RequestInit) =>
+        apolloFixture(
+          input,
+          init,
+          new URL(typeof input === "string" || input instanceof URL ? String(input) : (input as Request).url)
+            .pathname === "/api/v1/people/bulk_match" ? "1.5" : "0",
+          "exact",
+        )) as typeof fetch,
+    }),
+  );
+  assert.equal(exactApollo.outcome, "success");
+  assert.equal(exactApollo.people[0]?.email, `owner@${sharedDomain}`);
+  assert.equal(exactApollo.billing.certainty, "exact");
+  assert.equal(exactApollo.billing.billedCredits, "1.5");
+  const exactProviderReference =
+    exactApollo.billing.providerReference ?? `${runKey}-apollo-exact-reference`;
+  const exactSettlement = await finishSfpProviderOperation({
+    reservation: exactReservation,
+    outcome: "completed",
+    observation: "unknown",
+    businessId: businessA,
+    workUnit: "request",
+    workCompleted: 1,
+    providerUsage: {
+      status: "known", quantity: exactApollo.billing.billedCredits ?? null, unit: "credit",
+      providerRequestId: exactProviderReference, source: "apollo_explicit_receipt",
+    },
+    resultData: { retrievalState: "completed" },
+  });
+  const exactReplay = await finishSfpProviderOperation({
+    reservation: exactReservation,
+    outcome: "completed",
+    observation: "unknown",
+    businessId: businessA,
+    workUnit: "request",
+    workCompleted: 1,
+    providerUsage: {
+      status: "known", quantity: "1.5", unit: "credit",
+      providerRequestId: exactProviderReference, source: "apollo_explicit_receipt",
+    },
+    resultData: { retrievalState: "completed" },
+  });
+  assert.equal(exactSettlement.replayed, false);
+  assert.equal(exactReplay.replayed, true, "exact decimal finish replay is idempotent");
+  const exactOp = rows(await db.execute(sql`
+    SELECT o.state,o.provider_usage_status,o.provider_usage_quantity::text AS quantity,
+           o.provider_usage_unit,o.provider_request_id,o.settled_units,o.settled_cost_micros
+      FROM provider_operations o WHERE o.id=${exactReservation.operationId}::uuid
+  `))[0];
+  assert.equal(exactOp.state, "completed");
+  assert.equal(exactOp.provider_usage_status, "known");
+  assert.equal(Number(exactOp.quantity), 1.5, "fractional provider credit is not truncated");
+  assert.equal(exactOp.provider_usage_unit, "credit");
+  assert.equal(exactOp.provider_request_id, exactProviderReference);
+  assert.equal(Number(exactOp.settled_units), 1, "work units remain distinct from fractional credits");
+
+  // Missing usage remains unknown until a real stable provider request
+  // reference is reconciled. Repeating the same invoice is idempotent;
+  // contradictory known values become an explicit conflict.
+  const unknownStageId = await createAccountingStage("apollo-reconcile");
+  const unknownReservation = await reserveSfpProviderOperation({
+    stageRunId: unknownStageId,
+    cohortRunId,
+    businessId: businessA,
+    provider: "apollo",
+    purpose: "sfp_named_decision_maker_discovery",
+    idempotencyKey: `${runKey}-apollo-reconcile`,
+    actorId,
+    workUnit: "request",
+    units: 1,
+  });
+  const unknownApollo = await invokeSfpProviderTransport(unknownReservation, () =>
+    executeSfpApolloDiscovery({
+      businessId: businessA,
+      businessName: businessAName,
+      domain: sharedDomain,
+      city: "Miami",
+      state: "FL",
+      address: "100 Test Avenue",
+      resultCap: 1,
+    }, {
+      fetchImpl: ((input: RequestInfo | URL, init?: RequestInit) =>
+        apolloFixture(input, init, null, "reconcile")) as typeof fetch,
+    }),
+  );
+  assert.equal(unknownApollo.billing.certainty, "unknown");
+  const stableReference = unknownApollo.billing.providerReference;
+  assert.ok(stableReference);
+  await finishSfpProviderOperation({
+    reservation: unknownReservation,
+    outcome: "completed",
+    observation: "unknown",
+    businessId: businessA,
+    workUnit: "request",
+    workCompleted: 1,
+    providerUsage: {
+      status: "unknown", quantity: null, unit: null,
+      providerRequestId: stableReference!, source: "apollo_request_receipt",
+    },
+    resultData: { retrievalState: "completed" },
+  });
+  const firstReconciliation = await reconcileSfpProviderUsage({
+    provider: "apollo",
+    workUnit: "request",
+    providerUsage: {
+      status: "known", quantity: "0.500000000000", unit: "credit",
+      providerRequestId: stableReference!, source: "task_2060_documented_invoice_fixture",
+    },
+    reconciliationSource: "task_2060_documented_invoice_fixture",
+    resultHash: sha256({ providerReference: stableReference, credits: "0.500000000000" }),
+  });
+  const replayReconciliation = await reconcileSfpProviderUsage({
+    provider: "apollo",
+    workUnit: "request",
+    providerUsage: {
+      status: "known", quantity: "0.5", unit: "credit",
+      providerRequestId: stableReference!, source: "task_2060_documented_invoice_fixture",
+    },
+    reconciliationSource: "task_2060_documented_invoice_fixture",
+    resultHash: sha256({ providerReference: stableReference, credits: "0.5" }),
+  });
+  assert.equal(firstReconciliation.status, "known");
+  assert.equal(replayReconciliation.replayed, true);
+  const persistedReconciliation = rows(await db.execute(sql`
+    SELECT usage_quantity::text AS quantity,usage_unit,usage_status,operation_id
+      FROM sfp_provider_usage_reconciliations
+     WHERE provider='apollo' AND provider_request_id=${stableReference}
+  `))[0];
+  assert.equal(Number(persistedReconciliation.quantity), 0.5,
+    "numerically equivalent invoice strings retain the same persisted exact decimal");
+  assert.equal(persistedReconciliation.usage_unit, "credit");
+  assert.equal(persistedReconciliation.usage_status, "known");
+  assert.equal(String(persistedReconciliation.operation_id), String(unknownReservation.operationId));
+  const conflictReconciliation = await reconcileSfpProviderUsage({
+    provider: "apollo",
+    workUnit: "request",
+    providerUsage: {
+      status: "known", quantity: "1.5", unit: "credit",
+      providerRequestId: stableReference!, source: "task_2060_conflicting_invoice_fixture",
+    },
+    reconciliationSource: "task_2060_conflicting_invoice_fixture",
+    resultHash: sha256({ providerReference: stableReference, credits: "1.5" }),
+  });
+  assert.equal(conflictReconciliation.status, "conflict");
+  const reconciledOp = rows(await db.execute(sql`
+    SELECT provider_usage_status,provider_usage_quantity::text AS quantity,provider_usage_unit,
+           provider_request_id
+      FROM provider_operations WHERE id=${unknownReservation.operationId}::uuid
+  `))[0];
+  assert.equal(reconciledOp.provider_usage_status, "conflict");
+  assert.equal(reconciledOp.quantity, null);
+  assert.equal(reconciledOp.provider_usage_unit, null);
+  assert.equal(reconciledOp.provider_request_id, stableReference);
+  const persistedConflict = rows(await db.execute(sql`
+    SELECT usage_quantity::text AS quantity,usage_unit,usage_status
+      FROM sfp_provider_usage_reconciliations
+     WHERE provider='apollo' AND provider_request_id=${stableReference}
+  `))[0];
+  assert.equal(persistedConflict.usage_status, "conflict");
+  assert.equal(persistedConflict.quantity, null);
+  assert.equal(persistedConflict.usage_unit, null);
+
+  // An expired lease cannot be heartbeated, but the selected same-release
+  // runtime may make a fresh fenced claim. An already-reserved operation
+  // carrying the prior epoch cannot cross dispatch after that reclaim.
+  const staleStageId = await createAccountingStage("apollo-stale-owner");
+  const staleReservation = await reserveSfpProviderOperation({
+    stageRunId: staleStageId,
+    cohortRunId,
+    businessId: businessA,
+    provider: "apollo",
+    purpose: "sfp_named_decision_maker_discovery",
+    idempotencyKey: `${runKey}-apollo-stale-owner`,
+    actorId,
+    workUnit: "request",
+    units: 1,
+  });
+  const previousOwnerEpoch = staleReservation.runtimeOwnerEpoch;
+  const beforeStaleDispatch = apolloFixtureCalls;
+  await db.execute(sql`
+    UPDATE sfp_runtime_owner_authority
+       SET lease_expires_at=clock_timestamp()-INTERVAL '1 minute',updated_at=clock_timestamp()
+     WHERE authority_key='routine_sfp'
+  `);
+  await assert.rejects(
+    () => renewSfpRuntimeDeploymentOwner(),
+    /SFP_RUNTIME_OWNER_FENCE_LOST/,
+    "an expired owner lease cannot be heartbeat-renewed",
+  );
+  const reclaimedOwner = await assertSfpRuntimeAuthority(cohortRunId);
+  assert.equal(reclaimedOwner.ownerEpoch, previousOwnerEpoch + 1,
+    "the selected release recovers expired ownership only under a fresh epoch");
+  await assert.rejects(
+    () => invokeSfpProviderTransport(staleReservation, async () => {
+      apolloFixtureCalls++;
+      throw new Error("TASK_2060_STALE_OWNER_REACHED_TRANSPORT");
+    }),
+    /SFP_PROVIDER_DISPATCH_BOUNDARY_LOST|RUNTIME_OWNER|LEASE|FENCE/i,
+  );
+  assert.equal(apolloFixtureCalls, beforeStaleDispatch, "stale runtime owner cannot reach the provider callback");
+  await finishSfpProviderOperation({
+    reservation: staleReservation,
+    outcome: "not_dispatched",
+    observation: "transport",
+    businessId: businessA,
+    workUnit: "request",
+    workCompleted: 0,
+    providerUsage: {
+      status: "not_applicable", quantity: null, unit: null,
+      providerRequestId: null, source: "not_dispatched",
+    },
+    resultData: { retrievalState: "not_dispatched" },
+  });
+
+  // A same-SHA redeployment is a distinct authorized release tuple. Only the
+  // normal selector API may transfer it; the retired deployment cannot
+  // reclaim the owner even though its artifact SHA is unchanged.
+  const selectedBeforeRedeploy = await getSfpRuntimeReleaseSelectionStatus();
+  const retiredDeploymentIdentity = process.env.REPL_DEPLOYMENT_ID!;
+  const currentArtifactSha = process.env.RELEASE_SHA!;
+  const redeployedIdentity = `${retiredDeploymentIdentity}:task-2060-redeploy:${runKey.slice(-8)}`;
+  process.env.REPL_DEPLOYMENT_ID = redeployedIdentity;
+  const redeployedSelection = await selectCurrentSfpRuntimeRelease({
+    actorId,
+    expectedPreviousArtifactSha: selectedBeforeRedeploy.selectedRelease!.artifactSha,
+    expectedPreviousSelectionVersion: selectedBeforeRedeploy.selectedRelease!.selectionVersion,
+    publisherVerifiedArtifactSha: currentArtifactSha,
+    publisherVerifiedDeploymentIdentity: redeployedIdentity,
+    verificationReference: `https://certification.invalid/sfp-publisher-release/${currentArtifactSha}/redeploy`,
+  });
+  assert.equal(redeployedSelection.action, "transfer");
+  assert.equal(redeployedSelection.selectedRelease.artifactSha, currentArtifactSha,
+    "the private redeployment preserves the selected artifact SHA");
+  assert.equal(redeployedSelection.selectedRelease.selectionVersion,
+    selectedBeforeRedeploy.selectedRelease!.selectionVersion + 1,
+    "same-SHA deployment transfer advances the selector version");
+  const redeploymentSelectionEvent = rows(await db.execute(sql`
+    SELECT action,actor_id,previous_selection->>'artifactSha' AS previous_artifact_sha,
+           previous_selection->>'selectionVersion' AS previous_selection_version
+      FROM sfp_runtime_release_selection_events
+     WHERE id=${redeployedSelection.eventId}::uuid
+  `))[0];
+  assert.equal(redeploymentSelectionEvent.action, "transfer");
+  assert.equal(redeploymentSelectionEvent.actor_id, actorId);
+  assert.equal(redeploymentSelectionEvent.previous_artifact_sha, currentArtifactSha);
+  assert.equal(Number(redeploymentSelectionEvent.previous_selection_version),
+    selectedBeforeRedeploy.selectedRelease!.selectionVersion);
+  process.env.REPL_DEPLOYMENT_ID = retiredDeploymentIdentity;
+  await assert.rejects(
+    () => assertSfpRuntimeAuthority(cohortRunId),
+    /SFP_RUNTIME_OWNER_BLOCKED:CURRENT_RELEASE_NOT_SELECTED/,
+    "the retired same-SHA deployment cannot reclaim after selector transfer",
+  );
+  await assert.rejects(
+    () => claimSfpRuntimeDeploymentOwner(),
+    /SFP_RUNTIME_OWNER_BLOCKED:CURRENT_RELEASE_NOT_SELECTED/,
+    "claiming authority directly cannot bypass the release selector",
+  );
+  process.env.REPL_DEPLOYMENT_ID = redeployedIdentity;
+  const recoveredOwner = await assertSfpRuntimeAuthority(cohortRunId);
+  assert.equal(recoveredOwner.deploymentIdentity, redeployedIdentity);
+  assert.ok(recoveredOwner.ownerEpoch > reclaimedOwner.ownerEpoch,
+    "the selector-authorized same-SHA redeployment receives the next owner epoch");
+  assert.equal((await getSfpRuntimeReleaseSelectionStatus()).ready, true,
+    "the new release is ready only after it claims a live fenced owner lease");
+
+  // Program activity is re-checked at the final dispatch boundary, not only
+  // at preview/reservation time. A disabled program never invokes transport.
+  const inactiveProgramStage = await createAccountingStage("apollo-disabled-program");
+  const inactiveProgramReservation = await reserveSfpProviderOperation({
+    stageRunId: inactiveProgramStage,
+    cohortRunId,
+    businessId: businessA,
+    provider: "apollo",
+    purpose: "sfp_named_decision_maker_discovery",
+    idempotencyKey: `${runKey}-apollo-disabled-program`,
+    actorId,
+    workUnit: "request",
+    units: 1,
+  });
+  const beforeDisabledDispatch = apolloFixtureCalls;
+  await db.execute(sql`UPDATE sfp_programs SET is_active=FALSE WHERE id=${String(program.id)}::uuid`);
+  await assert.rejects(
+    () => invokeSfpProviderTransport(inactiveProgramReservation, async () => {
+      apolloFixtureCalls++;
+      throw new Error("TASK_2060_DISABLED_PROGRAM_REACHED_TRANSPORT");
+    }),
+    /SFP_PROVIDER_DISPATCH_BOUNDARY_LOST|PROGRAM|COHORT|FENCE/i,
+  );
+  assert.equal(apolloFixtureCalls, beforeDisabledDispatch,
+    "a disabled program is blocked by the final dispatch gate before transport");
+  await db.execute(sql`UPDATE sfp_programs SET is_active=TRUE WHERE id=${String(program.id)}::uuid`);
+  await finishSfpProviderOperation({
+    reservation: inactiveProgramReservation,
+    outcome: "not_dispatched",
+    observation: "transport",
+    businessId: businessA,
+    workUnit: "request",
+    workCompleted: 0,
+    providerUsage: {
+      status: "not_applicable", quantity: null, unit: null,
+      providerRequestId: null, source: "not_dispatched",
+    },
+    resultData: { retrievalState: "program_disabled_before_dispatch" },
+  });
+
+  assert.equal(getBlockedCertificationNetworkAttemptCount(), 0, "no external network request escaped the deny boundary");
+  console.log(
+    `Task 2060 disposable integrated pipeline certification passed: ` +
+    `${zeroBounceCalls} governed ZeroBounce fixtures, ${outScraperCalls} paid result fixtures, ` +
+    `3 typed sources, three paused enrollments, exact-decimal/reconciliation and runtime-owner fences verified.`,
+  );
+} finally {
+  if (pool) await pool.end();
+}

@@ -42,11 +42,14 @@ const cursor = {
   id: candidateIds[0],
 };
 const categoryCounts = {
-  STRICT_AUTO_ELIGIBLE: 4,
-  ALREADY_VERIFIED: 3,
-  RECOVERABLE_RECONCILIATION: 8,
-  REQUIRES_REVIEW: 9,
-  REJECTED: 1,
+  STRICT_AUTO_ELIGIBLE: 2,
+  ALREADY_VERIFIED: 2,
+  RECOVERABLE_IDENTITY: 2,
+  NEEDS_BUSINESS_DISCOVERY: 2,
+  REVIEW: 2,
+  OUT_OF_SCOPE: 2,
+  SUPPRESSED: 2,
+  UNUSABLE: 2,
 };
 let status = {
   runId: "coverage-run-1",
@@ -54,7 +57,7 @@ let status = {
   watermark: 154418,
   cursor: 0,
   total: 154418,
-  processed: 0,
+  processed: 16,
   counts: { ...categoryCounts },
   reasonCounts: { filing_identifier_missing: 4 },
   complete: false,
@@ -63,7 +66,7 @@ let stepCount = 0;
 let releaseFirstStep: () => void = () => { throw new Error("First page has not started"); };
 let signalFirstStepStarted: (() => void) | null = null;
 const firstStepStarted = new Promise<void>((resolve) => { signalFirstStepStarted = resolve; });
-const requests: Array<{ url: URL; method: string; body?: unknown }> = [];
+const requests: Array<{ url: URL; method: string; body?: unknown; csrf?: string }> = [];
 let acceptedReviewPayload: unknown = null;
 
 const reviewItemSchema = z.object({
@@ -117,6 +120,15 @@ function candidate(candidateId: string, contactId: number, businessId: number) {
         sunbizEntitySource: "retained Sunbiz filing",
       }],
       sourceEvents: [{ eventId: 902, sourceCategory: "business_registry", sourceType: "filing_reference" }],
+      ...(contactId === 104 ? {
+        rawSunbizCandidates: [{
+          sourceEntityId: 505,
+          filingNumber: "FL-2025-005",
+          entityName: "Cypress Garden Supply LLC",
+          dba: "Cypress Outdoor",
+          canonicalSourceLinkMaterialized: false,
+        }],
+      } : {}),
       matchedSignals: [{ kind: "filing_identifier", matched: true, detail: "Retained filing identifier matches the canonical source link." }],
     },
     conflicts: [{ code: "untrusted_or_inconsistent_business_projection", projectedBusinessId: 0 }],
@@ -131,7 +143,12 @@ globalThis.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const url = new URL(String(input), "http://localhost");
   const method = (init.method ?? "GET").toUpperCase();
   const parsedBody = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
-  requests.push({ url, method, body: parsedBody });
+  const headers = new Headers(init.headers);
+  requests.push({ url, method, body: parsedBody, csrf: headers.get("x-csrf-token") ?? undefined });
+  if (method === "POST" && url.pathname.startsWith("/api/admin/contact-link-coverage")
+      && headers.get("x-csrf-token") !== "test-csrf-token") {
+    return jsonResponse({ message: "CSRF missing" }, 403);
+  }
 
   if (method === "GET" && url.pathname.endsWith("/status")) return jsonResponse(status);
   if (method === "GET" && url.pathname.endsWith("/candidates")) {
@@ -180,6 +197,42 @@ globalThis.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
       rejected: 0,
     });
   }
+  if (method === "POST" && url.pathname.endsWith("/source-recovery/preview")) {
+    const items = (parsedBody as any)?.items ?? [];
+    assert.equal(items.length, 1);
+    return jsonResponse({
+      denominator: items.length,
+      results: items.map((identity: any) => ({
+        identity,
+        status: "READY",
+        reasonCodes: [],
+        snapshotHash: "c".repeat(64),
+        source: { entityName: "Cypress Garden Supply LLC", dba: "Cypress Outdoor" },
+        canonicalBusiness: { businessId: identity.businessId, canonicalName: "Cypress Garden Supply LLC" },
+      })),
+    });
+  }
+  if (method === "POST" && url.pathname.endsWith("/source-recovery/apply")) {
+    const items = (parsedBody as any)?.items ?? [];
+    assert.equal(items.length, 1);
+    assert.equal(items[0].expectedSnapshotHash, "c".repeat(64));
+    return jsonResponse({
+      denominator: items.length,
+      results: items.map((item: any) => ({
+        identity: {
+          candidateId: item.candidateId,
+          contactId: item.contactId,
+          businessId: item.businessId,
+          sourceEntityId: item.sourceEntityId,
+          filingNumber: item.filingNumber,
+        },
+        status: "MATERIALIZED",
+        reasonCodes: ["canonical_sunbiz_source_link_materialized"],
+        sourceLinkId: "source-link-test",
+        snapshotHash: item.expectedSnapshotHash,
+      })),
+    });
+  }
   return jsonResponse({ message: `Unexpected mock request ${method} ${url.pathname}` }, 404);
 };
 
@@ -220,15 +273,32 @@ async function changeSelect(element: HTMLSelectElement, value: string): Promise<
 }
 
 try {
+  document.cookie = "csrf_token=test-csrf-token; path=/";
   await act(async () => {
+    queryClient.setQueryData(["/api/auth/user"], { id: "agent-test", role: "agent" });
     root.render(
       <QueryClientProvider client={queryClient}>
         <ContactLinkCoveragePanel />
       </QueryClientProvider>,
     );
   });
+  await waitFor(() => visibleText("available to admins only"), "non-admin contact-link census access message");
+  assert.equal([...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Start full-pool census")), false);
+
+  await act(async () => {
+    queryClient.setQueryData(["/api/auth/user"], { id: "admin-test", role: "admin" });
+  });
   await waitFor(() => visibleText("ready") && visibleText("Cypress Garden Supply"), "ready census and candidate render");
   assert.ok(visibleText("154,418"), "full-pool denominator is visible");
+  assert.ok(visibleText("16 processed contacts of 154,418 contacts in the census pool"), "classified buckets identify their processed denominator separately from the full contact pool");
+  for (const bucket of [
+    "STRICT_AUTO_ELIGIBLE", "ALREADY_VERIFIED", "RECOVERABLE_IDENTITY", "NEEDS_BUSINESS_DISCOVERY",
+    "REVIEW", "OUT_OF_SCOPE", "SUPPRESSED", "UNUSABLE",
+  ]) {
+    assert.ok(document.querySelector(`[data-testid="coverage-bucket-${bucket}"]`), `${bucket} bucket is rendered`);
+  }
+  assert.equal(document.querySelector('[data-testid="coverage-bucket-REJECTED"]'), null, "legacy bucket is not rendered");
+  assert.ok(visibleText("never as invalid solely for lacking a candidate"), "missing candidates are not described as invalid");
   assert.ok(visibleText("Sunbiz Dba"), "retained DBA provenance is rendered");
   assert.ok(visibleText("42 Grove Avenue"), "retained filing address is rendered");
   assert.ok(visibleText("Tampa"), "retained filing locality is rendered");
@@ -261,6 +331,26 @@ try {
   const evidence = document.getElementById(`evidence-${candidateIds[1]}`);
   assert.ok(decision);
   assert.ok(evidence);
+  assert.ok(visibleText("Bounded raw-to-canonical source recovery"));
+  assert.ok(visibleText("rerun the separate System Contact Business Links preview/apply policy"));
+  assert.ok(visibleText("Only the normal independent Human Review queue"));
+  assert.ok(visibleText("Cypress Outdoor"), "retained source DBA appears in bounded recovery UI");
+  await click(document.querySelector('[aria-label="Select raw Sunbiz filing FL-2025-005 for source recovery"]')!);
+  await click(findButton("Preview 1 selected raw identities"));
+  await waitFor(() => visibleText("READY"), "actual rendered source-recovery preview state");
+  assert.ok(requests.some((request) => request.method === "POST" && request.url.pathname.endsWith("/source-recovery/preview")));
+  await click(findButton("Apply 1 exact-snapshot preview"));
+  await waitFor(() => Boolean(document.querySelector('[role="alertdialog"]')), "source recovery confirmation dialog");
+  await click(findButton("Apply 1 audited source link"));
+  await waitFor(() => visibleText("Apply result: MATERIALIZED"), "source link materialization result");
+  const recoveryPreviewRequest = requests.find((request) => request.method === "POST" && request.url.pathname.endsWith("/source-recovery/preview"));
+  const recoveryApplyRequest = requests.find((request) => request.method === "POST" && request.url.pathname.endsWith("/source-recovery/apply"));
+  assert.ok(recoveryPreviewRequest);
+  assert.equal((recoveryPreviewRequest.body as any).items[0].sourceEntityId, 505);
+  assert.equal((recoveryPreviewRequest.body as any).items[0].filingNumber, "FL-2025-005");
+  assert.ok(recoveryApplyRequest);
+  assert.equal(recoveryApplyRequest.csrf, "test-csrf-token", "rendered source-recovery apply carries the cookie-matched CSRF header");
+  assert.equal((recoveryApplyRequest.body as any).items[0].expectedSnapshotHash, "c".repeat(64));
   await changeSelect(decision as HTMLSelectElement, "verified");
   await changeSelect(evidence as HTMLSelectElement, "902");
   await click(findButton("Submit 1 review"));
@@ -268,6 +358,12 @@ try {
   const confirmation = findButton("Submit 1 decisions");
   await click(confirmation);
   await waitFor(() => Boolean(acceptedReviewPayload), "strict backend review payload acceptance");
+  assert.ok(requests.some((request) => request.method === "POST"), "a rendered handler issued the authenticated mutation request");
+  // The fetch mock rejects missing CSRF headers; successful route simulation
+  // proves the rendered mutation carried the cookie-matched token.
+  const renderedMutations = requests.filter((request) => request.method === "POST");
+  assert.equal(renderedMutations.length, 8);
+  assert.ok(renderedMutations.every((request) => request.csrf === "test-csrf-token"), "all rendered mutations use the cookie-matched CSRF token");
   await waitFor(() => visibleText("Result: applied"), "server per-item review outcome");
 
   const payload = acceptedReviewPayload as z.infer<typeof reviewBatchSchema>;

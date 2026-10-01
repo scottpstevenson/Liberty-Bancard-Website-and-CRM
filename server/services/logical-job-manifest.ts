@@ -750,17 +750,6 @@ export const LOGICAL_JOB_MANIFEST: readonly ManifestEntry[] = [
     releaseController: "sfp_validation_promotion_provider_and_attestation_gates",
   },
   {
-    logicalKey: "sfp-attestation-refresh-tick",
-    physicalQueue: QUEUE_NAMES.SFP_ATTESTATION_REFRESH,
-    jobNamePattern: "tick",
-    handler: "SFP CRO-03C runtime attestation refresh",
-    owner: "cro03/sfp-attestation-refresh.processSfpAttestationRefreshTick",
-    effect: "infrastructure",
-    canRunWhileGlobalOutboundPaused: true,
-    backlogSource: "none",
-    releaseController: null,
-  },
-  {
     logicalKey: "sunbiz-full-backfill-tick",
     physicalQueue: QUEUE_NAMES.SUNBIZ_FULL_BACKFILL,
     jobNamePattern: "tick",

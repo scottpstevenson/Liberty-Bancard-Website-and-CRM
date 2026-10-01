@@ -41,7 +41,6 @@ await assertDisposableTestInfrastructure({
   operation: "SFP validation handoff repair disposable certification",
   requireRedis: false,
 });
-const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
 process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED = "true";
@@ -59,6 +58,8 @@ await runDrizzleMigrations();
 const { db } = await import("../server/db");
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const RUN_ID = `sfpvhr-${randomUUID().slice(0, 8)}`;
+await (await import("./helpers/sfp-runtime-test-identity"))
+  .selectSfpRuntimeTestRelease(`cert:${RUN_ID}`);
 
 const { ensureProgram, setProgramActivation, previewFunnel, freezeCohort } = await import(
   "../server/services/cro03/south-florida-prospecting"
@@ -141,35 +142,6 @@ const roiSource = await (await import("node:fs/promises")).readFile(
 );
 check(roiSource.includes("lastFrozenAt") && roiSource.includes("b.roiScore - a.roiScore"),
   "C5-roi-starvation", "cohort selection prioritizes least-recently-frozen businesses while retaining deterministic ROI priority");
-
-// For the rest of this cert (continuous-validation wiring, backlog draining,
-// terminal-state matrix), seed a live attestation row directly via SQL —
-// the same disposable-DB fixture approach scripts/test-sfp2000-disposable-
-// certification.ts uses — so validation logic is exercised in isolation
-// from the separate, already-covered fleet-attestation ceremony itself.
-{
-  const certIdemKey = `cert-vhr-att-${RUN_ID}`;
-  const certAttHash = createHash("sha256").update(certIdemKey).digest("hex");
-  await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
-       environment_identity, web_boot_identity, worker_boot_identity,
-       queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
-       captured_at, expires_at, attestation_hash, created_by)
-    VALUES (
-      ${certIdemKey}, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${sfpRuntimeIdentity.artifactSha},
-      ${createHash("sha256").update("cert-vhr-migration-head").digest("hex").slice(0, 40)},
-      ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity},
-      ${`cert-vhr-web-${RUN_ID}`}, ${`cert-vhr-worker-${RUN_ID}`},
-      ${sfpRuntimeIdentity.queueTopologyHash},
-      NOW() - INTERVAL '30 seconds', true, true,
-      NOW(), NOW() + INTERVAL '1 hour',
-      ${certAttHash}, ${"cert-vhr:" + RUN_ID}
-    )
-    ON CONFLICT (idempotency_key) DO NOTHING
-  `);
-  check(true, "FIX1-fixture", "a live (fresh, within-TTL) attestation row seeded so downstream validation-gate checks below run against an open gate");
-}
 
 // ══════════════════════════════════════════════════════════════════════════
 // Fixture: one cohort with 6 businesses, each with a distinct ZB outcome

@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
-import { assertSystemLinkDatabaseGuard, decideSystemContactBusinessLink } from "./commercial-link-authority";
+import {
+  assertSfpLinkDatabaseGuard,
+  assertSystemLinkDatabaseGuard,
+  decideSystemContactBusinessLink,
+} from "./commercial-link-authority";
 import {
   evaluateSystemLinkFacts,
   normalizeSystemBusinessDomain,
@@ -221,17 +225,26 @@ export async function previewContactBusinessSystemLinks(
   // The read-only inventory remains useful before the production SQL contracts
   // are installed. Only the write path is gated on those contracts.
   let schemaReady = true;
+  let sfpTypedLinkSchemaReady = true;
   try {
     await assertSystemLinkDatabaseGuard(executor);
   } catch (error: any) {
     if (error?.message !== "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") throw error;
     schemaReady = false;
   }
+  try {
+    await assertSfpLinkDatabaseGuard(executor);
+  } catch (error: any) {
+    if (error?.message !== "COMMERCIAL_SFP_LINK_DATABASE_GUARD_MISSING"
+        && error?.message !== "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") throw error;
+    sfpTypedLinkSchemaReady = false;
+  }
   const page = await loadPage(executor, input.afterContactId, limit);
   return {
     rows: page.previews,
     nextCursor: page.hasMore ? page.lastContactId : null,
     schemaReady,
+    sfpTypedLinkSchemaReady,
     writes: 0,
     paidProviderCalls: 0,
   };

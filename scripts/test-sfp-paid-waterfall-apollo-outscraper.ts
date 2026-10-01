@@ -7,20 +7,22 @@
  * provider transport (fetchImpl is faked throughout).
  */
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 await assertDisposableTestInfrastructure({
   operation: "SFP paid waterfall Apollo/Outscraper fake-provider certification",
   requireRedis: false,
 });
-const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 const { pool } = await import("../server/db");
 const { executeSfpPaidPersonAndIdentityDiscovery } = await import("../server/services/cro03/sfp-paid-waterfall");
 const { getSfpCohortGapSnapshot } = await import("../server/services/cro03/sfp-cost-preview");
 const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } = await import("../server/services/mi09-pilot-authority");
 
 const nonce = randomUUID().slice(0, 8);
+const runtimeActorId = `sfp-paid-wf-admin-${nonce}`;
+await (await import("./helpers/sfp-runtime-test-identity"))
+  .selectSfpRuntimeTestRelease(runtimeActorId);
 let assertionCount = 0;
 const check = (condition: unknown, message: string) => {
   assert.ok(condition, message);
@@ -67,28 +69,7 @@ async function main() {
       local_budget_units=1000, reserved_units=0, consumed_units=0
     WHERE provider IN ('apollo','outscraper')`);
 
-  // A live runtime attestation is required by assertSfpRuntimeAuthority before any
-  // paid reservation; fabricate a fresh, valid one scoped to this test run only.
-  await pool.query(`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
-       environment_identity, web_boot_identity, worker_boot_identity,
-       queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
-       captured_at, expires_at, attestation_hash, created_by)
-    VALUES ($1, $2::jsonb, $3, 'test-migration-head', $4, $5, 'test-web',
-            'test-worker', $6, NOW(), true, true, NOW(), NOW() + INTERVAL '1 hour',
-            $7, 'test')
-  `, [
-    `sfp-paid-wf-attestation-${nonce}`,
-    JSON.stringify([sfpRuntimeIdentity.processIdentity]),
-    sfpRuntimeIdentity.artifactSha,
-    sfpRuntimeIdentity.deploymentIdentity,
-    sfpRuntimeIdentity.environmentIdentity,
-    sfpRuntimeIdentity.queueTopologyHash,
-    createHash("sha256").update(`sfp-paid-wf-attestation-${nonce}`).digest("hex"),
-  ]);
-
-  await authorizePaidBudget({ authorizedBy: "test", typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION });
+  await authorizePaidBudget({ authorizedBy: runtimeActorId, typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION });
 
   const businessNoDomain = (await pool.query(
     `INSERT INTO businesses (canonical_name, normalized_name, vertical, city, state, postal_code, record_class)
@@ -108,8 +89,8 @@ async function main() {
   )).rows[0].id as string;
   const cohortRunId = (await pool.query(
     `INSERT INTO sfp_cohort_runs (program_id, idempotency_key, status, cohort_size, actor_id, cohort_state)
-     VALUES ($1, $2, 'freezing', 2, 'test', 'freezing') RETURNING id`,
-    [programId, `sfp-paid-wf-cohort-${nonce}`],
+      VALUES ($1, $2, 'freezing', 2, $3, 'freezing') RETURNING id`,
+    [programId, `sfp-paid-wf-cohort-${nonce}`, runtimeActorId],
   )).rows[0].id as string;
   for (const businessId of [businessNoDomain, businessWithDomain]) {
     await pool.query(
@@ -125,7 +106,7 @@ async function main() {
 
   const result = await executeSfpPaidPersonAndIdentityDiscovery(
     {
-      cohortRunId, idempotencyKey: `sfp-paid-wf-run-${nonce}`, actorId: "test",
+      cohortRunId, idempotencyKey: `sfp-paid-wf-run-${nonce}`, actorId: runtimeActorId,
       previewSnapshotHash: (await getSfpCohortGapSnapshot(cohortRunId)).snapshotHash,
     },
     { fetchImpl },

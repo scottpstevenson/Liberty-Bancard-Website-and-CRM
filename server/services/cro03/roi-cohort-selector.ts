@@ -37,6 +37,7 @@ import {
   type GeographyResolution,
 } from "./sfp-geography-resolver";
 import { findStaleSfpClassificationEvidenceBusinessIds } from "./sfp-stale-classification-evidence";
+import { selectWithFiveVerticalMinimum } from "./sfp-five-vertical-fairness";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const SFP_INACTIVE_ENTITY_STATUSES = [
@@ -243,6 +244,8 @@ export interface RoiCandidateScore {
 export interface RoiCohortSelection {
   eligible: RoiCandidateScore[];
   excluded: RoiCandidateScore[];
+  /** Scored businesses that have never appeared in a live frozen cohort. */
+  unadmittedEligibleCount: number;
   verticalIds: string[];
   countyFips: string[];
   scoreVersion: typeof ROI_SCORE_VERSION;
@@ -1081,10 +1084,16 @@ export async function selectRoiCohort(opts: {
     b.roiScore - a.roiScore || a.canonicalBusinessId - b.canonicalBusinessId,
   );
 
-  const topCohort = allScored.slice(0, maxCohort);
+  const unadmittedEligibleCount = allScored.filter(
+    (candidate) => !lastFrozenAt.has(candidate.canonicalBusinessId),
+  ).length;
+  const topCohort = taxonomyVersion === 2
+    ? selectWithFiveVerticalMinimum(allScored, maxCohort, verticalIds)
+    : allScored.slice(0, maxCohort);
+  const selectedIds = new Set(topCohort.map((candidate) => candidate.canonicalBusinessId));
   eligible.push(...topCohort);
   // Businesses that scored but didn't make the cap
-  for (const c of allScored.slice(maxCohort)) {
+  for (const c of allScored.filter((candidate) => !selectedIds.has(candidate.canonicalBusinessId))) {
     excluded.push({ ...c, eligible: false, dispositionReason: "excluded:cohort_cap" });
   }
 
@@ -1134,6 +1143,7 @@ export async function selectRoiCohort(opts: {
   return {
     eligible: topCohort,
     excluded,
+    unadmittedEligibleCount,
     verticalIds,
     countyFips,
     scoreVersion: ROI_SCORE_VERSION,
@@ -1220,11 +1230,15 @@ async function persistRoiScores(
 
 export async function previewRoiCohort(opts: {
   maxPreview?: number;
+  maxCohort?: number;
   verticalIds?: string[];
   countyFips?: string[];
+  taxonomyVersion?: 1 | 2;
+  policyVersion?: number;
 } = {}): Promise<{
   topCandidates: RoiCandidateScore[];
   totalEligible: number;
+  unadmittedEligibleCount: number;
   verticalIds: string[];
   funnel: RoiCohortSelection["funnel"];
 }> {
@@ -1232,6 +1246,7 @@ export async function previewRoiCohort(opts: {
   return {
     topCandidates: result.eligible.slice(0, opts.maxPreview ?? 10),
     totalEligible: result.eligible.length,
+    unadmittedEligibleCount: result.unadmittedEligibleCount,
     verticalIds: result.verticalIds,
     funnel: result.funnel,
   };

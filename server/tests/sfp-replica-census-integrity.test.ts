@@ -136,8 +136,8 @@ try {
   const portRun = run(port.root, port.report);
   assert.equal(portRun.status, 0, portRun.stderr);
   const portResult = JSON.parse(fs.readFileSync(port.report, "utf8"));
-  assert.equal(portResult.counts.REQUIRES_REVIEW, 1);
-  assert.deepEqual(portResult.representativeIds.REQUIRES_REVIEW[0].businessIds, [1]);
+  assert.equal(portResult.counts.REVIEW, 1);
+  assert.deepEqual(portResult.representativeIds.REVIEW[0].businessIds, [1]);
   parityResult.classifierIdentity = "old-classifier";
   fs.writeFileSync(parity.report, JSON.stringify(parityResult));
   assert.match(run(parity.root, parity.report).stderr, /Resume classifier changed/);

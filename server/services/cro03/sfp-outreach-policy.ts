@@ -13,6 +13,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { businessHasDbprLineageSql } from "../dbpr";
+import { lockSfpContactAddress, normalizeSfpContactAddress } from "./sfp-contact-address-lock";
+import { lockSfpBusinessSafetySentinel, lockSfpEligibilityProjectionKey } from "./sfp-eligibility-locks";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -89,6 +91,38 @@ export async function getActiveSfpOutreachPolicy(opts: { bypassCache?: boolean }
   return policy;
 }
 
+/** Pin the active control/document pair before graph, cohort, or source locks. */
+export async function lockCurrentSfpOutreachPolicy(
+  executor: { execute: (query: any) => Promise<any> },
+  expected?: Pick<SfpActivePolicy, "id" | "version" | "documentHash">,
+): Promise<SfpActivePolicy> {
+  const row = rows(await executor.execute(sql`
+    SELECT d.id,d.version,d.document_hash,d.validation_ttl_days,d.accepted_outcomes,
+           d.retryable_outcomes,d.role_inbox_policy,d.consent_tier_policy,d.reason_codes
+      FROM sfp_outreach_policy_control c
+      JOIN sfp_outreach_policy_documents d ON d.id=c.active_policy_id
+     WHERE c.singleton=TRUE
+     FOR SHARE OF c,d
+  `))[0];
+  if (!row) throw new Error("SFP_OUTREACH_POLICY_NOT_CONFIGURED");
+  const policy: SfpActivePolicy = {
+    id: String(row.id),
+    version: Number(row.version),
+    documentHash: String(row.document_hash),
+    validationTtlDays: Number(row.validation_ttl_days),
+    acceptedOutcomes: row.accepted_outcomes,
+    retryableOutcomes: row.retryable_outcomes,
+    roleInboxPolicy: row.role_inbox_policy,
+    consentTierPolicy: row.consent_tier_policy,
+    reasonCodes: row.reason_codes,
+  };
+  if (expected && (policy.id !== expected.id || policy.version !== expected.version ||
+      policy.documentHash !== expected.documentHash)) {
+    throw new Error("SFP_OUTREACH_POLICY_CHANGED");
+  }
+  return policy;
+}
+
 /** Test-only cache reset; production code never needs this (policy activation is a one-time migration seed for v1). */
 export function _resetSfpOutreachPolicyCacheForTests(): void {
   _cachedActivePolicy = null;
@@ -134,7 +168,18 @@ export async function evaluateSfpMutableSafetyGates(input: {
   businessId: number;
   consentTier: string | null;
   policy: SfpActivePolicy;
+  emailAddress?: string | null;
 }, executor: { execute: (q: any) => Promise<any> } = db): Promise<SfpEligibilityGateResult> {
+  // Shared absence-safe business sentinel covers both current and future
+  // DBPR/source and merchant/customer rows. Child rows are read without tuple
+  // locks so writers can wait at the sentinel without a row-lock inversion.
+  await lockSfpBusinessSafetySentinel(executor, input.businessId);
+  if (input.emailAddress) await lockSfpContactAddress(executor, input.emailAddress);
+  await executor.execute(sql`SELECT id FROM businesses WHERE id=${input.businessId} FOR SHARE`);
+
+  if (input.emailAddress && await isCanonicallySuppressed([], executor, [input.emailAddress])) {
+    return { eligible: false, reasonCode: "policy_canonical_suppression", status: "validated_suppressed" };
+  }
   // 1. Canonical DBPR lineage exclusion.
   const dbprRow = rows(await executor.execute(sql`
     SELECT ${businessHasDbprLineageSql(sql`${input.businessId}::int`)} AS excluded
@@ -176,13 +221,24 @@ export async function evaluateSfpMutableSafetyGates(input: {
 export async function isCanonicallySuppressed(
   emailTokenHashes: string[],
   executor: { execute: (q: any) => Promise<any> } = db,
+  normalizedEmails: string[] = [],
 ): Promise<boolean> {
-  if (emailTokenHashes.length === 0) return false;
+  const addresses = [...new Set(normalizedEmails
+    .map((value) => normalizeSfpContactAddress(value))
+    .filter((value): value is string => Boolean(value)))].sort();
+  for (const address of addresses) await lockSfpContactAddress(executor, address);
+  if (emailTokenHashes.length === 0 && addresses.length === 0) return false;
+  const hashPredicate = emailTokenHashes.length
+    ? sql`c.email_token_hash = ANY(ARRAY[${sql.join(emailTokenHashes.map((hash) => sql`${hash}`), sql`, `)}])`
+    : sql`FALSE`;
+  const addressPredicate = addresses.length
+    ? sql`lower(btrim(cs.normalized_email)) = ANY(ARRAY[${sql.join(addresses.map((address) => sql`${address}`), sql`, `)}])`
+    : sql`FALSE`;
   const row = rows(await executor.execute(sql`
     SELECT EXISTS(
       SELECT 1
       FROM contacts c
-      WHERE c.email_token_hash = ANY(ARRAY[${sql.join(emailTokenHashes.map((h) => sql`${h}`), sql`, `)}])
+      WHERE ${hashPredicate}
         AND (
           COALESCE(c.opted_out_email, FALSE) = TRUE
           OR c.opt_out_status = 'opted_out'
@@ -193,6 +249,16 @@ export async function isCanonicallySuppressed(
           OR c.bounce_status = 'hard'
           OR c.email_status IN ('bounced', 'invalid')
         )
+    ) OR EXISTS (
+      SELECT 1
+        FROM consent_subjects cs
+        LEFT JOIN consent_subject_global_suppressions gs
+          ON gs.subject_id=cs.id AND gs.is_suppressed=TRUE
+        LEFT JOIN consent_subject_channel_states es
+          ON es.subject_id=cs.id AND es.channel='email'
+         AND es.permission_state IN ('withdrawn','suppressed')
+       WHERE ${addressPredicate}
+         AND (gs.subject_id IS NOT NULL OR es.id IS NOT NULL)
     ) AS suppressed
   `))[0];
   return row?.suppressed === true;
@@ -208,11 +274,31 @@ export async function isCanonicallySuppressed(
 export async function lookupConsentTierByEmailHash(
   emailTokenHash: string,
   executor: { execute: (q: any) => Promise<any> } = db,
+  lockForShare = false,
 ): Promise<string | null> {
+  // Contact changes are serialized by the normalized-address advisory lock;
+  // never tuple-lock a contact after acquiring that address lock.
+  void lockForShare;
   const row = rows(await executor.execute(sql`
-    SELECT consent_tier FROM contacts WHERE email_token_hash = ${emailTokenHash} LIMIT 1
+    SELECT consent_tier FROM contacts
+     WHERE email_token_hash = ${emailTokenHash}
+     ORDER BY id LIMIT 1
   `))[0];
   return row?.consent_tier ?? null;
+}
+
+/** Retain every matching mutable contact/suppression fact through eligibility writes. */
+export async function lockSfpContactRowsForShare(
+  emailTokenHashes: string[],
+  executor: { execute: (q: any) => Promise<any> } = db,
+): Promise<void> {
+  if (emailTokenHashes.length === 0) return;
+  await executor.execute(sql`
+    SELECT id FROM contacts
+     WHERE email_token_hash = ANY(ARRAY[${sql.join(emailTokenHashes.map((hash) => sql`${hash}`), sql`, `)}])
+     ORDER BY id
+     FOR SHARE
+  `);
 }
 
 /**
@@ -227,20 +313,64 @@ export async function findFreshProviderObservation(input: {
   businessId: number;
   emailTokenHash: string;
   ttlDays: number;
-}, executor: { execute: (q: any) => Promise<any> } = db): Promise<{ operationId: string; outcome: string; observedAt: string } | null> {
+}, executor: { execute: (q: any) => Promise<any> } = db): Promise<{ operationId: string; outcome: string; observedAt: string; expiresAt: string | null } | null> {
   const row = rows(await executor.execute(sql`
-    SELECT operation_id, outcome, observed_at
-      FROM provider_observations
-     WHERE subject_type = 'business'
-       AND subject_id = ${input.businessId}
-       AND email_token_hash = ${input.emailTokenHash}
-       AND provider = 'zerobounce'
-       AND retryable = FALSE
-       AND outcome IN ('valid', 'invalid')
-       AND observed_at > NOW() - (${input.ttlDays}::text || ' days')::interval
-     ORDER BY observed_at DESC
+    WITH fence_clock AS MATERIALIZED (SELECT clock_timestamp() AS at)
+    SELECT po.operation_id, po.outcome, po.observed_at, po.expires_at
+      FROM provider_observations po
+      JOIN fence_clock fc ON TRUE
+      JOIN provider_operations op ON op.id=po.operation_id
+     WHERE po.subject_type = 'business'
+       AND po.subject_id = ${input.businessId}
+       AND po.email_token_hash = ${input.emailTokenHash}
+       AND po.provider = 'zerobounce'
+       AND po.retryable = FALSE
+       AND po.outcome IN ('valid', 'invalid')
+       AND op.state='completed'
+       AND po.observed_at > fc.at - (${input.ttlDays}::text || ' days')::interval
+        AND po.observed_at <= fc.at
+        AND LEAST(
+          COALESCE(po.expires_at,
+                   po.observed_at + (${input.ttlDays}::text || ' days')::interval),
+          po.observed_at + (${input.ttlDays}::text || ' days')::interval
+        ) > fc.at
+     ORDER BY po.observed_at DESC
      LIMIT 1
+      FOR SHARE OF po,op
   `))[0];
   if (!row || !row.operation_id) return null;
-  return { operationId: String(row.operation_id), outcome: String(row.outcome), observedAt: String(row.observed_at) };
+  return {
+    operationId: String(row.operation_id), outcome: String(row.outcome), observedAt: String(row.observed_at),
+    expiresAt: row.expires_at == null ? null : String(row.expires_at),
+  };
+}
+
+/** Returns the receipt's original expiry bounded by the current policy TTL. */
+export function effectiveSfpProviderObservationExpiry(
+  observedAt: string | Date,
+  explicitExpiresAt: string | Date | null,
+  ttlDays: number,
+): Date | null {
+  const observed = observedAt instanceof Date ? observedAt.getTime() : new Date(observedAt).getTime();
+  if (!Number.isFinite(observed) || !Number.isFinite(ttlDays) || ttlDays <= 0) return null;
+  const policyExpiry = observed + ttlDays * 86_400_000;
+  const explicitExpiry = explicitExpiresAt == null
+    ? policyExpiry
+    : explicitExpiresAt instanceof Date ? explicitExpiresAt.getTime() : new Date(explicitExpiresAt).getTime();
+  if (!Number.isFinite(explicitExpiry)) return null;
+  return new Date(Math.min(explicitExpiry, policyExpiry));
+}
+
+/** Pure receipt freshness check suitable for the final database-clock fence. */
+export function isSfpProviderObservationFreshAt(
+  observedAt: string | Date,
+  explicitExpiresAt: string | Date | null,
+  ttlDays: number,
+  now: string | Date,
+): boolean {
+  const observed = observedAt instanceof Date ? observedAt.getTime() : new Date(observedAt).getTime();
+  const current = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const expires = effectiveSfpProviderObservationExpiry(observedAt, explicitExpiresAt, ttlDays)?.getTime();
+  return Number.isFinite(observed) && Number.isFinite(current) && expires !== undefined &&
+    observed <= current && expires > current;
 }

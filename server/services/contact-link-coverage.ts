@@ -26,16 +26,22 @@ const CANDIDATE_SOURCE_VERSION = CONTACT_LINK_COVERAGE_WORKFLOW;
 export type ContactLinkCoverageBucket =
   | "STRICT_AUTO_ELIGIBLE"
   | "ALREADY_VERIFIED"
-  | "RECOVERABLE_RECONCILIATION"
-  | "REQUIRES_REVIEW"
-  | "REJECTED";
+  | "RECOVERABLE_IDENTITY"
+  | "NEEDS_BUSINESS_DISCOVERY"
+  | "REVIEW"
+  | "OUT_OF_SCOPE"
+  | "SUPPRESSED"
+  | "UNUSABLE";
 
 export interface ContactLinkCoverageCounts {
   STRICT_AUTO_ELIGIBLE: number;
   ALREADY_VERIFIED: number;
-  RECOVERABLE_RECONCILIATION: number;
-  REQUIRES_REVIEW: number;
-  REJECTED: number;
+  RECOVERABLE_IDENTITY: number;
+  NEEDS_BUSINESS_DISCOVERY: number;
+  REVIEW: number;
+  OUT_OF_SCOPE: number;
+  SUPPRESSED: number;
+  UNUSABLE: number;
 }
 
 export interface ContactLinkCoverageState {
@@ -86,6 +92,21 @@ export interface ContactLinkCoverageSourceEvent {
   metadata?: unknown;
 }
 
+export interface ContactLinkCoverageRawSunbizMatch {
+  sourceEntityId: number;
+  filingNumber: string;
+  entityName: string;
+  dba: string | null;
+  website: string | null;
+  principalAddress: string | null;
+  principalCity: string | null;
+  principalState: string | null;
+  principalZip: string | null;
+  phone: string | null;
+  ownerPhone: string | null;
+  entitySource: string | null;
+}
+
 export interface ContactLinkCoverageBusiness {
   businessId: number;
   canonicalName: string;
@@ -100,6 +121,7 @@ export interface ContactLinkCoverageBusiness {
   doNotVisit: boolean;
   domainBusinessCount: number;
   sourceLinks: ContactLinkCoverageSourceLink[];
+  rawSunbizMatches: ContactLinkCoverageRawSunbizMatch[];
 }
 
 export interface ContactLinkCoverageContact {
@@ -133,6 +155,7 @@ export interface ContactLinkCoverageContact {
   currentDecisionConsistent: boolean;
   primarySourceEventId: number | null;
   sourceEvents: ContactLinkCoverageSourceEvent[];
+  rawSunbizCandidates: ContactLinkCoverageRawSunbizMatch[];
   businesses: ContactLinkCoverageBusiness[];
 }
 
@@ -166,6 +189,7 @@ export interface ContactLinkCoverageClassification {
 
 export interface ContactLinkCoveragePageResult {
   rows: ContactLinkCoverageContact[];
+  denominator: number;
   nextCursor: number | null;
   processed: number;
   counts: ContactLinkCoverageCounts;
@@ -207,6 +231,21 @@ function parseJson<T>(value: unknown, fallback: T): T {
 function normalizeCoverageContactRow(row: any): ContactLinkCoverageContact {
   const events = parseJson<any[]>(row.sourceEvents ?? row.source_events, []);
   const businesses = parseJson<any[]>(row.businesses, []);
+  const rawSunbizCandidates = parseJson<any[]>(row.rawSunbizCandidates ?? row.raw_sunbiz_candidates, []);
+  const mapRawSunbizMatch = (source: any): ContactLinkCoverageRawSunbizMatch => ({
+    sourceEntityId: Number(source.sourceEntityId ?? source.source_entity_id),
+    filingNumber: String(source.filingNumber ?? source.filing_number ?? ""),
+    entityName: String(source.entityName ?? source.entity_name ?? ""),
+    dba: source.dba ?? null,
+    website: source.website ?? null,
+    principalAddress: source.principalAddress ?? source.principal_address ?? null,
+    principalCity: source.principalCity ?? source.principal_city ?? null,
+    principalState: source.principalState ?? source.principal_state ?? null,
+    principalZip: source.principalZip ?? source.principal_zip ?? null,
+    phone: source.phone ?? null,
+    ownerPhone: source.ownerPhone ?? source.owner_phone ?? null,
+    entitySource: source.entitySource ?? source.entity_source ?? null,
+  });
   return {
     contactId: Number(row.contactId ?? row.contact_id),
     companyName: row.companyName ?? row.company_name ?? null,
@@ -247,6 +286,7 @@ function normalizeCoverageContactRow(row: any): ContactLinkCoverageContact {
       actorId: event.actorId ?? event.actor_id ?? null,
       metadata: event.metadata ?? null,
     })),
+    rawSunbizCandidates: rawSunbizCandidates.map(mapRawSunbizMatch),
     businesses: businesses.map((business: any) => ({
       businessId: Number(business.businessId ?? business.business_id),
       canonicalName: String(business.canonicalName ?? business.canonical_name ?? ""),
@@ -260,6 +300,8 @@ function normalizeCoverageContactRow(row: any): ContactLinkCoverageContact {
       recordClass: business.recordClass ?? business.record_class ?? null,
       doNotVisit: Boolean(business.doNotVisit ?? business.do_not_visit),
       domainBusinessCount: Number(business.domainBusinessCount ?? business.domain_business_count ?? 0),
+      rawSunbizMatches: parseJson<any[]>(business.rawSunbizMatches ?? business.raw_sunbiz_matches, [])
+        .map(mapRawSunbizMatch),
       sourceLinks: parseJson<any[]>(business.sourceLinks ?? business.source_links, []).map((source: any) => ({
         sourceLinkId: String(source.sourceLinkId ?? source.source_link_id),
         businessId: Number(source.businessId ?? source.business_id),
@@ -428,15 +470,22 @@ function pairSignals(contact: ContactLinkCoverageContact, business: ContactLinkC
   const names = [
     business.canonicalName,
     ...links.flatMap(link => [link.sunbizName, link.sunbizDba]).filter(Boolean) as string[],
+    ...business.rawSunbizMatches.flatMap(source => [source.entityName, source.dba]).filter(Boolean) as string[],
   ];
+  const rawMatches = business.rawSunbizMatches ?? [];
   const filingKeys = readFilingKeys(contact);
   const linkedFilings = links.flatMap(link => [
     link.stableKey,
     link.sunbizFilingNumber,
-  ]).filter((value): value is string => Boolean(value)).map(value => value.toLowerCase());
+  ]).filter((value): value is string => Boolean(value)).map(value => value.toLowerCase())
+    .concat(rawMatches.map(source => source.filingNumber.toLowerCase()).filter(Boolean));
   const filingMatch = [...filingKeys].some(key => linkedFilings.includes(key));
   const contactPhone = normalizePhone(contact.phone);
-  const phoneValues = [business.mainPhone, ...links.flatMap(link => [link.sunbizPhone, link.sunbizOwnerPhone])]
+  const phoneValues = [
+    business.mainPhone,
+    ...links.flatMap(link => [link.sunbizPhone, link.sunbizOwnerPhone]),
+    ...rawMatches.flatMap(source => [source.phone, source.ownerPhone]),
+  ]
     .map(normalizePhone).filter(Boolean);
   const phoneMatch = Boolean(contactPhone && phoneValues.includes(contactPhone));
   const contactAddress = normalizeAddress(contact.address);
@@ -449,24 +498,32 @@ function pairSignals(contact: ContactLinkCoverageContact, business: ContactLinkC
       && (!contact.city || !link.sunbizCity || normalizeCoverageName(contact.city) === normalizeCoverageName(link.sunbizCity))
       && (!contact.state || !link.sunbizState || normalizeCoverageName(contact.state) === normalizeCoverageName(link.sunbizState)),
     )
+    || rawMatches.some(source =>
+      contactAddress === normalizeAddress(source.principalAddress)
+      && (!contact.city || !source.principalCity || normalizeCoverageName(contact.city) === normalizeCoverageName(source.principalCity))
+      && (!contact.state || !source.principalState || normalizeCoverageName(contact.state) === normalizeCoverageName(source.principalState)),
+    )
   ));
   const contactDomain = normalizeDomain(contact.website);
   const businessDomain = normalizeDomain(business.websiteDomain);
   const websiteMatch = Boolean(contactDomain && (
     contactDomain === businessDomain
     || links.some(link => normalizeDomain(link.sunbizWebsite) === contactDomain)
+    || rawMatches.some(source => normalizeDomain(source.website) === contactDomain)
   ));
   const emailDomain = contact.emailHasExactlyOneAt ? String(contact.emailDomain ?? "").trim().toLowerCase() : "";
   const corporateEmailMatch = Boolean(emailDomain && !SHARED_EMAIL_DOMAINS.has(emailDomain)
-    && (emailDomain === businessDomain || links.some(link => normalizeDomain(link.sunbizWebsite) === emailDomain)));
+    && (emailDomain === businessDomain
+      || links.some(link => normalizeDomain(link.sunbizWebsite) === emailDomain)
+      || rawMatches.some(source => normalizeDomain(source.website) === emailDomain)));
   const matchingNames = names.filter(name => nameCorroborates(contact.companyName, name));
   const nameMatch = matchingNames.length > 0;
   const signals: ContactLinkCoverageSignal[] = [
-    { kind: "name", matched: nameMatch, detail: nameMatch ? "contact company name aligns with canonical or retained Sunbiz name/DBA" : "no retained legal-name or DBA alignment" },
-    { kind: "filing_identifier", matched: filingMatch, detail: filingMatch ? "contact retained filing identifier matches a canonical Sunbiz source link" : "no retained contact filing identifier match" },
-    { kind: "address", matched: addressMatch, detail: addressMatch ? "normalized contact address and locality match canonical or retained Sunbiz address" : "no address and locality match" },
-    { kind: "phone", matched: phoneMatch, detail: phoneMatch ? "normalized contact phone matches canonical or retained Sunbiz phone" : "no phone match" },
-    { kind: "website", matched: websiteMatch, detail: websiteMatch ? "contact website domain matches canonical or retained Sunbiz website" : "no contact website domain match" },
+    { kind: "name", matched: nameMatch, detail: nameMatch ? "contact company name aligns with canonical, retained, or indexed raw Sunbiz legal name/DBA" : "no canonical or retrieved legal-name/DBA alignment" },
+    { kind: "filing_identifier", matched: filingMatch, detail: filingMatch ? "contact retained filing identifier matches a linked or indexed raw Sunbiz filing" : "no retained contact filing identifier match" },
+    { kind: "address", matched: addressMatch, detail: addressMatch ? "normalized contact address and locality match canonical or retained/raw Sunbiz principal address" : "no address and locality match" },
+    { kind: "phone", matched: phoneMatch, detail: phoneMatch ? "normalized contact phone matches canonical or retained/raw Sunbiz phone" : "no phone match" },
+    { kind: "website", matched: websiteMatch, detail: websiteMatch ? "contact website domain matches canonical or retained/raw Sunbiz website" : "no contact website domain match" },
     { kind: "corporate_email_domain", matched: corporateEmailMatch, detail: corporateEmailMatch ? "non-shared email domain aligns with official business domain" : "email domain is not an independent corporate-domain match" },
   ];
   const independentSignalCount = signals.filter(signal =>
@@ -494,8 +551,16 @@ function identityConflicts(
   candidateBusinessIds: number[],
 ): Array<Record<string, unknown>> {
   const conflicts: Array<Record<string, unknown>> = [];
+  const rawSunbizMatches = business.rawSunbizMatches ?? [];
   if (candidateBusinessIds.length > 1) {
     conflicts.push({ code: "multiple_business_candidates", candidateBusinessIds });
+  }
+  if (rawSunbizMatches.length > 1) {
+    conflicts.push({
+      code: "multiple_unlinked_sunbiz_identity_candidates",
+      sourceEntityIds: rawSunbizMatches.map(source => source.sourceEntityId),
+      filingNumbers: [...new Set(rawSunbizMatches.map(source => source.filingNumber))],
+    });
   }
   for (const link of business.sourceLinks) {
     if (link.stableKey && link.sunbizFilingNumber
@@ -565,6 +630,18 @@ function evidenceSummary(contact: ContactLinkCoverageContact, business: ContactL
       sunbizCity: source.sunbizCity,
       sunbizState: source.sunbizState,
       sunbizEntitySource: source.sunbizEntitySource,
+    })),
+    rawSunbizCandidates: (business.rawSunbizMatches ?? []).map(source => ({
+      sourceEntityId: source.sourceEntityId,
+      filingNumber: source.filingNumber,
+      entityName: source.entityName,
+      dba: source.dba,
+      websiteDomain: normalizeDomain(source.website),
+      principalAddress: source.principalAddress,
+      principalCity: source.principalCity,
+      principalState: source.principalState,
+      entitySource: source.entitySource,
+      canonicalSourceLinkMaterialized: false,
     })),
     sourceEvents: contact.sourceEvents.map(event => ({
       eventId: event.eventId,
@@ -644,6 +721,19 @@ function candidateSnapshot(contact: ContactLinkCoverageContact, business: Contac
       phone: normalizePhone(link.sunbizPhone),
       entitySource: link.sunbizEntitySource,
     })),
+    rawSunbizCandidates: (business.rawSunbizMatches ?? []).map(source => ({
+      sourceEntityId: source.sourceEntityId,
+      filingNumber: source.filingNumber,
+      name: normalizeCoverageName(source.entityName),
+      dba: normalizeCoverageName(source.dba),
+      website: normalizeDomain(source.website),
+      address: normalizeAddress(source.principalAddress),
+      city: normalizeCoverageName(source.principalCity),
+      state: normalizeCoverageName(source.principalState),
+      phone: normalizePhone(source.phone),
+      entitySource: source.entitySource,
+      canonicalSourceLinkMaterialized: false,
+    })),
     reasons: facts.reasons,
     signals: facts.signals,
     conflicts: facts.conflicts,
@@ -684,26 +774,44 @@ function classifyBusinessCandidate(
   const nonProduction = contact.archived || ["test", "demo", "synthetic"].includes(String(contact.recordClass))
     || ["test", "demo", "synthetic"].includes(String(business.recordClass));
   const nonCanonicalBusiness = business.recordClass !== "canonical";
+  const suppressed = contact.doNotContact || contact.doNotAutoContact || contact.optedOutEmail
+    || contact.optOutStatus === "opted_out" || contact.unsubscribeStatus === "unsubscribed"
+    || contact.bounceStatus === "hard" || contact.complaintStatus === "reported"
+    || contact.suppressionReason !== null;
+  const hasRawSunbizSource = (business.rawSunbizMatches ?? []).length > 0;
   let status: ContactLinkCoverageBucket;
   if (strictEligible) {
     status = "STRICT_AUTO_ELIGIBLE";
-  } else if (nonProduction || nonCanonicalBusiness || !hasRetainedSunbizLink) {
-    status = "REJECTED";
+  } else if (nonProduction) {
+    status = "OUT_OF_SCOPE";
     if (nonProduction) reasons.add("non_production_or_archived_record");
-    if (nonCanonicalBusiness) reasons.add("business_not_canonical");
-    if (!hasRetainedSunbizLink) reasons.add("retained_sunbiz_identity_source_missing");
-  } else if (!hasResolvedSunbizEntity) {
-    status = "REQUIRES_REVIEW";
-    reasons.add("sunbiz_source_link_entity_unresolved_or_untrusted");
+  } else if (suppressed) {
+    status = "SUPPRESSED";
+    reasons.add("contact_suppressed_or_excluded");
+  } else if (nonCanonicalBusiness) {
+    status = "REVIEW";
+    reasons.add("business_not_canonical");
   } else if (conflicts.length > 0) {
-    status = "REQUIRES_REVIEW";
+    status = "REVIEW";
+  } else if (hasRetainedSunbizLink && !hasResolvedSunbizEntity) {
+    status = "REVIEW";
+    reasons.add("sunbiz_source_link_entity_unresolved_or_untrusted");
   } else if (facts.independentSignalCount >= 2) {
-    status = "RECOVERABLE_RECONCILIATION";
+    if (hasRetainedSunbizLink || hasRawSunbizSource) {
+      status = "RECOVERABLE_IDENTITY";
+      if (hasRawSunbizSource && !hasRetainedSunbizLink) {
+        reasons.add("raw_sunbiz_identity_requires_supported_canonical_source_materialization");
+      }
+    } else {
+      status = "REVIEW";
+      reasons.add("independent_corroboration_without_canonical_source_evidence");
+    }
   } else {
-    status = "REQUIRES_REVIEW";
+    status = "REVIEW";
     reasons.add(facts.independentSignalCount === 0
       ? "independent_identity_corroboration_missing"
       : "only_one_independent_identity_signal");
+    if (!hasRetainedSunbizLink && !hasRawSunbizSource) reasons.add("canonical_sunbiz_source_not_found");
   }
   const candidateReasons = [...reasons].sort();
   const snapshotHash = candidateSnapshot(contact, business, {
@@ -733,6 +841,44 @@ export function classifyContactLinkCoverage(
   const candidates = contact.businesses.map(business =>
     classifyBusinessCandidate(contact, business, candidateBusinessIds),
   );
+  const nonProductionContact = contact.archived
+    || ["test", "demo", "synthetic"].includes(String(contact.recordClass));
+  const suppressed = contact.doNotContact || contact.doNotAutoContact || contact.optedOutEmail
+    || contact.optOutStatus === "opted_out" || contact.unsubscribeStatus === "unsubscribed"
+    || contact.bounceStatus === "hard" || contact.complaintStatus === "reported"
+    || contact.suppressionReason !== null;
+  if (nonProductionContact) {
+    const reasons = contact.archived ? ["archived_contact"] : ["non_production_contact"];
+    return {
+      contactId: contact.contactId,
+      bucket: "OUT_OF_SCOPE",
+      reasons,
+      candidates,
+      expectedRevision: contact.currentRevision,
+      snapshotHash: stableHash({ contactId: contact.contactId, recordClass: contact.recordClass, archived: contact.archived, reasons }),
+    };
+  }
+  if (suppressed) {
+    const reasons = ["contact_suppressed_or_excluded"];
+    return {
+      contactId: contact.contactId,
+      bucket: "SUPPRESSED",
+      reasons,
+      candidates,
+      expectedRevision: contact.currentRevision,
+      snapshotHash: stableHash({
+        contactId: contact.contactId,
+        doNotContact: contact.doNotContact,
+        doNotAutoContact: contact.doNotAutoContact,
+        optedOutEmail: contact.optedOutEmail,
+        optOutStatus: contact.optOutStatus,
+        unsubscribeStatus: contact.unsubscribeStatus,
+        bounceStatus: contact.bounceStatus,
+        complaintStatus: contact.complaintStatus,
+        suppressionReason: contact.suppressionReason,
+      }),
+    };
+  }
   if (contact.currentDecision === "verified" && contact.currentDecisionConsistent
       && contact.currentDecisionBusinessId !== null) {
     const authoritative = candidates.find(candidate => candidate.businessId === contact.currentDecisionBusinessId);
@@ -754,14 +900,24 @@ export function classifyContactLinkCoverage(
     };
   }
   if (contact.businesses.length === 0) {
-    const reasons = ["canonical_business_candidate_not_found"];
+    const hasUsefulIdentity = normalizeCoverageName(contact.companyName).length >= 4
+      || Boolean(normalizeDomain(contact.website))
+      || Boolean(contact.emailHasExactlyOneAt && contact.emailDomain && !SHARED_EMAIL_DOMAINS.has(contact.emailDomain.toLowerCase()))
+      || normalizePhone(contact.phone).length >= 7
+      || normalizeAddress(contact.address).length >= 8
+      || readFilingKeys(contact).size > 0;
+    const reasons = (contact.rawSunbizCandidates ?? []).length
+      ? ["unlinked_sunbiz_identity_found", "canonical_business_not_found"]
+      : ["canonical_business_candidate_not_found"];
     if (contact.projectedBusinessId !== null) reasons.push("projection_is_not_link_authority");
-    if (contact.archived) reasons.push("archived_contact");
-    if (["test", "demo", "synthetic"].includes(String(contact.recordClass))) reasons.push("non_production_contact");
     if (contact.currentDecisionId) reasons.push("current_link_decision_requires_explicit_review");
+    const bucket: ContactLinkCoverageBucket = contact.currentDecisionId || contact.projectedBusinessId !== null
+      ? "REVIEW"
+      : hasUsefulIdentity ? "NEEDS_BUSINESS_DISCOVERY" : "UNUSABLE";
+    if (bucket === "UNUSABLE") reasons.push("no_usable_business_identity");
     return {
       contactId: contact.contactId,
-      bucket: "REJECTED",
+      bucket,
       reasons,
       candidates,
       expectedRevision: contact.currentRevision,
@@ -769,9 +925,23 @@ export function classifyContactLinkCoverage(
         workflow: CONTACT_LINK_COVERAGE_WORKFLOW,
         contactId: contact.contactId,
         companyName: normalizeCoverageName(contact.companyName),
+        website: normalizeDomain(contact.website),
+        emailDomain: contact.emailHasExactlyOneAt ? contact.emailDomain?.toLowerCase() ?? null : null,
+        phone: normalizePhone(contact.phone),
+        address: normalizeAddress(contact.address),
+        city: normalizeCoverageName(contact.city),
+        state: normalizeCoverageName(contact.state),
+        filingKeys: [...readFilingKeys(contact)].sort(),
+        sourceEventIds: sourceEventIds(contact),
         projectedBusinessId: contact.projectedBusinessId,
         currentDecisionId: contact.currentDecisionId,
         revision: contact.currentRevision,
+        rawSunbizCandidates: (contact.rawSunbizCandidates ?? []).map(source => ({
+          sourceEntityId: source.sourceEntityId,
+          filingNumber: source.filingNumber,
+          name: normalizeCoverageName(source.entityName),
+          dba: normalizeCoverageName(source.dba),
+        })),
         reasons,
       }),
     };
@@ -800,7 +970,7 @@ export function classifyContactLinkCoverage(
   const reasons = [...new Set(candidates.flatMap(candidate => candidate.reasons).concat("multiple_business_candidates"))].sort();
   return {
     contactId: contact.contactId,
-    bucket: "REQUIRES_REVIEW",
+    bucket: "REVIEW",
     reasons,
     candidates,
     expectedRevision: contact.currentRevision,
@@ -819,9 +989,12 @@ export function classifyContactLinkCoveragePage(
   const counts: ContactLinkCoverageCounts = {
     STRICT_AUTO_ELIGIBLE: 0,
     ALREADY_VERIFIED: 0,
-    RECOVERABLE_RECONCILIATION: 0,
-    REQUIRES_REVIEW: 0,
-    REJECTED: 0,
+    RECOVERABLE_IDENTITY: 0,
+    NEEDS_BUSINESS_DISCOVERY: 0,
+    REVIEW: 0,
+    OUT_OF_SCOPE: 0,
+    SUPPRESSED: 0,
+    UNUSABLE: 0,
   };
   const reasonCounts: Record<string, number> = {};
   const classifications = rows.map(row => classifyContactLinkCoverage(row));
@@ -833,16 +1006,19 @@ export function classifyContactLinkCoveragePage(
     }
     for (const reason of contactReasons) reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
   }
-  return { rows, counts, reasonCounts, classifications };
+  return { rows, denominator: rows.length, counts, reasonCounts, classifications };
 }
 
 export function emptyContactLinkCoverageCounts(): ContactLinkCoverageCounts {
   return {
     STRICT_AUTO_ELIGIBLE: 0,
     ALREADY_VERIFIED: 0,
-    RECOVERABLE_RECONCILIATION: 0,
-    REQUIRES_REVIEW: 0,
-    REJECTED: 0,
+    RECOVERABLE_IDENTITY: 0,
+    NEEDS_BUSINESS_DISCOVERY: 0,
+    REVIEW: 0,
+    OUT_OF_SCOPE: 0,
+    SUPPRESSED: 0,
+    UNUSABLE: 0,
   };
 }
 
@@ -966,10 +1142,20 @@ function asCoverageState(value: unknown): ContactLinkCoverageState | null {
   if (!state || typeof state !== "object" || state.workflow !== CONTACT_LINK_COVERAGE_WORKFLOW
       || typeof state.runId !== "string"
       || !["running", "ready", "paused", "completed", "error"].includes(String(state.status))) return null;
-  const counts = state.counts as ContactLinkCoverageCounts | undefined;
+  const counts = state.counts as Partial<ContactLinkCoverageCounts> | undefined;
   if (!counts || !Number.isSafeInteger(state.watermark) || !Number.isSafeInteger(state.total)
       || !Number.isSafeInteger(state.cursor) || !Number.isSafeInteger(state.processed)) return null;
-  return state as ContactLinkCoverageState;
+  if (["RECOVERABLE_RECONCILIATION", "REQUIRES_REVIEW", "REJECTED"]
+    .some(bucket => bucket in counts)) return null;
+  const normalizedCounts = emptyContactLinkCoverageCounts();
+  for (const bucket of Object.keys(normalizedCounts) as ContactLinkCoverageBucket[]) {
+    const count = Number(counts[bucket]);
+    if (Number.isSafeInteger(count) && count >= 0) normalizedCounts[bucket] = count;
+  }
+  return {
+    ...state,
+    counts: normalizedCounts,
+  } as ContactLinkCoverageState;
 }
 
 function auditDetails(row: any): any {
@@ -1035,9 +1221,10 @@ async function insertPageCandidates(client: any, classifications: ContactLinkCov
     confidence: number;
   }> = [];
   for (const classification of classifications) {
-    if (classification.bucket === "ALREADY_VERIFIED" || classification.bucket === "REJECTED") continue;
+    if (["ALREADY_VERIFIED", "NEEDS_BUSINESS_DISCOVERY", "OUT_OF_SCOPE", "SUPPRESSED", "UNUSABLE"]
+      .includes(classification.bucket)) continue;
     for (const candidate of classification.candidates) {
-      if (candidate.status === "REJECTED") continue;
+      if (["OUT_OF_SCOPE", "SUPPRESSED", "UNUSABLE"].includes(candidate.status)) continue;
       const candidateKey = crypto.createHash("sha256")
         .update(`${CONTACT_LINK_COVERAGE_WORKFLOW}:${classification.contactId}:${candidate.businessId}`)
         .digest("hex");
@@ -1272,7 +1459,7 @@ function candidateFact(contactId: number, businessId: number, rows: ContactLinkC
   const classification = classifyContactLinkCoverage(contact);
   if (classification.bucket === "ALREADY_VERIFIED") return null;
   const candidate = classification.candidates.find(item => item.businessId === businessId);
-  if (!candidate || candidate.status === "REJECTED") return null;
+  if (!candidate || ["OUT_OF_SCOPE", "SUPPRESSED", "UNUSABLE"].includes(candidate.status)) return null;
   return { contact, classification, candidate };
 }
 

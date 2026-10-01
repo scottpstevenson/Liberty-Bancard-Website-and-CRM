@@ -55,7 +55,7 @@ export const importExecutions = pgTable("import_executions", {
   failureReason: text("failure_reason"),
   startedAt: timestamp("started_at").defaultNow(),
   completedAt: timestamp("completed_at"),
-}, (table) => [
+ }, (table) => [
   // Prevent re-completing the same file twice (replay protection)
   uniqueIndex("import_executions_type_hash_completed_uidx")
     .on(table.importType, table.fileHash)
@@ -396,10 +396,21 @@ export const providerOperations = pgTable("provider_operations", {
   state: text("state").notNull().default("pending"),
   requestedUnits: integer("requested_units").notNull().default(0),
   reservedUnits: integer("reserved_units").notNull().default(0),
+  settledUnits: integer("settled_units").notNull().default(0),
+  runtimeOwnerEpoch: bigint("runtime_owner_epoch", { mode: "number" }),
+  runtimeOwnerToken: uuid("runtime_owner_token"),
+  providerRequestId: text("provider_request_id"),
+  providerUsageQuantity: numeric("provider_usage_quantity"),
+  providerUsageUnit: text("provider_usage_unit"),
+  providerUsageStatus: text("provider_usage_status"),
+  providerUsageReconciledAt: timestamp("provider_usage_reconciled_at", { withTimezone: true }),
+  sfpDispatchReceipt: jsonb("sfp_dispatch_receipt"),
+  sfpDispatchReceiptFingerprint: text("sfp_dispatch_receipt_fingerprint"),
   // Exact reviewed-price snapshot cost for SFP operations. Legacy and
   // non-SFP provider operations remain NULL rather than being backfilled
   // from today's price as if it were historical fact.
   unitPriceMicros: bigint("unit_price_micros", { mode: "number" }),
+  unitPriceUnit: text("unit_price_unit"),
   settledCostMicros: bigint("settled_cost_micros", { mode: "number" }),
   billingState: text("billing_state").notNull().default("none"),
   attemptCount: integer("attempt_count").notNull().default(0),
@@ -414,7 +425,132 @@ export const providerOperations = pgTable("provider_operations", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("provider_operations_idempotency_schema_uidx").on(table.provider, table.idempotencyKey),
+  uniqueIndex("provider_operations_provider_request_uidx").on(table.provider, table.providerRequestId)
+    .where(sql`${table.providerRequestId} IS NOT NULL`),
   index("provider_operations_claim_schema_idx").on(table.provider, table.state, table.leaseExpiresAt),
+  check("provider_operations_settled_units_nonnegative_chk", sql`settled_units >= 0`),
+  check("provider_operations_usage_contract_chk",
+    sql`provider_usage_status IS NULL OR provider_usage_status IN ('known','unknown','conflict','not_applicable')`),
+  check("provider_operations_known_usage_complete_chk", sql`
+    provider_usage_status IS DISTINCT FROM 'known'
+    OR (provider_usage_quantity IS NOT NULL AND provider_usage_quantity >= 0 AND provider_usage_unit IS NOT NULL)
+  `),
+  check("provider_operations_dispatch_receipt_contract_chk", sql`
+    (sfp_dispatch_receipt IS NULL AND sfp_dispatch_receipt_fingerprint IS NULL)
+    OR (sfp_dispatch_receipt IS NOT NULL AND sfp_dispatch_receipt_fingerprint IS NOT NULL
+      AND jsonb_typeof(sfp_dispatch_receipt)='object'
+      AND sfp_dispatch_receipt_fingerprint ~ '^[0-9a-f]{64}$')
+  `),
+]);
+
+/** Durable current routine-SFP deployment owner. CRO03C certificate authority is separate. */
+export const sfpRuntimeOwnerAuthority = pgTable("sfp_runtime_owner_authority", {
+  authorityKey: text("authority_key").primaryKey().default("routine_sfp"),
+  deploymentIdentity: text("deployment_identity").notNull(),
+  environmentIdentity: text("environment_identity").notNull(),
+  artifactSha: text("artifact_sha").notNull(),
+  queueTopologyHash: text("queue_topology_hash").notNull(),
+  ownerEpoch: bigint("owner_epoch", { mode: "number" }).notNull(),
+  ownerToken: uuid("owner_token").notNull(),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("sfp_runtime_owner_authority_singleton_chk", sql`authority_key = 'routine_sfp'`),
+  check("sfp_runtime_owner_authority_epoch_chk", sql`owner_epoch > 0`),
+]);
+
+/** Append-only audit evidence for authenticated SFP release bootstrap/transfer. */
+export const sfpRuntimeReleaseSelectionEvents = pgTable("sfp_runtime_release_selection_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  action: text("action").notNull(),
+  actorId: text("actor_id").notNull(),
+  previousSelection: jsonb("previous_selection"),
+  selectedRelease: jsonb("selected_release").notNull(),
+  publisherVerificationReference: text("publisher_verification_reference").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_runtime_release_selection_events_created_idx").on(table.createdAt),
+  check("sfp_runtime_release_selection_event_action_chk", sql`action IN ('bootstrap','transfer')`),
+  check("sfp_runtime_release_selection_event_actor_chk", sql`length(btrim(actor_id)) > 0`),
+  check("sfp_runtime_release_selection_event_verification_chk",
+    sql`length(btrim(publisher_verification_reference)) BETWEEN 1 AND 500`),
+  check("sfp_runtime_release_selection_event_release_object_chk", sql`jsonb_typeof(selected_release) = 'object'`),
+  check("sfp_runtime_release_selection_event_previous_object_chk",
+    sql`previous_selection IS NULL OR jsonb_typeof(previous_selection) = 'object'`),
+]);
+
+/** Non-expiring admin-selected SFP release authority, separate from its leased owner row. */
+export const sfpRuntimeReleaseSelectors = pgTable("sfp_runtime_release_selectors", {
+  authorityKey: text("authority_key").primaryKey().default("routine_sfp"),
+  deploymentIdentity: text("deployment_identity").notNull(),
+  environmentIdentity: text("environment_identity").notNull(),
+  artifactSha: text("artifact_sha").notNull(),
+  queueTopologyHash: text("queue_topology_hash").notNull(),
+  publisherVerifiedArtifactSha: text("publisher_verified_artifact_sha").notNull(),
+  publisherVerifiedDeploymentIdentity: text("publisher_verified_deployment_identity").notNull(),
+  verificationReference: text("verification_reference").notNull(),
+  selectedBy: text("selected_by").notNull(),
+  selectedAt: timestamp("selected_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  selectionVersion: bigint("selection_version", { mode: "number" }).notNull().default(1),
+  selectionEventId: uuid("selection_event_id").notNull()
+    .references(() => sfpRuntimeReleaseSelectionEvents.id, { onDelete: "restrict" }),
+}, (table) => [
+  check("sfp_runtime_release_selector_singleton_chk", sql`authority_key = 'routine_sfp'`),
+  check("sfp_runtime_release_selector_sha_chk", sql`
+    artifact_sha ~ '^[0-9a-fA-F]{40}$' AND publisher_verified_artifact_sha = artifact_sha
+  `),
+  check("sfp_runtime_release_selector_deployment_chk", sql`
+    deployment_identity <> '' AND publisher_verified_deployment_identity = deployment_identity
+  `),
+  check("sfp_runtime_release_selector_environment_chk", sql`environment_identity <> ''`),
+  check("sfp_runtime_release_selector_topology_chk", sql`queue_topology_hash ~ '^[0-9a-fA-F]{64}$'`),
+  check("sfp_runtime_release_selector_verification_chk",
+    sql`length(btrim(verification_reference)) BETWEEN 1 AND 500`),
+  check("sfp_runtime_release_selector_actor_chk", sql`length(btrim(selected_by)) > 0`),
+  check("sfp_runtime_release_selector_version_chk", sql`selection_version > 0`),
+]);
+
+/** Token/epoch-fenced per-operation owner lease; integer work leases stay separate from billing usage. */
+export const sfpRuntimeJobLeases = pgTable("sfp_runtime_job_leases", {
+  operationId: uuid("operation_id").primaryKey().references(() => providerOperations.id, { onDelete: "restrict" }),
+  deploymentIdentity: text("deployment_identity").notNull(),
+  environmentIdentity: text("environment_identity").notNull(),
+  artifactSha: text("artifact_sha").notNull(),
+  processIdentity: text("process_identity").notNull(),
+  ownerEpoch: bigint("owner_epoch", { mode: "number" }).notNull(),
+  ownerToken: uuid("owner_token").notNull(),
+  operationClaimToken: uuid("operation_claim_token").notNull(),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_runtime_job_leases_owner_idx").on(table.deploymentIdentity, table.ownerEpoch, table.leaseExpiresAt),
+  check("sfp_runtime_job_leases_epoch_chk", sql`owner_epoch > 0`),
+]);
+
+/** Request-ID keyed async provider billing reconciliation, idempotent per economic operation. */
+export const sfpProviderUsageReconciliations = pgTable("sfp_provider_usage_reconciliations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull().references(() => providerControls.provider),
+  providerRequestId: text("provider_request_id").notNull(),
+  operationId: uuid("operation_id").notNull().references(() => providerOperations.id, { onDelete: "restrict" }),
+  usageQuantity: numeric("usage_quantity"),
+  usageUnit: text("usage_unit"),
+  usageStatus: text("usage_status").notNull().default("unknown"),
+  reconciliationSource: text("reconciliation_source"),
+  resultHash: text("result_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("sfp_provider_usage_operation_request_uidx").on(table.provider, table.providerRequestId),
+  index("sfp_provider_usage_operation_idx").on(table.operationId),
+  check("sfp_provider_usage_status_chk", sql`usage_status IN ('known','unknown','conflict')`),
+  check("sfp_provider_usage_known_contract_chk", sql`
+    usage_status <> 'known' OR (usage_quantity IS NOT NULL AND usage_quantity >= 0 AND usage_unit IS NOT NULL)
+  `),
 ]);
 
 export const providerAttempts = pgTable("provider_attempts", {
@@ -426,6 +562,7 @@ export const providerAttempts = pgTable("provider_attempts", {
   safeHttpClass: text("safe_http_class"),
   requestId: text("request_id"),
   errorCode: text("error_code"),
+  dispatchMarkedAt: timestamp("dispatch_marked_at", { withTimezone: true }),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
 }, (table) => [
@@ -3333,6 +3470,24 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   index("sunbiz_entities_enrichment_status_idx").on(table.enrichmentStatus),
   index("sunbiz_entities_list_id_idx").on(table.listId),
   index("sunbiz_entities_created_at_idx").on(table.createdAt),
+  index("sunbiz_entities_contact_identity_name_key_idx").on(sql`
+    btrim(regexp_replace(
+      regexp_replace(
+        lower(regexp_replace(coalesce(entity_name, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+      ),
+      '\\s+', ' ', 'g'
+    ))
+  `).where(sql`filing_number IS NOT NULL`),
+  index("sunbiz_entities_contact_identity_dba_key_idx").on(sql`
+    btrim(regexp_replace(
+      regexp_replace(
+        lower(regexp_replace(coalesce(dba, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+      ),
+      '\\s+', ' ', 'g'
+    ))
+  `).where(sql`filing_number IS NOT NULL AND dba IS NOT NULL`),
 ]);
 
 export const insertSunbizEntitySchema = createInsertSchema(sunbizEntities).omit({
@@ -8267,10 +8422,14 @@ export const contactBusinessLinkDecisions = pgTable("contact_business_link_decis
   decisionKey: text("decision_key").notNull().unique(), actorId: text("actor_id"), revision: integer("revision").notNull().default(1),
   evidenceSourceEventId: integer("evidence_source_event_id").references(() => contactSourceEvents.id, { onDelete: "restrict" }),
   systemEvidenceId: uuid("system_evidence_id").references(() => contactBusinessSystemLinkEvidence.id, { onDelete: "restrict" }),
+  sfpEvidenceId: uuid("sfp_evidence_id").references((): AnyPgColumn => contactBusinessSfpLinkEvidence.id, { onDelete: "restrict" }),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), supersededAt: timestamp("superseded_at", { withTimezone: true }),
-});
+}, (table) => [
+  index("contact_business_link_decisions_sfp_evidence_idx").on(table.sfpEvidenceId)
+    .where(sql`${table.sfpEvidenceId} IS NOT NULL`),
+]);
 export const contactBusinessSystemLinkEvidence = pgTable("contact_business_system_link_evidence", {
   id: uuid("id").primaryKey().defaultRandom(),
   decisionKey: text("decision_key").notNull().unique(),
@@ -9641,6 +9800,7 @@ export const sfpStageRuns = pgTable("sfp_stage_runs", {
   estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }).notNull().default(0),
   reservedCostMicros: bigint("reserved_cost_micros", { mode: "number" }).notNull().default(0),
   settledCostMicros: bigint("settled_cost_micros", { mode: "number" }).notNull().default(0),
+  billingUnknownCount: integer("billing_unknown_count").notNull().default(0),
   selectedCount: integer("selected_count").notNull().default(0), processedCount: integer("processed_count").notNull().default(0),
   succeededCount: integer("succeeded_count").notNull().default(0), failedCount: integer("failed_count").notNull().default(0),
   skippedCount: integer("skipped_count").notNull().default(0), claimToken: uuid("claim_token"),
@@ -9720,6 +9880,7 @@ export const sfpClassificationRuns = pgTable("sfp_classification_runs", {
   estimatedCostMicros: bigint("estimated_cost_micros", { mode: "number" }).notNull().default(0),
   reservedCostMicros: bigint("reserved_cost_micros", { mode: "number" }).notNull().default(0),
   settledCostMicros: bigint("settled_cost_micros", { mode: "number" }).notNull().default(0),
+  billingUnknownCount: integer("billing_unknown_count").notNull().default(0),
   selectedCount: integer("selected_count").notNull().default(0),
   processedCount: integer("processed_count").notNull().default(0),
   succeededCount: integer("succeeded_count").notNull().default(0),
@@ -9911,6 +10072,32 @@ export const sfpPaidCandidateEvidence = pgTable("sfp_paid_candidate_evidence", {
 ]);
 export type SfpPaidCandidateEvidence = typeof sfpPaidCandidateEvidence.$inferSelect;
 
+export const contactBusinessSfpLinkEvidence = pgTable("contact_business_sfp_link_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  decisionKey: text("decision_key").notNull().unique(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
+  sourceKind: text("source_kind").notNull(),
+  freeCandidateId: uuid("free_candidate_id").references(() => freeDiscoveryCandidates.id, { onDelete: "restrict" }),
+  paidCandidateEvidenceId: uuid("paid_candidate_evidence_id").references(() => sfpPaidCandidateEvidence.id, { onDelete: "restrict" }),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  normalizedValueHashVersion: integer("normalized_value_hash_version").notNull(),
+  contactEmailTokenHash: text("contact_email_token_hash").notNull(),
+  validationOperationId: uuid("validation_operation_id").notNull().references(() => providerOperations.id, { onDelete: "restrict" }),
+  factsHash: text("facts_hash").notNull(),
+  facts: jsonb("facts").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("contact_business_sfp_link_evidence_subject_idx").on(table.contactId, table.businessId, table.createdAt),
+  index("contact_business_sfp_link_evidence_eligibility_idx").on(table.eligibilityId),
+  check("contact_business_sfp_link_evidence_source_chk", sql`
+    (source_kind='free' AND free_candidate_id IS NOT NULL AND paid_candidate_evidence_id IS NULL)
+    OR (source_kind='paid' AND paid_candidate_evidence_id IS NOT NULL AND free_candidate_id IS NULL)
+  `),
+  check("contact_business_sfp_link_evidence_hash_version_chk", sql`normalized_value_hash_version IN (0,1)`),
+]);
+
 export const sfpCampaignPackageVersions = pgTable("sfp_campaign_package_versions", {
   id: uuid("id").primaryKey().defaultRandom(),
   packageKey: text("package_key").notNull(),
@@ -9953,6 +10140,7 @@ export const sfpCampaignStagingIntents = pgTable("sfp_campaign_staging_intents",
   validationSnapshot: jsonb("validation_snapshot").notNull(), lineage: jsonb("lineage").notNull(),
   masterLeadId: uuid("master_lead_id").references(() => masterLeads.id, { onDelete: "set null" }),
   packageVersionId: uuid("package_version_id").references(() => sfpCampaignPackageVersions.id, { onDelete: "restrict" }),
+  recipientCommitmentId: uuid("recipient_commitment_id").references((): AnyPgColumn => sfpRecipientAddressCommitments.id, { onDelete: "restrict" }),
   packageKey: text("package_key"),
   policyDocumentHash: text("policy_document_hash"),
   snapshotHash: text("snapshot_hash"),
@@ -10018,9 +10206,17 @@ export const sfpReadyHeldEnrollments = pgTable("sfp_ready_held_enrollments", {
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewNote: text("review_note"),
+  contactBusinessLinkDecisionId: uuid("contact_business_link_decision_id")
+    .references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  contactBusinessLinkRevision: integer("contact_business_link_revision"),
+  recipientCommitmentId: uuid("recipient_commitment_id")
+    .references(() => sfpRecipientAddressCommitments.id, { onDelete: "restrict" }),
 }, (table) => [
   uniqueIndex("sfp_ready_held_enrollments_intent_uidx").on(table.stagingIntentId),
+  uniqueIndex("sfp_ready_held_enrollments_commitment_uidx").on(table.recipientCommitmentId)
+    .where(sql`${table.recipientCommitmentId} IS NOT NULL`),
   index("sfp_ready_held_enrollments_contact_idx").on(table.contactId),
+  index("sfp_ready_held_enrollments_link_pin_idx").on(table.contactBusinessLinkDecisionId, table.contactBusinessLinkRevision),
   index("sfp_ready_held_enrollments_review_status_idx").on(table.reviewStatus),
   check(
     "sfp_ready_held_enrollments_resolution_chk",
@@ -10033,6 +10229,185 @@ export const sfpReadyHeldEnrollments = pgTable("sfp_ready_held_enrollments", {
 ]);
 
 export type SfpReadyHeldEnrollment = typeof sfpReadyHeldEnrollments.$inferSelect;
+
+export const sfpRecipientAddressCommitments = pgTable("sfp_recipient_address_commitments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programId: uuid("program_id").notNull().references(() => sfpPrograms.id, { onDelete: "restrict" }),
+  objectiveKey: text("objective_key").notNull().default("sfp.initial_recipient_acquisition.v1"),
+  recipientIdentityHash: text("recipient_identity_hash").notNull(),
+  recipientIdentityHashVersion: integer("recipient_identity_hash_version").notNull(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  packageVersionId: uuid("package_version_id").notNull().references(() => sfpCampaignPackageVersions.id, { onDelete: "restrict" }),
+  stagingIntentId: uuid("staging_intent_id").notNull().references(() => sfpCampaignStagingIntents.id, { onDelete: "restrict" }),
+  contactId: integer("contact_id").references(() => contacts.id, { onDelete: "restrict" }),
+  contactBusinessLinkDecisionId: uuid("contact_business_link_decision_id")
+    .references(() => contactBusinessLinkDecisions.id, { onDelete: "restrict" }),
+  state: text("state").notNull().default("claimed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  committedAt: timestamp("committed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("sfp_recipient_address_commitments_program_hash_uidx")
+    .on(table.programId, table.objectiveKey, table.recipientIdentityHash),
+  index("sfp_recipient_address_commitments_business_idx").on(table.programId, table.businessId, table.createdAt),
+  unique("sfp_recipient_address_commitments_staging_intent_uidx").on(table.stagingIntentId),
+  check("sfp_recipient_address_commitments_identity_chk", sql`
+    length(recipient_identity_hash)=64 AND recipient_identity_hash ~ '^[0-9a-f]{64}$'
+    AND recipient_identity_hash_version=1
+  `),
+  check("sfp_recipient_address_commitments_objective_chk", sql`length(trim(objective_key))>0`),
+  check("sfp_recipient_address_commitments_state_chk", sql`state IN ('claimed','committed')`),
+  check("sfp_recipient_address_commitments_commit_state_chk", sql`
+    (state='claimed' AND committed_at IS NULL)
+    OR (state='committed' AND contact_id IS NOT NULL
+        AND contact_business_link_decision_id IS NOT NULL AND committed_at IS NOT NULL)
+  `),
+]);
+
+export const sfpRecipientCommitmentAliases = pgTable("sfp_recipient_commitment_aliases", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  commitmentId: uuid("commitment_id").notNull().references(() => sfpRecipientAddressCommitments.id, { onDelete: "restrict" }),
+  stagingIntentId: uuid("staging_intent_id").notNull().references(() => sfpCampaignStagingIntents.id, { onDelete: "restrict" }),
+  sourceKind: text("source_kind").notNull(),
+  sourceReferenceId: text("source_reference_id").notNull(),
+  normalizedValueHash: text("normalized_value_hash").notNull(),
+  normalizedValueHashVersion: integer("normalized_value_hash_version").notNull(),
+  disposition: text("disposition").notNull(),
+  reasonCode: text("reason_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_recipient_commitment_aliases_commitment_idx").on(table.commitmentId, table.createdAt),
+  unique("sfp_recipient_commitment_aliases_attempt_uidx")
+    .on(table.stagingIntentId, table.commitmentId, table.disposition),
+  check("sfp_recipient_commitment_aliases_source_chk", sql`source_kind IN ('free','paid','contact')`),
+  check("sfp_recipient_commitment_aliases_hash_version_chk", sql`normalized_value_hash_version IN (0,1)`),
+  check("sfp_recipient_commitment_aliases_disposition_chk", sql`disposition IN ('initial','reused','held')`),
+]);
+
+export const sfpEnrollmentBridgeHolds = pgTable("sfp_enrollment_bridge_holds", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stagingIntentId: uuid("staging_intent_id").notNull().references(() => sfpCampaignStagingIntents.id, { onDelete: "restrict" }),
+  eligibilityId: uuid("eligibility_id").notNull().references(() => sfpOutreachEligibility.id, { onDelete: "restrict" }),
+  holdCode: text("hold_code").notNull(),
+  safeDetail: text("safe_detail"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("sfp_enrollment_bridge_holds_intent_latest_idx").on(table.stagingIntentId, sql`${table.createdAt} DESC`),
+]);
+
+export const sfpProviderRetrievalTasks = pgTable("sfp_provider_retrieval_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull(),
+  taskKind: text("task_kind").notNull(),
+  providerTaskId: text("provider_task_id").notNull(),
+  providerReference: text("provider_reference"),
+  submissionOperationId: uuid("submission_operation_id").notNull().references(() => providerOperations.id, { onDelete: "restrict" }),
+  completionOperationId: uuid("completion_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  contactOperationId: uuid("contact_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  stageRunId: uuid("stage_run_id").notNull().references(() => sfpStageRuns.id, { onDelete: "cascade" }),
+  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  businessNameSnapshot: text("business_name_snapshot").notNull(),
+  domainSnapshot: text("domain_snapshot"),
+  citySnapshot: text("city_snapshot"),
+  stateSnapshot: text("state_snapshot"),
+  state: text("state").notNull().default("submitted"),
+  requestFingerprint: text("request_fingerprint").notNull(),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Retain only a completion timestamp actually documented by the provider. */
+  providerCompletedAt: timestamp("provider_completed_at", { withTimezone: true }),
+  completionTimeLowerBoundAt: timestamp("completion_time_lower_bound_at", { withTimezone: true }).notNull(),
+  completionTimeBoundKind: text("completion_time_bound_kind").notNull(),
+  /** Conservative polling cutoff derived from completionTimeLowerBoundAt + 4h. */
+  resultsExpiresAt: timestamp("results_expires_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  leaseToken: uuid("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastErrorCode: text("last_error_code"),
+  completedResultCount: integer("completed_result_count"),
+  completedResultHashes: jsonb("completed_result_hashes").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => [
+  unique("sfp_provider_retrieval_task_provider_id_uidx").on(table.provider, table.providerTaskId),
+  index("sfp_provider_retrieval_tasks_claim_idx").on(table.state, table.nextPollAt, table.leaseExpiresAt, table.submittedAt)
+    .where(sql`${table.state} IN ('submitted','polling')`),
+  index("sfp_provider_retrieval_tasks_business_idx").on(table.businessId, sql`${table.submittedAt} DESC`),
+  index("sfp_provider_retrieval_tasks_stage_idx").on(table.stageRunId, table.businessId, table.state),
+  check("sfp_provider_retrieval_tasks_provider_check", sql`provider = 'outscraper'`),
+  check("sfp_provider_retrieval_tasks_task_kind_check", sql`task_kind IN ('maps_search','leads_and_contacts')`),
+  check("sfp_provider_retrieval_tasks_state_check", sql`state IN ('submitted','polling','completed','no_result','failed','expired')`),
+  check("sfp_provider_retrieval_tasks_request_fingerprint_check", sql`request_fingerprint ~ '^[0-9a-f]{64}$'`),
+  check("sfp_provider_retrieval_task_expiry_chk", sql`expires_at > submitted_at`),
+  check("sfp_provider_retrieval_task_results_expiry_chk", sql`
+    (provider_completed_at IS NOT NULL
+      AND completion_time_bound_kind = 'provider_completed_at'
+      AND completion_time_lower_bound_at = provider_completed_at
+      AND results_expires_at = provider_completed_at + INTERVAL '4 hours')
+    OR
+    (provider_completed_at IS NULL
+      AND completion_time_bound_kind IN ('last_pending_observed','submission_started')
+      AND results_expires_at = completion_time_lower_bound_at + INTERVAL '4 hours')
+  `),
+  check("sfp_provider_retrieval_task_completion_bound_kind_chk", sql`
+    completion_time_bound_kind IN ('provider_completed_at','last_pending_observed','submission_started')
+  `),
+  check("sfp_provider_retrieval_task_result_count_chk", sql`completed_result_count IS NULL OR completed_result_count >= 0`),
+  check("sfp_provider_retrieval_task_attempt_count_chk", sql`attempt_count >= 0`),
+  check("sfp_provider_retrieval_task_lease_chk", sql`
+    (state = 'polling' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
+    OR (state <> 'polling' AND lease_token IS NULL AND lease_expires_at IS NULL)
+  `),
+  check("sfp_provider_retrieval_task_hashes_array_chk", sql`jsonb_typeof(completed_result_hashes) = 'array'`),
+]);
+
+export const sfpReadyHeldConsumerItems = pgTable("sfp_ready_held_consumer_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  stagingIntentId: uuid("staging_intent_id").notNull().references(() => sfpCampaignStagingIntents.id, { onDelete: "restrict" }),
+  state: text("state").notNull().default("pending"),
+  actorId: text("actor_id").notNull(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  runtimeOwnerEpoch: bigint("runtime_owner_epoch", { mode: "number" }),
+  runtimeOwnerToken: uuid("runtime_owner_token"),
+  runtimeDeploymentIdentity: text("runtime_deployment_identity"),
+  runtimeEnvironmentIdentity: text("runtime_environment_identity"),
+  runtimeArtifactSha: text("runtime_artifact_sha"),
+  runtimeProcessIdentity: text("runtime_process_identity"),
+  runtimeQueueTopologyHash: text("runtime_queue_topology_hash"),
+  outcomeCode: text("outcome_code"),
+  result: jsonb("result").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("sfp_ready_held_consumer_items_staging_intent_id_key").on(table.stagingIntentId),
+  index("sfp_ready_held_consumer_claim_idx").on(table.state, table.nextAttemptAt, table.leaseExpiresAt, table.createdAt),
+  check("sfp_ready_held_consumer_items_state_check", sql`
+    state IN ('pending','claimed','retry','held','completed','dead_letter')
+  `),
+  check("sfp_ready_held_consumer_items_attempt_count_check", sql`attempt_count >= 0`),
+  check("sfp_ready_held_consumer_owner_binding_chk", sql`
+    (runtime_owner_epoch IS NULL AND runtime_owner_token IS NULL
+      AND runtime_deployment_identity IS NULL AND runtime_environment_identity IS NULL
+      AND runtime_artifact_sha IS NULL AND runtime_process_identity IS NULL
+      AND runtime_queue_topology_hash IS NULL)
+    OR
+    (runtime_owner_epoch > 0 AND runtime_owner_token IS NOT NULL
+      AND runtime_deployment_identity IS NOT NULL AND runtime_environment_identity IS NOT NULL
+      AND runtime_artifact_sha IS NOT NULL AND runtime_process_identity IS NOT NULL
+      AND runtime_queue_topology_hash IS NOT NULL)
+  `),
+  check("sfp_ready_held_consumer_claim_binding_chk", sql`
+    (state='claimed' AND claim_token IS NOT NULL AND lease_expires_at IS NOT NULL
+      AND runtime_owner_epoch IS NOT NULL AND runtime_owner_token IS NOT NULL)
+    OR state<>'claimed'
+  `),
+]);
 
 export const emailDiscoveryDomainCache = pgTable("email_discovery_domain_cache", {
   domain: text("domain").primaryKey(),

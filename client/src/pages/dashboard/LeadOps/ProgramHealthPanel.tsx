@@ -10,12 +10,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle, ShieldCheck, Info } from "lucide-react";
+import { Activity, CheckCircle, AlertTriangle, Clock, XCircle, RefreshCw, PlayCircle, Info } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -190,8 +189,8 @@ function MetricDisplay({ label, cell, unit = "" }: { label: string; cell?: Metri
 
 interface PromotionState {
   promotionEnabled: boolean;
-  attestationLive: boolean;
-  attestationReason: string;
+  runtimeOwnerReady: boolean;
+  runtimeOwnerReason: string | null;
   gateOpen: boolean;
   staged: number;
   validationAdmitted: number;
@@ -288,55 +287,6 @@ export function ProgramHealthPanel() {
     },
     enabled: isAdmin,
     refetchInterval: 30_000,
-  });
-
-  const issueAttestationMutation = useMutation<{ replayed: boolean; expiresAt?: string; autoConverged?: boolean }, Error>({
-    mutationFn: async () => {
-      // Step 1: If inventory is missing, self-converge it first (uses the
-      // operator private key already in the server environment).
-      const idempotencyKey = `attest-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-      const attemptAttestation = async () => {
-        const res = await apiRequest("POST", "/api/cro03c/runtime-attestations", { idempotencyKey });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw Object.assign(new Error((body as any).message ?? `HTTP ${res.status}`), { code: (body as any).code });
-        }
-        return res.json() as Promise<{ replayed: boolean; expiresAt?: string }>;
-      };
-
-      try {
-        return await attemptAttestation();
-      } catch (firstErr: any) {
-        // Auto-converge if inventory is the only missing piece, then retry once.
-        if (firstErr?.code === "CRO03C_DEPLOYMENT_INVENTORY_MISSING") {
-          const convergeRes = await apiRequest("POST", "/api/admin/cro03c/deployment-inventory/converge", {});
-          if (!convergeRes.ok) {
-            const body = await convergeRes.json().catch(() => ({}));
-            throw new Error(`Inventory convergence failed: ${(body as any).message ?? convergeRes.status}`);
-          }
-          const result = await attemptAttestation();
-          return { ...result, autoConverged: true };
-        }
-        throw firstErr;
-      }
-    },
-    onSuccess: (data) => {
-      const convergeNote = data.autoConverged ? " Deployment inventory was auto-converged." : "";
-      toast({
-        title: data.replayed ? "Attestation already active" : "Runtime attestation issued",
-        description: data.replayed
-          ? `A valid attestation was on record — gate should now be open.${convergeNote}`
-          : `Gate is now open. Expires at ${data.expiresAt ? new Date(data.expiresAt).toLocaleTimeString() : "unknown"}.${convergeNote}`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/candidates/promotion-state"] });
-    },
-    onError: (err) => {
-      toast({
-        title: "Attestation failed",
-        description: err.message,
-        variant: "destructive",
-      });
-    },
   });
 
   const backfillMutation = useMutation<BackfillResult, Error, number>({
@@ -756,7 +706,7 @@ export function ProgramHealthPanel() {
                 Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
               </CardDescription>
             </div>
-            {/* Gate status badge — reflects BOTH feature flag AND live attestation */}
+            {/* Gate status badge reflects the feature flag and durable runtime owner. */}
             {ps && (
               ps.gateOpen ? (
                 <Badge className="shrink-0 bg-green-100 text-green-800 border-green-300 hover:bg-green-100" variant="outline">
@@ -770,46 +720,8 @@ export function ProgramHealthPanel() {
                     title={ps.note}
                   >
                     <XCircle className="h-3 w-3 mr-1" />
-                    {ps.promotionEnabled && !ps.attestationLive ? "No attestation" : "Gate closed"}
+                    {ps.promotionEnabled && !ps.runtimeOwnerReady ? "Owner unavailable" : "Gate closed"}
                   </Badge>
-                  {/* Show Issue Attestation button when flag is on but no live row */}
-                  {isAdmin && ps.promotionEnabled && !ps.attestationLive && (() => {
-                    const diag = gateDiagnosticsQuery.data;
-                    // Disable if worker fleet is provably empty — no amount of inventory
-                    // convergence fixes missing worker heartbeats.
-                    const workerFleetEmpty = diag ? !diag.workerFleet.present : false;
-                    const releaseShaInvalid = diag ? (!diag.deployedReleaseSha || !/^[0-9a-f]{40}$/i.test(diag.deployedReleaseSha)) : false;
-                    const isDisabled = issueAttestationMutation.isPending || workerFleetEmpty || releaseShaInvalid;
-                    const disabledReason = workerFleetEmpty
-                      ? "No live worker heartbeats — start the worker process first"
-                      : releaseShaInvalid
-                        ? "RELEASE_SHA is missing or invalid — redeploy to fix"
-                        : undefined;
-                    const btn = (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[11px] px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-                        disabled={isDisabled}
-                        onClick={() => !isDisabled && issueAttestationMutation.mutate()}
-                        aria-disabled={isDisabled}
-                      >
-                        {issueAttestationMutation.isPending
-                          ? <><RefreshCw className="h-3 w-3 animate-spin" /> Checking…</>
-                          : <><ShieldCheck className="h-3 w-3" /> Issue attestation</>
-                        }
-                      </Button>
-                    );
-                    if (disabledReason) {
-                      return (
-                        <Tooltip>
-                          <TooltipTrigger asChild>{btn}</TooltipTrigger>
-                          <TooltipContent className="text-xs max-w-[220px]">{disabledReason}</TooltipContent>
-                        </Tooltip>
-                      );
-                    }
-                    return btn;
-                  })()}
                 </div>
               )
             )}
@@ -864,7 +776,7 @@ export function ProgramHealthPanel() {
                         variant="outline"
                         className="h-6 text-[11px] px-2 gap-1"
                         disabled={backfillMutation.isPending || !ps?.gateOpen}
-                        title={!ps?.gateOpen ? (ps?.promotionEnabled ? "No live attestation — issue a runtime attestation first" : "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first") : `Promote up to ${backfillLimit} staged candidates`}
+                        title={!ps?.gateOpen ? (ps?.promotionEnabled ? `Durable runtime owner unavailable: ${ps.runtimeOwnerReason ?? "identity not ready"}` : "Gate is closed — enable FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED first") : `Promote up to ${backfillLimit} staged candidates`}
                         onClick={() => backfillMutation.mutate(backfillLimit)}
                       >
                         {backfillMutation.isPending
@@ -875,8 +787,8 @@ export function ProgramHealthPanel() {
                     </div>
                     {!ps?.gateOpen && (
                       <p className="mt-1 text-[10px] text-red-500">
-                        {ps?.promotionEnabled && !ps?.attestationLive
-                          ? "No live attestation"
+                        {ps?.promotionEnabled && !ps?.runtimeOwnerReady
+                          ? "Runtime owner unavailable"
                           : "Gate closed"}
                       </p>
                     )}

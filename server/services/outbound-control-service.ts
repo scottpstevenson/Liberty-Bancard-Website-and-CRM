@@ -20,7 +20,11 @@
  */
 
 import { pool } from "../db";
-import { invalidatePauseStateCache, getPauseState } from "./outbound-pause-authority";
+import {
+  invalidatePauseStateCache,
+  getPauseState,
+  OUTBOUND_PAUSE_CONTROL_ADVISORY_LOCK_KEY,
+} from "./outbound-pause-authority";
 import type { PauseState, OutboundPauseStateResult } from "./outbound-pause-authority";
 import { outboundQueueCoordinator } from "./outbound-queue-coordinator";
 
@@ -70,7 +74,7 @@ export interface PauseMutationRequest {
 // ---------------------------------------------------------------------------
 // All mutations acquire the same advisory lock so concurrent PATCHes serialize
 // at the DB level. The lock is released when the transaction commits/rolls back.
-const ADVISORY_LOCK_KEY = 1_531_1522n; // Arbitrary stable number for this subsystem
+const ADVISORY_LOCK_KEY = OUTBOUND_PAUSE_CONTROL_ADVISORY_LOCK_KEY;
 
 // ---------------------------------------------------------------------------
 // In-flight authorization drain (DB-backed, cross-process)

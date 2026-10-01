@@ -1,0 +1,168 @@
+#!/usr/bin/env npx tsx
+/**
+ * Task 2060 certification launcher. It creates one private, socket-only
+ * PostgreSQL cluster, gives each certification its own migrated disposable
+ * database, then destroys the entire cluster afterward.
+ */
+import { spawn } from "node:child_process";
+import os from "node:os";
+import pg from "pg";
+import { randomUUID } from "node:crypto";
+import {
+  buildLocalRehearsalEnvironment,
+  launchLocalPostgres16,
+  type LocalCluster,
+} from "./local-rehearsal-core";
+import { launchSfp2060DisposableRedis } from "./sfp2060-disposable-redis";
+
+const localRole = () => process.env.USER || process.env.LOGNAME || os.userInfo().username;
+
+function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { env, stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+}
+
+async function main(): Promise<void> {
+  const cluster: LocalCluster = await launchLocalPostgres16();
+  let exitCode = 0;
+  const redisInstances: Array<Awaited<ReturnType<typeof launchSfp2060DisposableRedis>>> = [];
+  const redisPrefixes = new Set<string>();
+  try {
+    const baseEnv = buildLocalRehearsalEnvironment({
+      PGUSER: localRole(),
+      NODE_ENV: "test",
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME || `${os.homedir()}/.config`,
+      VG_PROVIDER_DENY_MODE: "1",
+      GHL_TRANSPORT_FAILFAST: "true",
+      EMAIL_TRANSPORT_FAILFAST: "true",
+      SMS_TRANSPORT_FAILFAST: "true",
+      SUNBIZ_ENRICHMENT_ENABLED: "false",
+      SERPER_GATEWAY_ENABLED: "false",
+      FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED: "true",
+      CRO03_PROVIDER_TRANSPORT_ENABLED: "true",
+      BACKGROUND_JOB_PROFILE: "selective:sfp-campaign-staging",
+    });
+    // These fixed keys are disposable test material, never inherited
+    // credentials. Set them after the helper has scrubbed its input environment.
+    baseEnv.MERCHANT_DATA_ENCRYPTION_KEY = "task-2060-disposable-only";
+    baseEnv.CREDENTIAL_ENCRYPTION_KEY = "task-2060-disposable-only";
+
+    const certifications = [
+      { name: "five-vertical-fairness", script: "scripts/test-sfp-five-vertical-fairness-pure.ts", database: false },
+      { name: "provider-contracts", script: "scripts/test-sfp-provider-contracts.ts", database: false },
+      { name: "ready-held-consumer-contract", script: "scripts/test-sfp-ready-held-consumer-contract.ts", database: false },
+      { name: "redis-reservation", script: "scripts/test-certification-redis-reservation.ts", database: true },
+      { name: "automatic-continuity", script: "scripts/test-sfp2060-continuity-disposable.ts", database: true },
+      { name: "unified-candidate-dedupe", script: "scripts/test-sfp-unified-candidate-dedupe.ts", database: true },
+      { name: "classification-bridge", script: "scripts/test-sfp-classification-bridge.ts", database: true },
+      { name: "free-continuation", script: "scripts/test-sfp-free-continuation-certification.ts", database: true },
+      { name: "contact-link-source-recovery", script: "scripts/test-contact-link-source-recovery-disposable.ts", database: true },
+      {
+        name: "contact-source-bridge-2056",
+        script: "scripts/test-sfp2056-c1-c2-c3-c6-contact-certification.ts",
+        database: true,
+        seedMi09Pricing: true,
+      },
+      { name: "integrated-pipeline", script: "scripts/test-sfp2060-integrated-pipeline.ts", database: true },
+    ] as const;
+    const onlyName = process.argv[2] === "--only" ? process.argv[3] : undefined;
+    if (process.argv[2] !== undefined && process.argv[2] !== "--only") {
+      throw new Error("Usage: run-sfp2060-certification-disposable.ts [--only <certification-name>]");
+    }
+    if (process.argv[2] === "--only" && !onlyName) {
+      throw new Error("Usage: run-sfp2060-certification-disposable.ts --only <certification-name>");
+    }
+    const selectedCertifications = onlyName
+      ? certifications.filter((certification) => certification.name === onlyName)
+      : certifications;
+    if (onlyName && selectedCertifications.length === 0) {
+      throw new Error(`Unknown Task 2060 disposable certification: ${onlyName}`);
+    }
+    for (const certification of selectedCertifications) {
+      const env: NodeJS.ProcessEnv = { ...baseEnv };
+      if (certification.database) {
+        const dbName = `test_sfp2060_${certification.name.replace(/[^a-z0-9]/gi, "_")}_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+        const admin = new pg.Client({
+          host: cluster.socket.realpath,
+          port: cluster.port,
+          database: "postgres",
+          user: localRole(),
+        });
+        await admin.connect();
+        try {
+          await admin.query(`CREATE DATABASE "${dbName}"`);
+        } finally {
+          await admin.end();
+        }
+
+        const dbUrl = `postgresql:///${dbName}?host=${encodeURIComponent(cluster.socket.realpath)}&port=${cluster.port}`;
+        // The safety helper removes inherited database credentials. Only the
+        // socket URL for this newly created suite database is restored here.
+        env.DATABASE_URL = dbUrl;
+        env.TEST_DATABASE_URL = dbUrl;
+        const migrationExit = await run("npx", [
+          "tsx", "-e",
+          `import("./server/db-migrate").then(m=>m.runDrizzleMigrations()).then(()=>import("./server/db")).then(d=>d.pool.end()).catch(e=>{console.error(e);process.exit(1);})`,
+        ], env);
+        if (migrationExit !== 0) {
+          throw new Error(`Task 2060 disposable migrations failed for ${certification.name} (exit ${migrationExit}).`);
+        }
+        if ("seedMi09Pricing" in certification && certification.seedMi09Pricing) {
+          const seedExit = await run("npx", [
+            "tsx", "scripts/seed-mi09-pricing.ts", "--apply", "--confirm-env=test",
+          ], env);
+          if (seedExit !== 0) {
+            throw new Error(`Task 2060 disposable pricing seed failed for ${certification.name} (exit ${seedExit}).`);
+          }
+        }
+        const redis = await launchSfp2060DisposableRedis({
+          PATH: env.PATH,
+          HOME: env.HOME,
+          TMPDIR: env.TMPDIR,
+          LANG: "C",
+          LC_ALL: "C",
+        });
+        if (redisPrefixes.has(redis.prefix)) {
+          await redis.stop();
+          throw new Error("Task 2060 disposable Redis prefix collided across SQL certifications.");
+        }
+        redisPrefixes.add(redis.prefix);
+        redisInstances.push(redis);
+        // Every SQL certification owns a distinct Redis namespace and private
+        // server, both attached only after the shared environment scrub.
+        env.REDIS_URL = redis.url;
+        env.TEST_REDIS_PREFIX = redis.prefix;
+      }
+      exitCode = await run("npx", ["tsx", certification.script], env);
+      if (exitCode !== 0) break;
+    }
+  } catch (error) {
+    console.error(error);
+    exitCode = 1;
+  } finally {
+    // A failed teardown is a certification failure even when every assertion
+    // passed. Stop every private Redis and the disposable PostgreSQL cluster.
+    let cleanupFailed = false;
+    try {
+      await cluster.stop();
+    } catch (error) {
+      console.error("Task 2060 disposable PostgreSQL cluster teardown failed:", error);
+      cleanupFailed = true;
+    }
+    for (const redis of redisInstances.reverse()) {
+      try {
+        await redis.stop();
+      } catch (error) {
+        console.error("Task 2060 disposable Redis teardown failed:", error);
+        cleanupFailed = true;
+      }
+    }
+    if (cleanupFailed) exitCode = 1;
+  }
+  process.exitCode = exitCode;
+}
+
+void main();

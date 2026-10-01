@@ -42,14 +42,9 @@ export const QUEUE_NAMES = {
   // Continuous outreach-readiness pipeline: rolling cohort rotation + bounded
   // Serper domain discovery, and bounded ZeroBounce validation. Both are
   // no-ops unless the program is active AND (for validation) the promotion
-  // env flag is on; neither ever enrolls, sends, or raises any spend cap.
+  // env flag is on; neither ever enrolls or sends.
   SFP_CONTINUOUS_DISCOVERY: "sfp-continuous-discovery",
   SFP_CONTINUOUS_VALIDATION: "sfp-continuous-validation",
-  // Renews the short-lived (<=15 min) CRO-03C runtime attestation that every
-  // SFP paid operation requires. Previously only refreshed by a manual admin
-  // ceremony call; without this, the attestation silently expires and every
-  // validation preview reports gateOpen=false forever with no recovery path.
-  SFP_ATTESTATION_REFRESH: "sfp-attestation-refresh",
   // Task #2002 completion: recurring driver for the resumable Sunbiz
   // full-backlog microbatch processor. Registered unconditionally but the
   // handler is a no-op unless an admin has set the run status to 'running'

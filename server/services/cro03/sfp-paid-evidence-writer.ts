@@ -141,6 +141,9 @@ export interface UnifiedSfpCandidateView {
   personNameEvidence: string | null;
   personTitleEvidence: string | null;
   createdAt: string;
+  /** True only when businesses.main_email exactly matches this retained,
+   * source-typed candidate and its selected hash. */
+  retainedBusinessEmailProjection?: boolean;
   /** Conservative effective type shared across equal business/address
    *  observations. Any person observation makes every row person-classified. */
   subjectType: string;
@@ -249,7 +252,7 @@ export async function assertSfpContactCandidateCurrent(
        AND d.id=${resolved.contactBusinessLinkDecisionId}::uuid
        AND d.revision=${resolved.contactBusinessLinkRevision}
      LIMIT 1
-     FOR SHARE OF c,b,d
+     FOR SHARE OF d
   `))[0];
   if (!current ||
       String(current.link_decision_id) !== String(resolved.contactBusinessLinkDecisionId) ||
@@ -329,7 +332,7 @@ export async function resolveSfpCandidateReference(
        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                         WHERE q.business_id=c.business_id AND q.cleared_at IS NULL)
           LIMIT 1
-          FOR SHARE OF c,b,d
+      FOR SHARE OF c,b,d
   `))[0];
   if (row && (
     (reference.contactBusinessLinkDecisionId && String(row.link_decision_id) !== reference.contactBusinessLinkDecisionId)
@@ -430,7 +433,6 @@ export async function openSfpCandidatePlaintext<T>(
            AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
                             WHERE q.business_id=c.business_id AND q.cleared_at IS NULL)
           LIMIT 1
-          FOR SHARE OF c,b,d
       `)))[0];
   const resolvedRef: ResolvedSfpCandidateReference | null = !resolvedRow ? null : input.reference.sourceKind === "free"
     ? {
@@ -564,7 +566,7 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
   if (businessIds.length === 0) return [];
   const idList = sql.join(businessIds.map((id) => sql`${id}`), sql`, `);
   const freeRows = rows(await db.execute(sql`
-     SELECT id, business_id, field, source, subject_type,
+      SELECT id, business_id, field, source, subject_type,person_name_evidence,person_title_evidence,
             disposition, confidence, masked_value, normalized_value_hash, created_at
       FROM free_discovery_candidates
      WHERE business_id = ANY(ARRAY[${idList}]::integer[])
@@ -582,10 +584,53 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
                         WHERE d.evidence_id=sfp_paid_candidate_evidence.id)
      ORDER BY created_at DESC
   `));
+   // main_email is only a projection. Materialize its retained status onto a
+   // candidate when the selected hash points to a real encrypted, typed
+   // source row AND the decrypted source value hashes exactly to the retained
+   // business email. A bare main_email never creates a candidate.
+   const retainedProjectionRows = rows(await db.execute(sql`
+     SELECT 'free' AS source_kind,c.id::text AS evidence_id,b.main_email,b.email_selected_candidate_hash,
+            c.normalized_value_hash,c.envelope_ciphertext,c.envelope_nonce,c.envelope_tag,c.envelope_key_version
+       FROM businesses b
+       JOIN free_discovery_candidates c
+         ON c.business_id=b.id AND c.field='email' AND c.subject_type='business'
+        AND c.normalized_value_hash=b.email_selected_candidate_hash
+      WHERE b.id=ANY(ARRAY[${idList}]::integer[])
+        AND b.main_email IS NOT NULL AND b.email_discovery_status='provider_valid'
+        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                         WHERE q.business_id=b.id AND q.cleared_at IS NULL)
+     UNION ALL
+     SELECT 'paid' AS source_kind,c.id::text AS evidence_id,b.main_email,b.email_selected_candidate_hash,
+            c.normalized_value_hash,c.envelope_ciphertext,c.envelope_nonce,c.envelope_tag,c.envelope_key_version
+       FROM businesses b
+       JOIN sfp_paid_candidate_evidence c
+         ON c.business_id=b.id AND c.field='email' AND c.subject_type='business'
+        AND c.normalized_value_hash=b.email_selected_candidate_hash
+      WHERE b.id=ANY(ARRAY[${idList}]::integer[])
+        AND b.main_email IS NOT NULL AND b.email_discovery_status='provider_valid'
+        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q
+                         WHERE q.business_id=b.id AND q.cleared_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM sfp_discredited_paid_evidence d WHERE d.evidence_id=c.id)
+   `));
+   const retainedBusinessEmailEvidence = new Set<string>();
+   for (const row of retainedProjectionRows) {
+     const sourceValue = unseal("email", {
+       ciphertext: String(row.envelope_ciphertext),
+       nonce: String(row.envelope_nonce),
+       tag: String(row.envelope_tag),
+       keyVersion: Number(row.envelope_key_version),
+     });
+     const sourceHash = emailNormalizedValueHash(sourceValue);
+     if (sourceHash === String(row.email_selected_candidate_hash) &&
+         sourceHash === emailNormalizedValueHash(String(row.main_email))) {
+       retainedBusinessEmailEvidence.add(`${row.source_kind}:${row.evidence_id}`);
+     }
+   }
    // A populated FK is only a projection, not proof. Contact evidence enters
    // the winner pool only with its live verified decision and consistent FK.
   const contactRows = rows(await db.execute(sql`
-      SELECT c.id, c.business_id, c.email, c.email_status, c.created_at,
+       SELECT c.id, c.business_id, c.email, c.email_status, c.created_at,
+              c.first_name,c.last_name,c.title,
              d.id AS link_decision_id,d.revision
        FROM contacts c
        JOIN businesses b ON b.id = c.business_id AND b.record_class = 'canonical'
@@ -635,8 +680,8 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
       maskedValue: r.masked_value,
       confidence: Number(r.confidence),
       disposition: r.disposition,
-      personNameEvidence: null,
-      personTitleEvidence: null,
+       personNameEvidence: r.person_name_evidence ?? null,
+       personTitleEvidence: r.person_title_evidence ?? null,
       createdAt: String(r.created_at),
       duplicateOfEvidenceId: null,
       stageKey: r.source ?? "free",
@@ -647,6 +692,7 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
        _normalizedValueHash: String(r.normalized_value_hash),
        _linkDecisionId: null,
        _linkRevision: null,
+       retainedBusinessEmailProjection: retainedBusinessEmailEvidence.has(`free:${String(r.id)}`),
     })),
     ...paidRows.map((p: any) => ({
       sourceKind: "paid" as const,
@@ -669,6 +715,7 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
        _normalizedValueHash: String(p.normalized_value_hash),
        _linkDecisionId: null,
        _linkRevision: null,
+       retainedBusinessEmailProjection: retainedBusinessEmailEvidence.has(`paid:${String(p.id)}`),
     })),
     ...contactRows.map((c: any) => {
       // A contact with no email_status yet ('unvalidated'/'active') has no

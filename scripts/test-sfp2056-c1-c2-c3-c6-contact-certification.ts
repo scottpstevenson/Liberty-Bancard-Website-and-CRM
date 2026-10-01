@@ -91,6 +91,8 @@ const { db, pool } = await import("../server/db");
   const express = (await import("express")).default;
   const { registerLeadOpsRoutes } = await import("../server/routes/lead-ops");
 const { writeContact } = await import("../server/services/contact-writer");
+const { applyConsentCommand } = await import("../server/services/consent-authority");
+const { projectBusinessOnly } = await import("../server/services/cro03/projection-service");
 const {
   recordContactBusinessLinkCandidate,
   decideContactBusinessLink,
@@ -108,6 +110,8 @@ const {
 const { computeLivePackageContentHash } = await import("../server/services/cro03/sfp-campaign-packages");
 const { bridgeReadyHeldIntentToPausedEnrollment } = await import("../server/services/cro03/sfp-enrollment-bridge");
 const { hashEmailToken } = await import("../server/services/provider-readiness-decision");
+const { normalizedSfpEmailHash, sfpRecipientIdentityHash } =
+  await import("../server/services/cro03/sfp-recipient-link-predicates");
 const { seal } = await import("../server/services/cro03/candidate-evidence-service");
 const { writeSfpPaidCandidateEvidence } = await import("../server/services/cro03/sfp-paid-evidence-writer");
 
@@ -119,6 +123,12 @@ try {
     RETURNING id
   `))[0];
   const businessId = Number(business.id);
+  await db.execute(sql`
+    INSERT INTO business_locations
+      (business_id,location_name,street_address,city,state,postal_code,county_fips,is_primary)
+    VALUES (${businessId},${`${runKey} operating location`},'100 Certification Way','Miami','FL',
+      '33101','12086',TRUE)
+  `);
 
   // The canonical writer creates a genuinely unlinked contact and retained
   // source event. The admin reviewer is a different actor from that event.
@@ -145,6 +155,10 @@ try {
   `))[0];
   check(initiallyUnlinked.business_id == null && initiallyUnlinked.email_status !== "valid",
     "canonical source contact begins unlinked; legacy email status is not validation proof");
+  check(normalizedSfpEmailHash(email, 0) !== normalizedSfpEmailHash(email, 1) &&
+    normalizedSfpEmailHash(email, 1) === normalizedHash &&
+    sfpRecipientIdentityHash(email) === sfpRecipientIdentityHash(` ${email.toUpperCase()} `),
+  "historical address hash versions remain distinct while recipient identity compares supported normalized addresses");
 
   const reviewerId = `${runKey}-admin`;
   await db.execute(sql`
@@ -240,9 +254,16 @@ try {
   `))[0];
   const program = rows(await db.execute(sql`
     INSERT INTO sfp_programs
-      (name, county_fips, vertical_ids, max_cohort_size, policy_version, is_active, created_by, taxonomy_version)
-    VALUES (${`${runKey}-program`}, ARRAY['12086'], ARRAY['Construction/Trades/Home Services'],
-      10, 1, TRUE, ${runKey}, 2)
+      (name, county_fips, vertical_ids, max_cohort_size, policy_version, is_active, created_by,
+       taxonomy_version, recurring_enabled, schedule_config)
+    VALUES ('south-florida-v1', ARRAY['12086'], ARRAY['Construction/Trades/Home Services'],
+      10, 1, TRUE, ${runKey}, 2, FALSE,
+      '{"freeBatch":25,"paidBatch":10,"validationBatch":25,"campaignStaging":1}'::jsonb)
+    ON CONFLICT (name) DO UPDATE SET
+      county_fips=EXCLUDED.county_fips, vertical_ids=EXCLUDED.vertical_ids,
+      max_cohort_size=EXCLUDED.max_cohort_size, policy_version=EXCLUDED.policy_version,
+      is_active=TRUE, taxonomy_version=EXCLUDED.taxonomy_version, recurring_enabled=FALSE,
+      schedule_config=EXCLUDED.schedule_config
     RETURNING id
   `))[0];
   const cohortRunId = randomUUID();
@@ -325,23 +346,42 @@ try {
   const activeRevision = Number(reapproved.revision);
   const activeLinkInput = { ...linkInput, contactBusinessLinkDecisionId: activeDecisionId, contactBusinessLinkRevision: activeRevision };
 
-  // Seed only the disposable runtime/provider authorities needed to traverse
-  // the real paid reservation path. The ZeroBounce API key is a dummy and its
-  // single HTTPS URL is intercepted by the fake fetch above.
-  const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
-  const attestationKey = `${runKey}-runtime-attestation`;
-  await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key,worker_identities,artifact_sha,migration_head,deployment_identity,
-       environment_identity,web_boot_identity,worker_boot_identity,queue_topology_hash,
-       worker_heartbeat_at,db_healthy,redis_healthy,captured_at,expires_at,attestation_hash,created_by)
-    VALUES (${attestationKey},${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb,
-       ${sfpRuntimeIdentity.artifactSha},'task-2056-disposable',
-       ${sfpRuntimeIdentity.deploymentIdentity},${sfpRuntimeIdentity.environmentIdentity},
-       'task-2056-disposable-web','task-2056-disposable-worker',
-       ${sfpRuntimeIdentity.queueTopologyHash},NOW(),TRUE,TRUE,NOW(),NOW()+INTERVAL '1 hour',
-       ${createHash("sha256").update(attestationKey).digest("hex")},'task-2056-disposable')
-  `);
+  // The dummy ZeroBounce key is used only by the single HTTPS URL intercepted
+  // by the fake fetch above. Establish owner readiness through the real
+  // process-fence and durable owner-claim APIs; do not fabricate a CRO03
+  // attestation row with claimed DB/Redis health.
+  const sfpRuntimeIdentity =
+    await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
+  const selectedRuntimeRelease =
+    await (await import("./helpers/sfp-runtime-test-identity")).selectSfpRuntimeTestRelease(reviewerId);
+  check(selectedRuntimeRelease.currentReleaseSelected &&
+    selectedRuntimeRelease.selectedRelease?.selectedBy === reviewerId,
+  "the private admin selects the publisher-verified test release through the normal selector API");
+  const { claimSfpRuntimeDeploymentOwner } =
+    await import("../server/services/cro03/sfp-provider-operations");
+  const runtimeOwner = await claimSfpRuntimeDeploymentOwner();
+  const persistedRuntimeOwner = rows(await db.execute(sql`
+    SELECT deployment_identity,environment_identity,artifact_sha,queue_topology_hash,
+           owner_epoch,owner_token,lease_expires_at,revoked_at
+      FROM sfp_runtime_owner_authority
+     WHERE authority_key='routine_sfp'
+  `))[0];
+  const fabricatedHealthAttestations = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count
+      FROM cro03c_runtime_attestations
+     WHERE idempotency_key LIKE ${`${runKey}%`}
+  `))[0];
+  check(Boolean(persistedRuntimeOwner) &&
+    String(persistedRuntimeOwner.deployment_identity) === sfpRuntimeIdentity.deploymentIdentity &&
+    String(persistedRuntimeOwner.environment_identity) === sfpRuntimeIdentity.environmentIdentity &&
+    String(persistedRuntimeOwner.artifact_sha) === sfpRuntimeIdentity.artifactSha &&
+    String(persistedRuntimeOwner.queue_topology_hash) === sfpRuntimeIdentity.queueTopologyHash &&
+    Number(persistedRuntimeOwner.owner_epoch) === runtimeOwner.ownerEpoch &&
+    String(persistedRuntimeOwner.owner_token) === runtimeOwner.ownerToken &&
+    Date.parse(String(persistedRuntimeOwner.lease_expires_at)) > Date.now() &&
+    persistedRuntimeOwner.revoked_at == null &&
+    Number(fabricatedHealthAttestations.count) === 0,
+  "disposable process acquires durable runtime-owner authority from its current fence without fabricated health attestation");
   const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } =
     await import("../server/services/mi09-pilot-authority");
   await authorizePaidBudget({
@@ -371,12 +411,40 @@ try {
     "canonical contact validation persists typed link-decision and normalized-email pins under the real PostgreSQL CHECK");
 
   const validationRow = rows(await db.execute(sql`
-    SELECT id, status, source_kind, contact_id, contact_business_link_decision_id,
+    SELECT id, status, source_kind, candidate_id, paid_candidate_evidence_id, contact_id,
+           contact_business_link_decision_id,
            contact_business_link_revision, normalized_value_hash, normalized_value_hash_version,
             named_contact, role_inbox, decision_reason, policy_document_id,
             validation_operation_id,reused_from_operation_id,updated_at
       FROM sfp_outreach_eligibility WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${businessId}
   `))[0];
+  const providerReceiptAge = rows(await db.execute(sql`
+    SELECT po.observed_at,po.expires_at,e.validation_at,e.validation_expires_at,
+           d.validation_ttl_days
+      FROM sfp_outreach_eligibility e
+      JOIN sfp_outreach_policy_documents d ON d.id=e.policy_document_id
+      JOIN provider_observations po
+        ON po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+     WHERE e.id=${String(validationRow?.id ?? "")}::uuid
+       AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
+       AND po.subject_type='business' AND po.subject_id=e.business_id
+       AND po.email_token_hash=${hashEmailToken(email)}
+     LIMIT 1
+  `))[0];
+  const receiptObservedAt = Date.parse(String(providerReceiptAge?.observed_at ?? ""));
+  const receiptValidationAt = Date.parse(String(providerReceiptAge?.validation_at ?? ""));
+  const receiptPolicyExpiry = receiptObservedAt +
+    Number(providerReceiptAge?.validation_ttl_days ?? 0) * 86_400_000;
+  const receiptExpiryLimit = providerReceiptAge?.expires_at == null
+    ? receiptPolicyExpiry
+    : Math.min(receiptPolicyExpiry, Date.parse(String(providerReceiptAge.expires_at)));
+  check(Boolean(providerReceiptAge) && Number.isFinite(receiptObservedAt) &&
+    Math.abs(receiptObservedAt - receiptValidationAt) <= 5 * 60_000 &&
+    receiptObservedAt <= Date.now() && receiptPolicyExpiry > Date.now() &&
+    Date.parse(String(providerReceiptAge.validation_expires_at)) <= receiptExpiryLimit &&
+    (providerReceiptAge.expires_at == null ||
+      Date.parse(String(providerReceiptAge.expires_at)) > Date.now()),
+  "fresh eligibility binds its original provider-observation timestamp and expiry rather than trusting a rewritable validation timestamp");
   if (validationRow?.validation_operation_id) {
     const operation = rows(await db.execute(sql`
       SELECT o.state,o.billing_state,a.outcome AS attempt_outcome,po.outcome AS observation_outcome,
@@ -395,8 +463,9 @@ try {
     check(false, "normal validation retained its settled provider-operation receipt");
   }
   if (validationRow) {
-    check(validationRow.source_kind === "contact" && Number(validationRow.contact_id) === contactId,
-      "ZeroBounce eligibility retains the exact contact one-of source reference");
+    check(validationRow.source_kind === "contact" && Number(validationRow.contact_id) === contactId &&
+      validationRow.candidate_id == null && validationRow.paid_candidate_evidence_id == null,
+      "ZeroBounce eligibility retains the exact contact source and NULLs both free/paid references");
     check(String(validationRow.contact_business_link_decision_id ?? "") === activeDecisionId &&
       Number(validationRow.contact_business_link_revision) === activeRevision &&
       String(validationRow.normalized_value_hash ?? "") === normalizedHash &&
@@ -525,7 +594,7 @@ try {
     "new verified-link revision is admitted only after validation rechecks the current contact identity and its still-fresh valid receipt");
   const finalEligibility = rows(await db.execute(sql`
     SELECT contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash,
-           normalized_value_hash_version,status
+           normalized_value_hash_version,status,validation_operation_id,reused_from_operation_id,validation_at
     FROM sfp_outreach_eligibility WHERE id=${targetEligibilityId}::uuid
   `))[0];
   check(String(finalEligibility.contact_business_link_decision_id) === String(finalApproval.id) &&
@@ -534,6 +603,20 @@ try {
     Number(finalEligibility.normalized_value_hash_version) === 1 &&
      finalEligibility.status === "validated_review_required",
    "revalidation replaces the old link pin while retaining named-person review status");
+  const originalReceipt = rows(await db.execute(sql`
+    SELECT observed_at FROM provider_observations
+     WHERE operation_id=${String(finalEligibility.reused_from_operation_id ?? "")}::uuid
+       AND provider='zerobounce' AND outcome='valid' AND retryable=FALSE
+       AND subject_type='business' AND subject_id=${businessId}
+       AND email_token_hash=${hashEmailToken(email)}
+     LIMIT 1
+  `))[0];
+  check(Boolean(finalEligibility.reused_from_operation_id) &&
+    String(finalEligibility.validation_operation_id ?? "") === "" &&
+    Boolean(originalReceipt) &&
+    Math.abs(Date.parse(String(finalEligibility.validation_at)) -
+      Date.parse(String(originalReceipt.observed_at))) <= 5 * 60_000,
+  "reused validation preserves the original provider observation age instead of refreshing receipt freshness");
   namedReviewId = await approveThroughNamedReviewApi(targetEligibilityId, "final-link-revision");
   const finalPreview = await previewStagingV2({
     cohortRunId, eligibilityIds: [targetEligibilityId], actorId: reviewerId,
@@ -552,7 +635,7 @@ try {
     SELECT id,state,source_kind,contact_id,contact_business_link_decision_id,
            contact_business_link_revision,normalized_value_hash,normalized_value_hash_version,
            candidate_id,paid_candidate_evidence_id,
-           package_key,package_version_id,validation_snapshot,lineage
+            package_key,package_version_id,recipient_commitment_id,validation_snapshot,lineage
     FROM sfp_campaign_staging_intents WHERE eligibility_id=${targetEligibilityId}::uuid
   `))[0];
   check(stageResult.readyHeld === 1 && intent?.state === "ready_held",
@@ -567,6 +650,49 @@ try {
   "ready_held intent persists the exact validation-time link decision, revision, and versioned identity pin");
   check(String(intent?.package_key) === "sfp.construction_trades_home_services.v2",
     "held intent retains the package key selected from the frozen v2 target, not the raw NULL vertical");
+  const stagedContactClaim = rows(await db.execute(sql`
+    SELECT c.program_id,c.objective_key,c.recipient_identity_hash,c.recipient_identity_hash_version,
+           c.business_id,c.package_version_id,c.staging_intent_id,c.state,c.committed_at,
+           c.contact_id,c.contact_business_link_decision_id,
+           a.source_kind,a.source_reference_id,a.normalized_value_hash,
+           a.normalized_value_hash_version,a.disposition
+      FROM sfp_recipient_address_commitments c
+      JOIN sfp_recipient_commitment_aliases a
+        ON a.commitment_id=c.id AND a.staging_intent_id=${String(intent.id)}::uuid
+     WHERE c.id=${String(intent.recipient_commitment_id ?? "")}::uuid
+  `))[0];
+  check(Boolean(stagedContactClaim) &&
+    String(stagedContactClaim.program_id) === String(program.id) &&
+    stagedContactClaim.objective_key === "sfp.initial_recipient_acquisition.v1" &&
+    String(stagedContactClaim.recipient_identity_hash) === sfpRecipientIdentityHash(email) &&
+    Number(stagedContactClaim.recipient_identity_hash_version) === 1 &&
+    Number(stagedContactClaim.business_id) === businessId &&
+    String(stagedContactClaim.package_version_id) === String(intent.package_version_id) &&
+    String(stagedContactClaim.staging_intent_id) === String(intent.id) &&
+    stagedContactClaim.state === "claimed" && stagedContactClaim.committed_at == null &&
+    stagedContactClaim.contact_id == null && stagedContactClaim.contact_business_link_decision_id == null &&
+    stagedContactClaim.source_kind === "contact" &&
+    String(stagedContactClaim.source_reference_id) === String(contactId) &&
+    String(stagedContactClaim.normalized_value_hash) === normalizedHash &&
+    Number(stagedContactClaim.normalized_value_hash_version) === 1 &&
+    stagedContactClaim.disposition === "initial",
+  "staging persists the versioned recipient claim and exact contact source-hash alias before bridge acceptance");
+
+  await db.execute(sql`UPDATE campaigns SET status='archived' WHERE id=${Number(campaign.id)}`);
+  const changedPackageBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(intent.id), reviewerId);
+  const packageDriftArtifacts = rows(await db.execute(sql`
+    SELECT
+      (SELECT count(*)::int FROM sfp_ready_held_enrollments
+        WHERE staging_intent_id=${String(intent.id)}::uuid) AS bridge_ledgers,
+      (SELECT count(*)::int FROM sfp_recipient_address_commitments
+        WHERE program_id=${String(program.id)}::uuid
+           AND recipient_identity_hash=${sfpRecipientIdentityHash(email)}
+           AND state='claimed' AND staging_intent_id=${String(intent.id)}::uuid) AS commitments
+  `))[0];
+  check(changedPackageBridge.status === "left_held" && changedPackageBridge.heldReason === "campaign_not_draft" &&
+     Number(packageDriftArtifacts.bridge_ledgers) === 0 && Number(packageDriftArtifacts.commitments) === 1,
+   "bridge revalidates live campaign state and records a hold while retaining only the pre-staging recipient claim");
+  await db.execute(sql`UPDATE campaigns SET status='draft' WHERE id=${Number(campaign.id)}`);
 
   let concurrentRevocation: Promise<any> | null = null;
   let revocationWaitObserved = false;
@@ -580,7 +706,7 @@ try {
       const waiting = await pool.query(`
         SELECT COUNT(*)::int AS n FROM pg_stat_activity
          WHERE datname=current_database() AND state='active' AND wait_event_type='Lock'
-           AND query ILIKE '%FROM contacts WHERE id=%FOR UPDATE%'
+            AND query ILIKE '%pg_advisory_xact_lock(hashtextextended%'
       `);
       if (Number(waiting.rows?.[0]?.n ?? 0) > 0) {
         revocationWaitObserved = true;
@@ -593,20 +719,37 @@ try {
     Number(bridge.contactId) === contactId && bridge.enrollmentStatus === "paused",
   "manual bridge reuses the pinned source contact and creates only a paused enrollment");
   check(revocationWaitObserved && concurrentRevocation !== null,
-    "concurrent link revocation blocks on the bridge's row lock of its pinned contact and decision");
+     "concurrent link revocation blocks on the bridge's contact/business graph lock of its pinned contact and decision");
   const concurrentRevocationResult = concurrentRevocation ? await concurrentRevocation : null;
   check(concurrentRevocationResult?.decision === "rejected",
     "queued revocation commits after the bridge's contact-and-decision verification transaction");
   const enrollment = rows(await db.execute(sql`
-    SELECT e.status,e.contact_id,l.contact_resolution FROM sequence_enrollments e
+    SELECT e.status,e.contact_id,l.contact_resolution,l.contact_business_link_decision_id,
+           l.contact_business_link_revision,l.recipient_commitment_id,
+           c.state AS commitment_state,c.committed_at,c.contact_id AS committed_contact_id,
+           c.contact_business_link_decision_id AS committed_link_id,c.recipient_identity_hash,
+           c.recipient_identity_hash_version
+      FROM sequence_enrollments e
     JOIN sfp_ready_held_enrollments l ON l.sequence_enrollment_id=e.id
+    JOIN sfp_recipient_address_commitments c ON c.id=l.recipient_commitment_id
     WHERE l.staging_intent_id=${String(intent.id)}::uuid
   `))[0];
   check(enrollment?.status === "paused" && Number(enrollment.contact_id) === contactId,
     "bridge ledger points to the same source contact and paused sequence enrollment");
+  check(String(enrollment?.contact_business_link_decision_id) === String(finalApproval.id) &&
+    Number(enrollment?.contact_business_link_revision) === Number(finalApproval.revision) &&
+    Boolean(enrollment?.recipient_commitment_id) &&
+    enrollment?.commitment_state === "committed" && enrollment?.committed_at != null &&
+    Number(enrollment?.committed_contact_id) === contactId &&
+    String(enrollment?.committed_link_id) === String(finalApproval.id) &&
+    String(enrollment?.recipient_identity_hash) === sfpRecipientIdentityHash(email) &&
+    Number(enrollment?.recipient_identity_hash_version) === 1,
+  "bridge ledger commits the original staged recipient claim to the exact verified contact/link and versioned address identity");
   const bridgeReplay = await bridgeReadyHeldIntentToPausedEnrollment(String(intent.id), reviewerId);
   check(bridgeReplay.status === "already_bridged" && Number(bridgeReplay.contactId) === contactId,
     "manual bridge replay is idempotent and does not create another enrollment");
+  check(bridgeReplay.currentHoldReason === "historical_contact_business_link_no_longer_current",
+    "historical bridge success remains immutable while current link drift is separately surfaced and held");
   const forbidden = rows(await db.execute(sql`
     SELECT (SELECT COUNT(*)::int FROM campaign_queue_runs) AS queue_runs,
            (SELECT COUNT(*)::int FROM campaign_queue_items) AS queue_items
@@ -652,7 +795,7 @@ try {
   `))[0];
   const paid = await writeSfpPaidCandidateEvidence({
     businessId, provider: "outscraper", field: "email", value: `paid-${runKey}@gmail.com`,
-    subjectType: "business", confidence: 90,
+    subjectType: "business", confidence: 10,
   });
   const freeTyped = rows(await db.execute(sql`
     INSERT INTO sfp_outreach_eligibility
@@ -672,6 +815,997 @@ try {
   check(paidTyped?.source_kind === "paid" &&
     Boolean(paidTyped.paid_candidate_evidence_id) && paidTyped.candidate_id == null && paidTyped.contact_id == null,
   "real paid-source eligibility retains exactly paid_candidate_evidence_id and no free/contact references");
+
+  async function createFrozenBridgeCohort(suffix: string, cohortBusinessId = businessId): Promise<string> {
+    const id = randomUUID();
+    const digest = createHash("sha256").update(id).digest("hex");
+    const cohortEvidenceHash = createHash("sha256").update(`${runKey}-${suffix}-classification`).digest("hex");
+    const cohortEvidence = rows(await db.execute(sql`
+      INSERT INTO sfp_classification_evidence
+        (business_id,evidence_hash,source_refs,classifier_version,model_version,prompt_version,
+         policy_version,taxonomy_version,outcome,confidence,reason_codes,idempotency_key,
+         resolved_vertical_id,admission_tier)
+      VALUES (${cohortBusinessId},${cohortEvidenceHash},'[]'::jsonb,3,'cert-fixture','cert-fixture',
+        1,2,'target',0.99,'["certification"]'::jsonb,${`${runKey}-${suffix}-classification`},
+        'Construction/Trades/Home Services','resolved_high')
+      RETURNING id
+    `))[0];
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_runs
+        (id,program_id,idempotency_key,status,cohort_size,cohort_hash,release_sha,actor_id,
+         cohort_state,frozen_at,request_hash,config_hash)
+      VALUES (${id}::uuid,${String(program.id)}::uuid,${`${runKey}-${suffix}`},
+        'freezing',1,${digest},${"0".repeat(40)},${runKey},'freezing',NULL,${digest},${digest})
+    `);
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_members
+        (cohort_run_id,business_id,roi_score,geography_class,geography_source,county_fips,vertical,
+         classifier_version,classifier_outcome,classifier_confidence,classifier_matched_target,
+         classifier_reasons,classifier_evidence_hash,geography_resolver_version,geography_outcome)
+       VALUES (${id}::uuid,${cohortBusinessId},95,'verified','fips','12086',
+        'Construction/Trades/Home Services',3,'target',0.99,'Construction/Trades/Home Services',
+         '["real disposable certification classification"]'::jsonb,${cohortEvidenceHash},1,'verified')
+    `);
+    await db.execute(sql`
+      INSERT INTO sfp_cohort_decisions
+        (cohort_run_id,business_id,disposition,geography_class,geography_source,vertical,roi_score,
+         selected,classifier_version,classifier_outcome,classifier_confidence,classifier_matched_target,
+         classifier_reasons,classifier_evidence_hash,classification_evidence_id,
+         classification_policy_version,classification_evidence_hash)
+       VALUES (${id}::uuid,${cohortBusinessId},'selected','verified','fips',
+        'Construction/Trades/Home Services',95,TRUE,3,'target',0.99,
+        'Construction/Trades/Home Services','["real disposable certification classification"]'::jsonb,
+         ${cohortEvidenceHash},${String(cohortEvidence.id)}::uuid,1,${cohortEvidenceHash})
+    `);
+    await db.execute(sql`
+      UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
+       WHERE id=${id}::uuid
+    `);
+    return id;
+  }
+
+  async function validateCandidateForBridge(cohortId: string, suffix: string) {
+    const preview = await previewSfpValidation(cohortId);
+    const result = await executeSfpValidation(cohortId, {
+      idempotencyKey: `${runKey}-${suffix}-real-validation`,
+      snapshotHash: preview.snapshotHash,
+      actorId: reviewerId,
+      maxValidations: 25,
+    });
+    check(result !== null, `${suffix} source reaches eligibility through the real reserved/fake-provider validation path`);
+    const cohortBusiness = rows(await db.execute(sql`
+      SELECT business_id FROM sfp_cohort_members
+       WHERE cohort_run_id=${cohortId}::uuid LIMIT 1
+    `))[0];
+    const eligibility = rows(await db.execute(sql`
+      SELECT id,source_kind,candidate_id,paid_candidate_evidence_id,status,
+             normalized_value_hash,normalized_value_hash_version
+        FROM sfp_outreach_eligibility
+       WHERE cohort_run_id=${cohortId}::uuid AND business_id=${Number(cohortBusiness.business_id)}
+    `))[0];
+    return eligibility;
+  }
+
+  function makeDeferred<T = void>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((accept) => { resolve = accept; });
+    return { promise, resolve };
+  }
+
+  function observeBackground<T>(promise: Promise<T>): Promise<T> {
+    void promise.catch(() => undefined);
+    return promise;
+  }
+
+  async function waitForBarrier(promise: Promise<void>, errorCode: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        promise,
+        new Promise<void>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(errorCode)), 15_000);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  const delay = (milliseconds: number) =>
+    new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+  async function waitForApplicationLock(applicationName: string, timeoutMs = 8_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const result = await pool.query(`
+        SELECT wait_event_type,wait_event,state
+          FROM pg_stat_activity
+         WHERE application_name=$1
+      `, [applicationName]);
+      if (result.rows.some((row: any) => row.wait_event_type === "Lock")) return true;
+      await delay(25);
+    }
+    return false;
+  }
+
+  async function waitForBlockedQuery(
+    blockerPid: number,
+    queryFragment: string,
+    timeoutMs = 8_000,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const result = await pool.query(`
+        SELECT a.pid,a.wait_event_type,a.query,pg_blocking_pids(a.pid) AS blocking_pids
+          FROM pg_stat_activity a
+         WHERE a.pid<>pg_backend_pid()
+           AND a.wait_event_type='Lock'
+           AND $1=ANY(pg_blocking_pids(a.pid))
+           AND a.query ILIKE $2
+      `, [blockerPid, `%${queryFragment}%`]);
+      if (result.rows.length > 0) return true;
+      await delay(25);
+    }
+    return false;
+  }
+
+  async function waitForAnyBlockedQuery(queryFragment: string, timeoutMs = 8_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const result = await pool.query(`
+        SELECT pid,wait_event_type,query
+          FROM pg_stat_activity
+         WHERE pid<>pg_backend_pid()
+           AND wait_event_type='Lock'
+           AND query ILIKE $1
+      `, [`%${queryFragment}%`]);
+      if (result.rows.length > 0) return true;
+      await delay(25);
+    }
+    return false;
+  }
+
+  async function connectHeldWriter(applicationName: string) {
+    const client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('application_name',$1,true)", [applicationName]);
+    return client;
+  }
+
+  async function createRaceFreeFixture(suffix: string, value = `${suffix}-${runKey}@gmail.com`) {
+    const businessName = `${runKey} ${suffix} barrier business`;
+    const websiteDomain = `${runKey}-${suffix}.cert.invalid`;
+    const businessRow = rows(await db.execute(sql`
+      INSERT INTO businesses
+        (canonical_name,normalized_name,website_domain,vertical,state,record_class,created_at)
+      VALUES (${businessName},${businessName.toLowerCase()},${websiteDomain},NULL,'FL','canonical',NOW())
+      RETURNING id
+    `))[0];
+    const raceBusinessId = Number(businessRow.id);
+    await db.execute(sql`
+      INSERT INTO business_locations
+        (business_id,location_name,street_address,city,state,postal_code,county_fips,is_primary)
+      VALUES (${raceBusinessId},${`${runKey}-${suffix}-location`},'300 Certification Way',
+        'Miami','FL','33101','12086',TRUE)
+    `);
+    const sealedAddress = seal("email", value);
+    const candidateRow = rows(await db.execute(sql`
+      INSERT INTO free_discovery_candidates
+        (generation_id,business_id,field,subject_type,domain,source,attribution_scope,disposition,
+         confidence,envelope_ciphertext,envelope_nonce,envelope_tag,envelope_key_version,
+         normalized_value_hash,masked_value,created_at)
+      VALUES (${String(generation.id)}::uuid,${raceBusinessId},'email','business','gmail.com',
+        'certification','role','staged',90,${sealedAddress.ciphertext},${sealedAddress.nonce},
+        ${sealedAddress.tag},1,${sealedAddress.normalizedValueHash},${sealedAddress.maskedValue},NOW())
+      RETURNING id
+    `))[0];
+    const raceCohortId = await createFrozenBridgeCohort(`${suffix}-barrier-cohort`, raceBusinessId);
+    return {
+      businessId: raceBusinessId,
+      businessName,
+      websiteDomain,
+      email: value,
+      candidateId: String(candidateRow.id),
+      cohortId: raceCohortId,
+      normalizedValueHash: sealedAddress.normalizedValueHash,
+    };
+  }
+
+  async function stageBridgeSource(
+    cohortId: string,
+    eligibilityId: string,
+    suffix: string,
+    expectMasterLead = true,
+  ) {
+    const preview = await previewStagingV2({
+      cohortRunId: cohortId, eligibilityIds: [eligibilityId], actorId: reviewerId,
+    });
+    check(preview.eligibleCount === 1, `${suffix} source passes the shared current staging eligibility/package predicate`);
+    const stage = await executeStagingV2({
+      cohortRunId: cohortId, eligibilityIds: [eligibilityId], commandKey: preview.commandKey,
+      snapshotHash: preview.snapshotHash, actorId: reviewerId, confirmPayloadHash: preview.payloadHash,
+    });
+    const stagedIntent = rows(await db.execute(sql`
+      SELECT id,state,source_kind,contact_id,candidate_id,paid_candidate_evidence_id,
+             package_version_id,package_key,normalized_value_hash,normalized_value_hash_version,
+             recipient_commitment_id,master_lead_id
+        FROM sfp_campaign_staging_intents WHERE eligibility_id=${eligibilityId}::uuid
+    `))[0];
+    const stagedSourcePins = rows(await db.execute(sql`
+      SELECT e.source_kind,e.candidate_id,e.paid_candidate_evidence_id,e.contact_id,
+             e.normalized_value_hash,e.normalized_value_hash_version,
+             fc.normalized_value_hash AS free_source_hash,
+             pe.normalized_value_hash AS paid_source_hash,c.email AS contact_email
+        FROM sfp_outreach_eligibility e
+        LEFT JOIN free_discovery_candidates fc ON fc.id=e.candidate_id
+        LEFT JOIN sfp_paid_candidate_evidence pe ON pe.id=e.paid_candidate_evidence_id
+        LEFT JOIN contacts c ON c.id=e.contact_id
+       WHERE e.id=${eligibilityId}::uuid
+    `))[0];
+    const expectedSourceHash = stagedSourcePins?.source_kind === "free"
+      ? String(stagedSourcePins.free_source_hash ?? "")
+      : stagedSourcePins?.source_kind === "paid"
+        ? String(stagedSourcePins.paid_source_hash ?? "")
+        : stagedSourcePins?.source_kind === "contact"
+          ? normalizedSfpEmailHash(String(stagedSourcePins.contact_email ?? ""), Number(stagedSourcePins.normalized_value_hash_version))
+          : "";
+    const sourceReferencesAreExclusive =
+      (stagedSourcePins?.source_kind === "free" &&
+        Boolean(stagedSourcePins.candidate_id) &&
+        stagedSourcePins.paid_candidate_evidence_id == null && stagedSourcePins.contact_id == null) ||
+      (stagedSourcePins?.source_kind === "paid" &&
+        Boolean(stagedSourcePins.paid_candidate_evidence_id) &&
+        stagedSourcePins.candidate_id == null && stagedSourcePins.contact_id == null) ||
+      (stagedSourcePins?.source_kind === "contact" &&
+        Boolean(stagedSourcePins.contact_id) &&
+        stagedSourcePins.candidate_id == null && stagedSourcePins.paid_candidate_evidence_id == null);
+    const stagedSourceReferenceMatches =
+      stagedSourcePins?.source_kind === "free"
+        ? String(stagedSourcePins.candidate_id) === String(stagedIntent?.candidate_id) &&
+          stagedIntent?.paid_candidate_evidence_id == null && stagedIntent?.contact_id == null
+        : stagedSourcePins?.source_kind === "paid"
+          ? String(stagedSourcePins.paid_candidate_evidence_id) === String(stagedIntent?.paid_candidate_evidence_id) &&
+            stagedIntent?.candidate_id == null && stagedIntent?.contact_id == null
+          : stagedSourcePins?.source_kind === "contact"
+            ? String(stagedSourcePins.contact_id) === String(stagedIntent?.contact_id) &&
+              stagedIntent?.candidate_id == null && stagedIntent?.paid_candidate_evidence_id == null
+            : false;
+    check(stagedSourcePins?.source_kind === stagedIntent?.source_kind &&
+      sourceReferencesAreExclusive &&
+      stagedSourceReferenceMatches &&
+      Number(stagedSourcePins.normalized_value_hash_version) === 1 &&
+      String(stagedSourcePins.normalized_value_hash) === expectedSourceHash,
+    `${suffix} staging preserves its actual source hash/version and exact source-reference NULL contract`);
+    check(stage.readyHeld === 1 && stagedIntent?.state === "ready_held",
+      `${suffix} source stages as one paused-ready held intent only`);
+    const persistedClaim = rows(await db.execute(sql`
+      SELECT program_id,objective_key,recipient_identity_hash,recipient_identity_hash_version,
+             package_version_id,state,committed_at
+        FROM sfp_recipient_address_commitments
+       WHERE id=${String(stagedIntent?.recipient_commitment_id ?? "")}::uuid
+    `))[0];
+    check(Boolean(persistedClaim) &&
+      String(persistedClaim.program_id) === String(program.id) &&
+      persistedClaim.objective_key === "sfp.initial_recipient_acquisition.v1" &&
+      /^[0-9a-f]{64}$/.test(String(persistedClaim.recipient_identity_hash)) &&
+      Number(persistedClaim.recipient_identity_hash_version) === 1 &&
+      String(persistedClaim.package_version_id) === String(stagedIntent?.package_version_id) &&
+      ((persistedClaim.state === "claimed" && persistedClaim.committed_at == null) ||
+        (persistedClaim.state === "committed" && persistedClaim.committed_at != null)) &&
+      Boolean(stagedIntent?.recipient_commitment_id) &&
+      Boolean(stagedIntent?.master_lead_id) === expectMasterLead,
+    `${suffix} source persists its real program/address commitment in claimed state before projection or duplicate suppression`);
+    return stagedIntent;
+  }
+
+  const freeCohortId = await createFrozenBridgeCohort("free-bridge-cohort");
+  const freeEligibility = await validateCandidateForBridge(freeCohortId, "free-source");
+  check(freeEligibility?.source_kind === "free" &&
+    String(freeEligibility.candidate_id) === String(freeCandidate.id) &&
+    freeEligibility.paid_candidate_evidence_id == null,
+  "free validation preserves the genuine free candidate source identity");
+  if (!freeEligibility) throw new Error("FREE_BRIDGE_ELIGIBILITY_NOT_CREATED");
+  const freeIntent = await stageBridgeSource(freeCohortId, String(freeEligibility.id), "free");
+  if (!freeIntent) throw new Error("FREE_BRIDGE_INTENT_NOT_CREATED");
+
+  const originalEligibilityTime = rows(await db.execute(sql`
+    SELECT validation_at,validation_expires_at,updated_at
+      FROM sfp_outreach_eligibility WHERE id=${String(freeEligibility.id)}::uuid
+  `))[0];
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility
+       SET validation_at=validation_at-INTERVAL '10 minutes',
+           validation_expires_at=validation_expires_at-INTERVAL '10 minutes',
+           updated_at=NOW()
+     WHERE id=${String(freeEligibility.id)}::uuid
+  `);
+  const staleEligibilityTimeBridge = await bridgeReadyHeldIntentToPausedEnrollment(
+    String(freeIntent.id), reviewerId,
+  );
+  check(staleEligibilityTimeBridge.status === "left_held" &&
+    staleEligibilityTimeBridge.heldReason === "receipt_subject_or_address_changed",
+  "SQL commit-time receipt fence rejects an eligibility timestamp rewrite even when its shifted TTL remains fresh");
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility
+       SET validation_at=${originalEligibilityTime.validation_at},
+           validation_expires_at=${originalEligibilityTime.validation_expires_at},
+           updated_at=${originalEligibilityTime.updated_at}
+     WHERE id=${String(freeEligibility.id)}::uuid
+  `);
+
+  const originalFreeSource = rows(await db.execute(sql`
+    SELECT envelope_ciphertext,envelope_nonce,envelope_tag,envelope_key_version,normalized_value_hash
+      FROM free_discovery_candidates WHERE id=${String(freeCandidate.id)}::uuid
+  `))[0];
+  const changedFreeSource = seal("email", `changed-${runKey}@gmail.com`);
+  await db.execute(sql`
+    UPDATE free_discovery_candidates
+       SET envelope_ciphertext=${changedFreeSource.ciphertext},
+           envelope_nonce=${changedFreeSource.nonce},
+           envelope_tag=${changedFreeSource.tag},
+           envelope_key_version=1,
+           normalized_value_hash=${changedFreeSource.normalizedValueHash}
+     WHERE id=${String(freeCandidate.id)}::uuid
+  `);
+  const sourceDriftBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(freeIntent.id), reviewerId);
+  const sourceDriftArtifacts = rows(await db.execute(sql`
+    SELECT
+      (SELECT count(*)::int FROM contacts WHERE lower(email)=lower(${freeEmail})) AS contacts,
+      (SELECT count(*)::int FROM sfp_recipient_address_commitments
+        WHERE program_id=${String(program.id)}::uuid
+          AND recipient_identity_hash=${sfpRecipientIdentityHash(freeEmail)}
+          AND state='claimed' AND staging_intent_id=${String(freeIntent.id)}::uuid) AS commitments
+  `))[0];
+  check(sourceDriftBridge.status === "left_held" &&
+    sourceDriftBridge.heldReason === "free_source_address_hash_changed" &&
+    Number(sourceDriftArtifacts.contacts) === 0 && Number(sourceDriftArtifacts.commitments) === 1,
+  "bridge re-reads and rejects a source-address mutation after staging without creating a CRM identity or accepting the staged recipient claim");
+  await db.execute(sql`
+    UPDATE free_discovery_candidates
+       SET envelope_ciphertext=${originalFreeSource.envelope_ciphertext},
+           envelope_nonce=${originalFreeSource.envelope_nonce},
+           envelope_tag=${originalFreeSource.envelope_tag},
+           envelope_key_version=${Number(originalFreeSource.envelope_key_version)},
+           normalized_value_hash=${String(originalFreeSource.normalized_value_hash)}
+     WHERE id=${String(freeCandidate.id)}::uuid
+  `);
+
+  // Inject a failure after the canonical contact, typed evidence-backed link,
+  // claimed-to-committed transition, and paused enrollment have all been
+  // written in the bridge transaction. Only the earlier staging claim remains.
+  const rollbackResult = await rejected(() => bridgeReadyHeldIntentToPausedEnrollment(
+    String(freeIntent.id), reviewerId, async (stage) => {
+      if (stage === "after_enrollment_before_ledger") throw new Error("CERT_SFP_BRIDGE_ROLLBACK");
+    },
+  ), /CERT_SFP_BRIDGE_ROLLBACK/);
+  const rollbackArtifacts = rows(await db.execute(sql`
+    SELECT
+      (SELECT count(*)::int FROM contacts WHERE lower(email)=lower(${freeEmail})) AS contacts,
+      (SELECT count(*)::int FROM contact_business_sfp_link_evidence
+        WHERE eligibility_id=${String(freeEligibility.id)}::uuid) AS typed_links,
+      (SELECT count(*)::int FROM sfp_recipient_address_commitments
+        WHERE program_id=${String(program.id)}::uuid
+          AND recipient_identity_hash=${sfpRecipientIdentityHash(freeEmail)}
+          AND state='claimed' AND staging_intent_id=${String(freeIntent.id)}::uuid) AS commitments,
+      (SELECT count(*)::int FROM sfp_ready_held_enrollments
+        WHERE staging_intent_id=${String(freeIntent.id)}::uuid) AS ledgers
+  `))[0];
+  check(rollbackResult && Number(rollbackArtifacts.contacts) === 0 &&
+    Number(rollbackArtifacts.typed_links) === 0 && Number(rollbackArtifacts.commitments) === 1 &&
+    Number(rollbackArtifacts.ledgers) === 0,
+  "injected failure rolls every new contact/link/commit/enrollment artifact back while retaining only the earlier staged claim");
+
+  // The paid source arrives later with the same normalized recipient from a
+  // separate typed candidate authority. De-rank the already bridged free
+  // observation so paid evidence is the canonical validation representative
+  // in its own cohort; neither source hash nor lineage is rewritten.
+  await db.execute(sql`
+    UPDATE free_discovery_candidates SET confidence=1 WHERE id=${String(freeCandidate.id)}::uuid
+  `);
+  const duplicatePaid = await writeSfpPaidCandidateEvidence({
+    businessId, provider: "outscraper", field: "email", value: freeEmail,
+    subjectType: "business", confidence: 65,
+  });
+  const paidCohortId = await createFrozenBridgeCohort("paid-bridge-cohort");
+  const paidEligibility = await validateCandidateForBridge(paidCohortId, "paid-source");
+  check(paidEligibility?.source_kind === "paid" &&
+    String(paidEligibility.paid_candidate_evidence_id) === String(duplicatePaid.id) &&
+    paidEligibility.candidate_id == null &&
+    String(paidEligibility.normalized_value_hash) === String(freeEligibility.normalized_value_hash) &&
+    Number(paidEligibility.normalized_value_hash_version) === Number(freeEligibility.normalized_value_hash_version),
+  "paid validation keeps the paid source pin and matching versioned address identity separate from free evidence");
+  if (!paidEligibility) throw new Error("PAID_BRIDGE_ELIGIBILITY_NOT_CREATED");
+  const paidIntent = await stageBridgeSource(paidCohortId, String(paidEligibility.id), "paid");
+  if (!paidIntent) throw new Error("PAID_BRIDGE_INTENT_NOT_CREATED");
+  check(paidIntent.master_lead_id == null &&
+    String(paidIntent.recipient_commitment_id) === String(freeIntent.recipient_commitment_id),
+  "cross-source duplicate staging reuses the original ownership claim without creating a second master-lead projection");
+
+  let releaseFreeBridge!: () => void;
+  let freeReachedClaimedBoundary!: () => void;
+  let paidBridgeSettled = false;
+  const freeBridgeBoundary = new Promise<void>((resolve) => { freeReachedClaimedBoundary = resolve; });
+  const allowFreeBridgeCommit = new Promise<void>((resolve) => { releaseFreeBridge = resolve; });
+  const freeBridgePromise = bridgeReadyHeldIntentToPausedEnrollment(
+    String(freeIntent.id), reviewerId, async (stage) => {
+      if (stage === "after_contact_before_enrollment") {
+        freeReachedClaimedBoundary();
+        await allowFreeBridgeCommit;
+      }
+    },
+  );
+  await freeBridgeBoundary;
+  const paidBridgePromise = bridgeReadyHeldIntentToPausedEnrollment(
+    String(paidIntent.id), reviewerId,
+  ).then((result) => {
+    paidBridgeSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  check(!paidBridgeSettled,
+    "duplicate paid bridge waits on the original staged recipient ownership claim while the free commit is in flight");
+  releaseFreeBridge();
+  const [freeBridge, paidBridge] = await Promise.all([freeBridgePromise, paidBridgePromise]);
+  check([freeBridge, paidBridge].filter((result) => result.status === "created").length === 1 &&
+    [freeBridge, paidBridge].filter((result) => result.status === "already_bridged").length === 1 &&
+    freeBridge.enrollmentStatus === "paused" && paidBridge.enrollmentStatus === "paused",
+  "concurrent free/paid arrivals for one program/address serialize to one initial paused recipient assignment");
+  const initialSourceKind = freeBridge.status === "created" ? "free" : "paid";
+  const reusedSourceKind = initialSourceKind === "free" ? "paid" : "free";
+  const freePaidAssignment = rows(await db.execute(sql`
+    SELECT c.id AS commitment_id,c.business_id,c.package_version_id,
+           COUNT(DISTINCT l.id)::int AS enrollment_ledgers,
+           COUNT(DISTINCT a.id)::int AS source_aliases,
+           COUNT(DISTINCT co.id)::int AS matching_contacts,
+           COUNT(DISTINCT d.id)::int AS typed_link_decisions
+      FROM sfp_recipient_address_commitments c
+      LEFT JOIN sfp_ready_held_enrollments l ON l.recipient_commitment_id=c.id
+      LEFT JOIN sfp_recipient_commitment_aliases a ON a.commitment_id=c.id
+      LEFT JOIN contacts co ON co.id=c.contact_id
+      LEFT JOIN contact_business_link_decisions d ON d.id=c.contact_business_link_decision_id
+     WHERE c.program_id=${String(program.id)}::uuid
+       AND c.objective_key='sfp.initial_recipient_acquisition.v1'
+       AND c.recipient_identity_hash=${sfpRecipientIdentityHash(freeEmail)}
+     GROUP BY c.id,c.business_id,c.package_version_id
+  `))[0];
+  const aliases = rows(await db.execute(sql`
+    SELECT source_kind,disposition,normalized_value_hash_version
+      FROM sfp_recipient_commitment_aliases
+     WHERE commitment_id=${String(freePaidAssignment.commitment_id)}::uuid
+  `));
+  check(Number(freePaidAssignment.enrollment_ledgers) === 1 &&
+    Number(freePaidAssignment.source_aliases) === 2 &&
+    Number(freePaidAssignment.matching_contacts) === 1 &&
+    Number(freePaidAssignment.typed_link_decisions) === 1 &&
+    aliases.some((alias: any) => alias.source_kind === initialSourceKind && alias.disposition === "initial") &&
+    aliases.some((alias: any) => alias.source_kind === reusedSourceKind && alias.disposition === "reused") &&
+    aliases.every((alias: any) => Number(alias.normalized_value_hash_version) === 1),
+  "database uniqueness retains free/paid aliases and one evidence-backed contact/link/commitment/enrollment without rewriting hash versions");
+
+  const freeBridgeReplay = await bridgeReadyHeldIntentToPausedEnrollment(String(freeIntent.id), reviewerId);
+  check(freeBridgeReplay.status === "already_bridged",
+    "free-source successful bridge replay creates no additional recipient or paused enrollment");
+  const paidBridgeReplay = await bridgeReadyHeldIntentToPausedEnrollment(String(paidIntent.id), reviewerId);
+  check(paidBridgeReplay.status === "already_bridged",
+    "paid duplicate replay reuses the same accepted recipient assignment without new enrollment side effects");
+
+  const conflictBusiness = rows(await db.execute(sql`
+    INSERT INTO businesses (canonical_name,normalized_name,vertical,state,record_class,created_at)
+    VALUES (${`${runKey} conflicting trades business`},
+      ${`${runKey} conflicting trades business`.toLowerCase()},NULL,'FL','canonical',NOW())
+    RETURNING id
+  `))[0];
+  const conflictBusinessId = Number(conflictBusiness.id);
+  await db.execute(sql`
+    INSERT INTO business_locations
+      (business_id,location_name,street_address,city,state,postal_code,county_fips,is_primary)
+    VALUES (${conflictBusinessId},${`${runKey} conflict location`},'200 Certification Way',
+      'Miami','FL','33101','12086',TRUE)
+  `);
+  const conflictingSource = seal("email", freeEmail);
+  const conflictingCandidate = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id,business_id,field,subject_type,domain,source,attribution_scope,disposition,
+       confidence,envelope_ciphertext,envelope_nonce,envelope_tag,envelope_key_version,
+       normalized_value_hash,masked_value,created_at)
+    VALUES (${String(generation.id)}::uuid,${conflictBusinessId},'email','business','gmail.com',
+      'certification','role','staged',90,${conflictingSource.ciphertext},${conflictingSource.nonce},
+      ${conflictingSource.tag},1,${conflictingSource.normalizedValueHash},
+      ${conflictingSource.maskedValue},NOW())
+    RETURNING id
+  `))[0];
+  const conflictCohortId = await createFrozenBridgeCohort("recipient-conflict", conflictBusinessId);
+  const conflictEligibility = await validateCandidateForBridge(conflictCohortId, "recipient-conflict");
+  check(conflictEligibility?.source_kind === "free" &&
+    String(conflictEligibility.candidate_id) === String(conflictingCandidate.id),
+  "second canonical business gets independently validated against the same real recipient address");
+  if (!conflictEligibility) throw new Error("RECIPIENT_CONFLICT_ELIGIBILITY_NOT_CREATED");
+  const conflictIntent = await stageBridgeSource(
+    conflictCohortId, String(conflictEligibility.id), "recipient-conflict", false,
+  );
+  if (!conflictIntent) throw new Error("RECIPIENT_CONFLICT_INTENT_NOT_CREATED");
+  check(String(conflictIntent.recipient_commitment_id) === String(freeIntent.recipient_commitment_id),
+    "cross-business staging resolves the existing program/address ownership claim before projection");
+  const conflictBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(conflictIntent.id), reviewerId);
+  const conflictArtifacts = rows(await db.execute(sql`
+    SELECT c.business_id,c.state,
+           (SELECT count(*)::int FROM sfp_ready_held_enrollments
+             WHERE staging_intent_id=${String(conflictIntent.id)}::uuid) AS bridge_ledgers,
+           (SELECT count(*)::int FROM sfp_recipient_commitment_aliases
+             WHERE commitment_id=c.id AND staging_intent_id=${String(conflictIntent.id)}::uuid
+               AND disposition='held' AND reason_code='recipient_assignment_conflict') AS held_aliases
+      FROM sfp_recipient_address_commitments c WHERE c.id=${String(freeIntent.recipient_commitment_id)}::uuid
+  `))[0];
+  check(conflictBridge.status === "left_held" &&
+    conflictBridge.heldReason === "recipient_assignment_conflict" &&
+    Number(conflictArtifacts.business_id) === businessId && conflictArtifacts.state === "committed" &&
+    Number(conflictArtifacts.bridge_ledgers) === 0 && Number(conflictArtifacts.held_aliases) === 1,
+  "different-business duplicate is durably aliased and held without changing the accepted assignment or creating CRM/enrollment projections");
+
+  const acceptedLink = rows(await db.execute(sql`
+    SELECT c.contact_id,d.revision
+      FROM sfp_recipient_address_commitments c
+      JOIN contact_business_link_decisions d ON d.id=c.contact_business_link_decision_id
+     WHERE c.id=${String(freeIntent.recipient_commitment_id)}::uuid
+  `))[0];
+  const revokedAcceptedLink = await decideContactBusinessLink({
+    contactId: Number(acceptedLink.contact_id), decision: "rejected",
+    decisionKey: `${runKey}-recipient-assignment-revocation`,
+    reviewerId, expectedRevision: Number(acceptedLink.revision),
+  });
+  check(revokedAcceptedLink.decision === "rejected",
+    "independent authority revokes the accepted recipient assignment before duplicate revalidation");
+  const paidAfterRevocation = await bridgeReadyHeldIntentToPausedEnrollment(String(paidIntent.id), reviewerId);
+  const revokedAlias = rows(await db.execute(sql`
+    SELECT disposition,reason_code FROM sfp_recipient_commitment_aliases
+     WHERE commitment_id=${String(freeIntent.recipient_commitment_id)}::uuid
+       AND staging_intent_id=${String(paidIntent.id)}::uuid
+     ORDER BY created_at DESC LIMIT 1
+  `))[0];
+  check(paidAfterRevocation.status === "left_held" &&
+    paidAfterRevocation.heldReason === "accepted_assignment_no_longer_current" &&
+    revokedAlias?.disposition === "held" &&
+    revokedAlias?.reason_code === "accepted_assignment_no_longer_current",
+  "duplicate reuse locks and revalidates the original contact/link/enrollment rows and refuses a revoked assignment");
+
+  const paidUnique = await writeSfpPaidCandidateEvidence({
+    businessId, provider: "outscraper", field: "email", value: `paid-unique-${runKey}@gmail.com`,
+    subjectType: "business", confidence: 90,
+  });
+  const paidUniqueCohortId = await createFrozenBridgeCohort("paid-unique-bridge-cohort");
+  const paidUniqueEligibility = await validateCandidateForBridge(paidUniqueCohortId, "paid-unique-source");
+  check(paidUniqueEligibility?.source_kind === "paid" &&
+    String(paidUniqueEligibility.paid_candidate_evidence_id) === String(paidUnique.id) &&
+    String(paidUniqueEligibility.normalized_value_hash) !== String(freeEligibility.normalized_value_hash),
+  "independent paid candidate reaches a second current eligibility using its own distinct real address");
+  if (!paidUniqueEligibility) throw new Error("PAID_UNIQUE_BRIDGE_ELIGIBILITY_NOT_CREATED");
+  const paidUniqueIntent = await stageBridgeSource(
+    paidUniqueCohortId, String(paidUniqueEligibility.id), "paid-unique",
+  );
+  if (!paidUniqueIntent) throw new Error("PAID_UNIQUE_BRIDGE_INTENT_NOT_CREATED");
+  const paidUniqueBridge = await bridgeReadyHeldIntentToPausedEnrollment(String(paidUniqueIntent.id), reviewerId);
+  const paidTypedLink = rows(await db.execute(sql`
+    SELECT e.source_kind,e.paid_candidate_evidence_id,d.contact_id,d.business_id,d.decision,d.superseded_at,
+           l.recipient_commitment_id,se.status AS enrollment_status
+      FROM sfp_ready_held_enrollments l
+      JOIN contact_business_link_decisions d ON d.id=l.contact_business_link_decision_id
+      JOIN contact_business_sfp_link_evidence e ON e.id=d.sfp_evidence_id
+      JOIN sequence_enrollments se ON se.id=l.sequence_enrollment_id
+     WHERE l.staging_intent_id=${String(paidUniqueIntent.id)}::uuid
+  `))[0];
+  check(paidUniqueBridge.status === "created" && paidUniqueBridge.enrollmentStatus === "paused" &&
+    paidTypedLink?.source_kind === "paid" &&
+    String(paidTypedLink.paid_candidate_evidence_id) === String(paidUnique.id) &&
+    Number(paidTypedLink.business_id) === businessId && paidTypedLink.decision === "verified" &&
+    paidTypedLink.superseded_at == null && Boolean(paidTypedLink.recipient_commitment_id) &&
+    paidTypedLink.enrollment_status === "paused",
+  "paid-only bridge creates a same-transaction verified link through typed paid evidence and commits a separate paused recipient");
+
+  // Deterministically exercise the common contact-row/address lock order at
+  // the provider marker boundary. The writer is admitted while dispatch pins
+  // are held, then commits after that boundary releases. The fake provider
+  // transport waits for the writer outside any database transaction, so the
+  // final safety recheck must observe the suppression update without a lock
+  // inversion or stale projection.
+  const contactLockFixture = await createRaceFreeFixture("contact-lock-order");
+  const contactLockWrite = await writeContact({
+    mode: "local_only",
+    mutation: {
+      firstName: "Unlinked",
+      lastName: "Suppression",
+      email: contactLockFixture.email,
+      phone: "3055550299",
+      companyName: contactLockFixture.businessName,
+      status: "New",
+    },
+    provenance: {
+      sourceCategory: "discovery",
+      sourceType: "cro03",
+      eventKey: `${runKey}-contact-lock-order-source`,
+      actorType: "system",
+      actorId: `${runKey}-contact-lock-order-writer`,
+    },
+    actor: { actorType: "system", actorId: `${runKey}-contact-lock-order-writer` },
+    hookPolicy: {
+      source: "cro03",
+      deferValidation: true,
+      deferReadiness: true,
+      deferLeadScoring: true,
+      suppressProviderProjection: true,
+    },
+  });
+  const contactLockId = Number(contactLockWrite.id);
+  const contactLockPreview = await previewSfpValidation(contactLockFixture.cohortId);
+  const dispatchPinsReached = makeDeferred<void>();
+  const dispatchPinsRelease = makeDeferred<void>();
+  const contactWriterCommitted = makeDeferred<void>();
+  const contactLockValidation = observeBackground(executeSfpValidation(contactLockFixture.cohortId, {
+    idempotencyKey: `${runKey}-contact-lock-order-validation`,
+    snapshotHash: contactLockPreview.snapshotHash,
+    actorId: reviewerId,
+    maxValidations: 25,
+    zbTransport: async () => {
+      await contactWriterCommitted.promise;
+      return "valid";
+    },
+    concurrencyTestHooks: {
+      onDispatchPinsLocked: async (context: any) => {
+        if (context.businessId !== contactLockFixture.businessId) return;
+        dispatchPinsReached.resolve();
+        await dispatchPinsRelease.promise;
+      },
+    },
+  }));
+  let contactSuppressionCommand: Promise<any> | undefined;
+  let contactLockWaitObserved = false;
+  let contactLockValidationResult: any;
+  try {
+    await waitForBarrier(dispatchPinsReached.promise, "DISPATCH_PINS_BARRIER_NOT_REACHED");
+    contactSuppressionCommand = observeBackground(applyConsentCommand({
+      subject: { type: "contact", id: contactLockId },
+      kind: "global_dnc",
+      eventNamespace: "sfp_private_concurrency_certification",
+      eventKey: `${runKey}-contact-lock-order-global-dnc`,
+      source: "private_concurrency_certification",
+      actorId: `${runKey}-contact-lock-order-writer`,
+      evidence: { reason: `${runKey}-serialized-test-suppression` },
+    }));
+    contactLockWaitObserved = await waitForAnyBlockedQuery("UPDATE contacts SET do_not_contact = true");
+    dispatchPinsRelease.resolve();
+    if (contactSuppressionCommand) await contactSuppressionCommand;
+    contactWriterCommitted.resolve();
+    contactLockValidationResult = await contactLockValidation;
+  } finally {
+    dispatchPinsRelease.resolve();
+    contactWriterCommitted.resolve();
+  }
+  const contactLockOutcome = rows(await db.execute(sql`
+    SELECT e.id,e.status,e.decision_reason,e.suppression_status,e.validation_operation_id,
+           o.state AS operation_state,
+           c.suppression_reason,b.main_email
+      FROM sfp_outreach_eligibility e
+      JOIN provider_operations o ON o.id=e.validation_operation_id
+      JOIN contacts c ON c.id=${contactLockId}
+      JOIN businesses b ON b.id=e.business_id
+     WHERE e.cohort_run_id=${contactLockFixture.cohortId}::uuid
+       AND e.business_id=${contactLockFixture.businessId}
+  `))[0];
+  check(contactLockWaitObserved &&
+    contactLockValidationResult.failedCount === 0 &&
+    contactLockOutcome?.status === "validated_suppressed" &&
+    contactLockOutcome?.suppression_status === "suppressed" &&
+    contactLockOutcome?.decision_reason === "canonical_suppression_match_after_provider" &&
+    contactLockOutcome?.operation_state === "completed" &&
+    contactLockOutcome?.main_email == null &&
+    contactLockOutcome?.suppression_reason === `do_not_contact:${runKey}-serialized-test-suppression`,
+  "existing-contact suppression update waits at dispatch pins, commits after marker release, and is honored before any business projection");
+  const contactLockStagePreview = await previewStagingV2({
+    cohortRunId: contactLockFixture.cohortId,
+    eligibilityIds: [String(contactLockOutcome.id)],
+    actorId: reviewerId,
+  });
+  check(contactLockStagePreview.eligibleCount === 0,
+    "a committed post-validation suppression mutation is re-evaluated before staging");
+
+  // Absence predicates need a transaction fence, not only row locks. At the
+  // last pre-projection barrier, race DBPR lineage, existing-customer status,
+  // and global contact suppression against the already-evaluated negative
+  // predicates. Each normal writer must wait behind the common fence, then
+  // staging must recheck the committed facts. DBPR uses the regular projection
+  // service and global DNC uses canonical consent authority; neither is awaited
+  // inside the validation callback.
+  const absenceFixture = await createRaceFreeFixture("absence-writer-fences");
+  const absenceContactWrite = await writeContact({
+    mode: "local_only",
+    mutation: {
+      firstName: "Unlinked",
+      lastName: "Absence",
+      email: absenceFixture.email,
+      phone: "3055550398",
+      companyName: absenceFixture.businessName,
+      status: "New",
+    },
+    provenance: {
+      sourceCategory: "discovery",
+      sourceType: "cro03",
+      eventKey: `${runKey}-absence-writer-contact-source`,
+      actorType: "system",
+      actorId: `${runKey}-absence-writer-contact`,
+    },
+    actor: { actorType: "system", actorId: `${runKey}-absence-writer-contact` },
+    hookPolicy: {
+      source: "cro03",
+      deferValidation: true,
+      deferReadiness: true,
+      deferLeadScoring: true,
+      suppressProviderProjection: true,
+    },
+  });
+  const absenceContactId = Number(absenceContactWrite.id);
+  const absencePreview = await previewSfpValidation(absenceFixture.cohortId);
+  const absenceReached = makeDeferred<void>();
+  const absenceRelease = makeDeferred<void>();
+  const absenceValidation = observeBackground(executeSfpValidation(absenceFixture.cohortId, {
+    idempotencyKey: `${runKey}-absence-writer-validation`,
+    snapshotHash: absencePreview.snapshotHash,
+    actorId: reviewerId,
+    maxValidations: 25,
+    zbTransport: async () => "valid",
+    concurrencyTestHooks: {
+      onBeforeFinalEligibilityLocks: async (context: any) => {
+        if (context.businessId !== absenceFixture.businessId) return;
+        absenceReached.resolve();
+        await absenceRelease.promise;
+      },
+    },
+  }));
+  const absenceWriters: Array<{ client: any; applicationName: string; query: Promise<any> }> = [];
+  let absenceLockWaits: boolean[] = [];
+  let absenceSuppressionCommand: Promise<any> | undefined;
+  const committedAbsenceWriters = new Set<any>();
+  try {
+    await waitForBarrier(absenceReached.promise, "ABSENCE_WRITER_BARRIER_NOT_REACHED");
+    const dbprProjection = observeBackground(projectBusinessOnly({
+      itemId: randomUUID(),
+      sourceSystem: "DBPR-HR",
+      sourceType: "business_registration",
+      stableKey: `${runKey}-dbpr-absence-key`,
+      organization: {
+        canonicalName: absenceFixture.businessName,
+        websiteDomain: absenceFixture.websiteDomain,
+        city: "Miami",
+        state: "FL",
+      },
+      rawEvidence: { testScope: "private_absence_race" },
+    }));
+
+    const customerWriterName = `${runKey}-customer-absence-writer`;
+    const customerWriter = await connectHeldWriter(customerWriterName);
+    absenceWriters.push({
+      client: customerWriter,
+      applicationName: customerWriterName,
+      query: observeBackground(customerWriter.query(`
+        INSERT INTO sdr_merchants (business_id,business_name,existing_customer_flag,source)
+        VALUES ($1,$2,TRUE,'private_concurrency_certification')
+      `, [absenceFixture.businessId, absenceFixture.businessName]),
+      ),
+    });
+
+    absenceSuppressionCommand = observeBackground(applyConsentCommand({
+      subject: { type: "contact", id: absenceContactId },
+      kind: "global_dnc",
+      eventNamespace: "sfp_private_concurrency_certification",
+      eventKey: `${runKey}-absence-writer-global-dnc`,
+      source: "private_concurrency_certification",
+      actorId: `${runKey}-absence-writer-suppression`,
+      evidence: { reason: "private_absence_concurrency_certification" },
+    }));
+    absenceLockWaits = await Promise.all([
+      ...absenceWriters.map((writer) => waitForApplicationLock(writer.applicationName)),
+      waitForAnyBlockedQuery("FROM businesses"),
+      waitForAnyBlockedQuery("UPDATE contacts SET do_not_contact = true"),
+    ]);
+    absenceRelease.resolve();
+    const absenceValidationResult = await absenceValidation;
+    await dbprProjection;
+    if (absenceSuppressionCommand) await absenceSuppressionCommand;
+    for (const writer of absenceWriters) {
+      await writer.query;
+      await writer.client.query("COMMIT");
+      committedAbsenceWriters.add(writer.client);
+      writer.client.release();
+    }
+    const absenceEligibility = rows(await db.execute(sql`
+      SELECT id,status,validation_operation_id
+        FROM sfp_outreach_eligibility
+       WHERE cohort_run_id=${absenceFixture.cohortId}::uuid
+         AND business_id=${absenceFixture.businessId}
+    `))[0];
+    const absenceStagePreview = await previewStagingV2({
+      cohortRunId: absenceFixture.cohortId,
+      eligibilityIds: absenceEligibility?.id ? [String(absenceEligibility.id)] : [],
+      actorId: reviewerId,
+    });
+    check(absenceLockWaits.length === 3 && absenceLockWaits.every(Boolean) &&
+      absenceValidationResult.failedCount === 0 &&
+      absenceEligibility?.status === "validated_outreach_eligible" &&
+      Boolean(absenceEligibility.validation_operation_id) &&
+      absenceStagePreview.eligibleCount === 0,
+    "normal DBPR projection, customer-fact insertion, and canonical global-DNC mutation serialize behind absent-fact fences, then staging rechecks and blocks them");
+  } finally {
+    absenceRelease.resolve();
+    for (const writer of absenceWriters) {
+      if (committedAbsenceWriters.has(writer.client)) continue;
+      try { await writer.client.query("ROLLBACK"); } catch { /* already completed or failed */ }
+      writer.client.release();
+    }
+  }
+
+  // A pending-only competing insert holds the unique eligibility key while
+  // the governed validator reaches its real INSERT ... ON CONFLICT path.
+  // This is not a healthy/eligible fixture: it exists solely to exercise the
+  // absent-row unique-index wait and must be overwritten by the real result.
+  const uniqueWaitFixture = await createRaceFreeFixture("eligibility-unique-wait");
+  const uniqueWaitPreview = await previewSfpValidation(uniqueWaitFixture.cohortId);
+  const activePolicy = rows(await db.execute(sql`
+    SELECT d.version
+      FROM sfp_outreach_policy_control c
+      JOIN sfp_outreach_policy_documents d ON d.id=c.active_policy_id
+     WHERE c.singleton=TRUE
+  `))[0];
+  assert.ok(Number.isInteger(Number(activePolicy?.version)) && Number(activePolicy?.version) > 0,
+    "active outreach policy is required for the pending unique-conflict fixture");
+  const uniqueWaitBeforeFinal = makeDeferred<void>();
+  const uniqueWaitRelease = makeDeferred<void>();
+  const uniqueWaitValidation = observeBackground(executeSfpValidation(uniqueWaitFixture.cohortId, {
+    idempotencyKey: `${runKey}-eligibility-unique-wait-validation`,
+    snapshotHash: uniqueWaitPreview.snapshotHash,
+    actorId: reviewerId,
+    maxValidations: 25,
+    zbTransport: async () => "valid",
+    concurrencyTestHooks: {
+      onBeforeFinalEligibilityLocks: async (context: any) => {
+        if (context.businessId !== uniqueWaitFixture.businessId) return;
+        uniqueWaitBeforeFinal.resolve();
+        await uniqueWaitRelease.promise;
+      },
+    },
+  }));
+  const uniqueWaitWriter = await connectHeldWriter(`${runKey}-pending-eligibility-writer`);
+  let uniqueWaitWriterPid = 0;
+  let pendingEligibilityId = "";
+  let uniqueWaitObserved = false;
+  let uniqueWaitWriterCommitted = false;
+  try {
+    await waitForBarrier(uniqueWaitBeforeFinal.promise, "ELIGIBILITY_UNIQUE_WAIT_BARRIER_NOT_REACHED");
+    uniqueWaitWriterPid = Number((await uniqueWaitWriter.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+    pendingEligibilityId = String((await uniqueWaitWriter.query(`
+      INSERT INTO sfp_outreach_eligibility
+        (cohort_run_id,business_id,candidate_id,source_kind,policy_version,status,
+         decision_reason,normalized_value_hash,normalized_value_hash_version)
+      VALUES ($1::uuid,$2,$3::uuid,'free',$4,'validation_pending',
+        'private_pending_unique_wait_holder',$5,1)
+      RETURNING id
+    `, [
+      uniqueWaitFixture.cohortId,
+      uniqueWaitFixture.businessId,
+      uniqueWaitFixture.candidateId,
+      Number(activePolicy.version),
+      uniqueWaitFixture.normalizedValueHash,
+    ])).rows[0].id);
+    uniqueWaitRelease.resolve();
+    uniqueWaitObserved = await waitForBlockedQuery(
+      uniqueWaitWriterPid,
+      "INSERT INTO sfp_outreach_eligibility",
+    );
+    await uniqueWaitWriter.query("COMMIT");
+    uniqueWaitWriterCommitted = true;
+    uniqueWaitWriter.release();
+    const uniqueWaitResult = await uniqueWaitValidation;
+    const uniqueWaitRows = rows(await db.execute(sql`
+      SELECT id,status,source_kind,candidate_id,normalized_value_hash,validation_operation_id
+        FROM sfp_outreach_eligibility
+       WHERE cohort_run_id=${uniqueWaitFixture.cohortId}::uuid
+         AND business_id=${uniqueWaitFixture.businessId}
+    `));
+    const uniqueWaitOperation = uniqueWaitRows[0]?.validation_operation_id
+      ? rows(await db.execute(sql`
+          SELECT state,billing_state FROM provider_operations
+           WHERE id=${String(uniqueWaitRows[0].validation_operation_id)}::uuid
+        `))[0]
+      : null;
+    check(uniqueWaitObserved && uniqueWaitResult.failedCount === 0 &&
+      uniqueWaitRows.length === 1 &&
+      String(uniqueWaitRows[0]?.id) === pendingEligibilityId &&
+      uniqueWaitRows[0]?.status === "validated_outreach_eligible" &&
+      uniqueWaitRows[0]?.source_kind === "free" &&
+      String(uniqueWaitRows[0]?.candidate_id) === uniqueWaitFixture.candidateId &&
+      String(uniqueWaitRows[0]?.normalized_value_hash) === uniqueWaitFixture.normalizedValueHash &&
+      uniqueWaitOperation?.state === "completed" && uniqueWaitOperation?.billing_state === "committed",
+    "a concurrent pending-only eligibility insert is awaited and atomically replaced by the genuine settled validation without a duplicate row");
+  } finally {
+    uniqueWaitRelease.resolve();
+    if (!uniqueWaitWriterCommitted) {
+      try { await uniqueWaitWriter.query("ROLLBACK"); } catch { /* already completed or failed */ }
+      uniqueWaitWriter.release();
+    }
+  }
+
+  // The original receipt is genuinely settled, but its provider-reported
+  // verifiedAt is close to policy expiry. Hold the final transaction past
+  // that expiry at the lock-held barrier and prove no business email projection
+  // occurs from a receipt that expired while commit locks were held.
+  const expiredReceiptFixture = await createRaceFreeFixture("expired-receipt-projection");
+  const expiredReceiptPreview = await previewSfpValidation(expiredReceiptFixture.cohortId);
+  const ttl = rows(await db.execute(sql`
+    SELECT d.validation_ttl_days
+      FROM sfp_outreach_policy_control c
+      JOIN sfp_outreach_policy_documents d ON d.id=c.active_policy_id
+     WHERE c.singleton=TRUE
+  `))[0];
+  assert.ok(Number.isInteger(Number(ttl?.validation_ttl_days)) && Number(ttl?.validation_ttl_days) > 0,
+    "active validation TTL is required for the genuine expiring-receipt fixture");
+  let fakeVerifiedAt = "";
+  const expiredReceiptReached = makeDeferred<void>();
+  const expiredReceiptRelease = makeDeferred<void>();
+  const expiredReceiptValidation = observeBackground(executeSfpValidation(expiredReceiptFixture.cohortId, {
+    idempotencyKey: `${runKey}-expired-receipt-projection-validation`,
+    snapshotHash: expiredReceiptPreview.snapshotHash,
+    actorId: reviewerId,
+    maxValidations: 25,
+    zbTransport: async () => {
+      const providerClock = rows(await db.execute(sql`SELECT clock_timestamp() AS at`))[0].at;
+      const validationTtlMs = Number(ttl.validation_ttl_days) * 24 * 60 * 60 * 1000;
+      fakeVerifiedAt = new Date(Date.parse(String(providerClock)) - validationTtlMs + 2_000).toISOString();
+      return { status: "valid", verifiedAt: fakeVerifiedAt } as any;
+    },
+    concurrencyTestHooks: {
+      onFinalEligibilityLocksHeld: async (context: any) => {
+        if (context.businessId !== expiredReceiptFixture.businessId) return;
+        expiredReceiptReached.resolve();
+        await expiredReceiptRelease.promise;
+      },
+    },
+  }));
+  try {
+    await waitForBarrier(expiredReceiptReached.promise, "EXPIRED_RECEIPT_BARRIER_NOT_REACHED");
+    const expiryDeadline = Date.now() + 15_000;
+    let receiptExpiryReached = false;
+    while (!receiptExpiryReached && Date.now() < expiryDeadline) {
+      receiptExpiryReached = rows(await db.execute(sql`
+        SELECT ${fakeVerifiedAt}::timestamptz
+          + (${Number(ttl.validation_ttl_days)}::text||' days')::interval
+          <= clock_timestamp() AS expired
+      `))[0]?.expired === true;
+      if (!receiptExpiryReached) await delay(25);
+    }
+    check(receiptExpiryReached,
+      "the database clock passes the provider receipt's bounded expiry while final eligibility locks are held");
+  } finally {
+    expiredReceiptRelease.resolve();
+  }
+  const expiredReceiptResult = await expiredReceiptValidation;
+  const expiredReceiptState = rows(await db.execute(sql`
+    SELECT e.status,e.decision_reason,e.validation_at,
+           e.validation_expires_at<=clock_timestamp() AS expired_at_commit,
+           e.validation_operation_id,o.state AS operation_state,o.billing_state,
+           b.main_email,b.email_discovery_status
+      FROM sfp_outreach_eligibility e
+      JOIN provider_operations o ON o.id=e.validation_operation_id
+      JOIN businesses b ON b.id=e.business_id
+     WHERE e.cohort_run_id=${expiredReceiptFixture.cohortId}::uuid
+       AND e.business_id=${expiredReceiptFixture.businessId}
+  `))[0];
+  check(Boolean(fakeVerifiedAt) &&
+    expiredReceiptResult.failedCount > 0 &&
+    expiredReceiptState?.expired_at_commit === true &&
+    expiredReceiptState?.status === "validation_pending" &&
+    expiredReceiptState?.decision_reason === "provider_observation_expired_before_eligibility_commit" &&
+    expiredReceiptState?.operation_state === "completed" &&
+    expiredReceiptState?.billing_state === "committed" &&
+    expiredReceiptState?.main_email == null &&
+    expiredReceiptState?.email_discovery_status !== "provider_valid",
+  "receipt expiry during the held finalization barrier keeps the settled receipt but forbids a stale business email projection");
 } finally {
   if (reviewApiServer) {
     await new Promise<void>((resolve) => reviewApiServer.close(() => resolve()));

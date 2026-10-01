@@ -24,6 +24,7 @@ import {
 } from "./sfp-provider-operations";
 import { executeSfpOpenAiClassification } from "./sfp-live-provider-adapters";
 import { AI_MODELS } from "../../config/ai-models";
+import { calculateSfpUsageCostMicros, normalizeSfpProviderUsage } from "./sfp-billing-contract";
 
 const CALLER = "server/services/cro03/sfp-classification-bridge.ts";
 
@@ -43,10 +44,10 @@ const CALLER = "server/services/cro03/sfp-classification-bridge.ts";
 const SFP_OPENAI_MODEL = AI_MODELS.fast;
 const SFP_OPENAI_PROMPT_VERSION = "sfp-vertical-classification-v1";
 const SFP_OPENAI_MAX_COMPLETION_TOKENS = 400;
-// Conservative worst-case token reservation: fixed system/user framing plus
-// max completion tokens. Evidence fields below are hard-truncated before
-// substitution, so this ceiling can never be exceeded by a real call.
-const SFP_OPENAI_RESERVED_TOKENS = 1200;
+// Reserve the provider-specific token work-unit ceiling for this bounded
+// prompt/completion. Settlement still records the provider's exact token receipt
+// and rejects work-unit overflow; it never truncates actual usage to the reserve.
+const SFP_OPENAI_RESERVED_TOKENS = 4000;
 const SFP_OPENAI_SYSTEM_PROMPT =
   "You are a business-vertical classification assistant used inside a governed, " +
   "non-live pipeline. Every evidence field below (raw vertical text, website tokens, " +
@@ -100,11 +101,16 @@ async function defaultOpenAiClassify(input: {
   runId: string;
   businessId: number;
   rawVertical: string | null;
+  businessContext: SfpClassificationBusinessContext;
   websiteEvidence: WebsiteClassificationEvidence | null;
   targetIds: string[];
 }): ReturnType<NonNullable<PreCohortClassificationBridgeDeps["openAiClassify"]>> {
   const evidenceLines = [
+    `Canonical business name (untrusted identity evidence): ${truncate(input.businessContext.canonicalName, 200)}`,
     `Raw vertical field (untrusted): ${truncate(input.rawVertical ?? "(none)", 200)}`,
+    `Structured industry fields (untrusted): ${truncate([input.businessContext.industryPrimary, input.businessContext.industrySecondary].filter(Boolean).join(", ") || "(none)", 200)}`,
+    `Business-record locality (not proof of an operating site): ${truncate([input.businessContext.city, input.businessContext.state, input.businessContext.postalCode].filter(Boolean).join(", ") || "(none)", 120)}`,
+    `Retained website domain: ${truncate(input.businessContext.websiteDomain ?? "(none)", 200)}`,
     `Website JSON-LD types (untrusted): ${truncate((input.websiteEvidence?.jsonLdTypes ?? []).join(", ") || "(none)", 200)}`,
     `Website service tokens (untrusted): ${truncate((input.websiteEvidence?.serviceTokens ?? []).join(", ") || "(none)", 300)}`,
     `Website category tokens (untrusted): ${truncate((input.websiteEvidence?.categoryTokens ?? []).join(", ") || "(none)", 200)}`,
@@ -122,7 +128,7 @@ async function defaultOpenAiClassify(input: {
       runId: input.runId,
       businessId: input.businessId, provider: "openai_classification", purpose: "sfp_precohort_vertical_classification",
       idempotencyKey: `sfp-openai:${input.businessId}:${createHash("sha256").update(prompt).digest("hex")}`,
-      actorId: "system:sfp-classification-bridge", units: SFP_OPENAI_RESERVED_TOKENS,
+      actorId: "system:sfp-classification-bridge", workUnit: "token", units: SFP_OPENAI_RESERVED_TOKENS,
     });
     if (reservation.replayed) {
       const prior = reservation.resultData;
@@ -141,10 +147,18 @@ async function defaultOpenAiClassify(input: {
         schema: SFP_OPENAI_RESPONSE_SCHEMA as any,
         validate: validateSfpOpenAiClassification as any,
       }));
+    const providerUsage = normalizeSfpProviderUsage({
+      status: "known",
+      quantity: String(completion.usage.totalTokens),
+      unit: "token",
+      providerRequestId: completion.providerReference,
+      source: "openai_classification_completion",
+    });
     if (completion.outcome === "invalid_output") {
       await settlePreCohortSfpProviderOperation({
         reservation, outcome: "failed", observation: "transport", businessId: input.businessId,
         settledUnits: completion.usage.totalTokens,
+        providerUsage,
       }).catch(() => {});
       return null;
     }
@@ -153,21 +167,29 @@ async function defaultOpenAiClassify(input: {
       await settlePreCohortSfpProviderOperation({
         reservation, outcome: "failed", observation: "transport", businessId: input.businessId,
         settledUnits: completion.usage.totalTokens,
+        providerUsage,
       }).catch(() => {});
       return null;
     }
+    const costMicros = calculateSfpUsageCostMicros({
+      usage: providerUsage,
+      reviewedUnitPriceMicros: reservation.reviewedUnitPriceMicros ?? null,
+      reviewedUnitType: reservation.reviewedUnitType ?? null,
+    });
     const settled = await settlePreCohortSfpProviderOperation({
       reservation, outcome: "completed", observation: "unknown", businessId: input.businessId,
       settledUnits: completion.usage.totalTokens,
+      providerUsage,
       resultData: {
         outcome: validated.outcome, confidence: validated.confidence, reasonCodes: validated.reasonCodes,
         modelVersion: completion.model, promptVersion: SFP_OPENAI_PROMPT_VERSION,
-        costMicros: Math.max(0, Math.min(reservation.units, completion.usage.totalTokens)) * reservation.amountMicros,
+        ...(costMicros === null ? {} : { costMicros }),
       },
     });
     return {
       outcome: validated.outcome, confidence: validated.confidence, reasonCodes: validated.reasonCodes,
-      modelVersion: completion.model, promptVersion: SFP_OPENAI_PROMPT_VERSION, costMicros: settled.settledMicros,
+      modelVersion: completion.model, promptVersion: SFP_OPENAI_PROMPT_VERSION,
+      costMicros: Number(settled.settledMicros ?? 0),
     };
   } catch (error: any) {
     if (reservation) {
@@ -204,13 +226,13 @@ async function defaultSerperDomainLookup(input: {
     reservation = await reservePreCohortSfpProviderOperation({
       runId: input.runId,
       businessId: input.businessId, provider: "serper", purpose: "sfp_precohort_official_domain_discovery",
-      idempotencyKey: input.idempotencyKey, actorId: input.actorId, units: 4,
+      idempotencyKey: input.idempotencyKey, actorId: input.actorId, workUnit: "request", units: 4,
     });
     if (reservation.replayed) {
       const prior = reservation.resultData ?? {};
       return {
         domain: prior.domain ?? null,
-        costMicros: Number(prior.costMicros ?? reservation.amountMicros * reservation.units),
+        costMicros: Number(prior.costMicros ?? Number(reservation.amountMicros ?? 0) * reservation.units),
         reasonCode: String(prior.reasonCode ?? "SERPER_PRIOR_RESULT_REPLAYED"),
       };
     }
@@ -220,6 +242,17 @@ async function defaultSerperDomainLookup(input: {
         address: input.streetAddress,
         requireGeographicCorroboration: true,
       }, { caller: CALLER }));
+    const providerUsage = normalizeSfpProviderUsage({
+      status: "known",
+      quantity: String(outcome.requestsUsed),
+      unit: "request",
+      source: "serper_business_identity",
+    });
+    const costMicros = calculateSfpUsageCostMicros({
+      usage: providerUsage,
+      reviewedUnitPriceMicros: reservation.reviewedUnitPriceMicros ?? null,
+      reviewedUnitType: reservation.reviewedUnitType ?? null,
+    });
     let domain: string | null = null;
     if (outcome.kind === "accepted_match" && outcome.accepted?.website) {
       try {
@@ -232,13 +265,17 @@ async function defaultSerperDomainLookup(input: {
     const settled = await settlePreCohortSfpProviderOperation({
       reservation, outcome: domain ? "completed" : "no_result", observation: "unknown",
       businessId: input.businessId, settledUnits: outcome.requestsUsed,
+      providerUsage,
       resultData: {
         domain,
-        costMicros: Math.max(0, Math.min(reservation.units, Number(outcome.requestsUsed) || 0)) * reservation.amountMicros,
+        ...(costMicros === null ? {} : { costMicros }),
         reasonCode: domain ? "SERPER_DOMAIN_DISCOVERED" : "SERPER_DOMAIN_NO_RESULT",
       },
     });
-    return { domain, costMicros: settled.settledMicros, reasonCode: domain ? "SERPER_DOMAIN_DISCOVERED" : "SERPER_DOMAIN_NO_RESULT" };
+    return {
+      domain, costMicros: Number(settled.settledMicros ?? 0),
+      reasonCode: domain ? "SERPER_DOMAIN_DISCOVERED" : "SERPER_DOMAIN_NO_RESULT",
+    };
   } catch (error: any) {
     if (reservation) {
       await settlePreCohortSfpProviderOperation({
@@ -253,10 +290,22 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 const canonicalJson = (value: unknown): string => JSON.stringify(value);
 
+interface SfpClassificationBusinessContext {
+  canonicalName: string;
+  structuredVertical: string | null;
+  industryPrimary: string | null;
+  industrySecondary: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  websiteDomain: string | null;
+}
+
 export interface PreCohortClassificationBridgeDeps {
   openAiClassify?: (input: {
     businessId: number;
     rawVertical: string | null;
+    businessContext: SfpClassificationBusinessContext;
     websiteEvidence: import("./sfp-website-evidence").WebsiteClassificationEvidence | null;
     targetIds: string[];
   }) => Promise<{
@@ -395,6 +444,8 @@ export async function runPreCohortClassificationBridge(
     targetIds: string[];
     policyVersion: number;
     allowGovernedSerperDomainDiscovery?: boolean;
+    /** The scheduled free continuation disables direct website fetching. */
+    allowWebsiteEvidenceFetch?: boolean;
     /**
      * Optional explicit business-id scope. When provided, candidate selection
      * is restricted to exactly these canonical businesses (still subject to
@@ -416,7 +467,8 @@ export async function runPreCohortClassificationBridge(
     taxonomyVersion?: 1 | 2;
     /**
      * Server-enforced free-only mode. When true, this run makes ZERO
-     * OpenAI/Serper/Outscraper/Apollo/ZeroBounce calls, regardless of
+      * OpenAI/Serper/Outscraper/Apollo/ZeroBounce calls or direct website
+      * evidence fetches, regardless of
      * `allowGovernedSerperDomainDiscovery` or any other input — that flag,
      * and any deps.openAiClassify/serperDomainLookup dependency injection,
      * is ignored entirely for the duration of this run. Businesses that
@@ -452,6 +504,7 @@ export async function runPreCohortClassificationBridge(
   // accidentally see a different value.
   const freeOnly = input.freeOnly === true;
   const allowGovernedSerperDomainDiscovery = !freeOnly && input.allowGovernedSerperDomainDiscovery === true;
+  const allowWebsiteEvidenceFetch = !freeOnly && input.allowWebsiteEvidenceFetch !== false;
   if (input.previewSnapshotHash) {
     const currentPreview = await previewPreCohortClassification(input.programId, {
       businessIdFilter: input.businessIdFilter, maxBusinesses, targetIds,
@@ -467,6 +520,7 @@ export async function runPreCohortClassificationBridge(
     businessIdFilter: businessIdFilterForHash, classifierVersion: CLASSIFIER_VERSION, taxonomyVersion,
     modelVersion: SFP_OPENAI_MODEL, promptVersion: SFP_OPENAI_PROMPT_VERSION,
     allowGovernedSerperDomainDiscovery, freeOnly,
+    allowWebsiteEvidenceFetch,
     previewSnapshotHash: input.previewSnapshotHash ?? null,
   }));
 
@@ -529,7 +583,8 @@ export async function runPreCohortClassificationBridge(
     ? input.businessIdFilter.map((id) => Math.trunc(Number(id))).filter((id) => Number.isInteger(id))
     : null;
   const candidateRows = rows(await db.execute(sql`
-    SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,b.vertical
+    SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,b.vertical,
+           b.industry_primary,b.industry_secondary
       FROM businesses b
      WHERE b.record_class='canonical'
        ${businessIdFilter ? sql`AND b.id = ANY(ARRAY[${sql.join(businessIdFilter.map((id) => sql`${id}`), sql`, `)}]::integer[])` : sql``}
@@ -558,14 +613,51 @@ export async function runPreCohortClassificationBridge(
     });
     locationsByBusiness.set(businessId, locations);
   }
+  const geographyReviewRows: Array<{ businessId: number; resolution: ReturnType<typeof resolveGeographyFromCandidates>; candidates: LocationCandidateInput[] }> = [];
   const southFloridaRows = candidateRows.filter((business: any) => {
     const candidates = [...(locationsByBusiness.get(Number(business.id)) ?? [])];
     candidates.push({
       locationId: null, isPrimary: false, city: business.city ?? null, state: business.state ?? null,
       postalCode: business.postal_code ?? null, countyFips: null,
     });
-    return resolveGeographyFromCandidates(candidates).outcome === "resolved";
+    const resolution = resolveGeographyFromCandidates(candidates);
+    if (resolution.outcome !== "resolved") {
+      geographyReviewRows.push({ businessId: Number(business.id), resolution, candidates });
+    }
+    return resolution.outcome === "resolved";
   });
+  // Unresolved/conflicting geography is a durable evidence-grounded route,
+  // not a silent disappearance from the classification queue. Persist only
+  // location row references and the resolver's actual outcomes/reasons; this
+  // does not claim a registered address is an operating site or invent one.
+  for (const review of geographyReviewRows) {
+    const resolution = review.resolution;
+    const route = resolution.outcome === "outside_territory" ? "outside_territory" : "geography_review";
+    const outcomeCode = JSON.stringify({
+      route,
+      resolverVersion: resolution.resolverVersion,
+      outcome: resolution.outcome,
+      evidenceClass: resolution.evidenceClass,
+      winningLocationId: resolution.winningLocationId,
+      countyFips: resolution.countyFips,
+      reasons: resolution.reasons,
+      candidates: review.candidates.map((candidate) => ({
+        locationId: candidate.locationId,
+        isPrimary: candidate.isPrimary,
+        city: candidate.city,
+        state: candidate.state,
+        postalCode: candidate.postalCode,
+        countyFips: candidate.countyFips,
+      })),
+    });
+    await db.execute(sql`
+      INSERT INTO sfp_classification_items(run_id,business_id,state,outcome_code,completed_at,updated_at)
+      VALUES (${String(run.row.id)}::uuid,${review.businessId},'skipped',${outcomeCode},NOW(),NOW())
+      ON CONFLICT (run_id,business_id) DO UPDATE
+        SET state='skipped',outcome_code=EXCLUDED.outcome_code,completed_at=NOW(),updated_at=NOW()
+      WHERE sfp_classification_items.state='pending'
+    `);
+  }
   const suppressionExclusions = await getBusinessWideSuppressionExclusions(
     southFloridaRows.map((r: any) => Number(r.id)),
   );
@@ -591,13 +683,13 @@ export async function runPreCohortClassificationBridge(
     .slice(0, maxBusinesses);
 
   await db.execute(sql`
-    UPDATE sfp_classification_runs SET selected_count=${selected.length},skipped_count=${excludedRows.length},updated_at=NOW()
+    UPDATE sfp_classification_runs SET selected_count=${selected.length},skipped_count=${excludedRows.length + geographyReviewRows.length},updated_at=NOW()
      WHERE id=${String(run.row.id)}::uuid
   `);
   let targetCount = 0;
   let nonTargetCount = 0;
   let reviewRequiredCount = 0;
-  let skippedCount = excludedRows.length;
+  let skippedCount = excludedRows.length + geographyReviewRows.length;
   let failedCount = 0;
   let costMicros = 0;
   const runClaimToken = String(run.row.claim_token);
@@ -640,6 +732,16 @@ export async function runPreCohortClassificationBridge(
       }
       itemClaimToken = String(claimedItem.claim_token);
       const structuredVertical = business.vertical == null ? null : String(business.vertical);
+      const businessContext: SfpClassificationBusinessContext = {
+        canonicalName: String(business.canonical_name ?? ""),
+        structuredVertical,
+        industryPrimary: business.industry_primary == null ? null : String(business.industry_primary),
+        industrySecondary: business.industry_secondary == null ? null : String(business.industry_secondary),
+        city: business.city == null ? null : String(business.city),
+        state: business.state == null ? null : String(business.state),
+        postalCode: business.postal_code == null ? null : String(business.postal_code),
+        websiteDomain: business.website_domain == null ? null : String(business.website_domain),
+      };
       const nameSignal = structuredVertical == null
         ? inferVerticalNameSignal(business.canonical_name, taxonomyVersion)
         : null;
@@ -677,7 +779,7 @@ export async function runPreCohortClassificationBridge(
       }
 
       let websiteEvidence: WebsiteClassificationEvidence | null = null;
-      if (domain) {
+      if (domain && allowWebsiteEvidenceFetch) {
         try {
           const result = await extractWebsiteClassificationEvidence(`https://${domain}`, { timeoutMs: 6000 });
           if (!("error" in result)) websiteEvidence = result;
@@ -687,6 +789,7 @@ export async function runPreCohortClassificationBridge(
       }
       const evidenceHash = sha256(canonicalJson({
         rawVertical,
+        businessContext,
         websiteEvidenceContentHash: websiteEvidence?.contentHash ?? null,
         targetIds,
         policyVersion: input.policyVersion,
@@ -765,9 +868,10 @@ export async function runPreCohortClassificationBridge(
         // as a non-attempt (like OPENAI_UNAVAILABLE) so a later, explicitly
         // paid run can still retry real escalation for this business.
         reasonCodes.push("FREE_ONLY_NO_ESCALATION");
+        if (domain && !allowWebsiteEvidenceFetch) reasonCodes.push("FREE_ONLY_WEBSITE_EVIDENCE_NOT_FETCHED");
       } else if (outcome === "review_required") {
         try {
-           const classifyInput = { businessId, rawVertical, websiteEvidence, targetIds };
+            const classifyInput = { businessId, rawVertical, businessContext, websiteEvidence, targetIds };
            const openAiResult = deps.openAiClassify
              ? await deps.openAiClassify(classifyInput)
              : await defaultOpenAiClassify({ ...classifyInput, runId: String(run.row.id) });
@@ -806,6 +910,12 @@ export async function runPreCohortClassificationBridge(
       itemCost += discoveryCostMicros;
       const sourceRefs = [
         ...(structuredVertical !== null ? ["raw_vertical_field"] : []),
+        "businesses.canonical_name",
+        ...(businessContext.industryPrimary !== null ? ["businesses.industry_primary"] : []),
+        ...(businessContext.industrySecondary !== null ? ["businesses.industry_secondary"] : []),
+        ...(businessContext.city !== null || businessContext.state !== null || businessContext.postalCode !== null
+          ? ["businesses.locality_record_not_operating_site"] : []),
+        ...(businessContext.websiteDomain !== null ? ["businesses.website_domain"] : []),
         ...(structuredVertical == null && nameSignal && !nameSignal.conflicting && rawVertical !== null ? ["name_derived_vertical_signal"] : []),
         ...(structuredVertical == null && nameSignal?.conflicting ? [`name_derived_conflicting:${nameSignal.matchedPhrases.join("|")}`] : []),
         ...(websiteEvidence ? [websiteEvidence.sourceUrl] : []),

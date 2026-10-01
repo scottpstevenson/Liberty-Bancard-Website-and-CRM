@@ -334,7 +334,6 @@ export type PromotionResult =
  *   3. Subject business has no DBPR lineage (fail-closed)
  *   4. Candidate email is not present on the canonical contact suppression surface
  *   5. An approved cro03c_activation_policies row (MI-09 ZeroBounce authorization)
- *   6. A live (non-expired) cro03c_runtime_attestations row (worker fleet active)
  *
  * When all gates pass:
  *   - Candidate disposition advances to 'validation_admitted'
@@ -436,26 +435,6 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
   `))[0];
   if (!policy) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_APPROVED_ACTIVATION_POLICY" };
 
-  // Gate 6: live runtime attestation — worker fleet must be active (non-expired attestation).
-  // Schema note: the table uses `captured_at` (not `created_at`) for ordering.
-  let attestation: { id: string } | undefined;
-  try {
-    attestation = rows(await db.execute(sql`
-      SELECT id FROM cro03c_runtime_attestations WHERE expires_at > NOW() ORDER BY captured_at DESC LIMIT 1
-    `))[0];
-  } catch (attErr: any) {
-    // Distinguish schema/DB errors from legitimate policy denial.
-    // A DB error here (e.g. missing table or column) is a configuration failure,
-    // not a policy denial.  Surface a distinct reason so callers can detect it.
-    const msg = String(attErr?.message ?? "");
-    const reason = /column.*does not exist|relation.*does not exist/i.test(msg)
-      ? "ATTESTATION_SCHEMA_ERROR"
-      : "ATTESTATION_QUERY_ERROR";
-    console.error(`[FreeDiscovery] Gate 6 attestation query failed (${reason}):`, msg);
-    return { status: "PENDING_OPERATOR_ACTIVATION", reason };
-  }
-  if (!attestation) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_LIVE_RUNTIME_ATTESTATION" };
-
   // All gates passed — advance disposition to 'validation_admitted' and write audit row.
   // This is a single-column UPDATE; use raw db.execute to avoid Drizzle's silent-drop
   // behaviour on cast-type SET objects (see drizzle-set-silent-drop memory note).
@@ -481,7 +460,6 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
       contactId: candidate.contact_id ?? null,
       domain: candidate.domain,
       policyId: String(policy.id),
-      attestationId: String(attestation.id),
     },
     actorType: "system",
     actorId: "free-discovery-promotion",

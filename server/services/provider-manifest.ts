@@ -109,7 +109,8 @@ export interface ProviderSourceManifestRow {
   budget: {
     required: boolean;
     accounting: "none" | "control_row" | "usage_setting" | "ai_audit";
-    unit: "request" | "result" | "token" | "run" | "none";
+    unit: "request" | "result" | "person" | "contact" | "token" | "run" | "none";
+    additionalUnits?: readonly ("request" | "result" | "person" | "contact" | "token" | "run" | "none")[];
   };
   timeoutMs: number | null;
   retry: RetryPolicy;
@@ -129,6 +130,9 @@ const STANDARD_OUTCOMES = [
 const NO_RETRY: RetryPolicy = { maxAttempts: 1, retryableOutcomes: [], backoffMs: 0 };
 const TRANSIENT_RETRY: RetryPolicy = {
   maxAttempts: 3, retryableOutcomes: ["rate_limited", "timeout", "provider_error"], backoffMs: 1_000,
+};
+const OUTSCRAPER_TASK_RETRY: RetryPolicy = {
+  maxAttempts: 32, retryableOutcomes: ["rate_limited", "timeout", "provider_error"], backoffMs: 30_000,
 };
 const STANDARD_REDACTION: RedactionPolicy = {
   redactSecrets: true, redactRawResponse: true,
@@ -169,13 +173,14 @@ export const PROVIDER_SOURCE_MANIFEST = [
     notes: "All calls flow through SerperGateway and its durable control row.",
   },
   {
-    id: "outscraper", capability: ["business_discovery"], billing: "paid_per_result", parser: "api",
+    id: "outscraper", capability: ["business_discovery", "contact_enrichment"], billing: "paid_per_result", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/outscraper.ts", "server/services/cro03/sfp-live-provider-adapters.ts"],
     approvedCallers: ["server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"], secretNames: ["OUTSCRAPER_API_KEY"],
-    durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
-    timeoutMs: 60_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
-    candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category"],
-    redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Paid map results require an explicit budget gate.",
+    durableOperation: "batch", budget: { required: true, accounting: "control_row", unit: "result", additionalUnits: ["contact", "request"] },
+    timeoutMs: 60_000, retry: OUTSCRAPER_TASK_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
+    candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],
+    redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT,
+    notes: "Maps result, Leads & Contacts contact, and task-poll request work are reserved in their declared units. Async request IDs are durably attributed and polled through SFP operation authority before results are accepted; repeated polls add no Maps result usage. Current GET documentation omits a completion timestamp and says expired results return Pending, so retention uses a conservative request-start/last-confirmed-pending lower-bound + 4h cutoff, distinct from the 24h submission deadline.",
   },
   {
     id: "apify", capability: ["business_discovery"], billing: "paid_per_result", parser: "api",
@@ -191,10 +196,11 @@ export const PROVIDER_SOURCE_MANIFEST = [
     id: "apollo", capability: ["business_discovery", "contact_enrichment"], billing: "paid_subscription", parser: "api",
     activationPolicy: "explicit_operator_enablement", approvedAdapters: ["server/services/sdr/apollo.ts", "server/services/cro03/sfp-live-provider-adapters.ts"],
     approvedCallers: ["server/services/cro03/live-provider-executors.ts", "server/services/cro03/sfp-live-provider-adapters.ts", "server/services/cro03/sfp-provider-operations.ts", "server/services/cro03/sfp-paid-waterfall.ts"], secretNames: ["APOLLO_API_KEY"],
-    durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "result" },
+    durableOperation: "request", budget: { required: true, accounting: "control_row", unit: "person", additionalUnits: ["request"] },
     timeoutMs: 30_000, retry: TRANSIENT_RETRY, normalizedOutcomes: STANDARD_OUTCOMES,
     candidateFields: ["business_name", "website", "email", "phone", "address", "city", "state", "postal_code", "category", "owner_name", "owner_title"],
-    redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT, notes: "Contact data is sensitive and response payloads are redacted.",
+    redaction: STANDARD_REDACTION, testTransport: FETCH_TRANSPORT,
+    notes: "Each actual HTTP request has its own durable request-keyed operation. Organization Search is documented at 1 credit/page; People API Search is documented at 0 credits; bulk business-email enrichment reconciles its exact fractional receipt independently. Organization/person work and credit usage remain separate units; people results are capped at 10. Personal-email, phone-reveal, and waterfall enrichment are excluded.",
   },
   {
     id: "proxycurl", capability: ["contact_enrichment"], billing: "paid_per_call", parser: "api",

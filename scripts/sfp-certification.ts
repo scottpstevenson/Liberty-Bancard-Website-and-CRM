@@ -76,6 +76,8 @@ await getCurrentPricingSchedule();
 
 const RUN_ID = `sfpcert-${Math.random().toString(36).slice(2, 10)}`;
 const RELEASE_SHA = sfpRuntimeIdentity.artifactSha;
+await (await import("./helpers/sfp-runtime-test-identity"))
+  .selectSfpRuntimeTestRelease(`cert:${RUN_ID}`);
 
 let passed = 0, failed = 0;
 
@@ -611,27 +613,6 @@ let validationResult: any;
 
 await phase("7a. previewSfpValidation returns correct interface", async () => {
   const { previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
-  // Insert a live attestation so the gate opens
-  const certIdemKey = `cert-att-${RUN_ID}`;
-  const certAttHash = createHash("sha256").update(`cert-att-${RUN_ID}`).digest("hex");
-  await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
-       environment_identity, web_boot_identity, worker_boot_identity,
-       queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
-       captured_at, expires_at, attestation_hash, created_by)
-    VALUES (
-      ${certIdemKey}, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${RELEASE_SHA},
-      ${createHash("sha256").update("cert-migration-head").digest("hex").slice(0, 40)},
-      ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity},
-      ${`cert-web-${RUN_ID}`}, ${`cert-worker-${RUN_ID}`},
-      ${sfpRuntimeIdentity.queueTopologyHash},
-      NOW() - INTERVAL '30 seconds', true, true,
-      NOW(), NOW() + INTERVAL '1 hour',
-      ${certAttHash}, ${'cert:' + RUN_ID}
-    )
-    ON CONFLICT (idempotency_key) DO NOTHING
-  `);
   const preview = await previewSfpValidation(cohortRunId);
   assert(preview.cohortRunId, "Must have cohortRunId");
   assert.equal(preview.provider, "zerobounce", "Provider must be zerobounce");

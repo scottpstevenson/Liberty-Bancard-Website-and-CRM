@@ -822,6 +822,9 @@ function NamedEmailEligibilityReviewPanel() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([]);
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkReviewResult, setBulkReviewResult] = useState<Array<{ eligibilityId: string; ok: boolean; message?: string }> | null>(null);
   const query = useQuery<{ reviews: NamedEmailEligibilityReview[] }>({
     queryKey: ["/api/lead-ops/sfp/named-email-eligibility-reviews"],
     queryFn: async () => (await apiRequest("GET", "/api/lead-ops/sfp/named-email-eligibility-reviews?limit=50")).json(),
@@ -845,6 +848,51 @@ function NamedEmailEligibilityReviewPanel() {
     },
     onError: (error: Error) => toast({ title: "Eligibility review failed", description: error.message, variant: "destructive" }),
   });
+  const bulkReviewMutation = useMutation({
+    mutationFn: async (decision: "approved" | "rejected") => {
+      const selectedRows = (query.data?.reviews ?? [])
+        .filter((row) => selectedReviewIds.includes(row.eligibility_id))
+        .slice(0, 50);
+      const results: Array<{ eligibilityId: string; ok: boolean; message?: string }> = [];
+      // Keep the original per-item endpoint as the authority. Every item gets
+      // a fresh server-side source/receipt/policy/suppression/CAS and
+      // independent-reviewer check; one conflict does not stop later rows.
+      for (const row of selectedRows) {
+        try {
+          await apiRequest("POST", `/api/lead-ops/sfp/named-email-eligibility-reviews/${row.eligibility_id}`, {
+            decision,
+            reason: bulkReason.trim(),
+            expectedUpdatedAt: row.updated_at,
+            idempotencyKey: crypto.randomUUID(),
+          });
+          results.push({ eligibilityId: row.eligibility_id, ok: true });
+        } catch (error) {
+          results.push({
+            eligibilityId: row.eligibility_id,
+            ok: false,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      setBulkReviewResult(results);
+      setSelectedReviewIds([]);
+      toast({
+        title: "Bounded named-email review finished",
+        description: `${results.filter((result) => result.ok).length} decisions recorded; ${results.filter((result) => !result.ok).length} held for review.`,
+        variant: results.some((result) => !result.ok) ? "destructive" : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/sfp/named-email-eligibility-reviews"] });
+    },
+    onError: (error: Error) => toast({ title: "Bulk review failed", description: error.message, variant: "destructive" }),
+  });
+  const toggleReviewSelection = (eligibilityId: string, checked: boolean) => {
+    setSelectedReviewIds((current) => checked
+      ? current.includes(eligibilityId) ? current : [...current, eligibilityId].slice(0, 50)
+      : current.filter((id) => id !== eligibilityId));
+  };
   if (user?.role !== "admin") return null;
   return (
     <Card>
@@ -864,9 +912,59 @@ function NamedEmailEligibilityReviewPanel() {
         {query.isError && <p className="text-sm text-red-700" role="alert">Review queue unavailable: {(query.error as Error).message}</p>}
         {query.isLoading && <p className="text-sm text-muted-foreground">Loading eligibility reviews…</p>}
         {query.data?.reviews.length === 0 && <p className="text-sm text-muted-foreground">No current named-email eligibility reviews are awaiting decision.</p>}
+        {query.data?.reviews.length ? (
+          <div className="space-y-2 rounded-md border border-dashed p-3">
+            <div className="text-xs text-muted-foreground">
+              Select up to 50 current rows for sequential bulk review. Every decision is submitted to the existing independently-attributed per-item route; a self-review or stale item remains held without stopping other items.
+            </div>
+            <Input
+              aria-label="Bulk named-email review reason"
+              placeholder="Shared reason for this bounded review (min 8 characters)"
+              value={bulkReason}
+              onChange={(event) => setBulkReason(event.target.value)}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                disabled={bulkReviewMutation.isPending || selectedReviewIds.length === 0 || selectedReviewIds.length > 50 || bulkReason.trim().length < 8}
+                onClick={() => bulkReviewMutation.mutate("approved")}
+              >
+                {bulkReviewMutation.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                Approve selected ({selectedReviewIds.length})
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={bulkReviewMutation.isPending || selectedReviewIds.length === 0 || selectedReviewIds.length > 50 || bulkReason.trim().length < 8}
+                onClick={() => bulkReviewMutation.mutate("rejected")}
+              >
+                Reject selected ({selectedReviewIds.length})
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedReviewIds([])} disabled={selectedReviewIds.length === 0 || bulkReviewMutation.isPending}>
+                Clear selection
+              </Button>
+            </div>
+            {bulkReviewResult && (
+              <div className="space-y-1 text-xs" role="status">
+                <div>Last batch: {bulkReviewResult.filter((result) => result.ok).length} recorded, {bulkReviewResult.filter((result) => !result.ok).length} not recorded.</div>
+                {bulkReviewResult.filter((result) => !result.ok).map((result) => (
+                  <div key={result.eligibilityId} className="text-destructive">
+                    {result.eligibilityId}: {result.message ?? "review did not commit; row remains held"}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
         {query.data?.reviews.map((row) => (
           <div key={row.eligibility_id} className="rounded-md border p-3 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
+              <Checkbox
+                aria-label={`Select named-email eligibility ${row.eligibility_id} for bulk review`}
+                checked={selectedReviewIds.includes(row.eligibility_id)}
+                onCheckedChange={(checked) => toggleReviewSelection(row.eligibility_id, checked === true)}
+                disabled={bulkReviewMutation.isPending || (!selectedReviewIds.includes(row.eligibility_id) && selectedReviewIds.length >= 50)}
+              />
               <strong className="text-sm">{row.business_name || `Business #${row.business_id}`}</strong>
               <Badge variant="outline">{row.masked_email || "Email masked"}</Badge>
               <Badge variant="secondary">ZeroBounce valid · {row.source_kind}</Badge>
@@ -2025,7 +2123,7 @@ export default function LeadOpsCenter() {
   // ── Tab state (MI-08 + #1957 consolidation) ─────────────────────────────────
   const urlSearch = useSearch();
   const [, navigate] = useLocation();
-  const VALID_TABS = ["businesses", "prospects", "imports", "staging", "sources", "census", "intelligence", "quality", "pipeline", "pilot", "health"] as const;
+  const VALID_TABS = ["businesses", "prospects", "imports", "staging", "sources", "census", "intelligence", "quality", "pipeline", "pilot", "health", "sfp"] as const;
   const STAGING_SUBTABS = ["master-leads", "promotion-review"] as const;
   const tabFromUrl = (() => {
     const t = new URLSearchParams(urlSearch).get("tab");

@@ -213,19 +213,13 @@ export const WORKER_CAPABILITY_GROUPS = {
    * Kept separate from `sfp-campaign-staging`/`sfp-free-classification` so
    * each stage's blast radius stays independently controllable — enabling
    * this group never implies staging is also running, and vice versa.
-   * Every tick already fails closed on CRO03_PROVIDER_TRANSPORT_ENABLED,
-   * credentials, program activation, and the $50 aggregate cap (see
-   * sfp-continuous-discovery.ts); this group only controls whether the
-   * BullMQ ticks are scheduled at all.
+    * Every paid operation checks provider activation/credential/control gates
+    * and durable deployment/job ownership in the reserve/dispatch path. This
+    * group controls whether the bounded BullMQ ticks are scheduled.
    */
   "sfp-continuous-discovery": [
     "sfp-continuous-discovery",
     "sfp-continuous-validation",
-    // Attestation refresh must ride with the same group: it's what unblocks
-    // validation's runtime-authority gate, so scheduling one without the
-    // other just recreates the "gate closed forever" symptom this exists
-    // to fix.
-    "sfp-attestation-refresh",
   ],
 } as const satisfies Record<string, readonly string[]>;
 

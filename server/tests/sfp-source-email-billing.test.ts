@@ -10,6 +10,7 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/test";
 const staging = await import("../services/cro03/sfp-campaign-staging-v2");
 const providerOps = await import("../services/cro03/sfp-provider-operations");
+const billingContract = await import("../services/cro03/sfp-billing-contract");
 
 const email = " Owner@Example.test ";
 const normalizedEmail = email.trim().toLowerCase();
@@ -68,26 +69,58 @@ const apolloUnitPrice = seeded.get("apollo")!.amountMicros;
 assert.deepEqual(settle({
   outcome: "no_result", reservedUnits: 2, reviewedUnitPriceMicros: serperUnitPrice,
   noResultBillable: true, notDispatched: false, billingAmbiguous: false,
-}), { settledUnits: 2, settledMicros: serperUnitPrice * 2, settledCostMicros: serperUnitPrice * 2 });
+  providerUsage: { status: "known", quantity: "2", unit: "request", providerRequestId: "serper-1", source: "test" },
+}), {
+  settledUnits: 2, settledMicros: serperUnitPrice * 2, settledCostMicros: serperUnitPrice * 2,
+  providerUsage: { status: "known", quantity: "2", unit: "request", providerRequestId: "serper-1", source: "test" },
+});
 assert.deepEqual(settle({
   outcome: "no_result", reservedUnits: 2, reviewedUnitPriceMicros: apolloUnitPrice,
   noResultBillable: false, notDispatched: false, billingAmbiguous: false,
-}), { settledUnits: 0, settledMicros: 0, settledCostMicros: 0 });
+}), {
+  settledUnits: 2, settledMicros: 0, settledCostMicros: 0,
+  providerUsage: { status: "unknown", quantity: null, unit: null, providerRequestId: null, source: null },
+});
 assert.deepEqual(settle({
   outcome: "no_result", reservedUnits: 1, reviewedUnitPriceMicros: null,
   noResultBillable: true, notDispatched: false, billingAmbiguous: false,
-}), { settledUnits: 1, settledMicros: 0, settledCostMicros: null });
+}), {
+  settledUnits: 1, settledMicros: null, settledCostMicros: null,
+  providerUsage: { status: "unknown", quantity: null, unit: null, providerRequestId: null, source: null },
+});
 assert.deepEqual(settle({
   outcome: "no_result", reservedUnits: 1, reviewedUnitPriceMicros: 1_000,
   noResultBillable: null, notDispatched: false, billingAmbiguous: false,
-}), { settledUnits: 1, settledMicros: 0, settledCostMicros: null });
+}), {
+  settledUnits: 1, settledMicros: null, settledCostMicros: null,
+  providerUsage: { status: "unknown", quantity: null, unit: null, providerRequestId: null, source: null },
+});
 assert.deepEqual(settle({
   outcome: "failed", reservedUnits: 1, reviewedUnitPriceMicros: 1_000,
   noResultBillable: true, notDispatched: false, billingAmbiguous: true,
-}), { settledUnits: 0, settledMicros: 0, settledCostMicros: null });
+}), {
+  settledUnits: 0, settledMicros: null, settledCostMicros: null,
+  providerUsage: { status: "unknown", quantity: null, unit: null, providerRequestId: null, source: null },
+});
 assert.deepEqual(settle({
   outcome: "failed", reservedUnits: 1, reviewedUnitPriceMicros: null,
   noResultBillable: true, notDispatched: true, billingAmbiguous: false,
-}), { settledUnits: 0, settledMicros: 0, settledCostMicros: 0 });
+}), {
+  settledUnits: 0, settledMicros: 0, settledCostMicros: 0,
+  providerUsage: { status: "not_applicable", quantity: null, unit: null, providerRequestId: null, source: null },
+});
+assert.deepEqual(settle({
+  outcome: "completed", reservedUnits: 1, settledUnits: 1, reviewedUnitPriceMicros: 1_000,
+  reviewedUnitType: "credit", noResultBillable: null, notDispatched: false, billingAmbiguous: false,
+  providerUsage: { status: "known", quantity: "2.5", unit: "credit", providerRequestId: "credits-1", source: "test" },
+}), {
+  settledUnits: 1, settledMicros: 2_500, settledCostMicros: 2_500,
+  providerUsage: { status: "known", quantity: "2.5", unit: "credit", providerRequestId: "credits-1", source: "test" },
+});
+assert.throws(() => settle({
+  outcome: "completed", reservedUnits: 1, settledUnits: 2, reviewedUnitPriceMicros: 1_000,
+  reviewedUnitType: "request", noResultBillable: null, notDispatched: false, billingAmbiguous: false,
+}), /SFP_SETTLED_WORK_UNITS_EXCEED_RESERVATION/);
+assert.equal(billingContract.normalizeSfpExactDecimal("0.500000000000"), "0.5");
 
 console.log("SFP versioned email pins and reviewed no-result billing assertions passed");

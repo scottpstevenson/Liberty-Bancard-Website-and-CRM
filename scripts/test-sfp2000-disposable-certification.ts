@@ -40,7 +40,6 @@ await assertDisposableTestInfrastructure({
   operation: "Task #2000 SFP validation disposable certification",
   requireRedis: false,
 });
-const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
 
@@ -57,6 +56,8 @@ await runDrizzleMigrations();
 const { db } = await import("../server/db");
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const RUN_ID = `sfp2000cert-${randomUUID().slice(0, 8)}`;
+await (await import("./helpers/sfp-runtime-test-identity"))
+  .selectSfpRuntimeTestRelease(`cert:${RUN_ID}`);
 
 const {
   ensureProgram,
@@ -218,55 +219,60 @@ await db.execute(sql`
 `);
 check(true, "T2K-setup", "frozen cohort synthesized directly for the three fixture businesses");
 
-// Insert a live runtime attestation so the runtime-authority gate opens
-// (mirrors scripts/sfp-certification.ts phase 7a).
-{
-  const { createHash } = await import("node:crypto");
-  const certIdemKey = `cert2000-att-${RUN_ID}`;
-  const certAttHash = createHash("sha256").update(certIdemKey).digest("hex");
-  await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations
-      (idempotency_key, worker_identities, artifact_sha, migration_head, deployment_identity,
-       environment_identity, web_boot_identity, worker_boot_identity,
-       queue_topology_hash, worker_heartbeat_at, db_healthy, redis_healthy,
-       captured_at, expires_at, attestation_hash, created_by)
-    VALUES (
-      ${certIdemKey}, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${sfpRuntimeIdentity.artifactSha},
-      ${createHash("sha256").update("cert2000-migration-head").digest("hex").slice(0, 40)},
-      ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity},
-      ${`cert2000-web-${RUN_ID}`}, ${`cert2000-worker-${RUN_ID}`},
-      ${sfpRuntimeIdentity.queueTopologyHash},
-      NOW() - INTERVAL '30 seconds', true, true,
-      NOW(), NOW() + INTERVAL '1 hour',
-      ${certAttHash}, ${"cert2000:" + RUN_ID}
-    )
-    ON CONFLICT (idempotency_key) DO NOTHING
-  `);
-}
-
-// ── T2K-03 fixture: pre-seed a FRESH provider_observations row for the
-//    free-candidate business, simulating a prior real ZeroBounce settlement
-//    within the active policy's TTL. This proves freshness reuse against
-//    the real findFreshProviderObservation() lookup rather than something
-//    only reachable via a live network call this suite must never make. ──
-const { createHash: createReuseHash } = await import("node:crypto");
-const freeEmailTokenHash = createReuseHash("sha256").update(freeEmail.trim().toLowerCase()).digest("hex");
-const priorOpRow = rows(await db.execute(sql`
-  INSERT INTO provider_operations
-    (provider, operation_type, purpose, idempotency_key, actor_type, actor_id,
-     target_fingerprint, state, requested_units, reserved_units, billing_state,
-     attempt_count, started_at, completed_at)
-  VALUES ('zerobounce', 'sfp_enrichment', 'sfp_email_validation',
-    ${`cert2000-prior-op-${RUN_ID}`}, 'user', ${`cert:${RUN_ID}`},
-    ${`business:${freeBizId}`}, 'completed', 1, 1, 'committed', 1, NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days')
-  RETURNING id
-`))[0];
-const priorOpId = String(priorOpRow.id);
+// Create a prior frozen cohort for the free candidate and generate its provider
+// observation through the ordinary reservation/attempt/dispatch/settlement
+// path. The second cohort below then proves real observation freshness reuse,
+// without inserting a fabricated completed operation or observation.
+const priorCohortRunId = randomUUID();
+const priorCohortHash = createCohortHash("sha256").update(priorCohortRunId).digest("hex");
 await db.execute(sql`
-  INSERT INTO provider_observations
-    (provider, operation_id, attempt_id, subject_type, subject_id, email_token_hash, outcome, retryable, observed_at)
-  VALUES ('zerobounce', ${priorOpId}::uuid, NULL, 'business', ${freeBizId}, ${freeEmailTokenHash}, 'valid', false, NOW() - INTERVAL '2 days')
+  INSERT INTO sfp_cohort_runs
+    (id, program_id, idempotency_key, status, cohort_size, cohort_hash, frozen_at,
+     release_sha, actor_id, cohort_state, request_hash, config_hash)
+  VALUES (${priorCohortRunId}::uuid, ${program.id}::uuid, ${`cert2000-prior-freeze-${RUN_ID}`}, 'freezing',
+          1, ${priorCohortHash}, NULL, ${"0".repeat(40)}, ${`cert:${RUN_ID}`},
+          'freezing', ${priorCohortHash}, ${priorCohortHash})
 `);
+await db.execute(sql`
+  INSERT INTO sfp_cohort_members
+    (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
+  VALUES (${priorCohortRunId}::uuid, ${freeBizId}, 50, 'verified', 'fips', '12086', 'Med Spa')
+`);
+await db.execute(sql`
+  UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
+   WHERE id=${priorCohortRunId}::uuid
+`);
+const priorPreview = await previewSfpValidation(priorCohortRunId);
+const priorTransportCalls: string[] = [];
+const priorExecution = await executeSfpValidation(priorCohortRunId, {
+  idempotencyKey: `cert2000-prior-validate-${RUN_ID}`,
+  snapshotHash: priorPreview.snapshotHash,
+  actorId: `cert:${RUN_ID}`,
+  maxValidations: 25,
+  zbTransport: async (_candidateId, realEmail) => {
+    priorTransportCalls.push(realEmail);
+    return "valid";
+  },
+});
+check(priorExecution.failedCount === 0 && priorTransportCalls.includes(freeEmail),
+  "T2K-03setup", "the prior candidate observation comes from a successful fake transport through normal provider governance");
+const priorEligibility = rows(await db.execute(sql`
+  SELECT validation_operation_id,status
+    FROM sfp_outreach_eligibility
+   WHERE cohort_run_id=${priorCohortRunId}::uuid AND business_id=${freeBizId}
+`))[0];
+const priorOpId = String(priorEligibility?.validation_operation_id ?? "");
+const priorOperation = rows(await db.execute(sql`
+  SELECT o.state,o.billing_state,a.outcome,a.dispatch_marked_at,po.outcome AS observation_outcome
+    FROM provider_operations o
+    JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+    JOIN provider_observations po ON po.operation_id=o.id
+   WHERE o.id=${priorOpId}::uuid
+`))[0];
+check(Boolean(priorOpId) && priorOperation?.state === "completed" &&
+  priorOperation.billing_state === "committed" && priorOperation.outcome === "completed" &&
+  priorOperation.dispatch_marked_at && priorOperation.observation_outcome === "valid",
+  "T2K-03setup2", "the reuse source is a persisted settled operation with an actual marked dispatch and provider observation");
 
 // ── T2K-02: masked-vs-real transport (positive + negative control) ───────
 const receivedByTransport: string[] = [];
@@ -295,11 +301,10 @@ for (const received of receivedByTransport) {
 const maskedLooking = `p***0@${RUN_ID}.example.com`;
 check(!realEmails.has(maskedLooking), "T2K-02d", "negative control: a masked-looking value is never mistaken for a real seeded email");
 
-// ── T2K-03: freshness reuse — the free-candidate business had a pre-seeded
-//    fresh (2-day-old, well within the 30-day TTL) provider_observations
-//    row, so its execution must reuse that observation and never invoke
-//    the transport for it at all, while still writing a fresh eligibility
-//    decision that records the reuse. ──────────────────────────────────────
+// ── T2K-03: freshness reuse — the free-candidate business has a fresh
+//    provider_observations row created through a prior governed execution, so
+//    this cohort must reuse it without another fake transport call while
+//    still writing a fresh eligibility decision that records the reuse. ───
 check(!receivedByTransport.includes(freeEmail), "T2K-03a", "the free-candidate business's address never reaches the transport — its fresh prior observation is reused instead of a new provider call");
 const freeEligRow = rows(await db.execute(sql`
   SELECT status, reused_from_operation_id, zb_outcome FROM sfp_outreach_eligibility
@@ -308,6 +313,20 @@ const freeEligRow = rows(await db.execute(sql`
 check(!!freeEligRow, "T2K-03b", "the free-candidate business still received a fresh eligibility decision despite the provider call being skipped");
 check(String(freeEligRow.reused_from_operation_id) === priorOpId, "T2K-03c", "the eligibility row records exactly which prior operation its decision was reused from");
 check(freeEligRow.status === "validated_outreach_eligible", "T2K-03d", "reuse of a prior 'valid' observation still produces the correct eligibility status — reuse is not a free pass to skip the outcome mapping");
+const reuseExpiry = rows(await db.execute(sql`
+  SELECT e.validation_expires_at>NOW() AS eligibility_live,
+         e.validation_expires_at <= LEAST(
+           COALESCE(po.expires_at,
+             po.observed_at+(pd.validation_ttl_days::text||' days')::interval),
+           po.observed_at+(pd.validation_ttl_days::text||' days')::interval
+         ) AS expiry_not_extended
+    FROM sfp_outreach_eligibility e
+    JOIN provider_observations po ON po.operation_id=e.reused_from_operation_id
+    JOIN sfp_outreach_policy_documents pd ON pd.id=e.policy_document_id
+   WHERE e.cohort_run_id=${cohortRunId}::uuid AND e.business_id=${freeBizId}
+`))[0];
+check(reuseExpiry?.eligibility_live === true && reuseExpiry.expiry_not_extended === true,
+  "T2K-03e", "freshness reuse remains live without extending the original provider observation's bounded expiry");
 
 // ── T2K-01: confirm the paid-only business actually got an eligibility
 //    decision (proves paid evidence was consumed, not silently skipped) ──
@@ -320,18 +339,23 @@ check(paidEligRow.source_kind === "paid", "T2K-01c", "eligibility row correctly 
 check(!!paidEligRow.paid_candidate_evidence_id, "T2K-01d", "eligibility row links the paid_candidate_evidence_id, not a fabricated free reference");
 check(paidEligRow.status === "validated_outreach_eligible", "T2K-01e", "a valid paid-sourced ZB outcome reaches the SAME persisted status value as free — no new status introduced");
 
-// ── T2K-07: atomic finalization — every settled provider operation for
-//    this cohort has a matching eligibility row (never a dangling spend) ──
-// The injected-transport path used above (opts.zbTransport) is the same
-// test seam scripts/sfp-certification.ts uses, and intentionally bypasses
-// the live reserveSfpProviderOperation()/provider_operations reservation
-// (that path is exercised only when no zbTransport is supplied, i.e. the
-// real ZeroBounce network call — which this network-denied disposable
-// suite must never make). What this suite CAN and must prove about
-// atomicity on the injected-transport path is that the eligibility write
-// and the safe business projection (main_email/email_discovery_status)
-// commit together in the same transaction: a 'valid' outcome must always
-// leave both written, never one without the other.
+// ── T2K-07: atomic finalization — each completed governed provider operation
+//    for this cohort has a matching eligibility row (never dangling spend).
+// The injected transport replaces only the external HTTP adapter; reservation,
+// attempt, dispatch, receipt, settlement, and eligibility all remain real.
+const finalizedOperations = rows(await db.execute(sql`
+  SELECT o.id,o.state,o.billing_state,e.id AS eligibility_id
+    FROM provider_operations o
+    LEFT JOIN sfp_outreach_eligibility e
+      ON e.cohort_run_id=${cohortRunId}::uuid
+     AND (e.validation_operation_id=o.id OR e.reused_from_operation_id=o.id)
+   WHERE o.purpose='sfp_email_validation'
+     AND o.idempotency_key LIKE ${`cert2000-validate-${RUN_ID}:%`}
+   ORDER BY o.id
+`));
+check(finalizedOperations.length >= 2 && finalizedOperations.every((operation: any) =>
+  operation.state === "completed" && operation.billing_state === "committed" && operation.eligibility_id,
+), "T2K-07ops", "every settled provider operation created by the current validation run has its matching eligibility record");
 const validRowsForProjection = rows(await db.execute(sql`
   SELECT soe.business_id, soe.status, b.main_email, b.email_discovery_status
   FROM sfp_outreach_eligibility soe

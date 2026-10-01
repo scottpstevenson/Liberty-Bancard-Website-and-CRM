@@ -118,11 +118,57 @@ process.on("uncaughtException", (err: Error) => {
 
 let isShuttingDown = false;
 const SHUTDOWN_HARD_CEILING_MS = parseInt(process.env.SHUTDOWN_HARD_CEILING_MS ?? "10000");
+let sfpRuntimeOwnerHeartbeatTimer: NodeJS.Timeout | null = null;
+let sfpRuntimeOwnerHeartbeatInFlight = false;
+let lastSfpRuntimeHeartbeatReason: string | null = null;
+
+async function startSfpRuntimeOwnerHeartbeat(): Promise<void> {
+  const { claimSfpRuntimeDeploymentOwner, renewSfpRuntimeDeploymentOwner } =
+    await import("./services/cro03/sfp-provider-operations");
+  try {
+    // Startup may acquire only the durably selected current release. Failure
+    // is an honest held state, not a reason to prevent unrelated app startup.
+    await claimSfpRuntimeDeploymentOwner();
+    lastSfpRuntimeHeartbeatReason = null;
+    log("[SFP Runtime] Current selected release owner established");
+  } catch (error: any) {
+    lastSfpRuntimeHeartbeatReason = String(error?.message ?? error);
+    console.warn(`[SFP Runtime] Owner held at startup: ${lastSfpRuntimeHeartbeatReason}`);
+  }
+
+  if (sfpRuntimeOwnerHeartbeatTimer) return;
+  sfpRuntimeOwnerHeartbeatTimer = setInterval(async () => {
+    if (isShuttingDown || sfpRuntimeOwnerHeartbeatInFlight) return;
+    sfpRuntimeOwnerHeartbeatInFlight = true;
+    try {
+      // Heartbeat is renewal-only: it never creates/revives an owner or changes
+      // release eligibility. Selection/claim is a separate audited lifecycle.
+      await renewSfpRuntimeDeploymentOwner();
+      if (lastSfpRuntimeHeartbeatReason) {
+        log("[SFP Runtime] Selected live owner heartbeat resumed");
+      }
+      lastSfpRuntimeHeartbeatReason = null;
+    } catch (error: any) {
+      const reason = String(error?.message ?? error);
+      if (reason !== lastSfpRuntimeHeartbeatReason) {
+        console.warn(`[SFP Runtime] Heartbeat held: ${reason}`);
+      }
+      lastSfpRuntimeHeartbeatReason = reason;
+    } finally {
+      sfpRuntimeOwnerHeartbeatInFlight = false;
+    }
+  }, 30_000);
+  sfpRuntimeOwnerHeartbeatTimer.unref();
+}
 
 async function gracefulShutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`[Process] ${signal} received — starting graceful shutdown (hard ceiling ${SHUTDOWN_HARD_CEILING_MS}ms)`);
+  if (sfpRuntimeOwnerHeartbeatTimer) {
+    clearInterval(sfpRuntimeOwnerHeartbeatTimer);
+    sfpRuntimeOwnerHeartbeatTimer = null;
+  }
 
   const forceExitTimer = setTimeout(() => {
     console.error(
@@ -534,7 +580,10 @@ app.use((req, _res, next) => {
       } else if (!pauseInitialized) { /* skip workers — outbound state unknown */ }
       else if (_bgProfile === "off") {
         log("[BackgroundProfile] off — BullMQ workers not started. Set BACKGROUND_JOB_PROFILE=full to enable.");
-      } else
+      } else {
+      await startSfpRuntimeOwnerHeartbeat().catch((runtimeOwnerError: any) => {
+        console.warn(`[SFP Runtime] Owner heartbeat setup deferred: ${runtimeOwnerError?.message ?? runtimeOwnerError}`);
+      });
       getQueueManager().then(async qm => {
         log("[Queue] BullMQ job queues initialized");
         // BullMQ's GHL_SYNC repeatable job is now the sole active GHL sync mechanism.
@@ -574,6 +623,7 @@ app.use((req, _res, next) => {
           `GHL sync unavailable — BullMQ initialization failed: ${err.message}`
         ).catch(() => {});
       });
+      }
 
       // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars,
       // then run a non-blocking live validation against GHL to surface stale/deleted IDs.

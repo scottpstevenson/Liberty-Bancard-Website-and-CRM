@@ -1,10 +1,25 @@
 #!/usr/bin/env tsx
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { pool } from "../server/db";
-import { runPreCohortClassificationBridge, getLatestAdmissibleClassificationEvidence } from "../server/services/cro03/sfp-classification-bridge";
-import { selectRoiCohort } from "../server/services/cro03/roi-cohort-selector";
-import { CLASSIFIER_VERSION } from "../server/services/cro03/sfp-vertical-classifier";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+import {
+  applyCertificationProviderDenyBoundary,
+  getBlockedCertificationNetworkAttemptCount,
+} from "./certification-provider-deny";
+
+await assertDisposableTestInfrastructure({
+  operation: "SFP classification bridge disposable certification",
+  requireRedis: false,
+});
+process.env.VG_PROVIDER_DENY_MODE = "1";
+applyCertificationProviderDenyBoundary({ fatal: true });
+const { pool } = await import("../server/db");
+const {
+  runPreCohortClassificationBridge: runPreCohortClassificationBridgeCore,
+  getLatestAdmissibleClassificationEvidence,
+} = await import("../server/services/cro03/sfp-classification-bridge");
+const { selectRoiCohort } = await import("../server/services/cro03/roi-cohort-selector");
+const { CLASSIFIER_VERSION } = await import("../server/services/cro03/sfp-vertical-classifier");
 
 const nonce = randomUUID();
 const programName = `sfp-c1-bridge-${nonce}`;
@@ -18,18 +33,23 @@ const check = (condition: unknown, message: string) => {
   console.log(`✓ ${message}`);
 };
 
-async function addBusiness(name: string, vertical: string, zip = "33101", city = "Miami", fips = "12086") {
+const runPreCohortClassificationBridge: typeof runPreCohortClassificationBridgeCore = (input, deps) =>
+  runPreCohortClassificationBridgeCore({ ...input, allowWebsiteEvidenceFetch: false }, deps);
+
+async function addBusiness(
+  name: string, vertical: string, zip = "33101", city = "Miami", fips = "12086", state = "FL",
+) {
   const result = await pool.query(
     `INSERT INTO businesses (canonical_name,normalized_name,vertical,city,state,postal_code,status,record_class)
-     VALUES ($1,$1,$2,$3,'FL',$4,'active','canonical') RETURNING id`,
-    [`${name}-${nonce}`, vertical, city, zip],
+     VALUES ($1,$1,$2,$3,$5,$4,'active','canonical') RETURNING id`,
+    [`${name}-${nonce}`, vertical, city, zip, state],
   );
   const id = Number(result.rows[0].id);
   businessIds.push(id);
   await pool.query(
     `INSERT INTO business_locations (business_id,is_primary,city,state,postal_code,county_fips)
-     VALUES ($1,true,$2,'FL',$3,$4)`,
-    [id, city, zip, fips],
+     VALUES ($1,true,$2,$5,$3,$4)`,
+    [id, city, zip, fips, state],
   );
   return id;
 }
@@ -55,7 +75,7 @@ async function main() {
   programId = String(program.rows[0].id);
   const bridgeProgramId = programId;
 
-  const outsideId = await addBusiness("outside", "dental", "30301", "Atlanta", "13089");
+  const outsideId = await addBusiness("outside", "dental", "30301", "Atlanta", "13089", "GA");
   const dentalId = await addBusiness("dental", "dental");
   const ambiguousFakeId = await addBusiness("ambiguous-fake", "healthcare");
   const ambiguousNoAdapterId = await addBusiness("ambiguous-no-adapter", "healthcare");
@@ -163,10 +183,16 @@ async function main() {
   check(String(older.rows[0].evidence_hash) !== String(newer.rows[0].evidence_hash), "lookup fixture contains distinct evidence hashes");
 
   const itemRows = await pool.query(
-    `SELECT business_id FROM sfp_classification_items WHERE business_id=ANY($1::int[])`,
+    `SELECT business_id,state,outcome_code FROM sfp_classification_items WHERE business_id=ANY($1::int[])`,
     [businessIds],
   );
-  check(!itemRows.rows.some((r: any) => Number(r.business_id) === outsideId), "outside-county business has no classification item");
+  const outsideGeographyItem = itemRows.rows.find((r: any) =>
+    Number(r.business_id) === outsideId && String(r.outcome_code ?? "").includes('"route":"outside_territory"'),
+  );
+  check(outsideGeographyItem?.state === "skipped", "out-of-territory geography is durably routed as an explicit non-target skip");
+  const outsideGeographyFacts = JSON.parse(outsideGeographyItem.outcome_code);
+  check(outsideGeographyFacts.reasons.length > 0 && outsideGeographyFacts.candidates.length > 0,
+    "geography routing retains actual resolver reasons and source-location references");
   const protectedRowsAfter = await protectedCounts();
   check(JSON.stringify(noProtectedRowsBefore) === JSON.stringify(protectedRowsAfter), "bridge writes no stage/cohort run, member, or decision rows");
 
@@ -287,6 +313,8 @@ async function main() {
     "attached classificationEvidence (when present) is always scoped to the current classifier version, never the stale one",
   );
 
+  check(getBlockedCertificationNetworkAttemptCount() === 0,
+    "classification bridge certification completes without an external network attempt");
   console.log(`\nSFP classification bridge: ${assertionCount} assertions passed.`);
 }
 

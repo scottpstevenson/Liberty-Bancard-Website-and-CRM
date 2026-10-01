@@ -536,21 +536,6 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     repeatEveryMs: 10 * 60 * 1000,
     jobName: "tick",
   },
-  {
-    // Renews the short-lived (<=15 min) CRO-03C runtime attestation SFP
-    // paid operations require. 5-min interval keeps at least two
-    // overlapping valid attestations in force at all times so a single
-    // missed/failed tick (worker fleet momentarily incomplete, Redis blip)
-    // never fully drains the window before the next tick retries. Fails
-    // closed on its own (see sfp-attestation-refresh.ts) — never raises any
-    // cap, never touches provider_controls, never performs provider I/O.
-    name: QUEUE_NAMES.SFP_ATTESTATION_REFRESH,
-    concurrency: 1,
-    attempts: 1,
-    backoffDelay: 30_000,
-    repeatEveryMs: 5 * 60 * 1000,
-    jobName: "tick",
-  },
 ];
 
 /**
@@ -1083,6 +1068,8 @@ class QueueManager {
   private redisKeyPrefix: string | undefined;
   private cro03cHeartbeatTimer: NodeJS.Timeout | null = null;
   private cro03cHeartbeatKey: string | null = null;
+  private sfpRuntimeOwnerTimer: NodeJS.Timeout | null = null;
+  private readonly sfpWakeupSelectionVersionByQueue = new Map<string, number>();
 
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
 
@@ -1149,6 +1136,7 @@ class QueueManager {
     this.redisKeyPrefix = getBullMqTestPrefix();
     this.connection = await getRedisConnection();
     await this.setupQueues();
+    await this.startSfpRuntimeOwnerHeartbeat();
 
     // Prime kill-switch cache: one batched DB read for all active queue names
     // before any worker starts, so the first job execution never hits a cache miss.
@@ -1341,6 +1329,55 @@ class QueueManager {
         console.error("[QueueManager] CRO03C worker heartbeat publish failed:", error.message));
     }, CRO03C_WORKER_HEARTBEAT_INTERVAL_MS);
     this.cro03cHeartbeatTimer.unref?.();
+  }
+
+  private async startSfpRuntimeOwnerHeartbeat(): Promise<void> {
+    const sfpQueueNames = new Set<QueueName>([
+      QUEUE_NAMES.SFP_CAMPAIGN_STAGING,
+      QUEUE_NAMES.SFP_FREE_CLASSIFICATION,
+      QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
+      QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
+    ]);
+    const activeSfpConfigs = this.activeConfigs().filter((config) => sfpQueueNames.has(config.name));
+    if (!activeSfpConfigs.length) return;
+    const checkAndWake = async () => {
+      try {
+        const {
+          getSfpRuntimeReleaseSelectionStatus,
+          renewSfpRuntimeDeploymentOwner,
+        } = await import("./cro03/sfp-provider-operations");
+        const status = await getSfpRuntimeReleaseSelectionStatus();
+        if (!status.currentReleaseSelected || !status.selectedRelease) return;
+
+        // Selection can happen after this process started held. Wake its
+        // already-running SFP workers immediately; they perform their normal
+        // owner claims/gates. The heartbeat itself remains renewal-only.
+        for (const config of activeSfpConfigs) {
+          const queue = this.queues.get(config.name);
+          const selectedVersion = status.selectedRelease.selectionVersion;
+          if (!queue || (this.sfpWakeupSelectionVersionByQueue.get(config.name) ?? 0) >= selectedVersion) continue;
+          try {
+            await queue.add(config.jobName, {}, {
+              jobId: `sfp-selected-${config.name}-${selectedVersion}`,
+              removeOnComplete: true,
+              removeOnFail: true,
+            });
+            this.sfpWakeupSelectionVersionByQueue.set(config.name, selectedVersion);
+          } catch (error: any) {
+            console.warn(`[QueueManager] SFP selection wakeup enqueue failed for ${config.name}: ${String(error?.message ?? error)}`);
+          }
+        }
+
+        if (status.ownerLive) await renewSfpRuntimeDeploymentOwner();
+      } catch (error: any) {
+        console.warn(`[QueueManager] Routine-SFP runtime owner unavailable: ${String(error?.message ?? error)}`);
+      }
+    };
+    await checkAndWake();
+    this.sfpRuntimeOwnerTimer = setInterval(() => {
+      void checkAndWake();
+    }, 30_000);
+    this.sfpRuntimeOwnerTimer.unref?.();
   }
 
   /**
@@ -2590,6 +2627,11 @@ class QueueManager {
           if (result.processed > 0) {
             console.log(`[SfpCampaignStaging] held ${result.succeeded}/${result.processed}; failed=${result.failed}`);
           }
+          if (result.pausedEnrollment?.attempted > 0) {
+            console.log(
+              `[SfpReadyHeldConsumer] attempted=${result.pausedEnrollment.attempted} completed=${result.pausedEnrollment.completed} held=${result.pausedEnrollment.held} retrying=${result.pausedEnrollment.retrying} deadLettered=${result.pausedEnrollment.deadLettered}`,
+            );
+          }
           break;
         }
         case QUEUE_NAMES.SFP_FREE_CLASSIFICATION: {
@@ -2608,12 +2650,6 @@ class QueueManager {
           const { processSfpContinuousValidationTick } = await import("./cro03/sfp-continuous-discovery");
           const result = await processSfpContinuousValidationTick();
           if (result.ran) console.log(`[SfpContinuousValidation] ${JSON.stringify(result)}`);
-          break;
-        }
-        case QUEUE_NAMES.SFP_ATTESTATION_REFRESH: {
-          const { processSfpAttestationRefreshTick } = await import("./cro03/sfp-attestation-refresh");
-          const result = await processSfpAttestationRefreshTick();
-          console.log(`[SfpAttestationRefresh] ${JSON.stringify(result)}`);
           break;
         }
         case QUEUE_NAMES.MASTER_LEAD_STAGER: {
@@ -3234,7 +3270,6 @@ class QueueManager {
       QUEUE_NAMES.SFP_FREE_CLASSIFICATION,
       QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
       QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
-      QUEUE_NAMES.SFP_ATTESTATION_REFRESH,
     ];
     const observedForMs = Date.now() - this.observationStartedAt.getTime();
     for (const queueName of sfpRepeatableQueues) {
@@ -3461,6 +3496,8 @@ class QueueManager {
 
     if (this.cro03cHeartbeatTimer) clearInterval(this.cro03cHeartbeatTimer);
     this.cro03cHeartbeatTimer = null;
+    if (this.sfpRuntimeOwnerTimer) clearInterval(this.sfpRuntimeOwnerTimer);
+    this.sfpRuntimeOwnerTimer = null;
     if (this.cro03cHeartbeatKey) {
       await (this.connection as any).del(this.cro03cHeartbeatKey).catch(() => undefined);
       this.cro03cHeartbeatKey = null;

@@ -60,12 +60,14 @@ export type OpenAiClassificationResult =
   | {
     outcome: "success";
     model: string;
+    providerReference: string | null;
     usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number };
     classification: NonNullable<ReturnType<typeof validateCro03cOpenAiClassification>> | unknown;
   }
   | {
     outcome: "invalid_output";
     model: string;
+    providerReference: string | null;
     usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number };
   };
 
@@ -108,8 +110,11 @@ export async function performOpenAiClassification(
   const classification = input.validate
     ? input.validate(parsedContent)
     : validateCro03cOpenAiClassification(parsedContent);
-  if (!classification) return { outcome: "invalid_output", model: completion.model, usage };
-  return { outcome: "success", model: completion.model, usage, classification };
+   const providerReference = typeof completion.id === "string" && completion.id.trim()
+     ? completion.id.trim()
+     : null;
+   if (!classification) return { outcome: "invalid_output", model: completion.model, providerReference, usage };
+   return { outcome: "success", model: completion.model, providerReference, usage, classification };
 }
 
 /** Title rank for Apollo reveal priority (lower = higher priority). */

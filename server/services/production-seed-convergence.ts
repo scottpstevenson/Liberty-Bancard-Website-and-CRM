@@ -278,6 +278,12 @@ async function convergeSfpOutreachPolicyV1(): Promise<SeedTargetResult> {
       consent_tier_policy: SFP_OUTREACH_POLICY_V1.consentTierPolicy,
       reason_codes: SFP_OUTREACH_POLICY_V1.reasonCodes,
     };
+    // Match the policy-before-document lock order used by staging, bridge and
+    // independent-review commits. A seed that first locks the document could
+    // deadlock with a consumer that owns the control row while waiting on it.
+    const control = rows(await tx.execute(sql`
+      SELECT active_policy_id FROM sfp_outreach_policy_control WHERE singleton = TRUE FOR UPDATE
+    `))[0];
     let document = rows(await tx.execute(sql`
       SELECT id, version, document_hash, validation_ttl_days, accepted_outcomes,
              retryable_outcomes, role_inbox_policy, consent_tier_policy, reason_codes
@@ -318,9 +324,6 @@ async function convergeSfpOutreachPolicyV1(): Promise<SeedTargetResult> {
     `))[0];
     if (invalidControl) throw new Error("SEED_CONVERGENCE_CONFLICT:sfp_outreach_policy_v1:invalid_singleton_row");
 
-    const control = rows(await tx.execute(sql`
-      SELECT active_policy_id FROM sfp_outreach_policy_control WHERE singleton = TRUE FOR UPDATE
-    `))[0];
     let insertedControl = false;
     if (!control) {
       await tx.execute(sql`

@@ -9,16 +9,13 @@
  * (assertDisposableTestInfrastructure enforces this before any app import).
  */
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
-const hex64 = (seed: string) => createHash("sha256").update(seed).digest("hex");
+import { randomUUID } from "node:crypto";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 await assertDisposableTestInfrastructure({
   operation: "SFP Serper pilot control disposable certification",
   requireRedis: false,
 });
-const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
-
 process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
 process.env.SERPER_API_KEY = "test-cert-serper-key";
 
@@ -26,6 +23,9 @@ const { sql } = await import("drizzle-orm");
 const { db, pool } = await import("../server/db");
 const { assertSfpRuntimeAuthority, maxUnitsPerSfpReservation } = await import("../server/services/cro03/sfp-provider-operations");
 const maxCallsPerBusiness = maxUnitsPerSfpReservation("serper" as any);
+const runtimeActorId = `cert-sfp-runtime-admin-${randomUUID()}`;
+await (await import("./helpers/sfp-runtime-test-identity"))
+  .selectSfpRuntimeTestRelease(runtimeActorId);
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -129,20 +129,6 @@ async function main() {
   await db.execute(sql`
     INSERT INTO sfp_cohort_runs (id, program_id, idempotency_key, status, cohort_state, actor_id, request_hash, config_hash, request_payload, policy_versions)
     VALUES (${unfrozenCohortRunId}::uuid, ${programId}::uuid, ${"cert-freezing-" + unfrozenCohortRunId}, 'freezing', 'freezing', 'cert', 'h2', 'c2', '{}'::jsonb, '{}'::jsonb)
-  `);
-  const inventoryId = randomUUID();
-  await db.execute(sql`
-    INSERT INTO cro03c_deployment_inventories
-      (id, issuer_id, deployment_identity, environment_identity, release_sha, queue_topology_hash, identity_kind,
-       worker_identities, expected_count, issued_at, expires_at, payload, payload_hash, signature, created_by)
-    VALUES (${inventoryId}::uuid, ${hex64("issuer-" + inventoryId)}, ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity}, ${sfpRuntimeIdentity.artifactSha},
-       ${sfpRuntimeIdentity.queueTopologyHash}, 'worker', ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, 1, NOW(), NOW() + INTERVAL '1 hour',
-       '{}'::jsonb, ${hex64("inventory-" + inventoryId)}, 'cert-signature', 'cert')
-  `);
-  const attestationRecordId = randomUUID();
-  await db.execute(sql`
-    INSERT INTO cro03c_runtime_attestations (id, idempotency_key, inventory_id, worker_identities, artifact_sha, migration_head, deployment_identity, environment_identity, web_boot_identity, worker_boot_identity, queue_topology_hash, worker_heartbeat_at, captured_at, expires_at, db_healthy, redis_healthy, attestation_hash, created_by)
-    VALUES (${attestationRecordId}::uuid, ${"cert-attestation-" + randomUUID()}, ${inventoryId}::uuid, ${JSON.stringify([sfpRuntimeIdentity.processIdentity])}::jsonb, ${sfpRuntimeIdentity.artifactSha}, ${hex64("migration-" + attestationRecordId).slice(0, 40)}, ${sfpRuntimeIdentity.deploymentIdentity}, ${sfpRuntimeIdentity.environmentIdentity}, 'cert-web-boot', 'cert-worker-boot', ${sfpRuntimeIdentity.queueTopologyHash}, NOW(), NOW(), NOW() + INTERVAL '10 minutes', TRUE, TRUE, ${hex64("attestation-" + attestationRecordId)}, 'cert')
   `);
   await db.execute(sql`
     INSERT INTO serper_control (id, enabled, state, window_calls, local_budget, window_ends_at)

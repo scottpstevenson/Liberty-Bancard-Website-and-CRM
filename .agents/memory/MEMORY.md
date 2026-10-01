@@ -1,4 +1,4 @@
-- [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — App.tsx `Legacy*Redirect` wrappers can still render a "retired" page for non-admin/manager roles; check every branch before deleting.
+- [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — Non-admin/manager roles may still see retired pages; inspect every redirect branch before deletion.
 - [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService side-effect wiring; backfill not yet run on prod.
 - [NBA Engine & ChannelOrchestrator](wave1-nba-channel-orchestrator.md) — ChannelOrchestrator compliance fence, transport adapters, NBA tables/routes/UI at /dashboard/nba.
 - [Automation Registry & Collision Fixes](automation-registry.md) — automation_registry table; kill-switch pattern; global-pause gaps fixed in 2 workers.
@@ -6,27 +6,23 @@
 - [HealthMonitor email spam fixes](health-monitor-email-spam.md) — alert cooldowns, statement_timeout, dump-URL encoding bugs; startup grace period + recovery email pattern.
 - [WizardFlags pool saturation](wizard-flag-pool-saturation.md) — bulk hydration query pattern to avoid per-key query storms under load.
 - [Sender Policy Architecture](sender-policy-architecture.md) — central sender-policy.ts registry; every send site passes category; prohibition guard blocks noreply@ on LB domains.
-- [SDR merchant-contacts PII routes](sdr-merchant-contacts-security.md) — /api/sdr/merchant-contacts* had only isAuthenticated; upgraded to isDashboardUser + requireRole; exposes email/phone for all merchants.
-- [Mobile shell API gaps](mobile-shell-api-gaps.md) — missing mobile-tab endpoints/fixes; also [mobile-create-contact.md](mobile-create-contact.md) bottom-sheet form pattern.
+- [SDR merchant-contacts PII routes](sdr-merchant-contacts-security.md) — Require isDashboardUser + requireRole; these routes expose merchant email and phone.
 - [Scheduler idempotency gaps](scheduler-idempotency-gaps.md) — in-memory lastSentWeek/workerRunning flags lose state on restart; need acquireJobLock with durable keys.
-- [ZeroBounce email_status default](zerobounce-email-status-default.md) — default 'unvalidated'; 'active' means legacy-never-validated; lazy triggers cover null|active|unvalidated; winback uses allowlist ('valid' only).
+- [ZeroBounce email_status default](zerobounce-email-status-default.md) — Treat active as legacy-unvalidated; lazy validation covers null/active/unvalidated; winback allows only valid.
 - [Drizzle set() silent drop](drizzle-set-silent-drop.md) — db.update().set({...} as cast) silently drops columns; use raw db.execute(sql`UPDATE...`) for critical single-field writes.
 - [Login rate limiter behavior](login-rate-limiter.md) — 401 "Invalid email or password" returned for BOTH wrong password AND rate-limit hits — indistinguishable from logs.
 - [Admin password sync](admin-password-sync.md) — seedAdminUser re-hashes and updates DB password on every startup; use env vars to control it.
-- [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat, not /dashboard/ai-advisors; ResponsiveTable can't wrap children (overflow-x-auto div instead).
 - [Sequence control policy](sequence-control-policy.md) — all sequences default to `paused`; storage layer blocks enrollment into non-active sequences.
 - [Redis/BullMQ infra gotchas](bullmq-infra-requirements.md) — commandTimeout MUST be absent; maxRetriesPerRequest:null + lockDuration:120000 required; probe with ioredis ping first.
 - [GHL token & circuit breaker](ghl-token-ops.md) — 401 on expired PIT token, regenerate in GHL settings; breaker persists closed/open/half-open via classifyGhlSyncError().
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first.
-- [Master audit + 12-wave plan](master-audit-2026.md) — full compliance/conversion audit; 6 kill lines; 12 build waves across contactability, consent, GHL sync authority, analytics, QA.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
-- [Public marketing shell map](public-shell-overlays.md) — overlay stack (StickyMobileCTA, ChatWidget, ContactBubble) must be offset so they never collide; gated by route.
-- [Wave 10 draft persistence](wave10-draft-persistence.md) — server-side draft uses draftTokenHash; autosave blocks EIN/SSN/bank; finalize uses EIN-only dedupe; prefill token in-memory Map, 24h TTL.
-- [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — storage.getContacts({limit:1000}) silently skips contacts in DBs >1000 rows; use indexed db.select by email; capture req.ip before IIFE starts.
-- [Compliance scanner allowlist design](compliance-scanner-allowlist.md) — per-call-site CALL_SITE_ALLOWLIST required; scanner must skip function definition lines; non-email sends need explicit category entries.
+- [Wave 10 draft persistence](wave10-draft-persistence.md) — Draft hash; never autosave EIN/SSN/bank. Final dedupe is EIN-only; prefill Map TTL is 24h.
+- [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — Avoid limit-1000 lookup; select by email and capture req.ip before IIFE.
+- [Compliance scanner allowlist design](compliance-scanner-allowlist.md) — Require per-site CALL_SITE_ALLOWLIST; skip definition lines and classify non-email sends.
 - [Discovery vertical classification mapping](discovery-vertical-mapping.md) — coarse classifyVertical() bucket and canonical normalizeDiscoveryVertical() output are separate on purpose.
-- [Audit-only approval-gate pattern](audit-only-approval-gate.md) — approval endpoints must re-verify checklist server-side, write only to an audit-log table, never touch process.env/Secrets APIs directly.
-- [CSRF for manual API testing](csrf-manual-api-testing.md) — curl POST needs session cookie + `x-csrf-token` from `/api/csrf-token` (`token` field); PEWC checklist needs disclosureVersion+consentedPhone too.
+- [Audit-only approval-gate pattern](audit-only-approval-gate.md) — Recheck checklist server-side; audit-log only; never access process.env or Secrets APIs.
+- [CSRF for manual API testing](csrf-manual-api-testing.md) — Manual curl POST needs session + CSRF token; PEWC also needs disclosureVersion and consentedPhone.
 - [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — gpt-5 needs `max_completion_tokens`, and a big enough budget or reasoning tokens silently eat all output.
 - [CSV import row accounting](csv-import-row-accounting.md) — onConflictDoNothing() silently drops rows without throwing; diff batch vs result length to count it.
 - [Secret rotation restart](secret-rotation-restart.md) — new/changed secrets need a workflow restart; stale in-process secrets cause false live-HTTP failures right after a merge.
@@ -36,53 +32,42 @@
 - [QueueManager partial-init leak](queue-manager-init-failure.md) — getQueueManager() must not cache a manager whose initialize() threw partway through, or dual sync mechanisms can both go live.
 - [SSRF-safe webhook testing](blaze-ssrf-webhook-testing.md) — role-gate + DNS-resolve/block private ranges + no auto-redirects, needed for ANY "test connection" button fetching a user URL.
 - [PUT routes with raw string dates](date-string-update-coercion.md) — storage.updateDeal/updateCalendarEvent 500 on JSON date strings; coerce string→Date before db.update() on timestamp columns.
-- [Call follow-up SMS/email test isolation](call-follow-up-sequence-side-effect.md) — /api/call-follow-ups/send enrolls into OUTCOME_TO_SEQUENCE as a side effect; can 500 if that sequence is paused.
-- [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.
-- [CAN-SPAM footer injection](can-spam-footer-injection.md) — HMAC secrets diverge between test/server processes; contacts schema column must match DB; worker channel gate fail-closes before custom gates.
-- [Drizzle out-of-order journal when](drizzle-out-of-order-journal.md) — a journal entry's `when` below any already-applied entry is silently skipped; fix `when` above high-water mark + insert hash.
-- [Dashboard header shrink-0 sibling overlap](header-shrink0-overlap.md) — shrink-0 right header group forced left group to 0 width on mobile; search input silently ate its taps.
+- [Call follow-up SMS/email test isolation](call-follow-up-sequence-side-effect.md) — Send route enrolls OUTCOME_TO_SEQUENCE; a paused sequence can cause 500.
+- [CAN-SPAM footer injection](can-spam-footer-injection.md) — Keep HMAC secrets and contacts schema aligned; worker channel gate must fail closed before custom gates.
+- [Drizzle out-of-order journal when](drizzle-out-of-order-journal.md) — Set journal `when` above the applied high-water mark or migration skips; include its hash.
 - [Collateral packet manual override](collateral-packet-override.md) — override precedence (explicit > auto-match > fallback); watch for "resolved name left null on failure" truthful-state bugs.
-- [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — two route files can both register the same param path; earlier-registered wins silently — verify via curl, not code reading.
-- [SMTP-preferred bulk email compliance](smtp-preferred-bulk-compliance.md) — cold sequences and campaign-engine prefer SMTP over GHL's send API for List-Unsubscribe headers; two send sites needed fixing.
-- [Deal backfill async-runner pattern](deal-backfill-async-runner.md) — fire-and-forget backfill via setImmediate(); progress in system_settings; future-orphan guard checks priorityBucket A/B after scoring.
-- [SLA AI ops cycle timing](sla-ai-ops-cycle-timing.md) — FULL_LOOP_AI_OPS_EVERY_N=2 means runScheduledAiOps fires every 2nd BullMQ tick; two audit entries needed to prove clean cycles.
-- [Drizzle partial-index ON CONFLICT](drizzle-partial-index-on-conflict.md) — onConflictDoNothing({targetWhere}) does NOT emit the WHERE clause for partial indexes; use raw sql INSERT...ON CONFLICT...WHERE.
+- [Express route collision on same-shape paths](express-route-collision-same-shape-path.md) — Same-shape routes collide silently; first registration wins. Verify with curl.
+- [SMTP-preferred bulk email compliance](smtp-preferred-bulk-compliance.md) — Use SMTP for cold sequences/campaigns to support List-Unsubscribe headers.
+- [Deal backfill async-runner pattern](deal-backfill-async-runner.md) — Backfill is fire-and-forget; track system_settings progress and retain the priorityBucket A/B orphan guard.
+- [Drizzle partial-index ON CONFLICT](drizzle-partial-index-on-conflict.md) — Drizzle omits targetWhere for partial-index conflicts; use raw SQL with ON CONFLICT ... WHERE.
 - [SLA task idempotency design](sla-task-idempotency.md) — source/automationKey identity columns + partial unique index; phased backfill-before-index rollout.
-- [Migration timestamp collisions & CI authority](migration-when-collision.md) — new journal entries need `when` above the high-water mark or migrate() skips them silently; CI static job runs migration-integrity + CSRF scanner (ci-migration-csrf-authority.md).
-- [executeSql DDL timeout + migration lock contention](executesql-ddl-timeout.md) — executeSql times out on DDL against large tables; a crashed startup migration leaves exclusive locks; terminate blocking pids.
+- [Migration timestamp collisions & CI authority](migration-when-collision.md) — Journal `when` must exceed high-water mark; CI checks migration integrity and CSRF.
+- [executeSql DDL timeout + migration lock contention](executesql-ddl-timeout.md) — Large DDL may time out; crashed startup migrations can leave locks. Find and terminate blockers.
 - [Partial index scope for zero-migration uniqueness](partial-index-new-rows-only.md) — scope a new UNIQUE index to `new_col IS NOT NULL` to avoid deduping existing rows; index builds instantly.
 - [Intake Provenance System](intake-provenance.md) — writeContact() canonical writer; import_executions + contact_source_events; A→B→C DEFERRABLE transaction; all intake paths wired.
-- [System Audit Engine](system-audit-engine.md) — weekly BullMQ job probes 7 subsystems, generates GPT narrative, delivers Slack; admin UI at /dashboard/system-audit.
-- [Merchant portal access gaps](merchant-portal-access-gaps.md) — ProtectedRoute must redirect merchant→/dashboard/merchant-portal; onboarding routes must use isAuthenticated+ownership, not isDashboardUser.
+- [Merchant portal access gaps](merchant-portal-access-gaps.md) — Redirect merchants via ProtectedRoute; onboarding uses isAuthenticated plus ownership.
 - [GHL client pitfalls](ghl-fetch-timeout.md) — AbortController per fetch (20s, retryable); email-422s sanitize to terminal skips; pause enforced at each client's fetch helper.
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes may 404 until a full server restart; probe with curl and restart to confirm.
-- [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — SQL files in migrations/ root without journal entries hang drizzle-kit generate; journal them or move to migrations/guarded/.
+- [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — Unjournaled SQL in migrations/ root hangs drizzle-kit generate; journal it or move to migrations/guarded/.
 - [Test phone/EIN isolation](test-phone-isolation.md) — hardcoded phones/EINs collide across test runs; always generate uniquely (uniquePhone(), Date.now()%10000000) (see test-ein-uniqueness.md).
 - [CREATE INDEX CONCURRENTLY in Drizzle migrations](concurrent-index-migration-fix.md) — CONCURRENTLY banned inside migrate() transaction; use plain CREATE INDEX IF NOT EXISTS instead.
 - [BullMQ startup job deduplication](bullmq-startup-dedup.md) — static jobId on startup jobs silently deduped against stale Redis entries; omit jobId for one-off restart jobs.
-- [Live health check dual implementation](live-health-dual-implementation.md) — /api/admin/live-health has its OWN inline checks in admin.ts separate from health-monitor.ts; fix both.
-- [Sequence worker runtime](sequence-worker-runtime.md) — processSequenceEnrollments takes ~8 min with 155K contacts; longer than repeat intervals; jobs pile up.
 - [Communication Events Model](communication-events-model.md) — migration 0119; recordOutboundSend/recordInboundEvent are the only write paths; wired sites documented.
 - [Arbitration fail-closed](arbitration-fail-closed.md) — arbitration catch block returns suppressed:true on error (was fail-open); ARBITRATION_ERROR audit log written.
-- [Migration statement timeout bypass](migration-statement-timeout.md) — migrate() MUST use a dedicated pg.Client with statement_timeout=0, not drizzle(pool), or CREATE INDEX on large tables gets killed.
-- [AI Memory Architecture](ai-memory-arch.md) — entity_memory, ai_decision_log, ai_corrections, prompt_versions, golden_examples tables; routes at /api/ai-memory/*; AI Learning Center in OperatorDashboard.
+- [Migration statement timeout bypass](migration-statement-timeout.md) — Use dedicated pg.Client with statement_timeout=0, not drizzle(pool), to protect large indexes.
+- [AI Memory Architecture](ai-memory-arch.md) — AI memory tables and /api/ai-memory routes; AI Learning Center is in OperatorDashboard.
 - [Save Cases auto-open](save-cases-auto-open.md) — openSaveCaseIfNeeded() fires after High/Critical nightly churn score; partial unique index prevents duplicate open cases per contact.
-- [Attrition threshold UI pattern](attrition-threshold-ui.md) — GET/PUT /api/admin/settings/attrition-thresholds; "Signal Settings" tab in MerchantHealth.tsx.
 - [Queue-manager env overrides](queue-manager-env-overrides.md) — GHL_SYNC_REPEAT_EVERY_MS / SLA_CHECKS_REPEAT_EVERY_MS with floor guards; dev short-circuits preserved.
-- [Pipeline silence thresholds editor](pipeline-silence-thresholds-editor.md) — GET/PUT /api/admin/settings/pipeline-silence-thresholds; key format "pipeline::stage" → hours; falls back to GLOBAL_THRESHOLD_HOURS.
 - [Test contact GHL ID prefixes](test-contact-prefixes.md) — smoke tests use multiple prefixes (wh-test-ghl-*, ghl-deal-test-*); clean all; cascade deal FK children before deals before contacts.
 - [Contact Census ownership model](census-ownership-model.md) — DB partial index single-run enforcement; lease owner CAS; frozen watermark.
-- [Lead Pool Scale](lead-pool-scale.md) — 1.9M sunbiz entities, 190K hot; email discovery needs SERPER_API_KEY; Lead Ops Center at /dashboard/lead-ops.
-- [Underwriting Orchestration](underwriting-orchestration.md) — doc-chase email + SLA alert + admin pending-conditions route; merchant upload portal not yet built.
 - [Processor boarding authority pattern](processor-boarding-authority.md) — activation snapshot is the single gate for all provider I/O; MIDs masked in every response.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — device_type/serial_number; POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
-- [Cohort Monitoring Preflight](cohort-monitoring-preflight.md) — GET /api/admin/outbound/cohort-metrics + live 4-tile panel; thresholds red>5% bounce, amber>1% opt-out; no automated alert yet.
-- [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL rate-limit flap fixed with pollUntil() (12s); also see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md) (port owned by dev server).
+- [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.
 - [Outbound Pause Authority (#1531)](outbound-pause-authority.md) — canonical pause read/write via OutboundPauseAuthority; workers start only after initializePauseControl() succeeds.
 - [Queue Coordinator & Hold Ledger (#1532)](queue-coordinator-hold-ledger.md) — logical_job_control_holds; unpause sweeps deferred enrollments; physical actuation WINBACK_OUTREACH only.
-- [ZeroBounce validation safety](zerobounce-validation-safety.md) — canonical predicates + retryable-failure guard; campaign engine attempts table is claim+source of truth (see zerobounce-campaign-engine.md).
+- [ZeroBounce validation safety](zerobounce-validation-safety.md) — Canonical predicates and retryable-failure guard; attempts table is claim/source of truth.
 - [GHL test-contact cleanup](ghl-test-contact-cleanup.md) — sdr_lead_events double-FK order; probe starvation on lowest-id skip contact; multiple test-family prefixes to clean.
-- [Serper gateway, cooldown & identity lookup](serper-gateway.md) — all calls via SerperGateway+serper_control singleton (fail-closed); see serper-zero-yield-cooldown.md, serper-business-identity.md.
+- [Serper gateway, cooldown & identity lookup](serper-gateway.md) — Route all calls through fail-closed SerperGateway/serper_control.
 - [Drizzle execute timestamp strings](drizzle-execute-timestamp-strings.md) — tx.execute returns timestamptz as strings vs pg-pool Dates; audit_logs is append-only.
 - [Identity Crosswalk Gen-1](identity-crosswalk-gen1.md) — read-only evidence sweep; fail-close guards block deal creation + contact promotion; users.id is varchar not int.
 - [Pause-cycle test DB setup](pause-cycle-test-db.md) — throwaway DB + env guards for test-pause-cycle-unit.ts; schema drift breaks seeding.
@@ -94,66 +79,69 @@
 - [GitHub workflow push scope](github-workflow-push-scope.md) — workflow-file pushes need GitHub's explicit workflow permission; repo access alone may be insufficient.
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
-- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — local socket/role/port forcing; launcher-minted sinks only; cross-DB BullMQ Redis-namespace collisions; per-suite Redis prefixes.
+- [Disposable test-DB & certification-process isolation](local-predeploy-database.md) — Force local socket/role/port; use launcher-minted sinks and per-suite Redis prefixes to isolate BullMQ.
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
-- [Commercial/channel authority axes](commercial-resolution-authority.md) — resolution class, channel-cohort evidence, and provenance/identity/link stay separate axes; shadow never replaces legacy before cutover; see channel-cohort-authority.md.
+- [Commercial/channel authority axes](commercial-resolution-authority.md) — Keep resolution, channel evidence, and identity/provenance separate; shadow never replaces legacy pre-cutover.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.
 - [CR-06 immutable rollout versioning](cr06-immutable-rollout-versioning.md) — never edit an applied premium manifest in place; publish a new artifact identity/version.
-- [Publish/production schema ownership](production-schema-ownership.md) — Replit Publish owns production DDL; app startup must not replay Drizzle migrations against it; inline NOT VALID constraints fail Publish.
+- [Publish/production schema ownership](production-schema-ownership.md) — Publish owns prod DDL; startup must not replay Drizzle migrations; inline NOT VALID constraints fail Publish.
 - [Inbound request authority](inbound-request-authority.md) — request occurrence owns classification, idempotency, held effects, assignment/SLA links, receipts.
 - [Migration ledger hash-only proof](migration-ledger-hash-proof.md) — row count in drizzle.__drizzle_migrations is NOT valid applied-migration proof; only exact content-hash match is sound.
 - [Dependency-free CRO03C constants module](cro03c-dependency-free-contracts.md) — contracts.ts has zero db import; never import live-execution.ts (eager db import) from DB-less CLI tools.
 - [Task agent isolated branch vs production deploy target](task-agent-isolated-branch.md) — task-agent `main` isn't what Publish deploys from; pushing to `origin` never updates the live app.
 - [Layering a new authority on immutable upstream systems](cro07-controlled-delivery.md) — one-active-chain-per-intent constraint; reply-vs-suppression matrix; CAS-locked decisions.
-- [CRO-02 production seed-row gap](cro02-production-seed-gap.md) — Publish-managed tables can miss Drizzle-seeded rows; repair via insert-only fingerprint-guarded convergence initializer, never by replaying migrations against prod.
-- [Publish vs dev environment drift](publish-vs-dev-environment-drift.md) — publish auto-commits past deployed HEAD; dev/prod DBs separate even with same-named secrets; can share Redis and collide on BullMQ keys.
-- [Production seed & migration convergence](production-seed-convergence.md) — startup repairs never-replayed INSERT/UPSERT seeds (advisory lock, content-hash) and post-snapshot migrations lacking hash rows (sentinel-gated backfill); see also prod-drizzle-migrations-convergence.md.
+- [CRO-02 production seed-row gap](cro02-production-seed-gap.md) — Repair missing seeds via fingerprint-guarded insert-only convergence; never replay prod migrations.
+- [Publish vs dev environment drift](publish-vs-dev-environment-drift.md) — Publish may advance past deployed HEAD; dev/prod DBs differ and can share Redis/BullMQ keys.
+- [Production seed & migration convergence](production-seed-convergence.md) — Startup repairs missing seeds and migration hashes under locks/sentinel gates; see linked convergence note.
 - [DB pool/worker contention](db-pool-worker-contention.md) — system-wide 500s/timeouts can be pool exhaustion from shared BullMQ workers, not a regression; isolated pg.Pool ping fast = contention.
 - [pool.connect() wrapper danger](pool-connect-wrapper.md) — wrapping pool.connect() to intercept client.release() is unsafe (pg-pool recycles clients); use pool.query() wrapper only.
 - [Contact record_class production gap](contact-record-class-gap.md) — production contacts all land as 'unknown'; fire-and-forget backfill on startup reclassifies; excluded from sync SEED_TARGETS.
 - [CRO03 safeError opaque redaction](cro03-safeerror-redaction.md) — routes/cro03.ts strips non-CRO03(A|B|C)?_-prefixed errors to a generic 400 with no server log; trace source, not logs.
 - [uuid cursor empty-string sentinel](uuid-cursor-empty-sentinel.md) — never compare a uuid column against '' on an empty table; Postgres throws invalid-uuid-syntax.
-- [CRO03D/CRO03C ceremony pitfalls](cro03d-ceremony-scope-mismatch.md) — ceremony scope must replicate cro03cApprovalScope(); RELEASE_SHA-bound approvals invalidate on deploy; /tmp wiped by restarts.
+- [CRO03D/CRO03C ceremony pitfalls](cro03d-ceremony-scope-mismatch.md) — Match cro03cApprovalScope(); RELEASE_SHA approvals expire on deploy and /tmp clears on restart.
 - [CRO-08A source-scope & pilot-gate pitfalls](cro08a-source-scope-and-pilot-gate.md) — real source_system allowlist must come from the live cursor table, not table-name guesses.
 - [Contact enrichment backlog reconnect](contact-enrichment-backlog-reconnect.md) — recurring-tick backlog pitfalls: predicate drift, retry starvation, wrong gateway status column.
 - [Free-enrichment queue UNION ALL indexing](free-enrichment-queue-union-all-indexing.md) — split an OR eligibility predicate into UNION ALL branches so each gets its own partial index.
 - [Drizzle array parameter bug](drizzle-array-param-bug.md) — `ANY(${arr}::type[])` silently mis-binds with drizzle-orm's node-postgres driver; build `ARRAY[...]::type[]` by hand.
-- [Prod-vs-dev DB verification discipline](shell-psql-defaults-to-dev.md) — raw `psql`/`DATABASE_URL` resolves to development, not production; production is reachable only via the platform's production-scoped query path (see task-1955-build-findings.md).
-- [contacts/businesses NOT NULL convergence](contacts-notnull-convergence.md) — check live NULL count, tighten DB to match code's notNull() when safe; prod DDL flows through Publish diffing schema.ts.
+- [Prod-vs-dev DB verification discipline](shell-psql-defaults-to-dev.md) — psql/DATABASE_URL targets dev; use the platform's production-scoped query path.
+- [contacts/businesses NOT NULL convergence](contacts-notnull-convergence.md) — Check live NULLs before tightening schema; prod DDL goes through Publish schema diff.
 - [Drizzle raw VALUES boolean columns](drizzle-values-boolean-untyped.md) — ad hoc `VALUES(...)` harnesses can return booleans as text; `Boolean("false")` is truthy — cast `::boolean`.
-- [Canonical DBPR-family predicate](dbpr-canonical-predicate.md) — server/services/dbpr.ts is the single TS+SQL DBPR exclusion module; ingestion/storage/lineage stays allowed, only specific boundaries exclude it.
+- [Canonical DBPR-family predicate](dbpr-canonical-predicate.md) — One TS+SQL DBPR predicate; ingestion/storage/lineage allowed, exclusions only at named boundaries.
 - [Sunbiz bootstrap claim idempotency](sunbiz-bootstrap-claim-idempotency.md) — filing_number claim row precedes org resolution; registry_id FK gotcha.
-- [CRO03C provider-hardening parity](cro03c-provider-hardening-parity.md) — two separate provider-execution pipelines (legacy/MI-05 vs CRO03C canary); shared provider_controls gate extended to outscraper/openai.
-- [SQL correlated-subquery column shadowing](sql-correlated-subquery-column-shadowing.md) — raw-string correlated EXISTS subqueries must fully qualify outer column refs or Postgres silently shadows them.
-- [ZeroBounce DBPR, capability re-homing & single-spend-path census](zerobounce-dbpr-capability-rehoming.md) — two independent ZB spend paths each needed their own DBPR exclusion; a census script guards against a second path reappearing.
-- [Contactability four-dimension authority](contactability-four-dimension-authority.md) — evaluateContactDecisions() = single authority for dataHygiene/enrichment/promotion/send eligibility; census script guards consumer list.
+- [CRO03C provider-hardening parity](cro03c-provider-hardening-parity.md) — Legacy/MI-05 and CRO03C are separate; both share provider_controls for Outscraper/OpenAI.
+- [SQL correlated-subquery column shadowing](sql-correlated-subquery-column-shadowing.md) — Qualify outer columns in raw correlated EXISTS; inner names can otherwise shadow silently.
+- [ZeroBounce DBPR, capability re-homing & single-spend-path census](zerobounce-dbpr-capability-rehoming.md) — Exclude DBPR on both ZB spend paths; census guards against another path.
+- [Contactability four-dimension authority](contactability-four-dimension-authority.md) — evaluateContactDecisions() alone governs hygiene, enrichment, promotion, and send eligibility.
 - [Master Lead import/backfill DBPR & quarantine](master-lead-import-backfill-dbpr-quarantine.md) — DBPR-lineage exclusion + insufficient-identifier quarantine added to manual-import paths.
 - [CRO-03C master-lead E2E certification](cro03c-master-lead-certification.md) — disposable-DB + fake-transport DI recipe for full-pipeline certs.
-- [Live dev DB delta assertion flakiness](live-dev-db-delta-assertion-flakiness.md) — global before/after count assertions flap against this project's shared dev DB; scope to uniquely-prefixed fixture rows instead.
+- [Live dev DB delta assertion flakiness](live-dev-db-delta-assertion-flakiness.md) — Shared-dev global counts flap; assert on uniquely prefixed fixtures.
 - [Pilot evidence-completeness chain](pilot-evidence-completeness-chain.md) — terminal state alone isn't proof; walk receipt→resolution→final-outcome; missing checkpoints count as unresolved.
 - [First-party contact-page email crawler](first-party-contact-crawler.md) — Serper->crawler fallback domain-priority order, dual email policies, `_crawlerDeps` test seam.
 - [CRO-03C inventory AMBIGUOUS prevention](cro03c-inventory-ambiguous-prevention.md) — convergence must check+revoke existing valid inventories before signing a new one.
 - [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources skip both row fetch and cursor advance.
 - [CRO-03C gate diagnostics endpoint](cro03c-gate-diagnostics.md) — GET /api/admin/cro03c/gate-diagnostics returns prerequisite statuses; closedGateReason is a single enum (null=open).
-- [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — a catch-block INSERT reusing a failing tx's own pre-generated PK on a second connection deadlocks; write failures only in an outer catch.
+- [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — Do not reuse a failing tx's PK on another connection; write failures in the outer catch.
 - [Certification fixture reuse after mutation](cert-fixture-mutation-reuse.md) — a fixture mutated by an earlier check silently shows that state to any later check reusing the same id.
 - [Cross-connection advisory lock deadlock](advisory-lock-cross-connection-deadlock.md) — never xact-lock a key a session-level lock on a different connection already holds.
-- [Schema.ts check constraint without a migration](schema-check-constraint-unmigrated.md) — `check()` in schema.ts enforces nothing until a real migration creates it; verify with a live disposable-DB run.
-- [SFP paid-provider manifest gaps & reserved-keyword SQL](sfp-paid-provider-manifest-and-reserved-keyword.md) — approvedCallers must list every file in a shared chain; unquoted `authorization` column breaks raw SQL.
+- [Schema.ts check constraint without a migration](schema-check-constraint-unmigrated.md) — `check()` needs a real migration; verify the applied constraint in a disposable DB.
+- [SFP paid-provider manifest gaps & reserved-keyword SQL](sfp-paid-provider-manifest-and-reserved-keyword.md) — List each shared-chain file in approvedCallers; quote `authorization` in SQL.
 - [Disposable-DB VFC diff-isolation certs need a clean tree](sfp-vfc-diff-isolation-clean-tree.md) — cert scripts assert diff isolation; stash uncommitted WIP first.
 - [Legacy-value CHECK-constraint migrations](legacy-check-constraint-migration.md) — prove a synthetic legacy row survives against the real applied constraint, not a reconstructed copy.
 - [Package-pinned ready_held staging pattern](sfp-ready-held-staging-pattern.md) — snapshot-bound preview/execute + idempotency + drift 409s is reusable for any "prepare but never send" boundary.
 - [Sunbiz bootstrap engine hardening](sunbiz-bootstrap-hardening.md) — fence every write boundary, not just batch-level; weak-signal identity needs corroboration.
 - [Pre-deploy gate cascade & baseline noise](pre-deploy-gate-notes.md) — new migrations need a journal entry or integrity check cascades broadly; large pre-existing baseline failure exists.
-- [SFP production admin-route trigger pattern](sfp-production-admin-route-trigger.md) — prod writes go through admin HTTP routes (curl login+CSRF), not executeSql; preview-hash needs exact-matching options.
+- [SFP production admin-route trigger pattern](sfp-production-admin-route-trigger.md) — Use admin HTTP routes (login+CSRF) for prod writes; options must match the preview hash.
 - [SFP dual-taxonomy vertical classification](sfp-dual-taxonomy-classification.md) — classifier_version = taxonomy version; evidence-only admission needs admission_tier='resolved_high'.
 - [SFP frozen classification snapshot](sfp-frozen-classification-snapshot.md) — freeze the caller's exact selection+facts instead of scoping the hash tighter, to stop preview/run hash flapping.
-- [SFP paid-budget gate & non-attempt caching](sfp-paid-budget-gate-and-non-attempt-caching.md) — $50 gate is separate from transport/credential checks; evidence table is insert-only, repair via cache-exclusion not mutation.
-- [Paid-batch runs execute the published build, not workspace edits](sfp-paid-batch-runs-published-build.md) — a code fix isn't live in prod paid runs until redeployed; verify before spending budget.
-- [Drizzle migration errors swallow the real Postgres cause](drizzle-migration-error-swallowed-cause.md) — err.message is just "Failed query: <sql>"; the real error is on err.cause and was never logged.
-- [Selective BullMQ profile double-gate](selective-background-profile-double-gate.md) — a new recurring queue also needs a WORKER_CAPABILITY_GROUPS entry + its group added to BACKGROUND_JOB_PROFILE, or it registers in code but never runs.
-- [Serper local_budget_units ceiling-raise pattern](sfp-serper-ceiling-raise.md) — any route that adjusts a provider ceiling must SELECT the current value and use max(current, requested); never assign the requested value directly.
-- [Continuous-tick provider pause pattern](sfp-continuous-pause-pattern.md) — stage-claim WHERE must include 'partial' (lease already cleared) or a blocked provider strands the stage forever; pre-check provider_controls before freezing/claiming so "disabled" is one quiet paused outcome, not N wasted attempts. Dev/prod provider_controls are separate DBs — never infer prod state from dev.
-- [Shared disposable SFP certification fixtures](sfp-shared-cert-fixtures.md) — the multi-suite runner shares one private database; fixtures must tolerate earlier suites' programs, packages and decisions.
+- [SFP paid-budget gate & non-attempt caching](sfp-paid-budget-gate-and-non-attempt-caching.md) — $50 gate is separate; evidence is insert-only, so repair via cache exclusion, not mutation.
+- [Paid-batch runs execute the published build, not workspace edits](sfp-paid-batch-runs-published-build.md) — Redeploy fixes before spending; paid runs execute deployed code.
+- [Drizzle migration errors swallow the real Postgres cause](drizzle-migration-error-swallowed-cause.md) — Inspect err.cause for Postgres details; err.message only echoes failed SQL.
+- [Selective BullMQ profile double-gate](selective-background-profile-double-gate.md) — Register recurring queues in WORKER_CAPABILITY_GROUPS and BACKGROUND_JOB_PROFILE or they will not run.
+- [Serper local_budget_units ceiling-raise pattern](sfp-serper-ceiling-raise.md) — Raise provider ceilings with max(current, requested); never overwrite current with requested.
+- [Continuous-tick provider pause pattern](sfp-continuous-pause-pattern.md) — Claim 'partial' stages to avoid stranding; check provider pause before freeze/claim; dev/prod controls are separate.
+- [Shared disposable SFP certification fixtures](sfp-shared-cert-fixtures.md) — Shared private DB means fixtures must tolerate earlier suites' programs, packages, and decisions.
 - [PR CI baseline discipline](pr-ci-baseline-discipline.md) — compare failures with main before expanding reconciliation scope; unrelated failing static checks belong to separate work.
 - [SFP contact-link evidence](sfp-contact-link-evidence.md) — domain overlaps alone are unsafe; independent Sunbiz corroboration can come from cordata/corevt entities, not only sunbiz-tagged rows.
+- [Ranked SQL selections and locks](postgres-ranked-selection-locks.md) — window queries cannot use FOR UPDATE; lock base rows and recheck; prove partial-expression index use with EXPLAIN.
+- [Provider documentation contracts](provider-documentation-contracts.md) — Outscraper expired results look Pending; Apollo organization and people searches have different billing semantics.
+- [Provider facts versus eligibility](provider-facts-vs-eligibility.md) — Preserve dispatched receipts across authority drift; serialize authorization separately from network I/O and promotion.

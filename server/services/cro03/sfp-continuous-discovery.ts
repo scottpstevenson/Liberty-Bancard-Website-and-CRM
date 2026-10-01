@@ -12,7 +12,7 @@
  * Each exported tick function now DRAINS: it keeps taking bounded, safe,
  * idempotent batches back-to-back — rotating across every frozen cohort with
  * outstanding work and freezing new cohorts as needed — until one of its own
- * stop conditions fires (provider health, attestation freshness, or a
+ * stop conditions fires (provider health, or a
  * wall-clock time budget safely inside the
  * queue's own repeat interval and lock/lease durations). It invents no new
  * authority: every write still goes through provider enable/circuit controls,
@@ -21,6 +21,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
+import { previewRoiCohort } from "./roi-cohort-selector";
 import {
   getProgramReadOnly,
   freezeCohort,
@@ -28,7 +29,7 @@ import {
 } from "./south-florida-prospecting";
 import { previewSfpPaidWaterfall, executeSfpSerperDiscovery, executeSfpPaidPersonAndIdentityDiscovery } from "./sfp-paid-waterfall";
 import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
-import { getSfpProviderReadiness, getSfpAttestationReadiness } from "./sfp-provider-operations";
+import { getSfpProviderReadiness } from "./sfp-provider-operations";
 import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
@@ -42,9 +43,8 @@ const VALIDATION_BATCH_PER_CALL = 25; // SFP_VALIDATION_MAX enforced again insid
 
 // Wall-clock ceiling per tick invocation. Both continuous ticks repeat every
 // 10 minutes (queue-manager.ts NAMED_QUEUE_SCHEDULES); this budget keeps a
-// single tick well inside that window (and inside the runtime attestation's
-// 15-minute TTL) so a draining tick never overlaps the next scheduled one
-// or outlives its own attestation.
+// single tick well inside that window so a draining tick never overlaps the
+// next scheduled invocation or outlives its own bounded lease.
 const DRAIN_TIME_BUDGET_MS = 7 * 60 * 1000;
 // Safety valve: even with a genuinely huge backlog and no provider pause,
 // cap the number of provider calls a single tick will attempt so a runaway
@@ -62,10 +62,6 @@ const PHASE1_TIME_BUDGET_MS = 4 * 60 * 1000;
 
 function deadline(): number {
   return Date.now() + DRAIN_TIME_BUDGET_MS;
-}
-
-function hourBucket(): string {
-  return new Date().toISOString().slice(0, 13); // yyyy-mm-ddThh — one freeze attempt per program per hour
 }
 
 async function auditTick(action: string, outcome: string, details: Record<string, unknown>) {
@@ -95,44 +91,28 @@ export interface SfpContinuousDiscoveryTickResult {
   elapsedMs?: number;
 }
 
-/**
- * Finds (or freezes) a frozen cohort that currently has Serper-eligible
- * work. Returns null when no cohort has work AND a fresh freeze also
- * produced nothing usable — the caller treats that as "drain complete".
- */
-async function _claimNextDiscoveryCohort(programId: string): Promise<{ cohortRunId: string; newlyFrozen: boolean } | null> {
-  const candidates = rows(await db.execute(sql`
-    SELECT id FROM sfp_cohort_runs
-     WHERE program_id = ${programId}::uuid AND cohort_state='frozen'
-       AND voided_at IS NULL AND superseded_at IS NULL AND cohort_size > 0
-      ORDER BY COALESCE((SELECT MAX(s.last_heartbeat_at) FROM sfp_stage_runs s
-                          WHERE s.cohort_run_id=sfp_cohort_runs.id AND s.stage='paid_waterfall'),frozen_at) ASC,
-               frozen_at ASC,id ASC
-  `));
-  for (const c of candidates) {
-    try {
-      const preview = await previewSfpPaidWaterfall(String(c.id));
-      if (preview.businessesNeedingPaidDiscovery > 0 && preview.serperEligibleNow > 0) {
-        return { cohortRunId: String(c.id), newlyFrozen: false };
-      }
-    } catch { /* unusable cohort — try the next candidate */ }
-  }
-  try {
-    const freeze = await freezeCohort({
-      idempotencyKey: `sfp-continuous:${programId}:${hourBucket()}`,
-      actorId: "system:sfp-continuous-discovery",
-    });
-    return { cohortRunId: freeze.run.id, newlyFrozen: freeze.newlyFrozen };
-  } catch {
-    return null;
-  }
+/** A durable monotonically increasing retry key derived from cohort history.
+ * COUNT(*) is read before the freeze; concurrent ticks choose the same key
+ * and freezeCohort's existing per-key lock/replay contract collapses them. */
+async function nextContinuousAdmissionKey(programId: string): Promise<string> {
+  const prior = rows(await db.execute(sql`
+    SELECT COUNT(*)::bigint AS run_count
+      FROM sfp_cohort_runs WHERE program_id=${programId}::uuid
+  `))[0];
+  return `sfp-continuous:${programId}:admission:${Number(prior?.run_count ?? 0) + 1}`;
+}
+
+/** Per-cohort stage-attempt keys persist in stage history, not the wall clock. */
+async function nextStageAttemptKey(cohortRunId: string, stage: string, suffix: string): Promise<string> {
+  const prior = rows(await db.execute(sql`
+    SELECT COUNT(*)::bigint AS run_count
+      FROM sfp_stage_runs WHERE cohort_run_id=${cohortRunId}::uuid AND stage=${stage}
+  `))[0];
+  return `sfp-continuous:${cohortRunId}:${suffix}:${Number(prior?.run_count ?? 0) + 1}`;
 }
 
 /** Rolling cohort rotation + a bounded-time DRAIN of Serper discovery work. */
 export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuousDiscoveryTickResult> {
-  if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
-    return { ran: false, reason: "provider_transport_unavailable" };
-  }
   const program = await getProgramReadOnly();
   if (!program || !program.isActive) {
     return { ran: false, reason: "program_inactive" };
@@ -154,6 +134,35 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   const exhaustedCohorts = new Set<string>();
   let sawWorkThisTick = false;
 
+  // Cohort admission is intentionally independent of Serper readiness and
+  // UTC-hour buckets. Use the selector's durable never-frozen count so
+  // inventory continues to enter bounded cohorts while discovery providers
+  // are paused. freezeCohort persists each sequence key and serializes
+  // concurrent identical attempts; failed attempts consume a key because
+  // their durable failed run remains part of the sequence.
+  try {
+    const admission = await previewRoiCohort({
+      maxCohort: program.maxCohortSize,
+      maxPreview: program.maxCohortSize,
+      verticalIds: program.verticalIds,
+      countyFips: program.countyFips,
+      taxonomyVersion: program.taxonomyVersion,
+      policyVersion: program.policyVersion,
+    });
+    if (admission.unadmittedEligibleCount > 0) {
+      const freeze = await freezeCohort({
+        idempotencyKey: await nextContinuousAdmissionKey(program.id),
+        actorId: "system:sfp-continuous-discovery",
+      });
+      if (freeze.newlyFrozen) newlyFrozenCount++;
+      cohortRunIds.add(freeze.run.id);
+    }
+  } catch (err: any) {
+    await auditTick("sfp_continuous_discovery_tick", "admission_failed", {
+      error: String(err?.message ?? err),
+    });
+  }
+
   while (Date.now() < phase1End && calls < MAX_CALLS_PER_TICK) {
     // Durable-paused fast path: check the shared provider_controls gate
     // BEFORE touching any cohort or stage row. A disabled/exhausted/open-
@@ -168,10 +177,9 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
       break;
     }
 
-    // Reuse an existing usable frozen cohort with remaining Serper-eligible
-    // work, otherwise roll forward to the next batch by freezing a new one
-    // (bounded to the program's own max_cohort_size, same as an operator
-    // freezing a cohort by hand).
+    // Reuse any older frozen cohort with remaining Serper-eligible work.
+    // New cohort admission already ran independently above, before checking
+    // provider readiness.
     let claimed: { cohortRunId: string; newlyFrozen: boolean } | null = null;
     const reusableAll = rows(await db.execute(sql`
       SELECT id FROM sfp_cohort_runs
@@ -192,28 +200,14 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
         exhaustedCohorts.add(String(c.id));
       } catch { exhaustedCohorts.add(String(c.id)); }
     }
-    if (!claimed) {
-      try {
-        const freeze = await freezeCohort({
-          idempotencyKey: `sfp-continuous:${program.id}:${hourBucket()}`,
-          actorId: "system:sfp-continuous-discovery",
-        });
-        claimed = { cohortRunId: freeze.run.id, newlyFrozen: freeze.newlyFrozen };
-        if (freeze.newlyFrozen) newlyFrozenCount++;
-      } catch (err: any) {
-        stopReason = sawWorkThisTick ? "no_further_cohorts_available" : "no_usable_cohort_and_freeze_failed";
-        await auditTick("sfp_continuous_discovery_tick", "freeze_failed", { error: String(err?.message ?? err) });
-        break;
-      }
-    }
-    if (!claimed) { stopReason = "no_eligible_cohort"; break; }
+    if (!claimed) { stopReason = sawWorkThisTick ? "no_further_cohorts_available" : "no_eligible_cohort"; break; }
     const { cohortRunId } = claimed;
 
     try {
       calls++;
       const result = await executeSfpSerperDiscovery({
         cohortRunId,
-        idempotencyKey: `sfp-continuous:${cohortRunId}:serper:${hourBucket()}:${calls}`,
+        idempotencyKey: await nextStageAttemptKey(cohortRunId, "paid_waterfall", "serper"),
         actorId: "system:sfp-continuous-discovery",
         maxBusinesses: SERPER_BATCH_PER_CALL,
         internalSkipPreviewCheck: true,
@@ -303,7 +297,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
           waterfallCalls++;
           const waterfallResult = await executeSfpPaidPersonAndIdentityDiscovery({
             cohortRunId,
-            idempotencyKey: `sfp-continuous:${cohortRunId}:waterfall:${hourBucket()}:${waterfallCalls}`,
+            idempotencyKey: await nextStageAttemptKey(cohortRunId, "paid_waterfall", "waterfall"),
             actorId: "system:sfp-continuous-discovery",
             maxBusinesses: 25,
             previewSnapshotHash: snapshot.snapshotHash,
@@ -345,7 +339,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   for (const id of waterfallCohortRunIds) cohortRunIds.add(id);
 
   const summary = {
-    ran: calls > 0 || waterfallCalls > 0,
+    ran: calls > 0 || waterfallCalls > 0 || newlyFrozenCount > 0,
     cohortRunIds: [...cohortRunIds],
     newlyFrozenCount,
     calls, providerRequests, processed, succeeded, failed, noResult,
@@ -411,15 +405,6 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
       if (Date.now() >= end || calls >= MAX_CALLS_PER_TICK) break;
       const cohortRunId = String(c.id);
       try {
-        // The runtime attestation is short-lived (<=15 min); a stale one is a
-        // quiet, resumable pause for THIS cohort only — never a permanent
-        // stall and never an unhandled throw that kills the whole drain.
-        const attestation = await getSfpAttestationReadiness(cohortRunId);
-        if (!attestation.ready) {
-          await auditTick("sfp_continuous_validation_tick", "attestation_paused", { cohortRunId, reason: attestation.reason });
-          exhaustedCohorts.add(cohortRunId);
-          continue;
-        }
         const preview = await previewSfpValidation(cohortRunId);
         if (!preview.gateOpen || preview.selectedCandidates.length === 0) {
           exhaustedCohorts.add(cohortRunId);
@@ -427,7 +412,7 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
         }
         calls++;
         const result = await executeSfpValidation(cohortRunId, {
-          idempotencyKey: `sfp-continuous:${cohortRunId}:validate:${hourBucket()}:${calls}`,
+          idempotencyKey: await nextStageAttemptKey(cohortRunId, "validation", "validate"),
           actorId: "system:sfp-continuous-discovery",
           maxValidations: VALIDATION_BATCH_PER_CALL,
           snapshotHash: preview.snapshotHash,

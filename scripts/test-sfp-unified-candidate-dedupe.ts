@@ -27,6 +27,14 @@ async function main() {
   const businessId = Number(bizRes.rows[0].id);
   const sharedEmail = `owner-${nonce}@dedupe-test.example`;
   const { ciphertext, nonce: envNonce, tag, normalizedValueHash, maskedValue } = seal("email", sharedEmail);
+  await pool.query(
+    `UPDATE businesses
+        SET main_email=$2,email_discovery_status='provider_valid',email_selected_candidate_hash=$3
+      WHERE id=$1`,
+    [businessId, sharedEmail, normalizedValueHash],
+  );
+  check((await getUnifiedSfpCandidates([businessId])).length === 0,
+    "a retained main_email without typed source evidence never creates a candidate");
 
   // Free-lane observation of the same value.
   const genRes = await pool.query(
@@ -56,6 +64,8 @@ async function main() {
   const free = emailRows.find((r) => r.sourceKind === "free");
   const paid = emailRows.find((r) => r.sourceKind === "paid");
   check(Boolean(free && paid), "one row is free-sourced and one is paid-sourced");
+  check(free?.retainedBusinessEmailProjection === true,
+    "retained main_email is materialized only onto its matching typed free-evidence row");
   check(paid!.duplicateOfEvidenceId === null, "higher-confidence paid row (ranked first) is canonical, not marked a duplicate");
   check(free!.duplicateOfEvidenceId === paid!.evidenceId, "lower-ranked free row is marked as a duplicate of the paid canonical row");
   check(free!.evidenceId !== paid!.evidenceId, "each row keeps its own distinct evidenceId (no lineage merge)");
@@ -63,16 +73,20 @@ async function main() {
 
   // A distinct, non-shared value for the same business/field must remain independent.
   await writeSfpPaidCandidateEvidence({
-    businessId, provider: "apollo", field: "email", value: `distinct-${nonce}@dedupe-test.example`, subjectType: "person", confidence: 80,
+    businessId, provider: "apollo", field: "email", value: `distinct-${nonce}@dedupe-test.example`,
+    subjectType: "person", confidence: 80,
+    personNameEvidence: "Casey Owner", personTitleEvidence: "Operations Manager",
   });
   const unified2 = await getUnifiedSfpCandidates([businessId]);
   const distinctRow = unified2.find((r) => r.provider === "apollo");
   check(Boolean(distinctRow) && distinctRow!.duplicateOfEvidenceId === null, "a genuinely distinct value is never marked as a duplicate");
+  check(distinctRow?.personNameEvidence === "Casey Owner" &&
+    distinctRow.personTitleEvidence === "Operations Manager",
+  "typed paid person email retains its actual name and title evidence");
 
-  await pool.query(`DELETE FROM sfp_paid_candidate_evidence WHERE business_id=$1`, [businessId]);
-  await pool.query(`DELETE FROM free_discovery_candidates WHERE business_id=$1`, [businessId]);
-  await pool.query(`DELETE FROM free_discovery_generations WHERE id=$1`, [generationId]);
-  await pool.query(`DELETE FROM businesses WHERE id=$1`, [businessId]);
+  // Evidence is intentionally immutable. The dedicated Task 2060 runner
+  // destroys this entire private database after certification, so fixtures
+  // remain as auditable rows rather than bypassing the immutability guards.
   await pool.end();
   console.log(`\nSFP unified-candidate dedupe: ${assertionCount} assertions passed.`);
 }
