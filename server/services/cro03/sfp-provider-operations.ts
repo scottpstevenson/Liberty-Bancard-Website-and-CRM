@@ -24,6 +24,7 @@ import {
 } from "../commercial-graph-locks";
 import { lockSfpBusinessSafetySentinel } from "./sfp-eligibility-locks";
 import {
+  getCurrentRoutineSfpDeploymentIdentity,
   getCurrentSfpRuntimeFence,
   sameSfpRuntimeRelease,
   SFP_RUNTIME_OWNER_LEASE_MS,
@@ -157,7 +158,7 @@ export interface SfpStageFinalizationInput {
 async function getCurrentRoutineSfpRuntimeFence(): Promise<SfpRuntimeFence | null> {
   // REPL_ID identifies a workspace, not a deployment, and cannot distinguish
   // same-SHA redeployments that share a project identity.
-  if (!process.env.REPL_DEPLOYMENT_ID?.trim()) return null;
+  if (!getCurrentRoutineSfpDeploymentIdentity()) return null;
   return getCurrentSfpRuntimeFence();
 }
 

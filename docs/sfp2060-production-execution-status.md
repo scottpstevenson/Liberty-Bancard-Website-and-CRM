@@ -96,11 +96,14 @@ deployment identity or independently publisher-verified selection evidence.
 The available deployment metadata reports deployment status and domains but
 does not expose a deployment identifier.
 
-**Required resolution:** obtain the actual current deployment identity from
-the publisher's deployment record and bind the verified identity through the
-supported deployment configuration lifecycle. Then recapture current runtime
-status and use the audited release-selection endpoint, with genuine publisher
-evidence and exact compare-and-set inputs, after database contracts pass.
+**Source repair prepared after this snapshot:** the build now generates and
+embeds a unique, SHA-bound per-Publish artifact identity. See
+[`runbooks/sfp-publish-build-identity.md`](runbooks/sfp-publish-build-identity.md).
+This removes the manual dependency on an undocumented platform deployment
+variable without falling back to workspace/SHA identity. It is not yet a claim
+that production has the corrected artifact. Publish and independent publisher
+verification, followed by the audited selector and database prerequisite
+checks, remain required.
 
 Do not make up an identifier, relabel the workspace ID as a deployment, replace
 publisher proof with health alone, weaken owner fencing or write selector rows

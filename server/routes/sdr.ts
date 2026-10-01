@@ -25,6 +25,7 @@ import { authorizeBusinessAccess } from "../services/crm-object-access";
 import { updateOrganizationDescriptive } from "../services/organization-service";
 import { claimVerifiedProviderEvent, linkInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
 import { certificationHttpReadinessFields } from "../lib/certification-http-contract";
+import { readSfpPublishBuildIdentity } from "../../shared/sfp-publish-build-identity";
 
 // ── Build identity — frozen at process start, never derived at request time ──
 // RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
@@ -36,6 +37,17 @@ const _RELEASE_SHA_VALID = _SHA_PATTERN.test(_RELEASE_SHA_RAW);
 const BUILD_SHA: string = _RELEASE_SHA_VALID ? _RELEASE_SHA_RAW : "unset";
 const BUILD_AT: string = new Date().toISOString();
 const BUILD_ENV: string = process.env.NODE_ENV ?? "unknown";
+const PUBLISH_BUILD = readSfpPublishBuildIdentity({
+  releaseSha: _RELEASE_SHA_RAW,
+  publishArtifactSha: process.env.SFP_PUBLISH_ARTIFACT_SHA,
+  publishBuildId: process.env.SFP_PUBLISH_BUILD_ID,
+});
+
+if (PUBLISH_BUILD) {
+  // Nonsecret artifact identity in publisher-controlled logs for independent
+  // release verification; this log does not select or authorize the build.
+  console.log("[SFP Publish Artifact Loaded]", JSON.stringify(PUBLISH_BUILD));
+}
 
 if (!_RELEASE_SHA_VALID) {
   console.warn(
@@ -83,6 +95,7 @@ export function registerSdrRoutes(app: Express) {
       sha: BUILD_SHA,
       builtAt: BUILD_AT,
       env: BUILD_ENV,
+      publishBuildId: PUBLISH_BUILD?.buildId ?? null,
     });
   });
 
@@ -94,6 +107,7 @@ export function registerSdrRoutes(app: Express) {
       sha: BUILD_SHA,
       builtAt: BUILD_AT,
       env: BUILD_ENV,
+      publishBuildId: PUBLISH_BUILD?.buildId ?? null,
       // C-03 (#1626): lets pre-deploy test scripts (test-forms.ts,
       // test-call-follow-ups.ts) confirm the GHL fail-fast fake transport is
       // actually installed on the server they're hitting before running any

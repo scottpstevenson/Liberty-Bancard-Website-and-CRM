@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     baseEnv.CREDENTIAL_ENCRYPTION_KEY = "task-2060-disposable-only";
 
     const certifications = [
+      { name: "publish-build-identity", script: "scripts/test-sfp-publish-build-identity.ts", database: false },
       { name: "five-vertical-fairness", script: "scripts/test-sfp-five-vertical-fairness-pure.ts", database: false },
       { name: "provider-contracts", script: "scripts/test-sfp-provider-contracts.ts", database: false },
       { name: "ready-held-consumer-contract", script: "scripts/test-sfp-ready-held-consumer-contract.ts", database: false },

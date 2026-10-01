@@ -1,3 +1,5 @@
+import { resolveRoutineSfpDeploymentIdentity } from "../../../shared/sfp-publish-build-identity";
+
 export interface SfpRuntimeFence {
   artifactSha: string;
   deploymentIdentity: string;
@@ -8,12 +10,25 @@ export interface SfpRuntimeFence {
 
 export const SFP_RUNTIME_OWNER_LEASE_MS = 2 * 60_000;
 
+/** Embedded published artifact identity, or an explicitly supplied platform ID. */
+export function getCurrentRoutineSfpDeploymentIdentity(): string | null {
+  return resolveRoutineSfpDeploymentIdentity({
+    releaseSha: process.env.RELEASE_SHA,
+    publishArtifactSha: process.env.SFP_PUBLISH_ARTIFACT_SHA,
+    publishBuildId: process.env.SFP_PUBLISH_BUILD_ID,
+    platformDeploymentId: process.env.REPL_DEPLOYMENT_ID,
+  });
+}
+
 /** Derive the current deployment/process identity used by durable SFP ownership. */
 export async function getCurrentSfpRuntimeFence(): Promise<SfpRuntimeFence | null> {
   const { getCro03cQueueTopologyHash } = await import("../queue-manager");
   return buildSfpRuntimeFence({
     releaseSha: process.env.RELEASE_SHA,
-    deploymentIdentity: process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID,
+    deploymentIdentity: process.env.SFP_PUBLISH_BUILD_ID !== undefined ||
+      process.env.SFP_PUBLISH_ARTIFACT_SHA !== undefined
+      ? getCurrentRoutineSfpDeploymentIdentity()
+      : process.env.REPL_DEPLOYMENT_ID ?? process.env.REPL_ID,
     environmentIdentity: process.env.NODE_ENV,
     processIdentity: process.env.PROCESS_IDENTITY,
     processId: process.pid,
