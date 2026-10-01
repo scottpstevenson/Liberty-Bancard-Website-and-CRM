@@ -19,6 +19,8 @@ import { sql } from "drizzle-orm";
 import crypto from "node:crypto";
 import { db } from "../db";
 import type { SunbizEntity } from "@shared/schema";
+import { initializeSunbizBootstrapBusinessClass } from "./commercial-classification-authority";
+import { lockCommercialGraphNodes } from "./commercial-graph-locks";
 import {
   resolveOrganization,
   peekOrganizationResolution,
@@ -538,24 +540,24 @@ export async function previewSunbizBootstrap(limit = DEFAULT_BATCH_LIMIT, opts: 
   return result;
 }
 
-// ── Record-class repair (one-time production correction) ──────────────────
+// ── Record-class repair (one-time BT-06 initialization correction) ────────
 //
-// Before this correction, resolveOrganization() was called without
-// create.recordClass, so newly created businesses fell through to the
-// businesses.record_class database default of 'unknown' — invisible to
-// /api/lead-ops/businesses, the free-enrichment cohort, and MI-09
-// eligibility, all of which require record_class='canonical'.
+// Before this correction, the bootstrap assigned the legacy 'canonical'
+// class directly. Classification now goes through BT-06 after the bootstrap
+// claim and exact Sunbiz source link have been verified in the same
+// transaction. Only a still-unknown business with a completed, evidence-backed
+// bootstrap is initialized to production; weak or stale source evidence stays
+// quarantined as unknown.
 //
 // This repair is scoped as narrowly as possible: only businesses that are
 // PROVEN to be a Sunbiz-bootstrap "created" outcome (not "matched_existing",
 // which must never have its record_class touched) and that still carry the
-// pre-fix 'unknown' default, and for which the expected canonical Sunbiz
-// source lineage row genuinely exists (proving the claim's finalize step
-// actually completed for this exact business/filing pair, not a partial or
-// unrelated row). It never widens to "any unknown business" — other
-// ingestion paths intentionally rely on fail-closed 'unknown' classification
-// for businesses that have NOT been proven canonical, and this repair must
-// not silently reclassify those.
+// pre-fix 'unknown' default, and for which the exact Sunbiz source lineage
+// row genuinely exists (proving the claim's finalize step actually completed
+// for this business/filing pair, not a partial or unrelated row). It never
+// widens to "any unknown business" — other ingestion paths intentionally rely
+// on fail-closed 'unknown' classification, and this repair must not silently
+// reclassify those.
 const RECORD_CLASS_REPAIR_COHORT_SQL = sql`
   SELECT b.id, b.canonical_name AS canonical_name, c.filing_number AS filing_number
   FROM sunbiz_bootstrap_claims c
@@ -641,6 +643,8 @@ export interface SunbizRecordClassRepairResult {
   attemptedCount: number;
   repairedCount: number;
   repairedIds: number[];
+  classificationEventIds: number[];
+  quarantinedIds: number[];
 }
 
 /**
@@ -653,21 +657,55 @@ export interface SunbizRecordClassRepairResult {
  */
 export async function runSunbizRecordClassRepair(expectedBusinessIds: number[]): Promise<SunbizRecordClassRepairResult> {
   if (expectedBusinessIds.length === 0) {
-    return { attemptedCount: 0, repairedCount: 0, repairedIds: [] };
+    return {
+      attemptedCount: 0,
+      repairedCount: 0,
+      repairedIds: [],
+      classificationEventIds: [],
+      quarantinedIds: [],
+    };
   }
-  const idList = sql.join(expectedBusinessIds.map((id) => sql`${id}::int`), sql`, `);
-  const updated = rows(await db.execute(sql`
-    UPDATE businesses
-    SET record_class = 'canonical'
-    WHERE id IN (${idList})
-      AND record_class = 'unknown'
-      AND id IN (SELECT id FROM (${RECORD_CLASS_REPAIR_COHORT_SQL}) AS proven_cohort)
-    RETURNING id
-  `)) as Array<{ id: number }>;
+  const repairedIds: number[] = [];
+  const classificationEventIds: number[] = [];
+  const quarantinedIds: number[] = [];
+  for (const businessId of [...new Set(expectedBusinessIds)]) {
+    const initialized = await db.transaction(async (tx) => {
+      await lockCommercialGraphNodes(tx, [{ type: "business", id: businessId }]);
+      const proven = rows(await tx.execute(sql`
+        SELECT b.id, c.filing_number
+        FROM sunbiz_bootstrap_claims c
+        JOIN businesses b ON b.id = c.business_id
+        JOIN canonical_source_links csl
+          ON csl.business_id = b.id
+         AND csl.source_system = 'sunbiz'
+         AND csl.source_type = 'sunbiz_entity'
+         AND csl.stable_key = c.filing_number
+        WHERE c.status = 'created'
+          AND b.record_class = 'unknown'
+          AND b.id = ${businessId}
+        FOR UPDATE OF b, c
+      `))[0] as { id: number; filing_number: string } | undefined;
+      if (!proven) return null;
+      return initializeSunbizBootstrapBusinessClass({
+        businessId: Number(proven.id),
+        filingNumber: proven.filing_number,
+        claimMode: "completed_bootstrap",
+        transaction: tx,
+      });
+    });
+    if (initialized?.decision === "initialized" && initialized.applied && initialized.eventId != null) {
+      repairedIds.push(businessId);
+      classificationEventIds.push(initialized.eventId);
+    } else if (initialized?.decision === "quarantined") {
+      quarantinedIds.push(businessId);
+    }
+  }
   return {
     attemptedCount: expectedBusinessIds.length,
-    repairedCount: updated.length,
-    repairedIds: updated.map((r) => r.id),
+    repairedCount: repairedIds.length,
+    repairedIds,
+    classificationEventIds,
+    quarantinedIds,
   };
 }
 
@@ -681,7 +719,18 @@ export interface SunbizBootstrapRunOutcome {
   domainConflict?: boolean;
   phoneConflict?: boolean;
   freeRecrawl?: "not_needed" | "queued" | "queue_unavailable" | "enqueue_failed";
+  classificationEventId?: number;
+  classificationDecision?: "initialized" | "quarantined" | "preserved";
+  classificationReasonCode?: string;
   error?: string;
+}
+
+interface SunbizFinalizeResult {
+  won: boolean;
+  projection: SunbizProjectionResult | null;
+  classificationEventId?: number;
+  classificationDecision?: "initialized" | "quarantined" | "preserved";
+  classificationReasonCode?: string;
 }
 
 interface SunbizProjectionResult {
@@ -731,7 +780,7 @@ async function attachLineageAndProjectMissingFields(
     SELECT website_domain, main_phone, record_class
     FROM businesses WHERE id = ${businessId} FOR UPDATE
   `))[0] as { website_domain: string | null; main_phone: string | null; record_class: string } | undefined;
-  if (!business || business.record_class !== "canonical") {
+  if (!business || business.record_class !== "production") {
     return { lineageConflict: false, projectedDomain: false, projectedPhone: false, domainConflict: false, phoneConflict: false };
   }
 
@@ -772,7 +821,7 @@ async function attachLineageAndProjectMissingFields(
       SET website_domain = CASE WHEN ${projectDomain} THEN ${usableDomain} ELSE website_domain END,
           main_phone = CASE WHEN ${projectPhone} THEN ${usablePhone} ELSE main_phone END,
           updated_at = now()
-      WHERE id = ${businessId} AND record_class = 'canonical'
+      WHERE id = ${businessId} AND record_class = 'production'
     `);
   }
   if (projectDomain) {
@@ -786,7 +835,7 @@ async function attachLineageAndProjectMissingFields(
           free_enrichment_completed_at = NULL,
           free_enrichment_last_error_code = NULL
       WHERE id = ${businessId}
-        AND record_class = 'canonical'
+        AND record_class = 'production'
         AND free_enrichment_status IS DISTINCT FROM 'processing'
     `);
   }
@@ -1071,17 +1120,11 @@ export async function runSunbizBootstrapBatch(
       candidateIds: number[];
     };
     try {
-      // Explicitly classify newly created businesses as 'canonical'. Without
-      // this, resolveOrganization()'s insert falls through to the
-      // businesses.record_class database default of 'unknown' — which is
-      // invisible to /api/lead-ops/businesses, the free-enrichment cohort,
-      // and MI-09 eligibility, all of which require record_class='canonical'.
-      // This only affects the newly INSERTed row for this candidate; a
-      // "matched" resolution reuses an existing business row untouched, so
-      // an already-existing business's record_class is never altered here.
+      // New roots start quarantined at the database default. Their class is
+      // initialized only after the claim and source lineage are atomically
+      // verified below; a matched business is never reclassified.
       resolution = await resolveOrganization({
         ...toResolverInput(candidate),
-        create: { recordClass: "canonical" },
       });
       if (resolution.kind === "matched" &&
           resolution.business.id !== previouslyAssociatedBusinessId &&
@@ -1129,7 +1172,7 @@ export async function runSunbizBootstrapBatch(
     // Finalize (lineage insert + claim status) atomically, gated by a
     // fenced re-lock of the claim row so a stale executor resuming after a
     // reclaim can never overwrite the current holder's result.
-    const finalized = await db.transaction(async (tx) => {
+    const finalized: SunbizFinalizeResult = await db.transaction(async (tx) => {
       const locked = (await tx.execute(sql`
         SELECT id FROM sunbiz_bootstrap_claims
         WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
@@ -1138,6 +1181,9 @@ export async function runSunbizBootstrapBatch(
       if (locked.length === 0) return { won: false, projection: null as SunbizProjectionResult | null };
 
       if (resolution.kind === "created" || resolution.kind === "matched") {
+        if (resolution.kind === "created") {
+          await lockCommercialGraphNodes(tx, [{ type: "business", id: resolution.business.id }]);
+        }
         const projection = await attachLineageAndProjectMissingFields(tx, candidate, resolution.business.id);
         if (projection.lineageConflict) {
           await tx.execute(sql`
@@ -1147,12 +1193,27 @@ export async function runSunbizBootstrapBatch(
           `);
           return { won: true, projection };
         }
+        const classification = resolution.kind === "created"
+          ? await initializeSunbizBootstrapBusinessClass({
+              businessId: resolution.business.id,
+              filingNumber: candidate.filingNumber,
+              claimMode: "active_lease",
+              claimLease: myLeaseToken,
+              transaction: tx,
+            })
+          : null;
         await tx.execute(sql`
           UPDATE sunbiz_bootstrap_claims
           SET status = ${finalStatus}, business_id = ${resolution.business.id}, completed_at = now()
           WHERE filing_number = ${candidate.filingNumber} AND claimed_at = ${myLeaseToken}
         `);
-        return { won: true, projection };
+        return {
+          won: true,
+          projection,
+          ...(classification?.eventId != null ? { classificationEventId: classification.eventId } : {}),
+          ...(classification ? { classificationDecision: classification.decision } : {}),
+          ...(classification?.reasonCode ? { classificationReasonCode: classification.reasonCode } : {}),
+        };
       } else {
         await tx.execute(sql`
           UPDATE sunbiz_bootstrap_claims
@@ -1196,6 +1257,9 @@ export async function runSunbizBootstrapBatch(
           phoneConflict: projection.phoneConflict,
         } : {}),
         ...(projection?.projectedDomain ? { freeRecrawl } : {}),
+        ...(finalized.classificationEventId != null ? { classificationEventId: finalized.classificationEventId } : {}),
+        ...(finalized.classificationDecision ? { classificationDecision: finalized.classificationDecision } : {}),
+        ...(finalized.classificationReasonCode ? { classificationReasonCode: finalized.classificationReasonCode } : {}),
       });
     } else {
       await recordOutcome({

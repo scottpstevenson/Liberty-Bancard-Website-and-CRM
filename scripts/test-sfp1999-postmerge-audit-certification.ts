@@ -6,9 +6,14 @@ import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard"
 import { applyCertificationProviderDenyBoundary, getBlockedCertificationNetworkAttemptCount } from "./certification-provider-deny";
 
 await assertDisposableTestInfrastructure({ operation: "Task #1999 post-merge audit certification", requireRedis: false });
-if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED === "true") {
-  throw new Error("CRO03_PROVIDER_TRANSPORT_ENABLED must be unset for certification");
+// The shared disposable launcher enables this flag for the integrated suite.
+// This certification's ordinary path remains transport-disabled; it opts in
+// only around the isolated fake-dispatch reservation below.
+if (process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== undefined &&
+    process.env.CRO03_PROVIDER_TRANSPORT_ENABLED !== "true") {
+  throw new Error("CRO03_PROVIDER_TRANSPORT_ENABLED has an invalid certification value");
 }
+delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
@@ -145,6 +150,7 @@ try {
   const program = await prospecting.ensureProgram({ createdBy: "task1999-certification", maxCohortSize: 1 });
   const targetVertical = `SFP Certification Vertical ${nonce}`;
   await pool.query(`UPDATE sfp_programs SET vertical_ids=ARRAY['${targetVertical}'] WHERE id='${program.id}'::uuid`);
+  await prospecting.setProgramActivation({ active: true, actorId: "task1999-certification" });
   const costPreviewResult = await costPreview.buildSfpCostPreview({
     officialDomainGapCount: 0, businessIdentityGapCount: 0,
     decisionMakerGapCount: 0, ambiguousVerticalGapCount: 0,
@@ -160,125 +166,235 @@ try {
   "provider-operation receipts distinguish unknown pricing from an estimated amount");
 
   const settlementReplayRunId = randomUUID();
-  const settlementReplayOperationId = randomUUID();
-  const settlementReplayClaimToken = randomUUID();
+  const settlementReplayBusiness = rows(await pool.query(`
+    INSERT INTO businesses(canonical_name,normalized_name,vertical,city,state,postal_code,status,record_class)
+    VALUES ($1,$1,'Settlement Replay Fixture','Miami','FL','33101','active','canonical')
+    RETURNING id
+  `, [`SFP Cert Settlement Replay ${nonce}`]))[0];
+  const settlementReplayBusinessId = Number(settlementReplayBusiness.id);
   await pool.query(`
     INSERT INTO sfp_classification_runs(
       id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
-      config_hash,reserved_cost_micros
-    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,100)
+      config_hash,reserved_cost_micros,started_at,lease_expires_at
+    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,0,NOW(),NOW()+INTERVAL '5 minutes')
   `, [settlementReplayRunId, program.id, `sfp1999-settlement-replay-${nonce}`,
     program.policyVersion, classifier.CLASSIFIER_VERSION, `settlement-replay-${nonce}`]);
-  await pool.query(`UPDATE provider_controls SET reserved_units=reserved_units+1 WHERE provider='serper'`);
   await pool.query(`
-    INSERT INTO provider_operations(
-      id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
-      requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
-    ) VALUES ($1::uuid,'serper','sfp_precohort_classification','settlement-replay',$2,'user',
-      'task1999-certification',$4,'running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
-  `, [settlementReplayOperationId, `sfp1999-settlement-replay-op-${nonce}`, settlementReplayClaimToken, `business:cert-fixture-settlement-replay-${nonce}`]);
-  await pool.query(`
-    INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
-    VALUES ($1::uuid,1,'pending',NOW())
-  `, [settlementReplayOperationId]);
-  const settlementReplayReservation = {
-    operationId: settlementReplayOperationId, claimToken: settlementReplayClaimToken,
-    provider: "serper" as const, controlProvider: "serper", amountMicros: 100,
-    units: 1, runId: settlementReplayRunId,
-  };
-  const firstSettlement = await providerOps.settlePreCohortSfpProviderOperation({
-    reservation: settlementReplayReservation, outcome: "failed", observation: "transport", businessId: 1,
-  });
-  const replaySettlement = await providerOps.settlePreCohortSfpProviderOperation({
-    reservation: settlementReplayReservation, outcome: "failed", observation: "transport", businessId: 1,
-  });
+    INSERT INTO sfp_classification_items(run_id,business_id,state,lease_expires_at)
+    VALUES ($1::uuid,$2,'running',NOW()+INTERVAL '5 minutes')
+  `, [settlementReplayRunId, settlementReplayBusinessId]);
+
+  const priorTransportEnabled = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+  const priorSettlementSerperKey = process.env.SERPER_API_KEY;
+  const settlementControlBefore = rows(await pool.query(`
+    SELECT enabled,circuit_state,reserved_units,consumed_units
+      FROM provider_controls WHERE provider='serper'
+  `))[0];
+  let settlementReplayReservation: any;
+  let firstSettlement: any;
+  let replaySettlement: any;
+  try {
+    await (await import("./helpers/sfp-runtime-test-identity"))
+      .selectSfpRuntimeTestRelease("task1999-certification");
+    const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } =
+      await import("../server/services/mi09-pilot-authority");
+    await authorizePaidBudget({
+      authorizedBy: "task1999-certification",
+      typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION,
+    });
+    process.env.SERPER_API_KEY = "test-only-settlement-replay-credential";
+    process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+    await pool.query(`
+      UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='serper'
+    `);
+    settlementReplayReservation = await providerOps.reservePreCohortSfpProviderOperation({
+      runId: settlementReplayRunId, businessId: settlementReplayBusinessId, provider: "serper",
+      purpose: "task1999_settlement_replay", idempotencyKey: `sfp1999-settlement-replay-op-${nonce}`,
+      actorId: "task1999-certification", workUnit: "request",
+    });
+    let fakeDispatchCalls = 0;
+    const fakeDispatchResult = await providerOps.invokePreCohortSfpProviderTransport(
+      settlementReplayReservation,
+      async () => {
+        fakeDispatchCalls++;
+        return { fixture: "settlement-replay" };
+      },
+    );
+    check(fakeDispatchCalls === 1 && fakeDispatchResult.fixture === "settlement-replay",
+      "settlement replay fixture crosses the normal fenced dispatch boundary using only fake transport");
+    const settlementInput = {
+      reservation: settlementReplayReservation,
+      outcome: "completed" as const,
+      observation: "valid" as const,
+      businessId: settlementReplayBusinessId,
+      resultData: { fixture: "settlement-replay" },
+    };
+    firstSettlement = await providerOps.settlePreCohortSfpProviderOperation(settlementInput);
+    replaySettlement = await providerOps.settlePreCohortSfpProviderOperation(settlementInput);
+  } finally {
+    if (priorTransportEnabled === undefined) delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+    else process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = priorTransportEnabled;
+    if (priorSettlementSerperKey === undefined) delete process.env.SERPER_API_KEY;
+    else process.env.SERPER_API_KEY = priorSettlementSerperKey;
+    await pool.query(`
+      UPDATE sfp_classification_runs
+         SET state='failed',lease_expires_at=NULL,completed_at=COALESCE(completed_at,NOW()),updated_at=NOW()
+       WHERE id=$1::uuid AND state='running'
+    `, [settlementReplayRunId]);
+    await pool.query(`
+      UPDATE sfp_classification_items SET state='failed',lease_expires_at=NULL,
+             completed_at=COALESCE(completed_at,NOW()),updated_at=NOW()
+       WHERE run_id=$1::uuid AND state='running'
+    `, [settlementReplayRunId]);
+    await pool.query(`
+      UPDATE provider_controls SET enabled=$1,circuit_state=$2,reserved_units=$3,consumed_units=$4
+       WHERE provider='serper'
+    `, [settlementControlBefore.enabled, settlementControlBefore.circuit_state,
+      settlementControlBefore.reserved_units, settlementControlBefore.consumed_units]);
+  }
   const replaySettlementState = rows(await pool.query(`
-    SELECT r.reserved_cost_micros,r.settled_cost_micros,
-           (SELECT COUNT(*)::int FROM provider_observations WHERE operation_id=$2::uuid) AS observations
-      FROM sfp_classification_runs r WHERE r.id=$1::uuid
-  `, [settlementReplayRunId, settlementReplayOperationId]))[0];
-  check(firstSettlement.replayed === false && replaySettlement.replayed === true &&
+    SELECT r.reserved_cost_micros,r.settled_cost_micros,o.state AS operation_state,
+           o.billing_state,o.target_fingerprint,o.sfp_dispatch_receipt_fingerprint,
+           a.outcome AS attempt_outcome,a.dispatch_marked_at,
+           (SELECT COUNT(*)::int FROM provider_observations WHERE operation_id=o.id) AS observations,
+           (SELECT COUNT(*)::int FROM sfp_runtime_job_leases
+             WHERE operation_id=o.id AND revoked_at IS NOT NULL) AS revoked_job_leases
+      FROM sfp_classification_runs r
+      JOIN provider_operations o ON o.id=$2::uuid
+      JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+     WHERE r.id=$1::uuid
+  `, [settlementReplayRunId, settlementReplayReservation?.operationId ?? null]))[0];
+  check(firstSettlement.replayed === false && firstSettlement.currentFenceAtSettlement === true &&
+    firstSettlement.finalizationAllowed === true &&
+    replaySettlement.replayed === true && replaySettlement.currentFenceAtSettlement === false &&
+    replaySettlement.finalizationAllowed === false &&
+    replaySettlement.settledMicros === firstSettlement.settledMicros &&
     Number(replaySettlementState.reserved_cost_micros) === 0 &&
-    Number(replaySettlementState.settled_cost_micros) === 0 &&
-    Number(replaySettlementState.observations) === 1,
-  "pre-cohort settlement replay is a fenced no-op with one accounting/audit effect");
-  const killRunId = randomUUID();
-  const killOperationId = randomUUID();
-  const killClaimToken = randomUUID();
+    Number(replaySettlementState.settled_cost_micros) === (firstSettlement.settledMicros ?? 0) &&
+    replaySettlementState.operation_state === "completed" &&
+    ["committed", "ambiguous"].includes(String(replaySettlementState.billing_state)) &&
+    replaySettlementState.target_fingerprint === `business:${settlementReplayBusinessId}` &&
+    Boolean(replaySettlementState.sfp_dispatch_receipt_fingerprint) &&
+    replaySettlementState.attempt_outcome === "completed" &&
+    replaySettlementState.dispatch_marked_at !== null &&
+    Number(replaySettlementState.observations) === 1 &&
+    Number(replaySettlementState.revoked_job_leases) === 1,
+  "pre-cohort settlement replay is a fenced no-op: the authentic dispatch receipt and accounting effect persist, but replay cannot finalize");
+  const seedPreCohortDispatchScope = async (name: string) => {
+    const seededBusiness = rows(await pool.query(`
+      INSERT INTO businesses(canonical_name,normalized_name,vertical,city,state,postal_code,status,record_class)
+      VALUES ($1,$1,'Transport Fence Fixture','Miami','FL','33101','active','canonical')
+      RETURNING id
+    `, [name]))[0];
+    const seededBusinessId = Number(seededBusiness.id);
+    const seededRunId = randomUUID();
+    await pool.query(`
+      INSERT INTO sfp_classification_runs(
+        id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
+        config_hash,reserved_cost_micros,started_at,lease_expires_at
+      ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,0,NOW(),NOW()+INTERVAL '5 minutes')
+    `, [seededRunId, program.id, `${name}:run:${seededRunId}`, program.policyVersion,
+      classifier.CLASSIFIER_VERSION, name]);
+    await pool.query(`
+      INSERT INTO sfp_classification_items(run_id,business_id,state,lease_expires_at)
+      VALUES ($1::uuid,$2,'running',NOW()+INTERVAL '5 minutes')
+    `, [seededRunId, seededBusinessId]);
+    return { businessId: seededBusinessId, runId: seededRunId };
+  };
+  const killScope = await seedPreCohortDispatchScope(`sfp1999-kill-${nonce}`);
+  const killRunId = killScope.runId;
   const serperControl = rows(await pool.query(`
-    SELECT enabled FROM provider_controls WHERE provider='serper'
+    SELECT enabled,circuit_state,reserved_units,consumed_units FROM provider_controls WHERE provider='serper'
   `))[0];
   check(serperControl?.enabled === false, "kill-line fixture begins with the Serper control disabled");
-  await pool.query(`
-    INSERT INTO sfp_classification_runs(
-      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
-      config_hash,reserved_cost_micros
-    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,100)
-  `, [killRunId, program.id, `sfp1999-kill-${nonce}`, program.policyVersion, classifier.CLASSIFIER_VERSION, `kill-${nonce}`]);
-  await pool.query(`
-    INSERT INTO provider_operations(
-      id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
-      requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
-    ) VALUES ($1::uuid,'serper','sfp_precohort_classification','kill-line-test',$2,'user','task1999-certification',
-      $4,'running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
-  `, [killOperationId, `sfp1999-kill-op-${nonce}`, killClaimToken, `business:cert-fixture-kill-line-${nonce}`]);
+  const priorKillTransportEnabled = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+  const priorKillSerperKey = process.env.SERPER_API_KEY;
+  const killReservation = await (async () => {
+    process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+    process.env.SERPER_API_KEY = "test-only-kill-line-credential";
+    await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='serper'`);
+    const reservation = await providerOps.reservePreCohortSfpProviderOperation({
+      runId: killRunId, businessId: killScope.businessId, provider: "serper",
+      purpose: "task1999_kill_line", idempotencyKey: `sfp1999-kill-op-${nonce}`,
+      actorId: "task1999-certification", workUnit: "request",
+    });
+    await pool.query(`UPDATE provider_controls SET enabled=FALSE WHERE provider='serper'`);
+    return reservation;
+  })();
   let killLineTransportCalls = 0;
-  await rejects(() => providerOps.invokePreCohortSfpProviderTransport({
-    operationId: killOperationId, claimToken: killClaimToken, provider: "serper", controlProvider: "serper",
-    amountMicros: 100, units: 1, runId: killRunId,
-  }, async () => {
+  try {
+    await rejects(() => providerOps.invokePreCohortSfpProviderTransport(killReservation, async () => {
     killLineTransportCalls++;
     return "should never execute";
-  }), /SFP_PROVIDER_RESERVATION_INVALID/, "disabled provider-control row blocks at the final pre-I/O gate");
-  check(killLineTransportCalls === 0, "fake provider transport spy remains at zero calls after kill-line rejection");
-  await pool.query(`UPDATE sfp_classification_runs SET reserved_cost_micros=0,state='failed' WHERE id=$1::uuid`, [killRunId]);
-  await pool.query(`UPDATE provider_operations SET state='failed',billing_state='released',claim_token=NULL,lease_expires_at=NULL WHERE id=$1::uuid`, [killOperationId]);
+    }), /SFP_PROVIDER_DISPATCH_BOUNDARY_LOST/, "disabled provider-control row blocks at the final pre-I/O gate");
+    check(killLineTransportCalls === 0, "fake provider transport spy remains at zero calls after kill-line rejection");
+  } finally {
+    await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='serper'`);
+    await providerOps.settlePreCohortSfpProviderOperation({
+      reservation: killReservation, outcome: "not_dispatched", observation: "transport", businessId: killScope.businessId,
+    });
+    await pool.query(`
+      UPDATE sfp_classification_runs SET state='failed',lease_expires_at=NULL,completed_at=NOW()
+       WHERE id=$1::uuid
+    `, [killScope.runId]);
+    await pool.query(`
+      UPDATE sfp_classification_items SET state='failed',lease_expires_at=NULL,completed_at=NOW()
+       WHERE run_id=$1::uuid
+    `, [killScope.runId]);
+    await pool.query(`
+      UPDATE provider_controls SET enabled=$1,circuit_state=$2,reserved_units=$3,consumed_units=$4
+       WHERE provider='serper'
+    `, [serperControl.enabled, serperControl.circuit_state, serperControl.reserved_units, serperControl.consumed_units]);
+    if (priorKillTransportEnabled === undefined) delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+    else process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = priorKillTransportEnabled;
+    if (priorKillSerperKey === undefined) delete process.env.SERPER_API_KEY;
+    else process.env.SERPER_API_KEY = priorKillSerperKey;
+  }
 
   const providerControlForZeroCost = rows(await pool.query(`
-    SELECT enabled,circuit_state FROM provider_controls WHERE provider='serper'
+    SELECT enabled,circuit_state,reserved_units,consumed_units FROM provider_controls WHERE provider='serper'
   `))[0];
-  const zeroCostRunId = randomUUID();
-  const zeroCostOperationId = randomUUID();
-  const zeroCostAttemptId = randomUUID();
-  const zeroCostClaimToken = randomUUID();
+  const zeroCostScope = await seedPreCohortDispatchScope(`sfp1999-zero-cost-${nonce}`);
+  const priorZeroCostTransportEnabled = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+  const priorZeroCostSerperKey = process.env.SERPER_API_KEY;
+  process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+  process.env.SERPER_API_KEY = "test-only-zero-cost-credential";
   await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='serper'`);
-  await pool.query(`
-    INSERT INTO sfp_classification_runs(
-      id,program_id,idempotency_key,actor_id,state,max_businesses,policy_version,classifier_version,
-      config_hash,reserved_cost_micros
-    ) VALUES ($1::uuid,$2::uuid,$3,'task1999-certification','running',1,$4,$5,$6,0)
-  `, [zeroCostRunId, program.id, `sfp1999-zero-cost-run-${nonce}`, program.policyVersion,
-    classifier.CLASSIFIER_VERSION, `zero-cost-run-${nonce}`]);
-  await pool.query(`
-    INSERT INTO provider_operations(
-      id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
-      requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
-    ) VALUES ($1::uuid,'serper','sfp_precohort_classification','unknown-price-fence-test',$2,'user',
-      'task1999-certification',$4,'running',1,1,'reserved',1,$3::uuid,NOW()+INTERVAL '5 minutes',NOW())
-  `, [zeroCostOperationId, `sfp1999-zero-cost-op-${nonce}`, zeroCostClaimToken,
-    `business:cert-fixture-zero-cost-${nonce}`]);
-  await pool.query(`
-    INSERT INTO provider_attempts(id,operation_id,attempt_number,outcome,started_at)
-    VALUES ($1::uuid,$2::uuid,1,'pending',NOW())
-  `, [zeroCostAttemptId, zeroCostOperationId]);
-  let zeroCostTransportCalls = 0;
-  const fakeZeroCostResult = await providerOps.invokePreCohortSfpProviderTransport({
-    operationId: zeroCostOperationId, claimToken: zeroCostClaimToken, provider: "serper",
-    controlProvider: "serper", amountMicros: 0, units: 1, runId: zeroCostRunId,
-  }, async () => {
-    zeroCostTransportCalls++;
-    return "fake-zero-cost-transport";
+  const zeroCostReservation = await providerOps.reservePreCohortSfpProviderOperation({
+    runId: zeroCostScope.runId, businessId: zeroCostScope.businessId, provider: "serper",
+    purpose: "task1999_zero_cost_fence", idempotencyKey: `sfp1999-zero-cost-op-${nonce}`,
+    actorId: "task1999-certification", workUnit: "result",
   });
-  check(zeroCostTransportCalls === 1 && fakeZeroCostResult === "fake-zero-cost-transport",
-    "Phase-A fake transport passes its final fence with a running run and zero monetary reservation");
-  await pool.query(`UPDATE sfp_classification_runs SET state='failed' WHERE id=$1::uuid`, [zeroCostRunId]);
-  await pool.query(`
-    UPDATE provider_operations SET state='failed',billing_state='released',claim_token=NULL,lease_expires_at=NULL
-     WHERE id=$1::uuid
-  `, [zeroCostOperationId]);
-  await pool.query(`DELETE FROM provider_attempts WHERE id=$1::uuid`, [zeroCostAttemptId]);
-  await pool.query(`UPDATE provider_controls SET enabled=$1,circuit_state=$2 WHERE provider='serper'`,
-    [providerControlForZeroCost.enabled, providerControlForZeroCost.circuit_state]);
+  let zeroCostTransportCalls = 0;
+  try {
+    const fakeZeroCostResult = await providerOps.invokePreCohortSfpProviderTransport(zeroCostReservation, async () => {
+      zeroCostTransportCalls++;
+      return "fake-zero-cost-transport";
+    });
+    check(zeroCostTransportCalls === 1 && fakeZeroCostResult === "fake-zero-cost-transport" &&
+      zeroCostReservation.amountMicros === null,
+    "Phase-A fake transport passes its final fence with normal unknown-price reservation and zero monetary estimate");
+    await providerOps.settlePreCohortSfpProviderOperation({
+      reservation: zeroCostReservation, outcome: "no_result", observation: "no_result",
+      businessId: zeroCostScope.businessId, resultData: { outcome: "no_result" },
+    });
+  } finally {
+    await pool.query(`
+      UPDATE sfp_classification_runs SET state='failed',lease_expires_at=NULL,completed_at=NOW()
+       WHERE id=$1::uuid
+    `, [zeroCostScope.runId]);
+    await pool.query(`
+      UPDATE sfp_classification_items SET state='failed',lease_expires_at=NULL,completed_at=NOW()
+       WHERE run_id=$1::uuid
+    `, [zeroCostScope.runId]);
+    await pool.query(`UPDATE provider_controls SET enabled=$1,circuit_state=$2,reserved_units=$3,consumed_units=$4 WHERE provider='serper'`,
+      [providerControlForZeroCost.enabled, providerControlForZeroCost.circuit_state,
+        providerControlForZeroCost.reserved_units, providerControlForZeroCost.consumed_units]);
+    if (priorZeroCostTransportEnabled === undefined) delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+    else process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = priorZeroCostTransportEnabled;
+    if (priorZeroCostSerperKey === undefined) delete process.env.SERPER_API_KEY;
+    else process.env.SERPER_API_KEY = priorZeroCostSerperKey;
+  }
 
   const seedSouthFloridaBusiness = async (name: string, vertical: string, status = "active") => {
     const seeded = rows(await pool.query(`
@@ -418,13 +534,13 @@ try {
     INSERT INTO business_locations(business_id,is_primary,city,state,postal_code,county_fips)
     VALUES (${businessId},TRUE,'Miami','FL','33101','12086')
   `);
-  const evidenceHash = classifier.classifyVertical(targetVertical, program.verticalIds).evidenceHash;
+  const evidenceHash = classifier.classifyVertical(targetVertical, [targetVertical], 2).evidenceHash;
   const evidence = rows(await pool.query(`
     INSERT INTO sfp_classification_evidence(
-      business_id,evidence_hash,source_refs,classifier_version,model_version,prompt_version,policy_version,
-      outcome,confidence,reason_codes,idempotency_key,cost_micros,terminal_state
-    ) VALUES (${businessId},'${evidenceHash}','[]'::jsonb,${classifier.CLASSIFIER_VERSION},'cert-model','cert-prompt',${program.policyVersion},
-      'target',0.95,'[]'::jsonb,'sfp1999-cert-${nonce}',0,'completed') RETURNING id
+      business_id,evidence_hash,source_refs,classifier_version,taxonomy_version,model_version,prompt_version,policy_version,
+      outcome,confidence,reason_codes,idempotency_key,cost_micros,terminal_state,resolved_vertical_id,admission_tier
+    ) VALUES (${businessId},'${evidenceHash}','[]'::jsonb,${classifier.CLASSIFIER_VERSION},2,'cert-model','cert-prompt',${program.policyVersion},
+      'target',0.95,'[]'::jsonb,'sfp1999-cert-${nonce}',0,'completed','${targetVertical}','resolved_high') RETURNING id
   `))[0];
   const freeGeneration = rows(await pool.query(`
     INSERT INTO free_discovery_generations(run_key,actor_id,reason,state,completed_at)
@@ -540,44 +656,40 @@ try {
     /SFP_EVIDENCE_IMMUTABLE/, "database trigger rejects classification-evidence deletion");
 
   const faultStageRunId = randomUUID();
-  const faultOperationId = randomUUID();
-  const faultClaimToken = randomUUID();
+  const priorFaultTransportEnabled = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+  const priorFaultSerperKey = process.env.SERPER_API_KEY;
+  const faultControlBefore = rows(await pool.query(`
+    SELECT enabled,circuit_state,reserved_units,consumed_units
+      FROM provider_controls WHERE provider='serper'
+  `))[0];
   await pool.query(`
     INSERT INTO sfp_stage_runs(
-      id,cohort_run_id,stage,idempotency_key,actor_id,state,max_items,reserved_cost_micros,provider_keys
-    ) VALUES ($1::uuid,$2::uuid,'paid_waterfall',$3,'task1999-certification','running',1,100,'["serper"]'::jsonb)
+      id,cohort_run_id,stage,idempotency_key,actor_id,state,max_items,reserved_cost_micros,provider_keys,
+      started_at,lease_expires_at
+    ) VALUES ($1::uuid,$2::uuid,'paid_waterfall',$3,'task1999-certification','running',1,0,'["serper"]'::jsonb,
+      NOW(),NOW()+INTERVAL '5 minutes')
   `, [faultStageRunId, frozen.run.id, `sfp1999-fault-stage-${nonce}`]);
-  await pool.query(`
-    INSERT INTO provider_operations(
-      id,provider,operation_type,purpose,idempotency_key,actor_type,actor_id,target_fingerprint,state,
-      requested_units,reserved_units,billing_state,attempt_count,claim_token,lease_expires_at,started_at
-    ) VALUES ($1::uuid,'serper','sfp_enrichment','fault-injection',$2,'user','task1999-certification',
-      $3,'running',1,1,'reserved',1,$4::uuid,NOW()+INTERVAL '5 minutes',NOW())
-  `, [faultOperationId, `sfp1999-fault-op-${nonce}`, `business:${businessId}`, faultClaimToken]);
-  await pool.query(`
-    INSERT INTO provider_attempts(operation_id,attempt_number,outcome,started_at)
-    VALUES ($1::uuid,1,'pending',NOW())
-  `, [faultOperationId]);
-  await pool.query(`
-    INSERT INTO sfp_stage_items(
-      stage_run_id,business_id,provider,provider_operation_id,state,claim_token,lease_expires_at,attempt_count
-    ) VALUES ($1::uuid,$2,'serper',$3::uuid,'claimed',$4::uuid,NOW()+INTERVAL '5 minutes',1)
-  `, [faultStageRunId, businessId, faultOperationId, faultClaimToken]);
-  const faultReservation = {
-    operationId: faultOperationId, claimToken: faultClaimToken, provider: "serper" as const,
-    controlProvider: "serper", amountMicros: 100, units: 1, stageRunId: faultStageRunId,
-  };
-  await rejects(() => db.transaction(async (tx: any) => {
-    await evidenceModule.writeSfpPaidCandidateEvidence({
-      businessId, provider: "serper", field: "website_domain", value: `fault-${nonce}.example`,
-      subjectType: "business", providerOperationId: faultOperationId, confidence: 90,
-    }, tx);
-    throw new Error("TASK1999_FAULT_AFTER_EVIDENCE_BEFORE_SETTLEMENT");
-  }), /TASK1999_FAULT_AFTER_EVIDENCE_BEFORE_SETTLEMENT/,
-  "injected result-persistence failure rolls back before settlement/linkage");
-  const firstCohortSettlement = await providerOps.settleSfpProviderOperation({
-    reservation: faultReservation, outcome: "failed", observation: "transport", businessId,
+  process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+  process.env.SERPER_API_KEY = "test-only-fault-injection-credential";
+  await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='serper'`);
+  const faultReservation = await providerOps.reserveSfpProviderOperation({
+    stageRunId: faultStageRunId, cohortRunId: frozen.run.id, businessId,
+    provider: "serper", purpose: "task1999_fault_injection",
+    idempotencyKey: `sfp1999-fault-op-${nonce}`, actorId: "task1999-certification",
+    workUnit: "request", units: 1,
   });
+  try {
+    await rejects(() => db.transaction(async (tx: any) => {
+      await evidenceModule.writeSfpPaidCandidateEvidence({
+        businessId, provider: "serper", field: "website_domain", value: `fault-${nonce}.example`,
+        subjectType: "business", providerOperationId: faultReservation.operationId, confidence: 90,
+      }, tx);
+      throw new Error("TASK1999_FAULT_AFTER_EVIDENCE_BEFORE_SETTLEMENT");
+    }), /TASK1999_FAULT_AFTER_EVIDENCE_BEFORE_SETTLEMENT/,
+    "injected result-persistence failure rolls back before settlement/linkage");
+    const firstCohortSettlement = await providerOps.settleSfpProviderOperation({
+      reservation: faultReservation, outcome: "failed", observation: "transport", businessId,
+    });
   const cohortSettlementStateBeforeReplay = rows(await pool.query(`
     SELECT processed_count,failed_count,reserved_cost_micros,settled_cost_micros
       FROM sfp_stage_runs WHERE id=$1::uuid
@@ -597,6 +709,11 @@ try {
       completed_at=NOW(),claim_token=NULL,lease_expires_at=NULL,updated_at=NOW()
      WHERE id=$1::uuid
   `, [faultStageRunId]);
+  await pool.query(`
+    UPDATE sfp_stage_items SET state='failed',outcome_code='TASK1999_FAULT_INJECTION',
+           claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+     WHERE stage_run_id=$1::uuid AND provider_operation_id=$2::uuid
+  `, [faultStageRunId, faultReservation.operationId]);
   const faultState = rows(await pool.query(`
     SELECT o.state,o.billing_state,s.state AS stage_state,s.reserved_cost_micros,s.settled_cost_micros,
            i.state AS item_state,i.paid_candidate_evidence_id,
@@ -604,14 +721,25 @@ try {
       FROM provider_operations o
       JOIN sfp_stage_runs s ON s.id=$2::uuid
       JOIN sfp_stage_items i ON i.provider_operation_id=o.id
-     WHERE o.id=$1::uuid
-  `, [faultOperationId, faultStageRunId]))[0];
-  check(faultState.state === "failed" && faultState.billing_state === "released" &&
+      WHERE o.id=$1::uuid
+   `, [faultReservation.operationId, faultStageRunId]))[0];
+  check(faultState.state === "failed" && faultState.billing_state === "committed" &&
     faultState.stage_state === "failed" &&
     Number(faultState.reserved_cost_micros) === 0 && Number(faultState.settled_cost_micros) === 0 &&
     faultState.item_state === "failed" && faultState.paid_candidate_evidence_id === null &&
     Number(faultState.evidence_count) === 0,
-  "fault recovery reaches a released terminal operation with zero bill, candidate orphan, or stage-link orphan");
+  "fault recovery reaches a terminal zero-cost operation and failed stage item with no candidate or evidence orphan");
+  } finally {
+    if (priorFaultTransportEnabled === undefined) delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+    else process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = priorFaultTransportEnabled;
+    if (priorFaultSerperKey === undefined) delete process.env.SERPER_API_KEY;
+    else process.env.SERPER_API_KEY = priorFaultSerperKey;
+    await pool.query(`
+      UPDATE provider_controls SET enabled=$1,circuit_state=$2,reserved_units=$3,consumed_units=$4
+       WHERE provider='serper'
+    `, [faultControlBefore.enabled, faultControlBefore.circuit_state,
+      faultControlBefore.reserved_units, faultControlBefore.consumed_units]);
+  }
 
   const before = await costPreview.getSfpCohortGapSnapshot(frozen.run.id);
   const snapshotMemberId = before.businessIds[0];

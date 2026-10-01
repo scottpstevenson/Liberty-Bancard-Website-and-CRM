@@ -35,8 +35,11 @@ test("both settlement paths use operation state, billing, and claim fences", () 
 });
 
 test("terminal settlement replay is an explicit no-op", () => {
-  assert.ok(count(files.providerOps, "return { settledMicros: 0, replayed: true }") >= 2);
-  assert.ok(count(files.providerOps, "return { settledMicros, replayed: false }") >= 2);
+  assert.ok(count(files.providerOps, "replayed: true") >= 2);
+  assert.ok(count(files.providerOps, "currentFenceAtSettlement: false") >= 2);
+  assert.ok(count(files.providerOps, "finalizationAllowed: false") >= 2);
+  assert.ok(count(files.providerOps,
+    "return { settledMicros, replayed: false, currentFenceAtSettlement, finalizationAllowed: currentFenceAtSettlement }") >= 2);
   assert.ok(count(files.providerOps, "AND completed_at IS NULL") >= 2);
 });
 
@@ -69,7 +72,22 @@ test("geography closes only on the positive resolver outcome", () => {
 });
 
 test("disposable certification exercises accounting replay and gap closure", () => {
+  const replayFixtureStart = files.certification.indexOf("const settlementReplayRunId");
+  const replayFixtureEnd = files.certification.indexOf("const killRunId", replayFixtureStart);
+  assert.ok(replayFixtureStart >= 0 && replayFixtureEnd > replayFixtureStart,
+    "pre-cohort replay fixture boundaries are missing");
+  const replayFixture = files.certification.slice(replayFixtureStart, replayFixtureEnd);
+  assert.doesNotMatch(replayFixture, /INSERT INTO\s+(?:provider_operations|provider_attempts|sfp_dispatch_receipts)/i,
+    "settlement replay fixture must use normal operation APIs, not hand-built healthy operation/receipt rows");
+  has(replayFixture, "providerOps.reservePreCohortSfpProviderOperation");
+  has(replayFixture, "providerOps.invokePreCohortSfpProviderTransport");
+  has(replayFixture, "providerOps.settlePreCohortSfpProviderOperation(settlementInput)");
   has(files.certification, "pre-cohort settlement replay is a fenced no-op");
+  has(files.certification, "firstSettlement.currentFenceAtSettlement === true");
+  has(files.certification, "firstSettlement.finalizationAllowed === true");
+  has(files.certification, "replaySettlement.currentFenceAtSettlement === false");
+  has(files.certification, "replaySettlement.finalizationAllowed === false");
+  has(files.certification, "replaySettlement.settledMicros === firstSettlement.settledMicros");
   has(files.certification, "cohort-bound settlement replay is a fenced no-op");
   has(files.certification, "cost preview contains optional estimates, not financial ceilings or provider-credit headroom");
   has(files.certification, "persisted Apollo person evidence closes the live decision-maker gap");

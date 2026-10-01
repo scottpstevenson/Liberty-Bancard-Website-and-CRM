@@ -53,12 +53,15 @@ async function testQueueConfigsBaseline() {
     "executive-snapshot", "free-enrichment-lane", "ghl-enrollment-recovery", "ghl-sync",
     "health-monitor", "master-lead-stager", "merchant-success", "mid-ingestion", "onboarding-reminder",
     "partner-monthly-digest", "pipeline-silence-check", "post-enrichment",
-    "proposal-followup", "sequences", "sla-checks", "source-registry-import",
-    "statement-upload", "system-audit", "voicemail-sync", "winback-outreach", "zerobounce-batch-validate",
+    "proposal-followup", "sequences", "sfp-campaign-staging", "sfp-continuous-discovery",
+    "sfp-continuous-validation", "sfp-free-classification", "sla-checks", "source-registry-import",
+    "statement-upload", "sunbiz-full-backfill", "system-audit", "voicemail-sync", "winback-outreach",
+    "zerobounce-batch-validate",
   ] as const;
-  // Roster updated for Task #1971 continuation item 1: free-enrichment worker
-  // lane isolation added the "free-enrichment-lane" queue (35 queues total).
-  const CERTIFIED_ROSTER_DIGEST = "5972bf9db99aaec1c9634c86528fe7ed6af8545ee565a53845f4c246ff7729c5";
+  // Literal ownership snapshot: four SFP lanes and the Sunbiz full-backfill
+  // driver were added to the previously certified 35-queue roster. The retired
+  // attestation-refresh queue is intentionally not part of this topology.
+  const CERTIFIED_ROSTER_DIGEST = "83668c6d105a02eaa994d19713f4e76ad22a0a192c6a5d7156281e5e41b71a88";
   const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
   const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 
@@ -76,6 +79,10 @@ async function testQueueConfigsBaseline() {
     "QUEUE_CONFIGS sorted roster SHA-256 matches certification",
     actualDigest === CERTIFIED_ROSTER_DIGEST,
     `actual=${actualDigest}, certified=${CERTIFIED_ROSTER_DIGEST}`
+  );
+  assert(
+    "retired attestation-refresh queue remains absent",
+    !actualRoster.includes("attestation-refresh")
   );
 
   // Verify all named queues from QUEUE_NAMES are present in QUEUE_CONFIGS

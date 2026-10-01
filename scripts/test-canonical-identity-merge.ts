@@ -31,6 +31,22 @@ async function main() {
     import("../server/services/contact-merge"),
   ]);
 
+  const sfpLinkEvidenceDisposition = merge.CONTACT_MERGE_MANIFEST.find(
+    (entry: any) => entry.key === "contact_business_sfp_link_evidence",
+  );
+  const recipientCommitmentDisposition = merge.CONTACT_MERGE_MANIFEST.find(
+    (entry: any) => entry.key === "sfp_recipient_address_commitments",
+  );
+  assert(
+    sfpLinkEvidenceDisposition?.table === "contact_business_sfp_link_evidence" &&
+      sfpLinkEvidenceDisposition.column === "contact_id" &&
+      sfpLinkEvidenceDisposition.disposition === "manual_block" &&
+      recipientCommitmentDisposition?.table === "sfp_recipient_address_commitments" &&
+      recipientCommitmentDisposition.column === "contact_id" &&
+      recipientCommitmentDisposition.disposition === "manual_block",
+    "SFP contact/business evidence and recipient commitments are explicit non-transferable merge blocks",
+  );
+
   const fixtureIds: number[] = [];
   const operationIds: string[] = [];
   let transferDealId: number | null = null;
@@ -59,6 +75,11 @@ async function main() {
     });
     operationIds.push(preview.operationId);
     assert(preview.conflicts.length === 0, "same-class eligible pair produces a read-only conflict-free preview");
+    assert(
+      preview.relationshipCounts.contact_business_sfp_link_evidence === 0 &&
+        preview.relationshipCounts.sfp_recipient_address_commitments === 0,
+      "preview accounts for both SFP contact-linked authority relationships",
+    );
     const [previewOp] = (await db.execute(sql`SELECT status FROM contact_merge_operations WHERE id = ${preview.operationId}`) as any).rows;
     assert(previewOp.status === "previewed", "read-only preview persists as previewed");
 

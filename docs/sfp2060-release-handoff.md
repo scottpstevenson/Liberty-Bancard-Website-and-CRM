@@ -11,20 +11,20 @@ loopback only.
 
 | Gate | Current evidence/status |
 | --- | --- |
-| Combined offline source certifications | **PASS**. `node_modules/.bin/tsx scripts/run-sfp2060-certification-disposable.ts` exited 0 with all 11 certifications on the final selector fix. Its disposable/fixture results are not production evidence. |
+| Combined offline source certifications | **PASS**. `node_modules/.bin/tsx scripts/run-sfp2060-certification-disposable.ts` exited 0 with all 16 suites after the final authority correction, including commercial authority (31 checks), contact merge (19 assertions), and legacy staging (152/152). Its disposable/fixture results are not production evidence. |
 | Integrated-pipeline certification | **PASS**. Four governed ZeroBounce fixtures, two paid-result fixtures, three typed sources, three paused enrollments, exact-decimal/reconciliation and runtime-owner fences verified. |
-| Typecheck and build | **PASS**. Typecheck passed after the final selector fix; `npm run build` passed on the final source. Existing chunk-size/CJS import-meta warnings remain. |
-| Broader isolated pre-deploy gate | **PENDING.** Do not confuse the 11-certification command above with the separate pre-deploy wrapper. |
+| Typecheck and build | **PASS**. Typecheck passed after the final authority correction; `npm run build` passed on the final source. Existing chunk-size/CJS import-meta warnings remain. |
+| Broader isolated pre-deploy gate | **FAILED in the recorded broader run: 102/137 suites passed, 35 failed.** Subsequent focused repairs do not turn that result into a pass. The broader wrapper has not been rerun against the latest corrections; remaining failures are not presumed baseline. |
 | Private UI screenshot | Visually verified against fixtures on loopback. It proves neither production data nor production behavior. |
-| Prepared source SHA | **PENDING post-commit resolution.** Record it after committing a clean tree. An isolated-task SHA identifies prepared source only, never the main workspace or live deployment; verify those identities separately after integration and Publish. |
+| Prepared source SHA | Resolve with `git rev-parse HEAD` from the clean committed handoff checkout; the commit/PR records the immutable candidate outside this self-referential file. The earlier `be910b1f53110a97e471960cefbcb5cff79a17a7` is superseded by the subsequent corrections. An isolated-task SHA identifies prepared source only, never the main workspace or live deployment. |
 | Main merge / user Publish / deployed SHA and schema verification | **PENDING.** Publishing is a user action; no automatic publication. |
 | Representative production output and replenishment | **PENDING.** The 100-business target, actual production receipts, and two scheduled replenishment receipts remain work in this same Task 2060. |
 
 ### Latest individual-check evidence
 
 - `node_modules/.bin/tsx scripts/run-sfp2060-certification-disposable.ts` completed the final
-  combined offline source-certification run with exit code 0 and all 11 source
-  certifications passed, including after the selector fix. The C1
+  combined offline source-certification run with exit code 0 and all 16 source
+  certifications passed after the final authority correction. The C1
   persisted-link certification reported `100/0`; retain that literal result as
   test evidence only, not a production count.
 - `npx tsx scripts/run-sfp2060-certification-disposable.ts --only integrated-pipeline`
@@ -34,7 +34,7 @@ loopback only.
   runtime owner fences. These are isolated fixture/test results—not live
   provider receipts, production leads, production enrollments, or production
   health.
-- Typecheck **PASS**ed after the final selector fix. The final current-source
+- Typecheck **PASS**ed after the final authority correction. The final current-source
   `npm run build` **PASS**ed, with existing chunk-size/CJS import-meta warnings.
 - The scoped architecture review for the selector fix **PASS**ed. Its
   boundary is material: the selector checks the claimed SHA/deployment match
@@ -74,18 +74,54 @@ npx tsx scripts/run-sfp2060-certification-disposable.ts --only integrated-pipeli
 ```
 
 The combined offline source-certification run and current-source build passed.
-The separate broader pre-deploy wrapper remains pending. The integrated certification, C1 result,
+The separate broader pre-deploy wrapper **failed (102/137 passed; 35 failed)** before
+the subsequent release-contract and certification repairs. It has not been rerun
+against those corrections, and there is no current broader-gate PASS. The integrated certification, C1 result,
 typecheck, and scoped architecture review are recorded separately above; fixture
 and disposable results are not production evidence. Do not relabel a
 fixture-only screenshot or provider-operation receipt as a production result.
 Keep genuine failures visible; do not silence skips or classify a failure as
 baseline without the documented comparison.
 
+### Subsequent release-contract repairs
+
+- Removed false private-key artifact matches caused by literal PEM delimiters in
+  the normalizer, without changing the artifact scanner's detection rules.
+- An unverified worker release now reports `runtime_release_held` with no staging work.
+- Queue certification checks the exact 40-queue roster and keeps the retired
+  attestation queue absent. API coverage resolves actual multiline registrations
+  and client path constants instead of treating prefixes as endpoints.
+- Immutable SFP contact evidence and recipient commitments explicitly block
+  contact merges; they are not silently reparented.
+- Sunbiz initialization uses the canonical authority's narrow, database-verified
+  automated evidence policy. Its receipt identifies automation and has no human
+  approver. General human production-classification approval remains unchanged.
+- The final narrow architecture review passed after the unsupported system
+  approver attribution was removed. This is source review, not production proof.
+- Legacy staging fixtures use governed fake-provider validation with exact
+  current-run/source receipt lineage. Negative checks retain zero-master-lead
+  and zero-ready-held assertions. No fake provider receipt is production output.
+- The expanded disposable launcher completed all 16 suites with exit 0, including
+  commercial authority (31 checks), contact merge (19 assertions), and legacy
+  staging (152/152). This is separate from the earlier 11-suite pass and the
+  failed broader pre-deploy run.
+
+## Main integration without completing this task
+
+Task 2060 must remain `IN_PROGRESS` through production execution. The native
+Ready/Apply path closes a task, so it is not a substitute for an active-task
+source handoff. The existing GitHub connection can support a separate reviewed
+source branch/PR; that does not itself update the main Replit workspace or
+publish the app. A draft PR with unresolved release gates must not be presented
+as publication readiness. Verify the actual main-workspace source identity
+after integration, and preserve the user-initiated Publish boundary.
+
 After committing the complete release candidate, confirm there are no remaining
 working-tree changes and record the full immutable commit SHA for that candidate.
-Resolve this handoff's prepared-SHA field to that commit; if subsequent changes
-alter the release contents, rerun the relevant gates and resolve it again to the
-new committed SHA. Then use the supported path to merge that commit to `main`.
+Record that candidate SHA in the PR/release record outside this self-referential
+file; if subsequent changes alter the release contents, rerun the relevant
+gates and resolve it again to the new committed SHA. Then use the supported
+path to merge that commit to `main`.
 The supported `main` merge must precede the user-initiated Publish action. Do
 not publish an unmerged task branch or publish automatically.
 

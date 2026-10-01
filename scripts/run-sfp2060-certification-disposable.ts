@@ -67,6 +67,11 @@ async function main(): Promise<void> {
         seedMi09Pricing: true,
       },
       { name: "integrated-pipeline", script: "scripts/test-sfp2060-integrated-pipeline.ts", database: true },
+      { name: "legacy1999", script: "scripts/test-sfp1999-postmerge-audit-certification.ts", database: true, seedMi09Pricing: true },
+      { name: "legacy2000", script: "scripts/test-sfp2000-disposable-certification.ts", database: true, seedMi09Pricing: true },
+      { name: "legacy2001", script: "scripts/test-sfp2001-campaign-staging-certification.ts", database: true, seedMi09Pricing: true },
+      { name: "commercial-authority", script: "scripts/test-commercial-classification.ts", database: true },
+      { name: "contact-merge", script: "scripts/test-canonical-identity-merge.ts", database: true },
     ] as const;
     const onlyName = process.argv[2] === "--only" ? process.argv[3] : undefined;
     if (process.argv[2] !== undefined && process.argv[2] !== "--only") {

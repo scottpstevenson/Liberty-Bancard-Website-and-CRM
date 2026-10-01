@@ -50,6 +50,13 @@ const analyticsRoutes = read("server/routes/analytics.ts");
 const weeklyDigest = read("server/services/digest-service.ts");
 const migration = read("migrations/0150_commercial_classification.sql");
 const integrity = read("scripts/check-migration-integrity.ts");
+const sunbizBootstrap = read("server/services/sunbiz-bootstrap.ts");
+const sunbizClassificationPolicyStart = classificationAuthority.indexOf("export async function initializeSunbizBootstrapBusinessClass");
+const sunbizClassificationPolicyEnd = classificationAuthority.indexOf("export async function deriveLinkedDealClass", sunbizClassificationPolicyStart);
+const sunbizClassificationPolicy = classificationAuthority.slice(
+  sunbizClassificationPolicyStart,
+  sunbizClassificationPolicyEnd === -1 ? undefined : sunbizClassificationPolicyEnd,
+);
 
 for (const name of ["insertContactSchema", "insertCompanySchema", "insertDealSchema", "insertProspectSchema"]) {
   const start = schema.indexOf(`export const ${name}`);
@@ -205,6 +212,19 @@ assert(
   integrity.includes("const HIGH_WATER_WHEN = 1793300000000") &&
     integrity.includes("Math.max(...baselineEntries.map"),
   "migration high-water check uses current baseline plus dynamic maximum",
+);
+assert(
+  sunbizBootstrap.includes("initializeSunbizBootstrapBusinessClass") &&
+    sunbizBootstrap.includes('claimMode: "active_lease"') &&
+    sunbizClassificationPolicy.includes("verified_sunbiz_bootstrap") &&
+    sunbizClassificationPolicy.includes("sunbiz_bootstrap_claims") &&
+    sunbizClassificationPolicy.includes("canonical_source_links") &&
+    sunbizClassificationPolicy.includes("matchedBootstrapIdentity") &&
+    sunbizClassificationPolicy.includes("SUNBIZ_CLASSIFICATION_EVIDENCE_INSUFFICIENT") &&
+    sunbizClassificationPolicy.includes('actorId: "service:sunbiz_bootstrap"') &&
+    !/approverId\s*:/.test(sunbizClassificationPolicy) &&
+    classificationAuthority.includes("command.approverId ?? null"),
+  "Sunbiz automated production requires database-backed bootstrap proof and records no fabricated approver",
 );
 
 const allowedRecordClassWriters = new Set([

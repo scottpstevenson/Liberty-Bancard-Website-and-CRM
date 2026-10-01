@@ -29,3 +29,15 @@ before assuming the application code is wrong. Fix by either (a) pointing the
 later check at an *earlier* snapshot/run that predates the mutation, or (b)
 minting a fresh, dedicated fixture for the later check. Don't assume a fixture
 id is stable in meaning just because its variable name didn't change.
+
+Receipt assertions must bind the current execution/run as well as the selected
+source identity. Selecting by candidate ID alone can include an older
+review-required eligibility row with no provider receipt, even when the new
+validation produced a genuine completed receipt for that same candidate.
+
+**Why:** append-only history preserves multiple decisions for the same source.
+Source identity identifies the candidate, not which execution produced evidence.
+
+**How to apply:** prove the current run's output and its direct/reused receipt
+lineage explicitly. Keep historical rows and their original evidence unchanged;
+do not broaden a passing proof to every row ever associated with the source.

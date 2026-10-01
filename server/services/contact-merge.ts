@@ -49,6 +49,18 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   { key: "commercial_relationship_reviews", table: "commercial_relationship_reviews", column: "contact_id", disposition: "immutable_retain" },
   { key: "commercial_relationship_reviews_evidence_identity", table: "commercial_relationship_reviews", column: "id", disposition: "immutable_retain" },
   { key: "contact_business_link_candidates", table: "contact_business_link_candidates", column: "contact_id", disposition: "immutable_retain" },
+  // SFP link evidence is append-only proof of a specific contact/business
+  // association and validation. A contact redirect must not make that proof
+  // appear to support a different contact/business relationship, so a
+  // deprecated contact with this evidence requires manual resolution. The
+  // original evidence row is never transferred, deleted, or rewritten.
+  { key: "contact_business_sfp_link_evidence", table: "contact_business_sfp_link_evidence", column: "contact_id", disposition: "manual_block" },
+  // A recipient-address commitment is an immutable program/business/address
+  // receipt. Reparenting it could bypass cross-business or duplicate-address
+  // protections and would forge its original contact attribution. Block a
+  // merge involving a deprecated contact with a commitment; preserve the
+  // receipt exactly as recorded for governed manual resolution.
+  { key: "sfp_recipient_address_commitments", table: "sfp_recipient_address_commitments", column: "contact_id", disposition: "manual_block" },
   { key: "import_row_dispositions", table: "import_row_dispositions", column: "contact_id", disposition: "immutable_retain" },
   { key: "eligibility_snapshots", table: "eligibility_snapshots", column: "contact_id", disposition: "immutable_retain" },
   { key: "cro03_batch_memberships", table: "cro03_batch_memberships", column: "contact_id", disposition: "immutable_retain" },
@@ -528,6 +540,8 @@ export async function executeContactMerge(operationId: string, actorId: string) 
       "ARCHIVED_CONTACT", "RECORD_CLASS_MISMATCH", "DISTINCT_GHL_IDS",
       "SAME_GHL_ID_MANUAL_REVIEW", "ACTIVE_ENROLLMENT_REQUIRES_REVIEW",
       "STATEMENT_PROPOSAL_DEAL_UNIQUENESS_CONFLICT",
+      "MANUAL_BLOCK_CONTACT_BUSINESS_SFP_LINK_EVIDENCE",
+      "MANUAL_BLOCK_SFP_RECIPIENT_ADDRESS_COMMITMENTS",
       "MANUAL_BLOCK_CAMPAIGN_PREVIEW_MEMBERS",
       "MANUAL_BLOCK_CONTACT_MERGE_REDIRECTS_SURVIVOR", "MANUAL_BLOCK_CONTACT_MERGE_REDIRECTS_DEPRECATED",
     ].includes(error.code)) {

@@ -387,23 +387,26 @@ export async function authorizeUse(params: {
   return { allowed: true, recordClass, purpose };
 }
 
-// ── Classification transitions (requires approver for production) ─────────────
+// ── Classification transitions (human production requires independent review) ──
 
 /**
- * applyClassification — single canonical write path for classification events.
+ * Private canonical write path for classification events. Only the public
+ * human command and the evidence-gated Sunbiz policy below may reach it.
  *
  * Idempotent: if (eventNamespace, eventKey) already exists, returns the
  * existing event without re-applying. Caller must verify evidence before calling.
  *
- * Role requirements: caller must have already verified admin role before calling.
+ * Human role requirements are enforced by the public applyClassification caller.
  */
-export async function applyClassification(
-  command: ClassificationCommand
+async function applyClassificationWithPolicy(
+  command: ClassificationCommand,
+  authorizationPolicy: "independent_reviewer" | "verified_sunbiz_bootstrap" = "independent_reviewer",
 ): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
   assertSubjectType(command.subjectType);
   assertCommercialClass(command.targetClass);
   assertNoPii(command.evidenceFields);
   if (
+    authorizationPolicy !== "verified_sunbiz_bootstrap" &&
     command.targetClass === "production" &&
     (!command.actorId || !command.approverId || command.approverId === command.actorId)
   ) {
@@ -523,6 +526,245 @@ export async function applyClassification(
   return command.transaction
     ? applyInTransaction(command.transaction)
     : db.transaction(applyInTransaction);
+}
+
+/**
+ * Public human-reviewed classification path. Automated source initialization
+ * uses its own narrowly scoped database-evidence policy below.
+ */
+export async function applyClassification(
+  command: ClassificationCommand
+): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
+  return applyClassificationWithPolicy(command, "independent_reviewer");
+}
+
+export interface SunbizBootstrapClassificationParams {
+  businessId: number;
+  filingNumber: string;
+  /** The claim's compare-and-swap lease for a new bootstrap result. */
+  claimLease?: unknown;
+  /** Repair is limited to an already completed created-claim cohort. */
+  claimMode: "active_lease" | "completed_bootstrap";
+  transaction?: any;
+}
+
+export interface SunbizBootstrapClassificationResult {
+  decision: "initialized" | "quarantined" | "preserved";
+  recordClass: CommercialClass;
+  reasonCode?: string;
+  eventId?: number;
+  applied?: boolean;
+}
+
+function normalizeBootstrapName(value: string | null | undefined): string {
+  return (value ?? "").normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function normalizeBootstrapDomain(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const hostname = new URL(withScheme).hostname.toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+    return hostname.includes(".") ? hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeBootstrapPhone(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function matchedBootstrapIdentity(
+  source: {
+    website: string | null;
+    phone: string | null;
+    principal_city: string | null;
+    principal_state: string | null;
+  },
+  business: {
+    website_domain: string | null;
+    main_phone: string | null;
+    city: string | null;
+    state: string | null;
+  },
+): boolean {
+  const sourceDomain = normalizeBootstrapDomain(source.website);
+  const businessDomain = normalizeBootstrapDomain(business.website_domain);
+  if (sourceDomain && sourceDomain === businessDomain) return true;
+
+  const sourcePhone = normalizeBootstrapPhone(source.phone);
+  const businessPhone = normalizeBootstrapPhone(business.main_phone);
+  if (sourcePhone.length >= 7 && sourcePhone === businessPhone) return true;
+
+  return Boolean(
+    source.principal_city?.trim() &&
+      source.principal_state?.trim() &&
+      source.principal_city.trim().toLowerCase() === business.city?.trim().toLowerCase() &&
+      source.principal_state.trim().toLowerCase() === business.state?.trim().toLowerCase(),
+  );
+}
+
+/**
+ * Narrow automated initialization policy for verified Sunbiz bootstrap
+ * outcomes. This does not relax applyClassification(): human production
+ * transitions still require distinct requester/approver identities.
+ *
+ * The only production decision is based on a locked claim (current lease for
+ * a new result, or the exact completed-created cohort for repair), its matching
+ * Sunbiz entity, a verified source link to this business, meaningful matching
+ * identity facts, a nonblank matching name, and current hot/warm source status.
+ * Failed proof returns an explicit quarantine decision without changing the
+ * unknown projection or fabricating an approver.
+ */
+export async function initializeSunbizBootstrapBusinessClass(
+  params: SunbizBootstrapClassificationParams,
+): Promise<SunbizBootstrapClassificationResult> {
+  const run = async (tx: any): Promise<SunbizBootstrapClassificationResult> => {
+    if (
+      (params.claimMode !== "active_lease" && params.claimMode !== "completed_bootstrap") ||
+      !params.filingNumber?.trim()
+    ) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_CLAIM_UNVERIFIED" };
+    }
+    if (params.claimMode === "active_lease" && params.claimLease == null) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_CLAIM_UNVERIFIED" };
+    }
+    await lockCommercialGraphNodes(tx, [{ type: "business", id: params.businessId }]);
+    const business = rows(await tx.execute(sql`
+      SELECT id, record_class, canonical_name, website_domain, main_phone, city, state
+      FROM businesses WHERE id = ${params.businessId} FOR UPDATE
+    `))[0] as {
+      id: number;
+      record_class: string;
+      canonical_name: string;
+      website_domain: string | null;
+      main_phone: string | null;
+      city: string | null;
+      state: string | null;
+    } | undefined;
+    if (!business) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_SUBJECT_MISSING" };
+    }
+    if (business.record_class !== "unknown") {
+      const existingClass = (COMMERCIAL_CLASS_VALUES as readonly string[]).includes(business.record_class)
+        ? business.record_class as CommercialClass
+        : "unknown";
+      return { decision: "preserved", recordClass: existingClass, reasonCode: "SUNBIZ_CLASSIFICATION_SUBJECT_NOT_UNKNOWN" };
+    }
+
+    const claim = params.claimMode === "active_lease"
+      ? rows(await tx.execute(sql`
+          SELECT id, sunbiz_entity_id FROM sunbiz_bootstrap_claims
+          WHERE filing_number = ${params.filingNumber}
+            AND status = 'claimed'
+            AND claimed_at = ${params.claimLease}
+            AND business_id IS NULL
+          FOR UPDATE
+        `))[0]
+      : rows(await tx.execute(sql`
+          SELECT id, sunbiz_entity_id FROM sunbiz_bootstrap_claims
+          WHERE filing_number = ${params.filingNumber}
+            AND status = 'created'
+            AND business_id = ${params.businessId}
+          FOR UPDATE
+        `))[0];
+    if (!claim || claim.sunbiz_entity_id == null) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_CLAIM_UNVERIFIED" };
+    }
+
+    const source = rows(await tx.execute(sql`
+      SELECT id, filing_number, score, entity_name, website, phone, principal_city, principal_state
+      FROM sunbiz_entities
+      WHERE id = ${Number(claim.sunbiz_entity_id)}
+        AND filing_number = ${params.filingNumber}
+      FOR UPDATE
+    `))[0] as {
+      id: number;
+      filing_number: string;
+      score: string | null;
+      entity_name: string | null;
+      website: string | null;
+      phone: string | null;
+      principal_city: string | null;
+      principal_state: string | null;
+    } | undefined;
+    if (!source) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_SOURCE_UNVERIFIED" };
+    }
+
+    const lineage = rows(await tx.execute(sql`
+      SELECT business_id FROM canonical_source_links
+      WHERE source_system = 'sunbiz'
+        AND source_type = 'sunbiz_entity'
+        AND stable_key = ${params.filingNumber}
+      FOR UPDATE
+    `))[0] as { business_id: number } | undefined;
+    if (!lineage || Number(lineage.business_id) !== params.businessId) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_LINEAGE_UNVERIFIED" };
+    }
+
+    const sourceName = normalizeBootstrapName(source.entity_name);
+    const businessName = normalizeBootstrapName(business.canonical_name);
+    const sourceDomain = normalizeBootstrapDomain(source.website);
+    const sourcePhone = normalizeBootstrapPhone(source.phone);
+    const hasMeaningfulSourceIdentity = Boolean(
+      sourceDomain ||
+        sourcePhone.length >= 7 ||
+        (source.principal_city?.trim() && source.principal_state?.trim()),
+    );
+    if (
+      !sourceName ||
+      !businessName ||
+      sourceName !== businessName ||
+      !(source.score === "hot" || source.score === "warm") ||
+      !hasMeaningfulSourceIdentity ||
+      !matchedBootstrapIdentity(source, business)
+    ) {
+      return { decision: "quarantined", recordClass: "unknown", reasonCode: "SUNBIZ_CLASSIFICATION_EVIDENCE_INSUFFICIENT" };
+    }
+
+    const filingReference = crypto.createHash("sha256").update(params.filingNumber).digest("hex").slice(0, 24);
+    const command: ClassificationCommand = {
+      subjectType: "business",
+      subjectId: params.businessId,
+      targetClass: "production",
+      eventNamespace: "sunbiz_bootstrap",
+      eventKey: `business:${params.businessId}:filing-ref:${filingReference}`,
+      evidenceFields: {
+        source_system: "sunbiz_bootstrap",
+        external_reference: `sunbiz-filing-ref:${filingReference}`,
+        classification_reason: "verified_sunbiz_bootstrap_evidence",
+        review_source: "sunbiz_bootstrap_evidence_policy_v1",
+      },
+      actorId: "service:sunbiz_bootstrap",
+      // No approver: this is a separately validated automated source policy,
+      // not a human-reviewed production promotion.
+      transaction: tx,
+    };
+    const receipt = await applyClassificationWithPolicy(command, "verified_sunbiz_bootstrap");
+    const projection = rows(await tx.execute(sql`
+      SELECT record_class FROM businesses WHERE id = ${params.businessId} FOR UPDATE
+    `))[0] as { record_class: string } | undefined;
+    if (projection?.record_class !== "production") {
+      return {
+        decision: "quarantined",
+        recordClass: "unknown",
+        reasonCode: "SUNBIZ_CLASSIFICATION_PROJECTION_UNVERIFIED",
+        eventId: receipt.eventId,
+        applied: false,
+      };
+    }
+    return {
+      decision: "initialized",
+      recordClass: "production",
+      eventId: receipt.eventId,
+      applied: receipt.applied,
+    };
+  };
+
+  return params.transaction ? run(params.transaction) : db.transaction(run);
 }
 
 /** Resolve an inherited class for a new deal. Any absent or disagreeing source

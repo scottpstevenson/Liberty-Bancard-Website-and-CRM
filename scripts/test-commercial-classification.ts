@@ -26,7 +26,15 @@ async function main() {
     import("drizzle-orm"),
     import("../server/services/commercial-classification-authority"),
   ]);
-  const { contacts, deals, commercialClassificationEvents } = schema;
+  const {
+    businesses,
+    canonicalSourceLinks,
+    contacts,
+    deals,
+    commercialClassificationEvents,
+    sunbizBootstrapClaims,
+    sunbizEntities,
+  } = schema;
   const { and, eq } = drizzle;
   const {
     applyClassification,
@@ -35,9 +43,161 @@ async function main() {
     approveCommand,
     executeApprovedCommand,
     getCurrentClass,
+    initializeSunbizBootstrapBusinessClass,
   } = authority;
 
   const nonce = crypto.randomUUID();
+
+  async function makeSunbizBusinessFixture(
+    suffix: string,
+    options: {
+      includeClaim?: boolean;
+      entityName?: string;
+      website?: string | null;
+      phone?: string | null;
+      city?: string | null;
+      state?: string | null;
+      score?: string;
+      lineageBusinessId?: number;
+      claimStatus?: "claimed" | "created";
+      claimBusinessId?: number;
+    } = {},
+  ) {
+    const filingNumber = `BT06-${nonce}-${suffix}`;
+    const entityName = options.entityName ?? `Sunbiz ${suffix} LLC`;
+    const website = options.website === undefined ? `https://${suffix}.example.test` : options.website;
+    const phone = options.phone === undefined ? "3055550199" : options.phone;
+    const city = options.city === undefined ? "Miami" : options.city;
+    const state = options.state === undefined ? "FL" : options.state;
+    const [entity] = await db.insert(sunbizEntities).values({
+      filingNumber,
+      entityName,
+      website,
+      phone,
+      principalCity: city,
+      principalState: state,
+      score: options.score ?? "hot",
+    }).returning();
+    const [business] = await db.insert(businesses).values({
+      canonicalName: entityName,
+      normalizedName: entityName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      websiteDomain: website?.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/.*$/, "") ?? null,
+      mainPhone: phone?.replace(/\D/g, "") ?? null,
+      city,
+      state,
+    }).returning();
+    const claimLease = new Date(Date.now() - 1_000);
+    if (options.includeClaim !== false) {
+      await db.insert(sunbizBootstrapClaims).values({
+        filingNumber,
+        sunbizEntityId: entity.id,
+        status: options.claimStatus ?? "claimed",
+        businessId: options.claimStatus === "created" ? (options.claimBusinessId ?? business.id) : null,
+        claimedAt: claimLease,
+      });
+    }
+    const lineageBusinessId = options.lineageBusinessId ?? business.id;
+    await db.insert(canonicalSourceLinks).values({
+      businessId: lineageBusinessId,
+      sourceSystem: "sunbiz",
+      sourceType: "sunbiz_entity",
+      stableKey: filingNumber,
+    });
+    return { filingNumber, entity, business, claimLease };
+  }
+
+  // The automated Sunbiz policy is evidence-gated independently of the
+  // human-reviewed applyClassification path. Invalid fences/provenance and
+  // blank evidence leave the default unknown projection untouched.
+  const missingClaimFixture = await makeSunbizBusinessFixture("missing-claim", { includeClaim: false });
+  const missingClaim = await initializeSunbizBootstrapBusinessClass({
+    businessId: missingClaimFixture.business.id,
+    filingNumber: missingClaimFixture.filingNumber,
+    claimMode: "active_lease",
+    claimLease: missingClaimFixture.claimLease,
+  });
+  assert(missingClaim.decision === "quarantined" && missingClaim.recordClass === "unknown", "missing fenced claim is denied and remains unknown");
+  assert(await getCurrentClass("business", missingClaimFixture.business.id) === "unknown", "missing claim cannot promote the business projection");
+
+  const blankEvidenceFixture = await makeSunbizBusinessFixture("blank-evidence", {
+    entityName: " ",
+    website: " ",
+    phone: "123",
+    city: null,
+    state: null,
+  });
+  const blankEvidence = await initializeSunbizBootstrapBusinessClass({
+    businessId: blankEvidenceFixture.business.id,
+    filingNumber: blankEvidenceFixture.filingNumber,
+    claimMode: "active_lease",
+    claimLease: blankEvidenceFixture.claimLease,
+  });
+  assert(blankEvidence.decision === "quarantined" && blankEvidence.recordClass === "unknown", "blank name and identity evidence are denied and remain unknown");
+
+  const mismatchedClaimFixture = await makeSunbizBusinessFixture("mismatched-claim");
+  const mismatchedClaim = await initializeSunbizBootstrapBusinessClass({
+    businessId: mismatchedClaimFixture.business.id,
+    filingNumber: mismatchedClaimFixture.filingNumber,
+    claimMode: "active_lease",
+    claimLease: new Date(mismatchedClaimFixture.claimLease.getTime() + 60_000),
+  });
+  assert(mismatchedClaim.decision === "quarantined" && mismatchedClaim.recordClass === "unknown", "mismatched claim lease is denied and remains unknown");
+
+  const wrongRepairStatusFixture = await makeSunbizBusinessFixture("wrong-repair-status");
+  const wrongRepairStatus = await initializeSunbizBootstrapBusinessClass({
+    businessId: wrongRepairStatusFixture.business.id,
+    filingNumber: wrongRepairStatusFixture.filingNumber,
+    claimMode: "completed_bootstrap",
+  });
+  assert(wrongRepairStatus.decision === "quarantined" && wrongRepairStatus.recordClass === "unknown", "repair policy rejects claims not in the created state");
+
+  const mismatchedLineageFixture = await makeSunbizBusinessFixture("mismatched-lineage", {
+    lineageBusinessId: missingClaimFixture.business.id,
+  });
+  const mismatchedLineage = await initializeSunbizBootstrapBusinessClass({
+    businessId: mismatchedLineageFixture.business.id,
+    filingNumber: mismatchedLineageFixture.filingNumber,
+    claimMode: "active_lease",
+    claimLease: mismatchedLineageFixture.claimLease,
+  });
+  assert(mismatchedLineage.decision === "quarantined" && mismatchedLineage.recordClass === "unknown", "lineage linked to a different business is denied and remains unknown");
+
+  const validBootstrapFixture = await makeSunbizBusinessFixture("valid-bootstrap");
+  const validBootstrap = await initializeSunbizBootstrapBusinessClass({
+    businessId: validBootstrapFixture.business.id,
+    filingNumber: validBootstrapFixture.filingNumber,
+    claimMode: "active_lease",
+    claimLease: validBootstrapFixture.claimLease,
+  });
+  assert(validBootstrap.decision === "initialized" && validBootstrap.recordClass === "production" && validBootstrap.applied, "verified bootstrap evidence initializes production through its source policy");
+  assert(await getCurrentClass("business", validBootstrapFixture.business.id) === "production", "verified bootstrap policy updates the business projection");
+  const bootstrapEvents = await db.select().from(commercialClassificationEvents).where(and(
+    eq(commercialClassificationEvents.eventNamespace, "sunbiz_bootstrap"),
+    eq(commercialClassificationEvents.subjectType, "business"),
+    eq(commercialClassificationEvents.subjectId, validBootstrapFixture.business.id),
+  ));
+  assert(
+    bootstrapEvents.length === 1 &&
+      bootstrapEvents[0].newClass === "production" &&
+      bootstrapEvents[0].approverId === null &&
+      bootstrapEvents[0].actorId === "service:sunbiz_bootstrap" &&
+      (bootstrapEvents[0].evidenceFields as Record<string, unknown>).review_source === "sunbiz_bootstrap_evidence_policy_v1",
+    "verified bootstrap writes a policy receipt with truthful service actor and no approver identity",
+  );
+
+  const completedBootstrapFixture = await makeSunbizBusinessFixture("completed-bootstrap", { claimStatus: "created" });
+  const completedBootstrap = await initializeSunbizBootstrapBusinessClass({
+    businessId: completedBootstrapFixture.business.id,
+    filingNumber: completedBootstrapFixture.filingNumber,
+    claimMode: "completed_bootstrap",
+  });
+  assert(
+    completedBootstrap.decision === "initialized" &&
+      completedBootstrap.recordClass === "production" &&
+      completedBootstrap.applied,
+    "completed repair policy promotes only a created claim with matching source evidence",
+  );
+
   const [contact] = await db.insert(contacts).values({
     firstName: "BT06",
     lastName: "Classification",
@@ -50,6 +210,38 @@ async function main() {
   assert(!unknownMarketing.allowed && unknownMarketing.reasonCode === "COMMERCIAL_CLASS_UNKNOWN", "unknown contact is quarantined from marketing");
   const unknownTransactional = await authorizeUse({ contactId: contact.id, purpose: "transactional_response" });
   assert(unknownTransactional.allowed, "unknown contact can receive transactional response");
+
+  const sunbizSpoofEventKey = `sunbiz-policy-spoof:${nonce}`;
+  let publicSunbizPolicySpoofRejected = false;
+  try {
+    await applyClassification({
+      subjectType: "contact",
+      subjectId: contact.id,
+      targetClass: "production",
+      eventNamespace: "bt06-test",
+      eventKey: sunbizSpoofEventKey,
+      evidenceFields: {
+        source_system: "sunbiz_bootstrap",
+        external_reference: "sunbiz-filing-ref:disposable-test",
+        classification_reason: "verified_sunbiz_bootstrap_evidence",
+        review_source: "sunbiz_bootstrap_evidence_policy_v1",
+      },
+      actorId: "service:sunbiz_bootstrap",
+      approverId: null,
+    });
+  } catch {
+    publicSunbizPolicySpoofRejected = true;
+  }
+  const sunbizSpoofEvents = await db.select({ id: commercialClassificationEvents.id }).from(commercialClassificationEvents).where(and(
+    eq(commercialClassificationEvents.eventNamespace, "bt06-test"),
+    eq(commercialClassificationEvents.eventKey, sunbizSpoofEventKey),
+  ));
+  assert(
+    publicSunbizPolicySpoofRejected &&
+      await getCurrentClass("contact", contact.id) === "unknown" &&
+      sunbizSpoofEvents.length === 0,
+    "public applyClassification rejects a Sunbiz service actor with null approver and spoofed policy metadata without changing class or creating an event",
+  );
 
   const eventKey = `promotion:${nonce}`;
   const transition = await applyClassification({

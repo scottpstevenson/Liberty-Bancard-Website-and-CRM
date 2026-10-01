@@ -9,38 +9,97 @@
  * Exit code 1 if there are unmatched paths, 0 otherwise. Wire into CI.
  */
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
-interface Match { file: string; line: number; path: string }
-
-function rg(pattern: string, dir: string): string {
+function listSourceFiles(dir: string): string[] {
   try {
-    return execSync(`rg --no-heading --line-number -o "${pattern}" ${dir}`, { encoding: "utf8" });
+    return execSync(`rg --files ${dir}`, { encoding: "utf8" })
+      .split("\n")
+      .filter((file) => /\.(?:[cm]?[jt]sx?)$/.test(file));
   } catch {
-    return "";
+    return [];
   }
+}
+
+function normalizePath(path: string): string {
+  return path
+    .replace(/\$\{[^}]+\}/g, ":param")
+    .replace(/\?.*$/, "")
+    .replace(/\/$/, "");
 }
 
 function extractClientPaths(): Set<string> {
   const out = new Set<string>();
-  const raw = rg("['\\\"\\\`]/api/[A-Za-z0-9_./?:\\-\\$\\{\\}]+", "client/src");
-  for (const line of raw.split("\n")) {
-    const m = line.match(/['"`](\/api\/[^'"`,)\s]*)/);
-    if (!m) continue;
-    let p = m[1];
-    p = p.replace(/\$\{[^}]+\}/g, ":param");
-    p = p.replace(/\?.*$/, "");
-    p = p.replace(/\/$/, "");
-    if (p.length > "/api".length) out.add(p);
+  const apiLiteral = /(["'])(\/api\/[^'"\s]*)/g;
+  const baseDeclaration = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(['"`])(\/api\/[^'"`]+)\2/g;
+
+  for (const file of listSourceFiles("client/src")) {
+    const source = readFileSync(file, "utf8");
+    const bases = new Map<string, string>();
+    const declarationRanges: Array<[number, number]> = [];
+
+    for (const match of source.matchAll(baseDeclaration)) {
+      const name = match[1];
+      const declaredPath = match[3];
+      const start = match.index ?? 0;
+      bases.set(name, declaredPath);
+      declarationRanges.push([start, start + match[0].length]);
+    }
+
+    // Ignore base-URL declarations as if they were requests. Resolve their
+    // subsequent template-literal use below, so /base/preview is checked but
+    // the non-endpoint /base prefix is not mistaken for a handler requirement.
+    for (const match of source.matchAll(apiLiteral)) {
+      const start = match.index ?? 0;
+      if (declarationRanges.some(([from, to]) => start >= from && start < to)) continue;
+      const lineStart = source.lastIndexOf("\n", start) + 1;
+      const beforeLiteral = source.slice(lineStart, start);
+      if (/\.\s*(?:startsWith|endsWith|includes)\s*\(\s*$/.test(beforeLiteral)) continue;
+      const normalized = normalizePath(match[2]);
+      if (normalized.length > "/api".length) out.add(normalized);
+    }
+
+    for (const template of source.matchAll(/`([^`]*)`/g)) {
+      const text = template[1];
+      const directApiPathStart = text.indexOf("/api/");
+      if (directApiPathStart !== -1) {
+        const normalized = normalizePath(text.slice(directApiPathStart));
+        if (normalized.length > "/api".length) out.add(normalized);
+      }
+      for (const [name, base] of bases) {
+        const reference = `\${${name}}`;
+        let offset = text.indexOf(reference);
+        while (offset !== -1) {
+          const rest = text.slice(offset + reference.length);
+          const nextInterpolation = rest.indexOf("${");
+          const staticSuffix = nextInterpolation === -1 ? rest : rest.slice(0, nextInterpolation);
+          const queryOffset = staticSuffix.indexOf("?");
+          let routeSuffix = queryOffset === -1 ? staticSuffix : staticSuffix.slice(0, queryOffset);
+
+          // A trailing slash immediately before a variable is a dynamic path
+          // segment. Query-string variables do not create route segments.
+          if (nextInterpolation !== -1 && queryOffset === -1 && routeSuffix.endsWith("/")) {
+            routeSuffix += ":param";
+          }
+          const normalized = normalizePath(`${base}${routeSuffix}`);
+          if (normalized.length > "/api".length) out.add(normalized);
+          offset = text.indexOf(reference, offset + reference.length);
+        }
+      }
+    }
   }
   return out;
 }
 
 function extractServerPaths(): Set<string> {
   const out = new Set<string>();
-  const raw = rg("app\\.(get|post|put|patch|delete|use)\\(\\\"/api/[^\\\"]+\\\"", "server");
-  for (const line of raw.split("\n")) {
-    const m = line.match(/"(\/api\/[^"]+)"/);
-    if (m) out.add(m[1]);
+  const registration = /\b[A-Za-z_$][\w$]*\s*\.\s*(?:get|post|put|patch|delete|use)\s*\(\s*(['"`])(\/api\/[^'"`]+)\1/g;
+  for (const file of listSourceFiles("server")) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(registration)) {
+      const registeredPath = normalizePath(match[2]);
+      if (registeredPath.startsWith("/api/")) out.add(registeredPath);
+    }
   }
   return out;
 }
@@ -55,7 +114,7 @@ function pathMatches(clientPath: string, serverPaths: Set<string>): boolean {
     for (let i = 0; i < sParts.length; i++) {
       const s = sParts[i];
       const c = cParts[i];
-      if (s.startsWith(":")) continue;
+      if (s.startsWith(":") || c.startsWith(":")) continue;
       if (s === c) continue;
       ok = false;
       break;

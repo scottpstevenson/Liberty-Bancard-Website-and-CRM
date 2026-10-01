@@ -14,3 +14,17 @@ All commercial graph readers and trigger-backed writers must use one transaction
 **Why:** Mixing advisory hash namespaces or taking contact/business rows before graph revisions permits resolver-versus-link, identity, redirect, or classification deadlocks.
 
 **How to apply:** Any new class, identity, redirect, mapping, business-link, or reviewed-relationship writer must join the shared lock helper and add a controlled concurrent resolver test.
+
+Different actor strings do not prove independent approval. Automated initial
+classification must use an explicit, narrowly evidence-checked authority policy
+and truthfully attribute a policy decision, without inventing a human or system
+reviewer.
+
+**Why:** A bootstrap can satisfy a two-actor string check while persisting an
+approval that never happened. Verified source lineage proves evidence, not a
+reviewer's authorization.
+
+**How to apply:** Keep human-review paths unchanged; verify automated-policy
+eligibility under the same locks/transaction as its projection and receipt.
+Test that service labels and policy metadata cannot select that policy through
+the public human-review API.

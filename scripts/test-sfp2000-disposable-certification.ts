@@ -34,6 +34,8 @@ import { sql } from "drizzle-orm";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 import {
   applyCertificationProviderDenyBoundary,
+  getBlockedCertificationNetworkAttemptCount,
+  getLastBlockedCertificationNetworkOrigin,
 } from "./certification-provider-deny";
 
 await assertDisposableTestInfrastructure({
@@ -42,6 +44,20 @@ await assertDisposableTestInfrastructure({
 });
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
+// The provider governance path requires transport activation and a configured
+// credential before it will reserve work. These disposable-only values let
+// the injected fake transport traverse that real reservation/dispatch/
+// settlement path; the deny boundary remains installed and no live adapter is
+// called.
+process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+process.env.ZEROBOUNCE_API_KEY = "sfp2000-disposable-fake-key";
+const deniedNetworkBaseline = getBlockedCertificationNetworkAttemptCount();
+
+function safeDiagnosticCode(value: unknown): string | null {
+  if (value == null) return null;
+  const code = String(value);
+  return /^[A-Za-z0-9_.:-]{1,160}$/.test(code) ? code : "non_code_diagnostic";
+}
 
 let assertions = 0;
 function check(value: unknown, id: string, label: string): asserts value {
@@ -56,7 +72,7 @@ await runDrizzleMigrations();
 const { db } = await import("../server/db");
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const RUN_ID = `sfp2000cert-${randomUUID().slice(0, 8)}`;
-await (await import("./helpers/sfp-runtime-test-identity"))
+const runtimeReleaseSelection = await (await import("./helpers/sfp-runtime-test-identity"))
   .selectSfpRuntimeTestRelease(`cert:${RUN_ID}`);
 
 const {
@@ -212,6 +228,15 @@ for (const bizId of seededBizIds) {
       (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical)
     VALUES (${cohortRunId}::uuid, ${bizId}, 50, 'verified', 'fips', '12086', 'Med Spa')
   `);
+  // Validation's immutable source contract requires each frozen member to
+  // have its selected terminal decision. This is cohort-source evidence, not
+  // an eligibility or provider receipt; both are still produced only by the
+  // normal execution path below.
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_decisions
+      (cohort_run_id, business_id, disposition, geography_class, geography_source, vertical, roi_score, selected)
+    VALUES (${cohortRunId}::uuid, ${bizId}, 'selected', 'verified', 'fips', 'Med Spa', 50, TRUE)
+  `);
 }
 await db.execute(sql`
   UPDATE sfp_cohort_runs SET status = 'frozen', cohort_state = 'frozen', frozen_at = NOW()
@@ -239,25 +264,34 @@ await db.execute(sql`
   VALUES (${priorCohortRunId}::uuid, ${freeBizId}, 50, 'verified', 'fips', '12086', 'Med Spa')
 `);
 await db.execute(sql`
+  INSERT INTO sfp_cohort_decisions
+    (cohort_run_id, business_id, disposition, geography_class, geography_source, vertical, roi_score, selected)
+  VALUES (${priorCohortRunId}::uuid, ${freeBizId}, 'selected', 'verified', 'fips', 'Med Spa', 50, TRUE)
+`);
+await db.execute(sql`
   UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
    WHERE id=${priorCohortRunId}::uuid
 `);
 const priorPreview = await previewSfpValidation(priorCohortRunId);
 const priorTransportCalls: string[] = [];
+const priorProviderFailureDiagnostics: Array<{ phase: string; code: string }> = [];
+// A deterministic positive DNS seam keeps the disposable cert networkless;
+// only DNS is stubbed here—the provider operation still uses normal reserve,
+// dispatch, fake transport, receipt, and settlement governance.
 const priorExecution = await executeSfpValidation(priorCohortRunId, {
   idempotencyKey: `cert2000-prior-validate-${RUN_ID}`,
   snapshotHash: priorPreview.snapshotHash,
   actorId: `cert:${RUN_ID}`,
   maxValidations: 25,
+  mxCheck: async () => "ok",
+  onProviderFailureDiagnostic: (phase, code) => priorProviderFailureDiagnostics.push({ phase, code }),
   zbTransport: async (_candidateId, realEmail) => {
     priorTransportCalls.push(realEmail);
     return "valid";
   },
 });
-check(priorExecution.failedCount === 0 && priorTransportCalls.includes(freeEmail),
-  "T2K-03setup", "the prior candidate observation comes from a successful fake transport through normal provider governance");
 const priorEligibility = rows(await db.execute(sql`
-  SELECT validation_operation_id,status
+  SELECT validation_operation_id,status,decision_reason,zb_outcome
     FROM sfp_outreach_eligibility
    WHERE cohort_run_id=${priorCohortRunId}::uuid AND business_id=${freeBizId}
 `))[0];
@@ -265,13 +299,87 @@ const priorOpId = String(priorEligibility?.validation_operation_id ?? "");
 const priorOperation = rows(await db.execute(sql`
   SELECT o.state,o.billing_state,a.outcome,a.dispatch_marked_at,po.outcome AS observation_outcome
     FROM provider_operations o
-    JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
-    JOIN provider_observations po ON po.operation_id=o.id
-   WHERE o.id=${priorOpId}::uuid
+    LEFT JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+    LEFT JOIN provider_observations po ON po.operation_id=o.id
+   WHERE o.id=${priorOpId || null}::uuid
 `))[0];
-check(Boolean(priorOpId) && priorOperation?.state === "completed" &&
+const priorStageDiagnostic = rows(await db.execute(sql`
+  SELECT state,selected_count,processed_count,failed_count
+    FROM sfp_stage_runs
+   WHERE stage='validation' AND idempotency_key=${`cert2000-prior-validate-${RUN_ID}`}
+`))[0];
+const priorAuthorityDiagnostic = rows(await db.execute(sql`
+  SELECT r.cohort_state,p.is_active,
+         (SELECT COUNT(*)::int FROM sfp_cohort_decisions d
+           WHERE d.cohort_run_id=r.id AND d.selected=TRUE) AS selected_decisions,
+         pc.enabled AS provider_enabled,pc.circuit_state
+    FROM sfp_cohort_runs r
+    JOIN sfp_programs p ON p.id=r.program_id
+    LEFT JOIN provider_controls pc ON pc.provider='zerobounce'
+   WHERE r.id=${priorCohortRunId}::uuid
+`))[0];
+const priorTransportSawFixture = priorTransportCalls.includes(freeEmail);
+const priorProviderLineageSettled = Boolean(priorOpId) && priorOperation?.state === "completed" &&
   priorOperation.billing_state === "committed" && priorOperation.outcome === "completed" &&
-  priorOperation.dispatch_marked_at && priorOperation.observation_outcome === "valid",
+  Boolean(priorOperation.dispatch_marked_at) && priorOperation.observation_outcome === "valid";
+if (priorExecution.failedCount !== 0 || !priorTransportSawFixture || !priorProviderLineageSettled) {
+  const deniedNetworkAttempts = getBlockedCertificationNetworkAttemptCount();
+  console.error("[T2K-03setup-diagnostic]", JSON.stringify({
+    preview: {
+      gateOpen: priorPreview.gateOpen,
+      blockedReason: safeDiagnosticCode(priorPreview.gateBlockedReason),
+    },
+    authority: {
+      runtimeReleaseSelected: runtimeReleaseSelection.currentReleaseSelected,
+      cohortState: priorAuthorityDiagnostic?.cohort_state ?? null,
+      programActive: priorAuthorityDiagnostic?.is_active ?? null,
+      selectedDecisionCount: Number(priorAuthorityDiagnostic?.selected_decisions ?? 0),
+      providerEnabled: priorAuthorityDiagnostic?.provider_enabled ?? null,
+      providerCircuit: safeDiagnosticCode(priorAuthorityDiagnostic?.circuit_state),
+      providerTransportEnabled: process.env.CRO03_PROVIDER_TRANSPORT_ENABLED === "true",
+      disposableCredentialPresent: Boolean(process.env.ZEROBOUNCE_API_KEY),
+    },
+    execution: {
+      failedCount: priorExecution.failedCount,
+      addressesValidated: priorExecution.addressesValidated,
+      transportCallCount: priorTransportCalls.length,
+      transportSawSeededCandidate: priorTransportSawFixture,
+      providerFailures: priorProviderFailureDiagnostics.map(({ phase, code }) => ({
+        phase: safeDiagnosticCode(phase),
+        code: safeDiagnosticCode(code),
+      })),
+    },
+    stage: {
+      state: safeDiagnosticCode(priorStageDiagnostic?.state),
+      selectedCount: Number(priorStageDiagnostic?.selected_count ?? 0),
+      processedCount: Number(priorStageDiagnostic?.processed_count ?? 0),
+      failedCount: Number(priorStageDiagnostic?.failed_count ?? 0),
+    },
+    eligibility: {
+      status: safeDiagnosticCode(priorEligibility?.status),
+      decisionReason: safeDiagnosticCode(priorEligibility?.decision_reason),
+      providerOutcome: safeDiagnosticCode(priorEligibility?.zb_outcome),
+    },
+    providerLineage: {
+      operationPresent: Boolean(priorOpId),
+      state: safeDiagnosticCode(priorOperation?.state),
+      billingState: safeDiagnosticCode(priorOperation?.billing_state),
+      attemptOutcome: safeDiagnosticCode(priorOperation?.outcome),
+      dispatchMarked: Boolean(priorOperation?.dispatch_marked_at),
+      observationOutcome: safeDiagnosticCode(priorOperation?.observation_outcome),
+    },
+    deniedExternalHttp: {
+      attemptCountDelta: deniedNetworkAttempts - deniedNetworkBaseline,
+      lastOrigin: deniedNetworkAttempts > deniedNetworkBaseline
+        ? getLastBlockedCertificationNetworkOrigin() : null,
+    },
+  }));
+}
+check(priorTransportSawFixture,
+  "T2K-03setup-transport", "the seeded candidate reached the injected fake transport after normal provider governance");
+check(priorExecution.failedCount === 0,
+  "T2K-03setup-result", `the governed prior validation completed without failed candidates (failedCount=${priorExecution.failedCount})`);
+check(priorProviderLineageSettled,
   "T2K-03setup2", "the reuse source is a persisted settled operation with an actual marked dispatch and provider observation");
 
 // ── T2K-02: masked-vs-real transport (positive + negative control) ───────
@@ -284,6 +392,7 @@ const exec1 = await executeSfpValidation(cohortRunId, {
   snapshotHash: preview1.snapshotHash,
   actorId: `cert:${RUN_ID}`,
   maxValidations: 25,
+  mxCheck: async () => "ok",
   zbTransport: async (_candidateId, realEmail) => {
     receivedByTransport.push(realEmail);
     return "valid";

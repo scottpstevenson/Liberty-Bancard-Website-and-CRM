@@ -343,7 +343,8 @@ export async function processSfpCampaignStagingTick() {
     await claimSfpRuntimeDeploymentOwner();
   } catch (error: any) {
     const reason = String(error?.message ?? error);
-    if (!reason.startsWith("SFP_RUNTIME_OWNER_BLOCKED:") &&
+    if (reason !== "SFP_PAID_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED" &&
+        !reason.startsWith("SFP_RUNTIME_OWNER_BLOCKED:") &&
         !reason.startsWith("SFP_RUNTIME_OWNER_FENCE")) throw error;
     return {
       enabled: false,

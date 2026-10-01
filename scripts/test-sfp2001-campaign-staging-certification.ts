@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomUUID, createHash } from "node:crypto";
+import { promises as dns } from "node:dns";
 import { sql } from "drizzle-orm";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary } from "./certification-provider-deny";
@@ -19,6 +20,29 @@ await assertDisposableTestInfrastructure({
 });
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
+const deniedFetch = globalThis.fetch;
+const fakeZeroBounceKey = "task-2001-disposable-zero-bounce-key";
+process.env.ZEROBOUNCE_API_KEY = fakeZeroBounceKey;
+process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED = "true";
+let zeroBounceCalls = 0;
+globalThis.fetch = (async (input: any, init?: RequestInit) => {
+  const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
+  if (url.origin === "https://api.zerobounce.net" && url.pathname === "/v2/validate") {
+    if (url.searchParams.get("api_key") !== fakeZeroBounceKey) {
+      throw new Error("TASK_2001_FAKE_ZEROBOUNCE_KEY_MISMATCH");
+    }
+    zeroBounceCalls++;
+    return new Response(JSON.stringify({ status: "valid", sub_status: "" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  return deniedFetch(input, init);
+}) as typeof fetch;
+// Keep the real MX validation gate while preventing test DNS from leaving the
+// disposable process.
+(dns as any).resolveMx = async () => [{ exchange: "mx.task2001.invalid", priority: 10 }];
 
 let assertions = 0;
 let failures = 0;
@@ -35,6 +59,69 @@ function check(value: unknown, label: string): void {
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const runKey = `sfp2001-${randomUUID()}`;
 const source = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+function emitFailOnlyDiagnostic(scope: string, details: unknown): void {
+  console.error(`[SFP2001-DIAGNOSTIC:${scope}] ${JSON.stringify(details)}`);
+}
+function summarizeStagingPreview(preview: any): unknown {
+  return {
+    snapshotHash: preview?.snapshotHash ?? null,
+    commandKey: preview?.commandKey ?? null,
+    eligibleCount: preview?.eligibleCount ?? null,
+    blockedCount: preview?.blockedCount ?? null,
+    rows: (preview?.rows ?? []).map((row: any) => ({
+      eligibilityId: row.eligibilityId,
+      businessId: row.businessId,
+      sourceKind: row.sourceKind,
+      sourceReferenceId: row.sourceReferenceId ?? null,
+      normalizedValueHashVersion: row.normalizedValueHashVersion ?? null,
+      packageKey: row.packageKey ?? null,
+      disposition: row.disposition,
+      blockedReason: row.blockedReason ?? null,
+    })),
+  };
+}
+async function readStagingCurrentnessDiagnostic(cohortId: string, eligibilityIds: string[]): Promise<any[]> {
+  if (eligibilityIds.length === 0) return [];
+  return rows(await db.execute(sql`
+    SELECT e.id::text AS eligibility_id,e.business_id,e.status,e.source_kind,
+           e.candidate_id::text AS candidate_id,
+           e.paid_candidate_evidence_id::text AS paid_candidate_evidence_id,
+           e.contact_id,e.validation_operation_id::text AS validation_operation_id,
+           e.reused_from_operation_id::text AS reused_from_operation_id,
+           e.normalized_value_hash_version,
+           (e.validation_expires_at IS NOT NULL AND e.validation_expires_at>NOW()) AS validation_current,
+           (CASE e.source_kind
+              WHEN 'free' THEN f.id IS NOT NULL AND f.business_id=e.business_id
+                AND f.field='email' AND f.normalized_value_hash=e.normalized_value_hash
+              WHEN 'paid' THEN p.id IS NOT NULL AND p.business_id=e.business_id
+                AND p.field='email' AND p.normalized_value_hash=e.normalized_value_hash
+              WHEN 'contact' THEN e.contact_id IS NOT NULL
+                AND e.contact_business_link_decision_id IS NOT NULL
+                AND e.normalized_value_hash IS NOT NULL
+              ELSE FALSE
+            END) AS current_source_identity_pin_matches,
+           o.id::text AS receipt_operation_id,o.provider AS receipt_provider,o.state AS receipt_operation_state,
+           po.subject_type AS observation_subject_type,
+           (po.subject_id::text=e.business_id::text) AS observation_subject_matches_business,
+           po.outcome AS observation_outcome
+      FROM sfp_outreach_eligibility e
+      LEFT JOIN free_discovery_candidates f
+        ON e.source_kind='free' AND f.id=e.candidate_id
+      LEFT JOIN sfp_paid_candidate_evidence p
+        ON e.source_kind='paid' AND p.id=e.paid_candidate_evidence_id
+      LEFT JOIN provider_operations o
+        ON o.id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+      LEFT JOIN LATERAL (
+        SELECT subject_type,subject_id,outcome
+          FROM provider_observations
+         WHERE operation_id=o.id
+         ORDER BY observed_at DESC LIMIT 1
+      ) po ON TRUE
+     WHERE e.cohort_run_id=${cohortId}::uuid
+       AND e.id=ANY(ARRAY[${sql.join(eligibilityIds.map((id) => sql`${id}::uuid`), sql`, `)}]::uuid[])
+     ORDER BY e.id
+  `));
+}
 
 // Import-boundary regression guards apply to the literal files, not a
 // transitive bundle. These are intentionally hard negative assertions.
@@ -71,9 +158,229 @@ const { writeSfpPaidCandidateEvidence } = await import("../server/services/cro03
 const { previewStagingV2, executeStagingV2, SfpStagingV2Error } = await import("../server/services/cro03/sfp-campaign-staging-v2");
 const { computeLivePackageContentHash } = await import("../server/services/cro03/sfp-campaign-packages");
 const { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } = await import("../server/services/cro03/sfp-vertical-classifier");
+  const { GEOGRAPHY_RESOLVER_VERSION, resolveGeographyForBusiness } = await import("../server/services/cro03/sfp-geography-resolver");
 const { ensureProgram } = await import("../server/services/cro03/south-florida-prospecting");
+const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
 
 try {
+  // Runtime and release identity are bootstrapped only through the audited
+  // private-test helper. Provider ownership is then acquired by the normal
+  // validation reservation/dispatch fence, never by seeding authority rows.
+  const runtimeIdentityHelper = await import("./helpers/sfp-runtime-test-identity");
+  const currentTestRuntime = await runtimeIdentityHelper.getSfpRuntimeTestIdentity();
+  const releaseSelection = await runtimeIdentityHelper.selectSfpRuntimeTestRelease(runKey);
+  check(releaseSelection.currentReleaseSelected && releaseSelection.ownerLive && releaseSelection.ready,
+    "current test release is selected through the helper with its persisted live runtime owner");
+  check(releaseSelection.selectedRelease?.artifactSha === currentTestRuntime.artifactSha,
+    "the private runtime selection is bound to this process's current release identity");
+
+  const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } =
+    await import("../server/services/mi09-pilot-authority");
+  await authorizePaidBudget({
+    authorizedBy: runKey,
+    typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION,
+  });
+  const { updateSfpPaidProviderControl } = await import("../server/services/paid-provider-control");
+  const zeroBounceControl = await updateSfpPaidProviderControl({
+    provider: "zerobounce",
+    enabled: true,
+    reason: "Task 2001 disposable fake-provider validation",
+    actorId: runKey,
+  });
+  check(zeroBounceControl.enabled === true && zeroBounceControl.circuit_state === "closed",
+    "fake ZeroBounce validation uses the audited provider-control path in the disposable database");
+
+  type FixtureValidationRun = { validationRunId: string; receipts: any[] };
+  function findFixtureValidationReceipt(
+    validation: FixtureValidationRun,
+    businessId: number,
+    sourceId: string,
+  ): any | undefined {
+    return validation.receipts.find((row: any) =>
+      String(row.validation_run_id) === validation.validationRunId &&
+      Number(row.business_id) === businessId &&
+      String(row.candidate_id ?? row.paid_candidate_evidence_id ?? "") === sourceId);
+  }
+  async function validateFixtureCandidates(cohortId: string, label: string): Promise<FixtureValidationRun> {
+    const preview = await previewSfpValidation(cohortId);
+    check(preview.gateOpen, `${label} validation preview passes the governed runtime/provider gates`);
+    check(preview.addressesForValidation > 0, `${label} validation selects at least one persisted source candidate`);
+    const callsBeforeValidation = zeroBounceCalls;
+    const result = await executeSfpValidation(cohortId, {
+      idempotencyKey: `${runKey}-${label}-validation`,
+      actorId: runKey,
+      maxValidations: 25,
+      snapshotHash: preview.snapshotHash,
+    });
+    const validationRun = rows(await db.execute(sql`
+      SELECT id::text AS id,state
+        FROM sfp_stage_runs
+       WHERE cohort_run_id=${cohortId}::uuid AND stage='validation'
+         AND idempotency_key=${result.idempotencyKey}
+       LIMIT 1
+    `))[0];
+    const validationRunId = String(validationRun?.id ?? "");
+    const resultRunId = typeof (result as any).runId === "string" ? String((result as any).runId) : null;
+    const validationRunMatchesResult = Boolean(validationRunId) &&
+      (!resultRunId || resultRunId === validationRunId);
+    const validationSucceeded = result.failedCount === 0 && result.invalidCount === 0 && result.zeroOutreachConfirmed === true;
+    const receipts = validationRunId ? rows(await db.execute(sql`
+      WITH current_run_items AS (
+        SELECT i.stage_run_id,i.business_id,i.state AS validation_item_state,i.outcome_code AS validation_item_outcome,
+               i.redacted_result->>'sourceKind' AS source_kind,
+               CASE i.redacted_result->>'sourceKind'
+                 WHEN 'free' THEN i.redacted_result->>'candidateId'
+                 WHEN 'paid' THEN i.redacted_result->>'paidCandidateEvidenceId'
+                 WHEN 'contact' THEN i.redacted_result->>'contactId'
+                 ELSE NULL
+               END AS source_reference_id,
+               NULLIF(i.redacted_result->>'policyVersion','')::int AS output_policy_version,
+               i.redacted_result->>'normalizedAddressHash' AS output_normalized_value_hash,
+               i.redacted_result->>'status' AS output_status,
+               i.redacted_result->>'outcome' AS validation_provider_outcome
+          FROM sfp_stage_items i
+         WHERE i.stage_run_id=${validationRunId}::uuid AND i.provider='zerobounce'
+      )
+      SELECT e.id,e.business_id,e.status,e.source_kind,e.candidate_id,e.paid_candidate_evidence_id,
+             e.validation_operation_id,e.reused_from_operation_id,e.normalized_value_hash_version,
+             e.policy_version,ri.stage_run_id::text AS validation_run_id,
+             ri.validation_item_state,ri.validation_item_outcome,
+             ri.validation_provider_outcome,
+             o.id AS receipt_operation_id,o.provider,o.state AS operation_state,
+             po.subject_type AS observation_subject_type,
+             (po.subject_id::text=e.business_id::text) AS observation_subject_matches_business,
+             po.outcome AS observation_outcome,
+             (CASE e.source_kind
+                WHEN 'free' THEN f.id IS NOT NULL AND f.business_id=e.business_id
+                  AND f.field='email' AND f.normalized_value_hash=e.normalized_value_hash
+                WHEN 'paid' THEN p.id IS NOT NULL AND p.business_id=e.business_id
+                  AND p.field='email' AND p.normalized_value_hash=e.normalized_value_hash
+                ELSE FALSE
+              END) AS current_source_identity_pin_matches
+        FROM current_run_items ri
+        JOIN sfp_outreach_eligibility e
+          ON e.cohort_run_id=${cohortId}::uuid
+         AND e.business_id=ri.business_id
+         AND e.policy_version=ri.output_policy_version
+         AND e.source_kind=ri.source_kind
+         AND CASE e.source_kind
+               WHEN 'free' THEN e.candidate_id::text
+               WHEN 'paid' THEN e.paid_candidate_evidence_id::text
+               WHEN 'contact' THEN e.contact_id::text
+               ELSE ''
+             END=ri.source_reference_id
+         AND e.normalized_value_hash=ri.output_normalized_value_hash
+         AND e.status=ri.output_status
+        LEFT JOIN free_discovery_candidates f
+          ON e.source_kind='free' AND f.id=e.candidate_id
+        LEFT JOIN sfp_paid_candidate_evidence p
+          ON e.source_kind='paid' AND p.id=e.paid_candidate_evidence_id
+        LEFT JOIN provider_operations o
+          ON o.id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+        LEFT JOIN LATERAL (
+          SELECT subject_type,subject_id,outcome FROM provider_observations
+           WHERE operation_id=o.id ORDER BY observed_at DESC LIMIT 1
+        ) po ON TRUE
+       ORDER BY e.business_id,e.id
+     `))
+      : [];
+    const receiptBySource = new Map(receipts.map((row: any) => [
+      String(row.candidate_id ?? row.paid_candidate_evidence_id ?? ""),
+      row,
+    ]));
+    const receiptProofPassed = receipts.length === preview.selectedCandidates.length &&
+      preview.selectedCandidates.every((candidate) => {
+        const row: any = receiptBySource.get(String(candidate.candidateId));
+        const sourceId = String(row?.candidate_id ?? row?.paid_candidate_evidence_id ?? "");
+        const operationId = row?.validation_operation_id ?? row?.reused_from_operation_id;
+        return row?.status === "validated_outreach_eligible" &&
+          String(row.validation_run_id) === validationRunId &&
+          Number(row.business_id) === Number(candidate.businessId) &&
+          sourceId === String(candidate.candidateId) &&
+          row.validation_item_state === "completed" &&
+          row.validation_provider_outcome === "valid" &&
+          Number(row.policy_version) > 0 &&
+          Boolean(row.validation_operation_id) !== Boolean(row.reused_from_operation_id) &&
+          operationId && String(row.receipt_operation_id) === String(operationId) &&
+          row.provider === "zerobounce" &&
+          row.operation_state === "completed" &&
+          row.observation_subject_type === "business" &&
+          row.observation_subject_matches_business === true &&
+          row.observation_outcome === "valid" &&
+          row.current_source_identity_pin_matches === true;
+      });
+    const providerRequestDelta = zeroBounceCalls - callsBeforeValidation;
+    const directReceiptCount = receipts.filter((row: any) => Boolean(row.validation_operation_id)).length;
+    const providerBoundaryPassed = providerRequestDelta === Number(result.providerRequests) &&
+      Number(result.providerRequests) === directReceiptCount;
+    if (!validationSucceeded || !validationRunMatchesResult || !receiptProofPassed || !providerBoundaryPassed) {
+      emitFailOnlyDiagnostic(`validation:${label}`, {
+        cohortId,
+        validationRunId: validationRunId || null,
+        resultRunId,
+        validationRunState: validationRun?.state ?? null,
+        validationRunMatchesResult,
+        preview: {
+          gateOpen: preview.gateOpen,
+          gateBlockedReason: preview.gateBlockedReason,
+          snapshotHash: preview.snapshotHash,
+          addressesForValidation: preview.addressesForValidation,
+          selectedCandidates: preview.selectedCandidates.map((candidate: any) => ({
+            businessId: candidate.businessId,
+            candidateId: candidate.candidateId,
+          })),
+        },
+        result: {
+          failedCount: result.failedCount,
+          invalidCount: result.invalidCount,
+          validCount: result.validCount,
+          catchAllCount: result.catchAllCount,
+          providerRequests: result.providerRequests,
+          eligibilityRowsCreated: result.eligibilityRowsCreated,
+          zeroOutreachConfirmed: result.zeroOutreachConfirmed,
+        },
+        zeroBounceCalls: providerRequestDelta,
+        directReceiptCount,
+        selectedCandidateCount: preview.selectedCandidates.length,
+        receipts: receipts.map((row: any) => ({
+          eligibilityId: row.id,
+          businessId: Number(row.business_id),
+          status: row.status,
+          sourceKind: row.source_kind,
+          candidateId: row.candidate_id,
+          paidCandidateEvidenceId: row.paid_candidate_evidence_id,
+          validationOperationId: row.validation_operation_id,
+          reusedFromOperationId: row.reused_from_operation_id,
+          receiptOperationId: row.receipt_operation_id,
+          provider: row.provider,
+          operationState: row.operation_state,
+          observationSubjectType: row.observation_subject_type,
+          observationSubjectMatchesBusiness: row.observation_subject_matches_business,
+          observationOutcome: row.observation_outcome,
+          normalizedValueHashVersion: row.normalized_value_hash_version,
+          currentSourceIdentityPinMatches: row.current_source_identity_pin_matches,
+          validationRunId: row.validation_run_id,
+          validationItemState: row.validation_item_state,
+          validationItemOutcome: row.validation_item_outcome,
+          validationProviderOutcome: row.validation_provider_outcome,
+        })),
+        sourceCurrentness: await readStagingCurrentnessDiagnostic(
+          cohortId,
+          receipts.map((row: any) => String(row.id)),
+        ),
+      });
+    }
+    check(validationSucceeded,
+      `${label} fake-provider validation completes without failures, invalid candidates, or outreach`);
+    check(validationRunMatchesResult,
+      `${label} receipt proof is bound to the exact validation run created for this idempotency key`);
+    check(receiptProofPassed,
+      `${label} current selected sources each retain an exact, subject-bound direct or reused completed ZeroBounce receipt and current source pin`);
+    check(providerBoundaryPassed,
+      `${label} new ZeroBounce operations match calls across the disposable fake transport boundary, with reused receipts remaining governed`);
+    return { validationRunId, receipts };
+  }
+
   const policy = rows(await db.execute(sql`
     SELECT d.id, d.version, d.document_hash
       FROM sfp_outreach_policy_control c
@@ -99,7 +406,7 @@ try {
        cohort_state, frozen_at)
     VALUES (${cohortRunId}::uuid, ${String(program.id)}::uuid, ${`${runKey}-cohort`},
       'freezing', 10, ${createHash("sha256").update(runKey).digest("hex")},
-      ${"0".repeat(40)}, ${runKey}, 'freezing', NULL)
+      ${String(currentTestRuntime.artifactSha)}, ${runKey}, 'freezing', NULL)
   `);
 
   const campaign = rows(await db.execute(sql`
@@ -132,6 +439,21 @@ try {
      LIMIT 1
   `))[0];
   check(Boolean(packageVersion), "draft campaign and paused sequence current Healthcare v2 package seeded");
+  const fixturePackageAuthority = rows(await db.execute(sql`
+    SELECT campaign_id,sequence_id,content_hash
+      FROM sfp_campaign_package_versions
+     WHERE id=${String(packageVersion?.id)}::uuid
+       AND package_key=${fixturePackageKey} AND vertical='Healthcare' AND lifecycle_state='current'
+  `))[0];
+  assert.ok(fixturePackageAuthority, "the current fixture package must resolve to its authoritative campaign and sequence");
+  const fixturePackageCampaignId = Number(fixturePackageAuthority.campaign_id);
+  const fixturePackageSequenceId = Number(fixturePackageAuthority.sequence_id);
+  const fixturePackagePinnedContentHash = String(fixturePackageAuthority.content_hash);
+  const fixturePackageLiveContentHash = await computeLivePackageContentHash(
+    db, fixturePackageCampaignId, fixturePackageSequenceId,
+  );
+  check(fixturePackageLiveContentHash === fixturePackagePinnedContentHash,
+    "the exact current fixture package content matches its authoritative stored fingerprint before negative tests");
 
   const generation = rows(await db.execute(sql`
     INSERT INTO free_discovery_generations (run_key, actor_id, purpose, reason, state)
@@ -141,12 +463,30 @@ try {
   const classificationPolicyVersion = Number(rows(await db.execute(sql`
     SELECT policy_version FROM sfp_programs WHERE id=${String(program.id)}::uuid
   `))[0]?.policy_version);
+  async function seedFixtureOperatingGeography(businessId: number): Promise<any> {
+    await db.execute(sql`
+      INSERT INTO business_locations
+        (business_id,street_address,city,state,postal_code,county_fips,is_primary,created_at,updated_at)
+      VALUES (${businessId},'100 Test Avenue','Miami','FL','33130','12086',TRUE,NOW(),NOW())
+    `);
+    const geography = await resolveGeographyForBusiness(businessId, db);
+    assert.equal(geography.resolverVersion, GEOGRAPHY_RESOLVER_VERSION);
+    assert.equal(geography.outcome, "resolved");
+    assert.equal(geography.eligible, true);
+    assert.equal(geography.countyFips, "12086");
+    assert.ok(geography.winningLocationId, "fixture operating geography must resolve from its persisted business_locations row");
+    return geography;
+  }
   async function seedFrozenClassification(
     businessId: number,
     targetVertical: string,
     roiScore: number,
     targetCohortRunId = cohortRunId,
   ): Promise<void> {
+    const geography = await seedFixtureOperatingGeography(businessId);
+    const geographySource = geography.evidenceClass === "verified" ? "fips"
+      : geography.evidenceClass === "zip_inferred" ? "zip"
+        : geography.evidenceClass === "city_inferred" ? "city" : "none";
     const evidenceHash = createHash("sha256")
       .update(JSON.stringify({
         businessId, taxonomyVersion: TAXONOMY_VERSION_V2, classifierVersion: CLASSIFIER_VERSION,
@@ -168,10 +508,14 @@ try {
       INSERT INTO sfp_cohort_members
         (cohort_run_id, business_id, roi_score, geography_class, geography_source, county_fips, vertical,
          classifier_version, classifier_outcome, classifier_confidence, classifier_matched_target,
-         classifier_reasons, classifier_evidence_hash)
-      VALUES (${targetCohortRunId}::uuid, ${businessId}, ${roiScore}, 'verified', 'fips', '12086', ${targetVertical},
+         classifier_reasons, classifier_evidence_hash, geography_resolver_version, geography_outcome,
+         geography_location_id, geography_reasons)
+      VALUES (${targetCohortRunId}::uuid, ${businessId}, ${roiScore}, ${String(geography.evidenceClass)},
+        ${geographySource}, ${geography.countyFips}, ${targetVertical},
         ${CLASSIFIER_VERSION}, 'resolved_high', 0.95, ${targetVertical},
-        '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash})
+        '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash},
+        ${geography.resolverVersion}, ${geography.outcome}, ${geography.winningLocationId},
+        ${JSON.stringify(geography.reasons)}::jsonb)
     `);
     await db.execute(sql`
       INSERT INTO sfp_cohort_decisions
@@ -179,11 +523,15 @@ try {
          roi_score, selected, classifier_version, classifier_outcome, classifier_confidence,
          classifier_matched_target, classifier_reasons, classifier_evidence_hash,
          classification_evidence_id, classification_policy_version, classification_evidence_hash,
-         classification_classifier_version)
-      VALUES (${targetCohortRunId}::uuid, ${businessId}, 'selected', 'verified', 'fips', ${targetVertical},
+         classification_classifier_version, geography_resolver_version, geography_outcome,
+         geography_location_id, geography_reasons)
+      VALUES (${targetCohortRunId}::uuid, ${businessId}, 'selected', ${String(geography.evidenceClass)},
+        ${geographySource}, ${targetVertical},
         ${roiScore}, TRUE, ${CLASSIFIER_VERSION}, 'resolved_high', 0.95, ${targetVertical},
         '["CERTIFICATION_FROZEN_V2_TARGET"]'::jsonb, ${evidenceHash},
-        ${String(evidence.id)}::uuid, ${classificationPolicyVersion}, ${evidenceHash}, ${CLASSIFIER_VERSION})
+        ${String(evidence.id)}::uuid, ${classificationPolicyVersion}, ${evidenceHash}, ${CLASSIFIER_VERSION},
+        ${geography.resolverVersion}, ${geography.outcome}, ${geography.winningLocationId},
+        ${JSON.stringify(geography.reasons)}::jsonb)
     `);
   }
   const fixture: Array<{ eligibilityId: string; businessId: number; kind: "free" | "paid"; candidateId?: string; paidId?: string }> = [];
@@ -197,7 +545,7 @@ try {
     const businessId = Number(business.id);
     let candidateId: string | undefined;
     let paidId: string | undefined;
-    const normalizedHash = createHash("sha256").update(emails[i]).digest("hex");
+    const normalizedHash = createHash("sha256").update(`email\0${emails[i].trim().toLowerCase()}`).digest("hex");
     if (i === 1) {
       const evidence = await writeSfpPaidCandidateEvidence({
         businessId, provider: "outscraper", field: "email", value: emails[i],
@@ -221,23 +569,7 @@ try {
       candidateId = String(candidate.id);
     }
     await seedFrozenClassification(businessId, "Healthcare", 50);
-    const eligibility = rows(await db.execute(sql`
-      INSERT INTO sfp_outreach_eligibility
-        (cohort_run_id, business_id, candidate_id, source_kind, paid_candidate_evidence_id,
-         policy_version, status, decision_reason, validation_at, validation_expires_at,
-         role_inbox, masked_email, discovery_source, suppression_status,
-         outreach_policy_version, normalized_value_hash, policy_document_id,
-         policy_document_hash, consent_tier, reason_codes)
-      VALUES (${cohortRunId}::uuid, ${businessId}, ${candidateId ?? null}::uuid,
-         ${i === 1 ? "paid" : "free"}, ${paidId ?? null}::uuid,
-         ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture',
-         NOW(), NOW()+INTERVAL '20 days', TRUE, ${emails[i].replace(/^[^@]+/, "***")},
-         ${i === 1 ? "paid" : "free"}, 'not_suppressed', ${Number(policy.version)},
-         ${normalizedHash}, ${String(policy.id)}::uuid, ${String(policy.document_hash)},
-         'first_party_role_inbox', '[]'::jsonb)
-      RETURNING id
-    `))[0];
-    fixture.push({ eligibilityId: String(eligibility.id), businessId, kind: i === 1 ? "paid" : "free", candidateId, paidId });
+    fixture.push({ eligibilityId: "", businessId, kind: i === 1 ? "paid" : "free", candidateId, paidId });
   }
   // Businesses used by the completion-review regression checks below
   // (cross-business evidence binding, live content-hash drift, concurrent
@@ -260,19 +592,57 @@ try {
      WHERE id=${cohortRunId}::uuid
   `);
 
+  // Every staging fixture starts from a real governed validation receipt:
+  // source candidates are persisted above, but no eligibility status is
+  // fabricated directly in SQL.
+  const initialValidation = await validateFixtureCandidates(cohortRunId, "initial");
+  for (const item of fixture) {
+    const sourceId = item.kind === "free" ? String(item.candidateId) : String(item.paidId);
+    const validated = findFixtureValidationReceipt(initialValidation, item.businessId, sourceId);
+    assert.ok(
+      validated?.validation_operation_id || validated?.reused_from_operation_id,
+      "fixture eligibility must retain its exact current-run direct or reused provider operation",
+    );
+    item.eligibilityId = String(validated.id);
+  }
+
   // Free source and paid source use the same preview/execute path.
   let initialFreePreview: Awaited<ReturnType<typeof previewStagingV2>> | null = null;
   for (const [index, label] of [[0, "free"], [1, "paid"]] as const) {
     const item = fixture[index];
     const preview = await previewStagingV2({ cohortRunId, eligibilityIds: [item.eligibilityId], actorId: runKey });
     if (label === "free") initialFreePreview = preview;
-    check(preview.eligibleCount === 1 && preview.rows[0]?.packageKey === fixturePackageKey,
+    const previewPassed = preview.eligibleCount === 1 && preview.rows[0]?.packageKey === fixturePackageKey;
+    if (!previewPassed) {
+      emitFailOnlyDiagnostic(`staging-preview:${label}`, {
+        cohortId: cohortRunId,
+        eligibilityIds: [item.eligibilityId],
+        preview: summarizeStagingPreview(preview),
+        sourceCurrentness: await readStagingCurrentnessDiagnostic(cohortRunId, [item.eligibilityId]),
+      });
+    }
+    check(previewPassed,
       `${label} row previews against its package-pinned frozen v2 Healthcare target`);
     const result = await executeStagingV2({
       cohortRunId, eligibilityIds: [item.eligibilityId], commandKey: preview.commandKey,
       snapshotHash: preview.snapshotHash, actorId: runKey, confirmPayloadHash: preview.payloadHash,
     });
-    check(result.readyHeld === 1 && result.rejected === 0, `${label} row reaches ready_held`);
+    const stagingPassed = result.readyHeld === 1 && result.rejected === 0;
+    if (!stagingPassed) {
+      emitFailOnlyDiagnostic(`staging-execute:${label}`, {
+        cohortId: cohortRunId,
+        eligibilityIds: [item.eligibilityId],
+        preview: summarizeStagingPreview(preview),
+        result: {
+          readyHeld: result.readyHeld,
+          rejected: result.rejected,
+          reasons: result.reasons,
+          zeroOutreachConfirmed: result.zeroOutreachConfirmed,
+        },
+        sourceCurrentness: await readStagingCurrentnessDiagnostic(cohortRunId, [item.eligibilityId]),
+      });
+    }
+    check(stagingPassed, `${label} row reaches ready_held`);
     const intent = rows(await db.execute(sql`
       SELECT id, state, source_kind, candidate_id, paid_candidate_evidence_id
         FROM sfp_campaign_staging_intents WHERE eligibility_id=${item.eligibilityId}::uuid
@@ -366,7 +736,7 @@ try {
         (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
          decision_reason, validation_at, validation_expires_at, role_inbox, normalized_value_hash)
       VALUES (${cohortRunId}::uuid, ${fixture[3].businessId}, ${String(stateCandidate.id)}::uuid, 'free',
-         ${Number(policy.version) + index + 10}, 'validated_outreach_eligible', ${`legacy-${state}`},
+          ${Number(policy.version) + index + 10}, 'validated_review_required', ${`legacy-${state}`},
          NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`${state}${runKey}`).digest("hex")})
       RETURNING id
     `))[0];
@@ -415,7 +785,7 @@ try {
           (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
            decision_reason, validation_at, validation_expires_at, role_inbox)
         VALUES (${cohortRunId}::uuid, ${fixture[3].businessId}, ${String(promotedCandidate.id)}::uuid, 'free',
-          ${Number(policy.version) + 20}, 'validated_outreach_eligible', 'legacy_promoted',
+          ${Number(policy.version) + 20}, 'validated_review_required', 'legacy_promoted',
           NOW(), NOW()+INTERVAL '20 days', TRUE)
         RETURNING id
       `))[0];
@@ -467,35 +837,66 @@ try {
   // this and reject the row rather than projecting fixture[0]'s address
   // into business B's master-lead record.
   const mismatchBusinessId = extraBusinessIds.mismatch;
-  const mismatchEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${cohortRunId}::uuid, ${mismatchBusinessId}, ${fixture[0].candidateId}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_mismatch',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`mismatch-${runKey}`).digest("hex")},
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
+  const mismatchEmail = `mismatch-${runKey}@example.org`;
+  const sealedMismatch = seal("email", mismatchEmail);
+  const mismatchCandidate = rows(await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
+       disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
+       envelope_key_version, normalized_value_hash, masked_value, created_at)
+    VALUES (${String(generation.id)}::uuid, ${mismatchBusinessId}, 'email', 'business',
+      ${`${runKey}-mismatch.example.org`}, 'certification', 'role', 'staged', 90,
+      ${sealedMismatch.ciphertext}, ${sealedMismatch.nonce}, ${sealedMismatch.tag}, 1,
+      ${sealedMismatch.normalizedValueHash}, ${sealedMismatch.maskedValue}, NOW())
     RETURNING id
   `))[0];
+  assert.ok(mismatchCandidate?.id);
+  const mismatchValidation = await validateFixtureCandidates(cohortRunId, "mismatch");
+  const mismatchEligibility = findFixtureValidationReceipt(
+    mismatchValidation, mismatchBusinessId, String(mismatchCandidate.id),
+  );
+  assert.ok(mismatchEligibility?.id, "mismatch staging fixture is first validated normally");
+  // Introduce only the deliberately corrupt cross-business pointer after
+  // validation. The eligibility and its completed provider receipt remain
+  // persisted by the governed validation path.
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility
+       SET candidate_id=${String(fixture[0].candidateId)}::uuid
+     WHERE id=${String(mismatchEligibility.id)}::uuid
+  `);
   const mismatchPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(mismatchEligibility.id)], actorId: runKey });
   const mismatchResult = await executeStagingV2({
     cohortRunId, eligibilityIds: [String(mismatchEligibility.id)], commandKey: mismatchPreview.commandKey,
     snapshotHash: mismatchPreview.snapshotHash, actorId: runKey, confirmPayloadHash: mismatchPreview.payloadHash,
   });
-  check(mismatchResult.readyHeld === 0 && mismatchResult.rejected === 1 && "SFP_STAGING_EVIDENCE_BUSINESS_MISMATCH" in mismatchResult.reasons,
+  const mismatchReasonPassed = "SFP_STAGING_TYPED_SOURCE_MISSING_OR_BUSINESS_CHANGED" in mismatchResult.reasons;
+  const mismatchPassed = mismatchResult.readyHeld === 0 && mismatchResult.rejected === 1 && mismatchReasonPassed;
+  if (!mismatchPassed) {
+    emitFailOnlyDiagnostic("cross-business-evidence-rejection", {
+      expectedReason: "SFP_STAGING_TYPED_SOURCE_MISSING_OR_BUSINESS_CHANGED",
+      readyHeld: mismatchResult.readyHeld,
+      rejected: mismatchResult.rejected,
+      reasons: mismatchResult.reasons,
+      preview: summarizeStagingPreview(mismatchPreview),
+    });
+  }
+  check(mismatchPassed,
     "cross-business evidence reference is rejected, never projected into the wrong business's master lead");
   const mismatchLead = rows(await db.execute(sql`
     SELECT id FROM master_leads WHERE canonical_business_id=${mismatchBusinessId} AND pipeline_origin='sfp_pipeline'
   `))[0];
+  const mismatchIntentCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_campaign_staging_intents
+     WHERE eligibility_id=${String(mismatchEligibility.id)}::uuid AND state='ready_held'
+  `))[0]?.count ?? 0);
   check(!mismatchLead, "no master lead is created for the business with mismatched evidence");
+  check(mismatchIntentCount === 0, "mismatched evidence creates no ready_held staging intent");
 
   // --- Live content-hash drift (completion-review Defect 2) --------------
-  // Editing the pinned campaign's actual content (a real content_revision
-  // bump — not just touching the package-version row) must be caught live,
-  // inside the staging transaction, even though the package mapping itself
-  // still reports lifecycle_state='current'.
-  await db.execute(sql`UPDATE campaigns SET content_revision = content_revision + 1, description = 'edited after package was pinned' WHERE id = ${Number(campaign.id)}`);
+  // Mutate follow_up_sequences.description, an authoritative field in the
+  // canonical live package fingerprint, after capturing the ready preview.
+  // This mirrors the integrated-pipeline certification and intentionally
+  // avoids legacy campaign columns or empty setup fields.
   const driftBusinessId = extraBusinessIds.drift2;
   const driftEmail = `content-drift-${runKey}@example.org`;
   const sealedDrift = seal("email", driftEmail);
@@ -510,26 +911,69 @@ try {
       ${sealedDrift.normalizedValueHash}, ${sealedDrift.maskedValue}, NOW())
     RETURNING id
   `))[0];
-  const driftEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${cohortRunId}::uuid, ${driftBusinessId}, ${String(driftCandidate.id)}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_drift',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`drift2-${runKey}`).digest("hex")},
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-    RETURNING id
-  `))[0];
+  assert.ok(driftCandidate?.id);
+  const driftValidation = await validateFixtureCandidates(cohortRunId, "content-drift");
+  const driftEligibility = findFixtureValidationReceipt(
+    driftValidation, driftBusinessId, String(driftCandidate.id),
+  );
   const driftPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(driftEligibility.id)], actorId: runKey });
+  check(driftPreview.rows[0]?.disposition === "eligible",
+    "content-drift fixture captures an eligible preview before authoritative content changes");
+  const originalSequenceContent = rows(await db.execute(sql`
+    SELECT description FROM follow_up_sequences WHERE id=${fixturePackageSequenceId}
+  `))[0];
+  const driftedSequenceDescription = `${String(originalSequenceContent?.description ?? "")} ${runKey} authoritative content drift`;
+  await db.execute(sql`
+    UPDATE follow_up_sequences SET description=${driftedSequenceDescription}
+     WHERE id=${fixturePackageSequenceId}
+  `);
+  const liveHashAfterSequenceEdit = await computeLivePackageContentHash(
+    db, fixturePackageCampaignId, fixturePackageSequenceId,
+  );
+  const authoritativeSequenceContentChanged =
+    fixturePackageLiveContentHash === fixturePackagePinnedContentHash &&
+    liveHashAfterSequenceEdit !== fixturePackagePinnedContentHash;
+  check(authoritativeSequenceContentChanged,
+    "the post-preview sequence description edit changes the authoritative live package fingerprint");
   const driftResult = await executeStagingV2({
     cohortRunId, eligibilityIds: [String(driftEligibility.id)], commandKey: driftPreview.commandKey,
     snapshotHash: driftPreview.snapshotHash, actorId: runKey, confirmPayloadHash: driftPreview.payloadHash,
   });
-  check(driftResult.readyHeld === 0 && driftResult.rejected === 1 && "SFP_STAGING_PACKAGE_CONTENT_DRIFTED" in driftResult.reasons,
-    "a campaign content-revision edit after pinning is caught live and fails closed, never reaches ready_held on stale content");
-  // Restore the campaign so it does not poison any later readers of this fixture data.
-  await db.execute(sql`UPDATE campaigns SET content_revision = content_revision - 1, description = NULL WHERE id = ${Number(campaign.id)}`);
+  const driftReasonPassed = "SFP_STAGING_LIVE_PACKAGE_CONTENT_CHANGED" in driftResult.reasons;
+  const driftPassed = driftResult.readyHeld === 0 && driftResult.rejected === 1 &&
+    driftReasonPassed && authoritativeSequenceContentChanged;
+  const driftLead = rows(await db.execute(sql`
+    SELECT id FROM master_leads WHERE canonical_business_id=${driftBusinessId} AND pipeline_origin='sfp_pipeline'
+  `))[0];
+  const driftIntentCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM sfp_campaign_staging_intents
+     WHERE eligibility_id=${String(driftEligibility.id)}::uuid AND state='ready_held'
+  `))[0]?.count ?? 0);
+  if (!driftPassed) {
+    emitFailOnlyDiagnostic("authoritative-package-content-drift", {
+      expectedReason: "SFP_STAGING_LIVE_PACKAGE_CONTENT_CHANGED",
+      readyHeld: driftResult.readyHeld,
+      rejected: driftResult.rejected,
+      reasons: driftResult.reasons,
+      authoritativeSequenceContentChanged,
+      masterLeadCreated: Boolean(driftLead),
+      readyHeldIntentCount: driftIntentCount,
+      preview: summarizeStagingPreview(driftPreview),
+    });
+  }
+  check(driftPassed,
+    "an authoritative sequence-content edit after preview is caught live and fails closed, never reaches ready_held on stale content");
+  check(!driftLead, "authoritative package content drift creates no master lead");
+  check(driftIntentCount === 0, "authoritative package content drift creates no ready_held staging intent");
+  await db.execute(sql`
+    UPDATE follow_up_sequences SET description=${originalSequenceContent?.description ?? null}
+     WHERE id=${fixturePackageSequenceId}
+  `);
+  const restoredLiveContentHash = await computeLivePackageContentHash(
+    db, fixturePackageCampaignId, fixturePackageSequenceId,
+  );
+  check(restoredLiveContentHash === fixturePackagePinnedContentHash,
+    "the authoritative sequence content is restored exactly after the drift regression check");
 
   // --- Concurrent duplicate execution converges to one intent (Defect 3) -
   const concurrentBusinessId = extraBusinessIds.concurrent;
@@ -548,18 +992,11 @@ try {
       ${sealedConcurrent.normalizedValueHash}, ${sealedConcurrent.maskedValue}, NOW())
     RETURNING id
   `))[0];
-  const concurrentEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, normalized_value_hash_version,
-       policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${cohortRunId}::uuid, ${concurrentBusinessId}, ${String(concurrentCandidate.id)}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_concurrent',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${sealedConcurrent.normalizedValueHash}, 1,
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-    RETURNING id
-  `))[0];
+  assert.ok(concurrentCandidate?.id);
+  const concurrentValidation = await validateFixtureCandidates(cohortRunId, "concurrent");
+  const concurrentEligibility = findFixtureValidationReceipt(
+    concurrentValidation, concurrentBusinessId, String(concurrentCandidate.id),
+  );
   const concurrentPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], actorId: runKey });
   const [concurrentA, concurrentB] = await Promise.all([
     executeStagingV2({ cohortRunId, eligibilityIds: [String(concurrentEligibility.id)], commandKey: concurrentPreview.commandKey, snapshotHash: concurrentPreview.snapshotHash, actorId: runKey, confirmPayloadHash: concurrentPreview.payloadHash }),
@@ -615,7 +1052,12 @@ try {
   // counter correctness across MULTIPLE ticks of the SAME run (the exact
   // scenario the old `+=` counters double-counted on). -------------------
   const { processSfpCampaignStagingTick } = await import("../server/services/cro03/sfp-campaign-staging-worker");
-  const workerBusinessId = extraBusinessIds.workerOk;
+  const workerBusiness = rows(await db.execute(sql`
+    INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
+    VALUES (${`${runKey}-worker-business`}, ${`${runKey}-worker-business`.toLowerCase()}, NULL, 'FL', 'canonical', NOW())
+    RETURNING id
+  `))[0];
+  const workerBusinessId = Number(workerBusiness.id);
   await db.execute(sql`
     UPDATE sfp_programs SET recurring_enabled = TRUE,
       schedule_config = jsonb_set(COALESCE(schedule_config, '{}'::jsonb), '{campaignStaging}', '5')
@@ -623,10 +1065,25 @@ try {
   `);
   process.env.BACKGROUND_JOB_PROFILE = "selective:sfp-campaign-staging";
 
-  // Fixture: one row that will succeed, and one that will be forced to
-  // dead-letter (bad candidate reference) to exercise the retry/dead-letter
-  // lifecycle and the PM-13 requeue route end-to-end.
+  // The positive worker probe gets an isolated, genuinely frozen cohort so
+  // unrelated still-eligible negative-regression fixtures cannot occupy the
+  // worker's bounded inventory ahead of it. The retry/dead-letter lifecycle
+  // is exercised below with its own dedicated frozen cohort.
   const workerOkEmail = `worker-ok-${runKey}@example.org`;
+  const workerCohortRunId = randomUUID();
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs
+      (id, program_id, idempotency_key, status, cohort_size, cohort_hash, release_sha, actor_id,
+       cohort_state, frozen_at)
+    VALUES (${workerCohortRunId}::uuid, ${String(program.id)}::uuid, ${`${runKey}-worker-cohort`},
+      'freezing', 1, ${createHash("sha256").update(`worker-${runKey}`).digest("hex")},
+      ${String(currentTestRuntime.artifactSha)}, ${runKey}, 'freezing', NULL)
+  `);
+  await seedFrozenClassification(workerBusinessId, "Healthcare", 50, workerCohortRunId);
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW()
+     WHERE id=${workerCohortRunId}::uuid
+  `);
   const sealedWorkerOk = seal("email", workerOkEmail);
   const workerOkCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -639,18 +1096,47 @@ try {
       ${sealedWorkerOk.normalizedValueHash}, ${sealedWorkerOk.maskedValue}, NOW())
     RETURNING id
   `))[0];
-  const workerOkEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${cohortRunId}::uuid, ${workerBusinessId}, ${String(workerOkCandidate.id)}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_worker_ok',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`worker-ok-${runKey}`).digest("hex")},
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-    RETURNING id
-  `))[0];
+  assert.ok(workerOkCandidate?.id);
+  const workerValidation = await validateFixtureCandidates(workerCohortRunId, "worker-ok");
+  const workerOkEligibility = findFixtureValidationReceipt(
+    workerValidation, workerBusinessId, String(workerOkCandidate.id),
+  );
+  check(Boolean(workerOkEligibility?.validation_operation_id || workerOkEligibility?.reused_from_operation_id),
+    "worker success fixture is created by its exact current-run completed fake ZeroBounce validation");
 
+  // Observe the exact persisted source inventory the recurring worker will
+  // see, then bind it through the real snapshot service before the tick.
+  const workerInventory = rows(await db.execute(sql`
+    SELECT e.id,e.business_id,e.source_kind,e.candidate_id,e.validation_operation_id
+      FROM sfp_outreach_eligibility e
+     WHERE e.cohort_run_id=${workerCohortRunId}::uuid
+       AND e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL
+     ORDER BY e.created_at,e.id
+  `));
+  check(workerInventory.length === 1 &&
+    String(workerInventory[0]?.id) === String(workerOkEligibility.id) &&
+    Number(workerInventory[0]?.business_id) === workerBusinessId &&
+    workerInventory[0]?.source_kind === "free" &&
+    String(workerInventory[0]?.candidate_id) === String(workerOkCandidate.id) &&
+    Boolean(workerInventory[0]?.validation_operation_id),
+  "the frozen worker cohort contains exactly the governed, current source row intended for the worker");
+  const workerSourcePreview = workerInventory.length > 0
+    ? await previewStagingV2({
+        cohortRunId: workerCohortRunId,
+        eligibilityIds: workerInventory.map((row: any) => String(row.id)),
+        actorId: runKey,
+      })
+    : null;
+  check(workerSourcePreview?.eligibleCount === 1 &&
+    workerSourcePreview?.rows[0]?.disposition === "eligible" &&
+    workerSourcePreview?.rows[0]?.eligibilityId === String(workerOkEligibility.id),
+  "the worker's persisted inventory is admitted by the real frozen-run source/package snapshot");
+
+  const workerRuntimeSelection = await runtimeIdentityHelper.selectSfpRuntimeTestRelease(runKey);
+  check(workerRuntimeSelection.currentReleaseSelected && workerRuntimeSelection.ownerLive &&
+    workerRuntimeSelection.ready &&
+    workerRuntimeSelection.selectedRelease?.artifactSha === currentTestRuntime.artifactSha,
+  "the worker tick starts with this test process's helper-selected release and persisted owner lease");
   const tick1 = await processSfpCampaignStagingTick();
   check(tick1.enabled === true, "recurring campaign-staging tick runs when the capability and schedule are both configured on");
 
@@ -660,9 +1146,9 @@ try {
   // execution) as this recurring run, making a bare ORDER BY created_at
   // DESC LIMIT 1 pick the wrong row.
   const workerRun = rows(await db.execute(sql`
-    SELECT id, state, selected_count, processed_count, succeeded_count, failed_count
+    SELECT id, state, selected_count, processed_count, succeeded_count, failed_count, claim_token
       FROM sfp_stage_runs
-     WHERE stage='campaign_staging' AND cohort_run_id=${cohortRunId}::uuid AND actor_id='system:sfp-campaign-staging'
+     WHERE stage='campaign_staging' AND cohort_run_id=${workerCohortRunId}::uuid AND actor_id='system:sfp-campaign-staging'
      ORDER BY created_at DESC LIMIT 1
   `))[0];
   check(!!workerRun, "recurring worker tick created/advanced a sfp_stage_runs row");
@@ -675,14 +1161,92 @@ try {
     "after a single worker tick, processed_count exactly equals the total item row count for this run (no double count)");
   check(Number(workerRun.succeeded_count) === (workerItemStates.find((r: any) => r.state === "completed")?.count ?? 0),
     "succeeded_count exactly equals COUNT(*) of completed items, not an incremented tally");
+  const workerBatchItems = rows(await db.execute(sql`
+    SELECT business_id,state,outcome_code,attempt_count FROM sfp_stage_items
+     WHERE stage_run_id=${String(workerRun.id)}::uuid AND provider='campaign_staging'
+  `));
+  const workerBatchPassed = workerBatchItems.length === 1 &&
+    Number(workerBatchItems[0]?.business_id) === workerBusinessId &&
+    workerBatchItems[0]?.state === "completed";
+  if (!workerBatchPassed) {
+    emitFailOnlyDiagnostic("worker-success", {
+      tick: {
+        enabled: tick1.enabled,
+        processed: tick1.processed,
+        succeeded: tick1.succeeded,
+        failed: tick1.failed,
+        stopReason: tick1.stopReason,
+      },
+      run: {
+        id: workerRun.id,
+        state: workerRun.state,
+        selectedCount: workerRun.selected_count,
+        processedCount: workerRun.processed_count,
+        succeededCount: workerRun.succeeded_count,
+        failedCount: workerRun.failed_count,
+        claimTokenPresent: Boolean(workerRun.claim_token),
+      },
+      preTickInventory: workerInventory.map((row: any) => ({
+        eligibilityId: row.id,
+        businessId: Number(row.business_id),
+        sourceKind: row.source_kind,
+        candidateId: row.candidate_id,
+        validationOperationIdPresent: Boolean(row.validation_operation_id),
+      })),
+      preTickPreview: summarizeStagingPreview(workerSourcePreview),
+      items: workerBatchItems,
+      sourceCurrentness: await readStagingCurrentnessDiagnostic(
+        workerCohortRunId,
+        [String(workerOkEligibility.id)],
+      ),
+    });
+  }
+  check(workerBatchPassed,
+  "the worker's actual one-row frozen-cohort inventory completes as ready for held staging");
+  const workerIntent = rows(await db.execute(sql`
+    SELECT id,eligibility_id,command_key,snapshot_hash,state
+      FROM sfp_campaign_staging_intents
+     WHERE cohort_run_id=${workerCohortRunId}::uuid AND eligibility_id=${String(workerOkEligibility.id)}::uuid
+  `))[0];
+  const workerPersistedSnapshot = workerIntent && workerRun?.claim_token
+    ? await previewStagingV2({
+        cohortRunId: workerCohortRunId,
+        eligibilityIds: [String(workerOkEligibility.id)],
+        actorId: "system:sfp-campaign-staging",
+        resumeCommandKey: String(workerIntent.command_key),
+        attemptSalt: String(workerRun.claim_token),
+      })
+    : null;
+  const workerSnapshotPassed = workerIntent?.state === "ready_held" &&
+    workerPersistedSnapshot?.snapshotHash === workerIntent.snapshot_hash &&
+    workerPersistedSnapshot?.commandKey === workerIntent.command_key;
+  if (!workerSnapshotPassed) {
+    emitFailOnlyDiagnostic("worker-persisted-snapshot", {
+      workerRunId: workerRun.id,
+      claimTokenPresent: Boolean(workerRun.claim_token),
+      intent: workerIntent ? {
+        id: workerIntent.id,
+        eligibilityId: workerIntent.eligibility_id,
+        state: workerIntent.state,
+        snapshotHashPresent: Boolean(workerIntent.snapshot_hash),
+        commandKeyPresent: Boolean(workerIntent.command_key),
+      } : null,
+      reconstructedSnapshot: workerPersistedSnapshot
+        ? summarizeStagingPreview(workerPersistedSnapshot)
+        : null,
+      sourceCurrentness: await readStagingCurrentnessDiagnostic(
+        workerCohortRunId,
+        [String(workerOkEligibility.id)],
+      ),
+    });
+  }
+  check(workerSnapshotPassed,
+  "the worker's committed intent reproduces the exact claim-salted snapshot and command from its persisted frozen-run source");
 
-  // Run a second tick against the SAME run. The worker's eligible-row query
-  // scans the whole shared cohort by created_at, so this tick may legitimately
-  // pick up other fixtures' still-eligible leftover rows too (e.g. mismatch/
-  // drift, which never reached an intent) — that is correct recurring-worker
-  // behavior, not a bug, so the run's AGGREGATE counters are expected to
-  // grow. What must never happen is a tick-1 'completed' item's own row
-  // being reprocessed/double-counted by a later tick.
+  // Run a second global tick while asserting this isolated run's already
+  // completed item remains untouched. The drain may process other cohorts,
+  // but those belong to separate run/item ledgers and cannot alter this
+  // worker run's completed item.
   const completedBeforeSecondTick = rows(await db.execute(sql`
     SELECT id, updated_at FROM sfp_stage_items WHERE stage_run_id = ${String(workerRun.id)}::uuid AND state='completed'
   `));
@@ -706,15 +1270,11 @@ try {
   check(Number(workerRunAfterSecondTick.processed_count) === workerRunItemTotalAfterSecondTick,
     "the run's counters after a resumed tick still equal the real item-row count, not a double-incremented tally");
 
-  // --- Corrective patch check 1: injected-crash / resume regression -------
-  // Simulate a process crash between "row A's intent committed" and "outer
-  // command marked completed": a row already carries staging_intent_id for
-  // THIS commandKey, but the sfp_campaign_staging_commands row is still
-  // 'executing' (never reached 'completed'). Without the fix, the fresh
-  // preview executeStagingV2() re-derives on resume would reclassify this
-  // row 'blocked: already_has_staging_intent', change the snapshot hash,
-  // and throw SFP_STAGING_SNAPSHOT_DRIFTED before the idempotent no-op
-  // check above ever runs.
+  // --- Corrective patch check 1: lost response / idempotent replay --------
+  // Use an ordinary governed preview and execute, then deliberately discard
+  // the successful response to model a caller that lost it after commit.
+  // The next identical request must replay the persisted result without
+  // fabricating/deleting a command, intent, eligibility, or lead row.
   const crashBusinessId = extraBusinessIds.crash;
   const crashEmail = `crash-resume-${runKey}@example.org`;
   const sealedCrash = seal("email", crashEmail);
@@ -729,68 +1289,77 @@ try {
       ${sealedCrash.normalizedValueHash}, ${sealedCrash.maskedValue}, NOW())
     RETURNING id
   `))[0];
-  const crashEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${cohortRunId}::uuid, ${crashBusinessId}, ${String(crashCandidate.id)}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_crash',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`crash-${runKey}`).digest("hex")},
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-    RETURNING id
-  `))[0];
+  assert.ok(crashCandidate?.id);
+  const crashValidation = await validateFixtureCandidates(cohortRunId, "crash-resume");
+  const crashEligibility = findFixtureValidationReceipt(
+    crashValidation, crashBusinessId, String(crashCandidate.id),
+  );
+  check(Boolean(crashEligibility?.validation_operation_id || crashEligibility?.reused_from_operation_id),
+    "crash-resume fixture uses its exact current-run completed fake ZeroBounce receipt");
   const crashPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(crashEligibility.id)], actorId: runKey });
   check(crashPreview.rows[0]?.disposition === "eligible", "crash-resume fixture previews as eligible before any staging occurs");
 
-  // Fabricate the crashed mid-command state directly: the row's intent is
-  // already committed (as a real row commit ahead of the crash would have
-  // left it) under crashPreview.commandKey, but the outer command row is
-  // still 'executing' — never reached 'completed'.
-  const crashIntent = rows(await db.execute(sql`
-    INSERT INTO sfp_campaign_staging_intents
-      (cohort_run_id, eligibility_id, business_id, candidate_id, source_kind,
-       idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage,
-       package_key, policy_document_hash, snapshot_hash, payload_hash, command_key,
-       operator_selected_at, operator_selected_by, ready_held_at)
-    VALUES (${cohortRunId}::uuid, ${String(crashEligibility.id)}::uuid, ${crashBusinessId},
-       ${String(crashCandidate.id)}::uuid, 'free', ${`${runKey}-crash-resume`}, ${runKey}, 'ready_held',
-       ${Number(policy.version)},
-       ${JSON.stringify({ status: "validated_outreach_eligible", pinnedPackageContentHash: crashPreview.rows[0]?.packageContentHash ?? null, pinnedPolicyHash: crashPreview.policyDocumentHash, validationExpiresAt: crashPreview.rows[0]?.validationExpiresAt ?? null })}::jsonb,
-       '{}'::jsonb, ${crashPreview.rows[0]?.packageKey ?? null}, ${crashPreview.policyDocumentHash},
-       ${crashPreview.snapshotHash}, ${crashPreview.payloadHash}, ${crashPreview.commandKey}, NOW(), ${runKey}, NOW())
-    RETURNING id
+  // This is the ordinary commit path. Its returned value is intentionally
+  // discarded: the caller is modeled as having lost the response in flight.
+  await executeStagingV2({
+    cohortRunId, eligibilityIds: [String(crashEligibility.id)], commandKey: crashPreview.commandKey,
+    snapshotHash: crashPreview.snapshotHash, actorId: runKey, confirmPayloadHash: crashPreview.payloadHash,
+  });
+  const crashCommittedIntent = rows(await db.execute(sql`
+    SELECT id,state,command_key,snapshot_hash,payload_hash
+      FROM sfp_campaign_staging_intents
+     WHERE cohort_run_id=${cohortRunId}::uuid AND eligibility_id=${String(crashEligibility.id)}::uuid
   `))[0];
-  await db.execute(sql`
-    UPDATE sfp_outreach_eligibility SET campaign_staged_at = NOW(), campaign_staged_by = ${runKey},
-      staging_intent_id = ${String(crashIntent.id)}::uuid WHERE id = ${String(crashEligibility.id)}::uuid
-  `);
-  await db.execute(sql`
-    INSERT INTO sfp_campaign_staging_commands (cohort_run_id, command_key, payload_hash, snapshot_hash, actor_id, state)
-    VALUES (${cohortRunId}::uuid, ${crashPreview.commandKey}, ${crashPreview.payloadHash}, ${crashPreview.snapshotHash}, ${runKey}, 'executing')
-  `);
+  const crashCommittedEligibility = rows(await db.execute(sql`
+    SELECT staging_intent_id,campaign_staged_at
+      FROM sfp_outreach_eligibility WHERE id=${String(crashEligibility.id)}::uuid
+  `))[0];
+  const crashLeadCountBeforeReplay = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM master_leads
+     WHERE canonical_business_id=${crashBusinessId} AND pipeline_origin='sfp_pipeline'
+  `))[0]?.count ?? 0);
+  check(crashCommittedIntent?.state === "ready_held" &&
+    crashCommittedIntent?.command_key === crashPreview.commandKey &&
+    crashCommittedIntent?.snapshot_hash === crashPreview.snapshotHash &&
+    crashCommittedIntent?.payload_hash === crashPreview.payloadHash &&
+    String(crashCommittedEligibility?.staging_intent_id) === String(crashCommittedIntent?.id) &&
+    Boolean(crashCommittedEligibility?.campaign_staged_at),
+  "the ordinary governed execute commits one ready_held intent with the exact preview pins before its response is discarded");
+  check(crashLeadCountBeforeReplay === 1,
+    "the ordinary execute creates exactly one SFP-origin lead before the lost-response replay");
 
   const resumedPreview = await previewStagingV2({
     cohortRunId, eligibilityIds: [String(crashEligibility.id)], actorId: runKey, resumeCommandKey: crashPreview.commandKey,
   });
-  check(resumedPreview.rows[0]?.disposition === "eligible" && resumedPreview.snapshotHash === crashPreview.snapshotHash,
-    "resumed preview of a row already committed under the SAME commandKey reconstructs 'eligible' with the identical snapshot hash, not 'blocked'");
+  check(resumedPreview.rows[0]?.disposition === "eligible" &&
+    resumedPreview.snapshotHash === crashPreview.snapshotHash &&
+    resumedPreview.payloadHash === crashPreview.payloadHash &&
+    resumedPreview.commandKey === crashPreview.commandKey,
+  "resume preview of the committed intent reconstructs the exact original eligible snapshot, payload, and command pins");
 
-  let resumeThrew: unknown;
-  let resumeResult: Awaited<ReturnType<typeof executeStagingV2>> | undefined;
+  let replayThrew: unknown;
+  let replayResult: Awaited<ReturnType<typeof executeStagingV2>> | undefined;
   try {
-    resumeResult = await executeStagingV2({
+    replayResult = await executeStagingV2({
       cohortRunId, eligibilityIds: [String(crashEligibility.id)], commandKey: crashPreview.commandKey,
       snapshotHash: crashPreview.snapshotHash, actorId: runKey, confirmPayloadHash: crashPreview.payloadHash,
     });
-  } catch (error) { resumeThrew = error; }
-  check(!resumeThrew, "resuming a crashed command (executing, row already committed) does NOT throw SFP_STAGING_SNAPSHOT_DRIFTED");
-  check(resumeResult?.readyHeld === 1 && resumeResult?.rejected === 0,
-    "the resumed command converges the already-committed row to readyHeld=1 via the idempotent no-op path, not a duplicate write");
+  } catch (error) { replayThrew = error; }
+  check(!replayThrew, "replaying the identical request after a lost successful response does not throw snapshot drift");
+  check(replayResult?.replayed === true && replayResult?.readyHeld === 1 &&
+    replayResult?.rejected === 0 && replayResult?.zeroOutreachConfirmed === true &&
+    replayResult?.stagedIntents.length === 1 &&
+    String(replayResult?.stagedIntents[0]?.intentId) === String(crashCommittedIntent?.id),
+  "the replay returns the same committed ready_held intent and no-outreach proof rather than creating a duplicate");
   const crashIntentCountAfterResume = Number(rows(await db.execute(sql`
     SELECT COUNT(*)::int AS count FROM sfp_campaign_staging_intents WHERE eligibility_id = ${String(crashEligibility.id)}::uuid
   `))[0].count);
-  check(crashIntentCountAfterResume === 1, "crash-resume produces exactly one intent for the row, never a second one");
+  const crashLeadCountAfterReplay = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM master_leads
+     WHERE canonical_business_id=${crashBusinessId} AND pipeline_origin='sfp_pipeline'
+  `))[0]?.count ?? 0);
+  check(crashIntentCountAfterResume === 1 && crashLeadCountAfterReplay === crashLeadCountBeforeReplay,
+    "lost-response replay retains exactly one intent and creates no additional SFP-origin lead");
 
   // --- Corrective patch check 2: plaintext boundary cannot be escaped -----
   // openSfpCandidatePlaintext() itself must refuse to let a callback hand
@@ -883,7 +1452,7 @@ try {
        cohort_state, frozen_at)
     VALUES (${retryCohortRunId}::uuid, ${String(retryProgram.id)}::uuid, ${`${runKey}-retry-cohort`},
       'freezing', 1, ${createHash("sha256").update(`retry-${runKey}`).digest("hex")},
-      ${"0".repeat(40)}, ${runKey}, 'freezing', NULL)
+      ${String(currentTestRuntime.artifactSha)}, ${runKey}, 'freezing', NULL)
   `);
   const retryBusiness = rows(await db.execute(sql`
     INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
@@ -909,22 +1478,18 @@ try {
       ${sealedRetry.normalizedValueHash}, ${sealedRetry.maskedValue}, NOW())
     RETURNING id
   `))[0];
+  assert.ok(retryCandidate?.id);
   // The source vertical remains raw-NULL; its frozen v2 target is
   // Fitness/Recreation. No current v2 package is seeded for that target, so
   // staging deterministically rejects with no_current_package_for_vertical.
   // This keeps the worker retry-lifecycle exercise independent of raw
   // business.vertical and preserves the v2 frozen-classification gate.
-  const retryEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${retryCohortRunId}::uuid, ${retryBusinessId}, ${String(retryCandidate.id)}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_retry',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`retry-${runKey}`).digest("hex")},
-        ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-     RETURNING id
-  `))[0];
+  const retryValidation = await validateFixtureCandidates(retryCohortRunId, "retry-lifecycle");
+  const retryEligibility = findFixtureValidationReceipt(
+    retryValidation, retryBusinessId, String(retryCandidate.id),
+  );
+  check(Boolean(retryEligibility?.validation_operation_id || retryEligibility?.reused_from_operation_id),
+    "retry-lifecycle staging candidate has its exact current-run completed provider operation");
   const retryPreview = await previewStagingV2({
     cohortRunId: retryCohortRunId, eligibilityIds: [String(retryEligibility.id)], actorId: runKey,
   });
@@ -1005,19 +1570,14 @@ try {
   // --- Issue 2: the real-address suppression check inside the plaintext   --
   // callback is bound to the staging transaction, not the global db pool.  --
   const stagingV2Source = source("server/services/cro03/sfp-campaign-staging-v2.ts");
-  check(/isCanonicallySuppressed\(\[\s*contactEmailTokenHash,\s*tokenHashForSuppression\s*\],\s*tx\)/.test(stagingV2Source),
-    "the real-address suppression re-check inside openSfpCandidatePlaintext() is bound to the staging transaction (tx), not the ambient db pool");
+  check(/isCanonicallySuppressed\(\s*\[\s*contactEmailTokenHash,\s*tokenHashForSuppression\s*\],\s*tx,\s*\[plaintext\]\s*,?\s*\)/s.test(stagingV2Source),
+    "the real-address suppression re-check inside the audited plaintext callback receives the real address and is bound to the staging transaction (tx)");
   // Functional proof: a real (decrypted) address that is suppressed must
-  // fail closed with SFP_STAGING_SUPPRESSED even though the eligibility
+  // fail closed with SFP_STAGING_ADDRESS_SUPPRESSED even though the eligibility
   // row's own masked/normalized hash was clean at preview time — this is
   // exactly the scenario the tx-bound recheck exists to catch.
   const suppressedEmail = `suppressed-real-${runKey}@example.org`;
   const suppressedTokenHash = createHash("sha256").update(suppressedEmail.trim().toLowerCase()).digest("hex");
-  await db.execute(sql`
-    INSERT INTO contacts (email, phone, email_token_hash, opted_out_email, first_name, last_name)
-    VALUES (${suppressedEmail}, ${`+1305555${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`}, ${suppressedTokenHash}, TRUE, 'Cert', 'Suppressed')
-    ON CONFLICT DO NOTHING
-  `);
   // The candidate/evidence business-membership check inside
   // openSfpCandidatePlaintext() requires this business to already be a
   // registered sfp_cohort_members row — and cohortRunId is frozen by this
@@ -1039,28 +1599,45 @@ try {
       ${sealedSuppressed.normalizedValueHash}, ${sealedSuppressed.maskedValue}, NOW())
     RETURNING id
   `))[0];
-  const suppressedEligibility = rows(await db.execute(sql`
-    INSERT INTO sfp_outreach_eligibility
-      (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
-       decision_reason, validation_at, validation_expires_at, role_inbox,
-       normalized_value_hash, normalized_value_hash_version,
-       policy_document_id, policy_document_hash, consent_tier, reason_codes)
-    VALUES (${cohortRunId}::uuid, ${suppressedBusinessId}, ${String(suppressedCandidate.id)}::uuid, 'free',
-       ${Number(policy.version)}, 'validated_outreach_eligible', 'certification_fixture_suppressed_real_address',
-       NOW(), NOW()+INTERVAL '20 days', TRUE, ${sealedSuppressed.normalizedValueHash}, 1,
-       ${String(policy.id)}::uuid, ${String(policy.document_hash)}, 'first_party_role_inbox', '[]'::jsonb)
-    RETURNING id
-  `))[0];
+  assert.ok(suppressedCandidate?.id);
+  const suppressedValidation = await validateFixtureCandidates(cohortRunId, "suppressed-real-address");
+  const suppressedEligibility = findFixtureValidationReceipt(
+    suppressedValidation, suppressedBusinessId, String(suppressedCandidate.id),
+  );
+  check(Boolean(suppressedEligibility?.validation_operation_id || suppressedEligibility?.reused_from_operation_id),
+    "suppression regression fixture is first given its exact current-run real completed provider receipt");
   const suppressedPreview = await previewStagingV2({ cohortRunId, eligibilityIds: [String(suppressedEligibility.id)], actorId: runKey });
+  check(suppressedPreview.eligibleCount === 1 && suppressedPreview.rows[0]?.disposition === "eligible",
+    "the genuine source address and completed validation receipt are current in the actual pre-suppression staging snapshot");
+  await db.execute(sql`
+    INSERT INTO contacts (email, phone, email_token_hash, opted_out_email, first_name, last_name)
+    VALUES (${suppressedEmail}, ${`+1305555${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`}, ${suppressedTokenHash}, TRUE, 'Cert', 'Suppressed')
+    ON CONFLICT DO NOTHING
+  `);
   const suppressedResult = await executeStagingV2({
     cohortRunId, eligibilityIds: [String(suppressedEligibility.id)], commandKey: suppressedPreview.commandKey,
     snapshotHash: suppressedPreview.snapshotHash, actorId: runKey, confirmPayloadHash: suppressedPreview.payloadHash,
   });
-  check(suppressedResult.readyHeld === 0 && suppressedResult.rejected === 1 && "SFP_STAGING_SUPPRESSED" in suppressedResult.reasons,
-    "a real (decrypted) address matching a suppressed contact is rejected inside the transaction, even though its masked/normalized hash looked clean at preview time");
+  const suppressedPassed = suppressedResult.readyHeld === 0 && suppressedResult.rejected === 1 &&
+    "SFP_STAGING_ADDRESS_SUPPRESSED" in suppressedResult.reasons;
   const suppressedLead = rows(await db.execute(sql`
     SELECT id FROM master_leads WHERE canonical_business_id=${suppressedBusinessId} AND pipeline_origin='sfp_pipeline'
   `))[0];
+  if (!suppressedPassed || suppressedLead) {
+    emitFailOnlyDiagnostic("suppression-recheck", {
+      eligibilityId: String(suppressedEligibility.id),
+      preview: summarizeStagingPreview(suppressedPreview),
+      result: {
+        readyHeld: suppressedResult.readyHeld,
+        rejected: suppressedResult.rejected,
+        reasons: suppressedResult.reasons,
+      },
+      sourceCurrentness: await readStagingCurrentnessDiagnostic(cohortRunId, [String(suppressedEligibility.id)]),
+      masterLeadCreated: Boolean(suppressedLead),
+    });
+  }
+  check(suppressedPassed,
+    "a real (decrypted) address matching a suppressed contact is rejected inside the transaction, even though its masked/normalized hash looked clean at preview time");
   check(!suppressedLead, "no master lead is created for a business whose real address is suppressed");
 
   // --- Issue 3: the cancel button must match the API's exact acceptance   --

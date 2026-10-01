@@ -60,17 +60,31 @@ const SHA1 = /^[0-9a-f]{40}$/i;
 const SHA256 = /^[0-9a-f]{64}$/i;
 
 /**
- * Normalise the PEM key from the Replit secrets UI, which may collapse
- * newlines to spaces.  Matches the normalisation in cro03d-run-ceremony.ts.
+ * Normalise PEM input that may contain escaped newlines or collapsed spaces.
+ * Assemble delimiters at runtime so complete key markers are not bundled.
  */
 function normalisePem(raw: string): string {
-  return raw
-    .replace(/-----BEGIN PRIVATE KEY----- /g, "-----BEGIN PRIVATE KEY-----\n")
-    .replace(/ -----END PRIVATE KEY-----/g, "\n-----END PRIVATE KEY-----")
-    .replace(
-      /-----BEGIN PRIVATE KEY-----\n(\S+)\n-----END PRIVATE KEY-----/g,
-      (_m, b64) => `-----BEGIN PRIVATE KEY-----\n${b64}\n-----END PRIVATE KEY-----\n`,
-    );
+  const delimiter = "-".repeat(5);
+  const labels = ["", "RSA ", "EC "];
+  let normalised = raw.replace(/\\n/g, "\n");
+
+  for (const label of labels) {
+    const begin = `${delimiter}BEGIN ${label}PRIVATE KEY${delimiter}`;
+    const end = `${delimiter}END ${label}PRIVATE KEY${delimiter}`;
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapedBegin = escapeRegex(begin);
+    const escapedEnd = escapeRegex(end);
+
+    normalised = normalised
+      .replace(new RegExp(`${escapedBegin} `, "g"), `${begin}\n`)
+      .replace(new RegExp(` ${escapedEnd}`, "g"), `\n${end}`)
+      .replace(
+        new RegExp(`${escapedBegin}\\n(\\S+)\\n${escapedEnd}`, "g"),
+        (_match, payload) => `${begin}\n${payload}\n${end}\n`,
+      );
+  }
+
+  return normalised;
 }
 
 /**

@@ -58,8 +58,10 @@ test("SFP validation checks both candidate and contact hashes", () => {
   // identity blocks the row. A brittle source-text regex here previously
   // pinned one exact (and stale) call-site shape; assert the call site
   // passes a two-element array built from both hash variables instead.
-  const suppressionCallSite = files.validation.match(/isCanonicallySuppressed\(\s*\[([^\]]+)\]\s*\)/);
-  assert.ok(suppressionCallSite, "no isCanonicallySuppressed([...]) call found in sfp-validation.ts");
+  const suppressionCallSite = files.validation.match(
+    /isCanonicallySuppressed\s*\(\s*\[\s*([^\]]*?)\s*\]\s*,\s*tx\s*,\s*\[\s*realEmail\s*\]\s*\)/s,
+  );
+  assert.ok(suppressionCallSite, "no isCanonicallySuppressed([...], tx, [realEmail]) call found in sfp-validation.ts");
   const args = suppressionCallSite[1];
   assert.ok(args.includes("emailHash"), "suppression check must include the candidate emailHash");
   assert.ok(args.includes("contactEmailTokenHash"), "suppression check must include contactEmailTokenHash");
