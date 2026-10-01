@@ -448,6 +448,7 @@ async function isSfpValidationSourceAndRunCurrent(input: {
   resolved: ResolvedSfpCandidateReference;
   plaintext: string;
   policy: SfpActivePolicy;
+  businessWrite?: boolean;
 }, executor: { execute: (query: any) => Promise<any> }): Promise<boolean> {
   const { candidate, resolved } = input;
   const expectedHash = candidate._normalizedHash ?? candidate.normalizedValueHash ?? null;
@@ -477,7 +478,9 @@ async function isSfpValidationSourceAndRunCurrent(input: {
     await lockCommercialGraphNodes(executor, graphNodes);
     await lockCommercialGraphMembershipSets(executor, graphNodes, ["contact_business"]);
   }
-  await lockSfpBusinessSafetySentinel(executor, input.businessId);
+  await lockSfpBusinessSafetySentinel(
+    executor, input.businessId, input.businessWrite ? "exclusive" : "shared",
+  );
   await lockSfpContactAddress(executor, input.plaintext);
 
   // Authority pins are retained only by the short caller transaction.
@@ -497,7 +500,8 @@ async function isSfpValidationSourceAndRunCurrent(input: {
        AND d.id=${input.policy.id}::uuid AND d.version=${input.policy.version}
        AND d.document_hash=${input.policy.documentHash}
      LIMIT 1
-     FOR SHARE OF c,d,r,p,m,b,decision
+     FOR SHARE OF c,d,r,p,m,decision
+     ${input.businessWrite ? sql`FOR UPDATE OF b` : sql`FOR SHARE OF b`}
   `))[0];
   if (!authorityPins) return false;
 
@@ -1076,9 +1080,9 @@ export async function executeSfpValidation(
       `));
       for (const row of eligibleNow) {
         await db.transaction(async (tx) => {
+          await lockSfpEligibilityProjectionWriteGate(tx);
           await lockCurrentSfpOutreachPolicy(tx, policy);
           await lockSfpBusinessSafetySentinel(tx, Number(row.business_id));
-          await lockSfpEligibilityProjectionWriteGate(tx);
           await lockSfpEligibilityProjectionKey(
             tx, String(row.cohort_run_id), Number(row.business_id), Number(row.policy_version),
           );
@@ -1501,9 +1505,21 @@ export async function executeSfpValidation(
           // is held without erasing the real provider receipt.
           await db.transaction(async (tx) => {
             await lockCurrentSfpRuntimeOwner(tx);
+            // The barrier must precede the first eligibility/business/address
+            // lock, not a later recheck of locks already held in this tx.
+            await notifySfpValidationConcurrencyHook(
+              "onBeforeFinalEligibilityLocks",
+              opts.concurrencyTestHooks?.onBeforeFinalEligibilityLocks,
+              concurrencyHookContext,
+            );
+            // All business, source, and address locks follow the global
+            // projection gate; otherwise a concurrent writer can hold that
+            // gate while waiting for a tuple held by this transaction.
+            await lockSfpEligibilityProjectionWriteGate(tx);
             const sourceAndRunCurrentAfterProvider = await isSfpValidationSourceAndRunCurrent({
               cohortRunId, businessId: bizId, candidate: cand as CandidateWithPin,
               resolved: resolvedReference, plaintext: realEmail, policy,
+              businessWrite: true,
             }, tx);
             let contactIdentityCurrentAfterProvider = sourceAndRunCurrentAfterProvider;
             const consentTierAfterProvider = await lookupConsentTierByEmailHash(contactEmailTokenHash, tx);
@@ -1621,13 +1637,6 @@ export async function executeSfpValidation(
           // Provider settlement is already durable; realEmail is written only
           // after the current owner/stage and source pins pass in this tx.
           {
-            // Give a direct in-process cert worker a deterministic point to
-            // queue a competing writer before the final projection locks.
-            await notifySfpValidationConcurrencyHook(
-              "onBeforeFinalEligibilityLocks",
-              opts.concurrencyTestHooks?.onBeforeFinalEligibilityLocks,
-              concurrencyHookContext,
-            );
             await lockSfpEligibilityProjectionWriteGate(tx);
             await lockSfpEligibilityProjectionKey(tx, cohortRunId, bizId, policy.version);
             await tx.execute(sql`
@@ -1635,9 +1644,6 @@ export async function executeSfpValidation(
                WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${bizId}
                  AND policy_version=${policy.version}
                FOR UPDATE
-            `);
-            await tx.execute(sql`
-              SELECT id FROM businesses WHERE id=${bizId} FOR UPDATE
             `);
             const expectedReceiptOperationId = fresh?.operationId ??
               (reservation && !providerFailure && ["valid", "invalid"].includes(zbOutcome)

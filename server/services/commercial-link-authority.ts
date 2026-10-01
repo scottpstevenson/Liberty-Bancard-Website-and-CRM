@@ -160,7 +160,9 @@ export async function assertSfpLinkDatabaseGuard(executor: any) {
         JOIN pg_namespace ref_ns ON ref_ns.oid=ref_rel.relnamespace
         JOIN pg_attribute ref_col ON ref_col.attrelid=con.confrelid AND ref_col.attnum=con.confkey[1]
         WHERE ns.nspname='public' AND rel.relname=expected.table_name
-          AND con.conname=expected.constraint_name AND con.contype='f'
+          -- Generated FK names are truncated by PostgreSQL. Prove the actual
+          -- enforced column/target/action contract, not its generated label.
+          AND con.contype='f'
           AND con.convalidated AND con.confdeltype='r'
           AND array_length(con.conkey,1)=1 AND array_length(con.confkey,1)=1
           AND local_col.attname=expected.column_name
@@ -168,14 +170,14 @@ export async function assertSfpLinkDatabaseGuard(executor: any) {
           AND ref_col.attname=expected.referenced_column
       ))
        FROM (VALUES
-         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_contact_id_fkey','contact_id','contacts','id'),
-         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_business_id_fkey','business_id','businesses','id'),
-         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_eligibility_id_fkey','eligibility_id','sfp_outreach_eligibility','id'),
-         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_free_candidate_id_fkey','free_candidate_id','free_discovery_candidates','id'),
-         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_paid_candidate_evidence_id_fkey','paid_candidate_evidence_id','sfp_paid_candidate_evidence','id'),
-         ('contact_business_sfp_link_evidence','contact_business_sfp_link_evidence_validation_operation_id_fkey','validation_operation_id','provider_operations','id'),
-         ('contact_business_link_decisions','contact_business_link_decisions_sfp_evidence_id_fkey','sfp_evidence_id','contact_business_sfp_link_evidence','id')
-       ) AS expected(table_name,constraint_name,column_name,referenced_table,referenced_column)
+          ('contact_business_sfp_link_evidence','contact_id','contacts','id'),
+          ('contact_business_sfp_link_evidence','business_id','businesses','id'),
+          ('contact_business_sfp_link_evidence','eligibility_id','sfp_outreach_eligibility','id'),
+          ('contact_business_sfp_link_evidence','free_candidate_id','free_discovery_candidates','id'),
+          ('contact_business_sfp_link_evidence','paid_candidate_evidence_id','sfp_paid_candidate_evidence','id'),
+          ('contact_business_sfp_link_evidence','validation_operation_id','provider_operations','id'),
+          ('contact_business_link_decisions','sfp_evidence_id','contact_business_sfp_link_evidence','id')
+        ) AS expected(table_name,column_name,referenced_table,referenced_column)
       ) AS evidence_foreign_keys,
       EXISTS (
         SELECT 1 FROM pg_trigger t
@@ -191,7 +193,11 @@ export async function assertSfpLinkDatabaseGuard(executor: any) {
   `) as any).rows?.[0];
   if (!result?.evidence_table || !result?.evidence_column || !result?.immutable_evidence_trigger
       || !result?.evidence_foreign_keys || !result?.combined_decision_trigger) {
-    throw new Error("COMMERCIAL_SFP_LINK_DATABASE_GUARD_MISSING");
+    const missing = ([
+      "evidence_table", "evidence_column", "immutable_evidence_trigger",
+      "evidence_foreign_keys", "combined_decision_trigger",
+    ] as const).filter((name) => result?.[name] !== true);
+    throw new Error(`COMMERCIAL_SFP_LINK_DATABASE_GUARD_MISSING:${missing.join(",")}`);
   }
 }
 
@@ -254,7 +260,7 @@ export async function assertSfpPipelineDatabaseGuard(executor: any) {
         JOIN pg_namespace ref_ns ON ref_ns.oid=ref_rel.relnamespace
         JOIN pg_attribute ref_col ON ref_col.attrelid=con.confrelid AND ref_col.attnum=con.confkey[1]
         WHERE ns.nspname='public' AND rel.relname=expected.table_name
-          AND con.conname=expected.constraint_name AND con.contype='f'
+          AND con.contype='f'
           AND con.convalidated AND con.confdeltype='r'
           AND array_length(con.conkey,1)=1 AND array_length(con.confkey,1)=1
           AND local_col.attname=expected.column_name
@@ -313,7 +319,7 @@ export async function assertSfpPipelineDatabaseGuard(executor: any) {
         WHERE n.nspname='public' AND c.relname='contacts'
           AND t.tgname='cro03_sfp_contact_address_commit_serialization_trg'
           AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal
-          AND t.tgqual IS NULL AND t.tgtype=23
+          AND t.tgqual IS NULL AND t.tgtype=31
           AND p.proname='cro03_sfp_contact_address_commit_serialization'
           AND p.prosrc ILIKE '%pg_advisory_xact_lock(hashtextextended%'
           AND p.prosrc ILIKE '%sfp-contact-address-v1:%'

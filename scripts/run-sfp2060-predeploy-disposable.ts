@@ -64,6 +64,12 @@ async function main(): Promise<void> {
       MERCHANT_DATA_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
       ADMIN_SEED_EMAIL: "admin@sfp2060.test",
       ADMIN_SEED_PASSWORD: randomBytes(32).toString("hex"),
+      // Eager SDK constructors need inert fixture keys, never inherited keys.
+      // Both clients stay on a closed loopback port; provider denial remains on.
+      OPENAI_API_KEY: "sfp2060-disposable-constructor-only",
+      AI_INTEGRATIONS_OPENAI_API_KEY: "sfp2060-disposable-constructor-only",
+      OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
+      AI_INTEGRATIONS_OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
     });
     console.log(`SFP pre-deploy: private DB/Redis, owned HTTP port ${appPort}, release ${releaseSha}`);
     exitCode = await new Promise<number>((resolve, reject) => {

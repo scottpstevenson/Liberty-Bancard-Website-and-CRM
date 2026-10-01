@@ -4,7 +4,16 @@ import { sql } from "drizzle-orm";
 export async function lockSfpBusinessSafetySentinel(
   executor: { execute: (query: any) => Promise<any> },
   businessId: number,
+  mode: "shared" | "exclusive" = "shared",
 ): Promise<void> {
+  if (mode === "exclusive") {
+    await executor.execute(sql`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended('sfp-business-safety-v1:' || ${businessId}::text, 0)
+      )
+    `);
+    return;
+  }
   await executor.execute(sql`
     SELECT pg_advisory_xact_lock_shared(
       hashtextextended('sfp-business-safety-v1:' || ${businessId}::text, 0)

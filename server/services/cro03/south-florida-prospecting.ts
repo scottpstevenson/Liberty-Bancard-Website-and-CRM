@@ -2151,11 +2151,13 @@ export async function stageForCampaign(opts: {
     // the arbiter index and this insert would raise
     // "there is no unique or exclusion constraint matching the ON CONFLICT
     // specification" for every row.
-    const staged = await db.transaction(async (tx) => {
+    let staged: { staged: boolean; reason?: string };
+    try {
+      staged = await db.transaction(async (tx) => {
+      await lockSfpEligibilityProjectionWriteGate(tx);
       await lockCurrentSfpOutreachPolicy(tx, activePolicy);
       await lockSfpBusinessSafetySentinel(tx, Number(row.business_id));
       await lockSfpContactAddress(tx, plaintextEmail);
-      await lockSfpEligibilityProjectionWriteGate(tx);
       await lockSfpEligibilityProjectionKey(
         tx, String(row.cohort_run_id), Number(row.business_id), Number(activePolicy.version),
       );
@@ -2289,23 +2291,19 @@ export async function stageForCampaign(opts: {
         businessId: Number(current.business_id),
         emailTokenHash: contactEmailTokenHash,
       }))) {
-        await tx.execute(sql`
-          UPDATE sfp_campaign_staging_intents
-             SET state='rejected',updated_at=NOW()
-           WHERE id=${String(intent.id)}::uuid
-        `);
-        await tx.execute(sql`
-          UPDATE sfp_outreach_eligibility
-             SET status='validation_pending',
-                 decision_reason='provider_observation_expired_at_staging_commit',
-                 campaign_staged_at=NULL,campaign_staged_by=NULL,staging_intent_id=NULL,
-                 updated_at=NOW()
-           WHERE id=${String(current.id)}::uuid
-        `);
-        return { staged: false, reason: "provider_observation_expired_at_staging_commit" };
+        // A rejected return would commit the master-lead upsert. Abort every
+        // projection in this transaction instead, including conflict updates.
+        throw new Error("SFP_LEGACY_VALIDATION_EXPIRED_AT_STAGING_COMMIT");
       }
       return { staged: true };
-    });
+      });
+    } catch (error: any) {
+      if (error?.message !== "SFP_LEGACY_VALIDATION_EXPIRED_AT_STAGING_COMMIT") throw error;
+      rejected++;
+      reasons.provider_observation_expired_at_staging_commit =
+        (reasons.provider_observation_expired_at_staging_commit ?? 0) + 1;
+      continue;
+    }
     if (!staged.staged) {
       if (staged.reason === "already_staged") {
         skipped++;

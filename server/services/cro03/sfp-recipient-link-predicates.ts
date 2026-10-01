@@ -114,6 +114,10 @@ export async function checkCurrentSfpEligibilityAndPackage(
   tx: { execute: (query: any) => Promise<any> },
   input: CurrentSfpEligibilityAndPackageInput,
 ): Promise<CurrentSfpEligibilityAndPackage> {
+  // Take the global fence before retaining any policy, business-sentinel or
+  // address lock. A projection writer may need those same locks at commit.
+  if (input.projectionWrite) await lockSfpEligibilityProjectionWriteGate(tx);
+  else await lockSfpEligibilityProjectionReadGate(tx);
   let policy: SfpActivePolicy;
   try {
     policy = await lockCurrentSfpOutreachPolicy(tx);
@@ -126,10 +130,8 @@ export async function checkCurrentSfpEligibilityAndPackage(
   await lockSfpBusinessSafetySentinel(tx, input.businessId);
   if (input.emailAddress) await lockSfpContactAddress(tx, input.emailAddress);
   if (input.projectionWrite) {
-    await lockSfpEligibilityProjectionWriteGate(tx);
     await lockSfpEligibilityProjectionKey(tx, input.cohortRunId, input.businessId, policy.version);
   }
-  else await lockSfpEligibilityProjectionReadGate(tx);
 
   const result = rows(await tx.execute(sql`
     SELECT e.id AS eligibility_id,e.business_id,e.cohort_run_id,e.source_kind,e.candidate_id,

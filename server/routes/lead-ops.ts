@@ -4494,7 +4494,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         SELECT e.id AS eligibility_id, e.cohort_run_id, e.business_id, b.canonical_name AS business_name,
                e.source_kind, e.contact_id, e.masked_email, e.status, e.decision_reason,
                e.zb_outcome, e.validation_at, e.validation_expires_at,
-               e.validation_operation_id, e.reused_from_operation_id, e.updated_at,
+               e.validation_operation_id, e.reused_from_operation_id, e.updated_at::text AS updated_at,
                e.contact_business_link_decision_id, e.contact_business_link_revision,
                e.policy_document_id, e.policy_document_hash,
                latest.id AS latest_review_id, latest.decision AS latest_review_decision,
@@ -4570,12 +4570,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const policy = await getActiveSfpOutreachPolicy({ bypassCache: true });
       const review = await db.transaction(async (tx) => {
         const replay = rows(await tx.execute(sql`
-          SELECT * FROM sfp_named_email_eligibility_reviews WHERE idempotency_key=${idempotencyKey} LIMIT 1
+          SELECT r.*, r.expected_updated_at = ${expectedUpdatedAt}::timestamptz AS expected_updated_at_matches
+            FROM sfp_named_email_eligibility_reviews r
+           WHERE r.idempotency_key=${idempotencyKey} LIMIT 1
         `))[0];
         if (replay) {
           if (String(replay.eligibility_id) !== id || replay.reviewer_id !== reviewerId ||
               replay.decision !== decision || replay.reason !== reason ||
-              new Date(String(replay.expected_updated_at)).getTime() !== new Date(expectedUpdatedAt).getTime()) {
+              replay.expected_updated_at_matches !== true) {
             throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { status: 409 });
           }
           return replay;
@@ -4592,7 +4594,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           throw Object.assign(new Error("OUTREACH_POLICY_CHANGED"), { status: 409 });
         }
         const current = rows(await tx.execute(sql`
-          SELECT e.*, p.id AS active_policy_id, p.document_hash AS active_policy_hash,
+          SELECT e.*,
+                 e.updated_at = ${expectedUpdatedAt}::timestamptz AS expected_updated_at_matches,
+                 p.id AS active_policy_id, p.document_hash AS active_policy_hash,
                  p.role_inbox_policy->>'named_or_unclassified_requires_review' AS named_requires_review,
                  COALESCE(e.validation_operation_id,e.reused_from_operation_id) AS receipt_operation_id,
                  op.actor_id AS validation_actor_id, c.email AS source_contact_email,
@@ -4617,12 +4621,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         `))[0];
         if (!current) throw Object.assign(new Error("NOT_FOUND"), { status: 404 });
         const replayAfterLock = rows(await tx.execute(sql`
-          SELECT * FROM sfp_named_email_eligibility_reviews WHERE idempotency_key=${idempotencyKey} LIMIT 1
+          SELECT r.*, r.expected_updated_at = ${expectedUpdatedAt}::timestamptz AS expected_updated_at_matches
+            FROM sfp_named_email_eligibility_reviews r
+           WHERE r.idempotency_key=${idempotencyKey} LIMIT 1
         `))[0];
         if (replayAfterLock) {
           if (String(replayAfterLock.eligibility_id) !== id || replayAfterLock.reviewer_id !== reviewerId ||
               replayAfterLock.decision !== decision || replayAfterLock.reason !== reason ||
-              new Date(String(replayAfterLock.expected_updated_at)).getTime() !== new Date(expectedUpdatedAt).getTime()) {
+              replayAfterLock.expected_updated_at_matches !== true) {
             throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { status: 409 });
           }
           return replayAfterLock;
@@ -4633,7 +4639,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
             current.named_requires_review === "false" ||
             String(current.active_policy_id) !== String(policy.id) ||
             current.active_policy_hash !== policy.documentHash ||
-            new Date(String(current.updated_at)).toISOString() !== new Date(expectedUpdatedAt).toISOString() ||
+            current.expected_updated_at_matches !== true ||
             !current.validation_expires_at || new Date(String(current.validation_expires_at)).getTime() <= Date.now() ||
             !current.receipt_operation_id) {
           throw Object.assign(new Error("ELIGIBILITY_OR_POLICY_CAS_FAILED"), { status: 409 });
@@ -4682,14 +4688,17 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
              policy_document_id,policy_document_hash,validation_operation_id,source_kind,source_reference_id,
              contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash,
              normalized_value_hash_version,validation_expires_at)
-          VALUES (${id}::uuid,${decision},${reviewerId},${reason},${idempotencyKey},${expectedUpdatedAt}::timestamptz,
+          SELECT e.id,${decision},${reviewerId},${reason},${idempotencyKey},e.updated_at,
              ${policy.id}::uuid,${policy.documentHash},${current.receipt_operation_id}::uuid,${current.source_kind},
              CASE ${current.source_kind} WHEN 'free' THEN ${current.candidate_id}::text
                   WHEN 'paid' THEN ${current.paid_candidate_evidence_id}::text ELSE ${current.contact_id}::text END,
              ${current.contact_business_link_decision_id}::uuid,${current.contact_business_link_revision}::int,
-             ${current.normalized_value_hash},${current.normalized_value_hash_version}::int,${current.validation_expires_at}::timestamptz)
+             ${current.normalized_value_hash},${current.normalized_value_hash_version}::int,${current.validation_expires_at}::timestamptz
+            FROM sfp_outreach_eligibility e
+           WHERE e.id=${id}::uuid AND e.updated_at=${expectedUpdatedAt}::timestamptz
           RETURNING id,eligibility_id,decision,reviewer_id,reason,created_at
         `))[0];
+        if (!inserted) throw Object.assign(new Error("ELIGIBILITY_OR_POLICY_CAS_FAILED"), { status: 409 });
         return inserted;
       });
       await storage.createAuditLog({

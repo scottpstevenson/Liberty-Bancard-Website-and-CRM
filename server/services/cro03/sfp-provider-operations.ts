@@ -1232,29 +1232,53 @@ export async function selectCurrentSfpRuntimeRelease(
       )
       RETURNING id
     `))[0];
-    await tx.execute(sql`
-      INSERT INTO sfp_runtime_release_selectors
-         (authority_key,deployment_identity,environment_identity,artifact_sha,queue_topology_hash,
-         publisher_verified_artifact_sha,publisher_verified_deployment_identity,
-          verification_reference,selected_by,selected_at,updated_at,selection_version,selection_event_id)
-      VALUES ('routine_sfp',${fence.deploymentIdentity},${fence.environmentIdentity},${fence.artifactSha},
-              ${fence.queueTopologyHash},${publisherSha},${publisherDeployment},
-               ${verificationReference},${actorId},clock_timestamp(),clock_timestamp(),
-               ${selectionVersion},${String(event.id)}::uuid)
-      ON CONFLICT (authority_key) DO UPDATE SET
-        deployment_identity=EXCLUDED.deployment_identity,
-        environment_identity=EXCLUDED.environment_identity,
-        artifact_sha=EXCLUDED.artifact_sha,
-        queue_topology_hash=EXCLUDED.queue_topology_hash,
-        publisher_verified_artifact_sha=EXCLUDED.publisher_verified_artifact_sha,
-        publisher_verified_deployment_identity=EXCLUDED.publisher_verified_deployment_identity,
-        verification_reference=EXCLUDED.verification_reference,
-        selected_by=EXCLUDED.selected_by,
-        selected_at=clock_timestamp(),
-         updated_at=clock_timestamp(),
-         selection_version=EXCLUDED.selection_version,
-         selection_event_id=EXCLUDED.selection_event_id
-    `);
+    if (previous) {
+      // A transfer must execute the selector's UPDATE trigger branch. An
+      // INSERT ... ON CONFLICT DO UPDATE first runs the INSERT trigger, which
+      // correctly rejects transfer evidence as invalid bootstrap evidence.
+      // Keep the locked read's complete binding/version/event as a CAS too:
+      // this remains fail-closed if a writer bypasses the advisory lock.
+      const updated = rows(await tx.execute(sql`
+        UPDATE sfp_runtime_release_selectors
+           SET deployment_identity=${fence.deploymentIdentity},
+               environment_identity=${fence.environmentIdentity},
+               artifact_sha=${fence.artifactSha},
+               queue_topology_hash=${fence.queueTopologyHash},
+               publisher_verified_artifact_sha=${publisherSha},
+               publisher_verified_deployment_identity=${publisherDeployment},
+               verification_reference=${verificationReference},
+               selected_by=${actorId},
+               selected_at=clock_timestamp(),
+               updated_at=clock_timestamp(),
+               selection_version=${selectionVersion},
+               selection_event_id=${String(event.id)}::uuid
+         WHERE authority_key='routine_sfp'
+           AND deployment_identity=${String(previous.deployment_identity)}
+           AND environment_identity=${String(previous.environment_identity)}
+           AND artifact_sha=${String(previous.artifact_sha)}
+           AND queue_topology_hash=${String(previous.queue_topology_hash)}
+           AND selection_version=${actualPreviousVersion}
+           AND selection_event_id=${String(previous.selection_event_id)}::uuid
+        RETURNING authority_key
+      `));
+      if (updated.length !== 1) {
+        throw new Error("SFP_RUNTIME_RELEASE_SELECTION_PREVIOUS_RELEASE_MISMATCH");
+      }
+    } else {
+      // Bootstrap is the only selector INSERT path. A concurrent or
+      // non-cooperating inserter loses at the singleton key and cannot be
+      // silently converted into a transfer.
+      await tx.execute(sql`
+        INSERT INTO sfp_runtime_release_selectors
+          (authority_key,deployment_identity,environment_identity,artifact_sha,queue_topology_hash,
+           publisher_verified_artifact_sha,publisher_verified_deployment_identity,
+           verification_reference,selected_by,selected_at,updated_at,selection_version,selection_event_id)
+        VALUES ('routine_sfp',${fence.deploymentIdentity},${fence.environmentIdentity},${fence.artifactSha},
+                ${fence.queueTopologyHash},${publisherSha},${publisherDeployment},
+                ${verificationReference},${actorId},clock_timestamp(),clock_timestamp(),
+                ${selectionVersion},${String(event.id)}::uuid)
+      `);
+    }
     const ownerToken = randomUUID();
     if (currentOwner) {
       await tx.execute(sql`

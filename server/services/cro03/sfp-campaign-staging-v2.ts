@@ -33,6 +33,7 @@ import { businessLacksDbprLineageSql } from "../dbpr";
 import { getCurrentPackageForVertical, computeLivePackageContentHash } from "./sfp-campaign-packages";
 import { openSfpCandidatePlaintext } from "./sfp-paid-evidence-writer";
 import { lockSfpContactAddress } from "./sfp-contact-address-lock";
+import { lockSfpEligibilityProjectionWriteGate } from "./sfp-eligibility-locks";
 import { evaluateSfpMutableSafetyGates, lookupConsentTierByEmailHash } from "./sfp-outreach-policy";
 import { getOrCreateStageRun, ensureStageItem, markStageItemCompletedInTx, markStageItemDeadLetter, reconcileStageRunCounters } from "./sfp-stage-ledger";
 import {
@@ -831,6 +832,7 @@ async function stageOneRowTransactional(opts: {
 }): Promise<string> {
   const activePolicy = await getActiveSfpOutreachPolicy();
   return db.transaction(async (tx) => {
+    await lockSfpEligibilityProjectionWriteGate(tx);
     await lockCurrentSfpOutreachPolicy(tx, activePolicy);
     let initialSourceAddress: string | null = null;
     if (opts.sourceKind === "contact" && Number.isSafeInteger(Number(opts.sourceReferenceId))) {
@@ -1092,13 +1094,11 @@ async function stageOneRowTransactional(opts: {
     const pinnedPolicyHash = activePolicy.documentHash;
     const pinnedPackageContentHash = liveContentHash;
 
-    // Lock the active-policy singleton pointer inside this transaction and
-    // confirm it still points at the same policy document `activePolicy`
-    // was read from — a policy activation change between the cached read
-    // above and this row's write must fail closed, not silently admit the
-    // row under a policy that is no longer active.
+    // The policy control row was locked FOR SHARE at transaction entry. That
+    // lock pins the pointer until commit: upgrading it to FOR UPDATE here
+    // would deadlock against other eligibility writers at the global gate.
     const lockedPolicyControl = rows(await tx.execute(sql`
-      SELECT active_policy_id FROM sfp_outreach_policy_control WHERE singleton = TRUE FOR UPDATE
+      SELECT active_policy_id FROM sfp_outreach_policy_control WHERE singleton = TRUE FOR SHARE
     `))[0];
     if (!lockedPolicyControl || String(lockedPolicyControl.active_policy_id) !== activePolicy.id) {
       throw new SfpStagingV2Error("SFP_STAGING_POLICY_DRIFTED", "active outreach policy changed since preview — request a new preview", 409);

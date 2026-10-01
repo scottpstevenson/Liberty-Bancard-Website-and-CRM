@@ -52,6 +52,10 @@ import {
   type CommercialGraphNode,
 } from "../commercial-graph-locks";
 import {
+  lockSfpBusinessSafetySentinel,
+  lockSfpEligibilityProjectionWriteGate,
+} from "./sfp-eligibility-locks";
+import {
   assertSfpPipelineDatabaseGuard,
   decideSfpContactBusinessLink,
 } from "../commercial-link-authority";
@@ -106,7 +110,7 @@ async function openTypedSourceAddressPins(
   tx: any,
   intent: any,
   actorId: string,
-  additionalContactIds: number[] = [],
+  prelockedContactIds: ReadonlySet<number>,
 ): Promise<{
   normalizedValueHash: string | null;
   emailTokenHash: string | null;
@@ -139,12 +143,13 @@ async function openTypedSourceAddressPins(
              ORDER BY id
           `)).map((row: any) => Number(row.id))
         : [];
-      await lockCurrentSfpOutreachPolicy(tx);
-      await lockContactBusinessGraph(tx, Number(intent.business_id), [
-        ...additionalContactIds,
-        ...(intent.contact_id ? [Number(intent.contact_id)] : []),
-        ...matchingContactIds,
-      ]);
+      if (matchingContactIds.some((id: number) => !prelockedContactIds.has(id))
+          || (intent.source_kind === "contact" && !prelockedContactIds.has(Number(intent.contact_id)))) {
+        // Address discovery happened after the ordered contact tuple locks.
+        // Never acquire a newly discovered contact lock here; leave this
+        // candidate held for a later bridge attempt instead.
+        return null;
+      }
       const graphOrderedGate = await checkCurrentSfpEligibilityAndPackage(tx, {
         eligibilityId: String(intent.eligibility_id),
         businessId: Number(intent.business_id),
@@ -157,7 +162,7 @@ async function openTypedSourceAddressPins(
         projectionWrite: true,
       });
       if (!graphOrderedGate.eligible) {
-        throw new SfpBridgeHoldError(`CURRENT_GATE:${graphOrderedGate.reason}`);
+        throw new SfpBridgeHoldError(graphOrderedGate.reason);
       }
       const normalizedValueHash = normalizedContactIdentityHash(sourceEmail, intent.normalized_value_hash_version);
       const recipientIdentityHash = sfpRecipientIdentityHash(sourceEmail);
@@ -186,8 +191,9 @@ async function currentTypedSourceAddressMatches(
   actorId: string,
   candidateEmail: string,
   expectedHash: string,
+  prelockedContactIds: ReadonlySet<number>,
 ): Promise<boolean> {
-  const pins = await openTypedSourceAddressPins(tx, intent, actorId);
+  const pins = await openTypedSourceAddressPins(tx, intent, actorId, prelockedContactIds);
   return Boolean(pins
     && pins.normalizedValueHash === expectedHash
     && pins.emailTokenHash === (hashEmailToken(candidateEmail) ?? "")
@@ -284,20 +290,69 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
          WHERE id=${String(intent.recipient_commitment_id)}::uuid
       `))[0]
     : null;
+  const replayCommitmentHint = existing?.recipient_commitment_id
+      && String(existing.recipient_commitment_id) !== String(intent.recipient_commitment_id ?? "")
+    ? rows(await tx.execute(sql`
+        SELECT contact_id FROM sfp_recipient_address_commitments
+         WHERE id=${String(existing.recipient_commitment_id)}::uuid
+      `))[0]
+    : null;
+  const sourceContact = intent.contact_id
+    ? rows(await tx.execute(sql`
+        SELECT email,email_token_hash FROM contacts WHERE id=${Number(intent.contact_id)}
+      `))[0]
+    : null;
   let hintedEmailTokenHash = String(masterLead?.email_token_hash ?? "");
-  if (intent.contact_id) {
-    const sourceContact = rows(await tx.execute(sql`
-      SELECT email,email_token_hash FROM contacts WHERE id=${Number(intent.contact_id)}
-    `))[0];
-    if (!hintedEmailTokenHash) {
-      hintedEmailTokenHash = String(sourceContact?.email_token_hash ?? hashEmailToken(sourceContact?.email) ?? "");
-    }
+  if (!hintedEmailTokenHash) {
+    hintedEmailTokenHash = String(sourceContact?.email_token_hash ?? hashEmailToken(sourceContact?.email) ?? "");
   }
-  sourceAddressPins = await openTypedSourceAddressPins(tx, intent, actorId, [
+  const matchAddresses = [...new Set([masterLead?.email, sourceContact?.email]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean))];
+  const matchedContactIds: number[] = [];
+  for (const email of matchAddresses) {
+    const tokenHash = hashEmailToken(email);
+    const matches = rows(await tx.execute(sql`
+      SELECT id FROM contacts
+       WHERE (${tokenHash}::text IS NOT NULL AND email_token_hash=${tokenHash})
+          OR lower(email)=${email}
+       ORDER BY id
+    `));
+    matchedContactIds.push(...matches.map((row: any) => Number(row.id)));
+  }
+  const candidateContactIds = [...new Set([
     Number(intent.contact_id ?? 0),
     Number(commitmentHint?.contact_id ?? 0),
+    Number(replayCommitmentHint?.contact_id ?? 0),
     Number(existing?.contact_id ?? 0),
-  ]);
+    ...matchedContactIds,
+  ].filter((id) => Number.isSafeInteger(id) && id > 0))].sort((a, b) => a - b);
+
+  // Match the consent authority's contact tuple -> business sentinel ->
+  // normalized-address order. Acquire all global/policy/graph fences before
+  // these sorted contact tuple locks, and do so before any shared predicate
+  // can lock a normalized address.
+  await lockSfpEligibilityProjectionWriteGate(tx);
+  await lockCurrentSfpOutreachPolicy(tx);
+  await lockContactBusinessGraph(tx, Number(intent.business_id), candidateContactIds);
+  const lockedContacts = rows(await tx.execute(sql`
+    SELECT id,business_id FROM contacts
+     WHERE id = ANY(ARRAY[${sql.join(candidateContactIds.map((id) => sql`${id}`), sql`, `)}]::int[])
+     ORDER BY id
+     FOR UPDATE
+  `));
+  const safetyBusinessIds = [...new Set([
+    Number(intent.business_id),
+    ...lockedContacts
+      .filter((row: any) => row.business_id != null)
+      .map((row: any) => Number(row.business_id)),
+  ].filter((id) => Number.isSafeInteger(id) && id > 0))].sort((a, b) => a - b);
+  for (const businessId of safetyBusinessIds) {
+    await lockSfpBusinessSafetySentinel(tx, businessId, "exclusive");
+  }
+  const prelockedContactIds = new Set<number>(lockedContacts.map((row: any) => Number(row.id)));
+
+  sourceAddressPins = await openTypedSourceAddressPins(tx, intent, actorId, prelockedContactIds);
   if (!hintedEmailTokenHash) hintedEmailTokenHash = String(sourceAddressPins?.emailTokenHash ?? "");
   if (masterLead?.email) await lockSfpContactAddress(tx, masterLead.email);
   if (hintedEmailTokenHash) {
@@ -427,6 +482,7 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
             || String(masterLead.email_token_hash ?? "") !== (hashEmailToken(historicalEmail) ?? "")
             || !(await currentTypedSourceAddressMatches(
               tx, intent, actorId, historicalEmail, String(intent.normalized_value_hash),
+              prelockedContactIds,
             ))) {
           currentHoldReason = "historical_source_address_changed";
           await recordBridgeHold(tx, intent, currentHoldReason);
@@ -487,7 +543,7 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     });
     if (!duplicateGate.eligible) return hold(duplicateGate.reason);
     sequenceId = Number(duplicateGate.package.sequence_id);
-    const lockedSourcePins = await openTypedSourceAddressPins(tx, intent, actorId);
+    const lockedSourcePins = await openTypedSourceAddressPins(tx, intent, actorId, prelockedContactIds);
     if (!lockedSourcePins
         || lockedSourcePins.normalizedValueHash !== sourcePins.normalizedValueHash
         || lockedSourcePins.emailTokenHash !== sourcePins.emailTokenHash
@@ -633,7 +689,9 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
     { triggerConfig: currentGate.package.sequence_trigger_config },
     "sequence_enrollment",
   );
-  if (!(await currentTypedSourceAddressMatches(tx, intent, actorId, candidateEmail, expectedAddressHash))) {
+  if (!(await currentTypedSourceAddressMatches(
+    tx, intent, actorId, candidateEmail, expectedAddressHash, prelockedContactIds,
+  ))) {
     return hold("PINNED_SOURCE_CANDIDATE_ADDRESS_CHANGED");
   }
   if (currentGate.row.program_id == null) return hold("PROGRAM_MISSING_FOR_RECIPIENT_COMMITMENT");
@@ -863,7 +921,9 @@ export async function bridgeReadyHeldIntentToPausedEnrollment(
         throw error;
       }
     }
-    const linkDecisionId = String(linkDecision.id ?? linkDecision.decision_id);
+    // A matched-contact row's id is the integer contact id; decision_id is
+    // the verified UUID. A newly written decision exposes that UUID as id.
+    const linkDecisionId = String(linkDecision.decision_id ?? linkDecision.id);
     const linkRevision = Number(linkDecision.revision);
     if (!linkDecisionId || !Number.isSafeInteger(linkRevision) || linkRevision < 1) {
       throw new SfpBridgeHoldError("CONTACT_BUSINESS_LINK_DECISION_INVALID");

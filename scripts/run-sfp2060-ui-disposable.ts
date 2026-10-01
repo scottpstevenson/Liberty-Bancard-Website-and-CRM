@@ -38,6 +38,16 @@ let proxy: http.Server | undefined;
 let privateHome: string | undefined;
 let backendPort: number | undefined;
 let backendFailureCode = "APPLICATION_EXITED_DURING_STARTUP";
+let startupStage = "initialization";
+let backendExitCode: number | null | undefined;
+let backendExitSignal: NodeJS.Signals | null | undefined;
+let backendStdoutObserved = false;
+let backendStderrObserved = false;
+let backendOutputClosed = false;
+let backendFatalMarker = "none";
+const backendSqlStates = new Set<string>();
+const backendNodeCodes = new Set<string>();
+const backendStackFrames = new Set<string>();
 let proxyPort: number | undefined;
 let authenticatedCookie: string | undefined;
 let stopping = false;
@@ -406,6 +416,12 @@ async function waitForBackend(port: number): Promise<void> {
   while (Date.now() < deadline) {
     throwIfStopping();
     if (backend?.exitCode !== null && backend?.exitCode !== undefined) {
+      // ChildProcess emits "exit" before its stdout/stderr pipes are guaranteed
+      // drained. Wait for "close" so the safe classifier sees the final output
+      // before the failure summary is emitted.
+      if (backend && !backendOutputClosed) {
+        await new Promise<void>((resolve) => backend!.once("close", () => resolve()));
+      }
       throw new Error(backendFailureCode);
     }
     try {
@@ -417,8 +433,83 @@ async function waitForBackend(port: number): Promise<void> {
   throw new Error("APPLICATION_STARTUP_TIMEOUT");
 }
 
+function classifyBackendOutput(text: string): void {
+  // Consume output only to recognize fixed, non-sensitive failure categories.
+  // Never retain or print the application's logs: they may contain credentials,
+  // URLs, SQL, or other private values.
+  if (/\[vite\].*(?:error|failed)|Vite.*(?:error|failed)/i.test(text)) {
+    backendFailureCode = "BACKEND_VITE_STARTUP_FAILED";
+    backendFatalMarker = "VITE_CUSTOM_LOGGER_EXIT";
+  } else if (/\[Process\] Uncaught exception:/i.test(text)) {
+    backendFailureCode = "BACKEND_UNCAUGHT_EXCEPTION";
+    backendFatalMarker = "SERVER_UNCAUGHT_EXCEPTION_EXIT";
+  } else if (/\[Process\] Error shutting down queue manager:/i.test(text)) {
+    backendFailureCode = "BACKEND_SHUTDOWN_FAILURE";
+    backendFatalMarker = "SERVER_SHUTDOWN_QUEUE_EXIT";
+  } else if (/\[Process\] Graceful shutdown exceeded/i.test(text)) {
+    backendFailureCode = "BACKEND_SHUTDOWN_TIMEOUT";
+    backendFatalMarker = "SERVER_SHUTDOWN_TIMEOUT_EXIT";
+  } else if (/EADDRINUSE/.test(text)) backendFailureCode = "BACKEND_PORT_UNAVAILABLE";
+  else if (/Cannot find module|Cannot find package/.test(text)) backendFailureCode = "BACKEND_MODULE_NOT_FOUND";
+  else if (/does not provide an export|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM/.test(text)) {
+    backendFailureCode = "BACKEND_MODULE_LOAD_FAILED";
+  }
+  else if (/ReferenceError/.test(text)) backendFailureCode = "BACKEND_REFERENCE_ERROR";
+  else if (/TypeError/.test(text)) backendFailureCode = "BACKEND_TYPE_ERROR";
+  else if (/SyntaxError/.test(text)) backendFailureCode = "BACKEND_SYNTAX_ERROR";
+  else if (/ECONNREFUSED|password authentication failed|database ["'].*["'] does not exist/i.test(text)) {
+    backendFailureCode = "BACKEND_DATABASE_CONNECTION_FAILED";
+  } else if (/ValidationError|Invalid environment|Missing required environment variable/i.test(text)) {
+    backendFailureCode = "BACKEND_ENV_VALIDATION_FAILED";
+  } else if (/Uncaught exception|Unhandled promise rejection/i.test(text)) {
+    backendFailureCode = "BACKEND_UNHANDLED_EXCEPTION";
+  }
+}
+
+function collectBackendDiagnostics(text: string): void {
+  classifyBackendOutput(text);
+
+  // Keep only allowlisted codes; never retain the corresponding error text.
+  const nodeCodes = text.match(/\b(?:EADDRINUSE|ECONNREFUSED|ECONNRESET|EPIPE|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM|ERR_INVALID_ARG_TYPE|ERR_UNKNOWN_FILE_EXTENSION|ERR_UNSUPPORTED_DIR_IMPORT|ERR_PACKAGE_PATH_NOT_EXPORTED|ERR_MODULE_NOT_FOUND)\b/g) ?? [];
+  for (const code of nodeCodes) backendNodeCodes.add(code);
+  const sqlStateAllowlist = new Set([
+    "08001", "08004", "08006", "08P01", "23502", "23503", "23505", "23514",
+    "25P02", "28P01", "3D000", "40001", "42501", "42601", "42703", "42P01",
+    "42883", "53300", "57014", "57P03", "XX000",
+  ]);
+  const sqlStateCandidates = text.match(/\b[0-9A-Z]{5}\b/g) ?? [];
+  for (const code of sqlStateCandidates) {
+    if (sqlStateAllowlist.has(code)) backendSqlStates.add(code);
+  }
+
+  // Stack traces are parsed transiently. Persist only the project source file
+  // basename and numeric line/column; never retain a full path or message.
+  const framePattern = /((?:file:\/\/)?[^()\s]+?\.(?:[cm]?js|tsx?)):(\d+):(\d+)/g;
+  for (const match of text.matchAll(framePattern)) {
+    const rawPath = match[1].replace(/^file:\/\//, "");
+    const resolvedPath = path.resolve(process.cwd(), rawPath);
+    const relativePath = path.relative(process.cwd(), resolvedPath);
+    if (
+      !relativePath ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath) ||
+      relativePath.split(path.sep)[0] === "node_modules"
+    ) continue;
+    const basename = path.basename(relativePath);
+    if (!/^[A-Za-z0-9_.-]{1,80}$/.test(basename)) continue;
+    const frame = `${basename}:${match[2]}:${match[3]}`;
+    backendStackFrames.add(frame);
+    if (basename === "vite.ts" && match[2] === "25") {
+      backendFailureCode = "BACKEND_VITE_STARTUP_FAILED";
+      backendFatalMarker = "VITE_CUSTOM_LOGGER_EXIT";
+    }
+  }
+}
+
 async function run(): Promise<void> {
   try {
+    startupStage = "private-home";
     privateHome = await mkdtemp(path.join(os.tmpdir(), "sfp2060-ui-home-"));
     await chmod(privateHome, 0o700);
     const safeGitEnv = buildLocalRehearsalEnvironment();
@@ -430,8 +521,10 @@ async function run(): Promise<void> {
     }).trim();
     if (!/^[a-f0-9]{40}$/.test(releaseSha)) throw new Error("CURRENT_GIT_SHA_UNAVAILABLE");
 
+    startupStage = "private-postgres";
     cluster = await launchLocalPostgres16();
     throwIfStopping();
+    startupStage = "private-databases";
     const databases = await createLocalRehearsalDatabases(cluster);
     targetDatabase = databases.restored;
 
@@ -440,17 +533,22 @@ async function run(): Promise<void> {
     migrationEnv.DATABASE_URL = localDatabaseUrl(targetDatabase);
     migrationEnv.PGUSER = process.env.USER || process.env.LOGNAME || os.userInfo().username;
     const tsx = path.resolve(process.cwd(), "node_modules", ".bin", "tsx");
+    startupStage = "offline-migrations";
     await runChild(tsx, ["server/db-migrate.ts"], migrationEnv, STARTUP_TIMEOUT_MS);
+    startupStage = "fixture-seed";
     await seedPausedProgram(targetDatabase);
 
     const user = process.env.USER || process.env.LOGNAME || os.userInfo().username;
     const databaseUrl = localDatabaseUrl(targetDatabase);
     const redisEnv = buildLocalRehearsalEnvironment();
     redisEnv.HOME = privateHome;
+    startupStage = "private-redis";
     redis = await launchSfp2060DisposableRedis(redisEnv);
     throwIfStopping();
+    startupStage = "backend-port-allocation";
     backendPort = await unusedPort();
 
+    startupStage = "backend-spawn";
     const env = buildLocalRehearsalEnvironment({
       NODE_ENV: "development",
       PORT: String(backendPort),
@@ -475,6 +573,15 @@ async function run(): Promise<void> {
       SESSION_SECRET: randomBytes(48).toString("hex"),
       CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
       MERCHANT_DATA_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      // Eagerly imported OpenAI SDK clients require a nonempty key at
+      // construction time. These are synthetic values, and both explicit
+      // Replit-integration and SDK-default endpoints are pinned to loopback;
+      // they cannot reach an external provider. Provider deny/fail-fast and
+      // background-off safeguards below remain enabled.
+      AI_INTEGRATIONS_OPENAI_API_KEY: "offline-ui-fixture-inert-key",
+      AI_INTEGRATIONS_OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
+      OPENAI_API_KEY: "offline-ui-fixture-inert-key",
+      OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
       ADMIN_SEED_EMAIL: "admin@sfp2060.test",
       ADMIN_SEED_PASSWORD: randomBytes(32).toString("hex"),
       RELEASE_SHA: releaseSha,
@@ -490,30 +597,41 @@ async function run(): Promise<void> {
     backend = spawn(tsx, [serverScript], {
       cwd: process.cwd(),
       env,
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
-    let startupStderrTail = "";
-    backend.stderr?.on("data", (chunk: Buffer) => {
-      // Never print the backend output: it can contain URLs, SQL, or credentials.
-      startupStderrTail = (startupStderrTail + chunk.toString("utf8")).slice(-4096);
-      const namedFailure = startupStderrTail.match(/\b(?:SFP|CRO|DB|PG|ERR|VITE)_[A-Z0-9_]{3,64}\b/);
-      if (namedFailure) backendFailureCode = namedFailure[0];
-      else if (/EADDRINUSE/.test(startupStderrTail)) backendFailureCode = "BACKEND_PORT_UNAVAILABLE";
-      else if (/Cannot find module|Cannot find package/.test(startupStderrTail)) backendFailureCode = "BACKEND_MODULE_NOT_FOUND";
-      else if (/ReferenceError/.test(startupStderrTail)) backendFailureCode = "BACKEND_REFERENCE_ERROR";
-      else if (/TypeError/.test(startupStderrTail)) backendFailureCode = "BACKEND_TYPE_ERROR";
+    let classifierTail = "";
+    const inspectBackendOutput = (stream: "stdout" | "stderr", chunk: Buffer) => {
+      if (stream === "stdout") backendStdoutObserved = true;
+      else backendStderrObserved = true;
+      const text = chunk.toString("utf8");
+      collectBackendDiagnostics(classifierTail + text);
+      classifierTail = text.slice(-512);
+    };
+    backend.stdout?.on("data", (chunk: Buffer) => inspectBackendOutput("stdout", chunk));
+    backend.stderr?.on("data", (chunk: Buffer) => inspectBackendOutput("stderr", chunk));
+    backend.once("error", () => {
+      if (backendFailureCode === "APPLICATION_EXITED_DURING_STARTUP") {
+        backendFailureCode = "BACKEND_SPAWN_FAILED";
+      }
     });
-    backend.once("error", () => { /* The bounded readiness probe reports startup failure. */ });
+    backend.once("exit", (code, signal) => {
+      backendExitCode = code;
+      backendExitSignal = signal;
+    });
+    backend.once("close", () => { backendOutputClosed = true; });
     throwIfStopping();
+    startupStage = "backend-readiness";
     await waitForBackend(backendPort);
     throwIfStopping();
 
+    startupStage = "admin-login";
     const adminEmail = env.ADMIN_SEED_EMAIL!;
     const adminPassword = env.ADMIN_SEED_PASSWORD!;
     authenticatedCookie = await normalAdminLogin(backendPort, adminEmail, adminPassword);
     throwIfStopping();
 
+    startupStage = "private-proxy";
     const installedProxy = await installReverseProxy(backendPort);
     proxy = installedProxy.server;
     throwIfStopping();
@@ -530,7 +648,20 @@ run().catch((error: unknown) => {
   if (!stopping) {
     const message = error instanceof Error ? error.message : "";
     const safeCode = /^[A-Z][A-Z0-9_]{2,80}$/.test(message) ? message : "STARTUP_FAILED";
-    console.error(`OFFLINE_FIXTURE_FAILED ${safeCode}`);
+    const exitCode = backendExitCode === undefined ? "unknown" : backendExitCode === null ? "none" : String(backendExitCode);
+    const exitSignal = backendExitSignal ?? "none";
+    if (
+      backendExitCode !== undefined &&
+      backendExitCode !== null &&
+      backendExitCode !== 0 &&
+      backendFailureCode === "APPLICATION_EXITED_DURING_STARTUP" &&
+      (backendStdoutObserved || backendStderrObserved)
+    ) {
+      backendFailureCode = "BACKEND_EXIT_WITH_UNCLASSIFIED_OUTPUT";
+    }
+    console.error(
+      `OFFLINE_FIXTURE_FAILED ${safeCode} stage=${startupStage} backendFailure=${backendFailureCode} backendFatalMarker=${backendFatalMarker} backendExitCode=${exitCode} backendSignal=${exitSignal} stdoutObserved=${backendStdoutObserved} stderrObserved=${backendStderrObserved} sqlstates=${[...backendSqlStates].join(",") || "none"} nodeCodes=${[...backendNodeCodes].join(",") || "none"} stackFrames=${[...backendStackFrames].slice(0, 8).join(",") || "none"}`,
+    );
     process.exitCode = 1;
   }
 }).finally(() => {
