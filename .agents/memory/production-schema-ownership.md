@@ -22,9 +22,3 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 **Why:** Published tables can have their columns and CHECKs while migration-defined guards remain absent and the Publish diff reports no outstanding changes. An existing trigger can also survive publication with its older function body, so trigger-name presence alone is insufficient.
 
 **How to apply:** Compare `pg_trigger` and `pg_proc` on production with the intended reviewed definitions, including function-body fingerprints, before allowing guarded writes or claiming a pipeline ready. Do not mistake a healthy deployment or a no-diff Publish report for trigger parity.
-
-**Deployment feasibility must precede implementation:** Do not build a task around new mandatory migration-only guards without establishing a supported production deployment path. Manual SQL by the user is not the routine delivery path or task completion.
-
-**Why:** The user reported three consecutive tasks ending with required manual SQL work. Detecting unsupported objects only after implementation/publication repeatedly transfers unfinished engineering work to the user.
-
-**How to apply:** Treat an unavailable deployment mechanism as an upfront design blocker. Resolve that mechanism or establish an equally protective, supported design before proceeding; never bypass safeguards or describe a manual-SQL handoff as a finished repair.
