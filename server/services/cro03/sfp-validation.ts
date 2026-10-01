@@ -38,7 +38,13 @@ import {
   reserveSfpProviderOperation,
   settleSfpProviderOperation,
 } from "./sfp-provider-operations";
-import { getUnifiedSfpCandidates, openSfpCandidatePlaintext, type UnifiedSfpCandidateView } from "./sfp-paid-evidence-writer";
+import {
+  assertSfpContactCandidateCurrent,
+  getUnifiedSfpCandidates,
+  openSfpCandidatePlaintext,
+  type ResolvedSfpCandidateReference,
+  type UnifiedSfpCandidateView,
+} from "./sfp-paid-evidence-writer";
 import { rejectEmailCandidate, checkMxRecord } from "./candidate-selector";
 import {
   getActiveSfpOutreachPolicy,
@@ -49,11 +55,17 @@ import {
   evaluateSfpEmailTypePolicy,
   type SfpActivePolicy,
 } from "./sfp-outreach-policy";
+import {
+  SFP_SELECTED_CONTACTS_MAX,
+  normalizeFrozenContactScope,
+  normalizeSelectedContactIds,
+  resolveVerifiedSfpContactTargets,
+  type SfpSelectedContactTarget,
+} from "./sfp-contact-scope";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
 export const SFP_VALIDATION_MAX = 25;
-const SFP_POLICY_VERSION = 1;
 
 export type SfpZbOutcome =
   | "valid" | "invalid" | "catch-all" | "spamtrap" | "abuse"
@@ -73,22 +85,100 @@ export type SfpZbOutcome =
 export async function computeSfpValidationSnapshot(
   cohortRunId: string,
   maxValidations: number,
+  selectedContactIds?: number[],
 ): Promise<{ snapshotHash: string; payload: Record<string, unknown> }> {
-  const policy = await getActiveSfpOutreachPolicy();
-  const bizIds = await getUndecidedCohortBizIds(cohortRunId);
-  const winners = await selectWinnersPerBusiness(bizIds, cohortRunId, policy.version);
-  const selected = Array.from(winners.entries()).slice(0, maxValidations);
-  const cohort = rows(await db.execute(sql`
-    SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid
-  `))[0];
+  const selection = await buildSfpValidationSelectionSnapshot(
+    cohortRunId,
+    maxValidations,
+    selectedContactIds,
+  );
+  return { snapshotHash: selection.snapshotHash, payload: selection.payload };
+}
 
+interface SfpValidationSelectionSnapshot {
+  snapshotHash: string;
+  payload: Record<string, unknown>;
+  selected: Array<[number, UnifiedSfpCandidateView]>;
+  completedContactReceipts: Array<{
+    eligibilityId: string;
+    contactId: number;
+    businessId: number;
+    status: string;
+    zbOutcome: string | null;
+    decisionReason: string | null;
+    normalizedAddressHash: string;
+    updatedAt: string;
+    linkDecisionId: string;
+    linkRevision: number;
+  }>;
+  scopeCoverageComplete: boolean;
+  selectedContactIds?: number[];
+  resolvedTargets?: SfpSelectedContactTarget[];
+  businessIds: number[];
+  totalWinners: number;
+}
+
+async function buildSfpValidationSelectionSnapshot(
+  cohortRunId: string,
+  maxValidations: number,
+  selectedContactIds?: number[],
+): Promise<SfpValidationSelectionSnapshot> {
+  const run = rows(await db.execute(sql`
+    SELECT cohort_hash,request_payload FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid LIMIT 1
+  `))[0];
+  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const policy = await getActiveSfpOutreachPolicy();
+  const scope = await resolveRunContactScope(cohortRunId, run.request_payload, selectedContactIds);
+  const cohortBizIds = await getUndecidedCohortBizIds(cohortRunId);
+  const bizIds = scope
+    ? scope.resolvedTargets.map((target) => target.businessId)
+    : cohortBizIds;
+  const winners = await selectWinnersPerBusiness(
+    bizIds,
+    cohortRunId,
+    policy.version,
+    scope?.resolvedTargets,
+  );
+  const durableReceipts = scope
+    ? await getDurableScopedContactReceipts(cohortRunId, scope.resolvedTargets, policy)
+    : [];
+  const receiptByContact = new Map(durableReceipts.map((receipt) => [receipt.contactId, receipt]));
+  const actionableWinners = Array.from(winners.entries()).filter(([businessId, candidate]) => {
+    if (!scope || candidate.sourceKind !== "contact") return true;
+    const contactId = Number(candidate.evidenceId.replace(/^contact:/, ""));
+    const receipt = receiptByContact.get(contactId);
+    return !receipt || receipt.businessId !== businessId ||
+      receipt.normalizedAddressHash !== String(candidate.normalizedValueHash ?? "") ||
+      receipt.linkDecisionId !== String(candidate.contactBusinessLinkDecisionId ?? "") ||
+      receipt.linkRevision !== Number(candidate.contactBusinessLinkRevision);
+  });
+  const selected = actionableWinners.slice(0, maxValidations);
+  const pendingTargetIds = new Set(selected.map(([, candidate]) =>
+    candidate.sourceKind === "contact" && candidate.evidenceId.startsWith("contact:")
+      ? Number(candidate.evidenceId.slice("contact:".length)) : NaN));
+  const coveredTargetIds = new Set<number>([
+    ...pendingTargetIds,
+    ...durableReceipts.map((receipt) => receipt.contactId),
+  ]);
+  const scopeCoverageComplete = !scope || (
+    actionableWinners.length === selected.length &&
+    scope.selectedContactIds.every((contactId) => coveredTargetIds.has(contactId))
+  );
   const payload = {
     cohortRunId,
-    cohortHash: String(cohort?.cohort_hash ?? ""),
+    cohortHash: String(run.cohort_hash ?? ""),
     maxValidations,
     policyId: policy.id,
     policyDocumentHash: policy.documentHash,
     batchMaxItems: SFP_VALIDATION_MAX,
+    ...(scope ? {
+      selectedContactScope: {
+        selectedContactIds: scope.selectedContactIds,
+        resolvedTargets: scope.resolvedTargets,
+        completedContactReceipts: durableReceipts,
+        scopeCoverageComplete,
+      },
+    } : {}),
     winners: selected
       .map(([bizId, cand]) => ({
         businessId: bizId, evidenceId: cand.evidenceId, sourceKind: cand.sourceKind,
@@ -99,7 +189,104 @@ export async function computeSfpValidationSnapshot(
       .sort((a, b) => a.businessId - b.businessId),
   };
   const snapshotHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-  return { snapshotHash, payload };
+  return {
+    snapshotHash,
+    payload,
+    selected,
+    completedContactReceipts: durableReceipts,
+    scopeCoverageComplete,
+    selectedContactIds: scope?.selectedContactIds,
+    resolvedTargets: scope?.resolvedTargets,
+    businessIds: bizIds,
+    totalWinners: scope ? actionableWinners.length + durableReceipts.length : winners.size,
+  };
+}
+
+async function resolveRunContactScope(
+  cohortRunId: string,
+  rawRequestPayload: unknown,
+  requestedContactIds?: number[],
+): Promise<{ selectedContactIds: number[]; resolvedTargets: SfpSelectedContactTarget[] } | undefined> {
+  let requestPayload: any = rawRequestPayload;
+  if (typeof requestPayload === "string") {
+    try { requestPayload = JSON.parse(requestPayload); } catch {
+      throw new Error("SFP_FROZEN_CONTACT_SCOPE_CORRUPT");
+    }
+  }
+  const frozenIds = normalizeFrozenContactScope(requestPayload?.selectedContactIds);
+  const requestedIds = normalizeSelectedContactIds(requestedContactIds);
+  if (frozenIds && requestedIds &&
+      (frozenIds.length !== requestedIds.length || frozenIds.some((id, index) => id !== requestedIds[index]))) {
+    throw new Error("SFP_SELECTED_CONTACT_SCOPE_MISMATCH:must_match_immutable_frozen_scope");
+  }
+  const selectedContactIds = frozenIds ?? requestedIds;
+  if (!selectedContactIds) return undefined;
+  const resolvedTargets = await resolveVerifiedSfpContactTargets(selectedContactIds);
+  if (frozenIds) {
+    const frozenTargets = Array.isArray(requestPayload?.selectedContactTargets)
+      ? requestPayload.selectedContactTargets as SfpSelectedContactTarget[]
+      : [];
+    const frozenById = new Map(frozenTargets.map((target) => [Number(target.contactId), target]));
+    const drifted = resolvedTargets.filter((target) => {
+      const frozen = frozenById.get(target.contactId);
+      return !frozen ||
+        Number(frozen.businessId) !== target.businessId ||
+        String(frozen.linkDecisionId) !== target.linkDecisionId ||
+        Number(frozen.linkRevision) !== target.linkRevision;
+    });
+    if (frozenTargets.length !== resolvedTargets.length || drifted.length) {
+      throw new Error(`SFP_SELECTED_CONTACT_FROZEN_LINK_DRIFT:${(drifted.length ? drifted : resolvedTargets).map((target) => target.contactId).join(",")}`);
+    }
+  }
+  const memberRows = rows(await db.execute(sql`
+    SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id=${cohortRunId}::uuid
+  `));
+  const memberIds = new Set(memberRows.map((row: any) => Number(row.business_id)));
+  const nonMembers = resolvedTargets.filter((target) => !memberIds.has(target.businessId));
+  if (nonMembers.length) {
+    throw new Error(`SFP_SELECTED_CONTACT_NOT_COHORT_MEMBER:${nonMembers.map((target) => target.contactId).join(",")}`);
+  }
+  return { selectedContactIds, resolvedTargets };
+}
+
+async function assertValidationReplayScopeMatches(
+  cohortRunId: string,
+  requestedContactIds: number[] | undefined,
+  storedResultValue: unknown,
+): Promise<void> {
+  const run = rows(await db.execute(sql`
+    SELECT request_payload FROM sfp_cohort_runs WHERE id=${cohortRunId}::uuid LIMIT 1
+  `))[0];
+  if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const currentScope = await resolveRunContactScope(cohortRunId, run.request_payload, requestedContactIds);
+  let storedResult: any = storedResultValue;
+  if (typeof storedResult === "string") {
+    try { storedResult = JSON.parse(storedResult); } catch {
+      throw new Error("SFP_VALIDATION_IDEMPOTENCY_CONFLICT:stored_result_corrupt");
+    }
+  }
+  const storedScope = storedResult?.selectedContactScope;
+  if (!currentScope) {
+    if (storedScope) throw new Error("SFP_VALIDATION_IDEMPOTENCY_CONFLICT:scope_mismatch");
+    return;
+  }
+  const storedIds = normalizeFrozenContactScope(storedScope?.selectedContactIds);
+  const storedTargets = Array.isArray(storedScope?.resolvedTargets) ? storedScope.resolvedTargets : [];
+  const idsMatch = !!storedIds &&
+    storedIds.length === currentScope.selectedContactIds.length &&
+    storedIds.every((id, index) => id === currentScope.selectedContactIds[index]);
+  const targetById = new Map(storedTargets.map((target: any) => [Number(target.contactId), target]));
+  const targetsMatch = storedTargets.length === currentScope.resolvedTargets.length &&
+    currentScope.resolvedTargets.every((target) => {
+      const stored = targetById.get(target.contactId) as any;
+      return !!stored &&
+        Number(stored.businessId) === target.businessId &&
+        String(stored.linkDecisionId) === target.linkDecisionId &&
+        Number(stored.linkRevision) === target.linkRevision;
+    });
+  if (!idsMatch || !targetsMatch) {
+    throw new Error("SFP_VALIDATION_IDEMPOTENCY_CONFLICT:scope_mismatch");
+  }
 }
 
 export interface SfpValidationPreview {
@@ -118,7 +305,21 @@ export interface SfpValidationPreview {
     candidateId: string;
     maskedValue: string;
     confidence: number;
+    contactBusinessLinkDecisionId?: string | null;
+    contactBusinessLinkRevision?: number | null;
   }>;
+  selectedContactScope?: {
+    selectedContactIds: number[];
+    resolvedTargets: SfpSelectedContactTarget[];
+    completedContactReceipts: SfpValidationSelectionSnapshot["completedContactReceipts"];
+    scopeCoverageComplete: boolean;
+  };
+  scopeCapabilities: {
+    selectedContactIds: true;
+    selectedContactIdsMax: number;
+    exactTargetOnlyTransport: true;
+    frozenScopeCannotBeBroadened: true;
+  };
   gateOpen: boolean;
   gateBlockedReason: string | null;
   capturedAt: string;
@@ -139,6 +340,12 @@ export interface SfpValidationResult {
   /** Always true — no outreach is sent */
   zeroOutreachConfirmed: true;
   completedAt: string;
+  selectedContactScope?: {
+    selectedContactIds: number[];
+    resolvedTargets: SfpSelectedContactTarget[];
+    completedContactReceipts: SfpValidationSelectionSnapshot["completedContactReceipts"];
+    scopeCoverageComplete: boolean;
+  };
 }
 
 /**
@@ -161,8 +368,63 @@ function candidateSourceId(candidate: Pick<UnifiedSfpCandidateView, "sourceKind"
   return candidate.sourceKind === "contact" ? candidate.evidenceId.replace(/^contact:/, "") : candidate.evidenceId;
 }
 
+async function getDurableScopedContactReceipts(
+  cohortRunId: string,
+  targets: SfpSelectedContactTarget[],
+  policy: SfpActivePolicy,
+): Promise<SfpValidationSelectionSnapshot["completedContactReceipts"]> {
+  if (targets.length === 0) return [];
+  const businessIds = [...new Set(targets.map((target) => target.businessId))];
+  const found = rows(await db.execute(sql`
+    SELECT e.id AS eligibility_id,e.contact_id,e.business_id,e.status,e.zb_outcome,e.decision_reason,
+           e.normalized_value_hash,e.normalized_value_hash_version,e.updated_at,
+           e.contact_business_link_decision_id,e.contact_business_link_revision,
+           c.email,c.email_token_hash
+      FROM sfp_outreach_eligibility e
+      JOIN contacts c ON c.id=e.contact_id
+     WHERE e.cohort_run_id=${cohortRunId}::uuid
+       AND e.business_id=ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}`),sql`, `)}]::integer[])
+       AND e.source_kind='contact'
+       AND e.status NOT IN ('validation_pending','discovery_required')
+       AND e.policy_version=${policy.version}
+       AND e.policy_document_id=${policy.id}::uuid
+       AND e.policy_document_hash=${policy.documentHash}
+  `));
+  const targetByContact = new Map(targets.map((target) => [target.contactId, target]));
+  return found.map((row: any) => {
+    const contactId = Number(row.contact_id);
+    const target = targetByContact.get(contactId);
+    const hashVersion = Number(row.normalized_value_hash_version);
+    const currentAddressHash = hashVersion === 1 && row.email
+      ? createHash("sha256").update(`email\0${String(row.email).trim().toLowerCase()}`).digest("hex")
+      : hashVersion === 0 ? String(row.email_token_hash ?? "") : "";
+    if (!target || target.businessId !== Number(row.business_id) ||
+        target.linkDecisionId !== String(row.contact_business_link_decision_id) ||
+        target.linkRevision !== Number(row.contact_business_link_revision) ||
+        currentAddressHash !== String(row.normalized_value_hash)) return null;
+    return {
+      eligibilityId: String(row.eligibility_id),
+      contactId,
+      businessId: target.businessId,
+      status: String(row.status),
+      zbOutcome: row.zb_outcome == null ? null : String(row.zb_outcome),
+      decisionReason: row.decision_reason == null ? null : String(row.decision_reason),
+      normalizedAddressHash: String(row.normalized_value_hash),
+      updatedAt: String(row.updated_at),
+      linkDecisionId: target.linkDecisionId,
+      linkRevision: target.linkRevision,
+    };
+  }).filter((receipt: any): receipt is SfpValidationSelectionSnapshot["completedContactReceipts"][number] => receipt !== null)
+    .sort((a, b) => a.businessId - b.businessId);
+}
+
 /** Best currently actionable candidate per business, retaining justified alternatives. */
-async function selectWinnersPerBusiness(bizIds: number[], cohortRunId: string, policyVersion: number): Promise<Map<number, UnifiedSfpCandidateView>> {
+async function selectWinnersPerBusiness(
+  bizIds: number[],
+  cohortRunId: string,
+  policyVersion: number,
+  selectedContactTargets?: SfpSelectedContactTarget[],
+): Promise<Map<number, UnifiedSfpCandidateView>> {
   const unified = await getUnifiedSfpCandidates(bizIds) as CandidateWithPin[];
   if (!unified.length) return new Map();
   for (const cand of unified) {
@@ -173,6 +435,23 @@ async function selectWinnersPerBusiness(bizIds: number[], cohortRunId: string, p
       cand.contactBusinessLinkRevision ?? "",
     ].join(":");
   }
+  if (selectedContactTargets) {
+    const targetsByContact = new Map(selectedContactTargets.map((target) => [target.contactId, target]));
+    for (let index = unified.length - 1; index >= 0; index--) {
+      const candidate = unified[index];
+      const contactId = candidate.sourceKind === "contact" && candidate.evidenceId.startsWith("contact:")
+        ? Number(candidate.evidenceId.slice("contact:".length))
+        : NaN;
+      const target = targetsByContact.get(contactId);
+      if (!target ||
+          candidate.businessId !== target.businessId ||
+          candidate.contactBusinessLinkDecisionId !== target.linkDecisionId ||
+          Number(candidate.contactBusinessLinkRevision) !== target.linkRevision) {
+        unified.splice(index, 1);
+      }
+    }
+  }
+  if (!unified.length) return new Map();
   const history = rows(await db.execute(sql`
     SELECT business_id,source_kind,candidate_id::text AS candidate_id,
            paid_candidate_evidence_id::text AS paid_id,contact_id::text AS contact_id,
@@ -349,7 +628,10 @@ export async function claimValidationCandidate(input: {
 
 // ── Preview (read-only) ───────────────────────────────────────────────────────
 
-export async function previewSfpValidation(cohortRunId: string): Promise<SfpValidationPreview> {
+export async function previewSfpValidation(
+  cohortRunId: string,
+  opts: { selectedContactIds?: number[] } = {},
+): Promise<SfpValidationPreview> {
   const runRow = rows(await db.execute(sql`
     SELECT * FROM sfp_cohort_runs WHERE id = ${cohortRunId}::uuid LIMIT 1
   `))[0];
@@ -358,18 +640,23 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
     throw new Error(`SFP_VALIDATION_PREVIEW:cohort_not_usable:state=${runRow.cohort_state}`);
   }
 
-  const previewPolicy = await getActiveSfpOutreachPolicy();
-  const bizIds = await getUndecidedCohortBizIds(cohortRunId);
+  const selection = await buildSfpValidationSelectionSnapshot(
+    cohortRunId,
+    SFP_VALIDATION_MAX,
+    opts.selectedContactIds,
+  );
+  const bizIds = selection.businessIds;
   const allMembers = rows(await db.execute(sql`
     SELECT business_id FROM sfp_cohort_members WHERE cohort_run_id = ${cohortRunId}::uuid
   `));
 
-  const winners = await selectWinnersPerBusiness(bizIds, cohortRunId, previewPolicy.version);
-  const selected = Array.from(winners.entries()).slice(0, SFP_VALIDATION_MAX);
-  const { snapshotHash } = await computeSfpValidationSnapshot(cohortRunId, SFP_VALIDATION_MAX);
+  const selected = selection.selected;
 
   let gateBlockedReason: string | null = null;
   try {
+    if (selection.selectedContactIds && !selection.scopeCoverageComplete) {
+      throw new Error("SFP_SELECTED_CONTACTS_NOT_ALL_ACTIONABLE");
+    }
     if (!(await isSfpValidationPromotionEnabled())) {
       throw new Error("FREE_DISCOVERY_VALIDATION_PROMOTION_DISABLED");
     }
@@ -391,7 +678,7 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
     cohortFrozenHash: String(runRow.cohort_hash),
     cohortSize: allMembers.length,
     addressesForValidation: selected.length,
-    businessesWithoutCandidate: bizIds.length - winners.size,
+    businessesWithoutCandidate: bizIds.length - selection.totalWinners,
     provider: "zerobounce",
     estimatedCostMicros: selected.length * (unitPrice ?? 0),
     worstCaseCostMicros: SFP_VALIDATION_MAX * (unitPrice ?? 0),
@@ -402,11 +689,29 @@ export async function previewSfpValidation(cohortRunId: string): Promise<SfpVali
       candidateId: c.evidenceId,
       maskedValue: c.maskedValue,
       confidence: c.confidence,
+      ...(c.sourceKind === "contact" ? {
+        contactBusinessLinkDecisionId: c.contactBusinessLinkDecisionId,
+        contactBusinessLinkRevision: c.contactBusinessLinkRevision,
+      } : {}),
     })),
+    ...(selection.selectedContactIds && selection.resolvedTargets ? {
+      selectedContactScope: {
+        selectedContactIds: selection.selectedContactIds,
+        resolvedTargets: selection.resolvedTargets,
+        completedContactReceipts: selection.completedContactReceipts,
+        scopeCoverageComplete: selection.scopeCoverageComplete,
+      },
+    } : {}),
+    scopeCapabilities: {
+      selectedContactIds: true,
+      selectedContactIdsMax: SFP_SELECTED_CONTACTS_MAX,
+      exactTargetOnlyTransport: true,
+      frozenScopeCannotBeBroadened: true,
+    },
     gateOpen: gateBlockedReason === null,
     gateBlockedReason,
     capturedAt: new Date().toISOString(),
-    snapshotHash,
+    snapshotHash: selection.snapshotHash,
   };
 }
 
@@ -418,6 +723,7 @@ export async function executeSfpValidation(
     idempotencyKey: string;
     actorId: string;
     maxValidations?: number;
+    selectedContactIds?: number[];
     /** The snapshotHash returned by previewSfpValidation for this exact run. Required. */
     snapshotHash: string;
     /** Fake transport for tests. (candidateId, REAL decrypted email) → ZbOutcome */
@@ -437,6 +743,7 @@ export async function executeSfpValidation(
         Number(existingStage.max_items) !== maxValidations) {
       throw new Error("SFP_VALIDATION_IDEMPOTENCY_CONFLICT:immutable_request_mismatch");
     }
+    await assertValidationReplayScopeMatches(cohortRunId, opts.selectedContactIds, existingStage.stored_result);
     return existingStage.stored_result as SfpValidationResult;
   }
 
@@ -459,9 +766,32 @@ export async function executeSfpValidation(
   // Input-bound execution: recompute the candidate/policy snapshot preview
   // and require it to still match. A pricing schedule is not a prerequisite
   // or part of the authorization snapshot.
-  const currentSnapshot = await computeSfpValidationSnapshot(cohortRunId, maxValidations);
+  const currentSelection = await buildSfpValidationSelectionSnapshot(
+    cohortRunId,
+    maxValidations,
+    opts.selectedContactIds,
+  );
+  const currentSnapshot = {
+    snapshotHash: currentSelection.snapshotHash,
+    payload: currentSelection.payload,
+  };
   if (currentSnapshot.snapshotHash !== opts.snapshotHash) {
     throw new Error("SFP_VALIDATION_SNAPSHOT_MISMATCH:preview_stale_reissue_preview");
+  }
+  if (currentSelection.selectedContactIds && !currentSelection.scopeCoverageComplete) {
+    throw new Error("SFP_VALIDATION_BLOCKED:SFP_SELECTED_CONTACTS_NOT_ALL_ACTIONABLE");
+  }
+  if (currentSelection.selectedContactIds && currentSelection.resolvedTargets) {
+    const targetsByContact = new Map(currentSelection.resolvedTargets.map((target) => [target.contactId, target]));
+    const scopeDrift = currentSelection.selected.some(([businessId, candidate]) => {
+      const contactId = candidate.sourceKind === "contact" && candidate.evidenceId.startsWith("contact:")
+        ? Number(candidate.evidenceId.slice("contact:".length)) : NaN;
+      const target = targetsByContact.get(contactId);
+      return !target || target.businessId !== businessId ||
+        candidate.contactBusinessLinkDecisionId !== target.linkDecisionId ||
+        Number(candidate.contactBusinessLinkRevision) !== target.linkRevision;
+    });
+    if (scopeDrift) throw new Error("SFP_VALIDATION_BLOCKED:SFP_SELECTED_CONTACT_SCOPE_DRIFT");
   }
   const payloadHash = createHash("sha256")
     .update(JSON.stringify({ ...currentSnapshot.payload, idempotencyKey: opts.idempotencyKey }))
@@ -532,7 +862,7 @@ export async function executeSfpValidation(
     };
   }
 
-  const bizIds = await getUndecidedCohortBizIds(cohortRunId);
+  const bizIds = currentSelection.businessIds;
   if (bizIds.length === 0) {
     const totalMembers = rows(await db.execute(sql`
       SELECT COUNT(*)::int AS cnt FROM sfp_cohort_members WHERE cohort_run_id = ${cohortRunId}::uuid
@@ -560,8 +890,7 @@ export async function executeSfpValidation(
   if (!claim) throw new Error("SFP_STAGE_ALREADY_RUNNING");
   const claimToken = String(claim.claim_token);
 
-  const winners = await selectWinnersPerBusiness(bizIds, cohortRunId, policy.version);
-  const selectedEntries = Array.from(winners.entries()).slice(0, maxValidations);
+  const selectedEntries = currentSelection.selected;
 
   let validationAttempts = 0, validCount = 0, catchAllCount = 0, invalidCount = 0, failedCount = 0, eligibilityRowsCreated = 0;
 
@@ -577,8 +906,17 @@ export async function executeSfpValidation(
     // Apollo person-sourced candidate can lack a captured name and would
     // otherwise be misclassified as a business/role address.
     const subjectTypeForPrefilter: "business" | "person" = cand.subjectType === "person" ? "person" : "business";
+    let providerDispatchedForCandidate = false;
 
     // ── Audited plaintext open (real email only — never masked_value) ──────
+    // Contact-source correction: the outer tx is also passed into
+    // openSfpCandidatePlaintext and retains its FOR SHARE ownership locks
+    // through DNS, provider dispatch, post-provider rechecks, settlement,
+    // eligibility writes, and business projection. Provider reservation uses
+    // its own short transaction and commits before dispatch; settlement below
+    // is deliberately given this same outer executor (never a nested
+    // finalization transaction).
+    //
     // F-13 correction: EVERY plaintext-dependent step — prechecks, MX/DNS,
     // suppression, safety-gate evaluation, freshness reuse, the ZeroBounce
     // transport call, the eligibility decision, and the eligibility/business
@@ -592,9 +930,10 @@ export async function executeSfpValidation(
     // prevent, and which openSfpCandidatePlaintext() itself now also
     // refuses at runtime (see SFP_PLAINTEXT_ESCAPE_BLOCKED).
     try {
-      await openSfpCandidatePlaintext(
+      await db.transaction(async (tx) => openSfpCandidatePlaintext(
         { reference: cand.candidateReference, cohortRunId, actorId: opts.actorId, purpose: "sfp_email_validation" },
-        async (realEmail) => {
+        async (realEmail, resolvedReference) => {
+          await assertSfpContactCandidateCurrent(resolvedReference, realEmail, tx);
           const contactEmailTokenHash = createHash("sha256").update(realEmail.trim().toLowerCase()).digest("hex");
           const candidateIdentityHash = cand.normalizedValueHash ??
             createHash("sha256").update(`email\0${realEmail.trim().toLowerCase()}`).digest("hex");
@@ -610,8 +949,9 @@ export async function executeSfpValidation(
             invalidCount++;
             await writeEligibilityRow({
               cohortRunId, bizId, cand, policyVersion: policy.version, status: "invalid",
+              policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
               decisionReason: `precheck_${realRejection}:zero_provider_spend`, reasonCodes: [`precheck_${realRejection}`],
-            });
+            }, tx);
             eligibilityRowsCreated++;
             return true;
           }
@@ -628,8 +968,9 @@ export async function executeSfpValidation(
             invalidCount++;
             await writeEligibilityRow({
               cohortRunId, bizId, cand, policyVersion: policy.version, status: "invalid",
+              policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
               decisionReason: "precheck_no_mx:authoritative_ineligible:zero_provider_spend", reasonCodes: ["precheck_no_mx"],
-            });
+            }, tx);
             eligibilityRowsCreated++;
             return true;
           }
@@ -639,37 +980,41 @@ export async function executeSfpValidation(
             else failedCount++;
             await writeEligibilityRow({
               cohortRunId, bizId, cand, policyVersion: policy.version,
+              policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
               status: exhausted ? "validated_review_required" : "validation_pending",
               decisionReason: exhausted ? "precheck_dns_indeterminate:exhausted:operator_review" :
                 `precheck_dns_indeterminate:retryable:zero_provider_spend:attempt:${retryAttempt}`,
               reasonCodes: ["precheck_dns_indeterminate"], normalizedValueHash: candidateIdentityHash,
-            });
+            }, tx);
             eligibilityRowsCreated++;
             return true;
           }
 
           // Canonical suppression check.
           const emailHash = createHash("sha256").update(`email\0${realEmail.toLowerCase().trim()}`).digest("hex");
-          if (await isCanonicallySuppressed([emailHash, contactEmailTokenHash])) {
+          await assertSfpContactCandidateCurrent(resolvedReference, realEmail, tx);
+          if (await isCanonicallySuppressed([emailHash, contactEmailTokenHash], tx)) {
             await writeEligibilityRow({
               cohortRunId, bizId, cand, policyVersion: policy.version, status: "validated_suppressed",
+              policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
               decisionReason: "canonical_suppression_match", reasonCodes: ["policy_suppressed"],
               suppressionStatus: "suppressed",
-            });
+            }, tx);
             eligibilityRowsCreated++;
             return true;
           }
 
-          const consentTier = await lookupConsentTierByEmailHash(contactEmailTokenHash);
+          const consentTier = await lookupConsentTierByEmailHash(contactEmailTokenHash, tx);
 
           // Mutable safety gates (DBPR / existing-customer / consent-tier) —
           // re-run even on a freshness-reuse hit below.
-          const gate = await evaluateSfpMutableSafetyGates({ businessId: bizId, consentTier, policy });
+          const gate = await evaluateSfpMutableSafetyGates({ businessId: bizId, consentTier, policy }, tx);
           if (!gate.eligible) {
             await writeEligibilityRow({
               cohortRunId, bizId, cand, policyVersion: policy.version, status: gate.status, decisionReason: gate.reasonCode,
+              policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
               reasonCodes: [gate.reasonCode], consentTier,
-            });
+            }, tx);
             eligibilityRowsCreated++;
             return true;
           }
@@ -677,7 +1022,7 @@ export async function executeSfpValidation(
           // ── Freshness reuse ──────────────────────────────────────────────────
           const fresh = await findFreshProviderObservation({
             businessId: bizId, emailTokenHash: contactEmailTokenHash, ttlDays: policy.validationTtlDays,
-          });
+          }, tx);
 
           let zbOutcome: SfpZbOutcome = "failed";
           let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
@@ -696,6 +1041,7 @@ export async function executeSfpValidation(
             try {
               if (opts.zbTransport) {
                 validationAttempts++;
+                providerDispatchedForCandidate = true;
                 zbOutcome = await opts.zbTransport(String(cand.evidenceId), realEmail);
               } else {
                 reservation = await reserveSfpProviderOperation({
@@ -705,7 +1051,7 @@ export async function executeSfpValidation(
                   idempotencyKey: `${opts.idempotencyKey}:zerobounce:${cand.evidenceId}`, actorId: opts.actorId,
                 });
                 await assertCurrentSfpProviderReservation(reservation);
-                await db.execute(sql`
+                await tx.execute(sql`
                   UPDATE sfp_stage_items
                      SET lease_expires_at=NOW()+INTERVAL '30 minutes',updated_at=NOW()
                    WHERE stage_run_id=${String(stageRun.id)}::uuid
@@ -714,6 +1060,7 @@ export async function executeSfpValidation(
                 `);
                 const { verifyEmail } = await import("../sdr/zerobounce");
                 validationAttempts++;
+                providerDispatchedForCandidate = true;
                 const result = await verifyEmail(realEmail);
                 rawStatus = (result as any).status ?? null;
                 rawSubstatus = (result as any).subStatus ?? null;
@@ -728,6 +1075,27 @@ export async function executeSfpValidation(
               zbOutcome = "failed";
             }
           }
+
+          // Re-check under the same transaction and still-held contact/link
+          // locks after any provider wait. A changed identity or new
+          // suppression can never be promoted from the result of this call.
+          let contactIdentityCurrentAfterProvider = true;
+          try {
+            await assertSfpContactCandidateCurrent(resolvedReference, realEmail, tx);
+          } catch (error: any) {
+            if (String(error?.message ?? error) === "SFP_CONTACT_SOURCE_PIN_STALE") {
+              contactIdentityCurrentAfterProvider = false;
+            } else {
+              throw error;
+            }
+          }
+          const suppressedAfterProvider = await isCanonicallySuppressed([emailHash, contactEmailTokenHash], tx);
+          const consentTierAfterProvider = await lookupConsentTierByEmailHash(contactEmailTokenHash, tx);
+          const gateAfterProvider = await evaluateSfpMutableSafetyGates({
+            businessId: bizId,
+            consentTier: consentTierAfterProvider,
+            policy,
+          }, tx);
 
           const validationAt = observationAt ?? new Date().toISOString();
           // Role-inbox / named-contact decision is driven by the same persisted
@@ -746,8 +1114,22 @@ export async function executeSfpValidation(
 
           let status: OutreachEligibilityStatus = "invalid";
           let decisionReason = "";
+          let suppressionStatus = "not_suppressed";
 
-          if (zbOutcome === "valid" && isAccepted) {
+          if (!contactIdentityCurrentAfterProvider) {
+            status = "validated_review_required";
+            decisionReason = "contact_identity_changed_after_provider_dispatch";
+            reasonCodes.push("contact_identity_changed_after_provider_dispatch");
+          } else if (suppressedAfterProvider) {
+            status = "validated_suppressed";
+            decisionReason = "canonical_suppression_match_after_provider";
+            reasonCodes.push("policy_suppressed");
+            suppressionStatus = "suppressed";
+          } else if (!gateAfterProvider.eligible) {
+            status = gateAfterProvider.status;
+            decisionReason = gateAfterProvider.reasonCode;
+            reasonCodes.push(gateAfterProvider.reasonCode);
+          } else if (zbOutcome === "valid" && isAccepted) {
             const roleOk = isRoleInbox && roleEligibleForColdB2b;
             const emailTypePolicy = evaluateSfpEmailTypePolicy({
               namedContact: isNamedContact, roleInbox: isRoleInbox, policy,
@@ -802,7 +1184,7 @@ export async function executeSfpValidation(
           // ── Atomic finalization: settlement + eligibility write + counters ────
           // realEmail is written ONLY here, inside this same audited
           // callback — it never leaves this stack frame.
-          await db.transaction(async (tx) => {
+          {
             if (reservation) {
               const obs = zbOutcome === "valid" ? "valid" : zbOutcome === "invalid" || zbOutcome === "spamtrap" || zbOutcome === "abuse" || zbOutcome === "do_not_mail" ? "invalid" : zbOutcome === "failed" ? "transport" : "unknown";
               await settleSfpProviderOperation({
@@ -833,9 +1215,9 @@ export async function executeSfpValidation(
                 ${policy.version}, ${status}, ${decisionReason}, ${String(zbOutcome)},
                 ${validationAt}::timestamptz, ${expiresAt}::timestamptz,
                 ${isNamedContact}, ${isRoleInbox}, ${cand.maskedValue}, ${cand.provider ?? "free"}, ${cand.confidence},
-                'not_suppressed', ${policy.version}, ${decisionReason},
-                ${reservation?.operationId ?? null}::uuid,
-                 ${candidateIdentityHash}, ${policy.id}::uuid, ${policy.documentHash}, ${consentTier},
+                 ${suppressionStatus}, ${policy.version}, ${decisionReason},
+                 ${reservation?.operationId ?? null}::uuid,
+                  ${candidateIdentityHash}, ${policy.id}::uuid, ${policy.documentHash}, ${consentTierAfterProvider},
                 ${rawStatus}, ${rawSubstatus}, ${reusedFromOperationId}::uuid, ${JSON.stringify(reasonCodes)}::jsonb
               )
               ON CONFLICT (cohort_run_id, business_id, policy_version)
@@ -860,7 +1242,8 @@ export async function executeSfpValidation(
                 reason_codes = EXCLUDED.reason_codes, updated_at = NOW()
             `);
 
-            if (zbOutcome === "valid") {
+            if (zbOutcome === "valid" && contactIdentityCurrentAfterProvider &&
+                !suppressedAfterProvider && gateAfterProvider.eligible) {
               await tx.execute(sql`
                 UPDATE businesses
                    SET main_email=${realEmail},email_discovery_status='provider_valid',
@@ -869,23 +1252,43 @@ export async function executeSfpValidation(
                    AND (main_email IS NULL OR email_selected_candidate_hash=${emailHash})
               `);
             }
-          });
+          }
           eligibilityRowsCreated++;
           return true;
         },
-      );
+        tx,
+      ));
     } catch (err: any) {
+      const message = String(err?.message ?? "");
+      if (message === "SFP_CONTACT_SOURCE_PIN_STALE" && !providerDispatchedForCandidate) {
+        await db.transaction(async (tx) => {
+          await tx.execute(sql`
+            UPDATE sfp_stage_items
+               SET state='retry',claim_token=NULL,lease_expires_at=NULL,next_attempt_at=NOW(),
+                   outcome_code='contact_source_pin_stale',updated_at=NOW()
+             WHERE stage_run_id=${String(stageRun.id)}::uuid
+               AND business_id=${bizId} AND provider='zerobounce'
+          `);
+          await tx.execute(sql`
+            UPDATE sfp_stage_runs
+               SET state='partial',claim_token=NULL,lease_expires_at=NULL,
+                   failed_count=failed_count+1,last_heartbeat_at=NOW(),updated_at=NOW()
+             WHERE id=${String(stageRun.id)}::uuid AND claim_token=${claimToken}::uuid
+          `);
+        });
+        throw new Error("SFP_VALIDATION_BLOCKED:SFP_SELECTED_CONTACT_SCOPE_DRIFT");
+      }
       // Only a failure to RESOLVE/decrypt the candidate reference itself is
       // treated as candidate_decryption_failed — a real error thrown by the
       // validation logic running inside the callback above must surface as
       // itself, not be relabeled as a decryption failure.
-      const message = String(err?.message ?? "");
       const isResolveFailure = /^SFP_CANDIDATE_(REFERENCE_NOT_FOUND|NOT_OPENABLE|BUSINESS_NOT_IN_COHORT|ENVELOPE_NOT_FOUND)/.test(message);
       if (!isResolveFailure) throw err;
       if (process.env.SFP_DEBUG_DECRYPT) console.error("SFP_DEBUG_DECRYPT", bizId, err);
       failedCount++;
       await writeEligibilityRow({
         cohortRunId, bizId, cand, policyVersion: policy.version, status: "validation_pending",
+        policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
         decisionReason: "candidate_decryption_failed", reasonCodes: ["candidate_decryption_failed"],
       });
       eligibilityRowsCreated++;
@@ -966,18 +1369,45 @@ export async function executeSfpValidation(
     `);
   }
 
+  const resultCompletedContactReceipts = currentSelection.resolvedTargets
+    ? await getDurableScopedContactReceipts(cohortRunId, currentSelection.resolvedTargets, policy)
+    : [];
+  const resultCompletedIds = new Set(resultCompletedContactReceipts.map((receipt) => receipt.contactId));
+  const resultScopeCoverageComplete = !currentSelection.selectedContactIds ||
+    currentSelection.selectedContactIds.every((contactId) => resultCompletedIds.has(contactId));
+  const completedValidCount = resultCompletedContactReceipts
+    .filter((receipt) => receipt.zbOutcome === "valid").length;
+  const completedCatchAllCount = resultCompletedContactReceipts
+    // This legacy counter includes exhausted pre-provider review decisions;
+    // keep that meaning when rebuilding totals from durable scoped receipts.
+    .filter((receipt) => receipt.status === "catch_all_review" ||
+      (receipt.status === "validated_review_required" && (
+        ["unknown", "failed"].includes(String(receipt.zbOutcome)) ||
+        receipt.decisionReason === "precheck_dns_indeterminate:exhausted:operator_review"
+      ))).length;
+  const completedInvalidCount = resultCompletedContactReceipts
+    .filter((receipt) => receipt.status === "invalid" ||
+      ["invalid", "spamtrap", "abuse", "do_not_mail"].includes(String(receipt.zbOutcome))).length;
   const result: SfpValidationResult = {
     cohortRunId,
     idempotencyKey: opts.idempotencyKey,
     addressesValidated: validationAttempts,
     providerRequests: validationAttempts,
-    validCount,
-    catchAllCount,
-    invalidCount,
+    validCount: currentSelection.selectedContactIds ? completedValidCount : validCount,
+    catchAllCount: currentSelection.selectedContactIds ? completedCatchAllCount : catchAllCount,
+    invalidCount: currentSelection.selectedContactIds ? completedInvalidCount : invalidCount,
     failedCount,
     eligibilityRowsCreated,
     zeroOutreachConfirmed: true,
     completedAt: new Date().toISOString(),
+    ...(currentSelection.selectedContactIds && currentSelection.resolvedTargets ? {
+      selectedContactScope: {
+        selectedContactIds: currentSelection.selectedContactIds,
+        resolvedTargets: currentSelection.resolvedTargets,
+        completedContactReceipts: resultCompletedContactReceipts,
+        scopeCoverageComplete: resultScopeCoverageComplete,
+      },
+    } : {}),
   };
 
   await db.execute(sql`
@@ -1000,20 +1430,23 @@ async function writeEligibilityRow(input: {
   reasonCodes: string[];
   suppressionStatus?: string;
   consentTier?: string | null;
-  policyVersion?: number;
+  policyVersion: number;
+  policyDocumentId: string;
+  policyDocumentHash: string;
   normalizedValueHash?: string | null;
-}): Promise<void> {
-  const policyVersion = input.policyVersion ?? SFP_POLICY_VERSION;
+}, executor: { execute: (query: any) => Promise<any> } = db): Promise<void> {
+  const policyVersion = input.policyVersion;
   const contactIdInt = input.cand.sourceKind === "contact"
     ? Number(input.cand.evidenceId.replace(/^contact:/, ""))
     : null;
   const normalizedValueHash = input.normalizedValueHash ?? input.cand.normalizedValueHash;
   const normalizedValueHashVersion = input.cand.normalizedValueHashVersion ?? (normalizedValueHash ? 1 : null);
-  await db.execute(sql`
+  await executor.execute(sql`
     INSERT INTO sfp_outreach_eligibility
       (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
        contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash_version,
-       policy_version, status, decision_reason, suppression_status, masked_email, discovery_source,
+       policy_version,policy_document_id,policy_document_hash,
+       status, decision_reason, suppression_status, masked_email, discovery_source,
         consent_tier, reason_codes, normalized_value_hash,named_contact,role_inbox)
     VALUES (${input.cohortRunId}::uuid, ${input.bizId},
       ${input.cand.sourceKind === "free" ? input.cand.evidenceId : null}::uuid,
@@ -1023,7 +1456,8 @@ async function writeEligibilityRow(input: {
       ${input.cand.sourceKind === "contact" ? input.cand.contactBusinessLinkDecisionId : null}::uuid,
       ${input.cand.sourceKind === "contact" ? input.cand.contactBusinessLinkRevision : null}::int,
       ${normalizedValueHashVersion},
-      ${policyVersion}, ${input.status}, ${input.decisionReason},
+      ${policyVersion}, ${input.policyDocumentId}::uuid, ${input.policyDocumentHash},
+      ${input.status}, ${input.decisionReason},
       ${input.suppressionStatus ?? "unchecked"}, ${input.cand.maskedValue}, ${input.cand.provider ?? "free"},
        ${input.consentTier ?? null}, ${JSON.stringify(input.reasonCodes)}::jsonb,
          ${normalizedValueHash},${input.cand.subjectType === "person"},${input.cand.subjectType !== "person"})
@@ -1035,6 +1469,8 @@ async function writeEligibilityRow(input: {
            contact_business_link_decision_id=EXCLUDED.contact_business_link_decision_id,
            contact_business_link_revision=EXCLUDED.contact_business_link_revision,
            normalized_value_hash_version=EXCLUDED.normalized_value_hash_version,
+           policy_document_id=EXCLUDED.policy_document_id,
+           policy_document_hash=EXCLUDED.policy_document_hash,
             named_contact=EXCLUDED.named_contact,role_inbox=EXCLUDED.role_inbox,
             masked_email=EXCLUDED.masked_email,discovery_source=EXCLUDED.discovery_source,
            consent_tier=EXCLUDED.consent_tier, reason_codes=EXCLUDED.reason_codes,

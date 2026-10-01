@@ -53,6 +53,12 @@ async function getSfpCampaignStagingWorkerHealth(lastCompletedRun: { completed_a
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
+function parseSelectedContactIds(value: unknown): number[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const values = Array.isArray(value) ? value : [value];
+  return values.flatMap((entry) => String(entry).split(",")).map((entry) => Number(entry.trim()));
+}
+
 function getOpenAI() {
   return new OpenAI({
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -3541,7 +3547,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // GET /api/lead-ops/sfp/funnel — read-only funnel preview with truthful counts
+  // GET /api/lead-ops/sfp/funnel — read-only funnel preview with truthful counts.
+  // Optional selectedContactIds creates a fresh, read-only scoped preview;
+  // it does not alter an existing frozen cohort or bypass selector admission.
   app.get("/api/lead-ops/sfp/funnel", requireRole("admin"), async (req, res) => {
     try {
       const { previewFunnel } = await import("../services/cro03/south-florida-prospecting");
@@ -3552,10 +3560,16 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           return res.status(400).json({ error: "maxPreview must be an integer between 1 and 100" });
         }
       }
-      const preview = await previewFunnel({ maxPreview });
+      const preview = await previewFunnel({
+        maxPreview,
+        selectedContactIds: parseSelectedContactIds(req.query.selectedContactIds),
+      });
       res.json(preview);
     } catch (err: any) {
-      res.status(500).json({ error: err?.message });
+      const message = String(err?.message ?? err);
+      const status = message.includes("SELECTED_CONTACT_IDS_INVALID") ? 400
+        : message.includes("SELECTED_CONTACT") ? 422 : 500;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -3688,8 +3702,9 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     }
   });
 
-  // POST /api/lead-ops/sfp/runs/freeze — freeze a deterministic cohort (idempotent)
-  // Body: { idempotencyKey: string, maxCohortSize?: number }
+  // POST /api/lead-ops/sfp/runs/freeze — freeze a deterministic cohort (idempotent).
+  // Optional selectedContactIds requires a fresh matching previewSnapshotHash
+  // and creates a new immutable run; it never edits or injects into old runs.
   app.post("/api/lead-ops/sfp/runs/freeze", requireRole("admin"), async (req, res) => {
     try {
       const { freezeCohort } = await import("../services/cro03/south-florida-prospecting");
@@ -3706,15 +3721,22 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
         maxCohortSize: requestedCohortSize,
         releaseSha: process.env.RELEASE_SHA ?? "",
+        selectedContactIds: parseSelectedContactIds(req.body?.selectedContactIds),
+        previewSnapshotHash: req.body?.previewSnapshotHash == null
+          ? undefined : String(req.body.previewSnapshotHash),
       });
       res.json(result);
     } catch (err: any) {
-      const status = err?.message?.includes("COHORT_CENSUS_INSUFFICIENT")
-        || err?.message?.includes("SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH")
-        || err?.message?.includes("SFP_COHORT_RUN_PREVIOUSLY_FAILED")
-        || err?.message?.includes("SFP_COHORT_RUN_TERMINAL_LIFECYCLE")
-        ? 409 : 500;
-      res.status(status).json({ error: err?.message });
+      const message = String(err?.message ?? err);
+      const status = message.includes("SELECTED_CONTACT_IDS_INVALID") ||
+          message.includes("PREVIEW_SNAPSHOT_HASH_REQUIRED") ? 400
+        : message.includes("SCOPE_PREVIEW_STALE") ||
+          message.includes("SFP_IDEMPOTENCY_KEY_PAYLOAD_MISMATCH") ||
+          message.includes("SFP_COHORT_RUN_PREVIOUSLY_FAILED") ||
+          message.includes("SFP_COHORT_RUN_TERMINAL_LIFECYCLE") ||
+          message.includes("COHORT_CENSUS_INSUFFICIENT") ? 409
+        : message.includes("SELECTED_CONTACT") ? 422 : 500;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -4396,12 +4418,19 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/sfp/runs/:runId/validation-preview", requireRole("admin"), async (req, res) => {
     try {
       const { previewSfpValidation } = await import("../services/cro03/sfp-validation");
-      const preview = await previewSfpValidation(String(req.params.runId));
+      const preview = await previewSfpValidation(String(req.params.runId), {
+        selectedContactIds: parseSelectedContactIds(req.query.selectedContactIds),
+      });
       res.json(preview);
     } catch (err: any) {
-      const status = err?.message?.includes("NOT_FOUND") ? 404
-        : err?.message?.includes("NOT_FROZEN") ? 409 : 500;
-      res.status(status).json({ error: err?.message });
+      const message = String(err?.message ?? err);
+      const status = message.includes("SELECTED_CONTACT_IDS_INVALID") ? 400
+        : message.includes("SELECTED_CONTACT_SCOPE") || message.includes("NOT_COHORT_MEMBER") ||
+            message.includes("FROZEN_LINK_DRIFT") ? 409
+        : message.includes("SELECTED_CONTACT") ? 422
+        : message.includes("NOT_FOUND") ? 404
+        : message.includes("NOT_FROZEN") ? 409 : 500;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -4427,14 +4456,19 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         snapshotHash,
         actorId: `admin:${(req as any).user?.id ?? "system"}`,
         maxValidations,
+        selectedContactIds: parseSelectedContactIds(req.body?.selectedContactIds),
       });
       res.json(result);
     } catch (err: any) {
-      const status = err?.message?.includes("NOT_FOUND") ? 404
-        : err?.message?.includes("SNAPSHOT_MISMATCH") || err?.message?.includes("IDEMPOTENCY_CONFLICT") ? 409
-        : err?.message?.includes("BLOCKED") ? 422
-        : err?.message?.includes("NOT_FROZEN") ? 409 : 500;
-      res.status(status).json({ error: err?.message });
+      const message = String(err?.message ?? err);
+      const status = message.includes("SELECTED_CONTACT_IDS_INVALID") ? 400
+        : message.includes("SNAPSHOT_MISMATCH") || message.includes("IDEMPOTENCY_CONFLICT") ||
+            message.includes("SELECTED_CONTACT_SCOPE") || message.includes("NOT_COHORT_MEMBER") ||
+            message.includes("FROZEN_LINK_DRIFT") ? 409
+        : message.includes("BLOCKED") || message.includes("SELECTED_CONTACT") ? 422
+        : message.includes("NOT_FOUND") ? 404
+        : message.includes("NOT_FROZEN") ? 409 : 500;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -4456,22 +4490,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         limit: req.query.limit ? Number(req.query.limit) : 50,
         offset: req.query.offset ? Number(req.query.offset) : 0,
       });
-      const businessIds = [...new Set(result.prospects.map((prospect) => prospect.businessId))];
-      const eligibilityRows = businessIds.length
-        ? rows(await db.execute(sql`
-            SELECT id, business_id FROM sfp_outreach_eligibility
-            WHERE cohort_run_id = ${String(req.params.runId)}::uuid
-              AND business_id = ANY(ARRAY[${sql.join(businessIds.map((id) => sql`${id}::int`), sql`, `)}])
-          `))
-        : [];
-      const eligibilityIdByBusiness = new Map(eligibilityRows.map((row: any) => [Number(row.business_id), String(row.id)]));
-      res.json({
-        ...result,
-        prospects: result.prospects.map((prospect) => ({
-          ...prospect,
-          eligibilityId: eligibilityIdByBusiness.get(prospect.businessId) ?? null,
-        })),
-      });
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }

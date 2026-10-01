@@ -208,6 +208,58 @@ export interface ResolvedSfpCandidateReference {
   contactBusinessLinkRevision: number | null;
 }
 
+/**
+ * Re-check and retain the contact/link row locks immediately before transport
+ * and again before finalization. Callers must pass the transaction executor
+ * used by openSfpCandidatePlaintext(); the source rows then remain locked for
+ * the complete authorized side effect.
+ */
+export async function assertSfpContactCandidateCurrent(
+  resolved: ResolvedSfpCandidateReference,
+  plaintext: string,
+  executor: SfpExecutor,
+): Promise<void> {
+  if (resolved.sourceKind !== "contact") return;
+  const current = rows(await executor.execute(sql`
+    SELECT c.email,c.business_id,d.id AS link_decision_id,d.revision
+      FROM contacts c
+      JOIN businesses b ON b.id=c.business_id AND b.record_class='canonical'
+      JOIN contact_business_link_decisions d
+        ON d.contact_id=c.id AND d.business_id=c.business_id
+       AND d.decision='verified' AND d.superseded_at IS NULL
+     WHERE c.id=${resolved.evidenceId}::int
+       AND c.archived_at IS NULL
+       AND c.record_class NOT IN ('test','demo','synthetic')
+       AND COALESCE(c.existing_merchant_customer,FALSE)=FALSE
+       AND COALESCE(c.do_not_contact,FALSE)=FALSE
+       AND COALESCE(c.do_not_auto_contact,FALSE)=FALSE
+       AND COALESCE(c.opted_out_email,FALSE)=FALSE
+       AND c.opt_out_status IS DISTINCT FROM 'opted_out'
+       AND c.unsubscribe_status IS DISTINCT FROM 'unsubscribed'
+       AND c.complaint_status IS DISTINCT FROM 'reported'
+       AND c.bounce_status IS DISTINCT FROM 'hard'
+       AND c.email_status NOT IN ('bounced','invalid','opted_out')
+       AND c.suppression_reason IS NULL
+       AND c.email IS NOT NULL AND BTRIM(c.email)<>''
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_identity_quarantines q
+          WHERE q.business_id=c.business_id AND q.cleared_at IS NULL
+       )
+       AND c.business_id=${resolved.businessId}
+       AND d.id=${resolved.contactBusinessLinkDecisionId}::uuid
+       AND d.revision=${resolved.contactBusinessLinkRevision}
+     LIMIT 1
+     FOR SHARE OF c,b,d
+  `))[0];
+  if (!current ||
+      String(current.link_decision_id) !== String(resolved.contactBusinessLinkDecisionId) ||
+      Number(current.revision) !== Number(resolved.contactBusinessLinkRevision) ||
+      emailNormalizedValueHash(String(current.email)) !== String(resolved.normalizedValueHash ?? "") ||
+      String(current.email).trim().toLowerCase() !== plaintext.trim().toLowerCase()) {
+    throw new Error("SFP_CONTACT_SOURCE_PIN_STALE");
+  }
+}
+
 /** Read-only lineage resolver for the Task #2000 handoff; no eligibility writes. */
 export async function resolveSfpCandidateReference(
   reference: SfpCandidateReference,
@@ -338,7 +390,7 @@ export interface SfpExecutor {
 export async function openSfpCandidatePlaintext<T>(
   input: OpenSfpCandidatePlaintextInput,
   use: (plaintext: string, resolved: ResolvedSfpCandidateReference) => Promise<T>,
-  executor: SfpExecutor = db,
+  executor: SfpExecutor,
 ): Promise<T> {
   // Resolve via the executor-bound query directly (rather than delegating to
   // resolveSfpCandidateReference(), which always uses the global `db`) so a

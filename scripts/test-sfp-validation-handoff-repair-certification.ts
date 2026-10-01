@@ -60,7 +60,7 @@ const { db } = await import("../server/db");
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const RUN_ID = `sfpvhr-${randomUUID().slice(0, 8)}`;
 
-const { ensureProgram, setProgramActivation } = await import(
+const { ensureProgram, setProgramActivation, previewFunnel, freezeCohort } = await import(
   "../server/services/cro03/south-florida-prospecting"
 );
 const { previewSfpValidation, executeSfpValidation, SFP_VALIDATION_MAX } = await import(
@@ -533,6 +533,7 @@ if (replayed) {
 // C1: exercise the contact source through a real migrated eligibility table,
 // using only an injected fake transport. The source decision/revision and
 // version-1 normalized email hash must be pinned on the persisted decision.
+let contactCohortRunId: string;
 {
   const contactBiz = Number(rows(await db.execute(sql`
     INSERT INTO businesses (canonical_name,normalized_name,vertical,state,record_class,created_at)
@@ -575,7 +576,7 @@ if (replayed) {
     reviewerId,
     evidenceSourceEventId: sourceEventId,
   });
-  const contactCohortRunId = randomUUID();
+  contactCohortRunId = randomUUID();
   const contactCohortHash = createHash("sha256").update(contactCohortRunId).digest("hex");
   await db.execute(sql`
     INSERT INTO sfp_cohort_runs
@@ -626,6 +627,552 @@ if (replayed) {
   check(persistedContactDecision.status === "validated_review_required" &&
         persistedContactDecision.named_contact === true && persistedContactDecision.role_inbox === false,
     "C1-contact-policy-hold", "a valid named contact remains held under the active review-required policy");
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Selected-contact scope: ordinary business admission, immutable fresh run,
+// frozen link pins, foreign-target rejection, and zero unrelated transport.
+// ══════════════════════════════════════════════════════════════════════════
+{
+  const { writeContact } = await import("../server/services/contact-writer");
+  const { decideContactBusinessLink } = await import("../server/services/commercial-link-authority");
+  const createCanonicalBusiness = async (label: string, addSouthFloridaLocation: boolean) => {
+    const name = `${RUN_ID}-${label}-Med-Spa`;
+    const businessId = Number(rows(await db.execute(sql`
+      INSERT INTO businesses (canonical_name,normalized_name,vertical,state,record_class,created_at)
+      VALUES (${name},${name.toLowerCase()},'Med Spa','FL','canonical',NOW())
+      RETURNING id
+    `))[0].id);
+    if (addSouthFloridaLocation) {
+      await db.execute(sql`
+        INSERT INTO business_locations (business_id,county_fips,created_at)
+        VALUES (${businessId},'12086',NOW())
+      `);
+    }
+    return businessId;
+  };
+  const createVerifiedContact = async (label: string, businessId: number, email = `${label}-${RUN_ID}@gmail.com`) => {
+    const actorId = `cert-vhr-scope-writer-${label}-${RUN_ID}`;
+    const contact = await writeContact({
+      mode: "local_only",
+      mutation: {
+        firstName: "Scoped", lastName: label, email, phone: "5550101",
+        companyName: `${RUN_ID}-${label}`, status: "New",
+      },
+      provenance: {
+        sourceCategory: "discovery", sourceType: "cro03",
+        eventKey: `cert-vhr-scope-source-${label}-${RUN_ID}`,
+        actorType: "system", actorId,
+      },
+      actor: { actorType: "system", actorId },
+      hookPolicy: {
+        source: "cro03", deferValidation: true, deferReadiness: true,
+        deferLeadScoring: true, suppressProviderProjection: true,
+      },
+    });
+    const contactId = Number(contact.id);
+    const reviewerId = `cert-vhr-scope-reviewer-${label}-${RUN_ID}`;
+    await db.execute(sql`
+      INSERT INTO users (id,email,first_name,last_name,role)
+      VALUES (${reviewerId},${`${reviewerId}@cert.invalid`},'Scope','Reviewer','admin')
+      ON CONFLICT (id) DO NOTHING
+    `);
+    const decision = await decideContactBusinessLink({
+      contactId,
+      businessId,
+      decision: "verified",
+      decisionKey: `cert-vhr-scope-link-${label}-${RUN_ID}`,
+      reviewerId,
+      evidenceSourceEventId: Number(contact._sourceEventId),
+    });
+    return { contactId, email, sourceEventId: Number(contact._sourceEventId), decision };
+  };
+  const expectRejected = async (action: () => Promise<unknown>, reason: string, id: string) => {
+    let caught = "";
+    try { await action(); } catch (error) { caught = String((error as Error)?.message ?? error); }
+    check(caught.includes(reason), id, `the operation fails closed with ${reason}`);
+  };
+
+  const scopedBusinessId = await createCanonicalBusiness("scope-success", true);
+  const scopedContact = await createVerifiedContact("scope-success", scopedBusinessId);
+  const unrelatedEmail = `unrelated-${RUN_ID}@gmail.com`;
+  const unrelatedSealed = seal("email", unrelatedEmail);
+  await db.execute(sql`
+    INSERT INTO free_discovery_candidates
+      (generation_id,business_id,field,subject_type,domain,source,attribution_scope,
+       disposition,confidence,envelope_ciphertext,envelope_nonce,envelope_tag,
+       envelope_key_version,normalized_value_hash,masked_value,created_at)
+    VALUES (${generationId}::uuid,${scopedBusinessId},'email','business',
+      ${`${RUN_ID}-scope-unrelated.example.com`},'cert-scope','role','staged',99,
+      ${unrelatedSealed.ciphertext},${unrelatedSealed.nonce},${unrelatedSealed.tag},1,
+      ${unrelatedSealed.normalizedValueHash},${unrelatedSealed.maskedValue},NOW())
+  `);
+  const olderRunBefore = rows(await db.execute(sql`
+    SELECT cohort_state,cohort_size FROM sfp_cohort_runs WHERE id=${contactCohortRunId}::uuid
+  `))[0];
+  const scopePreview = await previewFunnel({
+    maxPreview: 25,
+    selectedContactIds: [scopedContact.contactId],
+  });
+  check(scopePreview.scopeCapabilities.selectedContactIds === true &&
+        scopePreview.selectedContactScope?.resolvedTargets[0]?.businessId === scopedBusinessId &&
+        scopePreview.topCandidates.length === 1 &&
+        scopePreview.topCandidates[0]?.businessId === scopedBusinessId &&
+        scopePreview.topCandidates[0]?.eligible === true,
+    "SCOPE-preview-exact", "a selected contact resolves to one ordinarily eligible canonical SFP business and advertises only bounded scope support");
+  const scopedFreeze = await freezeCohort({
+    idempotencyKey: `cert-vhr-scope-freeze-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    maxCohortSize: 25,
+    selectedContactIds: [scopedContact.contactId],
+    previewSnapshotHash: String(scopePreview.selectedContactScope?.snapshotHash ?? ""),
+    releaseSha: "0".repeat(40),
+  });
+  const frozenScopePayload = rows(await db.execute(sql`
+    SELECT request_payload FROM sfp_cohort_runs WHERE id=${scopedFreeze.run.id}::uuid
+  `))[0]?.request_payload;
+  const olderRunAfter = rows(await db.execute(sql`
+    SELECT cohort_state,cohort_size FROM sfp_cohort_runs WHERE id=${contactCohortRunId}::uuid
+  `))[0];
+  check(scopedFreeze.newlyFrozen === true &&
+        scopedFreeze.run.cohortState === "frozen" &&
+        scopedFreeze.run.cohortSize === 1 &&
+        scopedFreeze.run.selectedContactScope?.selectedContactIds[0] === scopedContact.contactId &&
+        scopedFreeze.run.selectedContactScope?.previewSnapshotHash === scopePreview.selectedContactScope?.snapshotHash &&
+        JSON.stringify(frozenScopePayload?.selectedContactIds ?? []) === JSON.stringify([scopedContact.contactId]) &&
+        Number(frozenScopePayload?.selectedContactTargets?.[0]?.linkRevision) === Number(scopedContact.decision.revision),
+    "SCOPE-fresh-freeze-pin", "a fresh immutable one-member run pins the exact contact-link ID and revision in its request receipt");
+  check(olderRunBefore?.cohort_state === "frozen" &&
+        olderRunAfter?.cohort_state === "frozen" &&
+        Number(olderRunBefore?.cohort_size) === Number(olderRunAfter?.cohort_size),
+    "SCOPE-old-run-immutable", "creating a selected-contact run does not mutate an older frozen cohort");
+
+  const scopedValidationPreview = await previewSfpValidation(scopedFreeze.run.id);
+  check(scopedValidationPreview.selectedCandidates.length === 1 &&
+        scopedValidationPreview.selectedCandidates[0]?.candidateId === `contact:${scopedContact.contactId}` &&
+        scopedValidationPreview.selectedContactScope?.selectedContactIds[0] === scopedContact.contactId &&
+        scopedValidationPreview.scopeCapabilities.exactTargetOnlyTransport === true,
+    "SCOPE-validation-winner", "frozen scope selects the pinned contact rather than the higher-confidence unrelated free-discovery candidate");
+  const scopedTransportCalls: string[] = [];
+  const scopedValidation = await executeSfpValidation(scopedFreeze.run.id, {
+    idempotencyKey: `cert-vhr-scope-validate-${RUN_ID}`,
+    snapshotHash: scopedValidationPreview.snapshotHash,
+    actorId: `cert:${RUN_ID}`,
+    selectedContactIds: [scopedContact.contactId],
+    mxCheck: async () => "ok",
+    zbTransport: async (candidateId, realEmail) => {
+      scopedTransportCalls.push(`${candidateId}:${realEmail}`);
+      return "valid";
+    },
+  });
+  check(scopedValidation.providerRequests === 1 &&
+        scopedTransportCalls.length === 1 &&
+        scopedTransportCalls[0] === `contact:${scopedContact.contactId}:${scopedContact.email}` &&
+        scopedValidation.selectedContactScope?.selectedContactIds[0] === scopedContact.contactId,
+    "SCOPE-no-unrelated-transport", "the fake provider receives only the selected verified contact; no unrelated candidate is transported");
+  const express = (await import("express")).default;
+  const { registerLeadOpsRoutes } = await import("../server/routes/lead-ops");
+  const contractApp = express();
+  contractApp.use(express.json());
+  contractApp.use((req: any, _res: any, next: () => void) => {
+    req.user = { id: `cert-http-admin-${RUN_ID}`, role: "admin" };
+    req.isAuthenticated = () => true;
+    next();
+  });
+  registerLeadOpsRoutes(contractApp);
+  const contractServer = contractApp.listen(0, "127.0.0.1");
+  contractServer.unref();
+  await new Promise<void>((resolve, reject) => {
+    contractServer.once("listening", resolve);
+    contractServer.once("error", reject);
+  });
+  const contractBaseUrl = `http://127.0.0.1:${contractServer.address().port}`;
+  const exactReplayResponse = await fetch(`${contractBaseUrl}/api/lead-ops/sfp/runs/${scopedFreeze.run.id}/validate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      idempotencyKey: `cert-vhr-scope-validate-${RUN_ID}`,
+      snapshotHash: scopedValidationPreview.snapshotHash,
+    }),
+  });
+  const exactReplayBody = await exactReplayResponse.json() as any;
+  check(exactReplayResponse.status === 200 &&
+        exactReplayBody.providerRequests === 1 &&
+        scopedTransportCalls.length === 1,
+    "SCOPE-http-post-validation-resume", "after validation but before staging, the normal HTTP contract resumes the exact stored receipt with omitted scope inheriting the immutable frozen target and no second provider call");
+  const changedReplayResponse = await fetch(`${contractBaseUrl}/api/lead-ops/sfp/runs/${scopedFreeze.run.id}/validate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      idempotencyKey: `cert-vhr-scope-validate-${RUN_ID}`,
+      snapshotHash: scopedValidationPreview.snapshotHash,
+      selectedContactIds: [scopedContact.contactId + 1],
+    }),
+  });
+  check(changedReplayResponse.status === 409 && scopedTransportCalls.length === 1,
+    "SCOPE-http-changed-replay", "a changed explicit selected-contact scope conflicts before a completed receipt can be replayed");
+
+  const mixedBusinessA = await createCanonicalBusiness("scope-mixed-a", true);
+  const mixedDomainA = `no-mx-${RUN_ID}.com`;
+  const mixedContactA = await createVerifiedContact("scope-mixed-a", mixedBusinessA, `scope-mixed-a-${RUN_ID}@${mixedDomainA}`);
+  const mixedBusinessB = await createCanonicalBusiness("scope-mixed-b", true);
+  const mixedContactB = await createVerifiedContact("scope-mixed-b", mixedBusinessB);
+  const mixedPreview = await previewFunnel({
+    maxPreview: 25,
+    selectedContactIds: [mixedContactA.contactId, mixedContactB.contactId],
+  });
+  const mixedFreeze = await freezeCohort({
+    idempotencyKey: `cert-vhr-scope-mixed-freeze-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    maxCohortSize: 25,
+    selectedContactIds: [mixedContactA.contactId, mixedContactB.contactId],
+    previewSnapshotHash: String(mixedPreview.selectedContactScope?.snapshotHash ?? ""),
+    releaseSha: "0".repeat(40),
+  });
+  const mixedSelectedContactIds = [mixedContactA.contactId, mixedContactB.contactId];
+  const mixedIdQuery = encodeURIComponent(mixedSelectedContactIds.join(","));
+  const mixedFirstPreviewResponse = await fetch(
+    `${contractBaseUrl}/api/lead-ops/sfp/runs/${mixedFreeze.run.id}/validation-preview?selectedContactIds=${mixedIdQuery}`,
+  );
+  const mixedFirstPreview = await mixedFirstPreviewResponse.json() as any;
+  const mixedFirstCalls: string[] = [];
+  const mixedOriginalFetch = globalThis.fetch;
+  const mixedDns = await import("node:dns");
+  const mixedOriginalResolveMx = mixedDns.promises.resolveMx;
+  const mixedOriginalKey = process.env.ZEROBOUNCE_API_KEY;
+  const mixedOriginalTransportFlag = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+  const mixedApiKey = `cert-sfp-mixed-${RUN_ID}`;
+  let mixedBehavior: "fail-b" | "valid" = "fail-b";
+  (mixedDns.promises as any).resolveMx = async (domain: string) => {
+    if (domain === mixedDomainA) {
+      const error: any = new Error("certification authoritative no-MX");
+      error.code = "ENOTFOUND";
+      throw error;
+    }
+    return [{ exchange: "mx.cert.invalid", priority: 10 }];
+  };
+  process.env.ZEROBOUNCE_API_KEY = mixedApiKey;
+  process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
+    if (url.origin === "https://api.zerobounce.net" && url.pathname === "/v2/validate") {
+      if (url.searchParams.get("api_key") !== mixedApiKey) throw new Error("CERTIFICATION_MIXED_ZEROBOUNCE_KEY_MISMATCH");
+      const email = String(url.searchParams.get("email") ?? "");
+      mixedFirstCalls.push(email);
+      if (mixedBehavior === "fail-b" && email === mixedContactB.email) {
+        return new Response(JSON.stringify({ error: "temporary fake transport failure" }), { status: 503 });
+      }
+      return new Response(JSON.stringify({ status: "valid", sub_status: "" }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    return mixedOriginalFetch(input, init);
+  }) as typeof fetch;
+  let mixedFirstResponse: Response;
+  let mixedFirstResult: any;
+  let mixedRetryResponse: Response;
+  let mixedRetryResult: any;
+  let mixedRetryPreview: any;
+  try {
+    mixedFirstResponse = await fetch(`${contractBaseUrl}/api/lead-ops/sfp/runs/${mixedFreeze.run.id}/validate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: `cert-vhr-scope-mixed-first-${RUN_ID}`,
+        snapshotHash: mixedFirstPreview.snapshotHash,
+        selectedContactIds: mixedSelectedContactIds,
+      }),
+    });
+    mixedFirstResult = await mixedFirstResponse.json();
+    await db.execute(sql`
+      UPDATE sfp_stage_items i
+         SET next_attempt_at=NOW()-INTERVAL '1 minute',updated_at=NOW()
+        FROM sfp_stage_runs r
+       WHERE i.stage_run_id=r.id AND r.cohort_run_id=${mixedFreeze.run.id}::uuid
+         AND i.business_id=${mixedBusinessB} AND i.provider='zerobounce' AND i.state='retry'
+    `);
+    const mixedRetryPreviewResponse = await fetch(
+      `${contractBaseUrl}/api/lead-ops/sfp/runs/${mixedFreeze.run.id}/validation-preview?selectedContactIds=${mixedIdQuery}`,
+    );
+    mixedRetryPreview = await mixedRetryPreviewResponse.json();
+    mixedBehavior = "valid";
+    mixedRetryResponse = await fetch(`${contractBaseUrl}/api/lead-ops/sfp/runs/${mixedFreeze.run.id}/validate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: `cert-vhr-scope-mixed-retry-${RUN_ID}`,
+        snapshotHash: mixedRetryPreview.snapshotHash,
+        selectedContactIds: mixedSelectedContactIds,
+      }),
+    });
+    mixedRetryResult = await mixedRetryResponse.json();
+  } finally {
+    globalThis.fetch = mixedOriginalFetch;
+    (mixedDns.promises as any).resolveMx = mixedOriginalResolveMx;
+    if (mixedOriginalKey == null) delete process.env.ZEROBOUNCE_API_KEY;
+    else process.env.ZEROBOUNCE_API_KEY = mixedOriginalKey;
+    if (mixedOriginalTransportFlag == null) delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+    else process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = mixedOriginalTransportFlag;
+  }
+  check(mixedFirstCalls.length === 2 &&
+        mixedFirstResponse!.status === 200 &&
+        mixedFirstCalls[0] === mixedContactB.email &&
+        mixedFirstResult.failedCount === 1 &&
+        mixedFirstResult.invalidCount === 1 &&
+        mixedFirstResult.selectedContactScope?.scopeCoverageComplete === false &&
+        mixedFirstResult.selectedContactScope?.completedContactReceipts.some((receipt: any) => receipt.contactId === mixedContactA.contactId),
+    "SCOPE-http-mixed-precheck-receipt", "the HTTP contract pins an authoritative no-MX terminal decision as a durable scoped receipt while leaving the failed member retryable and unspent");
+  const mixedRetrySelected = Array.isArray(mixedRetryPreview.selectedCandidates)
+    ? mixedRetryPreview.selectedCandidates.map((candidate: any) => candidate.candidateId) : [];
+  check(mixedRetryPreview.selectedContactScope?.scopeCoverageComplete === true &&
+        mixedRetryPreview.selectedContactScope.completedContactReceipts.map((receipt: any) => receipt.contactId).includes(mixedContactA.contactId) &&
+        mixedRetrySelected.length === 1 &&
+        mixedRetrySelected[0] === `contact:${mixedContactB.contactId}`,
+    "SCOPE-http-mixed-retry-preview", "HTTP retry preview combines the durable success with only the pending contact winner");
+  check(mixedRetryResponse!.status === 200 &&
+        mixedFirstCalls.length === 2 &&
+        mixedFirstCalls[1] === mixedContactB.email &&
+        mixedRetryResult.validCount === 1 &&
+        mixedRetryResult.invalidCount === 1 &&
+        mixedRetryResult.selectedContactScope?.scopeCoverageComplete === true &&
+        mixedRetryResult.selectedContactScope.completedContactReceipts.length === 2,
+    "SCOPE-http-mixed-retry-no-scope-narrowing", "the normal HTTP retry spends only on the failed contact and completes the unchanged two-contact scope");
+
+  const exhaustedBusinessId = await createCanonicalBusiness("scope-exhausted-dns", true);
+  const exhaustedContact = await createVerifiedContact("scope-exhausted-dns", exhaustedBusinessId);
+  const exhaustedFunnelPreview = await previewFunnel({
+    maxPreview: 25,
+    selectedContactIds: [exhaustedContact.contactId],
+  });
+  const exhaustedFreeze = await freezeCohort({
+    idempotencyKey: `cert-vhr-scope-exhausted-freeze-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    maxCohortSize: 25,
+    selectedContactIds: [exhaustedContact.contactId],
+    previewSnapshotHash: String(exhaustedFunnelPreview.selectedContactScope?.snapshotHash ?? ""),
+    releaseSha: "0".repeat(40),
+  });
+  const exhaustedIdQuery = encodeURIComponent(String(exhaustedContact.contactId));
+  const exhaustedPreviewResponse = await fetch(
+    `${contractBaseUrl}/api/lead-ops/sfp/runs/${exhaustedFreeze.run.id}/validation-preview?selectedContactIds=${exhaustedIdQuery}`,
+  );
+  const exhaustedPreview = await exhaustedPreviewResponse.json() as any;
+  const exhaustedDns = await import("node:dns");
+  const exhaustedOriginalResolveMx = exhaustedDns.promises.resolveMx;
+  (exhaustedDns.promises as any).resolveMx = async () => {
+    const error: any = new Error("certification transient DNS failure");
+    error.code = "ESERVFAIL";
+    throw error;
+  };
+  let exhaustedResult: any;
+  let exhaustedResponse: Response | undefined;
+  try {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      if (attempt > 1) {
+        await db.execute(sql`
+          UPDATE sfp_stage_items i
+             SET next_attempt_at=NOW()-INTERVAL '1 minute',updated_at=NOW()
+            FROM sfp_stage_runs r
+           WHERE i.stage_run_id=r.id AND r.cohort_run_id=${exhaustedFreeze.run.id}::uuid
+             AND i.business_id=${exhaustedBusinessId} AND i.provider='zerobounce' AND i.state='retry'
+        `);
+      }
+      exhaustedResponse = await fetch(`${contractBaseUrl}/api/lead-ops/sfp/runs/${exhaustedFreeze.run.id}/validate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          idempotencyKey: `cert-vhr-scope-exhausted-dns-${RUN_ID}`,
+          snapshotHash: exhaustedPreview.snapshotHash,
+          selectedContactIds: [exhaustedContact.contactId],
+        }),
+      });
+      exhaustedResult = await exhaustedResponse.json();
+    }
+  } finally {
+    (exhaustedDns.promises as any).resolveMx = exhaustedOriginalResolveMx;
+  }
+  check(exhaustedResponse?.status === 200 &&
+        exhaustedResult.providerRequests === 0 &&
+        exhaustedResult.catchAllCount === 1 &&
+        exhaustedResult.selectedContactScope?.scopeCoverageComplete === true &&
+        exhaustedResult.selectedContactScope.completedContactReceipts.some((receipt: any) =>
+          receipt.contactId === exhaustedContact.contactId && receipt.status === "validated_review_required"),
+    "SCOPE-http-exhausted-dns-terminal-receipt", "five transient DNS-only attempts exhaust into a policy-pinned durable terminal receipt without provider spend and complete the unchanged scope");
+
+  const driftBusinessId = await createCanonicalBusiness("scope-drift", true);
+  const driftContact = await createVerifiedContact("scope-drift", driftBusinessId);
+  const driftPreview = await previewFunnel({
+    maxPreview: 25,
+    selectedContactIds: [driftContact.contactId],
+  });
+  const driftFreeze = await freezeCohort({
+    idempotencyKey: `cert-vhr-scope-drift-freeze-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    maxCohortSize: 25,
+    selectedContactIds: [driftContact.contactId],
+    previewSnapshotHash: String(driftPreview.selectedContactScope?.snapshotHash ?? ""),
+    releaseSha: "0".repeat(40),
+  });
+  const driftValidationPreview = await previewSfpValidation(driftFreeze.run.id);
+  const replacementBusinessId = await createCanonicalBusiness("scope-drift-replacement", false);
+  const driftReviewerId = `cert-vhr-scope-drift-reviewer-${RUN_ID}`;
+  await db.execute(sql`
+    INSERT INTO users (id,email,first_name,last_name,role)
+    VALUES (${driftReviewerId},${`${driftReviewerId}@cert.invalid`},'Scope','Drift','admin')
+    ON CONFLICT (id) DO NOTHING
+  `);
+  await decideContactBusinessLink({
+    contactId: driftContact.contactId,
+    businessId: replacementBusinessId,
+    decision: "verified",
+    decisionKey: `cert-vhr-scope-drift-relink-${RUN_ID}`,
+    reviewerId: driftReviewerId,
+    evidenceSourceEventId: driftContact.sourceEventId,
+  });
+  const driftHttpPreviewResponse = await fetch(
+    `${contractBaseUrl}/api/lead-ops/sfp/runs/${driftFreeze.run.id}/validation-preview`,
+  );
+  const driftHttpPreviewBody = await driftHttpPreviewResponse.json() as any;
+  check(driftHttpPreviewResponse.status === 409 &&
+        String(driftHttpPreviewBody.error ?? "").includes("SFP_SELECTED_CONTACT_FROZEN_LINK_DRIFT"),
+    "SCOPE-http-link-drift-preview", "the normal HTTP validation-preview contract rejects a changed frozen link pin");
+  let driftTransportCalls = 0;
+  await expectRejected(
+    () => executeSfpValidation(driftFreeze.run.id, {
+      idempotencyKey: `cert-vhr-scope-drift-validate-${RUN_ID}`,
+      snapshotHash: driftValidationPreview.snapshotHash,
+      actorId: `cert:${RUN_ID}`,
+      selectedContactIds: [driftContact.contactId],
+      mxCheck: async () => "ok",
+      zbTransport: async () => { driftTransportCalls++; return "valid"; },
+    }),
+    "SFP_SELECTED_CONTACT_FROZEN_LINK_DRIFT",
+    "SCOPE-link-drift-execute",
+  );
+  check(driftTransportCalls === 0, "SCOPE-link-drift-no-transport", "a changed canonical link is rejected before any provider transport");
+  const foreignBusinessId = await createCanonicalBusiness("scope-foreign", false);
+  const foreignContact = await createVerifiedContact("scope-foreign", foreignBusinessId);
+  const foreignCohortRunId = randomUUID();
+  const foreignCohortHash = createHash("sha256").update(foreignCohortRunId).digest("hex");
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_runs
+      (id,program_id,idempotency_key,status,cohort_size,cohort_hash,frozen_at,release_sha,actor_id,
+       cohort_state,request_hash,config_hash)
+    VALUES (${foreignCohortRunId}::uuid,${program.id}::uuid,${`cert-vhr-scope-foreign-${RUN_ID}`},
+      'freezing',1,${foreignCohortHash},NULL,${"0".repeat(40)},${`cert:${RUN_ID}`},
+      'freezing',${foreignCohortHash},${foreignCohortHash})
+  `);
+  await db.execute(sql`
+    INSERT INTO sfp_cohort_members (cohort_run_id,business_id,roi_score,geography_class,geography_source,county_fips,vertical)
+    VALUES (${foreignCohortRunId}::uuid,${scopedBusinessId},100,'verified','fips','12086','Med Spa')
+  `);
+  await db.execute(sql`
+    UPDATE sfp_cohort_runs
+       SET status='frozen',cohort_state='frozen',frozen_at=NOW()
+     WHERE id=${foreignCohortRunId}::uuid
+  `);
+  const foreignRunPreview = await previewSfpValidation(foreignCohortRunId);
+  await expectRejected(
+    () => previewSfpValidation(foreignCohortRunId, {
+      selectedContactIds: [foreignContact.contactId],
+    }),
+    "SFP_SELECTED_CONTACT_NOT_COHORT_MEMBER",
+    "SCOPE-foreign-preview",
+  );
+  let foreignTransportCalls = 0;
+  await expectRejected(
+    () => executeSfpValidation(foreignCohortRunId, {
+      idempotencyKey: `cert-vhr-scope-foreign-validate-${RUN_ID}`,
+      snapshotHash: foreignRunPreview.snapshotHash,
+      actorId: `cert:${RUN_ID}`,
+      selectedContactIds: [foreignContact.contactId],
+      mxCheck: async () => "ok",
+      zbTransport: async () => { foreignTransportCalls++; return "valid"; },
+    }),
+    "SFP_SELECTED_CONTACT_NOT_COHORT_MEMBER",
+    "SCOPE-foreign-execute",
+  );
+  check(foreignTransportCalls === 0, "SCOPE-foreign-no-transport", "a verified contact linked to a business outside the frozen cohort is rejected before provider transport");
+
+  const lockedBusinessId = await createCanonicalBusiness("scope-locked-contact", true);
+  const lockedContact = await createVerifiedContact("scope-locked-contact", lockedBusinessId);
+  const lockedFunnelPreview = await previewFunnel({
+    maxPreview: 25,
+    selectedContactIds: [lockedContact.contactId],
+  });
+  const lockedFreeze = await freezeCohort({
+    idempotencyKey: `cert-vhr-scope-lock-freeze-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    maxCohortSize: 25,
+    selectedContactIds: [lockedContact.contactId],
+    previewSnapshotHash: String(lockedFunnelPreview.selectedContactScope?.snapshotHash ?? ""),
+    releaseSha: "0".repeat(40),
+  });
+  const lockedValidationPreview = await previewSfpValidation(lockedFreeze.run.id);
+  const replacementEmail = `changed-after-dispatch-${RUN_ID}@gmail.com`;
+  let mutationCompletedAtDispatch = false;
+  let mutationPromise: Promise<any> | undefined;
+  const nodeDns = await import("node:dns");
+  const originalResolveMx = nodeDns.promises.resolveMx;
+  const originalFetch = globalThis.fetch;
+  const originalZeroBounceKey = process.env.ZEROBOUNCE_API_KEY;
+  const originalTransportFlag = process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+  const fakeZeroBounceKey = `cert-sfp-lock-${RUN_ID}`;
+  let fakeProviderCalls = 0;
+  (nodeDns.promises as any).resolveMx = async () => [{ exchange: "mx.cert.invalid", priority: 10 }];
+  process.env.ZEROBOUNCE_API_KEY = fakeZeroBounceKey;
+  process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
+    if (url.origin === "https://api.zerobounce.net" && url.pathname === "/v2/validate") {
+      if (url.searchParams.get("api_key") !== fakeZeroBounceKey) {
+        throw new Error("CERTIFICATION_FAKE_ZEROBOUNCE_KEY_MISMATCH");
+      }
+      fakeProviderCalls++;
+      mutationPromise = db.execute(sql`
+        UPDATE contacts SET email=${replacementEmail}
+         WHERE id=${lockedContact.contactId}
+      `).then((result: any) => result);
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      mutationCompletedAtDispatch = !!(await db.execute(sql`
+        SELECT email FROM contacts WHERE id=${lockedContact.contactId}
+      `).then((result: any) => rows(result)[0]?.email === replacementEmail));
+      return new Response(JSON.stringify({ status: "valid", sub_status: "" }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  let lockedResponse: Response;
+  let lockedBody: any;
+  try {
+    lockedResponse = await fetch(`${contractBaseUrl}/api/lead-ops/sfp/runs/${lockedFreeze.run.id}/validate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: `cert-vhr-scope-lock-validation-${RUN_ID}`,
+        snapshotHash: lockedValidationPreview.snapshotHash,
+        selectedContactIds: [lockedContact.contactId],
+      }),
+    });
+    lockedBody = await lockedResponse.json();
+    await mutationPromise;
+  } finally {
+    globalThis.fetch = originalFetch;
+    (nodeDns.promises as any).resolveMx = originalResolveMx;
+    if (originalZeroBounceKey == null) delete process.env.ZEROBOUNCE_API_KEY;
+    else process.env.ZEROBOUNCE_API_KEY = originalZeroBounceKey;
+    if (originalTransportFlag == null) delete process.env.CRO03_PROVIDER_TRANSPORT_ENABLED;
+    else process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = originalTransportFlag;
+  }
+  check(lockedResponse!.status === 200 &&
+        lockedBody.providerRequests === 1 &&
+        fakeProviderCalls === 1 &&
+        mutationCompletedAtDispatch === false &&
+        rows(await db.execute(sql`SELECT email FROM contacts WHERE id=${lockedContact.contactId}`))[0]?.email === replacementEmail,
+    "SCOPE-http-identity-lock-through-dispatch", "the normal HTTP provider path holds the contact identity fence through fake transport and transactional finalization; concurrent email drift commits only afterward");
+  contractServer.closeAllConnections?.();
+  await new Promise<void>((resolve, reject) => contractServer.close((error: any) => error ? reject(error) : resolve()));
 }
 
 // ══════════════════════════════════════════════════════════════════════════

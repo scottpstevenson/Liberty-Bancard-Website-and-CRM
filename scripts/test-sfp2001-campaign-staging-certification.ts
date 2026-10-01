@@ -799,19 +799,21 @@ try {
   const { openSfpCandidatePlaintext } = await import("../server/services/cro03/sfp-paid-evidence-writer");
   let plaintextEscapeThrew: unknown;
   try {
-    await openSfpCandidatePlaintext(
+    await db.transaction(async (tx) => openSfpCandidatePlaintext(
       { reference: { sourceKind: "free", freeDiscoveryCandidateId: freeFixture.candidateId! }, cohortRunId, actorId: runKey, purpose: "sfp_email_validation" },
       async (plaintext) => plaintext,
-    );
+      tx,
+    ));
   } catch (error) { plaintextEscapeThrew = error; }
   check(plaintextEscapeThrew instanceof Error && /SFP_PLAINTEXT_ESCAPE_BLOCKED/.test((plaintextEscapeThrew as Error).message),
     "openSfpCandidatePlaintext() structurally refuses a callback that returns the decrypted plaintext (SFP_PLAINTEXT_ESCAPE_BLOCKED)");
   let plaintextSafeCallbackThrew: unknown;
   try {
-    await openSfpCandidatePlaintext(
+    await db.transaction(async (tx) => openSfpCandidatePlaintext(
       { reference: { sourceKind: "free", freeDiscoveryCandidateId: freeFixture.candidateId! }, cohortRunId, actorId: runKey, purpose: "sfp_email_validation" },
       async () => true,
-    );
+      tx,
+    ));
   } catch (error) { plaintextSafeCallbackThrew = error; }
   check(!plaintextSafeCallbackThrew, "a callback that never returns plaintext-derived data passes the guard normally");
 

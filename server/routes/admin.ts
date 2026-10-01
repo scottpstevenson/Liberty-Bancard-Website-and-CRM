@@ -20,8 +20,10 @@ import { requireGhlRouteMutationAllowed } from "./ghl-mutation-pause";
 import { authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
 
 import { getPilotRepIdsAsync, invalidatePilotCache } from "./field-territories";
+import { registerContactLinkCoverageRoutes } from "./contact-link-coverage";
 
 export function registerAdminRoutes(app: Express) {
+  registerContactLinkCoverageRoutes(app);
 
   app.get(
     "/api/admin/contact-business-system-links/preview",

@@ -6,6 +6,7 @@ process.env.DATABASE_URL ??= "postgresql://test:test@127.0.0.1:1/test";
 const root = path.resolve(import.meta.dirname, "../..");
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 const links = await import("../services/contact-business-system-links");
+const linkPolicy = await import("../services/contact-business-system-link-policy");
 
 const trustedBase = {
   contactId: 12,
@@ -48,6 +49,23 @@ assert.equal(links.normalizeSystemBusinessDomain("https://www.Example.test/about
 assert.deepEqual(links.evaluateSystemLinkFacts(trustedBase), []);
 assert.deepEqual(links.evaluateSystemLinkFacts({ ...trustedBase, sunbizEntitySource: "corevt" }), []);
 assert.ok(links.evaluateSystemLinkFacts({ ...trustedBase, sunbizEntitySource: "contact_form" }).includes("untrusted_sunbiz_entity_ingestion_source"));
+const accentFoldedGuardBypass = {
+  ...trustedBase,
+  companyName: "Café Clutch and Transmission",
+  canonicalName: "Cafe Clutch and Transmission",
+  sunbizName: "Cafe Clutch and Transmission",
+};
+assert.deepEqual(links.evaluateSystemLinkFacts(accentFoldedGuardBypass), [],
+  "the shared policy's accent fold is retained as an independent check");
+assert.equal(linkPolicy.matchesSystemLinkDatabaseGuardIdentity(accentFoldedGuardBypass), false,
+  "strict coverage also requires the unchanged database guard's non-transliterating name predicate");
+const urlPortGuardBypass = {
+  ...trustedBase,
+  contactWebsite: "https://www.example-clutch.test:8443/contact",
+};
+assert.deepEqual(links.evaluateSystemLinkFacts(urlPortGuardBypass), []);
+assert.equal(linkPolicy.matchesSystemLinkDatabaseGuardIdentity(urlPortGuardBypass), false,
+  "URL host normalization cannot bypass the database guard's literal host comparison");
 
 const applyItem = {
   contactId: 12, businessId: 34, sourceLinkId: trustedBase.sourceLinkId!,
@@ -112,6 +130,7 @@ assert.match(migration, /contact_business_system_link_evidence_append_only/);
 assert.match(migration, /reviewed_by IS NOT NULL/);
 assert.match(migration, /source_system='sunbiz' AND csl\.source_type='sunbiz_entity'/);
 assert.match(migration, /se\.source IN \('cordata','corevt','sunbiz'\)/);
+assert.match(migration, /regexp_replace\(lower\(c\.company_name\),'\[\^a-z0-9\]','','g'\)/);
 assert.match(serviceSource, /se\.source IN \('cordata','corevt','sunbiz'\)/);
 assert.doesNotMatch(migration, /se\.source='sunbiz'/);
 assert.match(routeSource, /\/api\/admin\/contact-business-system-links\/preview/);

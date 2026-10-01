@@ -8,3 +8,15 @@ Require an independent canonical Sunbiz source relationship with matching source
 **Why:** Production has many domain overlaps but almost no persisted contact–business links. The historical contact import largely lacks individual source-event/import-disposition evidence. Treating candidate matches as verified would falsely attribute contacts. The Sunbiz source link's `source_system` is `sunbiz`, while the linked source entities are predominantly ingested through `cordata` or `corevt`; requiring the entity's `source` to equal `sunbiz` would silently reject nearly the entire independently linked population.
 
 **How to apply:** Keep system decisions separate from admin-reviewed decisions and recheck independent facts at the write boundary. Never assume that historical contact provenance or an unvalidated address is itself an independent corroborating source. Check both published SFP contact-source constraints and database triggers before writing; development schema success does not establish production readiness.
+
+For broader reviewed relationships, prove the selected pre-existing event's business binding from that event alone. Contact-level filing provenance must not be inherited as evidence that an otherwise unrelated event refers to the candidate business.
+
+**Why:** A contact can retain a correct filing identifier while an event explicitly concerns a different business. Borrowing the contact identifier converts an unrelated event into apparent independent proof.
+
+**How to apply:** Reject explicit conflicting identifiers and evaluate each selected event's own metadata/external identifier. Do not create observations or approvals merely to satisfy the evidence requirement.
+
+An automatic-eligibility census must satisfy both the application's strict predicate and the unchanged database authority guard, with candidate discovery equivalent across SQL and offline exports.
+
+**Why:** Accent folding, legal-suffix whitespace, domain normalization, and coalescing only one filing key can produce different candidate sets or report eligibility that the actual write guard rejects.
+
+**How to apply:** Test real PostgreSQL candidate sets and unchanged guard expressions against the pure classifier, including accents, www aliases, compact-export email validity, and competing filing identifiers. Bind resumable aggregate reports to the classifier and shard digests.

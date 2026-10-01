@@ -36,6 +36,7 @@ import {
   type LocationCandidateInput,
   type GeographyResolution,
 } from "./sfp-geography-resolver";
+import { findStaleSfpClassificationEvidenceBusinessIds } from "./sfp-stale-classification-evidence";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const SFP_INACTIVE_ENTITY_STATUSES = [
@@ -1110,12 +1111,15 @@ export async function selectRoiCohort(opts: {
     .filter((c) => c.dispositionReason.startsWith("excluded:vertical_unresolved"))
     .map((c) => c.canonicalBusinessId);
   if (noEvidenceBizIds.length > 0) {
-    const staleRows = rows(await exec.execute(sql`
-      SELECT DISTINCT business_id FROM sfp_classification_evidence
-       WHERE business_id = ANY(ARRAY[${sql.join(noEvidenceBizIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
-         AND NOT (policy_version=${classificationPolicyVersion} AND classifier_version=${CLASSIFIER_VERSION} AND taxonomy_version=${taxonomyVersion})
-    `));
-    const staleIds = new Set(staleRows.map((r: any) => Number(r.business_id)));
+    const staleIds = await findStaleSfpClassificationEvidenceBusinessIds(
+      noEvidenceBizIds,
+      {
+        policyVersion: classificationPolicyVersion,
+        classifierVersion: CLASSIFIER_VERSION,
+        taxonomyVersion,
+      },
+      exec,
+    );
     if (staleIds.size > 0) {
       funnel.noVerticalEvidence -= staleIds.size;
       funnel.staleEvidence += staleIds.size;

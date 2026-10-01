@@ -36,6 +36,13 @@ import { GEOGRAPHY_RESOLVER_VERSION } from "./sfp-geography-resolver";
 // same transaction snapshot and attaches it to each decision candidate.
 import { getActiveSfpOutreachPolicy } from "./sfp-outreach-policy";
 import { storage } from "../../storage";
+import {
+  SFP_SELECTED_CONTACTS_MAX,
+  normalizeFrozenContactScope,
+  normalizeSelectedContactIds,
+  resolveVerifiedSfpContactTargets,
+  type SfpSelectedContactTarget,
+} from "./sfp-contact-scope";
 
 /**
  * Admin-auditable override for the FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED
@@ -390,15 +397,31 @@ export interface SfpFunnelPreview {
     countyFips: string | null;
     eligible: boolean;
     dispositionReason: string;
+    contactId?: number;
+    contactBusinessLinkDecisionId?: string;
+    contactBusinessLinkRevision?: number;
   }>;
   verticalIds: string[];
   countyFips: string[];
   capturedAt: string;
+  selectedContactScope?: {
+    selectedContactIds: number[];
+    resolvedTargets: SfpSelectedContactTarget[];
+    maxCohortSize: number;
+    snapshotHash: string;
+  };
+  scopeCapabilities: {
+    selectedContactIds: true;
+    selectedContactIdsMax: number;
+    scopedFreshFreeze: true;
+    existingFrozenRunsImmutable: true;
+  };
 }
 
 export async function previewFunnel(opts: {
   maxPreview?: number;
   programId?: string;
+  selectedContactIds?: number[];
 } = {}): Promise<SfpFunnelPreview> {
   // Task #1998 round-3 correction (item 4): validate maxPreview INSIDE this
   // service function, not only at the HTTP route (server/routes/lead-ops.ts
@@ -415,8 +438,19 @@ export async function previewFunnel(opts: {
   // that requires activation.
   const program = await getProgramReadOnly();
   if (!program) throw new Error("SFP_PROGRAM_NOT_CONFIGURED:create_the_program_via_POST_program_ensure_first");
+  const selectedContactIds = normalizeSelectedContactIds(opts.selectedContactIds);
+  const maxCohortSize = opts.maxPreview ?? SFP_CANARY_CAP;
+  if (selectedContactIds && selectedContactIds.length > maxCohortSize) {
+    throw new Error("SFP_SELECTED_CONTACT_TARGET_COUNT_EXCEEDS_COHORT_CAP");
+  }
+  const selectedTargets = selectedContactIds
+    ? await resolveVerifiedSfpContactTargets(selectedContactIds)
+    : undefined;
   const result = await selectRoiCohort({
-    maxCohort: opts.maxPreview ?? SFP_CANARY_CAP,
+    // In scoped mode, the complete eligible census is retained below so a
+    // target is not silently lost merely because it ranks below the general
+    // cohort cap. The scope still admits only ordinarily eligible businesses.
+    maxCohort: selectedContactIds ? SFP_PROGRAM_MAX_COHORT : maxCohortSize,
     verticalIds: program.verticalIds,
     countyFips: program.countyFips,
     persistScores: false,
@@ -425,10 +459,17 @@ export async function previewFunnel(opts: {
     policyVersion: program.policyVersion,
   });
 
+  const scopedResult = selectedTargets
+    ? scopeRoiSelectionToTargets(result, selectedTargets)
+    : result;
+  const snapshotHash = selectedTargets
+    ? buildSelectedContactScopeSnapshotHash(program, maxCohortSize, selectedTargets, scopedResult.eligible)
+    : undefined;
+  const targetByBusiness = new Map(selectedTargets?.map((target) => [target.businessId, target]) ?? []);
   return {
     program,
-    funnel: result.funnel,
-    topCandidates: result.eligible.map((c) => ({
+    funnel: scopedResult.funnel,
+    topCandidates: scopedResult.eligible.map((c) => ({
       businessId: c.canonicalBusinessId,
       roiScore: c.roiScore,
       geographyClass: c.geographyClass,
@@ -437,11 +478,145 @@ export async function previewFunnel(opts: {
       countyFips: c.countyFips,
       eligible: c.eligible,
       dispositionReason: c.dispositionReason,
+      ...(targetByBusiness.has(c.canonicalBusinessId) ? {
+        contactId: targetByBusiness.get(c.canonicalBusinessId)!.contactId,
+        contactBusinessLinkDecisionId: targetByBusiness.get(c.canonicalBusinessId)!.linkDecisionId,
+        contactBusinessLinkRevision: targetByBusiness.get(c.canonicalBusinessId)!.linkRevision,
+      } : {}),
     })),
-    verticalIds: result.verticalIds,
-    countyFips: result.countyFips,
-    capturedAt: result.selectedAt,
+    verticalIds: scopedResult.verticalIds,
+    countyFips: scopedResult.countyFips,
+    capturedAt: scopedResult.selectedAt,
+    ...(selectedTargets ? {
+      selectedContactScope: {
+        selectedContactIds: selectedContactIds!,
+        resolvedTargets: selectedTargets,
+        maxCohortSize,
+        snapshotHash: snapshotHash!,
+      },
+    } : {}),
+    scopeCapabilities: {
+      selectedContactIds: true,
+      selectedContactIdsMax: SFP_SELECTED_CONTACTS_MAX,
+      scopedFreshFreeze: true,
+      existingFrozenRunsImmutable: true,
+    },
   };
+}
+
+function scopeRoiSelectionToTargets(
+  selection: RoiCohortSelection,
+  targets: SfpSelectedContactTarget[],
+): RoiCohortSelection {
+  const targetBusinessIds = new Set(targets.map((target) => target.businessId));
+  const rankedEligible = [
+    ...selection.eligible,
+    ...selection.excluded.filter((candidate) => candidate.dispositionReason === "excluded:cohort_cap"),
+  ];
+  const eligibleByBusiness = new Map(rankedEligible.map((candidate) => [candidate.canonicalBusinessId, candidate]));
+  for (const target of targets) {
+    if (!eligibleByBusiness.has(target.businessId)) {
+      const candidate = selection.excluded.find((row) => row.canonicalBusinessId === target.businessId);
+      throw new Error(
+        `SFP_SELECTED_CONTACT_BUSINESS_NOT_ELIGIBLE:contact=${target.contactId}:business=${target.businessId}:reason=${candidate?.dispositionReason ?? "not_in_canonical_census"}`,
+      );
+    }
+  }
+  const eligible = rankedEligible
+    .filter((candidate) => targetBusinessIds.has(candidate.canonicalBusinessId))
+    .map((candidate) => candidate.dispositionReason === "excluded:cohort_cap"
+      ? { ...candidate, eligible: true, dispositionReason: "eligible" }
+      : candidate);
+  const selectedIds = new Set(eligible.map((candidate) => candidate.canonicalBusinessId));
+  const excluded = [
+    ...selection.excluded
+      .filter((candidate) => !selectedIds.has(candidate.canonicalBusinessId))
+      .map((candidate) => candidate.dispositionReason === "excluded:cohort_cap"
+        ? { ...candidate, dispositionReason: "excluded:contact_scope" }
+        : candidate),
+    ...selection.eligible
+      .filter((candidate) => !selectedIds.has(candidate.canonicalBusinessId))
+      .map((candidate) => ({ ...candidate, eligible: false, dispositionReason: "excluded:contact_scope" })),
+  ];
+  return { ...selection, eligible, excluded };
+}
+
+function cohortCandidateManifest(candidate: RoiCohortSelection["eligible"][number], rank: number) {
+  return {
+    businessId: candidate.canonicalBusinessId,
+    rank,
+    roiScore: candidate.roiScore,
+    scoreVersion: candidate.scoreVersion,
+    dimensions: candidate.dimensions,
+    vertical: candidate.vertical,
+    countyFips: candidate.countyFips,
+    exclusionPolicyVersion: EXCLUSION_POLICY_VERSION,
+    geography: candidate.geographyResolution
+      ? {
+          resolverVersion: candidate.geographyResolution.resolverVersion,
+          outcome: candidate.geographyResolution.outcome,
+          evidenceClass: candidate.geographyResolution.evidenceClass,
+          winningLocationId: candidate.geographyResolution.winningLocationId,
+          countyFips: candidate.geographyResolution.countyFips,
+        }
+      : null,
+    classifier: candidate.classifierResult
+      ? {
+          version: candidate.classifierResult.version,
+          outcome: candidate.classifierResult.outcome,
+          evidenceHash: candidate.classifierResult.evidenceHash,
+          matchedTargetId: candidate.classifierResult.matchedTargetId,
+          confidence: candidate.classifierResult.confidence,
+        }
+      : null,
+    phaseAClassificationEvidence: candidate.classificationEvidence ?? null,
+  };
+}
+
+type SfpContactScopeProgram = Pick<SfpProgram, "id" | "verticalIds" | "countyFips" | "policyVersion" | "taxonomyVersion">;
+
+function selectedContactPolicyVersions(program: SfpContactScopeProgram) {
+  return {
+    programPolicyVersion: program.policyVersion,
+    scoreVersion: ROI_SCORE_VERSION,
+    classifierVersion: CLASSIFIER_VERSION,
+    geographyResolverVersion: GEOGRAPHY_RESOLVER_VERSION,
+    sfpPolicyVersion: SFP_POLICY_VERSION,
+    exclusionPolicyVersion: EXCLUSION_POLICY_VERSION,
+  };
+}
+
+function buildSelectedContactScopeSnapshotHash(
+  program: SfpContactScopeProgram,
+  maxCohortSize: number,
+  targets: SfpSelectedContactTarget[],
+  candidates: RoiCohortSelection["eligible"],
+): string {
+  const policyVersions = selectedContactPolicyVersions(program);
+  const configHash = createHash("sha256").update(JSON.stringify({
+    verticalIds: [...program.verticalIds].sort(),
+    countyFips: [...program.countyFips].sort(),
+    policyVersions,
+  })).digest("hex");
+  const payload = {
+    scopeType: "selected_contact_ids",
+    selectedContactIds: targets.map((target) => target.contactId).sort((a, b) => a - b),
+    resolvedTargets: targets
+      .map((target) => ({
+        contactId: target.contactId,
+        businessId: target.businessId,
+        linkDecisionId: target.linkDecisionId,
+        linkRevision: target.linkRevision,
+      }))
+      .sort((a, b) => a.contactId - b.contactId),
+    maxCohortSize,
+    programId: program.id,
+    taxonomyVersion: program.taxonomyVersion,
+    policyVersions,
+    configHash,
+    candidates: candidates.map((candidate, index) => cohortCandidateManifest(candidate, index + 1)),
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
 // ── Cohort freeze ──────────────────────────────────────────────────────────────
@@ -486,6 +661,11 @@ export interface SfpCohortRun {
   sourceHighWaterBusinessId: number | null;
   sourceBusinessCount: number | null;
   sourceSnapshotCapturedAt: string | null;
+  selectedContactScope?: {
+    selectedContactIds: number[];
+    resolvedTargets: SfpSelectedContactTarget[];
+    previewSnapshotHash: string;
+  };
 }
 
 function _mapFunnelSnapshot(f: any): RoiCohortSelection["funnel"] {
@@ -531,6 +711,8 @@ export async function freezeCohort(opts: {
   actorId: string;
   maxCohortSize?: number;
   releaseSha?: string;
+  selectedContactIds?: number[];
+  previewSnapshotHash?: string;
   /**
    * Correction 3: test-only fault-injection seam. Never set by production
    * callers (no route/UI path threads this through). When provided, it is
@@ -592,6 +774,8 @@ async function freezeCohortLocked(opts: {
   actorId: string;
   maxCohortSize?: number;
   releaseSha?: string;
+  selectedContactIds?: number[];
+  previewSnapshotHash?: string;
   _testFaultInjector?: (stage: "after_members_inserted" | "after_decisions_inserted") => void;
 }): Promise<{ run: SfpCohortRun; newlyFrozen: boolean; funnel: RoiCohortSelection["funnel"] }> {
   const program = await ensureProgram();
@@ -607,13 +791,27 @@ async function freezeCohortLocked(opts: {
       throw stableError(`SFP_COHORT_CAP_INVALID:maxCohortSize_must_be_an_integer_between_1_and_${SFP_PROGRAM_MAX_COHORT}:received=${String(opts.maxCohortSize)}`);
     }
   }
-  const maxCohortSize = Math.min(SFP_PROGRAM_MAX_COHORT, opts.maxCohortSize ?? program.maxCohortSize);
+  const selectedContactIds = normalizeSelectedContactIds(opts.selectedContactIds);
+  const maxCohortSize = Math.min(
+    SFP_PROGRAM_MAX_COHORT,
+    opts.maxCohortSize ?? (selectedContactIds ? SFP_CANARY_CAP : program.maxCohortSize),
+  );
+  if (selectedContactIds && selectedContactIds.length > maxCohortSize) {
+    throw stableError("SFP_SELECTED_CONTACT_TARGET_COUNT_EXCEEDS_COHORT_CAP");
+  }
+  if (selectedContactIds && !/^[a-f0-9]{64}$/i.test(String(opts.previewSnapshotHash ?? ""))) {
+    throw stableError("SFP_SELECTED_CONTACT_PREVIEW_SNAPSHOT_HASH_REQUIRED");
+  }
 
   const requestPayload = {
     programId: program.id,
     verticalIds: [...program.verticalIds].sort(),
     countyFips: [...program.countyFips].sort(),
     maxCohortSize,
+    ...(selectedContactIds ? {
+      selectedContactIds,
+      previewSnapshotHash: opts.previewSnapshotHash,
+    } : {}),
   };
   const requestHash = createHash("sha256").update(JSON.stringify(requestPayload)).digest("hex");
   // Real component versions (VFC-03): every algorithm that contributes to
@@ -638,7 +836,18 @@ async function freezeCohortLocked(opts: {
   const preGeneratedRunId = randomUUID();
 
   try {
-    return await db.transaction(async (tx) => { return freezeCohortTx(tx, opts, program, maxCohortSize, requestPayload, requestHash, policyVersions, configHash, preGeneratedRunId, opts._testFaultInjector); });
+    return await db.transaction(async (tx) => { return freezeCohortTx(
+      tx,
+      { ...opts, selectedContactIds },
+      program,
+      maxCohortSize,
+      requestPayload,
+      requestHash,
+      policyVersions,
+      configHash,
+      preGeneratedRunId,
+      opts._testFaultInjector,
+    ); });
   } catch (err) {
     // Correction 2: expected/stable control-flow outcomes (idempotent
     // payload mismatch, a key that already failed, a key pinned to a
@@ -702,7 +911,14 @@ async function freezeCohortLocked(opts: {
 
 async function freezeCohortTx(
   tx: any,
-  opts: { idempotencyKey: string; actorId: string; maxCohortSize?: number; releaseSha?: string },
+  opts: {
+    idempotencyKey: string;
+    actorId: string;
+    maxCohortSize?: number;
+    releaseSha?: string;
+    selectedContactIds?: number[];
+    previewSnapshotHash?: string;
+  },
   program: { id: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number; policyVersion: number; taxonomyVersion: 1 | 2 },
   maxCohortSize: number,
   requestPayload: { programId: string; verticalIds: string[]; countyFips: string[]; maxCohortSize: number },
@@ -793,8 +1009,11 @@ async function freezeCohortTx(
       // ROI selection runs against this same transaction handle, so the
       // scan, scoring, and member insert all observe one consistent
       // snapshot rather than racing live writes between steps.
-      const result = await selectRoiCohort({
-        maxCohort: maxCohortSize,
+      const selectedTargets = opts.selectedContactIds
+        ? await resolveVerifiedSfpContactTargets(opts.selectedContactIds, tx)
+        : undefined;
+      const rawSelection = await selectRoiCohort({
+        maxCohort: selectedTargets ? SFP_PROGRAM_MAX_COHORT : maxCohortSize,
         verticalIds: program.verticalIds,
         countyFips: program.countyFips,
         persistScores: true,
@@ -803,6 +1022,27 @@ async function freezeCohortTx(
         taxonomyVersion: program.taxonomyVersion,
         policyVersion: program.policyVersion,
       });
+      const result = selectedTargets
+        ? scopeRoiSelectionToTargets(rawSelection, selectedTargets)
+        : rawSelection;
+      if (selectedTargets) {
+        const currentScopeHash = buildSelectedContactScopeSnapshotHash(
+          program,
+          maxCohortSize,
+          selectedTargets,
+          result.eligible,
+        );
+        if (currentScopeHash !== opts.previewSnapshotHash) {
+          throw stableError("SFP_SELECTED_CONTACT_SCOPE_PREVIEW_STALE:links_or_eligibility_changed_reissue_preview");
+        }
+        await tx.execute(sql`
+          UPDATE sfp_cohort_runs
+             SET request_payload=request_payload || ${JSON.stringify({
+               selectedContactTargets: selectedTargets,
+             })}::jsonb
+           WHERE id=${runId}::uuid
+        `);
+      }
 
       if (result.eligible.length === 0) {
         const f = result.funnel;
@@ -962,37 +1202,17 @@ async function freezeCohortTx(
       // sorted businessId:rank:roiScore triple. Any change to ranking,
       // scoring, geography resolution, vertical classification, or the
       // exclusion rules for the same membership set changes this hash.
-      const manifest = JSON.stringify(
-        result.eligible.map((c, i) => ({
-          businessId: c.canonicalBusinessId,
-          rank: i + 1,
-          roiScore: c.roiScore,
-          scoreVersion: c.scoreVersion,
-          dimensions: c.dimensions,
-          vertical: c.vertical,
-          countyFips: c.countyFips,
-          exclusionPolicyVersion: EXCLUSION_POLICY_VERSION,
-          geography: c.geographyResolution
-            ? {
-                resolverVersion: c.geographyResolution.resolverVersion,
-                outcome: c.geographyResolution.outcome,
-                evidenceClass: c.geographyResolution.evidenceClass,
-                winningLocationId: c.geographyResolution.winningLocationId,
-                countyFips: c.geographyResolution.countyFips,
-              }
-            : null,
-          classifier: c.classifierResult
-            ? {
-                version: c.classifierResult.version,
-                outcome: c.classifierResult.outcome,
-                evidenceHash: c.classifierResult.evidenceHash,
-                matchedTargetId: c.classifierResult.matchedTargetId,
-                confidence: c.classifierResult.confidence,
-              }
-            : null,
-          phaseAClassificationEvidence: c.classificationEvidence ?? null,
-        })),
-      );
+      const memberManifest = result.eligible.map((candidate, index) =>
+        cohortCandidateManifest(candidate, index + 1));
+      const manifest = opts.selectedContactIds
+        ? JSON.stringify({
+            scopeType: "selected_contact_ids",
+            selectedContactIds: opts.selectedContactIds,
+            resolvedTargets: selectedTargets,
+            previewSnapshotHash: opts.previewSnapshotHash,
+            members: memberManifest,
+          })
+        : JSON.stringify(memberManifest);
       const cohortHash = createHash("sha256").update(manifest).digest("hex");
 
       // Round-2 correction: the funnel snapshot MUST be written while the
@@ -1201,6 +1421,21 @@ export async function getCohortRunReconciliation(cohortRunId: string): Promise<S
 }
 
 function _mapRun(row: any): SfpCohortRun {
+  let requestPayload: any = row.request_payload;
+  if (typeof requestPayload === "string") {
+    try { requestPayload = JSON.parse(requestPayload); } catch {
+      throw new Error("SFP_COHORT_RUN_REQUEST_PAYLOAD_CORRUPT");
+    }
+  }
+  const selectedContactIds = normalizeFrozenContactScope(requestPayload?.selectedContactIds);
+  const selectedContactTargets = Array.isArray(requestPayload?.selectedContactTargets)
+    ? requestPayload.selectedContactTargets.map((target: any) => ({
+        contactId: Number(target.contactId),
+        businessId: Number(target.businessId),
+        linkDecisionId: String(target.linkDecisionId),
+        linkRevision: Number(target.linkRevision),
+      }))
+    : undefined;
   return {
     id: String(row.id),
     programId: String(row.program_id),
@@ -1223,6 +1458,13 @@ function _mapRun(row: any): SfpCohortRun {
     sourceHighWaterBusinessId: row.source_high_water_business_id != null ? Number(row.source_high_water_business_id) : null,
     sourceBusinessCount: row.source_business_count != null ? Number(row.source_business_count) : null,
     sourceSnapshotCapturedAt: row.source_snapshot_captured_at ? String(row.source_snapshot_captured_at) : null,
+    ...(selectedContactIds ? {
+      selectedContactScope: {
+        selectedContactIds,
+        resolvedTargets: selectedContactTargets ?? [],
+        previewSnapshotHash: String(requestPayload?.previewSnapshotHash ?? ""),
+      },
+    } : {}),
   };
 }
 
@@ -1433,6 +1675,7 @@ export async function runSfpFreeDiscovery(input: {
 // ── Validated outreach prospects ───────────────────────────────────────────────
 
 export interface ValidatedProspect {
+  eligibilityId: string;
   businessId: number;
   businessName: string | null;
   normalizedVertical: string | null;
@@ -1528,6 +1771,7 @@ export async function getValidatedProspects(opts: {
   for (const r of statusRows) byCohort[String(r.status)] = Number(r.cnt);
 
   const prospects: ValidatedProspect[] = prospectRows.map((r: any) => ({
+    eligibilityId: String(r.id),
     businessId: Number(r.business_id),
     businessName: r.business_name ? String(r.business_name) : null,
     normalizedVertical: r.business_vertical ? String(r.business_vertical) : null,

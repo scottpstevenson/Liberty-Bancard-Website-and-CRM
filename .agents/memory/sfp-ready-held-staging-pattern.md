@@ -40,6 +40,14 @@ satisfy half way.
 model it as preview/execute with a real command-key idempotency table,
 not as a status flag on the eventual execution-capable table.
 
+## Immutable scoped batch recovery
+
+Keep the original authorized target set immutable, but distinguish pending work from durable completed receipts. A retry processes only pending targets; it must not demand that every original target still be actionable or spend again on completed targets.
+
+**Why:** A mixed-success batch otherwise becomes impossible to resume: successful targets disappear from the actionable pool, while narrowing the frozen scope would change the authorization. Pre-provider terminal decisions also need the same policy pins as provider outcomes, or they cannot prove completion.
+
+**How to apply:** Check replay scope before returning a saved result, require complete coverage by pending targets plus pinned terminal receipts, and retain the contact/link safety fence across plaintext access, external transport, and finalization.
+
 ## Three failure modes to guard against in this pattern
 - **Cross-entity evidence binding**: a plaintext-opening callback that resolves a reference to "some member of the batch" is not the same as resolving it to the exact row being processed. Always compare the resolver's returned entity ID against the row's own entity ID inside the callback, or a mismatched/stale foreign key can silently project one entity's private data onto another's record.
 - **Content hash must be recomputed live, in-transaction, from the real content rows** (not from a stored hash column, and not from a hash of just IDs/names) at the moment a pinned artifact is used. A stored hash proves nothing if the underlying content can still be edited after pinning.

@@ -531,11 +531,33 @@ export async function previewStagingV2(opts: {
 export interface StagingV2ExecuteResult {
   commandKey: string;
   readyHeld: number;
+  stagedIntents: Array<{ eligibilityId: string; intentId: string }>;
   rejected: number;
   reasons: Record<string, number>;
   zeroOutreachConfirmed: true;
   replayed: boolean;
   completedAt: string;
+}
+
+async function listStagedIntentIdsForCommand(
+  cohortRunId: string,
+  commandKey: string,
+  eligibilityIds: string[],
+): Promise<Array<{ eligibilityId: string; intentId: string }>> {
+  const orderedIds = canonicalizeEligibilityIds(eligibilityIds);
+  if (orderedIds.length === 0) return [];
+  const stagedRows = rows(await db.execute(sql`
+    SELECT eligibility_id, id
+      FROM sfp_campaign_staging_intents
+     WHERE cohort_run_id = ${cohortRunId}::uuid
+       AND command_key = ${commandKey}
+       AND eligibility_id = ANY(ARRAY[${sql.join(orderedIds.map((id) => sql`${id}::uuid`), sql`, `)}]::uuid[])
+     ORDER BY eligibility_id ASC
+  `));
+  return stagedRows.map((row: any) => ({
+    eligibilityId: String(row.eligibility_id),
+    intentId: String(row.id),
+  }));
 }
 
 /**
@@ -635,7 +657,11 @@ export async function executeStagingV2(opts: {
         throw new SfpStagingV2Error("SFP_STAGING_COMMAND_PAYLOAD_MISMATCH", "commandKey already used with a different payload; request a new preview", 409);
       }
       if (canonical.state === "completed" && canonical.stored_result) {
-        return { ...(canonical.stored_result as any), replayed: true };
+        return {
+          ...(canonical.stored_result as any),
+          stagedIntents: await listStagedIntentIdsForCommand(opts.cohortRunId, opts.commandKey, orderedIds),
+          replayed: true,
+        };
       }
       // pending/executing: another caller (or a prior crashed attempt) owns
       // it. Give it a moment, then re-check; if it never converges, fall
@@ -677,6 +703,7 @@ export async function executeStagingV2(opts: {
   });
 
   let readyHeld = 0;
+  const stagedIntents: Array<{ eligibilityId: string; intentId: string }> = [];
   let rejected = 0;
   const reasons: Record<string, number> = {};
   // Retry-contract correction: a worker-owned run already bumped
@@ -695,7 +722,7 @@ export async function executeStagingV2(opts: {
       continue;
     }
     try {
-      await stageOneRowTransactional({
+      const intentId = await stageOneRowTransactional({
         cohortRunId: opts.cohortRunId,
         eligibilityId: previewRow.eligibilityId,
         businessId: previewRow.businessId,
@@ -717,6 +744,7 @@ export async function executeStagingV2(opts: {
         incrementAttempt: !isWorkerOwnedAttempt,
       });
       readyHeld++;
+      stagedIntents.push({ eligibilityId: previewRow.eligibilityId, intentId });
     } catch (err: any) {
       rejected++;
       const code = err instanceof SfpStagingV2Error ? err.code : "staging_transaction_failed";
@@ -748,6 +776,7 @@ export async function executeStagingV2(opts: {
   const result: StagingV2ExecuteResult = {
     commandKey: opts.commandKey,
     readyHeld,
+    stagedIntents,
     rejected,
     reasons,
     zeroOutreachConfirmed: true,
@@ -770,7 +799,13 @@ export async function executeStagingV2(opts: {
     const canonical = rows(await db.execute(sql`
       SELECT stored_result FROM sfp_campaign_staging_commands WHERE command_key = ${opts.commandKey} LIMIT 1
     `))[0];
-    if (canonical?.stored_result) return { ...(canonical.stored_result as any), replayed: true };
+    if (canonical?.stored_result) {
+      return {
+        ...(canonical.stored_result as any),
+        stagedIntents: await listStagedIntentIdsForCommand(opts.cohortRunId, opts.commandKey, orderedIds),
+        replayed: true,
+      };
+    }
   }
 
   return result;
@@ -787,9 +822,9 @@ async function stageOneRowTransactional(opts: {
   eligibilityReviewId?: string;
   packageKey: string; actorId: string; commandKey: string; payloadHash: string; snapshotHash: string;
   stageItemId: string; incrementAttempt?: boolean;
-}): Promise<void> {
+}): Promise<string> {
   const activePolicy = await getActiveSfpOutreachPolicy();
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     // Cohort/program still authorize staging as of the exact moment this row
     // is written (Defect 12). previewStagingV2()/executeStagingV2()'s fresh
     // preview only re-checks eligibility rows and package status — it never
@@ -914,7 +949,7 @@ async function stageOneRowTransactional(opts: {
       `))[0];
       if (existingIntent && existingIntent.command_key === opts.commandKey && existingIntent.state === "ready_held") {
         await markStageItemCompletedInTx(tx, opts.stageItemId, "ready_held", { incrementAttempt: opts.incrementAttempt ?? true });
-        return;
+        return String(eligRow.staging_intent_id);
       }
       throw new SfpStagingV2Error("SFP_STAGING_ALREADY_HAS_INTENT", "eligibility already has a staging intent", 409);
     }
@@ -1246,5 +1281,6 @@ async function stageOneRowTransactional(opts: {
     // ready_held intent whose stage item still reads pending/claimed, and
     // no separate reconciliation step is needed to catch that split state.
     await markStageItemCompletedInTx(tx, opts.stageItemId, "ready_held", { incrementAttempt: opts.incrementAttempt ?? true });
+    return String(intent.id);
   });
 }

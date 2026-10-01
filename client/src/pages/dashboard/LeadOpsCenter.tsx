@@ -36,6 +36,7 @@ import { SourceRegistryPanel } from "@/pages/dashboard/SourceRegistryPanel";
 import { ProgramHealthPanel } from "@/pages/dashboard/LeadOps/ProgramHealthPanel";
 import { BusinessDetailPanel } from "@/pages/dashboard/LeadOps/BusinessDetailPanel";
 import { SystemContactBusinessLinksPanel } from "@/pages/dashboard/LeadOps/SystemContactBusinessLinksPanel";
+import { ContactLinkCoveragePanel } from "@/pages/dashboard/LeadOps/ContactLinkCoveragePanel";
 import { MobileBusinessCard, type BusinessListItem } from "@/pages/dashboard/LeadOps/MobileBusinessCard";
 import MasterLeadDatabase, { PipelineReviewTab } from "@/pages/dashboard/MasterLeadDatabase";
 import Prospects from "@/pages/dashboard/Prospects";
@@ -2415,6 +2416,7 @@ export default function LeadOpsCenter() {
         <TabsContent value="businesses" className="space-y-4">
           {user?.role === "admin" && <ContactBusinessReconciliationPanel />}
           {user?.role === "admin" && <SystemContactBusinessLinksPanel />}
+          {user?.role === "admin" && <ContactLinkCoveragePanel />}
           <BusinessesTab userRole={user?.role ?? "agent"} />
         </TabsContent>
 

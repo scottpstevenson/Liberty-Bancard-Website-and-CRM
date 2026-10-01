@@ -200,12 +200,12 @@ try {
     "only the current verified, projection-consistent contact enters the unified candidate pool");
 
   let callbackSawRealEmail = false;
-  const opened = await openSfpCandidatePlaintext({
+  const opened = await db.transaction(async (tx) => openSfpCandidatePlaintext({
     reference: linkInput, cohortRunId: randomUUID(), actorId: reviewerId, purpose: "sfp_email_validation",
   }, async (plaintext) => {
     callbackSawRealEmail = plaintext === email;
     return true;
-  }).catch((error) => `ERROR:${String((error as Error).message)}`);
+  }, tx)).catch((error) => `ERROR:${String((error as Error).message)}`);
   // Create the actual frozen-cohort membership used by the audited opener,
   // then repeat the audited open against the real run below.
   check(String(opened).startsWith("ERROR:SFP_CANDIDATE_BUSINESS_NOT_IN_COHORT"),
@@ -287,12 +287,12 @@ try {
     UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW()
     WHERE id=${cohortRunId}::uuid
   `);
-  const cohortOpen = await openSfpCandidatePlaintext({
+  const cohortOpen = await db.transaction(async (tx) => openSfpCandidatePlaintext({
     reference: linkInput, cohortRunId, actorId: reviewerId, purpose: "sfp_email_validation",
   }, async (plaintext) => {
     callbackSawRealEmail = plaintext === email;
     return { accepted: true };
-  });
+  }, tx));
   check((cohortOpen as any).accepted === true && callbackSawRealEmail,
     "audited callback receives the canonical contact email only inside callback scope");
   const openAudit = rows(await db.execute(sql`
@@ -312,9 +312,9 @@ try {
   check(revoked.decision === "rejected" &&
     (await resolveSfpCandidateReference({ sourceKind: "contact", contactId: String(contactId) })) === null,
   "superseded/rejected link is immediately denied by authoritative candidate resolution");
-  check(await rejected(() => openSfpCandidatePlaintext({
+  check(await rejected(() => db.transaction(async (tx) => openSfpCandidatePlaintext({
     reference: linkInput, cohortRunId, actorId: reviewerId, purpose: "sfp_email_validation",
-  }, async () => true), /SFP_CANDIDATE_REFERENCE_NOT_FOUND/),
+  }, async () => true, tx)), /SFP_CANDIDATE_REFERENCE_NOT_FOUND/),
   "revoked link is rejected before audited plaintext opening");
 
   const reapproved = await decideContactBusinessLink({

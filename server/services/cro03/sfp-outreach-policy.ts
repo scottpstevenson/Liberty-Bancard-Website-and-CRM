@@ -218,21 +218,25 @@ export async function lookupConsentTierByEmailHash(
 /**
  * Freshness reuse: finds a still-fresh provider_observations row for this
  * business + normalized email hash within the active policy's TTL. A hit
- * means the provider is not called again; a miss (or expiry) requires a
+ * means the provider is not called again; only completed valid/invalid
+ * outcomes are reusable. Transport failures and uncertain results must not
+ * suppress a retry after its normal cooldown. A miss (or expiry) requires a
  * new reservation. Every mutable safety gate is re-run regardless of hit/miss.
  */
 export async function findFreshProviderObservation(input: {
   businessId: number;
   emailTokenHash: string;
   ttlDays: number;
-}): Promise<{ operationId: string; outcome: string; observedAt: string } | null> {
-  const row = rows(await db.execute(sql`
+}, executor: { execute: (q: any) => Promise<any> } = db): Promise<{ operationId: string; outcome: string; observedAt: string } | null> {
+  const row = rows(await executor.execute(sql`
     SELECT operation_id, outcome, observed_at
       FROM provider_observations
      WHERE subject_type = 'business'
        AND subject_id = ${input.businessId}
        AND email_token_hash = ${input.emailTokenHash}
        AND provider = 'zerobounce'
+       AND retryable = FALSE
+       AND outcome IN ('valid', 'invalid')
        AND observed_at > NOW() - (${input.ttlDays}::text || ' days')::interval
      ORDER BY observed_at DESC
      LIMIT 1
