@@ -11,20 +11,20 @@ loopback only.
 
 | Gate | Current evidence/status |
 | --- | --- |
-| Combined offline source certifications | **PASS**. `node_modules/.bin/tsx scripts/run-sfp2060-certification-disposable.ts` exited 0 with all 16 suites after the final authority correction, including commercial authority (31 checks), contact merge (19 assertions), and legacy staging (152/152). Its disposable/fixture results are not production evidence. |
+| Combined offline source certifications | **PASS.** The final combined disposable run completed all 17 suites after the audit and private-harness corrections, including commercial authority (31), contact merge (19), legacy staging (152/152), and legacy SFP cohort (56/56). The build and focused sanitizer tests passed as well. These are source/fixture results, not production evidence. |
 | Integrated-pipeline certification | **PASS**. Four governed ZeroBounce fixtures, two paid-result fixtures, three typed sources, three paused enrollments, exact-decimal/reconciliation and runtime-owner fences verified. |
 | Typecheck and build | **PASS**. Typecheck passed after the final authority correction; `npm run build` passed on the final source. Existing chunk-size/CJS import-meta warnings remain. |
-| Broader isolated pre-deploy gate | **FAILED in the recorded broader run: 102/137 suites passed, 35 failed.** Subsequent focused repairs do not turn that result into a pass. The broader wrapper has not been rerun against the latest corrections; remaining failures are not presumed baseline. |
+| Broader isolated pre-deploy gate | **FAILED at candidate `151143bd`: 110/137 suites passed, 27 failed.** The earlier run was 102/137 with 35 failures. Subsequent sanitizer/private-harness repairs were verified separately; the broader wrapper has not been rerun after them. Remaining failures are not all presumed baseline. |
 | Private UI screenshot | Visually verified against fixtures on loopback. It proves neither production data nor production behavior. |
 | Prepared source SHA | Resolve with `git rev-parse HEAD` from the clean committed handoff checkout; the commit/PR records the immutable candidate outside this self-referential file. The earlier `be910b1f53110a97e471960cefbcb5cff79a17a7` is superseded by the subsequent corrections. An isolated-task SHA identifies prepared source only, never the main workspace or live deployment. |
-| Main merge / user Publish / deployed SHA and schema verification | **PENDING.** Publishing is a user action; no automatic publication. |
+| Main merge / user Publish / deployed SHA and schema verification | **PENDING.** Draft source-review PR: https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/pull/9. It is not a merge or Publish and does not close this task. Publishing remains a user action. |
 | Representative production output and replenishment | **PENDING.** The 100-business target, actual production receipts, and two scheduled replenishment receipts remain work in this same Task 2060. |
 
 ### Latest individual-check evidence
 
 - `node_modules/.bin/tsx scripts/run-sfp2060-certification-disposable.ts` completed the final
-  combined offline source-certification run with exit code 0 and all 16 source
-  certifications passed after the final authority correction. The C1
+  final combined offline source-certification run with all 17 source
+  certifications passed after the final audit/private-harness corrections. The C1
   persisted-link certification reported `100/0`; retain that literal result as
   test evidence only, not a production count.
 - `npx tsx scripts/run-sfp2060-certification-disposable.ts --only integrated-pipeline`
@@ -74,9 +74,10 @@ npx tsx scripts/run-sfp2060-certification-disposable.ts --only integrated-pipeli
 ```
 
 The combined offline source-certification run and current-source build passed.
-The separate broader pre-deploy wrapper **failed (102/137 passed; 35 failed)** before
-the subsequent release-contract and certification repairs. It has not been rerun
-against those corrections, and there is no current broader-gate PASS. The integrated certification, C1 result,
+The latest broader pre-deploy wrapper **failed (110/137 passed; 27 failed)** at
+candidate `151143bd`; the earlier run failed 35 suites. It has not been rerun
+after the subsequent sanitizer/private-harness correction, and there is no
+current broader-gate PASS. The integrated certification, C1 result,
 typecheck, and scoped architecture review are recorded separately above; fixture
 and disposable results are not production evidence. Do not relabel a
 fixture-only screenshot or provider-operation receipt as a production result.
@@ -105,6 +106,26 @@ baseline without the documented comparison.
   commercial authority (31 checks), contact merge (19 assertions), and legacy
   staging (152/152). This is separate from the earlier 11-suite pass and the
   failed broader pre-deploy run.
+- The subsequent paid-evidence audit correction uses the canonical sanitizer.
+  Its focused source/pure tests and TypeScript check passed; the integrated
+  pipeline passed again afterward. A subsequent block-level comparison found
+  one new schedule audit and one modified candidate-admission audit; both now
+  use the same canonical sanitizer, with focused tests and TypeScript checks
+  passing. The 13 remaining static audit-insert blocks match origin exactly.
+  They remain findings, not hidden or waived baseline exceptions.
+- The private broader-launcher promotion flag is set only in its scrubbed
+  disposable environment. The repaired legacy SFP cohort script now uses
+  governed fake-provider/source/receipt fixtures; its dedicated isolated run
+  passed all 56 phases. No-MX creates no provider reservation/spend, replay
+  retains snapshot checks, and the verified contact has actual receipt lineage.
+  The final combined launcher subsequently passed all 17 suites. Its terminal
+  banner is explicitly source-only, not publication readiness. The banner-only
+  correction made after observing the run does not change any assertions.
+- The 19 schema FK omissions in the broader contact-merge manifest check are
+  present in the origin schema and absent from its manifest. Both new SFP
+  contact-target relationships in this task are explicitly blocked. This
+  proves those schema-level omissions predate this task; it does not prove
+  historical runtime catalog parity or classify all remaining failures.
 
 ## Main integration without completing this task
 

@@ -17,6 +17,7 @@ import { db } from "../../db";
 import { seal, unseal } from "./candidate-evidence-service";
 import { candidateTier, rejectEmailCandidate } from "./candidate-selector";
 import { maskCandidate } from "./contracts";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -519,10 +520,17 @@ export async function openSfpCandidatePlaintext<T>(
         keyVersion: Number(envelopeRow!.envelope_key_version ?? 1),
       });
 
+  const auditDetails = sanitizeAuditPayload({
+    sourceKind: resolved.sourceKind,
+    evidenceId: resolved.evidenceId,
+    businessId: resolved.businessId,
+    purpose: input.purpose,
+    cohortRunId: input.cohortRunId,
+  });
   await executor.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_candidate_plaintext_opened', 'sfp_candidate_evidence', ${resolved.evidenceId}, 'user', ${input.actorId},
-            ${JSON.stringify({ sourceKind: resolved.sourceKind, evidenceId: resolved.evidenceId, businessId: resolved.businessId, purpose: input.purpose, cohortRunId: input.cohortRunId })}::jsonb)
+            ${JSON.stringify(auditDetails)}::jsonb)
   `);
 
   const result = await use(plaintext, resolved);

@@ -47,6 +47,11 @@ async function main(): Promise<void> {
       EMAIL_TRANSPORT_FAILFAST: "true",
       SMS_TRANSPORT_FAILFAST: "true",
       BACKGROUND_JOB_PROFILE: "selective:sfp-campaign-staging",
+      // Private pre-deploy certification only: allow the disposable fake
+      // validation suite through its promotion gate. Provider budget,
+      // provider-control, and dispatch authorization remain independently
+      // enforced by the real governed validation path.
+      FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED: "true",
     });
     redis = await launchSfp2060DisposableRedis(env);
     const appPort = await unusedPort();

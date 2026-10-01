@@ -44,6 +44,10 @@ import { readFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+import {
+  applyCertificationProviderDenyBoundary,
+  getBlockedCertificationNetworkAttemptCount,
+} from "./certification-provider-deny";
 
 // This suite mutates SFP cohort/eligibility/business/contact rows and must
 // never run against a shared or production database. Verify — before the
@@ -53,6 +57,15 @@ await assertDisposableTestInfrastructure({
   operation: "SFP cohort certification",
   requireRedis: false,
 });
+process.env.VG_PROVIDER_DENY_MODE = "1";
+applyCertificationProviderDenyBoundary({ fatal: true });
+// These disposable-only settings open the existing governed validation path
+// for its injected fake transport. They do not bypass paid-budget,
+// provider-control, runtime-owner, reservation, dispatch, or settlement gates.
+process.env.CRO03_PROVIDER_TRANSPORT_ENABLED = "true";
+process.env.ZEROBOUNCE_API_KEY = "sfp-certification-disposable-fake-key";
+process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED = "true";
+const deniedNetworkBaseline = getBlockedCertificationNetworkAttemptCount();
 const sfpRuntimeIdentity = await (await import("./helpers/sfp-runtime-test-identity")).getSfpRuntimeTestIdentity();
 
 const { db } = await import("../server/db");
@@ -255,45 +268,42 @@ await phase("3a. Seed 30 test businesses — five verticals, South FL FIPS, ZIP,
 });
 
 await phase("3b. Seed free_discovery_candidates for first 20 businesses", async () => {
-  const genRow = rows(await db.execute(sql`
-    INSERT INTO free_discovery_generations
-      (run_key, actor_id, purpose, reason, state)
-    VALUES (${`cert-${RUN_ID}`}, ${`cert:${RUN_ID}`}, 'email_discovery', 'certification', 'running')
-    RETURNING id
-  `))[0];
-  generationId = String(genRow.id);
-
-  const { seal } = await import("../server/services/cro03/candidate-evidence-service");
+  const {
+    completeFreeDiscoveryGeneration,
+    createFreeDiscoveryGeneration,
+    recordFreeDiscoveryCandidate,
+  } = await import("../server/services/free-discovery/evidence-service");
+  const generation = await createFreeDiscoveryGeneration({
+    runKey: `cert-${RUN_ID}`,
+    actorId: `cert:${RUN_ID}`,
+    purpose: "email_discovery",
+    reason: "Disposable SFP certification role-inbox source fixtures.",
+  });
+  generationId = generation.id;
   const noMxDomain = `nonexistent-domain-${RUN_ID}.invalid`;
-  const noMxEmail = `owner@${noMxDomain}`;
+  const noMxEmail = `info@${noMxDomain}`;
   certNoMxEmail = noMxEmail;
   for (let i = 0; i < 20; i++) {
     const bizId = seededBizIds[i];
-    // Real seal() so the audited decrypt boundary actually decrypts a real
-    // address — a prior revision seeded a fake 'enc-cert' ciphertext and put
-    // the real email straight into masked_value, which never exercised the
-    // decryption boundary this task is required to certify.
-    // Business index 19 deliberately uses a non-resolvable domain to prove
-    // (7f3) that a no-MX candidate is rejected with zero provider spend
-    // before any decryption/reservation/transport call is made for it.
-    const email = i === 19 ? noMxEmail : `test${i}@gmail.com`;
+    // The ordinary fixtures are actual role-inbox-shaped values and their
+    // persisted source domain matches the encrypted email. The last source is
+    // deliberately no-MX so phase 7f3 can prove zero provider spend.
+    const email = i === 19 ? noMxEmail : `info@${RUN_ID}-${i}.com`;
     certSeededPlaintextByIndex.set(i, email);
-    const sealed = seal("email", email);
-    await db.execute(sql`
-      INSERT INTO free_discovery_candidates
-        (generation_id, business_id, field, subject_type, domain, source,
-         attribution_scope, disposition, confidence, envelope_ciphertext,
-         envelope_nonce, envelope_tag, envelope_key_version,
-         normalized_value_hash, masked_value, created_at)
-      VALUES (
-        ${generationId}::uuid, ${bizId}, 'email', 'business',
-        ${`${RUN_ID}-${i}.example.com`}, 'cert-seed', 'role', 'staged', ${80 - i},
-        ${sealed.ciphertext}, ${sealed.nonce}, ${sealed.tag}, 1,
-        ${sealed.normalizedValueHash}, ${sealed.maskedValue}, NOW()
-      )
-      ON CONFLICT (generation_id, field, normalized_value_hash) DO NOTHING
-    `);
+    const domain = email.slice(email.lastIndexOf("@") + 1);
+    const candidate = await recordFreeDiscoveryCandidate({
+      generationId,
+      businessId: bizId,
+      domain,
+      source: "first_party_contact_page",
+      attributionScope: "role",
+      subjectType: "business",
+      email,
+      confidence: 80 - i,
+    });
+    assert(candidate.id, `Role-inbox source evidence must persist for seeded business ${bizId}`);
   }
+  await completeFreeDiscoveryGeneration(generationId);
 });
 
 await phase("3c. Seed DBPR-excluded business", async () => {
@@ -608,6 +618,25 @@ await phase("6b. Activate the SFP program (required for validation/staging gates
   assert.equal(program.isActive, true, "Program must be active for validation to proceed");
 });
 
+await phase("6c. Open disposable validation authority through the audited budget/provider-control APIs", async () => {
+  const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } =
+    await import("../server/services/mi09-pilot-authority");
+  const authorization = await authorizePaidBudget({
+    authorizedBy: `cert:${RUN_ID}`,
+    typedConfirmation: MI09_PAID_BUDGET_TYPED_CONFIRMATION,
+  });
+  assert.equal(authorization.authorizedBy, `cert:${RUN_ID}`);
+  const { updateSfpPaidProviderControl } = await import("../server/services/paid-provider-control");
+  const control = await updateSfpPaidProviderControl({
+    provider: "zerobounce",
+    enabled: true,
+    reason: "Disposable SFP certification fake-provider validation",
+    actorId: `cert:${RUN_ID}`,
+  });
+  assert.equal(control.enabled, true);
+  assert.equal(control.circuit_state, "closed");
+});
+
 const fakeZbCalls: string[] = []; // track what is passed to fake transport (must be REAL decrypted emails)
 let validationResult: any;
 
@@ -630,9 +659,12 @@ await phase("7b. executeSfpValidation with fake transport validates ≤25 addres
     snapshotHash: preview7b.snapshotHash,
     actorId: `cert:${RUN_ID}`,
     maxValidations: 25,
-    zbTransport: async (candidateId, maskedValue) => {
-      // Track what the transport receives — must never receive plaintext email
-      fakeZbCalls.push(maskedValue);
+    mxCheck: async (domain) =>
+      domain === certNoMxEmail.split("@")[1] ? "no_mx" : "ok",
+    zbTransport: async (_candidateId, realEmail) => {
+      // The injected adapter must receive the real value only after the
+      // governed source-open/decryption boundary.
+      fakeZbCalls.push(realEmail);
       // Return 'valid' for first 5, 'catch-all' for next 3, 'invalid' for rest
       const idx = fakeZbCalls.length - 1;
       if (idx < 5) return "valid";
@@ -679,6 +711,28 @@ await phase("7f. Fake transport received REAL decrypted emails, never masked_val
     assert(realEmails.has(received), `Transport must receive a real decrypted address, got: ${received}`);
     assert(!received.includes("***"), "Transport must never receive a masked value");
   }
+  const providerReceipts = rows(await db.execute(sql`
+    SELECT o.id,o.state,o.billing_state,a.outcome,a.dispatch_marked_at,po.outcome AS observation_outcome
+      FROM provider_operations o
+      JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+      LEFT JOIN provider_observations po ON po.operation_id=o.id
+     WHERE o.purpose='sfp_email_validation'
+       AND o.idempotency_key LIKE ${`sfpcert-validate-${RUN_ID}:zerobounce:%`}
+  `));
+  assert.equal(providerReceipts.length, fakeZbCalls.length,
+    "Each fake transport response must be backed by one normal provider operation receipt");
+  assert(providerReceipts.every((receipt: any) =>
+    receipt.state === "completed" &&
+    receipt.billing_state === "committed" &&
+    receipt.outcome === "completed" &&
+    Boolean(receipt.dispatch_marked_at) &&
+    Boolean(receipt.observation_outcome),
+  ), "Fake transport responses retain normal reservation, marked dispatch, observation, and settlement lineage");
+  assert.equal(
+    getBlockedCertificationNetworkAttemptCount() - deniedNetworkBaseline,
+    0,
+    "The validation proof remains network-denied outside its injected fake transport",
+  );
 });
 
 await phase("7f2. Negative control — masked_value fed to the transport is detected as wrong", async () => {
@@ -732,6 +786,11 @@ await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attemp
     VALUES (${noMxCohortRunId}::uuid,${noMxBizId},100,'verified','fips','12086','Retail')
   `);
   await db.execute(sql`
+    INSERT INTO sfp_cohort_decisions
+      (cohort_run_id,business_id,disposition,geography_class,geography_source,vertical,roi_score,selected)
+    VALUES (${noMxCohortRunId}::uuid,${noMxBizId},'selected','verified','fips','Retail',100,TRUE)
+  `);
+  await db.execute(sql`
     UPDATE sfp_cohort_runs SET status='frozen',cohort_state='frozen',frozen_at=NOW()
      WHERE id=${noMxCohortRunId}::uuid
   `);
@@ -744,6 +803,8 @@ await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attemp
     idempotencyKey: `sfpcert-nomx-validate-${RUN_ID}`,
     snapshotHash: preview.snapshotHash,
     actorId: `cert:${RUN_ID}`,
+    mxCheck: async (domain) =>
+      domain === certNoMxEmail.split("@")[1] ? "no_mx" : "ok",
     zbTransport: async () => { noMxTransportCalls++; return "valid"; },
   });
   assert.equal(noMxTransportCalls, 0, "no_mx candidate must never reach even the injected fake transport");
@@ -766,11 +827,14 @@ await phase("7f3. no_mx candidate rejected with ZERO provider reservation/attemp
 });
 
 await phase("7g. Validation idempotency — same key+payload replays exact stored result, zero new provider calls", async () => {
-  const { executeSfpValidation, previewSfpValidation } = await import("../server/services/cro03/sfp-validation");
+  const { executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
   const countBefore = rows(await db.execute(sql`
     SELECT COUNT(*)::int AS cnt FROM sfp_outreach_eligibility WHERE cohort_run_id = ${cohortRunId}::uuid
   `))[0]?.cnt ?? 0;
   const fakeCallsBefore = fakeZbCalls.length;
+  // Replay the exact preview snapshot captured for the original execution.
+  // A new preview is a new request and must not be used to weaken the
+  // snapshot/idempotency fence after completed candidate work.
   const replay = await executeSfpValidation(cohortRunId, {
     idempotencyKey: `sfpcert-validate-${RUN_ID}`, // same key as 7b
     snapshotHash: validationSnapshotHash,
@@ -831,8 +895,22 @@ await phase("7i. A stale/mismatched snapshotHash fails closed before any executi
 await phase("7j. Verified named contact validates with typed source pins and fake transport", async () => {
   const noMxBizId = seededBizIds[19];
   const contactEmail = `named-cert-${RUN_ID}@gmail.com`;
+  const sourceActorId = `sfpcert-contact-source-${RUN_ID}`;
+  const reviewerId = `sfpcert-contact-admin-${RUN_ID}`;
+  await db.execute(sql`
+    INSERT INTO users (id,email,first_name,last_name,role)
+    VALUES
+      (${sourceActorId},${`${sourceActorId}@cert.invalid`},'Certification','Source Owner','user'),
+      (${reviewerId},${`${reviewerId}@cert.invalid`},'Independent','Reviewer','admin')
+  `);
+  assert.notEqual(sourceActorId, reviewerId, "The contact source owner and link reviewer are separate identities");
+  const contactActors = rows(await db.execute(sql`
+    SELECT id,role FROM users WHERE id IN (${sourceActorId},${reviewerId}) ORDER BY id
+  `));
+  assert.equal(contactActors.length, 2);
+  assert(contactActors.some((actor: any) => actor.id === sourceActorId && actor.role === "user"));
+  assert(contactActors.some((actor: any) => actor.id === reviewerId && actor.role === "admin"));
   const { writeContact } = await import("../server/services/contact-writer");
-  const contactActorId = `sfpcert-contact-writer-${RUN_ID}`;
   const contact = await writeContact({
     mode: "local_only",
     mutation: {
@@ -841,9 +919,10 @@ await phase("7j. Verified named contact validates with typed source pins and fak
     },
     provenance: {
       sourceCategory: "discovery", sourceType: "cro03", eventKey: `sfpcert-contact-source-${RUN_ID}`,
-      actorType: "system", actorId: contactActorId,
+      actorType: "user", actorId: sourceActorId,
+      metadata: { testScope: "sfp_disposable_certification" },
     },
-    actor: { actorType: "system", actorId: contactActorId },
+    actor: { actorType: "user", actorId: sourceActorId },
     hookPolicy: {
       source: "cro03", deferValidation: true, deferReadiness: true,
       deferLeadScoring: true, suppressProviderProjection: true,
@@ -852,12 +931,19 @@ await phase("7j. Verified named contact validates with typed source pins and fak
   const contactId = Number(contact.id);
   const sourceEventId = Number(contact._sourceEventId);
   assert(contactId > 0 && sourceEventId > 0, "The contact writer must persist the contact and its source event");
-  const reviewerId = `sfpcert-contact-admin-${RUN_ID}`;
-  await db.execute(sql`
-    INSERT INTO users (id,email,first_name,last_name,role)
-    VALUES (${reviewerId},${`${reviewerId}@cert.invalid`},'Independent','Reviewer','admin')
-  `);
-  const { decideContactBusinessLink } = await import("../server/services/commercial-link-authority");
+  const {
+    decideContactBusinessLink,
+    recordContactBusinessLinkCandidate,
+  } = await import("../server/services/commercial-link-authority");
+  const linkCandidate = await recordContactBusinessLinkCandidate({
+    contactId,
+    businessId: noMxBizId,
+    source: "legacy_import",
+    sourceVersion: "sfp-disposable-canonical-writer",
+    candidateKey: `sfpcert-contact-business-candidate-${RUN_ID}`,
+    confidence: 91,
+  });
+  assert(linkCandidate?.id, "The contact-business candidate is persisted as review-only evidence before approval");
   const link = await decideContactBusinessLink({
     contactId,
     businessId: noMxBizId,
@@ -865,6 +951,7 @@ await phase("7j. Verified named contact validates with typed source pins and fak
     decisionKey: `sfpcert-contact-link-${RUN_ID}`,
     reviewerId,
     evidenceSourceEventId: sourceEventId,
+    expectedRevision: 0,
   });
   const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
   const preview = await previewSfpValidation(noMxCohortRunId);
@@ -876,6 +963,7 @@ await phase("7j. Verified named contact validates with typed source pins and fak
     snapshotHash: preview.snapshotHash,
     actorId: `cert:${RUN_ID}`,
     maxValidations: 25,
+    mxCheck: async () => "ok",
     zbTransport: async (candidateId, realEmail) => {
       assert.equal(candidateId, `contact:${contactId}`);
       received.push(realEmail);
@@ -884,7 +972,8 @@ await phase("7j. Verified named contact validates with typed source pins and fak
   });
   const eligibility = rows(await db.execute(sql`
     SELECT source_kind,contact_id,contact_business_link_decision_id,contact_business_link_revision,
-           normalized_value_hash,normalized_value_hash_version,status,named_contact,role_inbox
+           normalized_value_hash,normalized_value_hash_version,status,named_contact,role_inbox,
+           validation_operation_id
       FROM sfp_outreach_eligibility
      WHERE cohort_run_id=${noMxCohortRunId}::uuid AND business_id=${noMxBizId}
   `))[0];
@@ -900,6 +989,21 @@ await phase("7j. Verified named contact validates with typed source pins and fak
   assert.equal(eligibility.status, "validated_review_required", "The default active policy holds valid named contacts for review");
   assert.equal(eligibility.named_contact, true);
   assert.equal(eligibility.role_inbox, false);
+  const contactReceipt = rows(await db.execute(sql`
+    SELECT o.state,o.billing_state,a.outcome,a.dispatch_marked_at,po.outcome AS observation_outcome
+      FROM provider_operations o
+      JOIN provider_attempts a ON a.operation_id=o.id AND a.attempt_number=1
+      LEFT JOIN provider_observations po ON po.operation_id=o.id
+     WHERE o.id=${eligibility.validation_operation_id}::uuid
+       AND o.idempotency_key LIKE ${`sfpcert-contact-validate-${RUN_ID}:zerobounce:%`}
+  `))[0];
+  assert(contactReceipt &&
+    contactReceipt.state === "completed" &&
+    contactReceipt.billing_state === "committed" &&
+    contactReceipt.outcome === "completed" &&
+    Boolean(contactReceipt.dispatch_marked_at) &&
+    contactReceipt.observation_outcome === "valid",
+  "Verified contact eligibility is pinned to its actual dispatched and settled fake-provider receipt");
   const { evaluateSfpEmailTypePolicy, getActiveSfpOutreachPolicy } = await import("../server/services/cro03/sfp-outreach-policy");
   const activePolicy = await getActiveSfpOutreachPolicy();
   const namedAllowedPolicy = {
@@ -1045,5 +1149,5 @@ if (failed > 0) {
   process.exit(1);
 } else {
   console.log(`\n✅ All ${passed} phases passed.\n`);
-  console.log("READY FOR OPERATOR PUBLISH — PRODUCTION VERIFICATION REQUIRED");
+  console.log("DISPOSABLE SOURCE CERTIFICATION ONLY — NOT PRODUCTION READINESS");
 }

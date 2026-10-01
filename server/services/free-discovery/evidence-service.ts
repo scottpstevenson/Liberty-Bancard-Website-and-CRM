@@ -23,6 +23,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { seal, unseal } from "../cro03/candidate-evidence-service";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 
@@ -454,13 +455,13 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
     action: "free_discovery_candidate_admitted",
     entityType: "free_discovery_candidate",
     entityKey: candidateId,
-    details: {
+    details: sanitizeAuditPayload({
       candidateId,
       businessId: candidate.business_id ?? null,
       contactId: candidate.contact_id ?? null,
       domain: candidate.domain,
       policyId: String(policy.id),
-    },
+    }),
     actorType: "system",
     actorId: "free-discovery-promotion",
   }).catch((err) => console.error("[FreeDiscovery] Failed to write admission audit log for candidate", candidateId, err));

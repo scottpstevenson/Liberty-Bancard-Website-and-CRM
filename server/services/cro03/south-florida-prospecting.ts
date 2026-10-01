@@ -27,6 +27,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { db, pool } from "../../db";
 import { createHash } from "crypto";
 import { randomUUID } from "crypto";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 import { selectRoiCohort, loadPilotVerticalIds, ROI_SCORE_VERSION, type RoiCohortSelection } from "./roi-cohort-selector";
 import { unseal as unsealCandidateEvidence } from "./candidate-evidence-service";
 import { CRO03A_COUNTY_FIPS } from "../cro03a/geography";
@@ -437,11 +438,11 @@ export async function setCampaignStagingSchedule(input: {
       INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
       VALUES ('sfp_campaign_staging_schedule_changed','sfp_program',${String(current.id)},
               'user',${input.actorId},
-              ${JSON.stringify({
+              ${JSON.stringify(sanitizeAuditPayload({
                 recurringEnabled: input.recurringEnabled,
                 campaignStagingBatchSize: input.batchSize,
                 programActive: current.is_active === true,
-              })}::jsonb)
+              }))}::jsonb)
     `);
     return _mapProgram(updated);
   });
