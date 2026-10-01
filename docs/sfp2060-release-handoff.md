@@ -2,6 +2,34 @@
 
 ## Current disposition
 
+### Publish index-syntax repair
+
+The failed Publish attempt generated truncated SQL for both Sunbiz contact
+identity indexes, ending the nested normalization expression at `COALES` before
+`WHERE`. The development indexes themselves were valid; this was not evidence
+of a production-record conflict.
+
+The repair preserves the exact normalization and partial-index predicates using
+STORED generated identity-key columns and ordinary column indexes. The new
+journaled migration was applied only to development through Drizzle after
+checking the development-only index fingerprint and exact preceding migration
+hash. Production remains Publish-owned and was not changed directly.
+
+Verification: typecheck and build passed; reconciliation and coverage source
+tests passed; the private contact-link source-recovery database certification
+passed, including automatically updated keys, null/blank normalization, and use
+of both indexes. The actual regenerated Publish diff contains two intact
+generated-column statements and two ordinary index statements. Those exact
+four statements executed successfully against temporary fixture data in a
+rolled-back development transaction. The diff reports no structural data loss
+or drop/truncate objects.
+
+This repairs the reported SQL syntax blocker, not every broader release-gate
+failure or the remaining production execution goals. Retry Publish rather than
+choosing the development-data overwrite option. The generated columns process
+existing Sunbiz rows, so the production migration may take extra time and hold
+a table write lock while that processing completes.
+
 **Task 2060 remains `IN_PROGRESS`. This is a source-only publication handoff, not
 a production release or production-execution report.** This documentation work
 made no production lead creation, provider call, production DDL, publication, or

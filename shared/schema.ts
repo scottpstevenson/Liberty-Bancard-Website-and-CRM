@@ -3428,6 +3428,27 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   feiEinNumber: text("fei_ein_number"),
   entityName: text("entity_name").notNull(),
   dba: text("dba"),
+  // Publish cannot faithfully round-trip these nested expressions as index
+  // expressions. Stored generated keys preserve database-owned normalization
+  // while the indexes below remain ordinary, publish-safe column indexes.
+  contactIdentityNameKey: text("contact_identity_name_key").generatedAlwaysAs(sql`
+    btrim(regexp_replace(
+      regexp_replace(
+        lower(regexp_replace(coalesce(entity_name, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+      ),
+      '\\s+', ' ', 'g'
+    ))
+  `),
+  contactIdentityDbaKey: text("contact_identity_dba_key").generatedAlwaysAs(sql`
+    btrim(regexp_replace(
+      regexp_replace(
+        lower(regexp_replace(coalesce(dba, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
+        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
+      ),
+      '\\s+', ' ', 'g'
+    ))
+  `),
   entityType: text("entity_type"),
   filingDate: text("filing_date"),
   entityStatus: text("entity_status"),
@@ -3470,24 +3491,8 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   index("sunbiz_entities_enrichment_status_idx").on(table.enrichmentStatus),
   index("sunbiz_entities_list_id_idx").on(table.listId),
   index("sunbiz_entities_created_at_idx").on(table.createdAt),
-  index("sunbiz_entities_contact_identity_name_key_idx").on(sql`
-    btrim(regexp_replace(
-      regexp_replace(
-        lower(regexp_replace(coalesce(entity_name, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
-        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
-      ),
-      '\\s+', ' ', 'g'
-    ))
-  `).where(sql`filing_number IS NOT NULL`),
-  index("sunbiz_entities_contact_identity_dba_key_idx").on(sql`
-    btrim(regexp_replace(
-      regexp_replace(
-        lower(regexp_replace(coalesce(dba, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
-        '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
-      ),
-      '\\s+', ' ', 'g'
-    ))
-  `).where(sql`filing_number IS NOT NULL AND dba IS NOT NULL`),
+  index("sunbiz_entities_contact_identity_name_key_idx").on(table.contactIdentityNameKey).where(sql`filing_number IS NOT NULL`),
+  index("sunbiz_entities_contact_identity_dba_key_idx").on(table.contactIdentityDbaKey).where(sql`filing_number IS NOT NULL AND dba IS NOT NULL`),
 ]);
 
 export const insertSunbizEntitySchema = createInsertSchema(sunbizEntities).omit({

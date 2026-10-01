@@ -41,8 +41,10 @@ try {
     CREATE TEMP TABLE sunbiz_entities (
       id integer PRIMARY KEY,
       filing_number text,
-      entity_name text NOT NULL,
+      entity_name text,
       dba text,
+      contact_identity_name_key text GENERATED ALWAYS AS (${NAME_KEY}) STORED,
+      contact_identity_dba_key text GENERATED ALWAYS AS (${DBA_KEY}) STORED,
       website text,
       principal_address text,
       principal_city text,
@@ -124,10 +126,13 @@ try {
       completed_at timestamptz
     );
     CREATE INDEX sunbiz_entities_contact_identity_name_key_idx
-      ON sunbiz_entities (${NAME_KEY}) WHERE filing_number IS NOT NULL;
+      ON sunbiz_entities (contact_identity_name_key) WHERE filing_number IS NOT NULL;
     CREATE INDEX sunbiz_entities_contact_identity_dba_key_idx
-      ON sunbiz_entities (${DBA_KEY}) WHERE filing_number IS NOT NULL AND dba IS NOT NULL;
-    INSERT INTO sunbiz_entities VALUES
+      ON sunbiz_entities (contact_identity_dba_key) WHERE filing_number IS NOT NULL AND dba IS NOT NULL;
+    INSERT INTO sunbiz_entities
+      (id, filing_number, entity_name, dba, website, principal_address, principal_city,
+       principal_state, principal_zip, phone, owner_phone, source)
+    VALUES
       (1, 'RAW-SUNRISE-1', 'Sunrise Dental Incorporated', 'Sunrise Family Dentistry',
        'https://sunrise.example', '10 Main Street', 'Miami', 'FL', '33101', '3055550001', NULL, 'cordata'),
       (2, 'RAW-SUNRISE-2', 'Sunrise Dental Group LLC', 'Sunrise Family Dentistry Corp',
@@ -139,6 +144,9 @@ try {
        NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'cordata'),
       (6, 'OTHER-1', 'Other Medical Group LLC', 'Other Brand',
        NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'cordata');
+    INSERT INTO sunbiz_entities (id, filing_number, entity_name, dba, source) VALUES
+      (7, NULL, NULL, NULL, 'fixture'),
+      (8, NULL, '', '', 'fixture');
     INSERT INTO businesses VALUES (41, 'Sunrise Dental LLC', 'sunrise dental', 'canonical', false);
     INSERT INTO contacts (id, company_name, record_class, opt_out_status, unsubscribe_status, bounce_status, complaint_status)
       VALUES (31, 'Sunrise Family Dentistry', 'production', 'active', 'active', 'none', 'none');
@@ -150,6 +158,36 @@ try {
       (41, 'sunbiz', 'sunbiz_entity', 'LINKED-SUNRISE'),
       (41, 'sunbiz_entities', 'sunbiz_filing', 'LINKED-ALIAS');
   `);
+
+  await client.query("BEGIN");
+  try {
+    await client.query(`
+      UPDATE sunbiz_entities
+      SET entity_name = 'Auto Changed Incorporated', dba = 'Auto Changed Brand LLC'
+      WHERE id = 6
+    `);
+    const updatedKeys = await client.query(`
+      SELECT contact_identity_name_key, contact_identity_dba_key
+      FROM sunbiz_entities WHERE id = 6
+    `);
+    assert.deepEqual(updatedKeys.rows[0], {
+      contact_identity_name_key: "auto changed",
+      contact_identity_dba_key: "auto changed brand",
+    }, "generated identity keys track changes to their underlying names");
+  } finally {
+    await client.query("ROLLBACK");
+  }
+
+  const emptyKeys = await client.query(`
+    SELECT entity_name, dba, contact_identity_name_key, contact_identity_dba_key
+    FROM sunbiz_entities WHERE id IN (7, 8) ORDER BY id
+  `);
+  assert.deepEqual(emptyKeys.rows.map(row => [
+    row.entity_name, row.dba, row.contact_identity_name_key, row.contact_identity_dba_key,
+  ]), [
+    [null, null, "", ""],
+    ["", "", "", ""],
+  ], "generated keys preserve the SQL normalizer's null-to-empty and blank semantics");
 
   const legalKey = reconciliation.normalizeBusinessName("Sunrise Dental, LLC");
   assert.equal(legalKey, "sunrise dental", "TypeScript legal-suffix normalization matches the indexed SQL key");
@@ -170,12 +208,20 @@ try {
   );
   const plan = explain.rows.map(row => Object.values(row).join(" ")).join("\n");
   assert.match(plan, /sunbiz_entities_contact_identity_name_key_idx/,
-    "legal-name branch uses the additive expression index");
+    "legal-name branch uses the stored generated-column index");
+  assert.match(plan, /sunbiz_entities_contact_identity_dba_key_idx/,
+    "DBA branch uses the stored generated-column index");
+  const nameIndex = await client.query(
+    `SELECT indexdef FROM pg_indexes WHERE indexname='sunbiz_entities_contact_identity_name_key_idx'`,
+  );
+  assert.match(nameIndex.rows[0]?.indexdef ?? "", /\(contact_identity_name_key\)/);
+  assert.match(nameIndex.rows[0]?.indexdef ?? "", /WHERE .*filing_number IS NOT NULL/i);
   const dbaIndex = await client.query(
     `SELECT indexdef FROM pg_indexes WHERE indexname='sunbiz_entities_contact_identity_dba_key_idx'`,
   );
-  assert.match(dbaIndex.rows[0]?.indexdef ?? "", /coalesce\(dba,/i,
-    "the additive DBA normalization expression index is installed; the DBA branch's exact query still returns only matching raw filings");
+  assert.match(dbaIndex.rows[0]?.indexdef ?? "", /\(contact_identity_dba_key\)/);
+  assert.match(dbaIndex.rows[0]?.indexdef ?? "", /WHERE .*filing_number IS NOT NULL.*dba IS NOT NULL/i,
+    "the generated-column DBA index retains its non-null filing and DBA predicate");
 
   const identity = {
     candidateId: "00000000-0000-4000-8000-000000000031",

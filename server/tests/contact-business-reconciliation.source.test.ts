@@ -64,8 +64,9 @@ const legalToDbaVariant = reconciliation.matchContactToBusinesses({
 assert.equal(legalToDbaVariant.matches.length, 1,
   "a retrieved DBA can bridge an exact contact DBA to the canonical legal name");
 
-assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /sunbiz_entities_contact_identity_name_key_idx|regexp_replace/);
-assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /coalesce\(se\.dba/);
+assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /se\.contact_identity_name_key\s*=\s*\$1::text/);
+assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /se\.contact_identity_dba_key\s*=\s*\$1::text/);
+assert.doesNotMatch(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /regexp_replace/);
 assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /NOT EXISTS[\s\S]*canonical_source_links/);
 assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /sunbiz_entities' AND csl\.source_type = 'sunbiz_filing'/);
 assert.match(CONTACT_LINK_UNLINKED_SUNBIZ_NAME_MATCH_SQL, /LIMIT \$2::integer/);

@@ -415,6 +415,8 @@ function testBatchedSqlShape() {
   assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /raw_unlinked_sunbiz_by_contact AS MATERIALIZED/);
   assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /rawSunbizMatches/);
   assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /csl\.stable_key = se\.filing_number/);
+  assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /se\.contact_identity_name_key\s*=\s*contact_key\.key/);
+  assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /se\.contact_identity_dba_key\s*=\s*contact_key\.key/);
   assert.match(CONTACT_LINK_COVERAGE_BATCH_SQL, /LIMIT 21/);
   assert.doesNotMatch(CONTACT_LINK_COVERAGE_BATCH_SQL, /JOIN\s+sunbiz_entities\s+se\s+ON\s+TRUE/i);
 }

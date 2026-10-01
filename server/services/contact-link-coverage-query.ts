@@ -7,20 +7,10 @@
  * lineage joins use exact filing-key equality so the existing indexes remain
  * usable; this never scans the full Sunbiz universe.
  */
-const SUNBIZ_NAME_KEY_ENTITY_SQL = `btrim(regexp_replace(
-  regexp_replace(
-    lower(regexp_replace(coalesce(se.entity_name, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
-    '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
-  ),
-  '\\s+', ' ', 'g'
-))`;
-const SUNBIZ_NAME_KEY_DBA_SQL = `btrim(regexp_replace(
-  regexp_replace(
-    lower(regexp_replace(coalesce(se.dba, ''), '[^a-zA-Z0-9]+', ' ', 'g')),
-    '\\m(incorporated|inc|limited|ltd|llc|llp|corp|corporation|company|co)\\M', ' ', 'g'
-  ),
-  '\\s+', ' ', 'g'
-))`;
+// The database generates these keys with the exact prior normalization.
+// Ordinary column indexes avoid Publish's broken nested-index serialization.
+const SUNBIZ_NAME_KEY_ENTITY_SQL = "se.contact_identity_name_key";
+const SUNBIZ_NAME_KEY_DBA_SQL = "se.contact_identity_dba_key";
 
 /**
  * Reconciliation's single-contact probe uses the same indexed legal-name and
