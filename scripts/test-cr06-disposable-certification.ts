@@ -199,10 +199,17 @@ try {
   await pool.query(
     `INSERT INTO system_settings(key,value) VALUES
        ('compliance_mailing_address',to_jsonb($1::text)),
-       ('outboundDailyEmailCap',to_jsonb(200))
+       ('outboundDailyEmailCap',to_jsonb(200)),
+       ('deliveryWarmupEnabled',to_jsonb(FALSE))
      ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`,
     ["100 Certification Way, Fort Lauderdale, FL 33301"],
   );
+  const providerPrerequisite = await pool.query(
+    `UPDATE provider_controls SET enabled=TRUE,circuit_state='closed',updated_at=NOW()
+      WHERE provider='zerobounce'`,
+  );
+  check(providerPrerequisite.rowCount === 1,
+    "disposable preflight fixture has an enabled, closed provider control while provider transport stays denied");
   await pool.query("UPDATE follow_up_sequences SET status='paused' WHERE status='active'");
   const sequence = await pool.query(
     `INSERT INTO follow_up_sequences
@@ -303,7 +310,7 @@ try {
     asOf: new Date(Date.now() - 3 * 86400000),
   });
   check(historicalExpiredPreview.eligible,
-    "historical asOf remains available only for deterministic read-only preview");
+    `historical asOf remains available only for deterministic read-only preview (blockers=${historicalExpiredPreview.blockers.join(",") || "none"}; unavailable=${historicalExpiredPreview.unavailable.join(",") || "none"})`);
   await rejects(
     () => cr06.setCr06CampaignGate({
       programArtifactId: program.rows[0].id,
@@ -460,18 +467,18 @@ try {
     [JSON.stringify(complianceIdentity.rows[0].value), complianceIdentity.rows[0].updated_at],
   );
 
-  const capIdentity = await pool.query(
-    "SELECT value,updated_at FROM system_settings WHERE key='outboundDailyEmailCap'",
+  const warmupIdentity = await pool.query(
+    "SELECT value,updated_at FROM system_settings WHERE key='deliveryWarmupEnabled'",
   );
   await pool.query(
-    "UPDATE system_settings SET value=to_jsonb(5),updated_at=NOW() WHERE key='outboundDailyEmailCap'",
+    "UPDATE system_settings SET value=to_jsonb(TRUE),updated_at=NOW() WHERE key='deliveryWarmupEnabled'",
   );
-  await rejects(() => rejectAuthorityDrift("stale-outbound-cap"),
+  await rejects(() => rejectAuthorityDrift("stale-delivery-warmup"),
     "CR06_GATE_DEPENDENCY_SNAPSHOT_STALE",
-    "sender campaign cap drift invalidates the exact gate");
+    "delivery-warmup control value and revision drift invalidate the exact gate snapshot");
   await pool.query(
-    "UPDATE system_settings SET value=$1::jsonb,updated_at=$2 WHERE key='outboundDailyEmailCap'",
-    [JSON.stringify(capIdentity.rows[0].value), capIdentity.rows[0].updated_at],
+    "UPDATE system_settings SET value=$1::jsonb,updated_at=$2 WHERE key='deliveryWarmupEnabled'",
+    [JSON.stringify(warmupIdentity.rows[0].value), warmupIdentity.rows[0].updated_at],
   );
 
   const providerControlIdentity = await pool.query(

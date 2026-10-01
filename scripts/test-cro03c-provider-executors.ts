@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { assertCro03cOpenAiInputApproved } from "../server/services/cro03/live-provider-executors";
+import { calculateSfpSettlementAccounting, normalizeSfpProviderUsage } from "../server/services/cro03/sfp-billing-contract";
 
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 const source = readFileSync("server/services/cro03/live-provider-executors.ts", "utf8");
 const readinessSource = readFileSync("server/services/provider-readiness-control.ts", "utf8");
-const apolloSource = readFileSync("server/services/sdr/apollo.ts", "utf8");
 const outscraperSource = readFileSync("server/services/sdr/outscraper.ts", "utf8");
 
 const approvedShape = {
@@ -58,7 +58,41 @@ assert.doesNotMatch(outscraperSource, /results:\s*results\.map/);
 assert.match(readinessSource, /CRO03C_CURRENT_MIGRATION_HEAD/);
 assert.doesNotMatch(readinessSource, /from ["']\.\/cro03\/live-execution["']/);
 assert.match(readinessSource, /"claim" \| "pre_reservation" \| "pre_io"/);
-assert.match(apolloSource, /const remainingUnits = resultCap - creditedUnits/);
-assert.match(apolloSource, /per_page: Math\.min\(resultCap, remainingUnits\)/);
+
+// The requested result/work-unit cap is an integer boundary; provider-reported
+// decimal credits are a separate accounting quantity and must not be clamped
+// or subtracted from that cap.
+const decimalUsage = normalizeSfpProviderUsage({
+  status: "known", quantity: "1.25", unit: "credit", source: "provider_receipt",
+});
+const cappedAccounting = calculateSfpSettlementAccounting({
+  outcome: "completed",
+  reservedUnits: 1,
+  settledUnits: 1,
+  reviewedUnitPriceMicros: 100,
+  reviewedUnitType: "credit",
+  noResultBillable: false,
+  notDispatched: false,
+  billingAmbiguous: false,
+  providerUsage: decimalUsage,
+});
+assert.equal(cappedAccounting.settledUnits, 1, "work remains bounded by the one-unit reservation");
+assert.equal(cappedAccounting.providerUsage.quantity, "1.25", "fractional receipt is preserved exactly");
+assert.equal(cappedAccounting.settledCostMicros, 125, "decimal receipt cost is computed without integer truncation");
+assert.throws(
+  () => calculateSfpSettlementAccounting({
+    outcome: "completed",
+    reservedUnits: 1,
+    settledUnits: 2,
+    reviewedUnitPriceMicros: 100,
+    reviewedUnitType: "credit",
+    noResultBillable: false,
+    notDispatched: false,
+    billingAmbiguous: false,
+    providerUsage: decimalUsage,
+  }),
+  (error: any) => error?.message === "SFP_SETTLED_WORK_UNITS_EXCEED_RESERVATION",
+  "work above the integer reservation remains rejected",
+);
 
 console.log("CRO-03C provider executor hardening: PASS");

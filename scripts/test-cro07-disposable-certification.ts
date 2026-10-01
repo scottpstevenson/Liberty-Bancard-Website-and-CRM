@@ -105,6 +105,12 @@ try {
      ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`,
     ["100 Certification Way, Fort Lauderdale, FL 33301"],
   );
+  const providerPrerequisite = await pool.query(
+    `UPDATE provider_controls SET enabled=TRUE,circuit_state='closed',updated_at=NOW()
+      WHERE provider='zerobounce'`,
+  );
+  check(providerPrerequisite.rowCount === 1,
+    "disposable CR-06 preflight fixture has a closed provider control while provider transport stays denied");
   const manifest = cr06.getCr06RolloutManifest();
   const applied = await cr06.applyCr06Rollout({ actorId: `cro07-cert-${nonce}`, dryRun: false });
   check(applied.mode === "apply" || applied.replayed, "CR-06 v2 manifest is available for the fixture");
@@ -752,10 +758,18 @@ try {
     "production revenue reporting stays `unknown` while only synthetic certification fixtures exist");
 
   // ── Taxonomy ─────────────────────────────────────────────────────────
+  const taxonomyBefore = await taxonomy.getCro07Taxonomy();
   const taxonomyResult = await taxonomy.ensureCro07TaxonomyRegistered();
+  const taxonomyAfterInsert = await taxonomy.getCro07Taxonomy();
   const taxonomyReplay = await taxonomy.ensureCro07TaxonomyRegistered();
-  check(taxonomyResult.inserted > 0 && taxonomyReplay.inserted === 0,
-    "canonical taxonomy registration is additive and idempotent");
+  const taxonomyAfterReplay = await taxonomy.getCro07Taxonomy();
+  const priorTaxonomyRowsPreserved = taxonomyBefore.every((before: any) =>
+    JSON.stringify(taxonomyAfterInsert.find((after: any) =>
+      after.canonical_event === before.canonical_event && after.version === before.version)) === JSON.stringify(before));
+  check(taxonomyResult.inserted === taxonomyAfterInsert.length - taxonomyBefore.length &&
+    priorTaxonomyRowsPreserved && taxonomyReplay.inserted === 0 &&
+    JSON.stringify(taxonomyAfterReplay) === JSON.stringify(taxonomyAfterInsert),
+  "canonical taxonomy registration only adds missing versioned events, preserves existing rows, and is idempotent");
 
   // ── Governed experiments: never publish, never touch CR-06 content ─────
   const experimentKey = `cro07-cert-experiment-${nonce}`;

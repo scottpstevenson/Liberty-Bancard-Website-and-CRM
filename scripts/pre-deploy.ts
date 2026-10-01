@@ -11,20 +11,29 @@
  * After all suites, reports external provider configuration gaps as
  * non-blocking warnings (Gmail, GHL, OpenAI, SMTP, A2P, webhook key, etc.).
  *
- * Exits 0 only when every mandatory suite exits 0.
- * Exits 1 if any suite fails or if pre/post-suite pause checks fail.
+ * Exits 0 only when every required executed suite exits 0, no mandatory suite
+ * is delegated/unverified, and pause checks/restoration all succeed. Explicit
+ * opt-in and live-only skips are reported separately from child exits.
  *
  * ── SERVER REQUIREMENT ────────────────────────────────────────────────────────
- * Four suites (Role Guards, SEO Audit, Sequence Compliance, New-Lead Enrollment
- * Policy) connect to the dev server at localhost:5000 and CANNOT be skipped.
- * If the server is not reachable when this gate runs, those suites will cause a
- * hard failure (exit 1) rather than being silently skipped.
+ * Server-required suites (including Role Guards, SEO Audit, Sequence Compliance,
+ * New-Lead Enrollment Policy, and Identity Crosswalk) cannot be silently skipped.
+ * If a selected server-required suite cannot reach the server, the gate fails.
  *
  * Run the gate through the provided wrapper instead of calling this script
  * directly — the wrapper starts the server, waits for readiness, then runs the
  * gate and tears the server down on exit:
  *
  *   bash scripts/run-pre-deploy.sh
+ *
+ * A bounded exact suite selector is available only through the private
+ * disposable launcher, which gives every selected suite fresh private DB,
+ * Redis, and HTTP resources:
+ *
+ *   npx tsx scripts/run-sfp2060-predeploy-disposable.ts --only scripts/test-mi09-pricing-seed-integration.ts
+ *
+ * Never use --only as a production release override. It rejects any environment
+ * that is not the audited, loopback-only disposable test configuration.
  *
  * Alternatively, start the dev server first and then run this script:
  *
@@ -39,23 +48,36 @@
  * The script never deploys. It only validates.
  */
 
+import assert from "node:assert/strict";
 import { spawnSync } from "child_process";
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
+import os from "node:os";
 import path from "node:path";
-import { db } from "../server/db";
-import { systemSettings } from "../shared/schema";
+import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
+import {
+  certificationHttpReadinessFields,
+  isVerifiedPrivateDisposablePostgresUrl,
+  recordCertificationHttpListener,
+  resolveCertificationHttpContract,
+} from "../server/lib/certification-http-contract";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:5000";
+const TEST_BASE_URL = process.env.TEST_BASE_URL ?? BASE_URL;
+let db: typeof import("../server/db").db;
+let dbPool: typeof import("../server/db").pool | undefined;
+let systemSettings: typeof import("../shared/schema").systemSettings;
 
-interface Suite {
+export interface Suite {
   name: string;
   script: string;
   env?: Record<string, string>;
   timeoutSecs?: number;
   requiresServer?: boolean;
+  /** Runs only when the caller explicitly selects this suite in disposable test mode. */
+  explicitDisposableOptIn?: boolean;
   /**
    * Stateful certification that must never inherit the release/development DB.
    * It runs here only when the caller explicitly supplies the same clearly
@@ -76,7 +98,7 @@ interface Suite {
 // That file classifies each suite as: deterministic-static, deterministic-integration,
 // server-required, or server-optional. CI jobs must run only the deterministic classes.
 // To verify the manifest: npx tsx scripts/ci-suite-manifest.ts --check
-const MANDATORY_SUITES: Suite[] = [
+export const MANDATORY_SUITES: Suite[] = [
   // ── Static / pure-function suites (no server required) ───────────────────
   {
     name: "Migration Integrity Check (journal consistency, unjournaled files, high-water enforcement)",
@@ -241,6 +263,7 @@ const MANDATORY_SUITES: Suite[] = [
     script: "server/tests/auth-actions.integration.test.ts",
     timeoutSecs: 120,
     requiresDisposableTestDatabase: true,
+    explicitDisposableOptIn: true,
   },
   {
     name: "RVR-03 OG Cache Hardening",
@@ -734,6 +757,7 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Statement Acquisition (STATEMENT_REQUESTED → enrollment → stop on upload → STATEMENT_ANALYZED)",
     script: "scripts/test-statement-acquisition.ts",
     timeoutSecs: 60,
+    requiresDisposableTestDatabase: true,
   },
   {
     name: "Channel Orchestrator (Wave 1A: transport interfaces, global-pause fence, deal-stage authority guard)",
@@ -764,6 +788,7 @@ const MANDATORY_SUITES: Suite[] = [
     timeoutSecs: 120,
     requiresServer: true,
     skipWhenServerDown: true, // tests GHL-isolated form submission; skipped when server absent
+    requiresDisposableTestDatabase: true,
   },
   // ── #1320 — Portfolio scoping smoke (ownership boundaries, hostile ?owner= override) ──
   {
@@ -836,9 +861,349 @@ const MANDATORY_SUITES: Suite[] = [
     name: "Identity Crosswalk Gen-1 (read-only evidence sweep, fail-close guards, contact promotion gates)",
     script: "scripts/test-identity-crosswalk.ts",
     timeoutSecs: 120,
+    requiresServer: true,
     requiresDisposableTestDatabase: true,
   },
 ];
+
+export interface SuiteSelection {
+  suites: Suite[];
+  requestedScripts: string[];
+  explicit: boolean;
+  operatorIntent: "default-full" | "exact-selection" | "full-auth-concurrency";
+}
+
+const OPERATOR_INTENTS = new Set<SuiteSelection["operatorIntent"]>([
+  "default-full",
+  "exact-selection",
+  "full-auth-concurrency",
+]);
+
+/**
+ * Select exact suite paths while keeping the operator's real intent separate
+ * from an internal per-child --only selector. The disposable launcher passes
+ * --operator-intent alongside its internal selector so a default full-roster
+ * child cannot accidentally satisfy the auth-concurrency opt-in.
+ */
+export function selectMandatorySuites(args: readonly string[], roster: readonly Suite[] = MANDATORY_SUITES): SuiteSelection {
+  const requestedScripts: string[] = [];
+  let includeAuthConcurrency = false;
+  let operatorIntentOverride: SuiteSelection["operatorIntent"] | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--include-auth-concurrency") {
+      if (includeAuthConcurrency) throw new Error("Duplicate --include-auth-concurrency flag.");
+      includeAuthConcurrency = true;
+      continue;
+    }
+    if (args[i] === "--operator-intent") {
+      const value = args[i + 1];
+      if (!value || !OPERATOR_INTENTS.has(value as SuiteSelection["operatorIntent"])) {
+        throw new Error("Usage: pre-deploy.ts [--only <exact-suite-script-path> ...] [--include-auth-concurrency]");
+      }
+      if (operatorIntentOverride) throw new Error("Duplicate --operator-intent flag.");
+      operatorIntentOverride = value as SuiteSelection["operatorIntent"];
+      i += 1;
+      continue;
+    }
+    if (args[i] !== "--only" || !args[i + 1] || args[i + 1].startsWith("--")) {
+      throw new Error(
+        "Usage: pre-deploy.ts [--only <exact-suite-script-path> ...] [--include-auth-concurrency]",
+      );
+    }
+    const script = args[i + 1];
+    if (requestedScripts.includes(script)) {
+      throw new Error(`Duplicate pre-deploy suite selector: ${script}`);
+    }
+    requestedScripts.push(script);
+    i += 1;
+  }
+  const explicit = requestedScripts.length > 0;
+  if (includeAuthConcurrency && explicit) {
+    throw new Error("--include-auth-concurrency is a full-roster option and cannot be combined with --only.");
+  }
+  if (includeAuthConcurrency && operatorIntentOverride) {
+    throw new Error("--include-auth-concurrency cannot be combined with an internal --operator-intent.");
+  }
+  if (operatorIntentOverride === "exact-selection" && !explicit) {
+    throw new Error("The exact-selection operator intent requires at least one exact --only selector.");
+  }
+  if (operatorIntentOverride === "full-auth-concurrency" && includeAuthConcurrency) {
+    throw new Error("Conflicting auth-concurrency operator intent flags.");
+  }
+  const operatorIntent =
+    operatorIntentOverride ??
+    (explicit
+      ? "exact-selection"
+      : includeAuthConcurrency
+        ? "full-auth-concurrency"
+        : "default-full");
+  const suites = requestedScripts.map((script) => {
+    const matches = roster.filter((suite) => suite.script === script);
+    if (matches.length === 0) {
+      throw new Error(`Unknown pre-deploy suite script path: ${script}`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Ambiguous pre-deploy suite script path: ${script}; this script appears more than once in the roster.`);
+    }
+    return matches[0];
+  });
+  return {
+    suites: explicit ? suites : [...roster],
+    requestedScripts,
+    explicit,
+    operatorIntent,
+  };
+}
+
+export function resolveSuiteExitStatus(exitCode: number): "executed_pass" | "executed_fail" {
+  return exitCode === 0 ? "executed_pass" : "executed_fail";
+}
+
+export function shouldSkipExplicitDisposableOptIn(
+  suite: Suite,
+  operatorIntent: SuiteSelection["operatorIntent"],
+): boolean {
+  return Boolean(suite.explicitDisposableOptIn) &&
+    operatorIntent !== "exact-selection" &&
+    operatorIntent !== "full-auth-concurrency";
+}
+
+export function summarizeGateResults(
+  results: ReadonlyArray<{ status: string; exitCode: number }>,
+  gateControlFailures: readonly string[] = [],
+) {
+  const failedCount = results.filter((result) => result.status === "executed_fail").length;
+  const delegatedCount = results.filter((result) => result.status === "delegated_unverified").length;
+  const passedCount = results.filter((result) => result.status === "executed_pass").length;
+  const skippedCount = results.filter((result) => result.status === "skipped_optional").length;
+  const optInSkippedCount = results.filter((result) => result.status === "skipped_opt_in").length;
+  return {
+    failedCount,
+    delegatedCount,
+    passedCount,
+    skippedCount,
+    optInSkippedCount,
+    gateControlFailures: [...gateControlFailures],
+    passed: failedCount === 0 && delegatedCount === 0 && optInSkippedCount === 0 && gateControlFailures.length === 0,
+  };
+}
+
+export function isPrivateDisposableGateEnvironment(env: NodeJS.ProcessEnv): boolean {
+  const databaseUrl = env.DATABASE_URL ?? "";
+  const testDatabaseUrl = env.TEST_DATABASE_URL ?? "";
+  if (
+    !databaseUrl ||
+    databaseUrl !== testDatabaseUrl ||
+    env.NODE_ENV !== "test" ||
+    env.VG_PROVIDER_DENY_MODE !== "1" ||
+    env.GHL_TRANSPORT_FAILFAST !== "true" ||
+    env.EMAIL_TRANSPORT_FAILFAST !== "true" ||
+    env.SMS_TRANSPORT_FAILFAST !== "true" ||
+    env.SUNBIZ_ENRICHMENT_ENABLED !== "false" ||
+    env.SERPER_GATEWAY_ENABLED !== "false" ||
+    env.OPENAI_API_KEY !== "sfp2060-disposable-constructor-only" ||
+    env.AI_INTEGRATIONS_OPENAI_API_KEY !== "sfp2060-disposable-constructor-only" ||
+    env.OPENAI_BASE_URL !== "http://127.0.0.1:1/v1" ||
+    env.AI_INTEGRATIONS_OPENAI_BASE_URL !== "http://127.0.0.1:1/v1" ||
+    !isVerifiedPrivateDisposablePostgresUrl(env) ||
+    env.GHL_PRIVATE_INTEGRATION_TOKEN ||
+    env.SMTP_PASS ||
+    env.TEST_REDIS_PREFIX === undefined ||
+    !/^ci_sfp2060_[a-f0-9]{32}_$/.test(env.TEST_REDIS_PREFIX)
+  ) {
+    return false;
+  }
+  try {
+    const parsed = new URL(databaseUrl);
+    const socketPath = parsed.searchParams.get("host") ?? "";
+    const tempRoot = path.resolve(os.tmpdir()) + path.sep;
+    const redisUrl = new URL(env.REDIS_URL ?? "");
+    const baseUrl = new URL(env.BASE_URL ?? "");
+    return (
+      parsed.protocol === "postgresql:" &&
+      parsed.hostname === "localhost" &&
+      parsed.pathname.length > 1 &&
+      parsed.pathname !== "/postgres" &&
+      socketPath.startsWith(tempRoot) &&
+      path.basename(path.dirname(socketPath)).startsWith("local-rehearsal-") &&
+      redisUrl.protocol === "redis:" &&
+      redisUrl.hostname === "127.0.0.1" &&
+      !redisUrl.username &&
+      !redisUrl.password &&
+      resolveCertificationHttpContract(env).privateCertification &&
+      isLoopbackHttpUrl(env.BASE_URL) &&
+      env.TEST_BASE_URL === env.BASE_URL &&
+      env.PORT === baseUrl.port
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHttpUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function runPureRegressionTests(): void {
+  assert.equal(dbPool, undefined, "pure selector tests must not import or leave a live database pool");
+  const defaultSelection = selectMandatorySuites([]);
+  assert.equal(defaultSelection.explicit, false);
+  assert.equal(defaultSelection.operatorIntent, "default-full");
+  assert.deepEqual(defaultSelection.suites, MANDATORY_SUITES, "default selection must retain the full mandatory roster");
+  assert.equal(defaultSelection.suites.length, MANDATORY_SUITES.length);
+  assert.throws(() => selectMandatorySuites(["--only", "scripts/not-in-roster.ts"]), /Unknown pre-deploy suite/);
+  assert.throws(() => selectMandatorySuites(["--only", "scripts/test-mi09-pricing-seed-integration.ts", "--only", "scripts/test-mi09-pricing-seed-integration.ts"]), /Duplicate/);
+  assert.deepEqual(
+    selectMandatorySuites(["--only", "scripts/test-mi09-pricing-seed-integration.ts"]).suites.map((suite) => suite.script),
+    ["scripts/test-mi09-pricing-seed-integration.ts"],
+  );
+  assert.equal(resolveSuiteExitStatus(0), "executed_pass");
+  assert.equal(resolveSuiteExitStatus(1), "executed_fail");
+  const mixedResult = summarizeGateResults([
+    { status: resolveSuiteExitStatus(0), exitCode: 0 },
+    { status: "delegated_unverified", exitCode: 0 },
+  ]);
+  assert.equal(mixedResult.passedCount, 1, "an exit-0 child remains accurately reported as passed");
+  assert.equal(mixedResult.delegatedCount, 1, "unverified suites are accounted separately from child exits");
+  assert.equal(mixedResult.passed, false, "an unverified mandatory suite keeps the terminal gate failed despite another child passing");
+  assert.equal(
+    summarizeGateResults([{ status: "executed_pass", exitCode: 0 }], ["pause restoration failed"]).passed,
+    false,
+    "gate-control failures must prevent a pass even when a child exits zero",
+  );
+  const privateTestEnv: NodeJS.ProcessEnv = {
+    NODE_ENV: "test",
+    DATABASE_URL: "postgresql://tester@localhost/test_sfp2060_selector_test?host=/tmp/local-rehearsal-fixture/socket&port=23456",
+    TEST_DATABASE_URL: "postgresql://tester@localhost/test_sfp2060_selector_test?host=/tmp/local-rehearsal-fixture/socket&port=23456",
+    VG_PROVIDER_DENY_MODE: "1",
+    GHL_TRANSPORT_FAILFAST: "true",
+    EMAIL_TRANSPORT_FAILFAST: "true",
+    SMS_TRANSPORT_FAILFAST: "true",
+    SUNBIZ_ENRICHMENT_ENABLED: "false",
+    SERPER_GATEWAY_ENABLED: "false",
+    REDIS_URL: "redis://127.0.0.1:23457",
+    TEST_REDIS_PREFIX: "ci_sfp2060_0123456789abcdef0123456789abcdef_",
+    BASE_URL: "http://127.0.0.1:34567",
+    TEST_BASE_URL: "http://127.0.0.1:34567",
+    CERTIFICATION_HTTP_HOST: "127.0.0.1",
+    CERTIFICATION_HTTP_NONCE: "0123456789abcdef".repeat(4),
+    PORT: "34567",
+    OPENAI_API_KEY: "sfp2060-disposable-constructor-only",
+    AI_INTEGRATIONS_OPENAI_API_KEY: "sfp2060-disposable-constructor-only",
+    OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
+    AI_INTEGRATIONS_OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
+  };
+  assert.equal(isVerifiedPrivateDisposablePostgresUrl(privateTestEnv), true);
+  assert.equal(
+    isVerifiedPrivateDisposablePostgresUrl({ ...privateTestEnv, DATABASE_URL: "postgresql://prod@db.example.com/prod" }),
+    false,
+    "private HTTP contract must reject a network database",
+  );
+  assert.equal(
+    isVerifiedPrivateDisposablePostgresUrl({ ...privateTestEnv, VG_PROVIDER_DENY_MODE: "0" }),
+    false,
+    "private HTTP contract must require provider denial",
+  );
+  assert.deepEqual(resolveCertificationHttpContract({}), {
+    host: "0.0.0.0",
+    reusePort: true,
+    privateCertification: false,
+    nonce: null,
+  });
+  assert.throws(
+    () => resolveCertificationHttpContract({ ...privateTestEnv, CERTIFICATION_HTTP_HOST: "0.0.0.0" }),
+    /CERTIFICATION_HTTP_PRIVATE_POSTURE_REJECTED/,
+  );
+  assert.throws(
+    () => resolveCertificationHttpContract({ ...privateTestEnv, DATABASE_URL: "postgresql://prod@db.example.com/prod" }),
+    /CERTIFICATION_HTTP_PRIVATE_POSTURE_REJECTED/,
+  );
+  assert.deepEqual(certificationHttpReadinessFields({ NODE_ENV: "production" }), {});
+  assert.deepEqual(certificationHttpReadinessFields(privateTestEnv), {
+    certificationHttpNonce: privateTestEnv.CERTIFICATION_HTTP_NONCE,
+    certificationHttpListenerAddress: null,
+    certificationHttpListenerPort: null,
+    certificationHttpReusePort: null,
+  });
+  recordCertificationHttpListener("127.0.0.1", 34567, false);
+  assert.deepEqual(certificationHttpReadinessFields(privateTestEnv), {
+    certificationHttpNonce: privateTestEnv.CERTIFICATION_HTTP_NONCE,
+    certificationHttpListenerAddress: "127.0.0.1",
+    certificationHttpListenerPort: 34567,
+    certificationHttpReusePort: false,
+  });
+  assert.equal(isPrivateDisposableGateEnvironment(privateTestEnv), true);
+  assert.equal(
+    isPrivateDisposableGateEnvironment({ ...privateTestEnv, DATABASE_URL: "postgresql://prod@db.example.com/prod" }),
+    false,
+    "bounded selection must reject production database overrides",
+  );
+  assert.equal(
+    isPrivateDisposableGateEnvironment({ ...privateTestEnv, REDIS_URL: "redis://shared.example.com:6379" }),
+    false,
+    "bounded selection must reject a shared/non-loopback Redis endpoint",
+  );
+  assert.equal(
+    isPrivateDisposableGateEnvironment({ ...privateTestEnv, TEST_BASE_URL: "https://production.example.com" }),
+    false,
+    "bounded selection must reject production HTTP base URL overrides",
+  );
+  assert.equal(
+    isPrivateDisposableGateEnvironment({ ...privateTestEnv, OPENAI_BASE_URL: "https://api.openai.com/v1" }),
+    false,
+    "bounded selection must keep provider SDKs on an inert loopback endpoint",
+  );
+  assert.equal(
+    isPrivateDisposableGateEnvironment({ ...privateTestEnv, CERTIFICATION_HTTP_HOST: "0.0.0.0" }),
+    false,
+    "certification HTTP posture must reject non-loopback listener requests",
+  );
+  assert.equal(
+    isPrivateDisposableGateEnvironment({ ...privateTestEnv, CERTIFICATION_HTTP_NONCE: undefined }),
+    false,
+    "certification HTTP posture requires its per-child readiness nonce",
+  );
+  const authConcurrency = MANDATORY_SUITES.find((suite) => suite.explicitDisposableOptIn);
+  assert.equal(authConcurrency?.script, "server/tests/auth-actions.integration.test.ts");
+  assert.equal(shouldSkipExplicitDisposableOptIn(authConcurrency!, "default-full"), true);
+  assert.equal(
+    shouldSkipExplicitDisposableOptIn(authConcurrency!, "default-full"),
+    true,
+    "an internal per-suite --only selector must not satisfy the operator opt-in",
+  );
+  assert.equal(shouldSkipExplicitDisposableOptIn(authConcurrency!, "exact-selection"), false);
+  assert.equal(
+    shouldSkipExplicitDisposableOptIn(authConcurrency!, "full-auth-concurrency"),
+    false,
+    "the explicit full-roster opt-in enables auth concurrency",
+  );
+  const fullAuthOptIn = selectMandatorySuites(["--include-auth-concurrency"]);
+  assert.equal(fullAuthOptIn.explicit, false);
+  assert.equal(fullAuthOptIn.operatorIntent, "full-auth-concurrency");
+  assert.equal(fullAuthOptIn.suites.length, MANDATORY_SUITES.length);
+  const defaultFullAuthChild = selectMandatorySuites([
+    "--operator-intent",
+    "default-full",
+    "--only",
+    authConcurrency!.script,
+  ]);
+  assert.equal(defaultFullAuthChild.operatorIntent, "default-full");
+  assert.equal(
+    shouldSkipExplicitDisposableOptIn(authConcurrency!, defaultFullAuthChild.operatorIntent),
+    true,
+    "the runner's internal one-suite selector cannot transform a default full run into an auth opt-in",
+  );
+  assert.throws(
+    () => selectMandatorySuites(["--include-auth-concurrency", "--only", authConcurrency!.script]),
+    /cannot be combined/,
+  );
+}
 
 // ── External config items — non-blocking, reported separately ─────────────────
 
@@ -916,9 +1281,20 @@ function checkServerReachable(): boolean {
   return result.status === 0;
 }
 
-function runSuite(suite: Suite): { exitCode: number; durationMs: number } {
+function runSuite(
+  suite: Suite,
+  operatorIntent: SuiteSelection["operatorIntent"],
+): { exitCode: number; durationMs: number; diagnostic: string | null } {
   const start = Date.now();
   const env = { ...process.env, ...(suite.env ?? {}) };
+  if (
+    suite.explicitDisposableOptIn &&
+    (operatorIntent === "exact-selection" || operatorIntent === "full-auth-concurrency")
+  ) {
+    env.AUTH_ACTION_DB_TEST_OPT_IN = "1";
+  } else {
+    delete env.AUTH_ACTION_DB_TEST_OPT_IN;
+  }
   const result = spawnSync(
     process.execPath,
     [path.resolve(process.cwd(), "node_modules/tsx/dist/cli.mjs"), suite.script],
@@ -930,9 +1306,17 @@ function runSuite(suite: Suite): { exitCode: number; durationMs: number } {
     },
   );
   const durationMs = Date.now() - start;
+  const diagnostic = result.error
+    ? result.error.message
+    : result.signal
+      ? `terminated by signal ${result.signal}`
+      : result.status === null
+        ? "child process returned no exit status"
+        : null;
   return {
     exitCode: result.status ?? 1,
     durationMs,
+    diagnostic,
   };
 }
 
@@ -957,6 +1341,24 @@ function printSectionHeader(text: string) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const selection = selectMandatorySuites(process.argv.slice(2));
+  if (
+    (selection.explicit || selection.operatorIntent === "full-auth-concurrency") &&
+    !isPrivateDisposableGateEnvironment(process.env)
+  ) {
+    throw new Error(
+      "Exact suite selection is allowed only with a private local disposable database, test-mode provider denial, and loopback BASE_URL/TEST_BASE_URL.",
+    );
+  }
+
+  const [databaseModule, schemaModule] = await Promise.all([
+    import("../server/db"),
+    import("../shared/schema"),
+  ]);
+  db = databaseModule.db;
+  dbPool = databaseModule.pool;
+  systemSettings = schemaModule.systemSettings;
+
   // ── RELEASE_SHA assertion — must pass before any other gate work ─────────────
   // RELEASE_SHA must identify the exact checked-out revision that these gates
   // test. A syntactically valid but unrelated SHA would make post-deploy health
@@ -1022,7 +1424,15 @@ async function main() {
   printBanner("Liberty Bancard — Pre-Deploy Launch Gate");
   console.log(`  Date: ${new Date().toISOString()}`);
   console.log(`  Server: ${BASE_URL}`);
-  console.log(`  Suites: ${MANDATORY_SUITES.length} mandatory`);
+  console.log(
+    selection.explicit
+      ? `  Scope: ${selection.suites.length} exact suite(s) selected from ${MANDATORY_SUITES.length} mandatory roster entries`
+      : `  Suites: ${MANDATORY_SUITES.length} mandatory roster entries (full default selection)`,
+  );
+  if (selection.explicit) {
+    for (const script of selection.requestedScripts) console.log(`    • ${script}`);
+  }
+  console.log(`  HTTP test base: ${TEST_BASE_URL}`);
   console.log("\n  ⚠  This gate makes NO real provider calls.");
   console.log("  ⚠  Global outbound pause is verified before and after every suite.\n");
 
@@ -1306,7 +1716,7 @@ async function main() {
   // ── 1. Server reachability check ───────────────────────────────────────────
   // Suites with requiresServer:true but skipWhenServerDown:false MUST run —
   // an unreachable server is a hard gate failure, not a silent skip.
-  const serverSuites = MANDATORY_SUITES.filter(s => s.requiresServer);
+  const serverSuites = selection.suites.filter(s => s.requiresServer);
   const mandatoryServerSuites = serverSuites.filter(s => !s.skipWhenServerDown);
   let serverReachable = false;
   if (serverSuites.length > 0) {
@@ -1337,11 +1747,14 @@ async function main() {
     suite: Suite;
     exitCode: number;
     durationMs: number;
-    status: "executed_pass" | "executed_fail" | "delegated_unverified" | "skipped_optional";
+    diagnostic: string | null;
+    status: "executed_pass" | "executed_fail" | "delegated_unverified" | "skipped_optional" | "skipped_opt_in";
     pauseAfter: boolean;
+    pauseRestoreVerified: boolean;
   }> = [];
+  const gateControlFailures: string[] = [];
 
-  for (const suite of MANDATORY_SUITES) {
+  for (const suite of selection.suites) {
     // Only suites explicitly marked skipWhenServerDown may be skipped when the
     // server is absent.  Suites without that flag that require a server have
     // already caused a hard exit above, so this path is only reached for the
@@ -1354,12 +1767,17 @@ async function main() {
       process.env.DATABASE_URL === process.env.TEST_DATABASE_URL;
     const disposableDatabaseSkip =
       Boolean(suite.requiresDisposableTestDatabase) && !disposableDatabaseReady;
-    const skip = serverSkip || disposableDatabaseSkip;
+    const optInSkip = shouldSkipExplicitDisposableOptIn(suite, selection.operatorIntent);
+    const skip = serverSkip || disposableDatabaseSkip || optInSkip;
 
     console.log(`\n▶  ${suite.name}`);
 
     if (skip) {
-      if (disposableDatabaseSkip) {
+      if (optInSkip) {
+        console.log(
+          "   HELD — auth concurrency was not opted in; use --include-auth-concurrency for the private full roster or exact-select the auth suite",
+        );
+      } else if (disposableDatabaseSkip) {
         console.log(
           "   (skipped — disposable PostgreSQL certification runs in deterministic-integration CI;",
         );
@@ -1373,38 +1791,61 @@ async function main() {
         suite,
         exitCode: 0,
         durationMs: 0,
-        status: disposableDatabaseSkip ? "delegated_unverified" : "skipped_optional",
+        diagnostic: null,
+        status: optInSkip
+          ? "skipped_opt_in"
+          : disposableDatabaseSkip
+            ? "delegated_unverified"
+            : "skipped_optional",
         pauseAfter: true,
+        pauseRestoreVerified: true,
       });
       continue;
     }
 
-    const { exitCode, durationMs } = runSuite(suite);
+    const { exitCode, durationMs, diagnostic } = runSuite(suite, selection.operatorIntent);
 
     // Verify and restore pause after each suite
     const pauseAfter = await getPauseSetting();
+    let pauseRestoreVerified = pauseAfter;
     if (!pauseAfter) {
       console.warn(`  ⚠ Pause was lifted during "${suite.name}" — restoring to true`);
       await setPauseSetting(true);
+      pauseRestoreVerified = await getPauseSetting();
+      if (!pauseRestoreVerified) {
+        gateControlFailures.push(`outboundGlobalPaused could not be restored after ${suite.name}`);
+      }
     }
 
     const icon = exitCode === 0 ? "✓" : "✗";
-    console.log(`   ${icon} exit=${exitCode}  time=${formatDuration(durationMs)}  pause-after=${pauseAfter ? "true ✓" : "FALSE ← RESTORED"}`);
+    const pauseSummary = pauseAfter
+      ? "true ✓"
+      : pauseRestoreVerified
+        ? "FALSE → restored true ✓"
+        : "FALSE ✗ restore unverified";
+    console.log(`   ${icon} exit=${exitCode}  time=${formatDuration(durationMs)}  pause-after=${pauseSummary}`);
+    if (diagnostic) console.log(`     child-process detail: ${diagnostic}`);
 
     results.push({
       suite,
       exitCode,
       durationMs,
-      status: exitCode === 0 ? "executed_pass" : "executed_fail",
+      diagnostic,
+      status: resolveSuiteExitStatus(exitCode),
       pauseAfter,
+      pauseRestoreVerified,
     });
   }
 
   // ── 3. Final pause state verification ─────────────────────────────────────
-  const finalPaused = await getPauseSetting();
+  let finalPaused = await getPauseSetting();
   if (!finalPaused) {
     console.warn("\n  ⚠ Final pause check: outboundGlobalPaused is NOT true — restoring");
     await setPauseSetting(true);
+    finalPaused = await getPauseSetting();
+    if (!finalPaused) {
+      gateControlFailures.push("final outboundGlobalPaused restoration could not be verified");
+    }
   }
 
   // ── 4. Opt-in: Isolated Pause State-Machine test ─────────────────────────
@@ -1494,15 +1935,18 @@ async function main() {
   // ── 5. Summary ─────────────────────────────────────────────────────────────
   printBanner("Pre-Deploy Gate Results");
 
-  const passed = results.filter(r => r.status === "executed_pass").length;
+  const summary = summarizeGateResults(results, gateControlFailures);
+  const passed = summary.passedCount;
   const failedSuites = results.filter(r => r.status === "executed_fail");
   const delegatedUnverified = results.filter(r => r.status === "delegated_unverified");
-  const skipped = results.filter(r => r.status === "skipped_optional").length;
-  const total = MANDATORY_SUITES.length;
+  const skipped = summary.skippedCount;
+  const optInSkipped = summary.optInSkippedCount;
+  const total = selection.suites.length;
 
   console.log(`\n  Suites:  ${passed}/${total} executed and passed`);
-  console.log(`  Delegated/unverified: ${delegatedUnverified.length}; optional skipped: ${skipped}`);
-  console.log(`  Pause state: ${finalPaused ? "TRUE ✓" : "RESTORED ✓"} after all suites`);
+  console.log(`  Executed failures: ${summary.failedCount}; delegated/unverified: ${summary.delegatedCount}; optional skipped: ${skipped}; explicit opt-in skipped: ${optInSkipped}`);
+  console.log(`  Gate-control failures: ${gateControlFailures.length}`);
+  console.log(`  Pause state: ${finalPaused ? "TRUE ✓" : "FALSE ✗"} after all suites`);
   console.log(`  External config: ${EXTERNAL_CONFIG.length - missingConfig.length}/${EXTERNAL_CONFIG.length} set`);
 
   for (const r of results) {
@@ -1516,14 +1960,25 @@ async function main() {
   // ── 6. Persist gate result to system_settings ─────────────────────────────
   const gateResult = {
     ranAt: new Date().toISOString(),
-    passed: failedSuites.length === 0 && delegatedUnverified.length === 0,
+    passed: summary.passed,
     passedCount: passed,
     totalCount: total,
+    fullRosterCount: MANDATORY_SUITES.length,
+    selectedScripts: selection.explicit ? selection.requestedScripts : null,
+    failedCount: summary.failedCount,
+    delegatedUnverifiedCount: summary.delegatedCount,
     skippedCount: skipped,
+    optInSkippedCount: optInSkipped,
+    gateControlFailures,
     suites: results.map(r => ({
       name: r.suite.name,
+      script: r.suite.script,
       status: r.status,
+      exitCode: r.exitCode,
       durationMs: r.durationMs,
+      diagnostic: r.diagnostic,
+      pauseAfter: r.pauseAfter,
+      pauseRestoreVerified: r.pauseRestoreVerified,
     })),
   };
   try {
@@ -1539,25 +1994,46 @@ async function main() {
     console.warn(`  ⚠ Could not persist gate result: ${persistErr?.message}`);
   }
 
-  if (failedSuites.length > 0 || delegatedUnverified.length > 0) {
-    console.error(`\n❌  PRE-DEPLOY GATE FAILED — ${failedSuites.length} suite(s) failed:`);
+  if (!summary.passed) {
+    console.error(
+      `\n❌  PRE-DEPLOY GATE FAILED — executed suite failures=${failedSuites.length}; ` +
+      `delegated/unverified=${delegatedUnverified.length}; gate-control failures=${gateControlFailures.length}:`,
+    );
     for (const r of failedSuites) {
-      console.error(`     ✗ ${r.suite.name} (exit ${r.exitCode})`);
+      console.error(`     ✗ ${r.suite.name} (exit ${r.exitCode}${r.diagnostic ? `; ${r.diagnostic}` : ""})`);
     }
     for (const r of delegatedUnverified) {
       console.error(`     ✗ ${r.suite.name} (delegated execution not verified for this release)`);
     }
+    for (const failure of gateControlFailures) console.error(`     ✗ Gate control: ${failure}`);
+    for (const r of results.filter(r => r.status === "skipped_opt_in")) {
+      console.error(`     ○ ${r.suite.name} was not run; it requires explicit disposable selection.`);
+    }
     console.error("\n   Fix all failures before deploying.\n");
+    await dbPool?.end();
     process.exit(1);
   }
 
-  console.log("✅  PRE-DEPLOY GATE PASSED — all suites green.\n");
+  console.log(
+    selection.explicit
+      ? "✅  PRE-DEPLOY GATE PASSED — all explicitly selected disposable suites green (this is not a full-roster release approval).\n"
+      : "✅  PRE-DEPLOY GATE PASSED — all required suites verified; explicit opt-in/live-only skips are listed separately.\n",
+  );
   console.log("   The application is NOT deployed automatically.");
   console.log("   Review external config warnings above before first live traffic.\n");
+  await dbPool?.end();
   process.exit(0);
 }
 
-main().catch(err => {
-  console.error("\nFatal error in pre-deploy gate:", err?.message ?? err);
-  process.exit(1);
-});
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
+const isMain = invokedPath === fileURLToPath(import.meta.url);
+if (isMain && process.argv[2] === "--self-test") {
+  runPureRegressionTests();
+  console.log("pre-deploy selector/result regression tests: PASS");
+} else if (isMain) {
+  main().catch(async (err) => {
+    console.error("\nFatal error in pre-deploy gate:", err?.message ?? err);
+    await dbPool?.end().catch(() => {});
+    process.exit(1);
+  });
+}

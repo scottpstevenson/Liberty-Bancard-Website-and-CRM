@@ -6,8 +6,12 @@ const root = path.resolve(import.meta.dirname, "../..");
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 
 const writer = read("server/services/cro03/sfp-paid-evidence-writer.ts");
+const continuousDiscovery = read("server/services/cro03/sfp-continuous-discovery.ts");
 const prospecting = read("server/services/cro03/south-florida-prospecting.ts");
 const freeEvidence = read("server/services/free-discovery/evidence-service.ts");
+const contactCoverage = read("server/services/contact-link-coverage.ts");
+const queueManager = read("server/services/queue-manager.ts");
+const leadOps = read("server/routes/lead-ops.ts");
 const authority = read("server/services/commercial-link-authority.ts");
 const schema = read("shared/schema.ts");
 const migration = read("migrations/0309_sfp_verified_contact_source.sql");
@@ -62,6 +66,64 @@ assert.match(admissionAuditInsert, /policyId: String\(policy\.id\)/);
 assert.match(admissionAuditInsert, /actorType: "system"/);
 assert.match(admissionAuditInsert, /actorId: "free-discovery-promotion"/);
 assert.doesNotMatch(admissionAuditInsert, /attestationId/);
+
+function sourceAuditInsert(source: string, action: string): string {
+  const actionAt = source.indexOf(action);
+  assert.notEqual(actionAt, -1, `missing audit action ${action}`);
+  const sqlInsertAt = source.lastIndexOf("INSERT INTO audit_logs", actionAt);
+  const drizzleInsertAt = source.lastIndexOf("insert(auditLogs).values({", actionAt);
+  const insertAt = Math.max(sqlInsertAt, drizzleInsertAt);
+  assert.notEqual(insertAt, -1, `missing insert for audit action ${action}`);
+  if (drizzleInsertAt > sqlInsertAt) {
+    const closeAt = source.indexOf("}).catch", actionAt);
+    assert.notEqual(closeAt, -1, `missing Drizzle audit close for ${action}`);
+    return source.slice(insertAt, closeAt);
+  }
+  const endCandidates = [
+    source.indexOf("`);", actionAt),
+    source.indexOf("`).catch", actionAt),
+  ].filter((index) => index >= 0);
+  assert.ok(endCandidates.length > 0, `missing SQL audit close for ${action}`);
+  return source.slice(insertAt, Math.min(...endCandidates) + 3);
+}
+
+const remainingBaselineAuditCases: Array<{ source: string; action: string; fields: RegExp[] }> = [
+  { source: prospecting, action: "sfp_validation_promotion_override_changed", fields: [/SFP_VALIDATION_PROMOTION_OVERRIDE_KEY/, /input\.actorId/, /override: input\.value/, /effective/ ] },
+  { source: prospecting, action: "sfp_program_initialized_from_legacy_config", fields: [/String\(created\.id\)/, /opts\.actorId/, /sourceHash/, /legacyVerticalIds/] },
+  { source: prospecting, action: "sfp_program_migrated_taxonomy_v2", fields: [/String\(updated\.id\)/, /opts\.actorId/, /previousVerticalIds/, /previousPolicyVersion/, /newVerticalIds/, /newPolicyVersion/, /taxonomyVersion/] },
+  { source: prospecting, action: "sfp_program_activation_changed", fields: [/program\.id/, /input\.actorId/, /active: input\.active/, /recurringEnabled/, /campaignStagingBatchSize/] },
+  { source: prospecting, action: "sfp_cohort_run_voided", fields: [/opts\.cohortRunId/, /opts\.actorId/, /reason: opts\.reason/] },
+  { source: prospecting, action: "sfp_cohort_run_superseded", fields: [/opts\.cohortRunId/, /opts\.actorId/, /supersededByRunId: opts\.supersededByRunId/] },
+  { source: freeEvidence, action: "free_discovery_generation_auto_reclaimed", fields: [/String\(row\.id\)/, /row\.run_key/, /row\.actor_id/, /row\.reason/, /staleAfterMs/, /row\.started_at/, /row\.subject_count/, /row\.candidate_count/, /free_discovery_generation_reaper/] },
+  { source: queueManager, action: "free_enrichment_processing_auto_reclaimed", fields: [/String\(bizRow\.id\)/, /'business'/, /'free-enrichment-lane-reaper'/, /staleAfterMs: BUSINESS_STALE_MS/] },
+  { source: leadOps, action: "sfp_stage2_serper_single_probe", fields: [/String\(businessId\)/, /'business'/, /admin:/, /businessId, succeeded/, /windowCallsBefore/, /windowCallsAfter/] },
+  { source: leadOps, action: "sfp_serper_provider_approved", fields: [/provider_control/, /'serper'/, /cohortRunId/, /maxBusinesses/, /reason/, /sanitizeAuditPayload\(updated\)/, /actor_type,actor_id/] },
+  { source: leadOps, action: "sfp_paid_provider_approved", fields: [/provider_control/, /\$\{provider\}/, /reason/, /sanitizeAuditPayload\(updated\)/, /actor_type,actor_id/] },
+];
+for (const { source, action, fields } of remainingBaselineAuditCases) {
+  const insert = sourceAuditInsert(source, action);
+  assert.match(insert, /sanitizeAuditPayload/);
+  for (const field of fields) assert.match(insert, field);
+}
+assert.match(
+  continuousDiscovery,
+  /INSERT INTO audit_logs[\s\S]*JSON\.stringify\(sanitizeAuditPayload\(\{ outcome, \.\.\.details \}\)\)/,
+);
+assert.match(continuousDiscovery, /'sfp_program', 'south_florida_v2'/);
+assert.match(continuousDiscovery, /'system', 'sfp-continuous-discovery'/);
+const checkpointWriterStart = contactCoverage.indexOf("async function writeCoverageCheckpoint");
+const checkpointWriterEnd = contactCoverage.indexOf("\nasync function insertPageCandidates", checkpointWriterStart);
+assert.notEqual(checkpointWriterStart, -1);
+assert.notEqual(checkpointWriterEnd, -1);
+const checkpointWriter = contactCoverage.slice(checkpointWriterStart, checkpointWriterEnd);
+assert.match(checkpointWriter, /INSERT INTO audit_logs/);
+assert.match(checkpointWriter, /JSON\.stringify\(sanitizeAuditPayload\(state\)\)/);
+assert.match(checkpointWriter, /CONTACT_LINK_COVERAGE_CHECKPOINT_ACTION/);
+assert.match(checkpointWriter, /CONTACT_LINK_COVERAGE_WORKFLOW/);
+assert.match(checkpointWriter, /actorId \? "user" : "system"/);
+for (const action of ["sfp_serper_provider_approved", "sfp_paid_provider_approved"]) {
+  assert.match(sourceAuditInsert(leadOps, action), /JSON\.stringify\(sanitizeAuditPayload\(updated\)\)/);
+}
 
 assert.match(writer, /JOIN contact_business_link_decisions d/);
 assert.match(writer, /d\.decision='verified' AND d\.superseded_at IS NULL/);
@@ -148,6 +210,24 @@ assert.deepEqual(safeAdmissionAudit, {
   domain: "example.invalid",
   policyId: "policy-uuid",
 });
+const baselineAuditPayloads = [
+  { outcome: "completed", cohortRunId: "cohort-uuid", count: 3 },
+  { override: true, effective: true },
+  { source: "cro03c_roi_pilot_verticals", sourceHash: "sha256:abc", verticalIds: [1, 2] },
+  { previousVerticalIds: [1], previousPolicyVersion: 1, newVerticalIds: [2], newPolicyVersion: 2, taxonomyVersion: 2 },
+  { active: true, recurringEnabled: true, campaignStagingBatchSize: 12 },
+  { reason: "operator request" },
+  { supersededByRunId: "replacement-uuid" },
+  { runKey: "run-2026-01", actorId: "operator-uuid", reason: "stale generation", startedAt: "2026-01-01T00:00:00Z", staleAfterMs: 1000, recoveredSubjectCount: 2, recoveredCandidateCount: 4 },
+  { staleAfterMs: 1000 },
+  { state: "ready", runId: "run-uuid", cursor: 10, total: 20 },
+  { businessId: 7, succeeded: true, blocked: false, ok: true, status: 200, windowCallsBefore: 2, windowCallsAfter: 3 },
+  { cohortRunId: "cohort-uuid", maxBusinesses: 10, reason: "operator approval" },
+  { reason: "operator approval" },
+];
+for (const payload of baselineAuditPayloads) {
+  assert.deepEqual(sanitizeAuditPayload(payload), payload);
+}
 console.log("SFP audit inserts use canonical sanitizer without losing provenance");
 
 // Behavioral mixed-source regression: the organization observation remains

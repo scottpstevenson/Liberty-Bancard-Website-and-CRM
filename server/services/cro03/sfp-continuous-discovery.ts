@@ -21,6 +21,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
+import { sanitizeAuditPayload } from "../audit-sanitizer";
 import { previewRoiCohort } from "./roi-cohort-selector";
 import {
   getProgramReadOnly,
@@ -68,7 +69,7 @@ async function auditTick(action: string, outcome: string, details: Record<string
   await db.execute(sql`
     INSERT INTO audit_logs (user_id, action, entity_type, entity_key, details, actor_type, actor_id)
     VALUES ('system', ${action}, 'sfp_program', 'south_florida_v2',
-            ${JSON.stringify({ outcome, ...details })}::jsonb, 'system', 'sfp-continuous-discovery')
+            ${JSON.stringify(sanitizeAuditPayload({ outcome, ...details }))}::jsonb, 'system', 'sfp-continuous-discovery')
   `).catch(() => {});
 }
 

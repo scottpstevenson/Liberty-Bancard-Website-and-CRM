@@ -42,7 +42,10 @@ const batchIds: string[] = [];
 const contactIds: number[] = [];
 const providerOperationIds: string[] = [];
 
-async function createExecutionFixture(count: number): Promise<{
+async function createExecutionFixture(
+  count: number,
+  options: { contactIds?: readonly number[] } = {},
+): Promise<{
   batchId: string;
   itemIds: string[];
 }> {
@@ -58,15 +61,17 @@ async function createExecutionFixture(count: number): Promise<{
   batchIds.push(batchId);
   const itemIds: string[] = [];
   for (let ordinal = 0; ordinal < count; ordinal++) {
+    const contactId = options.contactIds?.[ordinal] ?? null;
+    const subjectId = contactId ?? 2_000_000_000 + ordinal;
     const membership = await pool.query<{ id: string }>(
       `INSERT INTO cro03_batch_memberships
-         (batch_id, ordinal, subject_type, subject_id, root_subject_type, root_subject_id,
+         (batch_id, ordinal, subject_type, subject_id, root_subject_type, root_subject_id, contact_id,
           selection_policy_version, dependency_fingerprint, pre_spend_decision,
           disposition, membership_hash, created_at)
-       VALUES ($1, $2, 'contact', $3, 'contact', $3, 1, $4, 'allowed',
-               'executable', $5, '2000-01-01')
+       VALUES ($1, $2, 'contact', $3, 'contact', $3, $4, 1, $5, 'allowed',
+               'executable', $6, '2000-01-01')
        RETURNING id`,
-      [batchId, ordinal, 2_000_000_000 + ordinal, `fingerprint-${suffix}-${ordinal}`,
+      [batchId, ordinal, subjectId, contactId, `fingerprint-${suffix}-${ordinal}`,
         `membership-${suffix}-${batchIds.length}-${ordinal}`],
     );
     const item = await pool.query<{ id: string }>(
@@ -94,26 +99,8 @@ async function createMutationFixture(): Promise<{
   );
   const contactId = contact.rows[0].id;
   contactIds.push(contactId);
-  const { batchId, itemIds } = await createExecutionFixture(1);
+  const { batchId, itemIds } = await createExecutionFixture(1, { contactIds: [contactId] });
   const itemId = itemIds[0];
-  await pool.query(
-    `UPDATE cro03_batch_memberships
-        SET subject_id = $2, root_subject_id = $2, contact_id = $2
-      WHERE batch_id = $1`,
-    [batchId, contactId],
-  ).catch((error) => {
-    if (!String(error.message).includes("immutable")) throw error;
-  });
-  // Membership immutability is itself a contract, so create a correctly bound
-  // replacement fixture rather than weakening the trigger.
-  await pool.query(`ALTER TABLE cro03_batch_memberships DISABLE TRIGGER cro03_membership_immutable`);
-  await pool.query(
-    `UPDATE cro03_batch_memberships
-        SET subject_id = $2, root_subject_id = $2, contact_id = $2
-      WHERE batch_id = $1`,
-    [batchId, contactId],
-  );
-  await pool.query(`ALTER TABLE cro03_batch_memberships ENABLE TRIGGER cro03_membership_immutable`);
 
   const run = await pool.query<{ id: string }>(
     `INSERT INTO cro03_provider_runs

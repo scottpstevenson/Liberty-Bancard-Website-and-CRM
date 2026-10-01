@@ -5,9 +5,16 @@ import { IDENTITY_NORMALIZATION_VERSION } from "./contact-identity";
 import { sanitizeAuditPayload } from "./audit-sanitizer";
 import { lockCommercialGraph } from "./commercial-graph-locks";
 
-export const CONTACT_MERGE_MANIFEST_VERSION = 2;
+export const CONTACT_MERGE_MANIFEST_VERSION = 3;
 export type Disposition = "transfer" | "immutable_retain" | "terminalize" | "authority_handoff" | "manual_block";
-export type ManifestEntry = { key: string; table?: string; column?: string; rowIdColumn?: string; disposition: Disposition };
+export type ManifestEntry = {
+  key: string;
+  table?: string;
+  column?: string;
+  rowIdColumn?: string;
+  lockMode?: "share_row_exclusive";
+  disposition: Disposition;
+};
 
 // This is deliberately source-code owned. It is never assembled from database
 // metadata or an operator supplied table name. The checker compares this list
@@ -61,6 +68,59 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   // merge involving a deprecated contact with a commitment; preserve the
   // receipt exactly as recorded for governed manual resolution.
   { key: "sfp_recipient_address_commitments", table: "sfp_recipient_address_commitments", column: "contact_id", disposition: "manual_block" },
+  // Durable CRO recipe items pin a particular contact to a frozen handoff;
+  // projection/finalization receipts and terminal-hook outbox requests record
+  // what was done or queued for that subject. They cannot follow a redirect
+  // without rewriting execution provenance or replaying work.
+  { key: "cro03b_recipe_items", table: "cro03b_recipe_items", column: "contact_id", disposition: "manual_block" },
+  { key: "cro03b_projection_receipts", table: "cro03b_projection_receipts", column: "contact_id", disposition: "manual_block" },
+  { key: "cro03b_finalization_receipts", table: "cro03b_finalization_receipts", column: "contact_id", disposition: "manual_block" },
+  { key: "cro03b_terminal_hook_requests", table: "cro03b_terminal_hook_requests", column: "contact_id", disposition: "manual_block" },
+  // CRO-03C freezes an initial source subject and records projections,
+  // validation authorization, finalization, and hook state against that
+  // subject. Preserve each exact contact identity and require review.
+  { key: "cro03c_initial_subjects", table: "cro03c_initial_subjects", column: "contact_id", rowIdColumn: "generation_id", disposition: "manual_block" },
+  { key: "cro03c_projection_receipts", table: "cro03c_projection_receipts", column: "contact_id", disposition: "manual_block" },
+  { key: "cro03c_finalization_receipts", table: "cro03c_finalization_receipts", column: "contact_id", rowIdColumn: "generation_id", disposition: "manual_block" },
+  { key: "cro03c_terminal_hooks", table: "cro03c_terminal_hooks", column: "contact_id", disposition: "manual_block" },
+  { key: "cro03c_validation_authorizations", table: "cro03c_validation_authorizations", column: "contact_id", disposition: "manual_block" },
+  // CR-06 campaign preparation pins recipients and delivery snapshots; its
+  // attribution and feedback events are immutable outcomes for the contact
+  // actually prepared or contacted, not ownership pointers to reassign.
+  { key: "cr06_prepared_enrollments", table: "cr06_prepared_enrollments", column: "contact_id", disposition: "manual_block" },
+  { key: "cr06_delivery_intents_recipient", table: "cr06_delivery_intents", column: "recipient_contact_id", disposition: "manual_block" },
+  { key: "cr06_attribution_events", table: "cr06_attribution_events", column: "contact_id", disposition: "manual_block" },
+  { key: "cr06_feedback_receipts", table: "cr06_feedback_receipts", column: "contact_id", disposition: "manual_block" },
+  // CRO-07 provider feedback and resulting reply work are tied to the
+  // originating recipient and occurrence. Moving either could misroute a
+  // response or reopen delivery for the wrong person.
+  { key: "cro07_feedback_receipts", table: "cro07_feedback_receipts", column: "contact_id", disposition: "manual_block" },
+  { key: "cro07_reply_work", table: "cro07_reply_work", column: "contact_id", disposition: "manual_block" },
+  // Inbound intake rows and CRO-02's append-only Sunbiz evidence retain the
+  // source contact of a request or verified business-link assertion.
+  { key: "inbound_requests", table: "inbound_requests", column: "contact_id", disposition: "manual_block" },
+  { key: "contact_business_system_link_evidence", table: "contact_business_system_link_evidence", column: "contact_id", disposition: "manual_block" },
+  // These rows record the accessed MID, resolver's contact candidate, or
+  // assistant session subject as observed. Their audit/evidence meaning must
+  // not be changed by redirecting the stored contact pointer.
+  { key: "merchant_mid_access_receipts", table: "merchant_mid_access_receipts", column: "contact_id", disposition: "manual_block" },
+  { key: "contact_vertical_candidates", table: "contact_vertical_candidates", column: "contact_id", disposition: "manual_block" },
+  { key: "call_assist_sessions", table: "call_assist_sessions", column: "contact_id", disposition: "manual_block" },
+  // A field route stop is a planned contact at a specific business; a visit is
+  // immutable evidence of who was actually encountered. Require manual review
+  // rather than moving a route assignment or altering historical attribution.
+  { key: "field_route_stops", table: "field_route_stops", column: "contact_id", disposition: "manual_block" },
+  { key: "field_visits", table: "field_visits", column: "contact_id", disposition: "manual_block" },
+  // Discovery candidates, outreach eligibility, staged intent, and ready-held
+  // enrollment all pin validation/source or downstream campaign work to the
+  // original contact. A redirect must not broaden that authority.
+  { key: "free_discovery_candidates_contact", table: "free_discovery_candidates", column: "contact_id", disposition: "manual_block" },
+  { key: "sfp_outreach_eligibility_contact", table: "sfp_outreach_eligibility", column: "contact_id", disposition: "manual_block" },
+  { key: "sfp_campaign_staging_intents_contact", table: "sfp_campaign_staging_intents", column: "contact_id", disposition: "manual_block" },
+  { key: "sfp_ready_held_enrollments", table: "sfp_ready_held_enrollments", column: "contact_id", disposition: "manual_block" },
+  // This lead pointer is the durable result of promoting a pipeline lead to a
+  // CRM contact; reassignment would fabricate or alter that conversion link.
+  { key: "master_leads_promoted_contact", table: "master_leads", column: "promoted_contact_id", disposition: "manual_block" },
   { key: "import_row_dispositions", table: "import_row_dispositions", column: "contact_id", disposition: "immutable_retain" },
   { key: "eligibility_snapshots", table: "eligibility_snapshots", column: "contact_id", disposition: "immutable_retain" },
   { key: "cro03_batch_memberships", table: "cro03_batch_memberships", column: "contact_id", disposition: "immutable_retain" },
@@ -80,12 +140,28 @@ export const CONTACT_MERGE_MANIFEST: readonly ManifestEntry[] = [
   // Legacy delivery history table retained in deployed databases. It is
   // immutable evidence and is never touched by a reviewed merge.
   { key: "outbound_send_log", table: "outbound_send_log", column: "contact_id", disposition: "immutable_retain" },
+  // ZeroBounce attempts are durable claims/results, and this legacy pointer
+  // intentionally has no FK to contacts. Never rewrite its subject. A table
+  // lock during execution closes the insert race between the final scan and
+  // redirect; the exact contact_id predicate remains part of preview evidence.
+  {
+    key: "zerobounce_attempts",
+    table: "zerobounce_attempts",
+    column: "contact_id",
+    lockMode: "share_row_exclusive",
+    disposition: "manual_block",
+  },
   { key: "outbound_messages", table: "outbound_messages", column: "contact_id", disposition: "terminalize" },
   { key: "consent_subject_graph", disposition: "authority_handoff" },
   { key: "record_class", disposition: "manual_block" },
 ] as const;
 
 const TRANSFER_ENTRIES = CONTACT_MERGE_MANIFEST.filter((entry) => entry.disposition === "transfer" && entry.table && entry.column);
+const manualBlockConflictCode = (entry: ManifestEntry) => `MANUAL_BLOCK_${entry.key.toUpperCase()}`;
+const MANUAL_BLOCK_CONFLICT_CODES = new Set(
+  CONTACT_MERGE_MANIFEST.filter((entry) => entry.disposition === "manual_block" && entry.table && entry.column)
+    .map(manualBlockConflictCode),
+);
 const DEPENDENCY_FINGERPRINT_ENTRIES = CONTACT_MERGE_MANIFEST.filter((entry) =>
   entry.table && entry.column
   && !entry.key.endsWith("_evidence_identity")
@@ -183,6 +259,16 @@ async function lockRelationshipRows(executor: any, survivorContactId: number, de
   // Preview/execution relationship state is safety-critical: lock every
   // classified pointer before comparing fingerprints so no new source row can
   // appear between stale detection and transfer.
+  const lockedTables = new Set<string>();
+  for (const entry of DEPENDENCY_FINGERPRINT_ENTRIES) {
+    if (entry.lockMode === "share_row_exclusive" && !lockedTables.has(entry.table!)) {
+      // Some immutable subjects deliberately have no contacts FK. A row lock
+      // cannot prevent a concurrent new attempt (a phantom); serialize inserts
+      // to that source table until the merge's final block check and redirect.
+      await executor.execute(sql.raw(`LOCK TABLE "${entry.table}" IN SHARE ROW EXCLUSIVE MODE`));
+      lockedTables.add(entry.table!);
+    }
+  }
   for (const entry of DEPENDENCY_FINGERPRINT_ENTRIES) {
     const identityColumn = rowIdColumn(entry);
     await executor.execute(sql.raw(
@@ -259,7 +345,7 @@ async function buildPreviewData(executor: any, survivorContactId: number, deprec
   const blockedPointers = CONTACT_MERGE_MANIFEST.filter(entry => entry.disposition === "manual_block" && entry.table && entry.column);
   for (const entry of blockedPointers) {
     const blocked = rows(await executor.execute(sql.raw(`SELECT 1 FROM "${entry.table}" WHERE "${entry.column}" = ${deprecatedContactId} LIMIT 1`)))[0];
-    if (blocked) conflicts.push(`MANUAL_BLOCK_${entry.key.toUpperCase()}`);
+    if (blocked) conflicts.push(manualBlockConflictCode(entry));
   }
   const relationshipFingerprints = {
     [survivorContactId]: await relationshipSetFingerprint(executor, survivorContactId),
@@ -534,17 +620,13 @@ export async function executeContactMerge(operationId: string, actorId: string) 
     // Throwing from the transaction rolls back its in-transaction status
     // update. Persist the terminal review outcome separately so the pair can
     // receive a fresh reviewed preview instead of remaining reserved.
-    if (error instanceof ContactMergeError && [
+    if (error instanceof ContactMergeError && ([
       "STALE_PREVIEW", "STALE_POLICY_VERSION", "UNSAFE_FIELD_DECISION",
       "OVERLAPPING_MERGE", "CONTACT_NOT_FOUND", "INSUFFICIENT_ELIGIBLE_IDENTITY_EVIDENCE",
       "ARCHIVED_CONTACT", "RECORD_CLASS_MISMATCH", "DISTINCT_GHL_IDS",
       "SAME_GHL_ID_MANUAL_REVIEW", "ACTIVE_ENROLLMENT_REQUIRES_REVIEW",
       "STATEMENT_PROPOSAL_DEAL_UNIQUENESS_CONFLICT",
-      "MANUAL_BLOCK_CONTACT_BUSINESS_SFP_LINK_EVIDENCE",
-      "MANUAL_BLOCK_SFP_RECIPIENT_ADDRESS_COMMITMENTS",
-      "MANUAL_BLOCK_CAMPAIGN_PREVIEW_MEMBERS",
-      "MANUAL_BLOCK_CONTACT_MERGE_REDIRECTS_SURVIVOR", "MANUAL_BLOCK_CONTACT_MERGE_REDIRECTS_DEPRECATED",
-    ].includes(error.code)) {
+    ].includes(error.code) || MANUAL_BLOCK_CONFLICT_CODES.has(error.code))) {
       await db.execute(sql`
         UPDATE contact_merge_operations
         SET status = 'blocked', conflict_reason = ${error.code}, updated_at = now()

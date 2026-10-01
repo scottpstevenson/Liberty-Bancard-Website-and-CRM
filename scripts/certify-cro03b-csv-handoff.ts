@@ -1557,7 +1557,7 @@ const pathGBaseline = rows(await db.execute(sql`
     (SELECT COUNT(*)::int FROM business_locations
       WHERE business_id IN (
         SELECT id FROM businesses
-         WHERE name LIKE ${"Cert G FIPS Conflict%"}
+         WHERE canonical_name LIKE ${"Cert G FIPS Conflict%"}
       )
     ) AS locations,
     (SELECT COUNT(*)::int FROM business_projections) AS projections,
@@ -1602,7 +1602,7 @@ const pathGAfterLocations = Number(
   rows(await db.execute(sql`
     SELECT COUNT(*)::int AS n FROM business_locations
      WHERE business_id IN (
-       SELECT id FROM businesses WHERE name LIKE ${"Cert G FIPS Conflict%"}
+       SELECT id FROM businesses WHERE canonical_name LIKE ${"Cert G FIPS Conflict%"}
      )
   `))[0]?.n ?? 0,
 );

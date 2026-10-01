@@ -6,7 +6,8 @@ import { getCommercialComplianceConfig, renderEmailPartsForPurpose } from "./can
 import { redactToken } from "./audit-sanitizer";
 import { denyCro03OrCro08aForbiddenEffect as denyCro03cForbiddenEffect } from "./cro03/cro08a-effect-fence";
 
-let transporter: nodemailer.Transporter | null = null;
+type SmtpTransporter = ReturnType<typeof nodemailer.createTransport>;
+let transporter: SmtpTransporter | null = null;
 
 export function logSmtpStartupWarning(): void {
   if (!isSmtpConfigured()) {
@@ -32,7 +33,7 @@ export function getSmtpStatus(): { configured: boolean; host: string | null; por
   };
 }
 
-function getTransporter(): nodemailer.Transporter | null {
+function getTransporter(): SmtpTransporter | null {
   if (transporter) return transporter;
 
   const host = process.env.SMTP_HOST;

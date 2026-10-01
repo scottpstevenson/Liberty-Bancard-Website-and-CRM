@@ -8,6 +8,7 @@ import {
   matchesSystemLinkDatabaseGuardIdentity,
   type SystemLinkFacts,
 } from "./contact-business-system-link-policy";
+import { sanitizeAuditPayload } from "./audit-sanitizer";
 
 export const CONTACT_LINK_COVERAGE_WORKFLOW = "contact_link_coverage_v1";
 export const CONTACT_LINK_COVERAGE_CHECKPOINT_ACTION = "contact_business_reconciliation_checkpoint";
@@ -1206,7 +1207,7 @@ async function writeCoverageCheckpoint(client: any, state: ContactLinkCoverageSt
       actorId,
       CONTACT_LINK_COVERAGE_CHECKPOINT_ACTION,
       CONTACT_LINK_COVERAGE_WORKFLOW,
-      JSON.stringify(state),
+      JSON.stringify(sanitizeAuditPayload(state)),
       actorId ? "user" : "system",
       actorId,
     ],

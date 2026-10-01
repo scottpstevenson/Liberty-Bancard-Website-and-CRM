@@ -359,21 +359,26 @@ export async function runDrizzleMigrations(): Promise<void> {
 
       // Production convergence baseline (post-snapshot, pre-SFP).
       //
-      // Migrations 0110–0274 were applied to the production database by earlier
-      // deploys, but drizzle.__drizzle_migrations may not have hash rows for all
-      // of them. Without these rows the Drizzle migrator treats them as unapplied
-      // and tries to re-run DDL that already executed — causing a crash-loop.
+      // Some post-snapshot migrations may have been applied by earlier production
+      // deploys without every corresponding ledger hash being recorded. Missing
+      // hashes after the proven boundary remain pending so the Drizzle migrator
+      // can apply genuine prerequisites in order (and fail visibly on real drift).
       //
       // Sentinel: `contact_business_link_candidates` was created by migration 0172.
-      // Its presence proves migrations at least through 0172 were applied, and by
-      // extension all migrations up to 0274 (the last migration before the SFP
-      // feature work that introduced 0275–0278). We backfill hashes for all
-      // post-snapshot journal entries through 0274 (when=1800000008300) so the
-      // migrator skips them and only runs genuinely new SFP migrations.
-      //
-      // "sfp_programs" absence is used as a safety guard: if SFP tables are already
-      // present the convergence block is a no-op (all hashes are already recorded).
-      const PROD_CONVERGENCE_THROUGH_WHEN = 1800000008300; // 0274_cro03_observation_geo_backfill_sentinel
+      // Its presence proves only the conservative boundary through that migration.
+      // It is not a schema fingerprint for later migrations (notably 0271–0274),
+      // so never use it to baseline their hashes. Existing exact ledger hashes
+      // remain authoritative; the migrator applies later missing journal entries
+      // in order rather than hiding absent prerequisites behind fabricated rows.
+      const PROD_CONVERGENCE_THROUGH_TAG = "0172_cro02_reviewed_contact_business_links";
+      const convergenceBoundary = journal.entries.find(
+        (entry) => entry.tag === PROD_CONVERGENCE_THROUGH_TAG,
+      );
+      if (!convergenceBoundary) {
+        throw new Error(
+          `[DB Migrate] Production convergence boundary migration '${PROD_CONVERGENCE_THROUGH_TAG}' is missing from the journal.`,
+        );
+      }
       const { rows: cblcSentinel } = await client.query(
         `SELECT to_regclass('public.contact_business_link_candidates') IS NOT NULL AS present`
       );
@@ -385,7 +390,7 @@ export async function runDrizzleMigrations(): Promise<void> {
         const existingHashesNow = new Set(existingNow.map((r: any) => r.hash));
 
         const postSnapshotEntries = journal.entries.filter(
-          (e) => e.idx > snapshotEntry.idx && e.when <= PROD_CONVERGENCE_THROUGH_WHEN
+          (e) => e.idx > snapshotEntry.idx && e.idx <= convergenceBoundary.idx
         );
         let convergenceInserted = 0;
         for (const entry of postSnapshotEntries) {
@@ -400,7 +405,7 @@ export async function runDrizzleMigrations(): Promise<void> {
         }
         if (convergenceInserted > 0) {
           console.log(
-            `[DB Migrate] Production convergence: baselined ${convergenceInserted} post-snapshot migration(s) through 0274.`
+            `[DB Migrate] Production convergence: baselined ${convergenceInserted} post-snapshot migration(s) through ${PROD_CONVERGENCE_THROUGH_TAG}.`
           );
         }
       }

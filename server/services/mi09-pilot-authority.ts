@@ -185,10 +185,7 @@ export interface PricingScheduleSnapshotResult {
   compositeHash: string;
   artifactIds: string[];
   reused: boolean;
-  /** True when an existing (but expired) row with the identical composite_hash
-   * was renewed in place — composite_hash is UNIQUE, so a fresh row with the
-   * same hash can never be inserted; renewal is required to make an unchanged
-   * schedule reproducible again after the prior snapshot's expiry. */
+  /** True only for a concurrent insert conflict that resolved through the upsert path. */
   renewed: boolean;
   expiresAt: string;
 }
@@ -243,14 +240,10 @@ export async function getCurrentPricingSchedule(): Promise<CurrentPricingSchedul
  * the two can never independently drift), hashes it with
  * `stableCro03RecipeHash` — the identical hash function the CRO-08A
  * certification gate recomputes and checks against this table — and writes
- * (or reuses, if a snapshot with the identical hash already exists) a
- * `mi09_pricing_schedule_snapshots` row.
- *
- * 2026-09-13 solo-operator simplification: snapshots no longer expire in
- * practice. `expires_at` is set far in the future by default and lookups no
- * longer filter on it, so pricing the operator has already recorded persists
- * indefinitely until they explicitly submit different pricing artifacts —
- * no repeat submissions required.
+ * (or reuses, if an unexpired snapshot with the identical hash already
+ * exists) a `mi09_pricing_schedule_snapshots` row. Expiration is checked in
+ * SQL against `NOW()`. An expired receipt is immutable and causes an explicit
+ * error; it is never renewed or replaced with a fabricated receipt.
  *
  * Does NOT set `linked_policy_id`: no `cro03c_activation_policies` row can
  * exist yet outside the ceremony's own authorized flow, so linking is
@@ -267,17 +260,22 @@ export async function createPricingScheduleSnapshot(
     .map((a) => String(a.id))
     .sort();
 
-  // Pricing snapshots persist indefinitely now — match on composite_hash alone
-  // regardless of expires_at, so the operator never has to re-submit pricing
-  // just because time has passed.
+  // Keep expiration evaluation in PostgreSQL so it uses the same clock and
+  // boundary as getCurrentPricingSchedule(). The strict boolean check below
+  // intentionally avoids coercing driver string values such as "f".
   const existing = rows(await db.execute(sql`
-    SELECT id, artifact_ids, expires_at
+    SELECT id, artifact_ids, expires_at, (expires_at <= NOW()) AS expired
       FROM mi09_pricing_schedule_snapshots
      WHERE composite_hash = ${compositeHash}
      ORDER BY captured_at DESC
      LIMIT 1
   `))[0];
   if (existing) {
+    if (existing.expired === true) {
+      throw new Error(
+        "MI09_PRICING_SNAPSHOT_EXPIRED: the immutable snapshot for this pricing schedule has expired and cannot be renewed",
+      );
+    }
     // The composite_hash covers only the price-schedule VALUES (unitType,
     // currency, amountMicros, billingSemantics, version) — it does not cover
     // WHICH artifact row id backs each provider. Two different artifact ids
@@ -314,9 +312,7 @@ export async function createPricingScheduleSnapshot(
   // No row exists yet for this hash. composite_hash is UNIQUE, so a concurrent
   // caller could race us between the lookup above and this insert — the
   // ON CONFLICT DO UPDATE below only exists to resolve that race atomically,
-  // not to "renew" an expired row (nothing expires anymore).
-  // expiresInDays defaults to ~10 years — effectively indefinite — so an
-  // operator who has already submitted pricing never has to resubmit it.
+  // not to renew an expired receipt.
   const expiresInDays = input.expiresInDays ?? 3650;
   const upserted = rows(await db.execute(sql`
     INSERT INTO mi09_pricing_schedule_snapshots

@@ -9,6 +9,7 @@ import { listInboundRequests } from "../services/inbound-request-authority";
 import { businessLacksDbprLineageSql } from "../services/dbpr";
 import { deriveCanonicalBusinessSafeNextAction } from "../services/canonical-business-safe-next-action";
 import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-business-email-display";
+import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 import { registerSfpReadyHeldOperatorRoutes } from "./sfp-ready-held-operator";
 
@@ -3644,10 +3645,10 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
         VALUES ('sfp_stage2_serper_single_probe', 'business', ${String(businessId)}, 'user',
                 ${`admin:${(req as any).user?.id ?? "system"}`},
-                ${JSON.stringify({
+                ${JSON.stringify(sanitizeAuditPayload({
                   businessId, succeeded, blocked: response.blocked, ok: response.ok, status: (response as any).status ?? null,
                   windowCallsBefore: controlBefore.window_calls, windowCallsAfter: controlAfter?.window_calls ?? null,
-                })}::jsonb)
+                }))}::jsonb)
       `);
 
       res.json({
@@ -3934,8 +3935,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         await tx.execute(sql`
           INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
           VALUES (${String((req.user as any)?.id ?? "system")},'sfp_serper_provider_approved','provider_control','serper',
-                  ${JSON.stringify({ cohortRunId, maxBusinesses, reason })}::jsonb,
-                  ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
+                  ${JSON.stringify(sanitizeAuditPayload({ cohortRunId, maxBusinesses, reason }))}::jsonb,
+                  ${JSON.stringify(sanitizeAuditPayload(updated))}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
         `);
         return updated;
       });
@@ -3972,8 +3973,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         await tx.execute(sql`
           INSERT INTO audit_logs (user_id,action,entity_type,entity_key,details,after_state,actor_type,actor_id)
           VALUES (${String((req.user as any)?.id ?? "system")},'sfp_paid_provider_approved','provider_control',${provider},
-                  ${JSON.stringify({ reason })}::jsonb,
-                  ${JSON.stringify(updated)}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
+                  ${JSON.stringify(sanitizeAuditPayload({ reason }))}::jsonb,
+                  ${JSON.stringify(sanitizeAuditPayload(updated))}::jsonb,'user',${String((req.user as any)?.id ?? "system")})
         `);
         return updated;
       });

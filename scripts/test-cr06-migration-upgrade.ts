@@ -61,9 +61,24 @@ try {
   await migrateWithProductionHarness(urlFor(names[0]));
   let client = new Client({ connectionString: urlFor(names[0]) });
   await client.connect();
+  let cleanLedgerBeforeRerun: Array<{ hash: string; created_at: string }> = [];
   try {
     const found = await client.query("SELECT to_regclass('public.cr06_feedback_receipts') AS receipts, to_regclass('public.cr06_preparation_reservations') AS reservations");
     assert.ok(found.rows[0].receipts && found.rows[0].reservations, "clean-zero harness migration must install CR-06 tables");
+    const ledger = await client.query(
+      "SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY hash,created_at",
+    );
+    cleanLedgerBeforeRerun = ledger.rows;
+  } finally { await client.end(); }
+  await migrateWithProductionHarness(urlFor(names[0]));
+  client = new Client({ connectionString: urlFor(names[0]) });
+  await client.connect();
+  try {
+    const ledger = await client.query(
+      "SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY hash,created_at",
+    );
+    assert.deepEqual(ledger.rows, cleanLedgerBeforeRerun,
+      "reapplying the canonical current snapshot leaves the exact migration hash ledger unchanged");
   } finally { await client.end(); }
 
   client = new Client({ connectionString: urlFor(names[1]) });
@@ -124,15 +139,47 @@ try {
       );
     }
     await client.query("SET session_replication_role='origin'");
-    const before = await client.query("SELECT to_regclass('public.cr06_campaign_gate_revisions') AS gate_revisions");
+    const before = await client.query(
+      `SELECT to_regclass('public.cr06_campaign_gate_revisions') AS gate_revisions,
+              to_regclass('public.contact_business_link_candidates') AS proven_0172_sentinel,
+              to_regclass('public.free_discovery_candidates') AS later_prerequisite`,
+    );
     assert.equal(before.rows[0].gate_revisions, null, "0184 prior head must not already contain 0185 gate revisions");
+    assert.ok(before.rows[0].proven_0172_sentinel,
+      "genuine 0184 baseline includes the contact-business-link sentinel created by 0172");
+    assert.equal(before.rows[0].later_prerequisite, null,
+      "the 0184 baseline must not preseed a later migration prerequisite");
+    const ledgerBoundary = await client.query(
+      `SELECT
+         EXISTS(SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1) AS has_0184_hash,
+         EXISTS(SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$2) AS has_0185_hash`,
+      [hash("0184_cr06_corrections"), hash("0185_cr06_history_and_feedback")],
+    );
+    assert.deepEqual(ledgerBoundary.rows[0], { has_0184_hash: true, has_0185_hash: false },
+      "the 0184 head is established by exact journal hashes, not a ledger count");
   } finally { await client.end(); }
   await migrateWithProductionHarness(urlFor(names[1]));
   client = new Client({ connectionString: urlFor(names[1]) });
   await client.connect();
   try {
-    const after = await client.query("SELECT to_regclass('public.cr06_campaign_gate_revisions') AS gate_revisions, to_regclass('public.cr06_preparation_reservations') AS reservations");
+    const after = await client.query(
+      `SELECT to_regclass('public.cr06_campaign_gate_revisions') AS gate_revisions,
+              to_regclass('public.cr06_preparation_reservations') AS reservations,
+              to_regclass('public.free_discovery_candidates') AS later_prerequisite`,
+    );
     assert.ok(after.rows[0].gate_revisions && after.rows[0].reservations, "production harness upgrades genuine 0184 head through CR-06 corrections");
+    assert.ok(after.rows[0].later_prerequisite,
+      "ordered migrations after the proven 0184 ledger apply the free-discovery prerequisite before SFP consumers");
+    const ledgerAfterUpgrade = await client.query(
+      `SELECT
+         EXISTS(SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$1) AS has_0184_hash,
+         EXISTS(SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$2) AS has_0185_hash,
+         EXISTS(SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash=$3) AS has_0186_hash`,
+      [hash("0184_cr06_corrections"), hash("0185_cr06_history_and_feedback"), hash("0186_cr06_scoped_reservation_contract")],
+    );
+    assert.deepEqual(ledgerAfterUpgrade.rows[0],
+      { has_0184_hash: true, has_0185_hash: true, has_0186_hash: true },
+      "the exact prior ledger hash is retained and genuine later hashes are recorded by migration");
     const retained = await client.query(
       `SELECT reservation_key,scope_type,scope_identity,reserved_member_cap,effective_cap,
               send_capacity_units,state,receipt,receipt_hash,expires_at

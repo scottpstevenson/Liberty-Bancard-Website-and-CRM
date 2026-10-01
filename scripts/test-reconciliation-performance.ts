@@ -48,6 +48,10 @@ const RUN_ID = "00000000-0000-4000-a000-000000000002";
 const CONTACT_COUNT = 155_000;
 const MIN_THROUGHPUT = 100_000; // contacts/sec
 const MAX_HEAP_GROWTH_MB = 50;
+const DUPLICATE_FIXTURE_PERIOD = 50;
+const DUPLICATE_FIXTURE_SIZE = 3;
+const EXPECTED_DUPLICATE_FIXTURE_ROWS =
+  Math.floor(CONTACT_COUNT / DUPLICATE_FIXTURE_PERIOD) * DUPLICATE_FIXTURE_SIZE;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Synthetic data generators
@@ -77,36 +81,49 @@ function pickRandom<T>(arr: T[], seed: number): T {
 }
 
 function generateRow(i: number): ReconciliationContactRow {
-  const rc = pickRandom(RECORD_CLASSES, i * 7 + 1);
-  const companyName = pickRandom(COMPANIES, i * 3 + 2);
-  const phone = pickRandom(PHONES, i * 5 + 3);
-  const sharedCount = (i % 50 === 0) ? 3 : 0;
+  const duplicateOffset = i % DUPLICATE_FIXTURE_PERIOD;
+  const isDuplicateFixture = duplicateOffset < DUPLICATE_FIXTURE_SIZE;
+  const duplicateGroup = Math.floor(i / DUPLICATE_FIXTURE_PERIOD);
+  const rc = isDuplicateFixture ? "production" : pickRandom(RECORD_CLASSES, i * 7 + 1);
+  const companyName = isDuplicateFixture
+    ? `Reconciliation Fixture Business ${duplicateGroup}-${duplicateOffset}`
+    : pickRandom(COMPANIES, i * 3 + 2);
+  // Every fixture group has one shared, group-unique phone across three
+  // distinct companies. The active contacts email index is unique, so fixture
+  // emails also carry a unique performance-run prefix instead of sharing one.
+  const phone = isDuplicateFixture
+    ? `202686${String(1000 + duplicateGroup).padStart(4, "0")}`
+    : pickRandom(PHONES, i * 5 + 3);
 
   return {
     id: i + 1,
-    firstName: pickRandom(FIRST_NAMES, i * 11 + 4),
-    lastName: pickRandom(LAST_NAMES, i * 13 + 5),
-    email: i % 7 === 0 ? null : i % 11 === 0 ? "noemail@fake.com" : `contact${i}@domain.com`,
+    firstName: isDuplicateFixture ? "Perf" : pickRandom(FIRST_NAMES, i * 11 + 4),
+    lastName: isDuplicateFixture ? `Duplicate${duplicateGroup}-${duplicateOffset}` : pickRandom(LAST_NAMES, i * 13 + 5),
+    email: isDuplicateFixture
+      ? `reconciliation-performance-${duplicateGroup}-${duplicateOffset}@example.invalid`
+      : i % 7 === 0 ? null : i % 11 === 0 ? "noemail@fake.com" : `contact${i}@domain.com`,
     phone,
     companyName,
     vertical: pickRandom(VERTICALS, i * 17 + 6),
     verticalSource: i % 4 === 0 ? "form" : null,
     manualVerticalOverride: i % 100 === 0 ? true : null,
-    doNotContact: i % 200 === 0,
-    suppressionReason: i % 300 === 0 ? "unsubscribed" : null,
-    emailStatus: pickRandom(EMAIL_STATUSES, i * 19 + 7),
+    doNotContact: isDuplicateFixture ? false : i % 200 === 0,
+    suppressionReason: isDuplicateFixture ? null : i % 300 === 0 ? "unsubscribed" : null,
+    emailStatus: isDuplicateFixture ? "valid" : pickRandom(EMAIL_STATUSES, i * 19 + 7),
     bounceStatus: null,
     complaintStatus: null,
     consentTier: null,
     recordClass: rc,
     ghlContactId: i % 5 === 0 ? `ghl_${i}` : null,
     leadSource: i % 8 === 0 ? "website" : null,
-    businessId: i % 4 === 0 ? (i / 4 | 0) + 1 : null,
+    businessId: isDuplicateFixture
+      ? duplicateGroup * DUPLICATE_FIXTURE_SIZE + duplicateOffset + 1
+      : i % 4 === 0 ? (i / 4 | 0) + 1 : null,
     hasDeal: i % 10 === 0,
-    censusLane: pickRandom(CENSUS_LANES, i * 23 + 8),
+    censusLane: isDuplicateFixture ? "DUPLICATE_REVIEW" : pickRandom(CENSUS_LANES, i * 23 + 8),
     normalizedPhone: phone?.trim() ?? null,
-    isSharedPhone: sharedCount > 0,
-    sharedPhoneCompanyCount: sharedCount,
+    isSharedPhone: isDuplicateFixture,
+    sharedPhoneCompanyCount: isDuplicateFixture ? DUPLICATE_FIXTURE_SIZE : 0,
   };
 }
 
@@ -177,7 +194,10 @@ async function main() {
   assert(cleanNoAction > 0, `CLEAN_NO_ACTION lane populated (contacts with businessId + good data)`);
 
   const duplicate = laneCounts["PENDING_DUPLICATE_RESOLUTION"] ?? 0;
-  assert(duplicate > 0, `PENDING_DUPLICATE_RESOLUTION populated (shared phone injected every 50)`);
+  assert(
+    duplicate === EXPECTED_DUPLICATE_FIXTURE_ROWS,
+    `PENDING_DUPLICATE_RESOLUTION classifies every unique-prefixed three-company fixture row (expected ${EXPECTED_DUPLICATE_FIXTURE_ROWS}, got ${duplicate})`,
+  );
 
   // Total processed equals CONTACT_COUNT
   const total = Object.values(laneCounts).reduce((a, b) => a + b, 0);

@@ -22,19 +22,34 @@
  * Exits 0 if all pass, 1 if any fail.
  */
 
-import { db, pool } from "../server/db";
-import {
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+
+await assertDisposableTestInfrastructure({
+  operation: "statement-acquisition certification",
+  requireRedis: false,
+});
+
+const [{ db, pool }, schema, drizzle, { storage }, statementAcquisition, { decideCr06SequenceLifecycle }, { putProtectedObject }] =
+  await Promise.all([
+    import("../server/db"),
+    import("../shared/schema"),
+    import("drizzle-orm"),
+    import("../server/storage"),
+    import("../server/services/statement-acquisition"),
+    import("../server/services/cr06-promotional-lifecycle-decision"),
+    import("../server/services/protected-object"),
+  ]);
+const {
   contacts,
   deals,
   sequenceEnrollments,
   sequenceSteps,
   followUpSequences,
   contactLifecycleHistory,
-} from "../shared/schema";
-import { eq, and, inArray } from "drizzle-orm";
-import crypto from "node:crypto";
-import { storage } from "../server/storage";
-import {
+  systemSettings,
+} = schema;
+const { eq, and, inArray } = drizzle;
+const {
   onStatementRequested,
   onStatementReceived,
   onStatementAnalyzed,
@@ -44,9 +59,8 @@ import {
   getAcquisitionConfig,
   DEFAULT_CONFIG,
   isProductionStatementSequenceCandidate,
-  type AcquisitionConfig,
-} from "../server/services/statement-acquisition";
-import { decideCr06SequenceLifecycle } from "../server/services/cr06-promotional-lifecycle-decision";
+} = statementAcquisition;
+type AcquisitionConfig = import("../server/services/statement-acquisition").AcquisitionConfig;
 
 // ─── Bookkeeping ──────────────────────────────────────────────────────────────
 
@@ -57,6 +71,10 @@ const testContactIds: number[] = [];
 const testDealIds: number[] = [];
 const testSequenceName = `Certification Enrollment Fixture ${process.pid}-${Date.now()}`;
 let testSequenceId: number | null = null;
+let originalConfig: AcquisitionConfig = DEFAULT_CONFIG;
+let originalConfigValue: unknown;
+let originalConfigWasPresent = false;
+let cadenceConfigInitialized = false;
 
 function ok(label: string) {
   pass++;
@@ -158,6 +176,64 @@ async function getChaseSteps(seqId: number) {
   return steps;
 }
 
+async function ensureCanonicalChaseSequence(): Promise<number> {
+  const existing = await getChaseSequence();
+  if (existing) return existing.id;
+
+  const seedData = await import("../server/data/seeds/sequences.json", { assert: { type: "json" } });
+  const seedSequence = (seedData.default as any[]).find((sequence: any) => sequence.name === "Statement Chase (Auto)");
+  if (!seedSequence || !Array.isArray(seedSequence.steps) || seedSequence.steps.length !== 4) {
+    throw new Error('Checked-in "Statement Chase (Auto)" seed must define exactly four steps');
+  }
+
+  return db.transaction(async tx => {
+    const [sequence] = await tx.insert(followUpSequences).values({
+      name: seedSequence.name,
+      description: seedSequence.description,
+      triggerType: seedSequence.triggerType,
+      triggerConfig: seedSequence.triggerConfig,
+      totalSteps: seedSequence.steps.length,
+      status: "paused",
+      sequenceFamily: seedSequence.sequenceFamily,
+      eligibleConsentTiers: seedSequence.eligibleConsentTiers,
+      channelsAllowed: seedSequence.channelsAllowed,
+      offerRoutes: seedSequence.offerRoutes,
+      lifecycleStagesAllowed: seedSequence.lifecycleStagesAllowed,
+    }).returning({ id: followUpSequences.id });
+
+    for (const step of seedSequence.steps) {
+      await tx.insert(sequenceSteps).values({
+        sequenceId: sequence.id,
+        stepOrder: step.stepOrder,
+        actionType: step.actionType,
+        delayDays: step.delayDays,
+        delayHours: step.delayHours,
+        subject: step.subject || null,
+        body: step.body || null,
+        templateId: null,
+        config: step.config || null,
+      });
+    }
+    return sequence.id;
+  });
+}
+
+async function ensureAcquisitionCadenceConfig(): Promise<void> {
+  const [settingRow] = await db.select({ value: systemSettings.value })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, "statement_acquisition_config"))
+    .limit(1);
+  originalConfigWasPresent = !!settingRow;
+  originalConfigValue = settingRow?.value;
+  cadenceConfigInitialized = true;
+  if (!originalConfigWasPresent) {
+    await storage.setSystemSetting("statement_acquisition_config", DEFAULT_CONFIG);
+    originalConfig = DEFAULT_CONFIG;
+  } else {
+    originalConfig = await getAcquisitionConfig();
+  }
+}
+
 let cleanupPromise: Promise<void> | null = null;
 
 function cleanupTestData(): Promise<void> {
@@ -174,6 +250,14 @@ function cleanupTestData(): Promise<void> {
       await db.delete(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, testSequenceId));
       await db.delete(sequenceSteps).where(eq(sequenceSteps.sequenceId, testSequenceId));
       await db.delete(followUpSequences).where(eq(followUpSequences.id, testSequenceId));
+    }
+    if (cadenceConfigInitialized) {
+      if (originalConfigWasPresent) {
+        await storage.setSystemSetting("statement_acquisition_config", originalConfigValue);
+      } else {
+        await db.delete(systemSettings).where(eq(systemSettings.key, "statement_acquisition_config"));
+      }
+      await syncStatementChaseSteps(originalConfig).catch(() => {});
     }
   })();
   return cleanupPromise;
@@ -203,6 +287,7 @@ async function runTests() {
   console.log("── 1. Sequence presence + eligibility metadata ──────────");
   let seqId: number | null = null;
   try {
+    await ensureCanonicalChaseSequence();
     const seq = await getChaseSequence();
     assert(
       '"Statement Chase (Auto)" sequence exists in DB',
@@ -211,6 +296,11 @@ async function runTests() {
     );
     if (seq) {
       seqId = seq.id;
+       assert(
+         '"Statement Chase (Auto)" remains paused',
+         seq.status === "paused",
+         `status="${seq.status}"`,
+       );
        // CR-06 is the current execution authority. Even if an operator has
        // activated the row in the dashboard, promotional sequence execution
        // must remain fail-closed until an explicit non-promotional purpose is
@@ -223,9 +313,9 @@ async function runTests() {
 
       const steps = await getChaseSteps(seq.id);
       assert(
-        '"Statement Chase (Auto)" has at least 4 steps',
-        steps.length >= 4,
-        `only ${steps.length} step(s) found`,
+        '"Statement Chase (Auto)" has exactly 4 canonical steps',
+        steps.length === 4,
+        `${steps.length} step(s) found`,
       );
       assert("Step 1 is email (upload link)", steps[0]?.actionType === "email");
       assert("Step 2 is SMS nudge", steps[1]?.actionType === "sms");
@@ -254,8 +344,8 @@ async function runTests() {
 
   // ── Test 2: system_settings cadence config ─────────────────────────────────
   console.log("\n── 2. system_settings cadence config ───────────────────");
-  let originalConfig: AcquisitionConfig = DEFAULT_CONFIG;
   try {
+    await ensureAcquisitionCadenceConfig();
     const cfg = await storage.getSystemSetting("statement_acquisition_config");
     assert(
       "statement_acquisition_config exists in system_settings",
@@ -615,7 +705,10 @@ async function runTests() {
       }
 
       // Restore to original config
-      await storage.setSystemSetting("statement_acquisition_config", originalConfig);
+      await storage.setSystemSetting(
+        "statement_acquisition_config",
+        originalConfigWasPresent ? originalConfigValue : originalConfig,
+      );
       await _sync(originalConfig).catch(() => {});
       ok("Admin PUT: config restored to original after test");
     }
@@ -760,25 +853,66 @@ async function runTests() {
       `no active enrollment found for contact ${chainContactId} before chain run`,
     );
 
-    // Use an opaque protected-object reference without a file buffer. This
-    // exercises STEP 3 (deal creation) and STEP 5b while respecting the
-    // production contract that raw file buffers are never accepted by the
-    // chain as the source of truth.
+    // Persist the fixture through the real protected-object authority. The
+    // chain receives the opaque reference and its checksum, never raw bytes.
+    const protectedObject = await putProtectedObject({
+      bytes: Buffer.from("statement-acquisition-certification-fixture"),
+      mimeType: "application/pdf",
+      fileName: "statement-certification.pdf",
+      tenantScope: `contact:${chainContactId}`,
+      validationState: "validated",
+    });
+    assert(
+      "Statement fixture has validated, active protected-object metadata in the current tenant/environment",
+      protectedObject.objectRef.length > 0 &&
+        protectedObject.checksumSha256.length === 64 &&
+        protectedObject.tenantScope === `contact:${chainContactId}` &&
+        protectedObject.environmentScope === (process.env.NODE_ENV || "development") &&
+        protectedObject.validationState === "validated" &&
+        protectedObject.retentionState === "active",
+      `tenant="${protectedObject.tenantScope}" environment="${protectedObject.environmentScope}" validation="${protectedObject.validationState}" retention="${protectedObject.retentionState}"`,
+    );
     const chainResult = await runStatementUploadChain({
       contactId: chainContactId,
       dealId: null,
-      fileBuffer: null as any,
       fileName: "statement-certification.pdf",
-      protectedObjectRef: crypto.randomUUID(),
-      source: "dashboard" as any,
+      protectedObjectRef: protectedObject.objectRef,
+      protectedObjectChecksum: protectedObject.checksumSha256,
+      source: "dashboard",
       businessName: "Chain Test Corp",
     });
+    const chainStep = (stepNumber: number) => chainResult.steps.find(step => step.step === stepNumber);
+    assert(
+      "Upload-chain rep notification is in-app only with external delivery held",
+      chainStep(6)?.success === true &&
+        chainStep(6)?.data?.channel === "in-app-only" &&
+        chainStep(6)?.data?.externalDeliveryState === "held",
+    );
+    assert(
+      "Upload-chain GHL projection remains held with no projection request",
+      chainStep(7)?.success === true &&
+        chainStep(7)?.data?.state === "held" &&
+        chainStep(7)?.data?.statementStatusProjectionRequested === false,
+    );
+    assert(
+      "Upload-chain merchant confirmation is held without external delivery",
+      chainStep(9)?.success === true &&
+        chainStep(9)?.data?.outcome === "held" &&
+        chainStep(9)?.data?.externalAttempted === false,
+    );
+    assert(
+      "Upload-chain follow-up is held without external delivery",
+      chainStep(11)?.success === true &&
+        chainStep(11)?.data?.enrollmentStatus === "held" &&
+        chainStep(11)?.data?.externalAttempted === false,
+    );
 
     // Record the deal created by the chain for cleanup
     const chainDealStep = chainResult.steps.find((s: any) => s.step === 3 && s.success);
-    if (chainDealStep?.data?.dealId) {
-      chainDealId = chainDealStep.data.dealId;
-      testDealIds.push(chainDealId);
+    const createdChainDealId = chainDealStep?.data?.dealId;
+    if (typeof createdChainDealId === "number") {
+      chainDealId = createdChainDealId;
+      testDealIds.push(createdChainDealId);
     }
 
     // Give onStatementReceived (fire-and-forget inside chain) time to complete
@@ -816,8 +950,8 @@ async function runTests() {
       await cleanupTestData();
       const canonicalSequence = await getChaseSequence();
       assert(
-        '"Statement Chase (Auto)" remained blocked by CR-06 throughout certification',
-        canonicalSequence && !decideCr06SequenceLifecycle(canonicalSequence).allowed,
+        '"Statement Chase (Auto)" remained paused and blocked by CR-06 throughout certification',
+        canonicalSequence?.status === "paused" && !decideCr06SequenceLifecycle(canonicalSequence).allowed,
         `status="${canonicalSequence?.status}"`,
       );
       console.log("  ✓ Test data cleaned up");

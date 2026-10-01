@@ -23,9 +23,14 @@ import { getBackgroundProfile } from "./services/background-profile";
 import { validateEnv } from "./lib/validate-env";
 import { storage } from "./storage";
 import { setDbContext } from "./lib/db-context";
+import {
+  recordCertificationHttpListener,
+  resolveCertificationHttpContract,
+} from "./lib/certification-http-contract";
 
 // Validate required environment variables before anything else starts.
 validateEnv();
+const certificationHttpContract = resolveCertificationHttpContract(process.env);
 
 // Initialize Sentry error monitoring as early as possible so it captures all
 // subsequent errors including those that occur during startup.
@@ -432,11 +437,20 @@ app.use((req, _res, next) => {
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
-      reusePort: true,
+      host: certificationHttpContract.host,
+      reusePort: certificationHttpContract.reusePort,
     },
     async () => {
-      log(`serving on port ${port}`);
+      const address = httpServer.address();
+      if (!address || typeof address === "string") {
+        throw new Error("HTTP_LISTENER_ADDRESS_UNAVAILABLE_AFTER_LISTEN");
+      }
+      recordCertificationHttpListener(
+        address.address,
+        address.port,
+        certificationHttpContract.reusePort,
+      );
+      log(`serving on ${address.address}:${address.port}`);
       logEnvVarChecklist();
       // Fire-and-forget: reclassify contacts whose record_class is still 'unknown'.
       // Runs AFTER listen() so it never blocks port opening. Idempotent — no-op

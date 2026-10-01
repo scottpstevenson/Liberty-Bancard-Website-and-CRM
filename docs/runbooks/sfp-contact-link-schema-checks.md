@@ -1,3 +1,4 @@
+```sql
 -- SFP contact-link prechecks AND postchecks. Run the same file at both boundaries.
 -- READ ONLY: this is not a production migration and installs/changes nothing.
 -- STOP: do not apply links unless the last SELECT returns schema_ready=true.
@@ -125,3 +126,4 @@ FROM (
        AND con.conislocal AND con.coninhcount=0
     ) AS sfp_contact_checks
   ) AS readiness;
+```

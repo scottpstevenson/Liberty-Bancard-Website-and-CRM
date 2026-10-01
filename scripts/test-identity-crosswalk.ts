@@ -16,8 +16,10 @@
  */
 
 import crypto from "crypto";
+import os from "node:os";
+import path from "node:path";
 
-const BASE = process.env.TEST_BASE_URL ?? "http://localhost:5000";
+const BASE = process.env.BASE_URL ?? process.env.TEST_BASE_URL ?? "http://localhost:5000";
 const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? "";
 
@@ -26,7 +28,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? "";
 // ──────────────────────────────────────────────────────────────────────────────
 interface TestResult { name: string; pass: boolean; detail?: string }
 const results: TestResult[] = [];
-let sessionCookie: string | null = null;
+const cookieJar = new Map<string, string>();
 let csrfToken: string | null = null;
 
 function assert(name: string, condition: boolean, detail?: string): void {
@@ -38,6 +40,32 @@ function assert(name: string, condition: boolean, detail?: string): void {
   }
 }
 
+function responseSetCookies(response: Response): string[] {
+  const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+  const setCookies = headers.getSetCookie?.();
+  if (setCookies) return setCookies;
+  const combined = response.headers.get("set-cookie");
+  return combined ? combined.split(/,(?=\s*[^;,=\s]+=)/) : [];
+}
+
+function absorbResponseCookies(response: Response): void {
+  for (const setCookie of responseSetCookies(response)) {
+    const pair = setCookie.split(";", 1)[0]?.trim();
+    if (!pair) continue;
+    const equals = pair.indexOf("=");
+    if (equals <= 0) continue;
+    const name = pair.slice(0, equals);
+    const value = pair.slice(equals + 1);
+    if (!value || /(?:^|;)\s*max-age=0(?:;|$)/i.test(setCookie)) cookieJar.delete(name);
+    else cookieJar.set(name, value);
+  }
+}
+
+function cookieHeader(): string | null {
+  if (cookieJar.size === 0) return null;
+  return [...cookieJar.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
 async function authedFetch(
   method: string,
   path: string,
@@ -46,38 +74,99 @@ async function authedFetch(
 ): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(sessionCookie ? { Cookie: sessionCookie } : {}),
+    ...(cookieHeader() ? { Cookie: cookieHeader()! } : {}),
     ...(csrfToken && method !== "GET" ? { "x-csrf-token": csrfToken } : {}),
     ...extraHeaders,
   };
-  return fetch(`${BASE}${path}`, {
+  const response = await fetch(`${BASE}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     redirect: "manual",
   });
+  absorbResponseCookies(response);
+  return response;
 }
 
 async function login(): Promise<boolean> {
   if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
-    console.warn("  WARN: ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD not set; skipping HTTP tests");
+    console.error("  FAIL: ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD are required for the server-required identity crosswalk suite");
     return false;
   }
   // Obtain CSRF token first
   const csrfR = await fetch(`${BASE}/api/csrf-token`, { credentials: "include" });
-  if (!csrfR.ok) { console.error("  Failed to get CSRF token"); return false; }
-  const setCookie = csrfR.headers.get("set-cookie") ?? "";
-  sessionCookie = setCookie.split(";")[0] ?? null;
-  const csrfBody = await csrfR.json();
+  absorbResponseCookies(csrfR);
+  if (!csrfR.ok) {
+    assert("GET /api/csrf-token returns 200", false, `status=${csrfR.status}`);
+    return false;
+  }
+  const csrfBody = await csrfR.json().catch(() => ({}));
   csrfToken = csrfBody.token ?? csrfBody.csrfToken;
+  assert("GET /api/csrf-token returns a token", typeof csrfToken === "string" && csrfToken.length > 0);
+  assert("CSRF token is bound to the retained csrf_token cookie", cookieJar.get("csrf_token") === csrfToken);
 
-  const loginR = await authedFetch("POST", "/api/login", {
+  const loginR = await authedFetch("POST", "/api/auth/login", {
     email: ADMIN_EMAIL,
     password: ADMIN_PASSWORD,
   });
-  const loginSetCookie = loginR.headers.get("set-cookie") ?? "";
-  if (loginSetCookie) sessionCookie = loginSetCookie.split(";")[0];
-  return loginR.status === 200 || loginR.status === 302;
+  const loginBody = await loginR.json().catch(() => ({}));
+  const loginOk = loginR.status === 200;
+  assert("POST /api/auth/login returns 200", loginOk, `status=${loginR.status}`);
+  assert("Canonical login establishes an admin session", loginBody.role === "admin", `role=${loginBody.role ?? "<missing>"}`);
+  assert("Canonical login retains the connect.sid session cookie", cookieJar.has("connect.sid"));
+  return loginOk && loginBody.role === "admin" && cookieJar.has("connect.sid");
+}
+
+function requirePrivateDisposableDatabaseUrl(): string {
+  const databaseUrl = process.env.DATABASE_URL ?? "";
+  if (
+    !databaseUrl ||
+    databaseUrl !== process.env.TEST_DATABASE_URL ||
+    process.env.NODE_ENV !== "test" ||
+    process.env.VG_PROVIDER_DENY_MODE !== "1"
+  ) {
+    throw new Error("Identity Crosswalk DB certification requires the matching NODE_ENV=test provider-denied disposable DATABASE_URL and TEST_DATABASE_URL.");
+  }
+  try {
+    const parsed = new URL(databaseUrl);
+    const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+    const socketPath = parsed.searchParams.get("host") ?? "";
+    const tempRoot = path.resolve(os.tmpdir()) + path.sep;
+    const socketParent = path.basename(path.dirname(socketPath));
+    const socketPort = Number(parsed.searchParams.get("port"));
+    const privateSocketDatabase =
+      parsed.protocol === "postgresql:" &&
+      parsed.hostname === "localhost" &&
+      Boolean(parsed.username) &&
+      !parsed.password &&
+      /^test_sfp2060_[a-z0-9_]+$/.test(databaseName) &&
+      socketPath.startsWith(tempRoot) &&
+      socketParent.startsWith("local-rehearsal-") &&
+      Number.isInteger(socketPort) &&
+      socketPort > 0;
+    if (!privateSocketDatabase) {
+      throw new Error("DATABASE_URL is not the owned local-rehearsal PostgreSQL socket URL.");
+    }
+    return databaseUrl;
+  } catch (error) {
+    throw new Error(`Refusing direct identity-crosswalk DB access outside the private disposable database: ${(error as Error).message}`);
+  }
+}
+
+async function phaseSessionCsrf(): Promise<void> {
+  console.log("\n── Session and CSRF verification ────────────────────────────────────────");
+  const response = await authedFetch(
+    "POST",
+    "/api/admin/identity-crosswalk/runs/not-a-uuid/cancel",
+    {},
+    { "x-csrf-token": "intentionally-invalid-csrf-token" },
+  );
+  const body = await response.json().catch(() => ({}));
+  assert(
+    "Authenticated admin session with invalid CSRF token is rejected before route handling",
+    response.status === 403 && body.code === "csrf_mismatch",
+    `status=${response.status} code=${body.code ?? "<missing>"}`,
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -712,11 +801,14 @@ async function phaseI_runnerSchema(): Promise<void> {
     "cursorUpdateFn not called inside processBatch before COMMIT",
   );
 
-  // Fix: filing-number tier recorded as run-level skip in run_notes
+  // MI-03 replaced the old filing-number skip with a source-qualified canonical
+  // link precondition; the current outcome is recorded under tier2_precondition.
   assert(
-    "#1836: filing-number tier recorded as run-level skip in run_notes",
-    runner.includes("tier_skips") && runner.includes("run_notes"),
-    "filing-number tier skip not recorded in run_notes",
+    "MI-03: Tier-2 canonical-source precondition outcome is recorded in run_notes",
+    runner.includes("'{tier2_precondition}'") &&
+      runner.includes("CROSSWALK_PRECONDITIONS_NOT_MET") &&
+      runner.includes("no_canonical_source_links"),
+    "Tier-2 canonical-source precondition result is not persisted under run_notes.tier2_precondition",
   );
 
   // Fix: sunbiz batch includes address fields
@@ -966,11 +1058,13 @@ async function phaseJ_dbAtomicity(): Promise<void> {
 
   // Import pg pool for direct DB access
   const { Pool } = await import("pg");
-  // Use the same DATABASE_URL the app pool uses — individual PGHOST/PGUSER vars
-  // may not be set or may point to a different endpoint than the actual app DB.
+  // Use the exact app DATABASE_URL, but refuse anything except the owned local
+  // rehearsal socket. Node-postgres SSL must be disabled for this Unix socket;
+  // never fall back to a remote host or a looser SSL mode.
+  const privateDatabaseUrl = requirePrivateDisposableDatabaseUrl();
   const pgPool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    connectionString: privateDatabaseUrl,
+    ssl: false,
     max: 2,
     connectionTimeoutMillis: 8000,
   });
@@ -1032,8 +1126,8 @@ async function phaseJ_dbAtomicity(): Promise<void> {
       const anyUser = await client.query(`SELECT id FROM users LIMIT 1`);
       const testUserId = anyUser.rows[0]?.id ?? null;
 
-      // Check for an existing active run. If one exists, we skip J2/J3/J4 rather than
-      // cancel it — cancelling a legitimate production run would be destructive.
+      // A clean disposable database must not contain another active run. Do not
+      // cancel it or silently count the DB-backed atomicity cases as certified.
       const existingActiveRun = await client.query(
         `SELECT id, status FROM contact_identity_reconciliation_runs
          WHERE status IN ('pending','running','paused') LIMIT 1`,
@@ -1041,10 +1135,11 @@ async function phaseJ_dbAtomicity(): Promise<void> {
       if (existingActiveRun.rows.length > 0) {
         const activeId = existingActiveRun.rows[0].id;
         const activeStatus = existingActiveRun.rows[0].status;
-        warn(`J-fixture: an active run (id=${activeId}, status=${activeStatus}) exists — skipping J2/J3/J4 to avoid disrupting it.\n` +
-          `  Cancel the active run via the UI first, then re-run the cert suite.`);
-        // Run an abridged watermark-only J1 (already done above) and fall through gracefully.
-        client.release();
+        assert(
+          "J-fixture: isolated disposable DB has no pre-existing active crosswalk run",
+          false,
+          `active run id=${activeId}, status=${activeStatus}; refusing to cancel it or skip J2/J3/J4`,
+        );
         return;
       }
 
@@ -1334,9 +1429,14 @@ async function main(): Promise<void> {
   // Server-required checks
   const loggedIn = await login();
   if (!loggedIn) {
-    console.warn("\nWARN: Could not authenticate — skipping HTTP phases D–G");
-    console.warn("      Set ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD to enable.\n");
+    assert(
+      "Server-required HTTP phases D–G require a verified canonical admin session",
+      false,
+      "authentication failed; the suite cannot report partial success with HTTP phases unrun",
+    );
+    console.error("\nERROR: HTTP phases A and D–G were not run because canonical admin authentication failed.\n");
   } else {
+    await phaseSessionCsrf();
     await phaseA_schema();
     await phaseD_enrichmentGate();
     await phaseE_routes();
@@ -1350,9 +1450,6 @@ async function main(): Promise<void> {
   console.log("\n" + "=".repeat(70));
   if (failed === 0 && loggedIn) {
     console.log(`  ✅ ALL ${passed} ASSERTIONS PASSED — GO`);
-  } else if (failed === 0 && !loggedIn) {
-    console.log(`  ⚠️  ${passed} STATIC ASSERTIONS PASSED — PARTIAL (HTTP phases D–G skipped)`);
-    console.log("     Set ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD for full validation.");
   } else {
     console.log(`  ✗ ${failed} FAILED / ${passed} PASSED`);
     for (const r of results.filter((r) => !r.pass)) {
@@ -1361,10 +1458,9 @@ async function main(): Promise<void> {
   }
   console.log("=".repeat(70) + "\n");
 
-  // Exit 1 only on actual failures.
-  // PARTIAL (skipped HTTP phases) exits 0 so CI doesn't block on missing credentials,
-  // but the output explicitly says PARTIAL — not GO — so reviewers see the limitation.
-  process.exit(failed > 0 ? 1 : 0);
+  // This is a server-required release certification: missing auth/HTTP phases
+  // are failures, never a successful partial run.
+  process.exit(failed > 0 || !loggedIn ? 1 : 0);
 }
 
 main().catch((err) => {

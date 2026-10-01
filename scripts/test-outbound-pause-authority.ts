@@ -745,13 +745,14 @@ try {
   fail("registerInflight fail-closed test threw", err.message);
 }
 
-// ── 18. admin.ts cohort-launch routes through OutboundControlService ──────────
+// ── 18. Legacy cohort-launch stays fenced and cannot mutate pause authority ───
 //
 // A direct storage.setSystemSetting("outboundGlobalPaused", false) write from
-// admin.ts bypasses the canonical control table and audit log. Verify the
-// cohort-launch code uses applyPauseMutation() instead.
+// admin.ts bypasses the canonical control table and audit log. The legacy
+// cohort-launch handler is now deliberately disabled; only governed CR-06
+// commands may prepare work, and this route must not mutate pause state.
 
-section("18. admin.ts cohort-launch routes through OutboundControlService");
+section("18. Legacy cohort-launch is fenced without pause-authority mutation");
 
 try {
   const fs = await import("fs");
@@ -763,17 +764,39 @@ try {
   if (directWritePattern.test(adminSrc)) {
     fail(
       "admin.ts still has a direct storage.setSystemSetting('outboundGlobalPaused', false) write — " +
-      "must route through applyPauseMutation() to keep canonical control table authoritative",
+      "legacy routes must remain mutation-free and governed commands must use canonical pause authority",
     );
   } else {
-    ok("admin.ts: no direct setSystemSetting write for outboundGlobalPaused (cohort-launch routed through OutboundControlService)");
+    ok("admin.ts: no direct setSystemSetting write for outboundGlobalPaused");
   }
 
-  // Should have applyPauseMutation in the cohort-launch section
-  if (adminSrc.includes("applyPauseMutation")) {
-    ok("admin.ts: applyPauseMutation() is referenced — cohort-launch mutation is properly owned");
+  const routeStart = adminSrc.indexOf('app.post("/api/admin/outbound/cohort-launch"');
+  const routeEnd = routeStart < 0 ? -1 : adminSrc.indexOf("\n  });", routeStart);
+  const cohortLaunchRoute = routeStart < 0 || routeEnd < 0
+    ? ""
+    : adminSrc.slice(routeStart, routeEnd);
+  if (cohortLaunchRoute) {
+    ok("admin.ts: legacy cohort-launch handler remains present for migration responses");
   } else {
-    fail("admin.ts: applyPauseMutation() not found — cohort-launch pause removal may bypass canonical authority");
+    fail("admin.ts: legacy cohort-launch handler is missing");
+  }
+
+  if (
+    /res\.status\(409\)/.test(cohortLaunchRoute) &&
+    /launched:\s*false/.test(cohortLaunchRoute) &&
+    /prepared:\s*false/.test(cohortLaunchRoute) &&
+    /globalPauseChanged:\s*false/.test(cohortLaunchRoute) &&
+    /CR06_GOVERNED_COMMAND_REQUIRED/.test(cohortLaunchRoute)
+  ) {
+    ok("admin.ts: cohort-launch explicitly denies legacy launch and directs callers to governed CR-06 commands");
+  } else {
+    fail("admin.ts: cohort-launch no longer satisfies its disabled 409 migration contract");
+  }
+
+  if (!/\b(?:applyPauseMutation|setSystemSetting|setPause|pauseControlService)\b/.test(cohortLaunchRoute)) {
+    ok("admin.ts: fenced cohort-launch route performs no pause-authority mutation");
+  } else {
+    fail("admin.ts: disabled cohort-launch route must not mutate pause authority");
   }
 } catch (err: any) {
   fail("admin.ts cohort-launch routing test threw", err.message);

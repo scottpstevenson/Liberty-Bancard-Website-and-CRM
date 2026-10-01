@@ -2327,7 +2327,7 @@ class QueueManager {
                   INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
                   VALUES ('free_enrichment_processing_auto_reclaimed', 'business', ${String(bizRow.id)},
                           'system', 'free-enrichment-lane-reaper',
-                          ${JSON.stringify({ staleAfterMs: BUSINESS_STALE_MS })}::jsonb)
+                          ${JSON.stringify(sanitizeAuditPayload({ staleAfterMs: BUSINESS_STALE_MS }))}::jsonb)
                 `).catch((auditErr: any) => console.error('[FreeEnrich] Audit log error:', auditErr?.message));
               }
             }

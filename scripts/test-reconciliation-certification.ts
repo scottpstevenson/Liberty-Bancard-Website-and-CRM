@@ -226,8 +226,9 @@ async function main() {
   console.log("[Cert] Seeding test data...");
 
   const censusRunR = await client.query(
-    `INSERT INTO contact_census_runs (id, status, requested_by, denominator_at_start, max_contact_id_at_start)
-     VALUES ($1, 'completed', 'test', 5, 1000)
+    `INSERT INTO contact_census_runs
+       (id, environment_label, status, requested_by, denominator_at_start, max_contact_id_at_start)
+     VALUES ($1, 'development_preview', 'completed', 'test', 5, 1000)
      RETURNING id`,
     [RUN_ID],
   );

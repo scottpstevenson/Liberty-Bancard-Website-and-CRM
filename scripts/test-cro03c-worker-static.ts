@@ -63,17 +63,28 @@ async function assertObservedWorkerFleet(): Promise<void> {
   });
   assert.equal(fleet.complete, true);
   assert.deepEqual(fleet.heartbeats.map((entry) => entry.bootIdentity).sort(), ["boot-a", "boot-b"]);
-  await mustReject(readCro03cWorkerFleet({
+  const releaseMismatch = await readCro03cWorkerFleet({
     redis, prefix: "ci:", expectedReleaseSha: "c".repeat(40),
     expectedQueueTopologyHash: "b".repeat(64), expectedProcessIdentities: ["worker-a", "worker-b"], now,
-  }), "CRO03C_WORKER_RELEASE_MISMATCH");
+  });
+  assert.equal(releaseMismatch.complete, true, "release SHA drift is diagnostic, not a fleet gate");
+  assert.equal(releaseMismatch.heartbeats.length, 2);
+  assert.deepEqual(
+    releaseMismatch.releaseShaWarnings?.map((warning) => warning.workerSha),
+    ["a".repeat(40), "a".repeat(40)],
+  );
+  await mustReject(readCro03cWorkerFleet({
+    redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
+    expectedQueueTopologyHash: "b".repeat(64), expectedProcessIdentities: ["worker-a", "worker-b"],
+    now: new Date(now.getTime() + 60_001),
+  }), "CRO03C_WORKER_HEARTBEAT_STALE");
   await mustReject(readCro03cWorkerFleet({
     redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
     expectedQueueTopologyHash: "d".repeat(64), expectedProcessIdentities: ["worker-a", "worker-b"], now,
   }), "CRO03C_WORKER_TOPOLOGY_MISMATCH");
   await mustReject(readCro03cWorkerFleet({
     redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
-    expectedQueueTopologyHash: "b".repeat(64), expectedProcessIdentities: ["worker-a"], now,
+    expectedQueueTopologyHash: "b".repeat(64), expectedProcessIdentities: ["worker-a", "worker-c"], now,
   }), "CRO03C_WORKER_FLEET_SIZE_MISMATCH");
 
   let scans = 0;
@@ -112,21 +123,27 @@ async function assertObservedWorkerFleet(): Promise<void> {
   assert.equal(discoveryResult.complete, true);
   assert.equal(discoveryResult.heartbeats.length, 2);
 
-  // W09: Environment identity mismatch is rejected in discovery mode
-  await mustReject(readCro03cWorkerFleet({
+  // Discovery mode excludes a foreign environment instead of aborting its scan.
+  const discoveryEnvMismatch = await readCro03cWorkerFleet({
     redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
     expectedQueueTopologyHash: "b".repeat(64),
     expectedProcessIdentities: [],  // discovery mode
-    expectedEnvironmentIdentity: "production",  // heartbeats carry default (process.env.NODE_ENV)
+    expectedEnvironmentIdentity: "cro03c-test-unexpected-environment",
     now,
-  }), "CRO03C_WORKER_ENVIRONMENT_MISMATCH");
+  });
+  assert.equal(discoveryEnvMismatch.complete, true);
+  assert.equal(discoveryEnvMismatch.heartbeats.length, 0);
+  assert.deepEqual(
+    discoveryEnvMismatch.generationalSkips?.map((skip) => skip.reason),
+    ["ENVIRONMENT_MISMATCH", "ENVIRONMENT_MISMATCH"],
+  );
 
   // W09: Environment identity mismatch is rejected in verification mode too
   await mustReject(readCro03cWorkerFleet({
     redis, prefix: "ci:", expectedReleaseSha: "a".repeat(40),
     expectedQueueTopologyHash: "b".repeat(64),
     expectedProcessIdentities: ["worker-a", "worker-b"],
-    expectedEnvironmentIdentity: "production",  // heartbeats carry default (process.env.NODE_ENV)
+    expectedEnvironmentIdentity: "cro03c-test-unexpected-environment",
     now,
   }), "CRO03C_WORKER_ENVIRONMENT_MISMATCH");
 

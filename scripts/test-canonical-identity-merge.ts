@@ -37,18 +37,26 @@ async function main() {
   const recipientCommitmentDisposition = merge.CONTACT_MERGE_MANIFEST.find(
     (entry: any) => entry.key === "sfp_recipient_address_commitments",
   );
+  const zeroBounceAttemptDisposition = merge.CONTACT_MERGE_MANIFEST.find(
+    (entry: any) => entry.key === "zerobounce_attempts",
+  );
   assert(
     sfpLinkEvidenceDisposition?.table === "contact_business_sfp_link_evidence" &&
       sfpLinkEvidenceDisposition.column === "contact_id" &&
       sfpLinkEvidenceDisposition.disposition === "manual_block" &&
       recipientCommitmentDisposition?.table === "sfp_recipient_address_commitments" &&
       recipientCommitmentDisposition.column === "contact_id" &&
-      recipientCommitmentDisposition.disposition === "manual_block",
-    "SFP contact/business evidence and recipient commitments are explicit non-transferable merge blocks",
+      recipientCommitmentDisposition.disposition === "manual_block" &&
+      zeroBounceAttemptDisposition?.table === "zerobounce_attempts" &&
+      zeroBounceAttemptDisposition.column === "contact_id" &&
+      zeroBounceAttemptDisposition.disposition === "manual_block" &&
+      zeroBounceAttemptDisposition.lockMode === "share_row_exclusive",
+    "SFP evidence, recipient commitments, and immutable ZeroBounce attempts are explicit merge blocks",
   );
 
   const fixtureIds: number[] = [];
   const operationIds: string[] = [];
+  const zeroBounceCampaignIds: string[] = [];
   let transferDealId: number | null = null;
   const nonce = crypto.randomUUID().slice(0, 8);
   const makeContact = async (label: string, email: string, extra: Record<string, unknown> = {}) => {
@@ -175,6 +183,87 @@ async function main() {
       unsafeUndoRejected = error?.code === "UNDO_BLOCKED";
     }
     assert(unsafeUndoRejected, "undo fails closed after provider work is terminalized");
+
+    // ZeroBounce attempt rows have a contact_id but no contacts FK. Insert only
+    // a local pending claim (no provider status/receipt), after a clean preview,
+    // to verify execution rescans and durably blocks before creating a redirect.
+    const zbSurvivor = await makeContact("zb-survivor", `bt07-zb-${nonce}@example.test`);
+    const zbDeprecated = await makeContact("zb-deprecated", `BT07-zb-${nonce}@example.test`);
+    const zbInitialPreview = await merge.previewContactMerge({
+      survivorContactId: zbSurvivor.id, deprecatedContactId: zbDeprecated.id,
+      idempotencyKey: crypto.randomUUID(), actorId: "bt07-admin", actorRole: "admin",
+      fieldDecisions: { email: "survivor", phone: "survivor" },
+    });
+    operationIds.push(zbInitialPreview.operationId);
+    assert(
+      zbInitialPreview.relationshipCounts.zerobounce_attempts === 0 && zbInitialPreview.conflicts.length === 0,
+      "clean preview records the exact non-FK ZeroBounce attempt count",
+    );
+
+    const [zbCampaign] = (await db.execute(sql`
+      INSERT INTO zerobounce_campaigns (status, created_by)
+      VALUES ('active', 'bt07-test')
+      RETURNING id
+    `) as any).rows;
+    zeroBounceCampaignIds.push(zbCampaign.id);
+    const [zbRun] = (await db.execute(sql`
+      INSERT INTO zerobounce_runs (campaign_id, state, contact_limit)
+      VALUES (${zbCampaign.id}, 'running', 1)
+      RETURNING id
+    `) as any).rows;
+    const [zbAttempt] = (await db.execute(sql`
+      INSERT INTO zerobounce_attempts (campaign_id, run_id, contact_id, outcome, credit_state)
+      VALUES (${zbCampaign.id}, ${zbRun.id}, ${zbDeprecated.id}, 'pending', 'none')
+      RETURNING id, contact_id, outcome, provider_status, credit_state
+    `) as any).rows;
+    assert(
+      Number(zbAttempt.contact_id) === zbDeprecated.id &&
+        zbAttempt.outcome === "pending" &&
+        zbAttempt.provider_status === null &&
+        zbAttempt.credit_state === "none",
+      "fixture contains only an immutable local ZeroBounce attempt claim, not a fabricated provider receipt",
+    );
+
+    await merge.approveContactMerge(zbInitialPreview.operationId, "bt07-admin");
+    let zeroBounceBlockCode: string | null = null;
+    try {
+      await merge.executeContactMerge(zbInitialPreview.operationId, "bt07-admin");
+    } catch (error: any) {
+      zeroBounceBlockCode = error?.code ?? null;
+    }
+    const [zbBlockedOperation] = (await db.execute(sql`
+      SELECT status, conflict_reason FROM contact_merge_operations WHERE id = ${zbInitialPreview.operationId}
+    `) as any).rows;
+    const [zbRedirect] = (await db.execute(sql`
+      SELECT id FROM contact_merge_redirects
+      WHERE deprecated_contact_id = ${zbDeprecated.id} AND active
+    `) as any).rows;
+    const [zbAttemptAfterBlock] = (await db.execute(sql`
+      SELECT contact_id, outcome, provider_status, credit_state
+      FROM zerobounce_attempts WHERE id = ${zbAttempt.id}
+    `) as any).rows;
+    assert(
+      zeroBounceBlockCode === "MANUAL_BLOCK_ZEROBOUNCE_ATTEMPTS" &&
+        zbBlockedOperation.status === "blocked" &&
+        zbBlockedOperation.conflict_reason === "MANUAL_BLOCK_ZEROBOUNCE_ATTEMPTS" &&
+        !zbRedirect &&
+        Number(zbAttemptAfterBlock.contact_id) === zbDeprecated.id &&
+        zbAttemptAfterBlock.outcome === "pending" &&
+        zbAttemptAfterBlock.provider_status === null,
+      "new non-FK validation attempt durably blocks execution before any contact reparent or redirect",
+    );
+
+    const zbHeldPreview = await merge.previewContactMerge({
+      survivorContactId: zbSurvivor.id, deprecatedContactId: zbDeprecated.id,
+      idempotencyKey: crypto.randomUUID(), actorId: "bt07-admin", actorRole: "admin",
+      fieldDecisions: { email: "survivor", phone: "survivor" },
+    });
+    operationIds.push(zbHeldPreview.operationId);
+    assert(
+      zbHeldPreview.relationshipCounts.zerobounce_attempts === 1 &&
+        zbHeldPreview.conflicts.includes("MANUAL_BLOCK_ZEROBOUNCE_ATTEMPTS"),
+      "subsequent preview counts the immutable attempt and remains manually held",
+    );
   } finally {
     // Delete dependents first; immutable authority/history evidence is left
     // attached in disposable CI DB and is removed with the fixture contacts.
@@ -184,6 +273,9 @@ async function main() {
       await db.execute(sql`DELETE FROM contact_merge_redirects WHERE operation_id = ${operationId}`).catch(() => undefined);
       await db.execute(sql`DELETE FROM contact_merge_reconciliations WHERE operation_id = ${operationId}`).catch(() => undefined);
       await db.execute(sql`DELETE FROM contact_merge_operations WHERE id = ${operationId}`).catch(() => undefined);
+    }
+    for (const campaignId of zeroBounceCampaignIds) {
+      await db.execute(sql`DELETE FROM zerobounce_campaigns WHERE id = ${campaignId}`).catch(() => undefined);
     }
     if (fixtureIds.length) {
       if (transferDealId) await db.delete(deals).where(eq(deals.id, transferDealId)).catch(() => undefined);

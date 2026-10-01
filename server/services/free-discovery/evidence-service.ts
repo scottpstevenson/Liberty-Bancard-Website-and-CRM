@@ -130,7 +130,7 @@ export async function reclaimStaleFreeDiscoveryGenerations(
       action: "free_discovery_generation_auto_reclaimed",
       entityType: "free_discovery_generation",
       entityKey: String(row.id),
-      details: {
+       details: sanitizeAuditPayload({
         runKey: row.run_key,
         actorId: row.actor_id,
         reason: row.reason,
@@ -138,7 +138,7 @@ export async function reclaimStaleFreeDiscoveryGenerations(
         staleAfterMs,
         recoveredSubjectCount: row.subject_count,
         recoveredCandidateCount: row.candidate_count,
-      },
+       }),
       actorType: "system",
       actorId: "free_discovery_generation_reaper",
     }).catch((err) => console.error("[FreeDiscoveryReaper] Failed to write audit log for reclaimed generation", row.id, err));

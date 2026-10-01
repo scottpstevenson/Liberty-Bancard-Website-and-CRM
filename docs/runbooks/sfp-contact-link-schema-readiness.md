@@ -44,7 +44,7 @@ WHERE (c.relname, t.tgname) IN (
 -- COMMERCIAL_SYSTEM_LINK_CONTRACT_REQUIRED and keep its admin reviewer branch.
 ```
 
-Use `docs/runbooks/sfp-contact-link-schema-checks.sql` for exact read-only
+Use `docs/runbooks/sfp-contact-link-schema-checks.md` for exact read-only
 prechecks and postchecks. Its final `schema_ready` must be true before link
 apply. It checks public-schema function fingerprints, unconditional enabled
 trigger/event definitions, evidence FKs with RESTRICT deletion, and both exact

@@ -97,7 +97,7 @@
     "memorystore": "^1.6.7",
     "multer": "^2.3.0",
     "next-themes": "^0.4.6",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.0.13",
     "openai": "^6.49.0",
     "openid-client": "^6.8.2",
     "otplib": "^13.4.0",
@@ -168,6 +168,9 @@
     "vite": "^7.3.6"
   },
   "overrides": {
+    "brace-expansion@>=2 <3": "^2.1.7",
+    "brace-expansion@>=5 <6": "^5.0.12",
+    "undici": "^7.29.1",
     "drizzle-kit": {
       "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
     }

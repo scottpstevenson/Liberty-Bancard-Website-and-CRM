@@ -27,9 +27,8 @@
  *                        → sdr_lead_events row written with eventType='appointment_booked'
  *
  * ── CLEANUP ──────────────────────────────────────────────────────────────────
- * `finally` block deletes from: contacts, deals, documents, merchant_applications,
- * consent_audit_logs, sdr_lead_events, audit_logs. Records that cannot be safely
- * deleted are tagged doNotAutoContact=true + QA_RELEASE_TEST in notes.
+ * `finally` block deletes its terminal command and dependent fixtures. Protected
+ * object ciphertext remains under the disposable database's teardown ownership.
  *
  * Exit codes: 0 = all pass, 1 = any fail, 2 = environment not suitable
  *
@@ -38,14 +37,8 @@
  *   (server must run with GHL_TRANSPORT_FAILFAST=true when a real GHL token is set)
  */
 
-import { db } from "../server/db";
-import { contacts, deals, consentAuditLogs, sdrMerchants, partners, sdrLeadState } from "../shared/schema";
-import { pool } from "../server/db";
-import { eq, and, desc } from "drizzle-orm";
-import { sql as drizzleSql } from "drizzle-orm";
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
+import crypto from "node:crypto";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:5000";
 
@@ -84,6 +77,25 @@ if (TOKEN_LOOKS_REAL) {
   console.log("🔒 GHL isolation method: GHL_PRIVATE_INTEGRATION_TOKEN is absent or sentinel — GHL API calls will fail at the API layer (safe)");
 }
 
+await assertDisposableTestInfrastructure({
+  operation: "public-forms integration certification",
+  requireRedis: false,
+});
+
+const [{ db, pool }, schema, drizzle] = await Promise.all([
+  import("../server/db"),
+  import("../shared/schema"),
+  import("drizzle-orm"),
+]);
+const {
+  contacts,
+  consentAuditLogs,
+  sdrMerchants,
+  partners,
+  sdrLeadState,
+} = schema;
+const { eq, and, sql: drizzleSql } = drizzle;
+
 let passed = 0;
 let failed = 0;
 const failures: string[] = [];
@@ -98,7 +110,6 @@ const statementFixture: {
   contactId?: number;
   dealId?: number;
   partnerId?: number;
-  root?: string;
 } = {};
 
 function assert(label: string, condition: boolean, detail?: string) {
@@ -153,16 +164,11 @@ async function cleanup(): Promise<void> {
     `).catch(() => null) as any;
     const commandRows = Array.isArray(commandResult) ? commandResult : commandResult?.rows ?? [];
     const command = commandRows[0];
-    const durableFilePath = command?.context?.durableFilePath;
-    const root = typeof durableFilePath === "string" ? path.dirname(path.resolve(durableFilePath)) : statementFixture.root;
-    const safeRoot = typeof root === "string" &&
-      root.startsWith(path.resolve(os.tmpdir()) + path.sep) &&
-      path.basename(root).startsWith("liberty-statement-command-test-");
     const terminalAndUnleased =
       (command?.status === "succeeded" || command?.status === "recoverable_failed") &&
       !command?.lease_token;
-    let commandDeleted = !command;
-    if (terminalAndUnleased && safeRoot) {
+    let commandDeleted = commandResult !== null && !command;
+    if (terminalAndUnleased) {
       const deleted = await db.execute(drizzleSql`
         DELETE FROM statement_upload_commands
         WHERE id = ${statementFixture.commandId}
@@ -172,11 +178,7 @@ async function cleanup(): Promise<void> {
       `).catch(() => null) as any;
       const deletedRows = Array.isArray(deleted) ? deleted : deleted?.rows ?? [];
       commandDeleted = deletedRows.length === 1;
-      if (commandDeleted) {
-        await fs.rm(root, { recursive: true, force: true });
-        const rootStillExists = await fs.stat(root).then(() => true).catch(() => false);
-        assert("Disposable statement command root removed after terminal command cleanup", !rootStillExists);
-      }
+      assert("Terminal statement command deleted after lease release", commandDeleted);
     }
     if (!commandDeleted) {
       const protectedContactIds = new Set(
@@ -260,7 +262,8 @@ async function cleanup(): Promise<void> {
   }
 
   console.log(`  Cleaned up: ${cleanupContactIds.length} contact(s), ${cleanupDealIds.length} deal(s), ${cleanupAppIds.length} application(s)`);
-  console.log("  Tables cleaned: contacts, deals, documents, merchant_applications, consent_audit_logs, sdr_lead_events, audit_logs, sequence_enrollments, referrals, affiliate_clicks, merchant_referrals");
+  console.log("  Cleanup handled: statement_upload_commands, contacts, deals, documents, merchant_applications, consent_audit_logs, sdr_lead_events, audit_logs, sequence_enrollments, referrals, affiliate_clicks, merchant_referrals");
+  console.log("  Protected-object ciphertext remains for disposable database teardown.");
 }
 
 // ── Test 1: Statement Upload ──────────────────────────────────────────────────
@@ -334,7 +337,16 @@ async function testStatementUpload(): Promise<void> {
   );
   if (res.status === 429) return;
   const statementResponse = await res.json().catch(() => null);
-  const statementCommandId = statementResponse?.statement_upload_request_id;
+  const rawStatementCommandLookup = await db.execute(drizzleSql`
+    SELECT id FROM statement_upload_commands
+    WHERE request_id = ${stmtIdempotencyKey}
+    LIMIT 1
+  `).catch(() => null) as any;
+  const statementCommandRows = Array.isArray(rawStatementCommandLookup)
+    ? rawStatementCommandLookup
+    : rawStatementCommandLookup?.rows ?? [];
+  const statementCommandId =
+    statementResponse?.statement_upload_request_id ?? statementCommandRows[0]?.id;
   if (statementCommandId) statementFixture.commandId = statementCommandId;
 
   // Statement chain is fire-and-forget; poll for up to 4s for contact + deal to appear
@@ -393,7 +405,7 @@ async function testStatementUpload(): Promise<void> {
   if (statementCommandId) {
     for (let i = 0; i < 120; i++) {
       const rawCommand = await db.execute(drizzleSql`
-        SELECT status, context, lease_token FROM statement_upload_commands
+        SELECT status, context, lease_token, contact_id, deal_id FROM statement_upload_commands
         WHERE id = ${statementCommandId} LIMIT 1
       `) as any;
       const commandRows = Array.isArray(rawCommand) ? rawCommand : rawCommand?.rows ?? [];
@@ -408,22 +420,60 @@ async function testStatementUpload(): Promise<void> {
     terminalForTestCleanup && !commandRow?.lease_token,
     `commandId=${statementCommandId ?? "missing"} status=${commandRow?.status ?? "missing"}`);
 
-  const durableFilePath = commandRow?.context?.durableFilePath;
-  if (terminalForTestCleanup && !commandRow?.lease_token && typeof durableFilePath === "string") {
-    const resolvedFile = path.resolve(durableFilePath);
-    const resolvedCheckout = path.resolve(process.cwd());
-    const resolvedTmp = path.resolve(os.tmpdir());
-    const root = path.dirname(resolvedFile);
-    const outsideCheckout = path.relative(resolvedCheckout, resolvedFile).startsWith("..");
-    const underTemp = !path.relative(resolvedTmp, resolvedFile).startsWith("..");
-    const collisionSafeRoot = path.basename(root).startsWith("liberty-statement-command-test-");
-    assert("Statement fixture is stored outside the source checkout", outsideCheckout);
-    assert("Statement fixture uses a validated collision-safe disposable test root", underTemp && collisionSafeRoot);
-    if (outsideCheckout && underTemp && collisionSafeRoot && statementCommandId) {
-      statementFixture.root = root;
-    }
+  const protectedObjectRef = commandRow?.context?.protectedObjectRef;
+  const protectedObjectChecksum = commandRow?.context?.protectedObjectChecksum;
+  const validProtectedObjectRef =
+    typeof protectedObjectRef === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(protectedObjectRef);
+  const validProtectedObjectChecksum =
+    typeof protectedObjectChecksum === "string" && /^[0-9a-f]{64}$/i.test(protectedObjectChecksum);
+  assert(
+    "Statement command stores an opaque protectedObjectRef",
+    validProtectedObjectRef,
+    `protectedObjectRef=${String(protectedObjectRef)}`,
+  );
+  assert(
+    "Statement command stores the protected-object SHA-256 checksum",
+    validProtectedObjectChecksum,
+    `protectedObjectChecksum=${String(protectedObjectChecksum)}`,
+  );
+
+  let protectedObject: any;
+  if (validProtectedObjectRef && contact) {
+    const expectedTenant = `contact:${contact.id}`;
+    const expectedEnvironment = process.env.NODE_ENV || "development";
+    const rawObject = await db.execute(drizzleSql`
+      SELECT object_ref, checksum_sha256, tenant_scope, environment_scope,
+             validation_state, retention_state, deleted_at
+      FROM protected_objects
+      WHERE object_ref = ${protectedObjectRef}::uuid
+        AND tenant_scope = ${expectedTenant}
+        AND environment_scope = ${expectedEnvironment}
+      LIMIT 1
+    `) as any;
+    const objectRows = Array.isArray(rawObject) ? rawObject : rawObject?.rows ?? [];
+    protectedObject = objectRows[0];
+    assert(
+      "Protected object belongs to the uploaded contact and current environment",
+      protectedObject?.object_ref === protectedObjectRef &&
+        protectedObject?.tenant_scope === expectedTenant &&
+        protectedObject?.environment_scope === expectedEnvironment,
+      `tenant="${protectedObject?.tenant_scope}" environment="${protectedObject?.environment_scope}"`,
+    );
+    assert(
+      "Protected object checksum matches the command and is validated + active",
+      protectedObject?.checksum_sha256 === protectedObjectChecksum &&
+        protectedObject?.validation_state === "validated" &&
+        protectedObject?.retention_state === "active" &&
+        protectedObject?.deleted_at === null,
+      `checksumMatches=${protectedObject?.checksum_sha256 === protectedObjectChecksum} validation="${protectedObject?.validation_state}" retention="${protectedObject?.retention_state}" deletedAt="${protectedObject?.deleted_at}"`,
+    );
   } else {
-    assert("Terminal statement command exposes a disposable durable path", false);
+    assert(
+      "Protected-object metadata lookup has a valid ref and contact scope",
+      false,
+      `refValid=${validProtectedObjectRef} contactId=${contact?.id}`,
+    );
   }
 
   // Verify referral attribution row was created — trackReferral stores referred_email (not contact_id)
@@ -452,15 +502,14 @@ async function testEstimateForm(): Promise<void> {
 
   const email = uniqueEmail("qa-release-test-estimate");
   const payload = {
-    firstName: "EstTest",
-    lastName: "QAUser",
+    contactName: "EstTest QAUser",
+    businessName: "QA_RELEASE_TEST Estimate Co",
     email,
     phone: uniquePhone(),
-    businessName: "QA_RELEASE_TEST Estimate Co",
+    vertical: "Restaurant",
     monthlyVolume: "15000",
-    currentRate: "3.5",
-    leadSource: "google",
-    sourceCategory: "inbound",
+    totalFees: "525",
+    currentProvider: "Square",
     referralCode: testAffiliateCode,   // ?ref= attribution path
   };
 
@@ -468,7 +517,10 @@ async function testEstimateForm(): Promise<void> {
   try {
     res = await fetch(`${BASE_URL}/api/public/estimate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
       body: JSON.stringify(payload),
     });
   } catch (err) {
@@ -531,23 +583,25 @@ async function testGetStartedForm(): Promise<void> {
 
   const email = uniqueEmail("qa-release-test-getstarted");
   const payload = {
+    goal: "lower fees",
+    vertical: "Restaurant",
+    monthlyVolume: "$5k-$15k",
+    needTerminal: false,
+    interestedIn0Percent: false,
     firstName: "GetStarted",
     lastName: "QAUser",
     email,
     phone: uniquePhone(),
-    businessName: "QA_RELEASE_TEST GetStarted Co",
-    businessType: "restaurant",
-    monthlyVolume: "10000",
-    leadSource: "website",
-    sourceCategory: "inbound",
-    path: "upload",
   };
 
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}/api/public/get-started`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
       body: JSON.stringify(payload),
     });
   } catch (err) {
@@ -653,16 +707,27 @@ async function testMerchantApplication(): Promise<void> {
   assert("Merchant app finalize endpoint responsive", finalStatus < 500, `status=${finalStatus}`);
   assert("Merchant app finalize returns 2xx (PATCH with valid draft token)", finalStatus >= 200 && finalStatus < 300, `status=${finalStatus}`);
 
-  // Step 4c: Verify PEWC consent_audit_log was written (async side-effect — poll up to 2.5s)
-  await new Promise(r => setTimeout(r, 1500));
-  const [finalContact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
+  // The durable merchant-application outbox polls every 15s when its expedited
+  // tick is unavailable. Wait for its real bounded delivery window; do not
+  // accept a submitted application without the contact and consent evidence.
+  const outboxDeadline = Date.now() + 20_000;
+  let finalContact: typeof import("../shared/schema").contacts.$inferSelect | undefined;
+  let consentLogs: any[] = [];
+  do {
+    [finalContact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
+    if (finalContact) {
+      consentLogs = await db
+        .select()
+        .from(consentAuditLogs)
+        .where(and(eq(consentAuditLogs.contactId, finalContact.id), eq(consentAuditLogs.consented, true)))
+        .limit(5);
+      if (consentLogs.length > 0) break;
+    }
+    await new Promise(r => setTimeout(r, 500));
+  } while (Date.now() < outboxDeadline);
+
   if (finalContact) {
     if (!cleanupContactIds.includes(finalContact.id)) cleanupContactIds.push(finalContact.id);
-    const consentLogs = await db
-      .select()
-      .from(consentAuditLogs)
-      .where(and(eq(consentAuditLogs.contactId, finalContact.id), eq(consentAuditLogs.consented, true)))
-      .limit(5);
     assert("PEWC consent_audit_logs entry created on finalize", consentLogs.length > 0, `no PEWC log found for contactId=${finalContact.id}`);
     assert("Consent log has consented=true", consentLogs[0]?.consented === true, `consented=${consentLogs[0]?.consented}`);
   } else {
@@ -840,14 +905,6 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   console.log("✓ Dev server reachable\n");
-
-  const health = await fetch(`${BASE_URL}/api/health`).then(res => res.json()).catch(() => ({})) as any;
-  if (health?.statementCommandTestStorage !== true) {
-    console.error("❌ Server does not have disposable statement-command test storage enabled.");
-    console.error("   Start it through scripts/run-pre-deploy.sh; refusing to create a fixture beneath the checkout.");
-    process.exit(2);
-  }
-  console.log("✓ Disposable statement-command test storage verified\n");
 
   try {
     await testStatementUpload();

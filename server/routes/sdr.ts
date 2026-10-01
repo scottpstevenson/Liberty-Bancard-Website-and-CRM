@@ -24,6 +24,7 @@ import { applyConsentCommand } from "../services/consent-authority";
 import { authorizeBusinessAccess } from "../services/crm-object-access";
 import { updateOrganizationDescriptive } from "../services/organization-service";
 import { claimVerifiedProviderEvent, linkInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
+import { certificationHttpReadinessFields } from "../lib/certification-http-contract";
 
 // ── Build identity — frozen at process start, never derived at request time ──
 // RELEASE_SHA must be a 40-hex string injected by the deployment pipeline via
@@ -98,6 +99,7 @@ export function registerSdrRoutes(app: Express) {
       // actually installed on the server they're hitting before running any
       // test that could otherwise create real GHL contacts.
       ghlTransportFailFast: process.env.GHL_TRANSPORT_FAILFAST === "true",
+      ...certificationHttpReadinessFields(process.env),
     });
   });
 

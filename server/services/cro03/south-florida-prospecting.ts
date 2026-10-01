@@ -88,7 +88,7 @@ export async function setSfpValidationPromotionOverride(input: {
   await db.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_validation_promotion_override_changed', 'system_setting', ${SFP_VALIDATION_PROMOTION_OVERRIDE_KEY},
-            'user', ${input.actorId}, ${JSON.stringify({ override: input.value, effective })}::jsonb)
+            'user', ${input.actorId}, ${JSON.stringify(sanitizeAuditPayload({ override: input.value, effective }))}::jsonb)
   `);
   return { override: input.value, effective };
 }
@@ -289,7 +289,7 @@ export async function initializeProgramFromLegacyConfig(opts: {
   await db.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_program_initialized_from_legacy_config', 'sfp_program', ${String(created.id)}, 'user', ${opts.actorId},
-            ${JSON.stringify({ source: "cro03c_roi_pilot_verticals", sourceHash, verticalIds: legacyVerticalIds })}::jsonb)
+            ${JSON.stringify(sanitizeAuditPayload({ source: "cro03c_roi_pilot_verticals", sourceHash, verticalIds: legacyVerticalIds }))}::jsonb)
   `);
 
   return { program: _mapProgram(created), initialized: true };
@@ -336,11 +336,11 @@ export async function migrateProgramToTargetVerticalsV2(opts: {
   await db.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_program_migrated_taxonomy_v2', 'sfp_program', ${String(updated.id)}, 'user', ${opts.actorId},
-            ${JSON.stringify({
+            ${JSON.stringify(sanitizeAuditPayload({
               previousVerticalIds, previousPolicyVersion,
               newVerticalIds, newPolicyVersion: Number(updated.policy_version),
               taxonomyVersion: TAXONOMY_VERSION_V2,
-            })}::jsonb)
+            }))}::jsonb)
   `);
   return { program: _mapProgram(updated), migrated: true };
 }
@@ -395,7 +395,7 @@ export async function setProgramActivation(input: {
   await db.execute(sql`
     INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
     VALUES ('sfp_program_activation_changed', 'sfp_program', ${program.id}, 'user', ${input.actorId},
-            ${JSON.stringify({ active: input.active, recurringEnabled, campaignStagingBatchSize: Number(updated?.schedule_config?.campaignStaging ?? 0) })}::jsonb)
+            ${JSON.stringify(sanitizeAuditPayload({ active: input.active, recurringEnabled, campaignStagingBatchSize: Number(updated?.schedule_config?.campaignStaging ?? 0) }))}::jsonb)
   `);
   return _mapProgram(updated);
 }
@@ -1364,7 +1364,7 @@ export async function voidCohortRun(opts: {
     await tx.execute(sql`
       INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
       VALUES ('sfp_cohort_run_voided', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
-              ${JSON.stringify({ reason: opts.reason })}::jsonb)
+              ${JSON.stringify(sanitizeAuditPayload({ reason: opts.reason }))}::jsonb)
     `);
     return _mapRun(updated);
   });
@@ -1426,7 +1426,7 @@ export async function supersedeCohortRun(opts: {
     await tx.execute(sql`
       INSERT INTO audit_logs (action, entity_type, entity_key, actor_type, actor_id, details)
       VALUES ('sfp_cohort_run_superseded', 'sfp_cohort_run', ${opts.cohortRunId}, 'user', ${opts.actorId},
-              ${JSON.stringify({ supersededByRunId: opts.supersededByRunId })}::jsonb)
+              ${JSON.stringify(sanitizeAuditPayload({ supersededByRunId: opts.supersededByRunId }))}::jsonb)
     `);
     return _mapRun(updated);
   });

@@ -14,7 +14,13 @@ import { CRO03B_UNIFIED_RECIPE } from "../server/services/cro03/recipe-contract"
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const run = crypto.randomUUID();
-const admin = rows(await db.execute(sql`SELECT id FROM users WHERE role='admin' ORDER BY created_at LIMIT 1`))[0];
+const adminEmail = `cro03b-cert-${run}@example.test`;
+await db.execute(sql`
+  INSERT INTO users(email,first_name,last_name,role,auth_provider)
+  VALUES (${adminEmail},'CRO03B','Certification','admin','local')
+  ON CONFLICT (email) DO NOTHING
+`);
+const admin = rows(await db.execute(sql`SELECT id FROM users WHERE email=${adminEmail} AND role='admin'`))[0];
 assert(admin, "admin reviewer fixture required");
 const forbiddenBefore = rows(await db.execute(sql`
   SELECT
@@ -25,6 +31,7 @@ const forbiddenBefore = rows(await db.execute(sql`
 const observedAt = new Date().toISOString();
 const subjectKey = `cro03b-cert-${run}`;
 const email = `cro03b-${run}@example.test`;
+const phone = `305${String(parseInt(run.replace(/-/g, "").slice(0, 8), 16) % 10_000_000).padStart(7, "0")}`;
 await createCro03SourceBatch({
   idempotencyKey: `cro03b-cert-source:${run}`,
   actorType: "system", actorId: "cro03b-certification", purpose: "staging_review",
@@ -34,12 +41,12 @@ await createCro03SourceBatch({
     provenance: { certification: true },
     payload: {
       businessName: `CRO03B Certification ${run}`, website: `https://cro03b-${run}.example.test`,
-      email, phone: "3055550199", address: "100 Test Way", city: "Miami", state: "FL",
+      email, phone, address: "100 Test Way", city: "Miami", state: "FL",
       county: "Miami-Dade", industry: "Auto", entityStatus: "active",
     },
     candidateValues: {
       business_name: `CRO03B Certification ${run}`, website: `https://cro03b-${run}.example.test`,
-      email, phone: "3055550199", address: "100 Test Way", city: "Miami", state: "FL",
+      email, phone, address: "100 Test Way", city: "Miami", state: "FL",
       category: "Auto", entity_status: "active",
     },
   }],
@@ -104,11 +111,14 @@ const validationEffectsBefore = rows(await db.execute(sql`
     (SELECT COUNT(*)::int FROM provider_attempts a JOIN provider_operations o ON o.id=a.operation_id
       WHERE o.provider='zerobounce') AS attempts
 `))[0];
-await reviewAndProjectCro03bItem(String(item.id), String(admin.id));
+const projection = await reviewAndProjectCro03bItem(String(item.id), String(admin.id));
+assert.equal(projection.state, "validation_pending",
+  "the fixture's unique organization anchors and winning email must create a deferred validation intent");
 const finalization = rows(await db.execute(sql`
   SELECT f.*,i.contact_id FROM cro03b_finalization_receipts f
   JOIN cro03b_recipe_items i ON i.id=f.item_id WHERE f.item_id=${item.id}::uuid
 `))[0];
+assert(finalization, "winning-email projection must persist its finalization receipt");
 assert(finalization.validation_intent_id);
 const intents = rows(await db.execute(sql`
   SELECT purpose,enqueue_state,terminal_code,execution_authorized_at,execution_authority,COUNT(*)::int count

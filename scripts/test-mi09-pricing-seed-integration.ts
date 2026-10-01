@@ -10,7 +10,9 @@
  *   3. The snapshot's composite_hash is independently reproducible via
  *      buildCro03PriceScheduleFromArtifacts + stableCro03RecipeHash (the
  *      exact helper the ceremony script and certification gate use).
- *   4. Zero provider transport occurs anywhere in this suite.
+ *   4. Expired snapshots are rejected without mutation, and the runtime
+ *      reader rejects expired snapshots using the database expiry check.
+ *   5. Zero provider transport occurs anywhere in this suite.
  *
  * Runs against a disposable test database only (assertDisposableTestInfrastructure).
  */
@@ -33,6 +35,7 @@ const { sql } = await import("drizzle-orm");
 const {
   reuseOrCreatePricingArtifact,
   createPricingScheduleSnapshot,
+  getCurrentPricingSchedule,
   getPricingArtifacts,
 } = await import("../server/services/mi09-pilot-authority");
 const {
@@ -125,6 +128,7 @@ async function main() {
     assert.equal(second.artifactIds[key], first.artifactIds[key], `expected same artifact id for ${key} on replay`);
   }
   assert.equal(second.snapshot.reused, true, "expected snapshot to be reused on replay");
+  assert.equal(second.snapshot.renewed, false, "an unexpired snapshot reuse must not be marked as renewed");
   assert.equal(second.snapshot.id, first.snapshot.id, "expected same snapshot id on replay");
   assert.equal(second.snapshot.compositeHash, first.snapshot.compositeHash, "expected same composite hash on replay");
 
@@ -134,37 +138,6 @@ async function main() {
     (await db.execute(sql`SELECT COUNT(*)::int AS n FROM mi09_pricing_schedule_snapshots`)) as any
   ).rows[0].n;
   assert.equal(snapshotCountAfterSecond, 1, "expected still exactly 1 snapshot row after replay");
-
-  // ── Expired-snapshot renewal: composite_hash is UNIQUE, so re-applying an
-  // unchanged schedule after the prior snapshot's expiry must renew the
-  // existing row in place, never fail on a uniqueness violation and never
-  // leave two rows with the same hash. Must run BEFORE the repricing test
-  // below, since repricing changes the latest apollo artifact and therefore
-  // changes the composite schedule/hash out from under this exact-hash check. ──
-  await db.execute(sql`
-    UPDATE mi09_pricing_schedule_snapshots
-       SET expires_at = NOW() - INTERVAL '1 hour'
-     WHERE id = ${first.snapshot.id}
-  `);
-  const renewalApply = await createPricingScheduleSnapshot({ capturedBy: MI09_PRICING_CAPTURED_BY });
-  assert.equal(renewalApply.reused, false, "an expired snapshot must not be reported as reused");
-  assert.equal(renewalApply.renewed, true, "an expired snapshot with an identical hash must be renewed in place");
-  assert.equal(renewalApply.id, first.snapshot.id, "renewal must reuse the same row id, not insert a second row");
-  assert.equal(renewalApply.compositeHash, first.snapshot.compositeHash, "renewal must preserve the same composite hash");
-  const snapshotRowCountAfterRenewal = (
-    (await db.execute(sql`SELECT COUNT(*)::int AS n FROM mi09_pricing_schedule_snapshots WHERE composite_hash = ${first.snapshot.compositeHash}`)) as any
-  ).rows[0].n;
-  assert.equal(snapshotRowCountAfterRenewal, 1, "renewal must never leave two rows with the identical composite_hash");
-  const renewedRow = (
-    (await db.execute(sql`SELECT expires_at FROM mi09_pricing_schedule_snapshots WHERE id = ${first.snapshot.id}`)) as any
-  ).rows[0];
-  assert.ok(new Date(renewedRow.expires_at).getTime() > Date.now(), "renewed row's expires_at must be back in the future");
-
-  // A further apply right after renewal (still unexpired) must report a plain reuse, not another renewal.
-  const postRenewalApply = await createPricingScheduleSnapshot({ capturedBy: MI09_PRICING_CAPTURED_BY });
-  assert.equal(postRenewalApply.reused, true, "a subsequent apply against an unexpired renewed row must be a plain reuse");
-  assert.equal(postRenewalApply.renewed, false, "a plain reuse must not also report as a renewal");
-  assert.equal(postRenewalApply.id, first.snapshot.id, "plain reuse after renewal must still be the same row id");
 
   // ── A real repricing (drift) inserts a NEW artifact version, never mutates ──
   const reprice = await reuseOrCreatePricingArtifact({
@@ -227,13 +200,64 @@ async function main() {
     "the snapshot row's PERSISTED artifact_ids column must no longer reference the stale, superseded apollo artifact id",
   );
 
+  // ── Expired receipts are immutable and fail closed. Expire only after all
+  // unexpired-idempotency/repricing assertions so this fixture cannot affect
+  // their hash checks. The database itself decides expiration via NOW(). ──
+  await db.execute(sql`
+    UPDATE mi09_pricing_schedule_snapshots
+       SET expires_at = NOW() - INTERVAL '1 hour'
+     WHERE id = ${first.snapshot.id}
+  `);
+  const expiredState = (
+    (await db.execute(sql`
+      SELECT (expires_at <= NOW()) AS expired
+        FROM mi09_pricing_schedule_snapshots
+       WHERE id = ${first.snapshot.id}
+    `)) as any
+  ).rows[0];
+  assert.equal(expiredState.expired, true, "fixture must make the snapshot expired according to database NOW()");
+
+  const expiredReceiptBefore = (
+    (await db.execute(sql`
+      SELECT id, composite_hash, artifact_ids, schedule_json, captured_by, captured_at, expires_at, notes
+        FROM mi09_pricing_schedule_snapshots
+       WHERE id = ${first.snapshot.id}
+    `)) as any
+  ).rows[0];
+  await assert.rejects(
+    createPricingScheduleSnapshot({ capturedBy: MI09_PRICING_CAPTURED_BY }),
+    /MI09_PRICING_SNAPSHOT_EXPIRED/,
+    "same-hash expired snapshot must fail with the stable expiration error",
+  );
+  await assert.rejects(
+    getCurrentPricingSchedule(),
+    /CRO03_PRICING_SCHEDULE_UNAVAILABLE/,
+    "runtime pricing reader must reject a schedule when its only snapshot is expired",
+  );
+  const expiredReceiptAfter = (
+    (await db.execute(sql`
+      SELECT id, composite_hash, artifact_ids, schedule_json, captured_by, captured_at, expires_at, notes
+        FROM mi09_pricing_schedule_snapshots
+       WHERE id = ${first.snapshot.id}
+    `)) as any
+  ).rows[0];
+  assert.deepEqual(expiredReceiptAfter, expiredReceiptBefore, "failed writer/reader attempts must leave the expired receipt unchanged");
+  const expiredHashRowCount = (
+    (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+        FROM mi09_pricing_schedule_snapshots
+       WHERE composite_hash = ${first.snapshot.compositeHash}
+    `)) as any
+  ).rows[0].n;
+  assert.equal(expiredHashRowCount, 1, "rejecting an expired hash must not create a replacement receipt");
+
   assert.equal(networkCallsObserved, 0, `expected zero provider transport, observed ${networkCallsObserved} fetch call(s)`);
 
   console.log("MI-09 pricing seed integration certification: PASS");
   console.log(`  9 artifacts created + reused correctly across replay`);
   console.log(`  1 snapshot created + reused correctly, composite_hash=${first.snapshot.compositeHash}`);
   console.log(`  repricing correctly inserted a new artifact version (id=${reprice.id}) instead of mutating`);
-  console.log(`  expired snapshot correctly renewed in place (no uniqueness violation, no duplicate row)`);
+  console.log(`  expired snapshot rejected by the writer and reader without renewing or mutating the receipt`);
   console.log(`  reprice-then-restore correctly reconciled persisted snapshot artifact_ids to the current latest artifacts`);
   console.log(`  zero provider transport observed`);
 }
