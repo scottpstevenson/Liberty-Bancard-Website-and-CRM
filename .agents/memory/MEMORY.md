@@ -148,3 +148,4 @@
 - [Lossless timestamp authority pins](lossless-timestamp-authority-pins.md) — PostgreSQL microseconds must survive review CAS; JavaScript Date rounding can immediately invalidate an approval.
 - [Private auto-auth UI verification](private-autoauth-ui-verification.md) — Keep session-injecting fixture proxies loopback; use an explicit-port screenshot instead of exposing admin authority.
 - [Authority bootstrap versus transfer](authority-bootstrap-transfer.md) — Use explicit INSERT/UPDATE for event-guarded authority rows; upserts run BEFORE INSERT even on conflicts.
+- [Publish nested-expression indexes](publish-nested-expression-indexes.md) — Valid dev indexes can serialize into broken Publish SQL; generated keys with column indexes round-trip safely.
