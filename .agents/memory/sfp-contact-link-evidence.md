@@ -20,3 +20,9 @@ An automatic-eligibility census must satisfy both the application's strict predi
 **Why:** Accent folding, legal-suffix whitespace, domain normalization, and coalescing only one filing key can produce different candidate sets or report eligibility that the actual write guard rejects.
 
 **How to apply:** Test real PostgreSQL candidate sets and unchanged guard expressions against the pure classifier, including accents, www aliases, compact-export email validity, and competing filing identifiers. Bind resumable aggregate reports to the classifier and shard digests.
+
+Strict automatic-link eligibility is not enrichment eligibility or overall lead qualification. Missing canonical/Sunbiz evidence means that the implemented linking path is unresolved, not that the contact is invalid or unusable.
+
+**Why:** The contact pool is nationwide, whereas this automatic path requires Florida registry evidence and populated domains in both the business and source entity. Presenting that conjunction's yield as overall eligibility misrepresents coverage even when contacts contain usable company names and websites.
+
+**How to apply:** Label linking results by their actual authority boundary. Report contact identifier coverage, business/source coverage, and geographic scope separately before diagnosing a low linking yield. Preserve suppression and verified-link safeguards; do not discard unresolved contacts or invent registry evidence to improve the count.
