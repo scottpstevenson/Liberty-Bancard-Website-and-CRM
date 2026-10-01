@@ -9,6 +9,7 @@ export interface CertificationHttpContract {
 }
 
 interface CertificationEnvironment {
+  [key: string]: string | undefined;
   NODE_ENV?: string;
   VG_PROVIDER_DENY_MODE?: string;
   DATABASE_URL?: string;

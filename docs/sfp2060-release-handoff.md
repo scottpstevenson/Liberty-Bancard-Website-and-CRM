@@ -11,19 +11,19 @@ loopback only.
 
 | Gate | Current evidence/status |
 | --- | --- |
-| Combined offline source certifications | **PASS.** The final combined disposable run completed all 17 suites after the audit and private-harness corrections, including commercial authority (31), contact merge (19), legacy staging (152/152), and legacy SFP cohort (56/56). The build and focused sanitizer tests passed as well. These are source/fixture results, not production evidence. |
+| Combined offline source certifications | **PASS at `673d2872`, before the subsequent broader edits.** All 17 suites completed, including commercial authority (31), contact merge (19), legacy staging (152/152), and legacy SFP cohort (56/56). That run does not certify the later all-work snapshot. These are source/fixture results, not production evidence. |
 | Integrated-pipeline certification | **PASS**. Four governed ZeroBounce fixtures, two paid-result fixtures, three typed sources, three paused enrollments, exact-decimal/reconciliation and runtime-owner fences verified. |
-| Typecheck and build | **PASS**. Typecheck passed after the final authority correction; `npm run build` passed on the final source. Existing chunk-size/CJS import-meta warnings remain. |
+| Typecheck and build | **PASS on the all-work push snapshot**, after resolving the interrupted HTTP-contract type errors. Both pre-deploy selector/launcher self-tests also passed. Existing chunk-size/CJS import-meta warnings remain. This is not a full release-gate PASS. |
 | Broader isolated pre-deploy gate | **FAILED at candidate `151143bd`: 110/137 suites passed, 27 failed.** The earlier run was 102/137 with 35 failures. Subsequent sanitizer/private-harness repairs were verified separately; the broader wrapper has not been rerun after them. Remaining failures are not all presumed baseline. |
 | Private UI screenshot | Visually verified against fixtures on loopback. It proves neither production data nor production behavior. |
 | Prepared source SHA | Resolve with `git rev-parse HEAD` from the clean committed handoff checkout; the commit/PR records the immutable candidate outside this self-referential file. The earlier `be910b1f53110a97e471960cefbcb5cff79a17a7` is superseded by the subsequent corrections. An isolated-task SHA identifies prepared source only, never the main workspace or live deployment. |
-| Main merge / user Publish / deployed SHA and schema verification | **PENDING.** Draft source-review PR: https://github.com/scottpstevenson/Liberty-Bancard-Website-and-CRM/pull/9. It is not a merge or Publish and does not close this task. Publishing remains a user action. |
+| GitHub main push / main Replit workspace / user Publish | The user explicitly requested pushing **all work so far**, including the broader repairs. Resolve the pushed immutable SHA from GitHub/main and the PR record. GitHub main is not the main Replit workspace or the published build: workspace synchronization, user Publish, deployed-SHA verification, and production-schema verification remain separate. This does not close Task 2060. |
 | Representative production output and replenishment | **PENDING.** The 100-business target, actual production receipts, and two scheduled replenishment receipts remain work in this same Task 2060. |
 
 ### Latest individual-check evidence
 
 - `node_modules/.bin/tsx scripts/run-sfp2060-certification-disposable.ts` completed the final
-  final combined offline source-certification run with all 17 source
+  combined offline source-certification run with all 17 source
   certifications passed after the final audit/private-harness corrections. The C1
   persisted-link certification reported `100/0`; retain that literal result as
   test evidence only, not a production count.
@@ -43,6 +43,24 @@ loopback only.
   publisher proof.
 - Do not represent fixture evidence or an unverified deployment as `healthy` in
   JSON or any other status artifact.
+
+### All-work push limitations
+
+The later broader edits were stopped rather than extended into another cleanup
+project. The user subsequently authorized pushing every task change already
+made. This is an all-work source snapshot, not certification that every repair
+is complete. No full 137-suite rerun passed on this snapshot.
+
+The stricter API scanner reports nine real client/server coverage gaps. The
+latest Forms run had 35 passing and five failing checks because the private
+provider-denied server could not enqueue statement uploads. The migration
+upgrade repair has not been rerun after its source change. The interrupted
+operator-intent handoff was connected to each isolated child during push
+verification. Pre-deploy early-exit cleanup remains unfinished; passing selector
+self-tests does not establish the complete full-run lifecycle contract.
+Keep these limitations visible rather than claiming publication readiness or
+production output. No production DDL, provider spend, sends, or qualified-lead
+creation is asserted by this push.
 
 The previously observed public health SHA
 `0788ff1d70eb42b6c862145b69bd13d39f1fce5d` is a historical baseline from the

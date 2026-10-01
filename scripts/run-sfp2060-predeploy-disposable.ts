@@ -697,6 +697,7 @@ async function main(): Promise<void> {
           usedPorts,
           databaseName: entry.databaseName,
           templateDatabaseName,
+          operatorIntent: selection.operatorIntent,
         });
         outcomes.push(outcome);
       }
