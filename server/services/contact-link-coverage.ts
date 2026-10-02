@@ -13,6 +13,9 @@ import { sanitizeAuditPayload } from "./audit-sanitizer";
 export const CONTACT_LINK_COVERAGE_WORKFLOW = "contact_link_coverage_v1";
 export const CONTACT_LINK_COVERAGE_CHECKPOINT_ACTION = "contact_business_reconciliation_checkpoint";
 export const CONTACT_LINK_COVERAGE_PAGE_SIZE = 500;
+// Keep processing explicitly bounded without imposing a new throughput cap.
+// Starting the run commits separately from this identity-resolution work.
+export const CONTACT_LINK_COVERAGE_PROCESSING_PAGE_SIZE = CONTACT_LINK_COVERAGE_PAGE_SIZE;
 export const CONTACT_LINK_COVERAGE_BATCH_SQL = OPTIMIZED_CONTACT_LINK_COVERAGE_BATCH_SQL;
 export const CONTACT_LINK_COVERAGE_WATERMARK_SQL = OPTIMIZED_CONTACT_LINK_COVERAGE_WATERMARK_SQL;
 
@@ -1252,7 +1255,7 @@ async function insertPageCandidates(client: any, classifications: ContactLinkCov
   );
 }
 
-async function processCoveragePage(
+export async function processContactLinkCoveragePage(
   client: any,
   state: ContactLinkCoverageState,
   actorId: string | null,
@@ -1262,7 +1265,7 @@ async function processCoveragePage(
   const result = await client.query(CONTACT_LINK_COVERAGE_BATCH_SQL, [
     state.cursor,
     state.watermark,
-    CONTACT_LINK_COVERAGE_PAGE_SIZE,
+    CONTACT_LINK_COVERAGE_PROCESSING_PAGE_SIZE,
     null,
   ]);
   const page = (result.rows ?? []).map(normalizeCoverageContactRow);
@@ -1293,37 +1296,44 @@ async function processCoveragePage(
   return next;
 }
 
+export async function initializeContactLinkCoverageRun(
+  client: any,
+  actorId: string,
+): Promise<ContactLinkCoverageState> {
+  const current = await loadCoverageState(client, true);
+  if (current && current.status !== "completed") throw new Error("CONTACT_LINK_COVERAGE_RESUME_REQUIRED");
+  const scope = await client.query(CONTACT_LINK_COVERAGE_WATERMARK_SQL);
+  const watermark = Number(scope.rows[0]?.watermark ?? 0);
+  const total = Number(scope.rows[0]?.total ?? 0);
+  const now = new Date().toISOString();
+  const state: ContactLinkCoverageState = {
+    workflow: CONTACT_LINK_COVERAGE_WORKFLOW,
+    runId: crypto.randomUUID(),
+    status: "ready",
+    watermark,
+    cursor: 0,
+    total,
+    processed: 0,
+    counts: emptyContactLinkCoverageCounts(),
+    reasonCounts: {},
+    complete: false,
+    startedAt: now,
+    updatedAt: now,
+    lastError: null,
+  };
+  if (total === 0) {
+    state.status = "completed";
+    state.complete = true;
+  }
+  // Commit the frozen denominator before any expensive identity query. A
+  // failed page can then retry from this durable cursor instead of erasing
+  // the entire run along with its first-page transaction.
+  await writeCoverageCheckpoint(client, state, actorId);
+  return state;
+}
+
 export async function startContactLinkCoverage(actorId: string) {
-  return withCoverageTransaction(async client => {
-    const current = await loadCoverageState(client, true);
-    if (current && current.status !== "completed") throw new Error("CONTACT_LINK_COVERAGE_RESUME_REQUIRED");
-    const scope = await client.query(CONTACT_LINK_COVERAGE_WATERMARK_SQL);
-    const watermark = Number(scope.rows[0]?.watermark ?? 0);
-    const total = Number(scope.rows[0]?.total ?? 0);
-    const now = new Date().toISOString();
-    const state: ContactLinkCoverageState = {
-      workflow: CONTACT_LINK_COVERAGE_WORKFLOW,
-      runId: crypto.randomUUID(),
-      status: "running",
-      watermark,
-      cursor: 0,
-      total,
-      processed: 0,
-      counts: emptyContactLinkCoverageCounts(),
-      reasonCounts: {},
-      complete: false,
-      startedAt: now,
-      updatedAt: now,
-      lastError: null,
-    };
-    if (total === 0) {
-      state.status = "completed";
-      state.complete = true;
-      await writeCoverageCheckpoint(client, state, actorId);
-      return state;
-    }
-    return processCoveragePage(client, state, actorId);
-  });
+  return withCoverageTransaction(client => initializeContactLinkCoverageRun(client, actorId));
 }
 
 export async function stepContactLinkCoverage(actorId: string) {
@@ -1332,7 +1342,7 @@ export async function stepContactLinkCoverage(actorId: string) {
     if (!state) throw new Error("CONTACT_LINK_COVERAGE_NOT_FOUND");
     if (state.status === "completed") throw new Error("CONTACT_LINK_COVERAGE_ALREADY_COMPLETED");
     if (state.status === "error") throw new Error("CONTACT_LINK_COVERAGE_RESUME_REQUIRED");
-    return processCoveragePage(client, state, actorId);
+    return processContactLinkCoveragePage(client, state, actorId);
   });
 }
 
@@ -1353,7 +1363,7 @@ export async function resumeContactLinkCoverage(actorId: string) {
     if (!state) throw new Error("CONTACT_LINK_COVERAGE_NOT_FOUND");
     if (state.status === "completed") throw new Error("CONTACT_LINK_COVERAGE_ALREADY_COMPLETED");
     if (state.status === "error") throw new Error(state.lastError ?? "CONTACT_LINK_COVERAGE_DENOMINATOR_DRIFT");
-    return processCoveragePage(client, state, actorId);
+    return processContactLinkCoveragePage(client, state, actorId);
   });
 }
 

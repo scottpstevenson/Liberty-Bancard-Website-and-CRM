@@ -26,3 +26,9 @@ Strict automatic-link eligibility is not enrichment eligibility or overall lead 
 **Why:** The contact pool is nationwide, whereas this automatic path requires Florida registry evidence and populated domains in both the business and source entity. Presenting that conjunction's yield as overall eligibility misrepresents coverage even when contacts contain usable company names and websites.
 
 **How to apply:** Label linking results by their actual authority boundary. Report contact identifier coverage, business/source coverage, and geographic scope separately before diagnosing a low linking yield. Preserve suppression and verified-link safeguards; do not discard unresolved contacts or invent registry evidence to improve the count.
+
+Contact–business proposal idempotency must identify the contact as well as the business; shared enrichment batch labels do not distinguish contacts.
+
+**Why:** Business-only proposal keys caused distinct imported contacts resolving to one business to be rejected as divergent retries. A candidate is still heuristic evidence, never verified link authority.
+
+**How to apply:** Preserve original keys and immutable replay checks for existing proposals. Give genuinely different contact–business pairs distinct stable provenance keys without overwriting evidence or treating candidate creation as verification.

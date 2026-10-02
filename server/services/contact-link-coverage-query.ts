@@ -320,6 +320,9 @@ raw_unlinked_sunbiz_by_contact AS MATERIALIZED (
         se.principal_zip, se.phone, se.owner_phone, se.source
       FROM sunbiz_entities se
       WHERE ${SUNBIZ_NAME_KEY_DBA_SQL} = contact_key.key
+        -- Required by the existing partial DBA-key index. A nonempty
+        -- normalized DBA key already implies a DBA; state it for the planner.
+        AND se.dba IS NOT NULL
         AND se.filing_number IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM canonical_source_links csl
@@ -528,7 +531,7 @@ contact_data AS (
 ),
 business_data AS (
   SELECT
-    p.contact_id,
+    cp.contact_id,
     b.business_id,
     b.canonical_name,
     b.normalized_name,
@@ -544,11 +547,10 @@ business_data AS (
     COALESCE(source_links.source_links, '[]'::jsonb) AS source_links,
     COALESCE(raw_sunbiz.matches, '[]'::jsonb) AS raw_sunbiz_matches
   FROM candidate_pairs cp
-  JOIN page p ON p.contact_id = cp.contact_id
   JOIN canonical_businesses b ON b.business_id = cp.business_id
   LEFT JOIN source_links_by_business source_links ON source_links.business_id = b.business_id
   LEFT JOIN raw_sunbiz_by_contact_business raw_sunbiz
-    ON raw_sunbiz.contact_id = p.contact_id AND raw_sunbiz.business_id = b.business_id
+    ON raw_sunbiz.contact_id = cp.contact_id AND raw_sunbiz.business_id = b.business_id
 )
 SELECT
   c.contact_id AS "contactId",

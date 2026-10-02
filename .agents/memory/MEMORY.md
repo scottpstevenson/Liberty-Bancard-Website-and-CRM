@@ -152,3 +152,4 @@
 - [SFP published build identity](sfp-published-build-identity.md) — Per-build UUIDs distinguish same-SHA Publishes without an undocumented platform ID; publisher proof remains separate.
 - [Production SQL result verification](production-sql-result-verification.md) — success=true with only START TRANSACTION/ROLLBACK is not a valid empty census; require the actual result.
 - [Existing email inventory diagnosis](email-inventory-diagnosis.md) — Count existing inventory and trace intake before attributing low recipient growth to discovery yield.
+- [Generated-key partial indexes](generated-key-partial-index-predicates.md) — State source nullability predicates explicitly; generated-key matches alone may not permit the partial index.

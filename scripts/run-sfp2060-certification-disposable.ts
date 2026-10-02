@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     baseEnv.CREDENTIAL_ENCRYPTION_KEY = "task-2060-disposable-only";
 
     const certifications = [
+      { name: "contact-link-coverage-execution", script: "server/tests/contact-link-coverage.execution.test.ts", database: false },
       { name: "receipt-projection-repair", script: "server/tests/sfp-eligibility-receipt-repair.test.ts", database: false },
       { name: "outscraper-retrieval-task-query", script: "server/tests/sfp-outs-task-query.test.ts", database: true },
       { name: "safe-failure-diagnostics", script: "server/tests/sfp-failure-diagnostics.test.ts", database: false },
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
       { name: "classification-bridge", script: "scripts/test-sfp-classification-bridge.ts", database: true },
       { name: "free-continuation", script: "scripts/test-sfp-free-continuation-certification.ts", database: true },
       { name: "contact-link-source-recovery", script: "scripts/test-contact-link-source-recovery-disposable.ts", database: true },
+      { name: "sdr-contact-candidate-collision", script: "scripts/test-sdr-contact-candidate-collision-disposable.ts", database: true },
       {
         name: "contact-source-bridge-2056",
         script: "scripts/test-sfp2056-c1-c2-c3-c6-contact-certification.ts",

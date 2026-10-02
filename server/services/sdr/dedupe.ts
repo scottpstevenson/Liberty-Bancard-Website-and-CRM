@@ -4,6 +4,7 @@ import type { Business, InsertBusinessAlias, InsertLeadSource } from "@shared/sc
 import { eq, and, or, sql, ilike, isNull } from "drizzle-orm";
 import { recordContactBusinessLinkCandidate } from "../commercial-link-authority";
 import { updateOrganizationDescriptive, type OrganizationDescriptiveUpdate } from "../organization-service";
+import { getSdrContactCandidateKeys } from "./contact-candidate-key";
 
 const MATCH_WEIGHTS = {
   domain: 50,
@@ -510,10 +511,26 @@ export async function ingestBusinessFromContact(contactId: number, sourceType: s
     contactId,
   });
 
+  const candidateKeys = getSdrContactCandidateKeys({
+    contactId,
+    businessId: result.businessId,
+    sourceType,
+    sourceLabel,
+  });
+  const legacyCandidate = (await db.execute(sql`
+    SELECT contact_id FROM contact_business_link_candidates
+    WHERE candidate_key=${candidateKeys.legacy}
+  `) as any).rows?.[0];
+  // An existing proposal for this contact must replay its original immutable
+  // tuple. A different contact needs its own proposal, not a retry of another
+  // contact's business-scoped key. Neither branch establishes link truth.
+  const candidateKey = legacyCandidate?.contact_id === contactId
+    ? candidateKeys.legacy
+    : candidateKeys.scoped;
   await recordContactBusinessLinkCandidate({
     contactId, businessId: result.businessId,
     source: "sdr_dedupe", sourceVersion: sourceType,
-    candidateKey: `sdr-contact:${sourceType}:${sourceLabel || `contact_${contactId}`}:${result.businessId}`,
+    candidateKey,
     confidence: 70,
   });
 
