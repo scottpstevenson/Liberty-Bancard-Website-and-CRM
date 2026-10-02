@@ -27,6 +27,12 @@ Strict automatic-link eligibility is not enrichment eligibility or overall lead 
 
 **How to apply:** Label linking results by their actual authority boundary. Report contact identifier coverage, business/source coverage, and geographic scope separately before diagnosing a low linking yield. Preserve suppression and verified-link safeguards; do not discard unresolved contacts or invent registry evidence to improve the count.
 
+A trusted registry-ingestion namespace does not make an enriched website a government-confirmed company domain. Copying that website into a canonical business does not produce a second independent identity observation.
+
+**Why:** Production diagnostics found corporate-brand domains attached to unrelated-looking legal entities in both enriched registry rows and canonical businesses. Domain agreement can therefore repeat the same bad source association; it is not by itself proof of company affiliation.
+
+**How to apply:** Trace website enrichment and establish the domain's binding to the legal entity or documented trade name. Preserve conflict checks; do not fix low matching yield by accepting all shared-domain pairs. Missing registry website does not mean missing registry identity or that human review is the only possible relationship path.
+
 Contact–business proposal idempotency must identify the contact as well as the business; shared enrichment batch labels do not distinguish contacts.
 
 **Why:** Business-only proposal keys caused distinct imported contacts resolving to one business to be rejected as divergent retries. A candidate is still heuristic evidence, never verified link authority.

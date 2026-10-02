@@ -88,6 +88,8 @@ contact-link or recipient acceptance requirements are complete.
   406 out-of-scope contacts and one suppressed contact.
   **Zero strict-auto-eligible imported contacts were reported.**
   These are as-observed classifications, not newly verified relationships.
+  The subsequent diagnostic below shows why this narrow rule's result must
+  not be interpreted as absence of useful imported-contact identity evidence.
 - Source recovery has actually materialized **17 retained Sunbiz-to-canonical
   business relationships** through snapshot-pinned admin preview/apply.
   Two preview items retained terminal bootstrap holds. All 17 contact
@@ -150,10 +152,58 @@ Task 2060 remains open. The 5,000 qualified-recipient target and 100-business,
 sends at zero, and all original exclusion, review, deduplication and ownership
 guards in force. The completed coverage pass produced no automatically
 verifiable imported relationships. Further imported-contact linkage remains
-blocked on sufficient independent identity evidence or genuine independent
-review; retained source materialization cannot substitute for either.
+unresolved under the currently implemented narrow website-based rule.
+The broader matching/authority path and source-domain quality require correction
+within this task; absence of strict eligibility does not establish that every
+imported relationship needs human review. Retained source materialization alone
+still cannot substitute for contact-side relationship evidence.
 Authenticated post-pass health matches the published SHA/build and outbound
 pause remains confirmed at epoch 1. No sends were released by this continuation.
+
+### Diagnostic correction — October 2, 2026
+
+The user challenged the zero result. Read-only production checks confirmed:
+
+- All 80,584 retained `sunbiz` / `sunbiz_entity` relationships resolve to
+  trusted-ingestion registry rows. Only 988 have a registry website; 79,596
+  do not. All eleven separately inspected recovered pairs have their exact
+  recovered relationship persisted, but none has a registry website.
+  Missing registry website is not missing registry identity.
+- The strict policy requires matching contact/business/registry domains,
+  a matching corporate-email domain, and exact normalized company names.
+  Broader coverage recognizes filing, phone, address, legal-name and DBA
+  signals, but classifies recoverable cases rather than automatically writing
+  contact links. Its result therefore measures a narrow implemented rule,
+  not general automatic relationship feasibility.
+- A diagnostic funnel over contacts at or below the frozen watermark finds
+  16,644 contacts with canonical website-domain candidates; 1,341 with retained
+  registry links; 1,254 with matching registry websites; and 1,199 also matching
+  corporate email domains. Only one satisfies the database-style three-name
+  equality, and that contact is already verified/projected. These are lookup
+  diagnostics, not validated recipients or target-county cohort certification.
+- The 1,199 are not all safe matches. For example, a Publix contact's domain
+  selects a canonical business named El Marinero Fish Market & Restaurant;
+  a Goodwill contact's domain selects Medical Service Organization of Davie.
+  In each example, both the canonical business and linked source entity carry
+  the same questionable website. The source entity was enriched before the
+  canonical business was created. This proves the bad association is present
+  in source data too; identifying the exact historical setter needs further
+  provenance investigation. Repeating a value in two tables is not independent
+  company/domain corroboration.
+- Other pairs may be real legal-name/trade-name relationships, such as
+  FEAM Aero / F & E Aircraft Maintenance Corporation. That possibility requires
+  evidence, not blanket acceptance. Removing legal suffixes alone matches
+  only two of the 1,199 contact/registry name pairs, so suffix normalization
+  is not the general explanation.
+- Null source IDs in ineligible system previews are intentional presentation:
+  the service exposes a chosen source only for a uniquely eligible tuple.
+  They do not prove the recovered source was absent from the lookup.
+
+Corrective direction: repair source-domain/alias evidence and distinguish
+business-relationship verification from email hygiene and outreach eligibility.
+Do not disable name/conflict safeguards, treat domain overlap as ownership,
+fabricate review, or attribute the entire zero result to missing human review.
+This remains part of Task 2060, which is not complete.
 
 ## Historical October 1 observations
 
