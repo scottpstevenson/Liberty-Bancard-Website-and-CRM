@@ -41,6 +41,7 @@ async function buildAll() {
     execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
     randomUUID(),
   );
+  const publishBuiltAt = new Date().toISOString();
 
   console.log("building client...");
   await viteBuild();
@@ -65,12 +66,13 @@ async function buildAll() {
       // share it; a new Publish of the same SHA receives a different UUID.
       "process.env.SFP_PUBLISH_BUILD_ID": JSON.stringify(publishIdentity.buildId),
       "process.env.SFP_PUBLISH_ARTIFACT_SHA": JSON.stringify(publishIdentity.artifactSha),
+      "process.env.SFP_PUBLISH_BUILT_AT": JSON.stringify(publishBuiltAt),
     },
     minify: true,
     external: externals,
     logLevel: "info",
   });
-  await writeFile("dist/sfp-publish-build.json", JSON.stringify(publishIdentity) + "\n");
+  await writeFile("dist/sfp-publish-build.json", JSON.stringify({ ...publishIdentity, builtAt: publishBuiltAt }) + "\n");
   await writeFile("dist/RELEASE_SHA", publishIdentity.artifactSha + "\n");
   console.log("[SFP Publish Artifact]", JSON.stringify(publishIdentity));
 }

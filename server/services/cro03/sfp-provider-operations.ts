@@ -10,6 +10,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { readSfpAutomaticPublish, assertSfpPublishMayAdvance } from "../../../shared/sfp-publish-handoff";
 import { db } from "../../db";
 import {
   sanitizeSfpProviderHttpDiagnostics, safeSfpHttpClass, type SfpProviderHttpDiagnostics,
@@ -384,6 +385,7 @@ async function claimOrRenewSfpRuntimeOwner(
      WHERE authority_key='routine_sfp'
      FOR UPDATE
   `))[0];
+  if (current?.revoked_at) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:OWNER_REVOKED");
   const currentMatches = current && sameSfpRuntimeRelease({
     artifactSha: String(current.artifact_sha),
     deploymentIdentity: String(current.deployment_identity),
@@ -1029,7 +1031,10 @@ function sfpProviderFinishLeasePredicate(
 export async function claimSfpRuntimeDeploymentOwner(): Promise<SfpRuntimeAuthority> {
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_PAID_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
-  return db.transaction((tx) => claimOrRenewSfpRuntimeOwner(tx, fence));
+  return db.transaction(async (tx) => {
+    await advanceSfpPublishedRelease(tx, fence);
+    return claimOrRenewSfpRuntimeOwner(tx, fence);
+  });
 }
 
 /** Renew only a live owner for this process's explicitly selected release. */
@@ -1174,7 +1179,21 @@ export async function selectCurrentSfpRuntimeRelease(
     throw new Error("SFP_RUNTIME_RELEASE_SELECTION_PREVIOUS_FINGERPRINT_REQUIRED");
   }
 
-  return db.transaction(async (tx) => {
+  return db.transaction((tx) => selectSfpRuntimeReleaseInTransaction(tx, fence, input));
+}
+
+async function selectSfpRuntimeReleaseInTransaction(
+  tx: SqlExecutor,
+  fence: SfpRuntimeFence,
+  input: SfpRuntimeReleaseSelectionInput,
+  automaticBuiltAt?: string,
+) {
+    const actorId = input.actorId.trim();
+    const publisherSha = input.publisherVerifiedArtifactSha.trim().toLowerCase();
+    const publisherDeployment = input.publisherVerifiedDeploymentIdentity.trim();
+    const verificationReference = input.verificationReference.trim();
+    const expectedPrevious = input.expectedPreviousArtifactSha?.trim().toLowerCase() ?? null;
+    const expectedVersion = input.expectedPreviousSelectionVersion;
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('routine-sfp-runtime-owner',0))`);
     const previous = rows(await tx.execute(sql`
       SELECT deployment_identity,environment_identity,artifact_sha,queue_topology_hash,
@@ -1206,7 +1225,7 @@ export async function selectCurrentSfpRuntimeRelease(
     if (!previous && priorSelectionHistory) {
       throw new Error("SFP_RUNTIME_RELEASE_SELECTION_BOOTSTRAP_BLOCKED:SELECTION_HISTORY_EXISTS");
     }
-    const action = previous ? "transfer" : "bootstrap";
+    const action: "transfer" | "bootstrap" = previous ? "transfer" : "bootstrap";
     const selectionVersion = previous ? actualPreviousVersion! + 1 : 1;
     const selected = {
       artifactSha: fence.artifactSha,
@@ -1217,6 +1236,10 @@ export async function selectCurrentSfpRuntimeRelease(
       publisherVerifiedArtifactSha: publisherSha,
       publisherVerifiedDeploymentIdentity: publisherDeployment,
       verificationReference,
+      ...(automaticBuiltAt ? {
+        selectionMethod: "automatic_published_artifact",
+        buildCreatedAt: automaticBuiltAt,
+      } : {}),
     };
     const event = rows(await tx.execute(sql`
       INSERT INTO sfp_runtime_release_selection_events
@@ -1320,7 +1343,69 @@ export async function selectCurrentSfpRuntimeRelease(
         selectionVersion,
       },
     };
+}
+
+/**
+ * User-authorized routine publish policy, not an external publisher attestation.
+ * Only compiled, SHA-bound artifacts in Replit's published production runtime
+ * can advance. Selection, append-only evidence and owner transfer are atomic.
+ * Spend approvals, provider controls and outbound authority are never touched.
+ */
+async function advanceSfpPublishedRelease(tx: SqlExecutor, fence: SfpRuntimeFence) {
+  const published = readSfpAutomaticPublish({
+    nodeEnv: process.env.NODE_ENV,
+    replitDeployment: process.env.REPLIT_DEPLOYMENT,
+    releaseSha: process.env.RELEASE_SHA,
+    publishArtifactSha: process.env.SFP_PUBLISH_ARTIFACT_SHA,
+    publishBuildId: process.env.SFP_PUBLISH_BUILD_ID,
+    publishBuiltAt: process.env.SFP_PUBLISH_BUILT_AT,
   });
+  if (!published) return;
+  if (published.deploymentIdentity !== fence.deploymentIdentity
+      || published.artifactSha !== fence.artifactSha) {
+    throw new Error("SFP_PUBLISH_HANDOFF_ARTIFACT_MISMATCH");
+  }
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('routine-sfp-runtime-owner',0))`);
+  const previous = rows(await tx.execute(sql`
+    SELECT rs.*, e.selected_release AS selected_receipt
+      FROM sfp_runtime_release_selectors rs
+      JOIN sfp_runtime_release_selection_events e ON e.id=rs.selection_event_id
+     WHERE rs.authority_key='routine_sfp' FOR UPDATE OF rs
+  `))[0];
+  const owner = rows(await tx.execute(sql`
+    SELECT revoked_at FROM sfp_runtime_owner_authority WHERE authority_key='routine_sfp' FOR UPDATE
+  `))[0];
+  if (owner?.revoked_at) throw new Error("SFP_PUBLISH_HANDOFF_OWNER_REVOKED");
+  // Restarting another replica is idempotent, not another release event.
+  if (previous && rowMatchesSfpRuntimeRelease(previous, fence)) return;
+  const seen = rows(await tx.execute(sql`
+    SELECT 1 FROM sfp_runtime_release_selection_events
+     WHERE selected_release->>'deploymentIdentity'=${fence.deploymentIdentity} LIMIT 1
+  `))[0];
+  const latest = rows(await tx.execute(sql`
+    SELECT selected_release->>'buildCreatedAt' AS built_at
+      FROM sfp_runtime_release_selection_events
+     WHERE selected_release ? 'buildCreatedAt'
+     ORDER BY selected_release->>'buildCreatedAt' DESC LIMIT 1
+  `))[0];
+  assertSfpPublishMayAdvance({
+    builtAt: published.builtAt,
+    previousEnvironment: previous ? String(previous.environment_identity) : null,
+    environment: fence.environmentIdentity,
+    previousSelectedAt: previous ? String(previous.selected_at) : null,
+    previousWasAutomatic: previous?.selected_receipt?.selectionMethod === "automatic_published_artifact",
+    latestBuiltAt: latest ? String(latest.built_at) : null,
+    previouslySelected: Boolean(seen),
+    ownerRevoked: Boolean(owner?.revoked_at),
+  });
+  await selectSfpRuntimeReleaseInTransaction(tx, fence, {
+    actorId: "system:sfp-publish-handoff",
+    expectedPreviousArtifactSha: previous ? String(previous.artifact_sha) : null,
+    expectedPreviousSelectionVersion: previous ? Number(previous.selection_version) : null,
+    publisherVerifiedArtifactSha: fence.artifactSha,
+    publisherVerifiedDeploymentIdentity: fence.deploymentIdentity,
+    verificationReference: `sfp-publish-artifact:${published.buildId}:${published.builtAt}`,
+  }, published.builtAt);
 }
 
 export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<SfpRuntimeAuthority> {

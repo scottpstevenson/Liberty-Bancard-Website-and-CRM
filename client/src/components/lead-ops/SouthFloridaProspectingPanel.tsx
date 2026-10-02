@@ -1702,6 +1702,10 @@ export function SouthFloridaProspectingPanel() {
                 {user?.role === "admin" && (
                   <div className="rounded border border-amber-500/50 bg-amber-50/50 p-2 dark:bg-amber-950/20">
                     <div className="font-medium">Published runtime-release ownership</div>
+                    <div className="text-muted-foreground">
+                      Routine publishes automatically select the new build and transfer ownership.
+                      Manual selection below is for recovery or an explicit override; provider budgets and outbound approvals remain separate.
+                    </div>
                     {runtimeReleaseSelectionQuery.isLoading ? (
                       <div className="text-muted-foreground">Reading durable release selection…</div>
                     ) : runtimeReleaseSelectionQuery.data ? (
@@ -1729,7 +1733,8 @@ export function SouthFloridaProspectingPanel() {
                             Selected: {runtimeReleaseSelectionQuery.data.selectedRelease.artifactSha} · deployment {runtimeReleaseSelectionQuery.data.selectedRelease.deploymentIdentity}
                             {" · "}selection version {runtimeReleaseSelectionQuery.data.selectedRelease.selectionVersion}
                             {" · "}audited event {runtimeReleaseSelectionQuery.data.selectedRelease.selectionEventId}
-                            {" · "}publisher evidence{" "}
+                            {" · "}{runtimeReleaseSelectionQuery.data.selectedRelease.selectedBy === "system:sfp-publish-handoff"
+                              ? "publish handoff evidence" : "publisher evidence"}{" "}
                             {/^https:\/\//i.test(runtimeReleaseSelectionQuery.data.selectedRelease.verificationReference) ? (
                               <a
                                 className="underline"
@@ -1750,8 +1755,8 @@ export function SouthFloridaProspectingPanel() {
                             <div className="mt-2 space-y-2 border-t pt-2">
                               <div className="font-medium">
                                 {runtimeReleaseSelectionQuery.data.selectedRelease
-                                  ? `Transfer selection from version ${runtimeReleaseSelectionQuery.data.selectedRelease.selectionVersion} using compare-and-set.`
-                                  : "Bootstrap the first published-release selection."}
+                                  ? `Manual recovery: transfer selection from version ${runtimeReleaseSelectionQuery.data.selectedRelease.selectionVersion} using compare-and-set.`
+                                  : "Manual recovery: bootstrap a published-release selection."}
                               </div>
                               <div className="text-muted-foreground">
                                 Enter publisher-verified values from the live deployment record and its HTTPS evidence URL. The service checks the values against this worker’s release/deployment identity; do not use its displayed RELEASE_SHA alone as proof. The selection is audited and does not change paid-provider permissions, outreach, or global outbound state.

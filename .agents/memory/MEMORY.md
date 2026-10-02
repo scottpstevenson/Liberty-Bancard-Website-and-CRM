@@ -150,7 +150,7 @@
 - [Private auto-auth UI verification](private-autoauth-ui-verification.md) — Keep session-injecting fixture proxies loopback; use an explicit-port screenshot instead of exposing admin authority.
 - [Authority bootstrap versus transfer](authority-bootstrap-transfer.md) — Use explicit INSERT/UPDATE for event-guarded authority rows; upserts run BEFORE INSERT even on conflicts.
 - [Publish nested-expression indexes](publish-nested-expression-indexes.md) — Valid dev indexes can serialize into broken Publish SQL; generated keys with column indexes round-trip safely.
-- [SFP published build identity](sfp-published-build-identity.md) — Per-build UUIDs distinguish same-SHA Publishes without an undocumented platform ID; publisher proof remains separate.
+- [SFP published build identity](sfp-published-build-identity.md) — Routine publishes auto-handoff audited SFP authority; preserve retired-build fencing, explicit holds, and manual rollback.
 - [Production SQL result verification](production-sql-result-verification.md) — success=true with only START TRANSACTION/ROLLBACK is not a valid empty census; require the actual result.
 - [Existing email inventory diagnosis](email-inventory-diagnosis.md) — Count existing inventory and trace intake before attributing low recipient growth to discovery yield.
 - [Generated-key partial indexes](generated-key-partial-index-predicates.md) — State source nullability predicates explicitly; generated-key matches alone may not permit the partial index.

@@ -1,7 +1,8 @@
 /**
  * A per-build identifier is not a Replit platform deployment ID or permission
  * to execute. It distinguishes two Publishes of the same source SHA. Selection
- * still requires publisher verification and the existing durable authority.
+ * uses the audited published-artifact handoff in production, or explicit
+ * publisher verification for manual selection. Durable authority still applies.
  */
 export interface SfpPublishBuildIdentity {
   version: 1;

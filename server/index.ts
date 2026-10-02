@@ -131,8 +131,8 @@ async function startSfpRuntimeOwnerHeartbeat(): Promise<void> {
   const { claimSfpRuntimeDeploymentOwner, renewSfpRuntimeDeploymentOwner } =
     await import("./services/cro03/sfp-provider-operations");
   try {
-    // Startup may acquire only the durably selected current release. Failure
-    // is an honest held state, not a reason to prevent unrelated app startup.
+    // Published artifacts advance the audited release selector atomically;
+    // development and legacy identities still need explicit selection.
     await claimSfpRuntimeDeploymentOwner();
     lastSfpRuntimeHeartbeatReason = null;
     log("[SFP Runtime] Current selected release owner established");
@@ -146,9 +146,10 @@ async function startSfpRuntimeOwnerHeartbeat(): Promise<void> {
     if (isShuttingDown || sfpRuntimeOwnerHeartbeatInFlight) return;
     sfpRuntimeOwnerHeartbeatInFlight = true;
     try {
-      // Heartbeat is renewal-only: it never creates/revives an owner or changes
-      // release eligibility. Selection/claim is a separate audited lifecycle.
-      await renewSfpRuntimeDeploymentOwner();
+      // Retry failed startup/expired ownership through the same fenced claim.
+      // A retired build cannot advance the selector or steal the new lease.
+      if (lastSfpRuntimeHeartbeatReason) await claimSfpRuntimeDeploymentOwner();
+      else await renewSfpRuntimeDeploymentOwner();
       if (lastSfpRuntimeHeartbeatReason) {
         log("[SFP Runtime] Selected live owner heartbeat resumed");
       }

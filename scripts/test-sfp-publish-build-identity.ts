@@ -110,9 +110,12 @@ assert.equal(runReplica("unset"), null);
 if (process.argv.includes("--artifact")) {
   const actual = JSON.parse(readFileSync("dist/sfp-publish-build.json", "utf8"));
   const sourceSha = readFileSync("dist/RELEASE_SHA", "utf8").trim();
-  assert.deepEqual(createSfpPublishBuildIdentity(sourceSha, actual.buildId), actual);
+  const { builtAt, ...recordedIdentity } = actual;
+  assert.equal(new Date(builtAt).toISOString(), builtAt);
+  assert.deepEqual(createSfpPublishBuildIdentity(sourceSha, actual.buildId), recordedIdentity);
   const serverBundle = readFileSync("dist/index.cjs", "utf8");
   assert.ok(serverBundle.includes(actual.buildId), "server contains the exact recorded build UUID");
   assert.ok(serverBundle.includes(actual.artifactSha), "server contains the exact recorded source SHA");
+  assert.ok(serverBundle.includes(actual.builtAt), "server contains the immutable build timestamp");
 }
 console.log("SFP publish-build identity: artifact binding, replica consistency, missing/malformed rejection, ambient override resistance and same-SHA retired-build fences PASS");
