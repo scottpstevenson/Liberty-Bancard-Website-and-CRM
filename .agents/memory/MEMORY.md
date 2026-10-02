@@ -142,7 +142,7 @@
 - [Continuous-tick provider pause pattern](sfp-continuous-pause-pattern.md) — Claim 'partial' stages to avoid stranding; check provider pause before freeze/claim; dev/prod controls are separate.
 - [Shared disposable SFP certification fixtures](sfp-shared-cert-fixtures.md) — Shared private DB means fixtures must tolerate earlier suites' programs, packages, and decisions.
 - [PR CI baseline discipline](pr-ci-baseline-discipline.md) — compare failures with main before expanding reconciliation scope; unrelated failing static checks belong to separate work.
-- [SFP contact-link evidence](sfp-contact-link-evidence.md) — domain overlaps alone are unsafe; independent Sunbiz corroboration can come from cordata/corevt entities, not only sunbiz-tagged rows.
+- [SFP contact-link evidence](sfp-contact-link-evidence.md) — user rejected universal strict Sunbiz/corporate-domain requirements; identity linking is separate from outreach eligibility.
 - [Ranked SQL selections and locks](postgres-ranked-selection-locks.md) — window queries cannot use FOR UPDATE; lock base rows and recheck; prove partial-expression index use with EXPLAIN.
 - [Provider documentation contracts](provider-documentation-contracts.md) — Outscraper expired results look Pending; Apollo organization and people searches have different billing semantics.
 - [Provider facts versus eligibility](provider-facts-vs-eligibility.md) — Preserve dispatched receipts across authority drift; serialize authorization separately from network I/O and promotion.

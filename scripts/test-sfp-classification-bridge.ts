@@ -96,7 +96,7 @@ async function main() {
     openAiCalls.push(businessId);
     return businessId === ambiguousFakeId || businessId === ambiguousNoAdapterId ? {
       outcome: "target", confidence: 0.91, reasonCodes: ["TEST_FAKE_OPENAI"], modelVersion: "test-model",
-      promptVersion: "test-prompt", costMicros: 0,
+      promptVersion: "test-prompt", costMicros: 0, resolvedVerticalId: "Dental",
     } : null;
   } });
   const evidenceBefore = await pool.query(

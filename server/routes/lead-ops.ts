@@ -4555,6 +4555,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const result = rows(await db.execute(sql`
         SELECT e.id AS eligibility_id, e.cohort_run_id, e.business_id, b.canonical_name AS business_name,
                e.source_kind, e.contact_id, e.masked_email, e.status, e.decision_reason,
+               review_contact.email AS contact_email, review_contact.first_name AS contact_first_name,
+               review_contact.last_name AS contact_last_name, b.website_domain AS business_website,
                e.zb_outcome, e.validation_at, e.validation_expires_at,
                e.validation_operation_id, e.reused_from_operation_id, e.updated_at::text AS updated_at,
                e.contact_business_link_decision_id, e.contact_business_link_revision,
@@ -4564,6 +4566,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
                latest.created_at AS latest_reviewed_at
           FROM sfp_outreach_eligibility e
           JOIN businesses b ON b.id=e.business_id
+          LEFT JOIN contacts review_contact ON review_contact.id=e.contact_id AND e.source_kind='contact'
           JOIN sfp_outreach_policy_control pc ON pc.singleton=TRUE
           JOIN sfp_outreach_policy_documents p ON p.id=pc.active_policy_id
           LEFT JOIN LATERAL (

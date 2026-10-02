@@ -25,6 +25,38 @@ import { registerContactLinkCoverageRoutes } from "./contact-link-coverage";
 export function registerAdminRoutes(app: Express) {
   registerContactLinkCoverageRoutes(app);
 
+  app.get("/api/admin/contact-business-matches/preview", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = z.object({
+      afterContactId: z.coerce.number().int().nonnegative().default(0),
+      limit: z.coerce.number().int().min(1).max(25).default(25),
+    }).safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid matching preview parameters" });
+    try {
+      const { previewCorroboratedContactBusinessLinks } = await import("../services/contact-business-corroborated-links");
+      res.json(await previewCorroboratedContactBusinessLinks(parsed.data));
+    } catch (error) { serverError(res, error); }
+  });
+  app.post("/api/admin/contact-business-matches/confirm", isDashboardUser, requireRole("admin"), async (req, res) => {
+    const parsed = z.object({ items: z.array(z.object({
+      contactId: z.number().int().positive(), businessId: z.number().int().positive(),
+      snapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict()).min(1).max(25) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid company match confirmation" });
+    try {
+      const { confirmCorroboratedContactBusinessLink } = await import("../services/contact-business-corroborated-links");
+      const outcomes = [];
+      for (const item of parsed.data.items) {
+        outcomes.push(await confirmCorroboratedContactBusinessLink(item, String((req.user as any).id)));
+      }
+      await auditChange({
+        userId: String((req.user as any).id), action: "corroborated_company_matches_confirmed",
+        entityType: "contact_business_link_batch", entityKey: "batch",
+        after: { outcomes, rule: "company_contact_corroboration_v2" },
+      });
+      res.json({ outcomes, paidProviderCalls: 0 });
+    } catch (error) { serverError(res, error); }
+  });
+
   app.get(
     "/api/admin/contact-business-system-links/preview",
     isDashboardUser,

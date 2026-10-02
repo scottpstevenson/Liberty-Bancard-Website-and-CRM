@@ -812,6 +812,11 @@ type NamedEmailEligibilityReview = {
   business_id: number;
   business_name: string;
   source_kind: string;
+  contact_id: number | null;
+  contact_email: string | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
+  business_website: string | null;
   masked_email: string | null;
   decision_reason: string;
   validation_at: string | null;
@@ -921,12 +926,16 @@ function NamedEmailEligibilityReviewPanel() {
             <div className="text-xs text-muted-foreground">
               Select up to 50 current rows for sequential bulk review. Every decision is submitted to the existing independently-attributed per-item route; a self-review or stale item remains held without stopping other items.
             </div>
-            <Input
+            <select className="w-full rounded-md border bg-background p-2 text-sm"
               aria-label="Bulk named-email review reason"
-              placeholder="Shared reason for this bounded review (min 8 characters)"
               value={bulkReason}
               onChange={(event) => setBulkReason(event.target.value)}
-            />
+            >
+              <option value="">Choose a reason for the selected records</option>
+              <option value="Reviewed business recipient and company association">Business recipient — company association reviewed</option>
+              <option value="Recipient is not associated with this company">Wrong company or recipient</option>
+              <option value="Insufficient information to establish business recipient affiliation">Insufficient information to approve</option>
+            </select>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
@@ -969,20 +978,38 @@ function NamedEmailEligibilityReviewPanel() {
                 onCheckedChange={(checked) => toggleReviewSelection(row.eligibility_id, checked === true)}
                 disabled={bulkReviewMutation.isPending || (!selectedReviewIds.includes(row.eligibility_id) && selectedReviewIds.length >= 50)}
               />
-              <strong className="text-sm">{row.business_name || `Business #${row.business_id}`}</strong>
-              <Badge variant="outline">{row.masked_email || "Email masked"}</Badge>
+              <Link href={`/dashboard/lead-ops/business/${row.business_id}`} className="text-sm font-semibold underline">
+                {row.business_name || `Business #${row.business_id}`}
+              </Link>
+              <Badge variant="outline">{row.contact_email || row.masked_email || "Email masked"}</Badge>
               <Badge variant="secondary">ZeroBounce valid · {row.source_kind}</Badge>
             </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              {row.contact_id && <Link className="underline" href={`/dashboard/contacts/${row.contact_id}`}>
+                Open contact{row.contact_first_name ? ` · ${[row.contact_first_name, row.contact_last_name].filter(Boolean).join(" ")}` : ""}
+              </Link>}
+              <Link className="underline" href={`/dashboard/lead-ops/business/${row.business_id}`}>Open company record</Link>
+              {row.business_website && <span>{row.business_website}</span>}
+              <span>Validated {row.validation_at ? new Date(row.validation_at).toLocaleString() : "timestamp unavailable"}</span>
+            </div>
+            <p className="text-xs">
+              ZeroBounce passed. The active outreach policy separately holds named addresses until a business-recipient decision is recorded.
+              Choose a reason below; no typed explanation is required.
+            </p>
             <p className="text-xs text-muted-foreground">
               Eligibility {row.eligibility_id} · validation expires {row.validation_expires_at ? new Date(row.validation_expires_at).toLocaleString() : "unknown"} · {row.decision_reason}
             </p>
             {row.latest_review_decision && <p className="text-xs">Latest separate decision: {row.latest_review_decision} by {row.latest_reviewer_id} — {row.latest_reason}</p>}
-            <Input
+            <select className="w-full rounded-md border bg-background p-2 text-sm"
               aria-label={`Eligibility review reason for ${row.eligibility_id}`}
-              placeholder="Reason for this independent eligibility decision (min 8 characters)"
               value={reasons[row.eligibility_id] ?? ""}
               onChange={(event) => setReasons((current) => ({ ...current, [row.eligibility_id]: event.target.value }))}
-            />
+            >
+              <option value="">Choose the reason for your decision</option>
+              <option value="Reviewed business recipient and company association">Business recipient — company association reviewed</option>
+              <option value="Recipient is not associated with this company">Wrong company or recipient</option>
+              <option value="Insufficient information to establish business recipient affiliation">Insufficient information to approve</option>
+            </select>
             <div className="flex gap-2">
               <Button size="sm" disabled={reviewMutation.isPending || (reasons[row.eligibility_id] ?? "").trim().length < 8}
                 onClick={() => reviewMutation.mutate({ row, decision: "approved" })}>Approve eligibility</Button>
@@ -2521,8 +2548,11 @@ export default function LeadOpsCenter() {
 
         {/* ── Businesses tab ─────────────────────────────────────────────── */}
         <TabsContent value="businesses" className="space-y-4">
-          {user?.role === "admin" && <ContactBusinessReconciliationPanel />}
           {user?.role === "admin" && <SystemContactBusinessLinksPanel renderReview={(contactId) => <ContactBusinessReconciliationPanel contactId={contactId} />} />}
+          {user?.role === "admin" && <details className="rounded border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Advanced review of conflicting or existing associations</summary>
+            <div className="mt-3"><ContactBusinessReconciliationPanel /></div>
+          </details>}
           {user?.role === "admin" && <ContactLinkCoveragePanel />}
           <BusinessesTab userRole={user?.role ?? "agent"} />
         </TabsContent>
@@ -3559,12 +3589,12 @@ function SfpEnrichmentControlCenter() {
               <div className="rounded-md border p-3" data-testid="stat-serper-status">
                 <div className="text-xs text-muted-foreground">Serper (discovery)</div>
                 <div className="text-lg font-semibold">{serper ? (serper.enabled ? "enabled" : "disabled") : "unknown"}</div>
-                <div className="text-xs text-muted-foreground">{serper?.circuitState ?? "unavailable"}</div>
+                <div className="text-xs text-muted-foreground">{serper?.circuitState === "closed" ? "Failure protection: healthy" : serper?.circuitState === "open" ? "Failure protection: blocking calls" : serper?.circuitState === "half-open" || serper?.circuitState === "half_open" ? "Failure protection: testing recovery" : "Failure protection: unavailable"}</div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-zerobounce-status">
                 <div className="text-xs text-muted-foreground">ZeroBounce (validation)</div>
                 <div className="text-lg font-semibold">{zerobounce ? (zerobounce.enabled ? "enabled" : "disabled") : "unknown"}</div>
-                <div className="text-xs text-muted-foreground">{zerobounce?.circuitState ?? "unavailable"}</div>
+                <div className="text-xs text-muted-foreground">{zerobounce?.circuitState === "closed" ? "Failure protection: healthy" : zerobounce?.circuitState === "open" ? "Failure protection: blocking calls" : zerobounce?.circuitState === "half-open" || zerobounce?.circuitState === "half_open" ? "Failure protection: testing recovery" : "Failure protection: unavailable"}</div>
               </div>
               <div className="rounded-md border p-3" data-testid="stat-ready-held">
                 <div className="text-xs text-muted-foreground">Ready-held enrollments</div>

@@ -408,6 +408,13 @@ async function seedPausedProgram(database: LocalDatabase): Promise<void> {
          FALSE, FALSE, 'offline-fixture')
        ON CONFLICT (name) DO NOTHING`,
     );
+    const business = (await client.query(`INSERT INTO businesses
+      (canonical_name,normalized_name,main_phone,record_class,city,state)
+      VALUES ('Offline Roofing LLC','offline roofing','3055550132','canonical','Miami','FL') RETURNING id`)).rows[0];
+    await client.query(`INSERT INTO contacts
+      (first_name,last_name,email,phone,company_name,record_class,email_status)
+      VALUES ('Offline','Owner','offline-roofing@gmail.com','+13055550132','Offline Roofing Inc','production','unvalidated')`);
+    if (!business) throw new Error("OFFLINE_MATCH_FIXTURE_FAILED");
   });
 }
 

@@ -3,7 +3,13 @@ name: SFP contact–business link evidence
 description: Independent identity threshold and Sunbiz vendor-source distinction for safely admitting CRM contacts into SFP.
 ---
 
-Require an independent canonical Sunbiz source relationship with matching source website domain and entity name, a unique canonical business domain, an exact normalized CRM company name, and a matching non-shared corporate email domain before a system-verified contact–business link may enter SFP. A domain-only lookup, self-reported form, or import/dedupe candidate is not proof of ownership. A verified link still does not validate the email or authorize outreach.
+Do not treat the legacy Sunbiz/corporate-domain conjunction as the universal company/contact linking policy. The user explicitly said the linking rules were too strict. Company identity, email deliverability, outreach eligibility and permission to send are separate decisions.
+
+**Why:** Requiring every registry website, exact legal-name spelling and corporate email at once leaves genuine businesses using Gmail or missing websites unresolved. Suppression/invalid email status is a reason not to send, not proof that a company relationship is false.
+
+**How to apply:** Allow an explicit, attributable operator confirmation of a unique company-name match without demanding missing phone/domain evidence, evidence IDs, or typed reasons. Supporting identifiers strengthen or disambiguate the match. Keep competing/conflicting matches unresolved, preserve opt-outs, and never describe operator confirmation or software matching as independent registry/provider verification.
+
+The legacy strict automatic path still requires an independent canonical Sunbiz source relationship with matching source website domain and entity name, a unique canonical business domain, an exact normalized CRM company name, and a matching non-shared corporate email domain. This is a specific system-verification authority, not overall linking eligibility. A verified link still does not validate the email or authorize outreach.
 
 **Why:** Production has many domain overlaps but almost no persisted contact–business links. The historical contact import largely lacks individual source-event/import-disposition evidence. Treating candidate matches as verified would falsely attribute contacts. The Sunbiz source link's `source_system` is `sunbiz`, while the linked source entities are predominantly ingested through `cordata` or `corevt`; requiring the entity's `source` to equal `sunbiz` would silently reject nearly the entire independently linked population.
 

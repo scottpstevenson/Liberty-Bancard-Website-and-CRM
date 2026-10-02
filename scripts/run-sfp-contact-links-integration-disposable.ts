@@ -74,7 +74,9 @@ async function main() {
     if (migrateCode !== 0) throw new Error(`Disposable Drizzle migration run failed (${migrateCode}).`);
 
     console.log("\n▶ Running strict contact/business system-link integration assertions…");
-    exitCode = await run(["scripts/test-sfp-contact-links-integration.ts"], env);
+    exitCode = await run([process.argv.includes("--corroborated")
+      ? "scripts/test-corroborated-company-links.ts"
+      : "scripts/test-sfp-contact-links-integration.ts"], env);
   } finally {
     console.log("\n▶ Destroying isolated PostgreSQL cluster…");
     await cluster.stop();
