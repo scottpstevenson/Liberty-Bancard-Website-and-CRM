@@ -119,7 +119,7 @@
 - [First-party contact-page email crawler](first-party-contact-crawler.md) — Serper->crawler fallback domain-priority order, dual email policies, `_crawlerDeps` test seam.
 - [CRO-03C inventory AMBIGUOUS prevention](cro03c-inventory-ambiguous-prevention.md) — convergence must check+revoke existing valid inventories before signing a new one.
 - [Census cursor NOWAIT skip-locked](census-cursor-nowait.md) — FOR UPDATE NOWAIT + lock_timeout '2s' on cursor rows; locked sources skip both row fetch and cursor advance.
-- [CRO-03C gate diagnostics endpoint](cro03c-gate-diagnostics.md) — GET /api/admin/cro03c/gate-diagnostics returns prerequisite statuses; closedGateReason is a single enum (null=open).
+- [CRO runtime observations](cro03d-ceremony-architecture.md) — Fresh fleet capture is not approval; use the guarded collector for expired observations, never restore startup signing.
 - [Durable failure-write tx deadlock](durable-failure-write-tx-deadlock.md) — Do not reuse a failing tx's PK on another connection; write failures in the outer catch.
 - [Certification fixture reuse after mutation](cert-fixture-mutation-reuse.md) — a fixture mutated by an earlier check silently shows that state to any later check reusing the same id.
 - [Cross-connection advisory lock deadlock](advisory-lock-cross-connection-deadlock.md) — never xact-lock a key a session-level lock on a different connection already holds.

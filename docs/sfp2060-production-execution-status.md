@@ -65,14 +65,95 @@ candidate audit behavior. Tests cover initialization, continuation, completion,
 failure, query shape, route/role/CSRF behavior, and disposable SQL source
 recovery; the project typecheck also passes.
 
-**Publication and execution remain pending.** These are workspace repairs,
-not proof that the published runner is fixed or that contacts are now linked.
-After publication, reverify the actual release, run the supported coverage and
-source-recovery/linking actions, and measure persisted verified relationships
-and downstream validation. Candidates needing independent review are not
-automatically verified. Keep outbound paused and retain the original
-100-business, five-vertical, 5,000-recipient, and scheduled-replenishment
-acceptance requirements.
+The repairs were published and independently checked against publisher
+metadata, artifact-loaded logs and live health. This is not proof that the
+contact-link or recipient acceptance requirements are complete.
+
+### Post-publication execution — October 2, 2026, full pass completed at 13:45 UTC
+
+- Published SHA: `53ef7bdc5c48b1821adc92153e56c88b69ac6cfe`; per-Publish build:
+  `1df21193-ae7e-46aa-b2d2-db1ff46d39bb`.
+- Transferred SFP runtime selection through the audited CAS endpoint from
+  selection version 4 to 5, after verifying the actual published artifact.
+  The selected release and live owner matched the published build.
+- Coverage run `ed5e34df-78b3-4aaf-8b17-56f273f2044c` froze 154,417 contacts
+  at watermark 159,475. A first-page request failed after approximately
+  30 seconds, but a subsequent bounded step committed successfully. This
+  does not establish the failed query's SQLSTATE. The serialized runner
+  completed all 154,417 contacts at cursor/watermark 159,475 without losing
+  its run ownership. Its final status is `completed`, `complete=true`,
+  `lastError=null`.
+- Final checkpoints report 85 recoverable identities, 41,965 review cases,
+  111,929 needing business discovery, 31 already-verified relationships,
+  406 out-of-scope contacts and one suppressed contact.
+  **Zero strict-auto-eligible imported contacts were reported.**
+  These are as-observed classifications, not newly verified relationships.
+- Source recovery has actually materialized **17 retained Sunbiz-to-canonical
+  business relationships** through snapshot-pinned admin preview/apply.
+  Two preview items retained terminal bootstrap holds. All 17 contact
+  rechecks remained ineligible for the strict system linker. No review
+  decision was fabricated or submitted; source recovery is not a contact FK.
+- The final production-replica check contains 32 current verified contact
+  decisions with matching projections and 31 native SFP bridge receipts
+  across 28 businesses and 31 addresses. All 31 native enrollments are paused,
+  linked to their current verified decision/revision and a non-null master
+  lead, and their intents remain ready-held.
+- **One verified SFP contact was newly created after this Publish.**
+  Contact 159,476 was created at 13:15:06 UTC, above the frozen imported-contact
+  watermark. It is `created_new`, not a repaired imported contact.
+  Its free-source eligibility records a valid, unsuppressed role inbox,
+  validation at 13:06:20 UTC, expiry November 1, and no reused operation.
+  The linked ZeroBounce operation is completed with one attempt and a retained
+  `sfp-dispatch-receipt-v1` marking dispatch and one settled unit. The resulting
+  verified link, master lead, ready-held construction intent and paused
+  native enrollment are persisted. This is real downstream pipeline progress,
+  **not completion of the broader imported-contact linkage requirement**.
+- Of the native receipts, 28 across 25 businesses satisfy the stored fresh-valid
+  eligibility, not-suppressed, current verified-link/revision and paused
+  enrollment checks: Automotive 1, Beauty/Spa 3,
+  Construction/Trades/Home Services 23, Fitness/Recreation 0, Healthcare 1.
+  Their distinct-business counts are respectively 1, 3, 20, 0 and 1.
+  Three have invalid current eligibility and are not counted as qualified.
+  This aggregate is not a substitute for the complete receipt/policy chain
+  certification required by the task.
+- Refreshed actual runtime observations through the guarded CRO-03C
+  collector, without issuing approvals or changing provider/budget controls.
+  Diagnostics confirmed the observed fleet/inventory and an open readiness
+  gate. The observation is ephemeral; it is not permanent operating authority.
+- A genuine Serper replenishment run processed 25 businesses, made 49
+  provider requests, returned no results for all 25 and confirmed zero
+  outreach. A free-discovery replenishment processed nine businesses without
+  failures. Two explicit validation runs consumed cached invalid outcomes
+  for three candidates and made **zero** provider requests; they are not
+  counted as new genuine ZeroBounce validations.
+- An Outscraper/Apollo person-discovery request exceeded the local HTTP
+  client's four-minute wait. Read-only production verification subsequently
+  found its persisted stage `partial`, completed at 13:23:02 UTC, with 25
+  selected/processed and zero counted successes/failures. Its Outscraper items
+  include seven `completed`, eight `no_result` and four retryable
+  `outscraper_task_submitted` records. Neither a caller timeout nor an item
+  labelled completed is proof of a qualified email. No blind resubmission
+  was performed. The current HTTP waterfall is not poll-only and a changed
+  preview may invalidate same-key replay; respect those boundaries.
+- Retained BullMQ job hashes in the namespace derived from the **published**
+  environment, execution identity, SHA and topology prove scheduled staging
+  ticks at 13:00, 13:15 and 13:30 UTC. Their repeat cadence is 900,000 ms and
+  completion times are 13:00:01.757, 13:15:14.493 and 13:30:01.490 UTC.
+  The 13:15 completion exactly matches the published queue API's retained
+  timestamp. The unscoped `bull:` namespace contained September 29 jobs and
+  was not used as current production evidence. These jobs return `null`;
+  their completed metadata proves actual scheduled fires, **not positive
+  qualified-recipient yield at each fire**.
+
+Task 2060 remains open. The 5,000 qualified-recipient target and 100-business,
+20-per-vertical acceptance proof have not been achieved. Keep outbound paused,
+sends at zero, and all original exclusion, review, deduplication and ownership
+guards in force. The completed coverage pass produced no automatically
+verifiable imported relationships. Further imported-contact linkage remains
+blocked on sufficient independent identity evidence or genuine independent
+review; retained source materialization cannot substitute for either.
+Authenticated post-pass health matches the published SHA/build and outbound
+pause remains confirmed at epoch 1. No sends were released by this continuation.
 
 ## Historical October 1 observations
 
