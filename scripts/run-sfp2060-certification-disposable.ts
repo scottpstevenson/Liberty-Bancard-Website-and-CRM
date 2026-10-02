@@ -52,6 +52,7 @@ async function main(): Promise<void> {
 
     const certifications = [
       { name: "receipt-projection-repair", script: "server/tests/sfp-eligibility-receipt-repair.test.ts", database: false },
+      { name: "outscraper-retrieval-task-query", script: "server/tests/sfp-outs-task-query.test.ts", database: true },
       { name: "safe-failure-diagnostics", script: "server/tests/sfp-failure-diagnostics.test.ts", database: false },
       { name: "publish-build-identity", script: "scripts/test-sfp-publish-build-identity.ts", database: false },
       { name: "five-vertical-fairness", script: "scripts/test-sfp-five-vertical-fairness-pure.ts", database: false },

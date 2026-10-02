@@ -150,3 +150,4 @@
 - [Authority bootstrap versus transfer](authority-bootstrap-transfer.md) — Use explicit INSERT/UPDATE for event-guarded authority rows; upserts run BEFORE INSERT even on conflicts.
 - [Publish nested-expression indexes](publish-nested-expression-indexes.md) — Valid dev indexes can serialize into broken Publish SQL; generated keys with column indexes round-trip safely.
 - [SFP published build identity](sfp-published-build-identity.md) — Per-build UUIDs distinguish same-SHA Publishes without an undocumented platform ID; publisher proof remains separate.
+- [Production SQL result verification](production-sql-result-verification.md) — success=true with only START TRANSACTION/ROLLBACK is not a valid empty census; require the actual result.

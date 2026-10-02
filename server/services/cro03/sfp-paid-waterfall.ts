@@ -1410,7 +1410,7 @@ export async function processSfpOutscraperRetrievalTask(input: {
            submission.claim_token,submission.reserved_units,submission.unit_price_micros,
            submission.unit_price_unit,submission.runtime_owner_epoch,submission.runtime_owner_token,
            submission.provider AS control_provider,submission.id AS operation_id,
-           submission.stage_run_id AS submission_stage_run_id,submission.sfp_result_data,
+           task.stage_run_id AS submission_stage_run_id,submission.sfp_result_data,
            submission.actor_id AS submission_actor_id,
            CASE WHEN submission.sfp_result_data->>'noResultBillable' IN ('true','false')
                 THEN (submission.sfp_result_data->>'noResultBillable')::boolean ELSE NULL END AS no_result_billable

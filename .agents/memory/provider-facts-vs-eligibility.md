@@ -41,3 +41,14 @@ that restrictive state or fabricate provider facts.
 **How to apply:** Use explicit bounded selection and lossless preview CAS, keep
 the audit in the repair transaction, never extend original expiry, and check
 all selected receipts against one final database-clock observation after waits.
+
+Certify asynchronous provider retrieval against the real database schema, not
+only synchronous fake-provider success paths.
+
+**Why:** A production pending-result retrieval failed on a nonexistent column
+even though the synchronous integrated pipeline certification passed. The
+transport fixture had never exercised the durable retrieval query.
+
+**How to apply:** Include pending, terminal, and expired retrieval cases using
+isolated real tables. Verify original submission accounting and ownership pins
+survive retrieval; never repair the failure by inventing usage or replaying spend.
