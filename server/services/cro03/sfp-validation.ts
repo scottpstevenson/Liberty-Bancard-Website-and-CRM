@@ -62,6 +62,7 @@ import {
   type SfpActivePolicy,
 } from "./sfp-outreach-policy";
 import { lockSfpContactAddress } from "./sfp-contact-address-lock";
+import { isSfpReceiptProjectionRepairCandidate } from "./sfp-eligibility-receipt-repair";
 import {
   lockSfpBusinessSafetySentinel,
   lockSfpEligibilityProjectionKey,
@@ -209,6 +210,7 @@ async function buildSfpValidationSelectionSnapshot(
     bizIds,
     cohortRunId,
     policy.version,
+    policy.validationTtlDays,
     scope?.resolvedTargets,
   );
   const durableReceipts = scope
@@ -638,6 +640,7 @@ async function selectWinnersPerBusiness(
   bizIds: number[],
   cohortRunId: string,
   policyVersion: number,
+  validationTtlDays: number,
   selectedContactTargets?: SfpSelectedContactTarget[],
 ): Promise<Map<number, UnifiedSfpCandidateView>> {
   const unified = await getUnifiedSfpCandidates(bizIds) as CandidateWithPin[];
@@ -668,13 +671,34 @@ async function selectWinnersPerBusiness(
   }
   if (!unified.length) return new Map();
   const history = rows(await db.execute(sql`
-    SELECT business_id,source_kind,candidate_id::text AS candidate_id,
-           paid_candidate_evidence_id::text AS paid_id,contact_id::text AS contact_id,
-           normalized_value_hash,status,updated_at,decision_reason
-      FROM sfp_outreach_eligibility
-     WHERE cohort_run_id=${cohortRunId}::uuid
-       AND business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
-       AND policy_version=${policyVersion}
+    SELECT e.business_id,e.source_kind,e.candidate_id::text AS candidate_id,
+           e.paid_candidate_evidence_id::text AS paid_id,e.contact_id::text AS contact_id,
+           e.normalized_value_hash,e.normalized_value_hash_version,e.status,e.updated_at,e.decision_reason,
+           (
+             e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL
+             AND EXISTS (
+               SELECT 1 FROM provider_observations po
+               JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
+                WHERE po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+                  AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
+                  AND po.subject_type='business' AND po.subject_id=e.business_id
+                  AND po.observed_at<=clock_timestamp()
+                  AND LEAST(COALESCE(po.expires_at,po.observed_at+(${validationTtlDays}::text||' days')::interval),
+                            po.observed_at+(${validationTtlDays}::text||' days')::interval)>clock_timestamp()
+                  AND (
+                    e.validation_at IS NULL OR e.validation_expires_at IS NULL
+                    OR e.validation_at NOT BETWEEN po.observed_at-INTERVAL '5 minutes'
+                                                   AND po.observed_at+INTERVAL '5 minutes'
+                    OR e.validation_expires_at>LEAST(
+                      COALESCE(po.expires_at,po.observed_at+(${validationTtlDays}::text||' days')::interval),
+                      po.observed_at+(${validationTtlDays}::text||' days')::interval)
+                  )
+             )
+           ) AS receipt_projection_needs_repair
+      FROM sfp_outreach_eligibility e
+     WHERE e.cohort_run_id=${cohortRunId}::uuid
+       AND e.business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
+       AND e.policy_version=${policyVersion}
   `));
   const lastByBiz = new Map<number, any>();
   for (const row of history) lastByBiz.set(Number(row.business_id), row);
@@ -709,6 +733,8 @@ async function selectWinnersPerBusiness(
     if (winners.has(cand.businessId)) continue;
     const candidateKey = `${cand.businessId}:${cand.sourceKind}:${candidateSourceId(cand)}:${cand._normalizedHash ?? ""}:${cand.normalizedValueHashVersion ?? ""}:${cand._candidateRevision ?? cand.createdAt}:${policyVersion}`;
     const candidateWork = latestCandidateWork.get(candidateKey);
+    const prior = lastByBiz.get(cand.businessId);
+    const repairProjection = isSfpReceiptProjectionRepairCandidate(prior, cand);
     if (candidateWork) {
       if (candidateWork.state === "claimed" && Date.parse(String(candidateWork.lease_expires_at)) <= now) {
         // A worker died after its durable claim; the claim helper below can
@@ -718,18 +744,17 @@ async function selectWinnersPerBusiness(
       } else if (candidateWork.state === "retry") {
         if (now < Date.parse(String(candidateWork.next_attempt_at))) continue;
         cand._retryAttempt = Number(candidateWork.attempt_count ?? 0) + 1;
-      } else {
+      } else if (!(candidateWork.state === "completed" && repairProjection)) {
         continue;
       }
     }
-    const prior = lastByBiz.get(cand.businessId);
     if (!candidateWork && cand.sourceKind !== "contact" && prior && prior.source_kind === cand.sourceKind && prior.normalized_value_hash &&
         String(prior.normalized_value_hash) === String(cand._normalizedHash)) {
       if (prior.status === "validation_pending") {
         cand._retryAttempt = Number(String(prior.decision_reason ?? "").match(/attempt:(\d+)/)?.[1] ?? 1) + 1;
         const retryAt = Date.parse(String(prior.updated_at)) + retryDelayMs(String(prior.decision_reason ?? ""));
         if (now < retryAt) continue;
-      } else {
+      } else if (!repairProjection) {
         continue; // terminal only for this exact address revision
       }
     }
@@ -1702,8 +1727,10 @@ export async function executeSfpValidation(
               throw new Error("SFP_VALIDATION_DATABASE_CLOCK_UNAVAILABLE");
             }
             const databaseClockIso = databaseClock.toISOString();
-            const observedAtForEligibility = fresh?.observedAt ??
-              observationAt ?? receiptAfterWait?.observedAt ?? databaseClockIso;
+            // Eligibility projects the immutable receipt's clock, never a
+            // later projection/transport time that could extend its TTL.
+            const observedAtForEligibility = receiptAfterWait?.observedAt ??
+              fresh?.observedAt ?? observationAt ?? databaseClockIso;
             const receiptExpiry = receiptAfterWait
               ? effectiveSfpProviderObservationExpiry(
                   receiptAfterWait.observedAt, receiptAfterWait.expiresAt, policy.validationTtlDays,

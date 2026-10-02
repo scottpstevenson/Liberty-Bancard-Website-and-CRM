@@ -32,6 +32,7 @@ import { previewSfpPaidWaterfall, executeSfpSerperDiscovery, executeSfpPaidPerso
 import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
 import { getSfpProviderReadiness } from "./sfp-provider-operations";
 import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
+import { safeSfpFailureDiagnostics } from "./sfp-failure-diagnostics";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -160,7 +161,8 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     }
   } catch (err: any) {
     await auditTick("sfp_continuous_discovery_tick", "admission_failed", {
-      error: String(err?.message ?? err),
+      error: "SFP_COHORT_ADMISSION_FAILED",
+      ...safeSfpFailureDiagnostics(err),
     });
   }
 

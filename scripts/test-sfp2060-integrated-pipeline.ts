@@ -703,10 +703,56 @@ try {
   assert.equal(validation.invalidCount, 0);
   assert.equal(zeroBounceCalls, 4, "all four source candidates traverse the fake ZeroBounce network callback");
 
+  // Legacy projection time could extend eligibility past its immutable
+  // receipt's TTL. Revisit that exact completed candidate through the normal
+  // preview/validate path, without another provider request or receipt write.
+  const repairOriginalReceipt = rows(await db.execute(sql`
+    SELECT po.operation_id,md5(row_to_json(po)::text) AS fingerprint
+      FROM sfp_outreach_eligibility e
+      JOIN provider_observations po ON po.operation_id=e.validation_operation_id
+     WHERE e.cohort_run_id=${cohortRunId}::uuid AND e.business_id=${businessA}
+       AND po.provider='zerobounce'
+  `))[0];
+  assert.ok(repairOriginalReceipt);
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility
+       SET validation_expires_at=validation_expires_at+INTERVAL '21 seconds'
+     WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${businessA}
+  `);
+  const repairPreview = await previewSfpValidation(cohortRunId);
+  const repaired = await executeSfpValidation(cohortRunId, {
+    idempotencyKey: `${runKey}-legacy-receipt-projection-repair`,
+    actorId,
+    maxValidations: 25,
+    snapshotHash: repairPreview.snapshotHash,
+  });
+  assert.equal(repaired.failedCount, 0);
+  assert.equal(repaired.validCount, 1, "only the malformed exact source is revisited");
+  assert.equal(repaired.providerRequests, 0, "repair reuses the genuine same-business/address receipt");
+  assert.equal(zeroBounceCalls, 4);
+  const repairedProjection = rows(await db.execute(sql`
+    SELECT e.status,COALESCE(e.validation_operation_id,e.reused_from_operation_id) AS operation_id,
+           e.validation_at BETWEEN po.observed_at-INTERVAL '5 minutes'
+                               AND po.observed_at+INTERVAL '5 minutes' AS time_aligned,
+           e.validation_expires_at<=COALESCE(po.expires_at,po.observed_at+INTERVAL '30 days') AS expiry_bounded,
+           md5(row_to_json(po)::text) AS fingerprint
+      FROM sfp_outreach_eligibility e
+      JOIN provider_observations po
+        ON po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+     WHERE e.cohort_run_id=${cohortRunId}::uuid AND e.business_id=${businessA}
+       AND po.provider='zerobounce'
+  `))[0];
+  assert.equal(repairedProjection.status, "validated_outreach_eligible");
+  assert.equal(repairedProjection.time_aligned, true);
+  assert.equal(repairedProjection.expiry_bounded, true);
+  assert.equal(String(repairedProjection.operation_id), String(repairOriginalReceipt.operation_id));
+  assert.equal(repairedProjection.fingerprint, repairOriginalReceipt.fingerprint,
+    "the complete immutable provider observation is unchanged");
+
   const eligibilities = rows(await db.execute(sql`
     SELECT id,business_id,source_kind,candidate_id,paid_candidate_evidence_id,contact_id,status,
            normalized_value_hash,normalized_value_hash_version,validation_at,validation_expires_at,
-           validation_operation_id,contact_business_link_decision_id,contact_business_link_revision
+           validation_operation_id,reused_from_operation_id,contact_business_link_decision_id,contact_business_link_revision
       FROM sfp_outreach_eligibility
      WHERE cohort_run_id=${cohortRunId}::uuid
      ORDER BY business_id
@@ -741,8 +787,9 @@ try {
   assert.equal(eligibilityForBusinessD?.source_kind, "free");
   assert.ok(eligibilities.every((item: any) =>
     item.normalized_value_hash && Number(item.normalized_value_hash_version) === 1 &&
-    item.validation_at && item.validation_expires_at && item.validation_operation_id,
-  ), "eligibilities pin non-null versioned source identity and the original validation operation");
+    item.validation_at && item.validation_expires_at &&
+    (item.validation_operation_id || item.reused_from_operation_id),
+  ), "eligibilities pin versioned source identity and the original dispatched or reused validation operation");
   const businessEmailProjection = rows(await db.execute(sql`
     SELECT id,main_email,email_discovery_status
       FROM businesses
@@ -1179,8 +1226,10 @@ try {
   assert.equal(String(systemLink.normalized_value_hash), String(originalFreeIntent.normalized_value_hash));
   assert.equal(Number(systemLink.normalized_value_hash_version), Number(originalFreeIntent.normalized_value_hash_version));
   const originalOwnerEligibility = eligibilityById.get(String(originalFreeIntent.eligibility_id)) as any;
-  assert.ok(originalOwnerEligibility?.validation_operation_id);
-  assert.equal(String(systemLink.validation_operation_id), String(originalOwnerEligibility.validation_operation_id));
+  const originalOwnerOperationId = originalOwnerEligibility?.validation_operation_id ??
+    originalOwnerEligibility?.reused_from_operation_id;
+  assert.ok(originalOwnerOperationId);
+  assert.equal(String(systemLink.validation_operation_id), String(originalOwnerOperationId));
   assert.ok(systemLink.evidence_id, "system bridge link has source-bound SFP evidence");
   assert.equal(systemLink.reviewed_by, null, "the system link does not impersonate a human reviewer");
   assert.equal(systemLink.system_evidence_id, null, "the bridge does not fabricate a separate authority receipt");
