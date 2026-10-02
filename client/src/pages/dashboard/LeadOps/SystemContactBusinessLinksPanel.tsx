@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -6,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -33,12 +35,13 @@ type LinkPreview = {
   paidProviderCalls: 0;
 };
 
-export function SystemContactBusinessLinksPanel() {
+export function SystemContactBusinessLinksPanel({ renderReview }: { renderReview: (contactId: number) => ReactNode }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
   const [history, setHistory] = useState<number[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
+  const [reviewRow, setReviewRow] = useState<LinkPreviewRow | null>(null);
   const preview = useQuery<LinkPreview>({
     queryKey: [PATH, "preview", cursor],
     queryFn: async () => (await apiRequest("GET", `${PATH}/preview?afterContactId=${cursor}&limit=25`)).json(),
@@ -95,7 +98,7 @@ export function SystemContactBusinessLinksPanel() {
                 )}
                 <div className="max-h-96 overflow-y-auto space-y-2">
                   {preview.data.rows.map((row) => (
-                    <label key={row.contactId} className="flex items-start gap-3 rounded border p-2">
+                    <div key={row.contactId} className="flex items-start gap-3 rounded border p-2">
                       <Checkbox
                         checked={selected.includes(row.contactId)}
                         disabled={!row.eligible || !preview.data.schemaReady || apply.isPending}
@@ -111,8 +114,13 @@ export function SystemContactBusinessLinksPanel() {
                           {row.eligible ? "Independent source and identity checks passed" : row.reasons.join(", ") || "Requires review"}
                         </span>
                       </span>
-                      <Badge variant={row.eligible ? "secondary" : "outline"}>{row.eligible ? "Eligible" : "Review"}</Badge>
-                    </label>
+                      {row.eligible ? <Badge variant="secondary">Eligible</Badge> : (
+                        <Button size="sm" variant="outline" onClick={() => setReviewRow(row)}
+                          aria-label={`Review contact ${row.contactId}`} data-testid={`review-system-link-${row.contactId}`}>
+                          Review
+                        </Button>
+                      )}
+                    </div>
                   ))}
                   {preview.data.rows.length === 0 && <p>No contacts on this page.</p>}
                 </div>
@@ -151,6 +159,25 @@ export function SystemContactBusinessLinksPanel() {
           </>
         )}
       </CardContent>
+      <Dialog open={reviewRow !== null} onOpenChange={(value) => { if (!value) setReviewRow(null); }}>
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Review contact #{reviewRow?.contactId} business association</DialogTitle>
+            <DialogDescription>
+              Automatic linking did not pass its identity checks. Review the contact and existing candidate evidence below.
+              An independent evidence event is required to record a human decision; opening this review does not verify a link or authorize outreach.
+            </DialogDescription>
+          </DialogHeader>
+          {reviewRow && <>
+            <p className="text-sm" role="status">{reviewRow.reasons.join(", ") || "Independent review required"}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild><Link href={`/dashboard/contacts/${reviewRow.contactId}`}>Open contact record</Link></Button>
+              {reviewRow.businessId != null && <span className="text-sm">Candidate business #{reviewRow.businessId}</span>}
+            </div>
+            {renderReview(reviewRow.contactId)}
+          </>}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

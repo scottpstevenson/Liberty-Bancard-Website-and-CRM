@@ -92,3 +92,53 @@ a blind duplicate batch merely to recreate the old failures.
 
 The enrichment task remains unfinished. Its full-chain production acceptance
 and sustained replenishment target have not been met.
+
+## Screenshot defects: October 2 corrective investigation
+
+The strict-link Review badge had no action. The workspace correction opens
+contact-scoped existing reconciliation suggestions and the independent-review
+form; it never turns a blocked automatic-link candidate into a verified link.
+Contacts without stored candidate evidence receive an explicit explanation.
+
+Production read-only counts established 85,416 canonical businesses and 81,239
+without any target/non-target classification evidence. The unfiltered preview
+bound these IDs separately in location and exclusion queries, exceeding
+PostgreSQL's 65,535-bind limit. All three lookups now use bounded batches; ranking
+still covers the entire candidate population. Unexpected preview errors no
+longer expose SQL and its parameters to the browser.
+
+The classification results page incorrectly described every evidence row as an
+OpenAI call. Frequent real review reasons were free-only/no escalation, escalation
+not configured, and escalation unavailable; genuinely completed AI rows also
+reported insufficient evidence. The results now disclose source, terminal state,
+taxonomy and reasons, with target/review filters. The business list separately
+exposes current active-v2 classification evidence without overwriting the legacy
+vertical or elevating AI verdicts into deterministic admission.
+
+All 2,424 distinct businesses in the active frozen-v2 population had NULL legacy
+member verticals, but their frozen `classifier_matched_target` correctly recorded
+the five target groups. A production read of that authority returned 129
+Automotive, 317 Beauty/Spa, 1,749 Construction/Trades/Home Services, 72
+Fitness/Recreation and 157 Healthcare businesses. It matched 31 verified
+email-bearing contacts before the funnel's additional suppression filters.
+The old funnel grouped by live business vertical, not frozen classification,
+and silently dropped those matches. The correction reads frozen classification
+and retains an explicit unclassified/legacy bucket for genuine missing labels.
+CRM-wide verified links and cohort-scoped eligible candidates remain different
+populations; no business is reclassified merely to reconcile the counters.
+
+The validation log mixed discovery-required records with actual outcomes, and
+its newest-row limit could hide validations. Historical eligibility records
+contain valid results (including reused validations) as well as review holds;
+these are not proof of current qualified recipients. Actual outcomes now have
+valid/invalid/review filters and a distinct-email historical summary, with
+discovery backlog reported separately.
+
+The Control Center displayed only the promotion configuration switch and read
+ready-held counters from the wrong response object. It now reads the actual
+effective gate, including deployment-owner readiness, and the authoritative
+funnel counters. The promotion-state API also honors the same persisted override
+used by the validator, rather than inspecting the environment setting alone.
+
+These workspace repairs do not resolve deployment-owner selection, demonstrate
+5,000 qualified recipients, publish a build, or authorize sending.

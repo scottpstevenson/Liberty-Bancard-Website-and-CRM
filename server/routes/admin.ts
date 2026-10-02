@@ -6231,7 +6231,11 @@ export function registerAdminRoutes(app: Express) {
           return res.status(400).json({ message: "limit must be an integer between 1 and 100" });
         }
         const { listContactBusinessSuggestions } = await import("../services/contact-business-reconciliation");
-        res.json(await listContactBusinessSuggestions({ afterCreatedAt, afterId, limit }));
+        const contactId = req.query.contactId === undefined ? undefined : Number(req.query.contactId);
+        if (contactId !== undefined && (!Number.isSafeInteger(contactId) || contactId < 1)) {
+          return res.status(400).json({ message: "contactId must be a positive integer" });
+        }
+        res.json(await listContactBusinessSuggestions({ afterCreatedAt, afterId, limit, contactId }));
       } catch (err) {
         serverError(res, err);
       }

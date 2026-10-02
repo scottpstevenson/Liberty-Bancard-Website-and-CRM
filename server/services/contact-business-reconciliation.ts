@@ -494,6 +494,7 @@ export async function listContactBusinessSuggestions(input: {
   afterCreatedAt?: string;
   afterId?: string;
   limit?: number;
+  contactId?: number;
 }) {
   const limit = boundedLimit(input.limit);
   const afterCreatedAt = input.afterCreatedAt ?? "1970-01-01T00:00:00.000Z";
@@ -533,9 +534,10 @@ export async function listContactBusinessSuggestions(input: {
          ORDER BY d.revision DESC LIMIT 1
       ) decision ON true
      WHERE (candidate.created_at, candidate.id) > ($1::timestamptz, $2::uuid)
+       AND ($4::integer IS NULL OR candidate.contact_id = $4::integer)
      ORDER BY candidate.created_at, candidate.id
      LIMIT $3
-  `, [afterCreatedAt, afterId, limit]);
+  `, [afterCreatedAt, afterId, limit, input.contactId ?? null]);
   return {
     candidates: rows.map(row => ({
       ...row,

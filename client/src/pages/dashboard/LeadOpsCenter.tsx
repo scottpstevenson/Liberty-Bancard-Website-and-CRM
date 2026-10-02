@@ -104,7 +104,7 @@ function maskContactEmail(email: string | null): string {
   return `${local.slice(0, 1)}***@${domain}`;
 }
 
-function ContactBusinessReconciliationPanel() {
+function ContactBusinessReconciliationPanel({ contactId }: { contactId?: number } = {}) {
   const { toast } = useToast();
   const [previewLimit, setPreviewLimit] = useState(25);
   const [showPreview, setShowPreview] = useState(false);
@@ -117,6 +117,7 @@ function ContactBusinessReconciliationPanel() {
     queryKey: ["/api/admin/contact-business-reconciliation/progress"],
     queryFn: async () => (await apiRequest("GET", `${CONTACT_RECONCILIATION_PATH}/progress`)).json(),
     refetchInterval: 10_000,
+    enabled: contactId === undefined,
     retry: false,
   });
 
@@ -139,11 +140,12 @@ function ContactBusinessReconciliationPanel() {
     retry: false,
   });
 
-  const suggestionQueryKey = [CONTACT_SUGGESTIONS_PATH, pageCursor?.createdAt ?? null, pageCursor?.id ?? null] as const;
+  const suggestionQueryKey = [CONTACT_SUGGESTIONS_PATH, contactId ?? null, pageCursor?.createdAt ?? null, pageCursor?.id ?? null] as const;
   const suggestionsQuery = useQuery<ContactBusinessSuggestionPage>({
     queryKey: suggestionQueryKey,
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "50" });
+      if (contactId !== undefined) params.set("contactId", String(contactId));
       if (pageCursor) {
         params.set("afterCreatedAt", pageCursor.createdAt);
         params.set("afterId", pageCursor.id);
@@ -270,7 +272,7 @@ function ContactBusinessReconciliationPanel() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 pt-0">
-        {progressQuery.isLoading ? (
+        {contactId !== undefined ? null : progressQuery.isLoading ? (
           <div className="text-xs text-muted-foreground" role="status">Loading reconciliation progress…</div>
         ) : progressQuery.isError ? (
           <div className="text-xs text-red-700" role="alert">Progress unavailable — counts are not zero: {(progressQuery.error as Error).message}</div>
@@ -337,7 +339,7 @@ function ContactBusinessReconciliationPanel() {
           </div>
         ) : null}
 
-        <div className="rounded border p-3 space-y-2">
+        {contactId === undefined && <div className="rounded border p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-xs font-semibold">Read-only preview</h3>
             <label className="text-xs" htmlFor="contact-reconciliation-preview-limit">Sample contacts</label>
@@ -380,7 +382,7 @@ function ContactBusinessReconciliationPanel() {
               <p className="text-[11px] text-muted-foreground">{previewQuery.data.note} · writes: {previewQuery.data.writes} · paid calls: {previewQuery.data.paidProviderCalls}.</p>
             </>
           )}
-        </div>
+        </div>}
 
         <div className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -510,7 +512,9 @@ function ContactBusinessReconciliationPanel() {
                     })}
                     {suggestionsQuery.data.candidates.length === 0 && (
                       <TableRow><TableCell colSpan={6} className="text-center text-xs text-muted-foreground">
-                        No suggestions on this page. This is not a count of all contacts or a verified-link result.
+                        {contactId !== undefined
+                          ? "No stored candidate for this contact. Inspect its record and generate candidate evidence through Contact ↔ Business Reconciliation first. A missing candidate cannot be verified here."
+                          : "No suggestions on this page. This is not a count of all contacts or a verified-link result."}
                       </TableCell></TableRow>
                     )}
                   </TableBody>
@@ -1962,7 +1966,7 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                 <TableRow>
                   <TableHead>Company</TableHead>
                   <TableHead>Location</TableHead>
-                  <TableHead>Vertical</TableHead>
+                  <TableHead>Legacy vertical / SFP v2</TableHead>
                   <TableHead>Email Status</TableHead>
                   <TableHead>Enrichment</TableHead>
                   <TableHead>Fit Tier</TableHead>
@@ -2013,6 +2017,11 @@ function BusinessesTab({ userRole }: { userRole: string }) {
                               ? <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">{b.vertical}</Badge>
                               : <span className="text-muted-foreground text-xs">—</span>
                             }
+                            <div className="text-[10px] mt-1 max-w-[220px]" title={b.sfpClassification?.reasons?.join(", ")}>
+                              {b.sfpClassification
+                                ? <>SFP v2: {b.sfpClassification.vertical ?? b.sfpClassification.outcome} · {b.sfpClassification.state}</>
+                                : <span className="text-muted-foreground">No current active-v2 evidence</span>}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1">
@@ -2123,7 +2132,7 @@ export default function LeadOpsCenter() {
   // ── Tab state (MI-08 + #1957 consolidation) ─────────────────────────────────
   const urlSearch = useSearch();
   const [, navigate] = useLocation();
-  const VALID_TABS = ["businesses", "prospects", "imports", "staging", "sources", "census", "intelligence", "quality", "pipeline", "pilot", "health", "sfp"] as const;
+  const VALID_TABS = ["businesses", "prospects", "imports", "staging", "sources", "census", "intelligence", "quality", "pipeline", "pilot", "health", "sfp", "provider-results"] as const;
   const STAGING_SUBTABS = ["master-leads", "promotion-review"] as const;
   const tabFromUrl = (() => {
     const t = new URLSearchParams(urlSearch).get("tab");
@@ -2513,7 +2522,7 @@ export default function LeadOpsCenter() {
         {/* ── Businesses tab ─────────────────────────────────────────────── */}
         <TabsContent value="businesses" className="space-y-4">
           {user?.role === "admin" && <ContactBusinessReconciliationPanel />}
-          {user?.role === "admin" && <SystemContactBusinessLinksPanel />}
+          {user?.role === "admin" && <SystemContactBusinessLinksPanel renderReview={(contactId) => <ContactBusinessReconciliationPanel contactId={contactId} />} />}
           {user?.role === "admin" && <ContactLinkCoveragePanel />}
           <BusinessesTab userRole={user?.role ?? "agent"} />
         </TabsContent>
@@ -3559,8 +3568,8 @@ function SfpEnrichmentControlCenter() {
               </div>
               <div className="rounded-md border p-3" data-testid="stat-ready-held">
                 <div className="text-xs text-muted-foreground">Ready-held enrollments</div>
-                <div className="text-lg font-semibold">{overview?.eligibleCounts?.ready_held_enrollments ?? "—"}</div>
-                <div className="text-xs text-muted-foreground">{overview?.eligibleCounts?.policy_eligible ?? 0} outreach-eligible</div>
+                <div className="text-lg font-semibold">{overview?.funnel?.ready_held_enrollments ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">{overview?.funnel?.policy_eligible ?? "—"} outreach-eligible decisions (not unique recipients)</div>
               </div>
             </div>
 
@@ -3580,7 +3589,8 @@ function SfpEnrichmentControlCenter() {
                 <div className="rounded border p-2"><div className="text-muted-foreground">Ready-held created</div><div className="font-semibold">{overview?.throughput24h?.ready_held_created ?? "—"} · {overview?.throughput24h?.contact_source_ready_held ?? "—"} from contacts</div></div>
               </div>
               <div className="text-xs text-muted-foreground">
-                Provider calls, returned evidence, validation outcomes, and staged records are counted separately. This rolling window is real record movement, not worker ticks; outbound sending remains independently paused.
+                  Provider calls, returned evidence, validation outcomes, and staged records are counted separately. This rolling window is real record movement, not worker ticks; outbound sending remains independently paused.
+                  Linked-contact totals cover the whole CRM; the table below covers only frozen v2 SFP cohorts. Unclassified cohort members are shown separately, not assigned a guessed vertical.
               </div>
               {overview?.enrichmentTelemetry?.available === false && (
                 <div className="text-xs text-amber-700">
@@ -3601,7 +3611,7 @@ function SfpEnrichmentControlCenter() {
                     <tbody>
                       {overview.v2VerticalFunnel24h.map((row: any) => (
                         <tr key={row.vertical} className="border-t">
-                          <td className="p-2 font-medium">{row.vertical}</td>
+                          <td className="p-2 font-medium">{row.vertical === "__unclassified__" ? "Unclassified / legacy cohort" : row.vertical}</td>
                           <td className="p-2">{row.frozen_businesses}</td>
                           <td className="p-2">{row.verified_contact_candidates}</td>
                           <td className="p-2">{row.free_email_candidates} · {row.businesses_with_free_email_candidate} businesses</td>
@@ -3632,7 +3642,13 @@ function SfpEnrichmentControlCenter() {
                 <div className="text-sm font-medium">Email-validation promotion gate</div>
                 <div className="text-xs text-muted-foreground">
                   Env var: {overrideQuery.data?.envVarEnabled ? "on" : "off"} · Override: {override === null ? "none (defers to env var)" : override ? "forced ON" : "forced OFF"} ·{" "}
-                  Effective: <span className={overrideQuery.data?.effective ? "text-green-600" : "text-red-600"}>{overrideQuery.data?.effective ? "OPEN" : "CLOSED"}</span>
+                  Configured switch: {overrideQuery.isError || !overrideQuery.data ? "unavailable" : overrideQuery.data.effective ? "ON" : "OFF"}
+                </div>
+                <div className="text-xs mt-1" role="status" data-testid="sfp-effective-promotion-gate">
+                  Effective promotion gate: <strong>{promotionStateQuery.isError || !promotionStateQuery.data ? "UNAVAILABLE" : promotionStateQuery.data.gateOpen ? "OPEN" : "CLOSED"}</strong>
+                  {promotionStateQuery.data?.note && <p className="text-muted-foreground">{promotionStateQuery.data.note}</p>}
+                  {promotionStateQuery.data?.runtimeOwnerReady === false && <p className="text-destructive">Deployment owner blocker: {promotionStateQuery.data.runtimeOwnerReason}</p>}
+                  <p className="text-muted-foreground">This gate controls validation promotion, not successful enrichment or sending. Outbound stays paused.</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -3671,12 +3687,16 @@ function SfpEnrichmentControlCenter() {
 // redacted at write time.
 function SfpProviderResultsPanel() {
   const [providerFilter, setProviderFilter] = useState<string>("all");
+  const [validationOutcome, setValidationOutcome] = useState("all");
+  const [classificationOutcome, setClassificationOutcome] = useState("all");
 
-  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[]; validationResults: any[] }>({
-    queryKey: ["/api/lead-ops/sfp/provider-results", providerFilter],
+  const resultsQuery = useQuery<{ candidateResults: any[]; classificationResults: any[]; validationResults: any[]; validationSummary: any }>({
+    queryKey: ["/api/lead-ops/sfp/provider-results", providerFilter, validationOutcome, classificationOutcome],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
       if (providerFilter !== "all") params.set("provider", providerFilter);
+      params.set("validationOutcome", validationOutcome);
+      params.set("classificationOutcome", classificationOutcome);
       const r = await fetch(`/api/lead-ops/sfp/provider-results?${params}`, { credentials: "include" });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
@@ -3690,6 +3710,13 @@ function SfpProviderResultsPanel() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap gap-2" aria-label="Provider result filters">
+        {["all", "serper", "outscraper", "apollo", "openai", "zerobounce"].map((p) => (
+          <Button key={p} size="sm" variant={providerFilter === p ? "default" : "outline"} onClick={() => setProviderFilter(p)} data-testid={`button-filter-${p}`}>
+            {p === "all" ? "All" : p}
+          </Button>
+        ))}
+      </div>
       {(providerFilter === "all" || ["serper", "outscraper", "apollo"].includes(providerFilter)) && <Card data-testid="card-sfp-candidate-results">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -3698,13 +3725,6 @@ function SfpProviderResultsPanel() {
           <CardDescription>
             What each paid discovery call (Serper, Outscraper, Apollo) actually returned, one row per candidate value. Values are masked — this is a results log, not a data export. Cost fields are application-ledger metadata, not provider invoices.
           </CardDescription>
-          <div className="flex gap-2 pt-2">
-            {["all", "serper", "outscraper", "apollo", "openai", "zerobounce"].map((p) => (
-              <Button key={p} size="sm" variant={providerFilter === p ? "default" : "outline"} onClick={() => setProviderFilter(p)} data-testid={`button-filter-${p}`}>
-                {p === "all" ? "All" : p}
-              </Button>
-            ))}
-          </div>
         </CardHeader>
         <CardContent>
           {resultsQuery.isLoading ? (
@@ -3757,12 +3777,20 @@ function SfpProviderResultsPanel() {
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" /> Classification Results
           </CardTitle>
-          <CardDescription>Each OpenAI vertical-classification call and its verdict.</CardDescription>
+          <CardDescription>
+            Classification ledger, including deterministic and free-only decisions, AI results and blocked attempts.
+            A provisional review row is not a successful OpenAI call. SFP classifications do not overwrite the legacy business vertical.
+          </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-wrap gap-2 mb-3" aria-label="Classification outcome filters">
+            {["all", "target", "non_target", "review_required"].map((outcome) => <Button key={outcome} size="sm"
+              variant={classificationOutcome === outcome ? "default" : "outline"} onClick={() => setClassificationOutcome(outcome)}
+              data-testid={`filter-classification-${outcome}`}>{outcome === "all" ? "All decisions" : outcome === "target" ? "Target classifications" : outcome === "non_target" ? "Non-target" : "Needs review"}</Button>)}
+          </div>
           {resultsQuery.isLoading ? (
             <Skeleton className="h-32 w-full" />
-          ) : classificationResults.length === 0 ? (
+          ) : resultsQuery.isError ? <p role="alert" className="text-destructive">Classification results unavailable — not an empty result.</p> : classificationResults.length === 0 ? (
             <div className="text-sm text-muted-foreground">No classification results yet.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -3775,6 +3803,8 @@ function SfpProviderResultsPanel() {
                     <th className="py-1.5 pr-3">Vertical</th>
                     <th className="py-1.5 pr-3">Admission tier</th>
                     <th className="py-1.5 pr-3">Confidence</th>
+                    <th className="py-1.5 pr-3">Source / state</th>
+                    <th className="py-1.5 pr-3">Reason</th>
                     <th className="py-1.5 pr-3">Cost</th>
                   </tr>
                 </thead>
@@ -3791,6 +3821,13 @@ function SfpProviderResultsPanel() {
                       <td className="py-1.5 pr-3">{r.resolved_vertical_id ?? "—"}</td>
                       <td className="py-1.5 pr-3">{r.admission_tier ?? "—"}</td>
                       <td className="py-1.5 pr-3">{r.confidence ?? "—"}</td>
+                      <td className="py-1.5 pr-3">
+                        {r.model_version ? `AI: ${r.model_version}` : r.reason_codes?.includes("OPENAI_ESCALATION_NOT_CONFIGURED") ? "AI escalation blocked"
+                          : r.reason_codes?.includes("OPENAI_UNAVAILABLE") ? "AI unavailable / failed"
+                          : r.reason_codes?.includes("FREE_ONLY_NO_ESCALATION") ? "Free-only; AI not attempted" : "Deterministic"}
+                        {" · "}{r.terminal_state} · taxonomy {r.taxonomy_version}
+                      </td>
+                      <td className="py-1.5 pr-3 max-w-sm break-words">{Array.isArray(r.reason_codes) ? r.reason_codes.join(", ") : "Reason unavailable"}</td>
                       <td className="py-1.5 pr-3">{usdFromMicros(r.cost_micros)}</td>
                     </tr>
                   ))}
@@ -3804,11 +3841,30 @@ function SfpProviderResultsPanel() {
       {(providerFilter === "all" || providerFilter === "zerobounce") && <Card data-testid="card-sfp-validation-results">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> ZeroBounce Validation Results</CardTitle>
-          <CardDescription>Validation decisions, masked email evidence, and provider-operation cost metadata. Decrypted email addresses are never shown here; recorded amounts are not provider invoices.</CardDescription>
+          <CardDescription>
+            Actual recorded ZeroBounce outcomes, including reused results. Discovery-required rows are backlog, not validations.
+            A valid email is not necessarily policy eligible or approved to send. Addresses remain masked; costs are not provider invoices.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {resultsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : validationResults.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No SFP validation results yet.</div>
+          {resultsQuery.data?.validationSummary && <div className="rounded border p-3 text-xs mb-3" data-testid="sfp-validation-summary">
+            {resultsQuery.data.validationSummary.distinct_valid_emails} distinct emails with a stored valid result ·{" "}
+            {resultsQuery.data.validationSummary.distinct_policy_eligible_emails} distinct policy-eligible emails ·{" "}
+            {resultsQuery.data.validationSummary.result_rows} result records.
+            <p className="text-muted-foreground">
+              Discovery backlog: {resultsQuery.data.validationSummary.discovery_backlog_rows} records / {resultsQuery.data.validationSummary.discovery_backlog_businesses} businesses.
+              Totals cover historical SFP eligibility records, not current freshness or the 5,000-recipient certification target.
+            </p>
+          </div>}
+          <div className="flex flex-wrap gap-2 mb-3" aria-label="Validation outcome filters">
+            {["all", "valid", "invalid", "review"].map((outcome) => <Button key={outcome} size="sm"
+              variant={validationOutcome === outcome ? "default" : "outline"} onClick={() => setValidationOutcome(outcome)}
+              data-testid={`filter-validation-${outcome}`}>{outcome === "all" ? "All outcomes" : outcome === "valid" ? "Valid emails" : outcome === "invalid" ? "Invalid / do not mail" : "Held for review"}</Button>)}
+          </div>
+          {resultsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : resultsQuery.isError ? (
+            <p role="alert" className="text-destructive">Validation results unavailable — not zero validations.</p>
+          ) : validationResults.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No recorded ZeroBounce outcomes for this filter.</div>
           ) : <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead><tr className="text-left text-muted-foreground border-b">

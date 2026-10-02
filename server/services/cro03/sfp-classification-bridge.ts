@@ -1363,12 +1363,23 @@ export async function previewHighConfidenceClassificationCandidates(programId: s
      ORDER BY id
   `));
   const ids = candidateRows.map((r: any) => Number(r.id));
-  const locationRows = ids.length ? rows(await db.execute(sql`
-    SELECT id,business_id,is_primary,city,state,postal_code,county_fips
-      FROM business_locations
-     WHERE business_id=ANY(ARRAY[${sql.join(ids.map((id: number) => sql`${id}`), sql`, `)}]::integer[])
-     ORDER BY business_id,id
-  `)) : [];
+  // The canonical pool can exceed PostgreSQL's 65,535 bind-parameter limit.
+  // Bound every ID-based lookup, not just locations; do not truncate the pool
+  // before ranking or the strongest later-ID businesses would disappear.
+  const locationRows: any[] = [];
+  const hardExclusions = new Map<number, string>();
+  const suppression = new Set<number>();
+  for (let offset = 0; offset < ids.length; offset += 4000) {
+    const chunk = ids.slice(offset, offset + 4000);
+    locationRows.push(...rows(await db.execute(sql`
+      SELECT id,business_id,is_primary,city,state,postal_code,county_fips
+        FROM business_locations
+       WHERE business_id=ANY(ARRAY[${sql.join(chunk.map((id) => sql`${id}`), sql`, `)}]::integer[])
+       ORDER BY business_id,id
+    `)));
+    for (const [id, reason] of await getSfpBusinessHardExclusionReasons(chunk)) hardExclusions.set(id, reason);
+    for (const id of await getBusinessWideSuppressionExclusions(chunk)) suppression.add(id);
+  }
   const locationsByBusiness = new Map<number, LocationCandidateInput[]>();
   for (const location of locationRows) {
     const list = locationsByBusiness.get(Number(location.business_id)) ?? [];
@@ -1377,9 +1388,6 @@ export async function previewHighConfidenceClassificationCandidates(programId: s
       countyFips: location.county_fips ?? null });
     locationsByBusiness.set(Number(location.business_id), list);
   }
-  const hardExclusions = await getSfpBusinessHardExclusionReasons(ids);
-  const suppression = await getBusinessWideSuppressionExclusions(ids);
-
   const candidates: Array<{
     businessId: number; canonicalName: string; countyFips: string | null; geographySource: string;
     proposedVerticalId: string; confidence: number; reasonCodes: string[];

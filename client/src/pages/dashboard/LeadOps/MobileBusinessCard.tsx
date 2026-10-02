@@ -21,6 +21,14 @@ export interface BusinessListItem {
   state: string | null;
   county_fips: string | null;
   vertical: string | null;
+  sfpClassification?: {
+    outcome: string;
+    vertical: string | null;
+    confidence: number;
+    admissionTier: string | null;
+    state: string;
+    reasons: string[];
+  } | null;
   record_class: string | null;
   free_enrichment_status: string | null;
   free_enrichment_attempt_count: number | null;
@@ -139,6 +147,11 @@ export function MobileBusinessCard({ business: b, onTap }: MobileBusinessCardPro
         </div>
       )}
 
+      {b.sfpClassification && (
+        <p className="text-xs text-muted-foreground" title={b.sfpClassification.reasons?.join(", ")}>
+          SFP v2: {b.sfpClassification.vertical ?? b.sfpClassification.outcome} · {b.sfpClassification.state}
+        </p>
+      )}
       {/* Status badges */}
       <div className="flex flex-wrap gap-2">
         {b.email_discovery_status && (

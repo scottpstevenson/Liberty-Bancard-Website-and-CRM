@@ -1991,6 +1991,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       const total = Number(data[0]?.total_count ?? 0);
       const emailEvidenceByBusiness = new Map<number, any>();
       if (data.length > 0) {
+        const { CLASSIFIER_VERSION } = await import("../services/cro03/sfp-vertical-classifier");
         const ids = sql.join(data.map((row: any) => sql`${row.id}`), sql`, `);
         const emailEvidenceRows = await db.execute(sql`
           WITH displayed_businesses AS (
@@ -2006,7 +2007,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
                  intent.state AS intent_state,
                  intent.approval_required AS intent_approval_required,
                  intent.disposition AS intent_disposition,
-                 intent.attempt_count AS intent_attempt_count
+                 intent.attempt_count AS intent_attempt_count,
+                 classification.snapshot AS sfp_classification
             FROM displayed_businesses displayed
             LEFT JOIN LATERAL (
               SELECT COUNT(*)::int AS candidate_count,
@@ -2032,6 +2034,18 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
                  AND vi.state NOT IN ('superseded','revoked','completed','failed')
                ORDER BY vi.created_at DESC LIMIT 1
             ) intent ON true
+            LEFT JOIN LATERAL (
+              SELECT jsonb_build_object(
+                'outcome',ce.outcome,'vertical',ce.resolved_vertical_id,
+                'confidence',ce.confidence,'admissionTier',ce.admission_tier,
+                'state',ce.terminal_state,'reasons',ce.reason_codes
+              ) AS snapshot
+                FROM sfp_classification_evidence ce
+                JOIN sfp_programs cp ON cp.is_active=TRUE AND cp.taxonomy_version=2
+                 AND ce.policy_version=cp.policy_version AND ce.taxonomy_version=cp.taxonomy_version
+               WHERE ce.business_id=displayed.business_id AND ce.classifier_version=${CLASSIFIER_VERSION}
+               ORDER BY ce.created_at DESC,ce.id DESC LIMIT 1
+            ) classification ON true
         `);
         const evidenceRows = (emailEvidenceRows as any).rows ?? emailEvidenceRows;
         for (const evidence of evidenceRows) emailEvidenceByBusiness.set(Number(evidence.business_id), evidence);
@@ -2050,6 +2064,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           contactMatchAvailable: false,
         });
         const emailEvidence = emailEvidenceByBusiness.get(Number(rest.id));
+        rest.sfpClassification = emailEvidence?.sfp_classification ?? null;
         rest.emailEvidenceDisplay = buildCanonicalBusinessEmailDisplay({
           emailDiscoveryStatus: rest.email_discovery_status,
           candidateCount: emailEvidence?.candidate_count,
@@ -2646,9 +2661,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           SELECT DISTINCT v.vertical
             FROM active_v2_program p
             CROSS JOIN LATERAL UNNEST(p.vertical_ids) AS v(vertical)
+          UNION SELECT '__unclassified__'::text
         ),
         v2_businesses AS (
-          SELECT DISTINCT b.id AS business_id,b.vertical
+          SELECT DISTINCT b.id AS business_id,
+                 CASE WHEN cm.classifier_matched_target=ANY(p.vertical_ids) THEN cm.classifier_matched_target
+                      WHEN cm.vertical=ANY(p.vertical_ids) THEN cm.vertical
+                      ELSE '__unclassified__' END AS vertical
             FROM businesses b
             JOIN sfp_cohort_members cm ON cm.business_id=b.id
             JOIN sfp_cohort_runs cr ON cr.id=cm.cohort_run_id AND cr.cohort_state='frozen'
@@ -2705,15 +2724,16 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
            GROUP BY v.vertical
         ),
         ready_held_24h AS (
-          SELECT b.vertical,COUNT(DISTINCT i.id)::int AS created
+          SELECT v.vertical,COUNT(DISTINCT i.id)::int AS created
             FROM sfp_campaign_staging_intents i
             JOIN sfp_cohort_runs cr ON cr.id=i.cohort_run_id AND cr.cohort_state='frozen'
             JOIN active_v2_program p ON p.id=cr.program_id
             JOIN businesses b ON b.id=i.business_id AND b.record_class='canonical'
+             JOIN v2_businesses v ON v.business_id=i.business_id
            WHERE i.state='ready_held' AND i.package_key LIKE 'sfp.%.v2'
              AND i.ready_held_at >= NOW()-INTERVAL '24 hours'
              AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
-           GROUP BY b.vertical
+           GROUP BY v.vertical
         )
         SELECT v.vertical,
                COALESCE(p.frozen_businesses,0)::int AS frozen_businesses,
@@ -3327,7 +3347,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   // the UI can display correct status without having admins guess from env vars.
   app.get("/api/lead-ops/candidates/promotion-state", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const enabled = process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED === "true";
+      const { isSfpValidationPromotionEnabled } = await import("../services/cro03/south-florida-prospecting");
+      const enabled = await isSfpValidationPromotionEnabled();
       const { getSfpDeploymentOwnerReadiness } = await import("../services/cro03/sfp-provider-operations");
       const runtimeOwner = await getSfpDeploymentOwnerReadiness();
       const gateOpen = enabled && runtimeOwner.ready;
@@ -3339,11 +3360,11 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
       `)) as any).rows?.[0]?.cnt ?? 0;
       let note: string;
       if (!enabled) {
-        note = "Promotion gate is CLOSED — set FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED=true to enable.";
+        note = "Promotion configuration is disabled (effective environment/override setting).";
       } else if (!runtimeOwner.ready) {
         note = `Promotion gate is CLOSED — durable routine-SFP deployment ownership is not ready (${runtimeOwner.reason}).`;
       } else {
-        note = "Promotion gate is OPEN — promoteCandidateForValidation() will advance staged candidates.";
+        note = "Promotion gate is OPEN. Candidates still need identity, provider, validation and policy checks; an open gate is not proof of output.";
       }
       res.json({
         promotionEnabled: enabled,
@@ -3810,6 +3831,14 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
     try {
       const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
       const provider = typeof req.query.provider === "string" && req.query.provider.trim() ? req.query.provider.trim() : null;
+      const validationOutcome = req.query.validationOutcome ?? "all";
+      if (!["all", "valid", "invalid", "review"].includes(String(validationOutcome))) {
+        return res.status(400).json({ error: "validationOutcome must be all, valid, invalid or review" });
+      }
+      const classificationOutcome = req.query.classificationOutcome ?? "all";
+      if (!["all", "target", "non_target", "review_required"].includes(String(classificationOutcome))) {
+        return res.status(400).json({ error: "classificationOutcome must be all, target, non_target or review_required" });
+      }
 
       const candidateRows = (await db.execute(sql`
         SELECT e.id, e.provider, e.field, e.subject_type, e.disposition, e.confidence,
@@ -3832,11 +3861,13 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
 
       const classificationRows = (await db.execute(sql`
         SELECT e.id, e.outcome, e.confidence, e.resolved_vertical_id, e.admission_tier,
-               e.reason_codes, e.terminal_state, e.cost_micros, e.created_at,
+               e.reason_codes, e.terminal_state, e.model_version, e.prompt_version,
+               e.taxonomy_version, e.classifier_version, e.cost_micros, e.created_at,
                b.id AS business_id, b.canonical_name AS business_name
           FROM sfp_classification_evidence e
           JOIN businesses b ON b.id = e.business_id
          WHERE (${provider}::text IS NULL OR ${provider}::text = 'openai')
+           AND (${classificationOutcome}::text='all' OR e.outcome=${classificationOutcome}::text)
          ORDER BY e.created_at DESC
          LIMIT ${limit}
       `) as any).rows ?? [];
@@ -3849,11 +3880,24 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           JOIN businesses b ON b.id=e.business_id
           LEFT JOIN provider_operations po ON po.id=e.validation_operation_id
          WHERE (${provider}::text IS NULL OR ${provider}::text = 'zerobounce')
-         ORDER BY COALESCE(e.validation_at,e.created_at) DESC
+           AND e.zb_outcome IS NOT NULL
+           AND (${validationOutcome}::text='all'
+             OR (${validationOutcome}::text='valid' AND e.zb_outcome='valid')
+             OR (${validationOutcome}::text='invalid' AND e.zb_outcome IN ('invalid','do_not_mail'))
+             OR (${validationOutcome}::text='review' AND e.status IN ('validated_review_required','catch_all_review')))
+         ORDER BY e.validation_at DESC NULLS LAST,e.created_at DESC,e.id DESC
          LIMIT ${limit}
       `) as any).rows ?? [];
 
-      res.json({ candidateResults: candidateRows, classificationResults: classificationRows, validationResults: validationRows });
+      const validationSummary = (await db.execute(sql`
+        SELECT COUNT(*) FILTER (WHERE zb_outcome IS NOT NULL)::int AS result_rows,
+               COUNT(DISTINCT normalized_value_hash) FILTER (WHERE zb_outcome='valid')::int AS distinct_valid_emails,
+               COUNT(DISTINCT normalized_value_hash) FILTER (WHERE status='validated_outreach_eligible' AND zb_outcome='valid')::int AS distinct_policy_eligible_emails,
+               COUNT(*) FILTER (WHERE status='discovery_required')::int AS discovery_backlog_rows,
+               COUNT(DISTINCT business_id) FILTER (WHERE status='discovery_required')::int AS discovery_backlog_businesses
+          FROM sfp_outreach_eligibility
+      `) as any).rows?.[0] ?? null;
+      res.json({ candidateResults: candidateRows, classificationResults: classificationRows, validationResults: validationRows, validationSummary });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
@@ -4165,10 +4209,25 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         ? req.query.businessIds.split(",").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n))
         : undefined;
       const limit = req.query.limit == null ? undefined : Number(req.query.limit);
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 250)) {
+        return res.status(400).json({ error: "limit must be an integer between 1 and 250" });
+      }
+      if (req.query.businessIds !== undefined && (!businessIdFilter?.length
+          || businessIdFilter.length > 500 || businessIdFilter.some((id) => !Number.isSafeInteger(id) || id < 1))) {
+        return res.status(400).json({ error: "businessIds must contain 1–500 positive business IDs" });
+      }
       const { previewHighConfidenceClassificationCandidates } = await import("../services/cro03/sfp-classification-bridge");
       res.json(await previewHighConfidenceClassificationCandidates(String(req.params.programId), { businessIdFilter, limit }));
     } catch (err: any) {
-      res.status(err?.message?.includes("NOT_FOUND") ? 404 : 500).json({ error: err?.message });
+      const notFound = err?.message === "SFP_PROGRAM_NOT_FOUND";
+      console.error("[LeadOps] high-confidence preview failed", {
+        code: err?.cause?.code ?? err?.code ?? "SFP_CANDIDATE_PREVIEW_FAILED",
+        cause: err?.cause?.message?.slice(0, 300),
+      });
+      res.status(notFound ? 404 : 500).json({
+        error: notFound ? "SFP_PROGRAM_NOT_FOUND" : "SFP_CANDIDATE_PREVIEW_FAILED",
+        message: notFound ? "Program not found." : "Could not load candidates. The server recorded diagnostic details; no classification or provider call was run.",
+      });
     }
   });
 
