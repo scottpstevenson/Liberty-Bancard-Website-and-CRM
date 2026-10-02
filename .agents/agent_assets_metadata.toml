@@ -332,3 +332,17 @@ mtime_ms = 1790823255386
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/d0ca8ac5-e64d-45a2-abf0-8f463bace9e0/a798adf9-a1b3-4453-93ba-ac6874453a88"
 storage_version_token = "1790823278992968"
 content_type = "text/csv"
+
+[[outputs]]
+id = "WDJAdxBjd_JAmx1OHEbVW"
+uri = "file://.local/outputs/ghl-native-review-packet.html"
+type = "html"
+title = "GHL Native-Workflow Review Packet"
+description = "Printable read-only checklist covering three workflows, exact sync-write review requirements, provider field IDs, and missing permission fields. No approvals or settings changes."
+logical_id = "a36e0df0-d3e9-49f0-9687-2fed80e95a89"
+content_hash = "sha256:c810694c80ffa3d4b99b50716212f70428d662d9fa1aaf978f2780e2803c23b0"
+size = 23575
+mtime_ms = 1790955537983
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/a36e0df0-d3e9-49f0-9687-2fed80e95a89/20222918-c564-4355-b86b-db9b07fd3e42"
+storage_version_token = "1790955585333071"
+content_type = "text/html"
