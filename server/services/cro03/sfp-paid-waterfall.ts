@@ -40,6 +40,7 @@ import {
 } from "./sfp-contact-gap-vector";
 import { candidateTier, rejectEmailCandidate } from "./candidate-selector";
 import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
+import { buildSfpProviderHttpDiagnostics } from "./sfp-provider-http-diagnostics";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 const sha256 = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -1005,6 +1006,8 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
               resultData: {
                 retrievalState: requestSucceeded ? "completed" : "failed",
                 providerReference: usage.providerRequestId,
+                ...buildSfpProviderHttpDiagnostics(response.status, !requestSucceeded,
+                  organizationSearch ? "organization_search" : bulkEnrichment ? "business_email_enrichment" : "people_search"),
               },
             });
             requestSettled = true;

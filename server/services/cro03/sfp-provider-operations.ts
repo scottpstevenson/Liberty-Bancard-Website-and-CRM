@@ -11,6 +11,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
+import {
+  sanitizeSfpProviderHttpDiagnostics, safeSfpHttpClass, type SfpProviderHttpDiagnostics,
+} from "./sfp-provider-http-diagnostics";
 import { assertProviderActivation, type ProviderSourceId } from "../provider-manifest";
 import {
   assertPaidBudgetAuthorized,
@@ -121,7 +124,7 @@ export type SfpProviderFinishInput = {
   | { workCompleted?: never; providerUsage?: never; billing: SfpExactDecimalUsage }
 );
 
-export interface SfpSanitizedProviderResult {
+export interface SfpSanitizedProviderResult extends SfpProviderHttpDiagnostics {
   retrievalState?: string | null;
   providerReference?: string | null;
   externalTaskId?: string | null;
@@ -268,7 +271,7 @@ function calculateSfpOperationSettlementAccounting(input: {
 function sanitizeProviderResultData(value: unknown): SfpSanitizedProviderResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const raw = value as Record<string, unknown>;
-  const safe: SfpSanitizedProviderResult = {};
+  const safe: SfpSanitizedProviderResult = sanitizeSfpProviderHttpDiagnostics(value);
   for (const key of ["retrievalState", "providerReference", "externalTaskId"] as const) {
     const candidate = raw[key];
     if (candidate === null) safe[key] = null;
@@ -2039,7 +2042,9 @@ export async function settlePreCohortSfpProviderOperation(input: {
     if (!operation) throw new Error("SFP_PROVIDER_SETTLEMENT_FENCE_LOST");
     const attempt = rows(await tx.execute(sql`
       UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
-             retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
+             retryable=${!completed},
+             safe_http_class=${safeSfpHttpClass(normalizedResultData.httpStatus)},
+             error_code=${completed ? null : normalizedResultData.failureCode ?? input.observation},completed_at=NOW()
        WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
          AND completed_at IS NULL
        RETURNING id
@@ -2690,7 +2695,9 @@ export async function settleSfpProviderOperation(input: {
     if (!operation) throw new Error("SFP_PROVIDER_SETTLEMENT_FENCE_LOST");
     const attempt = rows(await tx.execute(sql`
       UPDATE provider_attempts SET outcome=${completed ? (input.outcome === "no_result" ? "no_result" : "completed") : input.outcome === "ambiguous" ? "ambiguous" : "retryable_failed"},
-             retryable=${!completed},error_code=${completed ? null : input.observation},completed_at=NOW()
+             retryable=${!completed},
+             safe_http_class=${safeSfpHttpClass(normalizedResultData.httpStatus)},
+             error_code=${completed ? null : normalizedResultData.failureCode ?? input.observation},completed_at=NOW()
        WHERE operation_id=${input.reservation.operationId}::uuid AND attempt_number=1
          AND completed_at IS NULL
        RETURNING id

@@ -242,9 +242,15 @@ No provider execution, release selection, recurrence activation, staging, bridge
 write, production DDL or publication was performed during this continuation.
 Admin authentication and local checkpoint/report writes are not lead output.
 
-## Blocker 1: omitted database authority contracts
+## Historical blocker 1: omitted database authority contracts
 
-Production has the tables, but **six required triggers are absent**:
+**Superseded by production read-only verification on October 2, 2026:** all six
+triggers listed below are now present. The three function-body hashes match the
+development hashes listed below. Do not reuse this historical missing-contract
+diagnosis as a current blocker.
+
+At the earlier snapshot, production had the tables, but six required triggers
+were absent:
 
 | Table | Required trigger | Definition source |
 | --- | --- | --- |
@@ -289,7 +295,14 @@ https://docs.replit.com/features/data-and-storage/work-with-your-data.
 That UI's existence does not expand Agent's production mutation permissions or
 establish that these missing contracts have been restored.
 
-## Blocker 2: no verifiable published deployment identity
+## Historical blocker 2: no verifiable published deployment identity
+
+**Superseded in part by the October 2 live publisher logs:** the deployed app
+now loads a real per-Publish build identity. The current problem is a selected
+release mismatch, not an absent build identity. See
+[`sfp-enrichment-current-diagnosis.md`](sfp-enrichment-current-diagnosis.md) for
+the observed tuples and expired owner lease. Independent publisher verification
+and an audited selector transfer remain required; do not auto-select a build.
 
 Routine SFP execution explicitly requires a nonempty `REPL_DEPLOYMENT_ID`; it
 rejects the workspace `REPL_ID` fallback because it cannot distinguish
