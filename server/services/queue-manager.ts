@@ -4,6 +4,7 @@ import {
   getBackgroundProfile,
   getSelectiveGroups,
   getQueuesForCapabilityGroups,
+  isQueueSelectedByBackgroundProfile,
   CORE_QUEUE_ALLOWLIST,
   type BackgroundProfile,
   type WorkerCapabilityGroup,
@@ -967,6 +968,8 @@ export function getWorkerCapabilityStatus(queueName: string): WorkerCapabilitySt
   let selected: boolean;
   if (activeProfile === "off") {
     selected = false;
+  } else if (activeProfile === "ghl-sync-only") {
+    selected = queueName === QUEUE_NAMES.GHL_SYNC;
   } else if (activeProfile === "core") {
     selected = CORE_QUEUE_ALLOWLIST.includes(queueName);
   } else if (activeProfile === "selective") {
@@ -1094,6 +1097,9 @@ class QueueManager {
   private activeConfigs(): QueueConfig[] {
     const profile = getBackgroundProfile();
     if (profile === "off") return [];
+    if (profile === "ghl-sync-only") {
+      return QUEUE_CONFIGS.filter(c => c.name === QUEUE_NAMES.GHL_SYNC);
+    }
 
     const legacyBase = _legacyGhlSyncClaimed
       ? QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC)
@@ -1751,7 +1757,7 @@ class QueueManager {
       // intentional — a malfunctioning gate must not let outreach/GHL work run
       // under an enrichment-only profile.
       const _runtimeProfile = getBackgroundProfile();
-      if (_runtimeProfile === "selective") {
+      if (_runtimeProfile === "selective" || _runtimeProfile === "ghl-sync-only") {
         // ── Selective capability gate ─────────────────────────────────────────
         // Evaluate inside a try/catch so any gate error is caught. We use
         // _shouldDelayJob / _gcGateError flags rather than throwing inside the
@@ -1767,13 +1773,21 @@ class QueueManager {
             await import("./background-profile");
           const _activeGroups = _getGroups();
           const _jobGroup = _getJobGroup(queueName, _job.name);
-          if (_jobGroup !== null && !_activeGroups.includes(_jobGroup as any)) {
+          const _profileSelected = isQueueSelectedByBackgroundProfile(queueName);
+          const _groupSelected = _runtimeProfile === "ghl-sync-only"
+            ? queueName === QUEUE_NAMES.GHL_SYNC && _jobGroup === "ghl-integration"
+            : _jobGroup === null
+              || _activeGroups.includes(_jobGroup as any)
+              || (queueName === QUEUE_NAMES.GHL_SYNC && _activeGroups.includes("ghl-sync-only" as any));
+          if (!_profileSelected || !_groupSelected) {
             console.info(JSON.stringify({
               event: "job:selective_capability_suppressed",
               queue: queueName,
               jobName: _job.name,
               jobGroup: _jobGroup,
               activeGroups: _activeGroups,
+              profile: _runtimeProfile,
+              profileSelected: _profileSelected,
               jobId: _job.id,
               ts: new Date().toISOString(),
             }));
@@ -1791,6 +1805,8 @@ class QueueManager {
                     jobName: _job.name,
                     jobGroup: _jobGroup,
                     activeGroups: _activeGroups,
+                    profile: _runtimeProfile,
+                    profileSelected: _profileSelected,
                     reason: "selective_capability_gate",
                   }))}::jsonb,
                   NOW()

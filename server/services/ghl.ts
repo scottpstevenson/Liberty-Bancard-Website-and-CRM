@@ -8,6 +8,8 @@ import { isValidEmail } from "./contact-readiness";
 import { applyConsentCommand } from "./consent-authority";
 import { denyCro03OrCro08aForbiddenEffect as denyCro03cForbiddenEffect } from "./cro03/cro08a-effect-fence";
 import { canExecute } from "./outbound-queue-coordinator";
+import { classifyGhlOperation, isKnownPermissionCustomFieldKey } from "./ghl-capability-policy";
+import type { GhlCrmDecision, NativeWorkflowEvidence } from "./ghl-sync-control";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -39,9 +41,102 @@ const GHL_REQUEST_TIMEOUT_MS = parseInt(process.env.GHL_REQUEST_TIMEOUT_MS ?? "2
 
 // Options type that carries the authorized pause epoch through retry loops.
 // Strip `pauseEpoch` before passing to the native fetch() call.
-type GhlFetchOptions = RequestInit & { pauseEpoch?: bigint };
+type GhlFetchOptions = RequestInit & {
+  pauseEpoch?: bigint;
+  ghlCrmPauseEpoch?: bigint;
+  ghlCrmDecision?: GhlCrmDecision;
+};
 
 const GHL_MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Read-only inventory adapter used by the explicit native-trigger safety review.
+ * It refuses APIs that do not return complete workflow identity/status/version
+ * evidence; a workflow list is never treated as proof of action safety.
+ */
+export async function getGhlNativeWorkflowInventory(locationId?: string | null): Promise<NativeWorkflowEvidence[]> {
+  const config = getConfig();
+  const location = locationId || config?.locationId;
+  if (!config || !location || location !== config.locationId) {
+    throw new Error("GHL_NATIVE_INVENTORY_LOCATION_UNAVAILABLE");
+  }
+  const query = new URLSearchParams({ locationId: location });
+  const response = await fetch(`${GHL_API_BASE}/workflows/?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+      Version: "2021-07-28",
+    },
+    signal: AbortSignal.timeout(GHL_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`GHL_NATIVE_INVENTORY_HTTP_${response.status}`);
+  const payload: any = await response.json();
+  const rows = Array.isArray(payload?.workflows) ? payload.workflows
+    : Array.isArray(payload?.data?.workflows) ? payload.data.workflows
+    : Array.isArray(payload?.data) ? payload.data
+    : null;
+  if (!rows) throw new Error("GHL_NATIVE_INVENTORY_RESPONSE_UNSUPPORTED");
+  return rows.map((workflow: any) => {
+    const id = typeof workflow?.id === "string" ? workflow.id : "";
+    const providerLocationId = typeof workflow?.locationId === "string" ? workflow.locationId : "";
+    const status = typeof workflow?.status === "string" ? workflow.status : "";
+    const updatedAt = typeof workflow?.updatedAt === "string" ? workflow.updatedAt
+      : typeof workflow?.updated_at === "string" ? workflow.updated_at : "";
+    const normalizedStatus = status.toLowerCase();
+    const knownStatuses = new Set(["active", "published", "draft", "inactive", "unpublished", "paused", "disabled", "deleted"]);
+    const version = typeof workflow?.version === "string" || typeof workflow?.version === "number"
+      ? String(workflow.version) : "";
+    if (!id || providerLocationId !== location || !knownStatuses.has(normalizedStatus)
+        || !updatedAt || !Number.isFinite(Date.parse(updatedAt)) || !version) {
+      throw new Error("GHL_NATIVE_INVENTORY_EVIDENCE_INCOMPLETE");
+    }
+    return { locationId: providerLocationId, id, status: normalizedStatus, updatedAt, version };
+  });
+}
+
+export interface GhlProviderCustomField {
+  id: string;
+  key: string;
+}
+
+/** Read-only custom-field identity map. Unknown response shapes are unsupported. */
+export async function getGhlCustomFieldInventory(locationId?: string | null): Promise<GhlProviderCustomField[]> {
+  const config = getConfig();
+  const location = locationId || config?.locationId;
+  if (!config || !location || location !== config.locationId) throw new Error("GHL_CUSTOM_FIELD_LOCATION_UNAVAILABLE");
+  const response = await fetch(`${GHL_API_BASE}/locations/${encodeURIComponent(location)}/customFields`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+      Version: "2021-07-28",
+    },
+    signal: AbortSignal.timeout(GHL_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`GHL_CUSTOM_FIELD_INVENTORY_HTTP_${response.status}`);
+  const payload: any = await response.json();
+  const rows = Array.isArray(payload?.customFields) ? payload.customFields
+    : Array.isArray(payload?.data?.customFields) ? payload.data.customFields
+    : null;
+  if (!rows) throw new Error("GHL_CUSTOM_FIELD_INVENTORY_RESPONSE_UNSUPPORTED");
+  const fields: GhlProviderCustomField[] = rows.map((field: any) => {
+    const key = typeof field?.fieldKey === "string" ? field.fieldKey
+      : typeof field?.key === "string" ? field.key : "";
+    return {
+      id: typeof field?.id === "string" ? field.id : "",
+      // Provider semantic keys are contact-namespaced, unlike display titles.
+      // Non-contact namespaces remain intact and cannot masquerade as consent.
+      key: key.startsWith("contact.") ? key.slice("contact.".length) : key,
+    };
+  });
+  if (fields.some(field => !field.id || !field.key)
+      || new Set(fields.map(field => field.id)).size !== fields.length
+      || new Set(fields.map(field => field.key)).size !== fields.length) {
+    throw new Error("GHL_CUSTOM_FIELD_INVENTORY_EVIDENCE_INCOMPLETE");
+  }
+  return fields;
+}
 
 async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3): Promise<any> {
   const config = getConfig();
@@ -53,7 +148,65 @@ async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3
   // register(epoch) → recheck → I/O → deregister protocol here. Reads are
   // never gated.
   const method = (options.method || "GET").toUpperCase();
-  if (GHL_MUTATION_METHODS.has(method) && options.pauseEpoch === undefined) {
+  let bodyValue = typeof options.body === "string"
+    ? (() => { try { return JSON.parse(options.body as string); } catch { return undefined; } })()
+    : undefined;
+  if (bodyValue && typeof bodyValue === "object" && !Array.isArray(bodyValue)
+      && Array.isArray((bodyValue as any).customFields)) {
+    const { getGhlCustomFieldInventory } = await import("./ghl");
+    const fields = await getGhlCustomFieldInventory(config.locationId);
+    const byKey = new Map(fields.map(field => [field.key, field.id]));
+    bodyValue = {
+      ...(bodyValue as Record<string, unknown>),
+      customFields: (bodyValue as any).customFields.map((field: any) => {
+        if (!field || typeof field !== "object") throw new Error("GHL_CUSTOM_FIELD_PAYLOAD_INVALID");
+        const id = typeof field.id === "string" ? field.id : byKey.get(String(field.key ?? ""));
+        const verified = fields.find(candidate => candidate.id === id);
+        if (!verified || (field.key !== undefined && field.key !== verified.key)) {
+          throw new Error("GHL_CUSTOM_FIELD_ID_UNVERIFIED");
+        }
+        return { ...field, id, key: verified.key };
+      }),
+    };
+    options = { ...options, body: JSON.stringify(bodyValue) };
+  }
+  const capability = classifyGhlOperation(method, path, bodyValue);
+  // Unknown operations do not become safe merely because they use GET.
+  const outboundMutation = capability === "unknown" || capability === "communication";
+  let crmDecision = options.ghlCrmDecision;
+  if (GHL_MUTATION_METHODS.has(method) &&
+      (capability === "crm_write" || capability === "permission_write")) {
+    if (!crmDecision) {
+      const { authorizeGhlCrmOperation } = await import("./ghl-sync-control");
+      crmDecision = await authorizeGhlCrmOperation({
+        method, path, body: bodyValue, locationId: config.locationId,
+      });
+    }
+    if (!crmDecision.allowed) {
+      throw new Error(`GHL CRM operation blocked: ${crmDecision.reasonCode} (${method} ${path.split("?")[0]})`);
+    }
+  }
+  if ((capability === "crm_write" || capability === "permission_write")
+      && options.ghlCrmPauseEpoch === undefined) {
+    const {
+      captureGhlCrmPauseEpoch, registerGhlCrmInflight, recheckGhlCrmPauseEpoch,
+      recheckGhlCrmOperation, deregisterGhlCrmInflight,
+    } = await import("./ghl-sync-control");
+    const globalEpoch = await captureGhlCrmPauseEpoch();
+    const token = await registerGhlCrmInflight(crmDecision!.epoch);
+    try {
+      if (!await recheckGhlCrmOperation(crmDecision!)
+          || !await recheckGhlCrmPauseEpoch(globalEpoch)) {
+        throw new Error("GHL_CRM_CONTROL_OR_PAUSE_EPOCH_CHANGED");
+      }
+      return await ghlFetch(path, {
+        ...options, ghlCrmPauseEpoch: globalEpoch, ghlCrmDecision: crmDecision,
+      }, retries);
+    } finally {
+      deregisterGhlCrmInflight(token);
+    }
+  }
+  if (outboundMutation && options.pauseEpoch === undefined) {
     const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
     const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
     const decision = await authorize({});
@@ -74,7 +227,17 @@ async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3
   }
 
   // Extract pause epoch before building the fetch-compatible options
-  const { pauseEpoch, ...fetchOptions } = options;
+  const { pauseEpoch, ghlCrmPauseEpoch, ghlCrmDecision: _ghlCrmDecision, ...rawFetchOptions } = options;
+  const fetchOptions: RequestInit = bodyValue && typeof bodyValue === "object"
+      && Array.isArray((bodyValue as any).customFields)
+    ? {
+      ...rawFetchOptions,
+      body: JSON.stringify({
+        ...(bodyValue as Record<string, unknown>),
+        customFields: (bodyValue as any).customFields.map(({ key: _key, ...field }: any) => field),
+      }),
+    }
+    : rawFetchOptions;
 
   const url = `${GHL_API_BASE}${path}`;
   const headers: Record<string, string> = {
@@ -99,12 +262,20 @@ async function ghlFetch(path: string, options: GhlFetchOptions = {}, retries = 3
         );
       }
     }
+    if (crmDecision) {
+      const { recheckGhlCrmOperation, recheckGhlCrmPauseEpoch } = await import("./ghl-sync-control");
+      if (!await recheckGhlCrmOperation(crmDecision)
+          || ghlCrmPauseEpoch === undefined
+          || !await recheckGhlCrmPauseEpoch(ghlCrmPauseEpoch)) {
+        throw new Error(`GHL CRM operation blocked: control_or_native_review_changed (${method} ${path.split("?")[0]})`);
+      }
+    }
     // Fresh AbortController per attempt so a previous timeout signal doesn't
     // leak into the next retry.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), GHL_REQUEST_TIMEOUT_MS);
     try {
-      if (GHL_MUTATION_METHODS.has(method)) {
+      if (outboundMutation) {
         const coordinatorAllowed = await canExecute("ghl-sync");
         if (!coordinatorAllowed) {
           throw new Error(
@@ -449,6 +620,28 @@ async function writeInvalidContactSkipAudit(contactId: number | null, reason: st
  * validation, strips an invalid email when a usable phone exists, and converts
  * known email-validation 422s from GHL into sanitized terminal skips.
  */
+/** Shared permission-projection entry point for server adapters. It accepts only
+ * the canonical reviewed permission keys; provider field IDs are resolved from
+ * a fresh read-only location field map before the transport authorization. */
+export async function syncGhlPermissionFields(input: {
+  ghlContactId: string;
+  fields: Array<{ key: string; field_value: string }>;
+  locationId?: string;
+}): Promise<void> {
+  const config = getConfig();
+  if (!config || (input.locationId && input.locationId !== config.locationId)) {
+    throw new Error("GHL_PERMISSION_LOCATION_MISMATCH");
+  }
+  if (!input.ghlContactId || !Array.isArray(input.fields) || input.fields.length === 0
+      || input.fields.some(field => !isKnownPermissionCustomFieldKey(field.key))) {
+    throw new Error("GHL_PERMISSION_FIELD_PAYLOAD_INVALID");
+  }
+  await ghlFetch(`/contacts/${encodeURIComponent(input.ghlContactId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ customFields: input.fields }),
+  });
+}
+
 export async function upsertGhlContact(contact: GhlContactInput): Promise<string> {
   await denyCro03cForbiddenEffect("ghl_mutation");
   const identity = validateGhlIdentityFields({ email: contact.email, phone: contact.phone });
@@ -479,27 +672,10 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
 async function doUpsertGhlContact(contact: GhlContactInput): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
-
-  // Canonical pause boundary: contact upsert is a provider mutation and must
-  // run the full authorize → register(epoch) → recheck → I/O → deregister
-  // protocol like every other outbound GHL mutation.
-  const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
-  const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
-  const pauseDecision = await authorize({});
-  if (!pauseDecision.allowed) {
-    throw new Error(`GHL contact upsert blocked by pause authority: ${pauseDecision.reasonCode}`);
-  }
-  const pauseTokenId = crypto.randomUUID();
-  await registerInflight(pauseTokenId, pauseDecision.epoch);
-  try {
-    const epochOk = await recheckEpoch(pauseDecision.epoch);
-    if (!epochOk) {
-      throw new Error("GHL contact upsert blocked by pause authority: epoch_changed");
-    }
-    return await doUpsertGhlContactInner(contact, config);
-  } finally {
-    deregisterInflight(pauseTokenId);
-  }
+  // CRM identity upserts use the independent GHL CRM control and transport
+  // in-flight epoch barrier. Do not route them through the outbound-send pause:
+  // messaging/workflow/enrollment paths retain that separate full protocol.
+  return doUpsertGhlContactInner(contact, config);
 }
 
 async function doUpsertGhlContactInner(contact: GhlContactInput, config: NonNullable<ReturnType<typeof getConfig>>): Promise<string> {
@@ -739,9 +915,10 @@ async function doUpsertGhlContactInner(contact: GhlContactInput, config: NonNull
 
       const attemptedFields = permFields.map(f => f.key);
       try {
-        await ghlFetch(`/contacts/${resolvedGhlId}`, {
-          method: "PUT",
-          body: JSON.stringify({ customFields: permFields }),
+        await syncGhlPermissionFields({
+          ghlContactId: resolvedGhlId,
+          locationId: config.locationId,
+          fields: permFields,
         });
       } catch (permErr: any) {
         const permMsg = String(permErr?.message || "");

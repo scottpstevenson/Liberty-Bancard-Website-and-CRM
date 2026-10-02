@@ -10,6 +10,10 @@ export interface SfpRuntimeFence {
 
 export const SFP_RUNTIME_OWNER_LEASE_MS = 2 * 60_000;
 
+// This selector/lease authorizes SFP only. GHL CRM synchronization owns its
+// separate control epoch and runtime lease; enabling CRM sync must not transfer,
+// renew, or bypass an SFP owner, provider-spend approval, or outbound decision.
+
 /** Embedded published artifact identity, or an explicitly supplied platform ID. */
 export function getCurrentRoutineSfpDeploymentIdentity(): string | null {
   return resolveRoutineSfpDeploymentIdentity({

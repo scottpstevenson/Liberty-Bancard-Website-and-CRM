@@ -99,33 +99,117 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/ghl/sync-contact", requireRole("admin"), async (req, res) => {
     try {
-      const { contactId } = req.body;
-      if (!contactId) return res.status(400).json({ message: "contactId required" });
+      const contactId = Number(req.body?.contactId);
+      const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey.trim() : "";
+      if (!Number.isSafeInteger(contactId) || contactId <= 0) {
+        return res.status(400).json({ code: "INVALID_CONTACT_ID", message: "A valid contactId is required." });
+      }
+      if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+        return res.status(400).json({ code: "INVALID_IDEMPOTENCY_KEY", message: "idempotencyKey must contain 8–200 characters." });
+      }
       const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
-      // Projection ownership is the only local-to-GHL command lane. The route
-      // persists the requested reconciliation and returns without GHL I/O; the
-      // existing claimed GHL worker applies circuit/pause/identity protections.
-      const { db } = await import("../db");
-      const { contactProviderProjections } = await import("@shared/schema");
-      const [projection] = await db.insert(contactProviderProjections).values({
-        contactId: contact.id,
-        provider: "ghl",
-        projectionKey: `contact:${contact.id}`,
-        state: "pending",
-      }).onConflictDoUpdate({
-        target: [
-          contactProviderProjections.contactId,
-          contactProviderProjections.provider,
-          contactProviderProjections.projectionKey,
-        ],
-        set: { state: "pending", lastErrorCode: null, nextAttemptAt: new Date(), updatedAt: new Date() },
-      }).returning();
+      if (!contact) return res.status(404).json({ code: "CONTACT_NOT_FOUND", message: "Contact not found." });
+      const { createGhlPermissionProjection } = await import("../services/ghl-specialized-commands");
+      const run = await createGhlPermissionProjection(
+        String((req.user as any)?.id ?? "admin"),
+        idempotencyKey,
+        contact.id,
+      );
       res.status(202).json({
-        success: true,
-        state: "deferred",
-        projectionId: projection.id,
-        pollingUrl: `/api/ghl/sync-status/contact/${contact.id}`,
+        accepted: true,
+        runId: run.runId,
+        kind: run.kind,
+        state: run.state,
+        contactId: contact.id,
+        ghlContactId: contact.ghlContactId ?? null,
+        pollingUrl: `/api/ghl/sync-permissions/${run.runId}`,
+        stepUrl: `/api/ghl/sync-permissions/${run.runId}/step`,
+        processed: run.processed,
+        matched: run.matched,
+        notFound: run.notFound,
+        skipped: run.skipped,
+        errors: run.errors,
+        cursor: run.cursor,
+        watermark: run.watermark,
+        heartbeatAt: run.heartbeatAt,
+        lastError: run.lastError,
+        complete: run.state === "complete",
+        fieldProjection: run.fieldProjection,
+      });
+    } catch (err: any) {
+      if (err?.message === "GHL_SPECIALIZED_COMMAND_ACTIVE") {
+        return res.status(409).json({ code: err.message, message: "Another GHL specialized command currently owns the active command slot." });
+      }
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/ghl/sync-permissions/:runId/step", requireRole("admin"), async (req, res) => {
+    try {
+      const { getGhlSpecializedRun, stepGhlSpecializedRun } = await import("../services/ghl-specialized-commands");
+      const runId = String(req.params.runId || "");
+      const existing = await getGhlSpecializedRun(runId);
+      if (!existing || existing.kind !== "permission_projection") {
+        return res.status(404).json({ code: "GHL_PERMISSION_RUN_NOT_FOUND", message: "Permission projection command was not found." });
+      }
+      const result = await stepGhlSpecializedRun(runId);
+      const run = result.run;
+      res.status(result.leaseBusy ? 409 : 200).json({
+        accepted: !result.leaseBusy,
+        runId: run.runId,
+        kind: run.kind,
+        state: run.state,
+        contactId: run.contactId,
+        ghlContactId: run.ghlContactId ?? null,
+        pollingUrl: `/api/ghl/sync-permissions/${run.runId}`,
+        stepUrl: `/api/ghl/sync-permissions/${run.runId}/step`,
+        processed: run.processed,
+        matched: run.matched,
+        notFound: run.notFound,
+        skipped: run.skipped,
+        errors: run.errors,
+        cursor: run.cursor,
+        watermark: run.watermark,
+        heartbeatAt: run.heartbeatAt,
+        lastError: run.lastError,
+        complete: run.state === "complete",
+        activeLease: !!run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) > Date.now(),
+        fieldProjection: run.fieldProjection,
+      });
+    } catch (err: any) {
+      serverError(res, err);
+    }
+  });
+
+  app.get("/api/ghl/sync-permissions/:runId", isAuthenticated, async (req, res) => {
+    try {
+      const { getGhlSpecializedRun } = await import("../services/ghl-specialized-commands");
+      const run = await getGhlSpecializedRun(String(req.params.runId || ""));
+      if (!run || run.kind !== "permission_projection" || !run.contactId) {
+        return res.status(404).json({ code: "GHL_PERMISSION_RUN_NOT_FOUND", message: "Permission projection command was not found." });
+      }
+      if (!await authorizeContactAccess(req, res, run.contactId)) return;
+      res.json({
+        accepted: true,
+        runId: run.runId,
+        kind: run.kind,
+        state: run.state,
+        contactId: run.contactId,
+        ghlContactId: run.ghlContactId ?? null,
+        pollingUrl: `/api/ghl/sync-permissions/${run.runId}`,
+        stepUrl: `/api/ghl/sync-permissions/${run.runId}/step`,
+        processed: run.processed,
+        matched: run.matched,
+        notFound: run.notFound,
+        skipped: run.skipped,
+        errors: run.errors,
+        cursor: run.cursor,
+        watermark: run.watermark,
+        heartbeatAt: run.heartbeatAt,
+        lastError: run.lastError,
+        complete: run.state === "complete",
+        activeLease: !!run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) > Date.now(),
+        fieldProjection: run.fieldProjection,
       });
     } catch (err: any) {
       serverError(res, err);
@@ -235,6 +319,8 @@ export function registerIntegrationsRoutes(app: Express) {
       if (!await authorizeContactAccess(req, res, contactId)) return;
       const logs = await storage.getGhlActivityLogs(contactId);
       const lastOutboundSync = logs.find(l => l.direction === "outbound" && l.channel === "sync");
+      const { getContactPermissionProjectionStatus } = await import("../services/ghl-specialized-commands");
+      const permissionProjection = await getContactPermissionProjectionStatus(contactId);
       const lastSyncedAt = lastOutboundSync?.createdAt || null;
       const isSynced = !!contact.ghlContactId && !!lastSyncedAt;
       const syncAge = lastSyncedAt ? Date.now() - new Date(lastSyncedAt).getTime() : null;
@@ -245,6 +331,19 @@ export function registerIntegrationsRoutes(app: Express) {
         isRecent,
         lastSyncedAt: lastSyncedAt ? new Date(lastSyncedAt).toISOString() : null,
         syncAgeMs: syncAge,
+        permissionProjection: permissionProjection ? {
+          runId: permissionProjection.runId,
+          state: permissionProjection.state,
+          contactId: permissionProjection.contactId,
+          ghlContactId: permissionProjection.ghlContactId ?? null,
+          fieldProjection: permissionProjection.fieldProjection,
+          processed: permissionProjection.processed,
+          matched: permissionProjection.matched,
+          errors: permissionProjection.errors,
+          heartbeatAt: permissionProjection.heartbeatAt,
+          lastError: permissionProjection.lastError,
+          complete: permissionProjection.state === "complete",
+        } : null,
       });
     } catch (err: any) {
       serverError(res, err);

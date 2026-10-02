@@ -29,7 +29,10 @@ export function parseApiRequestError(message: string): { code?: string; reason?:
   if (jsonStart < 0) return {};
   try {
     const body = JSON.parse(message.slice(jsonStart));
-    return { code: body?.error, reason: body?.reason };
+    return {
+      code: typeof body?.code === "string" ? body.code : body?.error,
+      reason: typeof body?.message === "string" ? body.message : body?.reason,
+    };
   } catch {
     return {};
   }

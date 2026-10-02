@@ -249,13 +249,14 @@ section("5. GHL opportunity stage cannot overwrite Liberty deal stage by default
 try {
   const { mapGhlStageToDeal } = await import("../server/services/ghl-sync");
 
-  // Verify the mapping function itself works
-  const stage = mapGhlStageToDeal("new_lead");
-  if (typeof stage === "string") {
-    ok(`mapGhlStageToDeal("new_lead") = "${stage}"`);
-  } else {
-    fail("mapGhlStageToDeal returned non-string");
+  // A provider stage slug alone cannot resolve a local stage; the active sync
+  // path must use the explicit semantic pipeline/stage ID tuple.
+  let mappingRejected = false;
+  try { mapGhlStageToDeal("new_lead"); } catch (err: any) {
+    mappingRejected = /GHL_SEMANTIC_STAGE_MAPPING_REQUIRED/.test(String(err?.message));
   }
+  if (mappingRejected) ok("stage slug alone is rejected without an explicit semantic ID tuple");
+  else fail("stage slug alone unexpectedly resolved without an explicit semantic ID tuple");
 
   // Verify GHL_DEAL_STAGE_AUTHORITY defaults to "liberty" (blocking GHL writes)
   const authority = (process.env.GHL_DEAL_STAGE_AUTHORITY ?? "liberty").toLowerCase();

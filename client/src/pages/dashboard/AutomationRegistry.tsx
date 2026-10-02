@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Zap, ZapOff, Clock, AlertTriangle, CheckCircle2, Shield } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { GhlSyncControlCard } from "@/components/dashboard/GhlSyncControlCard";
 
 interface AutomationRow {
   id: number;
@@ -83,6 +84,7 @@ export default function AutomationRegistry() {
 
   return (
     <div className="space-y-4">
+      <GhlSyncControlCard canControl summaryOnly />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -91,7 +93,7 @@ export default function AutomationRegistry() {
           </CardTitle>
           <CardDescription>
             All BullMQ queues and scheduled workers. Use the Kill Switch to immediately stop any automation.
-            Changes take effect within 30 seconds (cache TTL).
+            Changes take effect within 30 seconds (cache TTL). Registry switches are not live worker-owner evidence; the GHL sync row is retained here as registry metadata.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -118,18 +120,20 @@ export default function AutomationRegistry() {
                   <TableHead>Last Run</TableHead>
                   <TableHead className="text-right">Records</TableHead>
                   <TableHead className="text-right">Errors</TableHead>
-                  <TableHead className="text-center">Kill Switch</TableHead>
+                  <TableHead className="text-center">Registry Kill Switch</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {automations.map((row) => (
+                {automations.map((row) => {
+                  const isGhlSync = row.key === "ghl-sync";
+                  return (
                   <TableRow key={row.key} className={row.killSwitchEnabled ? "bg-destructive/5" : undefined}>
                     <TableCell>
                       <div className="font-medium flex items-center gap-1.5">
                         {row.killSwitchEnabled ? (
                           <ZapOff className="h-3.5 w-3.5 text-destructive shrink-0" />
                         ) : (
-                          <Zap className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          <Zap className={`h-3.5 w-3.5 shrink-0 ${isGhlSync ? "text-muted-foreground" : "text-green-500"}`} />
                         )}
                         {row.title ?? row.key}
                       </div>
@@ -139,17 +143,23 @@ export default function AutomationRegistry() {
                       {row.triggerDescription ?? "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={
-                          row.killSwitchEnabled
-                            ? "destructive"
-                            : row.status === "active"
-                            ? "default"
-                            : "secondary"
-                        }
-                      >
-                        {row.killSwitchEnabled ? "killed" : row.status}
-                      </Badge>
+                      {isGhlSync ? (
+                        <Badge variant="outline" data-testid="badge-ghl-sync-registry-status">
+                          Historical registry switch {row.killSwitchEnabled ? "on" : "off"} · not live owner evidence
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant={
+                            row.killSwitchEnabled
+                              ? "destructive"
+                              : row.status === "active"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {row.killSwitchEnabled ? "killed" : row.status}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm whitespace-nowrap">
                       <span className="flex items-center gap-1 text-muted-foreground">
@@ -186,12 +196,15 @@ export default function AutomationRegistry() {
                           toggleMutation.mutate({ key: row.key, killSwitchEnabled: checked })
                         }
                         disabled={toggleMutation.isPending}
-                        aria-label={`Kill switch for ${row.title ?? row.key}`}
+                        aria-label={isGhlSync
+                          ? "Legacy registry kill switch for GHL sync; does not report live runtime owner"
+                          : `Kill switch for ${row.title ?? row.key}`}
                         className="data-[state=checked]:bg-destructive"
                       />
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -4,43 +4,35 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle, RefreshCw, Shield, ShieldAlert, ShieldCheck, GitBranch } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getApiErrorMessage } from "@/lib/ghlTruth";
 import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
-
-// Local stage names that map to GHL pipeline stages
-const LOCAL_STAGE_NAMES = [
-  "New Lead", "Statement Received", "Review In Progress", "Call Booked",
-  "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Nurture / Not Now",
-  "Closed Won", "Closed Lost", "Contract Sent", "Application Started",
-  "Underwriting Submitted", "Approved", "Terminal Ordered", "Go-Live Scheduled",
-  "Live (First Batch)", "Active (7 Days)", "Active (30 Days)",
-];
-
-interface AlignmentRow {
-  localName: string;
-  ghlId: string | null;
-  ghlName: string | null;
-  score: number;
-  method: "exact" | "fuzzy" | "none";
-  override?: string;
-}
+import { GhlSyncControlCard } from "@/components/dashboard/GhlSyncControlCard";
+import { GhlCommandAction } from "@/components/dashboard/GhlCommandAction";
 
 interface PipelineStagesResult {
-  pipelineId: string | null;
-  ghlStages: Array<{ name: string; id: string }>;
-  alignment: AlignmentRow[];
-  dbOverrides: Record<string, string>;
-  envOverrides: Record<string, string>;
+  matchingPolicy: "explicit_ids_only";
+  pipelines: Array<{ id: string; name: string; stages: Array<{ id: string; name: string }> }>;
+  localStages: Array<{ id: number; pipeline: string; stageName: string }>;
+}
+
+interface SemanticStageMapping {
+  localPipelineId: string;
+  localStageId: number;
+  ghlPipelineId: string;
+  ghlStageId: string;
 }
 
 interface StageMapResult {
-  stageMap: Record<string, string>;
+  version: 2;
+  mappings: SemanticStageMapping[];
+  legacyStageMap?: Record<string, string>;
+  legacyDeprecated?: boolean;
 }
 
 interface GhlStatus {
@@ -59,13 +51,14 @@ interface HealthCheckResult {
 }
 
 interface AdminHealthResult {
-  status: "ok" | "expired" | "unconfigured";
+  status: "ok" | "expired" | "unconfigured" | "slow" | string;
   failureCount: number;
   lastSync: string | null;
   latencyMs?: number;
   locationName?: string;
   error?: string;
   checkedAt?: string;
+  cached?: boolean;
 }
 
 interface SyncStatus {
@@ -138,18 +131,18 @@ interface BackfillStatus {
   missingGhlId: number;
 }
 
-interface BackfillResult {
-  results: { matched: number; notFound: number; errors: number; total: number };
-  log: Array<{ id: number; email: string; status: string; ghlId?: string; error?: string }>;
+function StatusIndicator({ configured }: { configured: boolean | null }) {
+  if (configured === true) return <CheckCircle2 className="w-5 h-5 text-green-500" />;
+  if (configured === false) return <XCircle className="w-5 h-5 text-red-500" />;
+  return <AlertTriangle className="w-5 h-5 text-muted-foreground" />;
 }
 
 export default function GhlSettings() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
-  const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
-  const [forceSyncContactId, setForceSyncContactId] = useState("");
-  const [draftStageMap, setDraftStageMap] = useState<Record<string, string>>({});
+  const [draftStageMappings, setDraftStageMappings] = useState<SemanticStageMapping[]>([]);
+  const [selectedLocalPipeline, setSelectedLocalPipeline] = useState("");
+  const [draftExternalPipelineIds, setDraftExternalPipelineIds] = useState<Record<string, string>>({});
 
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
@@ -167,12 +160,12 @@ export default function GhlSettings() {
     refetchInterval: 60000,
   });
 
-  const { data: syncStatus } = useQuery<SyncStatus>({
+  const { data: syncStatus, isError: syncStatusError } = useQuery<SyncStatus>({
     queryKey: ["/api/ghl/sync-status"],
     refetchInterval: 15000,
   });
 
-  const { data: syncDashboard } = useQuery<SyncDashboard>({
+  const { data: syncDashboard, isError: syncDashboardError } = useQuery<SyncDashboard>({
     queryKey: ["/api/ghl/sync-dashboard"],
     refetchInterval: 30000,
   });
@@ -202,7 +195,11 @@ export default function GhlSettings() {
         toast({ title: "Connection Failed", description: data.error || "Could not reach GHL", variant: "destructive" });
       }
     },
-    onError: () => toast({ title: "Error", description: "Failed to test connection", variant: "destructive" }),
+    onError: (error: unknown) => toast({
+      title: "Connection test failed",
+      description: getApiErrorMessage(error, "The GHL health probe could not be completed."),
+      variant: "destructive",
+    }),
   });
 
   const syncToGhlMutation = useMutation({
@@ -211,7 +208,11 @@ export default function GhlSettings() {
       toast({ title: "Sync Started", description: "Pushing contacts to GHL" });
       queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-status"] });
     },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    onError: (error: unknown) => toast({
+      title: "GHL sync request failed",
+      description: getApiErrorMessage(error, "Could not start the contact sync."),
+      variant: "destructive",
+    }),
   });
 
   const syncHotLeadsMutation = useMutation({
@@ -220,10 +221,14 @@ export default function GhlSettings() {
       toast({ title: "Hot Lead Sync Started", description: "Syncing up to 100 hot lead contacts to GHL" });
       queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-status"] });
     },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    onError: (error: unknown) => toast({
+      title: "Hot lead sync request failed",
+      description: getApiErrorMessage(error, "Could not start the hot lead sync."),
+      variant: "destructive",
+    }),
   });
 
-  const { data: backfillStatus, refetch: refetchBackfillStatus } = useQuery<BackfillStatus>({
+  const { data: backfillStatus } = useQuery<BackfillStatus>({
     queryKey: ["/api/admin/backfill-ghl-contacts/status"],
     refetchInterval: 0,
   });
@@ -234,77 +239,46 @@ export default function GhlSettings() {
     retry: false,
   });
 
-  const forceSyncPermsMutation = useMutation({
-    mutationFn: async (contactId: string) => {
-      // Reuse the existing sync-contact endpoint (admin/manager only by UI convention)
-      const res = await apiRequest("POST", "/api/ghl/sync-contact", { contactId: Number(contactId) });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast({ title: "Permission Sync Done", description: `GHL Contact ID: ${data.ghlContactId}` });
-      queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-dashboard"] });
-    },
-    onError: (err: any) => toast({ title: "Sync Failed", description: err.message, variant: "destructive" }),
-  });
-
-  const backfillMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/admin/backfill-ghl-contacts");
-      return res.json() as Promise<BackfillResult>;
-    },
-    onSuccess: (data) => {
-      setBackfillResult(data);
-      refetchBackfillStatus();
-      toast({
-        title: "Backfill Complete",
-        description: `${data.results.matched} matched, ${data.results.notFound} not in GHL, ${data.results.errors} errors`,
-      });
-    },
-    onError: () => toast({ title: "Backfill Failed", description: "Could not run GHL contact ID backfill", variant: "destructive" }),
-  });
-
   // ── Stage Mapping ──────────────────────────────────────────────────────────
-  const { data: pipelineStages, isLoading: stagesLoading, refetch: refetchStages } = useQuery<PipelineStagesResult>({
+  const { data: pipelineStages, isLoading: stagesLoading, isError: stagesError, refetch: refetchStages } = useQuery<PipelineStagesResult>({
     queryKey: ["/api/admin/ghl/pipeline-stages"],
     retry: false,
   });
 
-  const { data: savedStageMap } = useQuery<StageMapResult>({
+  const { data: savedStageMap, isError: stageMapError } = useQuery<StageMapResult>({
     queryKey: ["/api/admin/ghl/stage-map"],
+    retry: false,
   });
 
-  // Seed draft from saved DB map whenever it loads
   useEffect(() => {
-    if (savedStageMap?.stageMap) {
-      setDraftStageMap(savedStageMap.stageMap);
+    if (savedStageMap?.version === 2 && Array.isArray(savedStageMap.mappings)) {
+      setDraftStageMappings(savedStageMap.mappings);
+      setDraftExternalPipelineIds(Object.fromEntries(
+        savedStageMap.mappings.map((mapping) => [`${mapping.localPipelineId}:${mapping.localStageId}`, mapping.ghlPipelineId]),
+      ));
     }
   }, [savedStageMap]);
 
+  useEffect(() => {
+    if (!selectedLocalPipeline && pipelineStages?.localStages?.length) {
+      setSelectedLocalPipeline(pipelineStages.localStages[0].pipeline);
+    }
+  }, [pipelineStages?.localStages, selectedLocalPipeline]);
+
   const saveStageMapMutation = useMutation({
-    mutationFn: async (stageMap: Record<string, string>) => {
-      const res = await apiRequest("POST", "/api/admin/ghl/stage-map", { stageMap });
+    mutationFn: async (mappings: SemanticStageMapping[]) => {
+      const res = await apiRequest("POST", "/api/admin/ghl/stage-map", { version: 2, mappings });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl/stage-map"] });
-      toast({ title: "Stage Map Saved", description: "GHL pipeline stage mapping updated." });
+      toast({ title: "Semantic stage map saved", description: "The server validated the explicit pipeline and stage ID mappings." });
     },
-    onError: () => toast({ title: "Save Failed", description: "Could not save stage mapping.", variant: "destructive" }),
-  });
-
-  const syncStagesToGhlMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/admin/ghl/sync-stages");
-      return res.json() as Promise<{ resolved: number; total: number }>;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl/pipeline-stages"] });
-      toast({
-        title: "Pipeline Synced",
-        description: `${data.resolved}/${data.total} stages now resolved in GHL.`,
-      });
-    },
-    onError: (err: any) => toast({ title: "Sync Failed", description: err.message || "Could not sync stages to GHL.", variant: "destructive" }),
+    onError: (error: unknown) => toast({
+      title: "Could not save semantic stage map",
+      description: getApiErrorMessage(error, "The server rejected the stage mapping."),
+      variant: "destructive",
+    }),
   });
 
   if (statusLoading) {
@@ -315,12 +289,9 @@ export default function GhlSettings() {
     );
   }
 
-  const StatusIndicator = ({ configured }: { configured: boolean }) =>
-    configured ? (
-      <CheckCircle2 className="w-5 h-5 text-green-500" />
-    ) : (
-      <XCircle className="w-5 h-5 text-red-500" />
-    );
+  const localPipelineOptions = Array.from(new Set((pipelineStages?.localStages ?? []).map((stage) => stage.pipeline)));
+  const visibleLocalStages = (pipelineStages?.localStages ?? []).filter((stage) => stage.pipeline === selectedLocalPipeline);
+  const stageMapChanged = JSON.stringify(draftStageMappings) !== JSON.stringify(savedStageMap?.mappings ?? []);
 
   return (
     <div className="space-y-6" data-testid="ghlsettings-page">
@@ -367,38 +338,43 @@ export default function GhlSettings() {
       </div>
 
       {adminHealth && (() => {
-        const triState: "ok" | "degraded" | "down" =
-          adminHealth.status === "ok" && (adminHealth.failureCount ?? 0) === 0 ? "ok" :
-          adminHealth.status === "ok" ? "degraded" : "down";
+        const healthState = adminHealth.status === "ok" ? "connected" :
+          adminHealth.status === "unconfigured" ? "unconfigured" :
+          adminHealth.status === "expired" || adminHealth.status === "slow" ? "disconnected" : "unknown";
         return (
           <div
             data-testid="card-ghl-admin-health"
             className={`flex items-start gap-4 p-4 rounded-lg border text-sm ${
-              triState === "ok"
+              healthState === "connected"
                 ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-900 dark:text-green-100"
-                : triState === "degraded"
-                ? "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
-                : "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-900 dark:text-red-100"
+                : healthState === "unknown"
+                ? "bg-muted border-border text-foreground"
+                : "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
             }`}
           >
-            {triState === "ok"
+            {healthState === "connected"
               ? <CheckCircle2 className="w-5 h-5 shrink-0 text-green-600 dark:text-green-400 mt-0.5" />
-              : triState === "degraded"
+              : healthState === "unknown"
+              ? <AlertTriangle className="w-5 h-5 shrink-0 text-muted-foreground mt-0.5" />
+              : healthState === "unconfigured"
               ? <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
               : <XCircle className="w-5 h-5 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />}
             <div className="flex-1 min-w-0">
               <p className="font-semibold">
-                {triState === "ok" ? "GHL Connected — All Systems Healthy" :
-                 triState === "degraded" ? `GHL Connected — ${adminHealth.failureCount} failure${adminHealth.failureCount !== 1 ? "s" : ""} in last 24h` :
-                 adminHealth.status === "unconfigured" ? "GHL Not Configured" : "GHL Token Expired or Rejected"}
+                {healthState === "connected" ? "GHL API connected (health probe)" :
+                 healthState === "unconfigured" ? "GHL is not configured" :
+                 healthState === "disconnected" ? `GHL API probe failed (${adminHealth.status})` :
+                 "GHL connection status unknown"}
               </p>
               <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-xs opacity-80">
-                <span>Last sync: {adminHealth.lastSync ? new Date(adminHealth.lastSync).toLocaleString() : "No data yet"}</span>
-                <span>Failures (24h): {adminHealth.failureCount ?? 0}</span>
+                <span>Last successful sync: {adminHealth.lastSync ? new Date(adminHealth.lastSync).toLocaleString() : "No recorded success"}</span>
+                <span>Historical failures (24h): {adminHealth.failureCount ?? "Unknown"}</span>
                 {adminHealth.latencyMs != null && <span>Latency: {adminHealth.latencyMs}ms</span>}
                 {adminHealth.locationName && <span>Location: {adminHealth.locationName}</span>}
+                <span>Probe checked: {adminHealth.checkedAt ? new Date(adminHealth.checkedAt).toLocaleString() : "Unknown"}</span>
+                {adminHealth.cached && <span>Cached probe response</span>}
               </div>
-              {adminHealth.status !== "ok" && adminHealth.error && (
+              {adminHealth.error && (
                 <p className="text-xs mt-1 opacity-80">{adminHealth.error}</p>
               )}
             </div>
@@ -417,6 +393,8 @@ export default function GhlSettings() {
         </Alert>
       )}
 
+      <GhlSyncControlCard canControl={user?.role === "admin"} />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card data-testid="card-ghl-connection">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
@@ -424,12 +402,21 @@ export default function GhlSettings() {
             <Activity className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {(() => {
+              const connected = healthResult?.connected ?? (
+                adminHealth
+                  ? adminHealth.status === "ok"
+                  : null
+              );
+              return (
             <div className="flex items-center gap-2">
-              <StatusIndicator configured={healthResult?.connected ?? status?.configured ?? false} />
+              <StatusIndicator configured={connected} />
               <span className="text-lg font-semibold" data-testid="text-ghl-connection-status">
-                {healthResult?.connected ? "Connected" : status?.configured ? "Configured" : "Not Configured"}
+                {connected === true ? "Connected" : connected === false ? "Not connected" : "Unknown"}
               </span>
             </div>
+              );
+            })()}
             {healthResult?.locationName && (
               <p className="text-xs text-muted-foreground mt-1" data-testid="text-ghl-location-name">{healthResult.locationName}</p>
             )}
@@ -442,12 +429,19 @@ export default function GhlSettings() {
             <Key className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
+            {(() => {
+              const tokenConfigured = status
+                ? Boolean(status.hasApiKey || status.hasPrivateToken)
+                : null;
+              return (
             <div className="flex items-center gap-2">
-              <StatusIndicator configured={(status?.hasApiKey || status?.hasPrivateToken) ?? false} />
+              <StatusIndicator configured={tokenConfigured} />
               <span className="text-lg font-semibold" data-testid="text-ghl-apikey-status">
-                {(status?.hasApiKey || status?.hasPrivateToken) ? "Configured" : "Not Set"}
+                {tokenConfigured === null ? "Unknown" : tokenConfigured ? "Configured" : "Not set"}
               </span>
             </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -458,9 +452,9 @@ export default function GhlSettings() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <StatusIndicator configured={status?.hasLocationId ?? false} />
+              <StatusIndicator configured={status ? status.hasLocationId : null} />
               <span className="text-lg font-semibold" data-testid="text-ghl-locationid-status">
-                {status?.hasLocationId ? "Configured" : "Not Set"}
+                {status ? (status.hasLocationId ? "Configured" : "Not set") : "Unknown"}
               </span>
             </div>
           </CardContent>
@@ -473,9 +467,9 @@ export default function GhlSettings() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <StatusIndicator configured={status?.hasCalendarId ?? false} />
+              <StatusIndicator configured={status ? status.hasCalendarId : null} />
               <span className="text-lg font-semibold" data-testid="text-ghl-calendarid-status">
-                {status?.hasCalendarId ? "Configured" : "Not Set"}
+                {status ? (status.hasCalendarId ? "Configured" : "Not set") : "Unknown"}
               </span>
             </div>
           </CardContent>
@@ -527,6 +521,12 @@ export default function GhlSettings() {
             )}
           </CardContent>
         </Card>
+      )}
+      {syncStatusError && (
+        <Alert variant="destructive" data-testid="alert-ghl-sync-status-unavailable">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>Sync status is unavailable; current contact counts and last successful sync are unknown.</AlertDescription>
+        </Alert>
       )}
 
       {syncDashboard && (
@@ -588,13 +588,15 @@ export default function GhlSettings() {
                         )}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {(status.errorCount || 0) > 0 ? (
+                        {status.errorCount != null && status.errorCount > 0 ? (
                           <span className="text-red-600 flex items-center gap-1" data-testid={`text-error-count-${entityType}`}>
                             <AlertTriangle className="w-3 h-3" />
                             {status.errorCount}
                           </span>
-                        ) : (
+                        ) : status.errorCount === 0 ? (
                           <span className="text-muted-foreground">0</span>
+                        ) : (
+                          <span className="text-muted-foreground">Unknown</span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -602,10 +604,12 @@ export default function GhlSettings() {
                           <Badge variant="destructive" className="text-xs" data-testid={`badge-sync-error-${entityType}`}>
                             Error
                           </Badge>
-                        ) : (
-                          <Badge variant="default" className="text-xs">
-                            OK
+                        ) : status.lastSyncAt && status.errorCount === 0 ? (
+                          <Badge variant="outline" className="text-xs">
+                            No recorded error
                           </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">Unknown</Badge>
                         )}
                       </TableCell>
                     </TableRow>
@@ -633,10 +637,12 @@ export default function GhlSettings() {
                     <div className="flex items-center gap-1 mt-0.5">
                       {syncDashboard.circuitState?.open
                         ? <ShieldAlert className="w-4 h-4 text-red-500" />
-                        : <ShieldCheck className="w-4 h-4 text-green-500" />}
-                      <span className={`font-semibold ${syncDashboard.circuitState?.open ? "text-red-600" : "text-green-600"}`}
+                        : syncDashboard.circuitState?.open === false
+                          ? <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+                          : <AlertTriangle className="w-4 h-4 text-muted-foreground" />}
+                      <span className={`font-semibold ${syncDashboard.circuitState?.open ? "text-red-600" : "text-muted-foreground"}`}
                         data-testid="text-circuit-state">
-                        {syncDashboard.circuitState?.open ? "OPEN" : "Closed"}
+                        {syncDashboard.circuitState?.open === true ? "OPEN" : syncDashboard.circuitState?.open === false ? "Closed" : "Unknown"}
                       </span>
                       {syncDashboard.circuitState && (
                         <span className="text-muted-foreground text-xs">
@@ -647,52 +653,54 @@ export default function GhlSettings() {
                   </div>
                   <div>
                     <p className="text-muted-foreground">Failed Syncs (24h)</p>
-                    <p className={`font-semibold ${(syncDashboard.failedSyncsLast24h ?? 0) > 0 ? "text-red-600" : "text-green-600"}`}
+                    <p className={`font-semibold ${syncDashboard.failedSyncsLast24h == null ? "text-muted-foreground" : syncDashboard.failedSyncsLast24h > 0 ? "text-red-600" : "text-muted-foreground"}`}
                       data-testid="text-failed-syncs-24h">
-                      {syncDashboard.failedSyncsLast24h ?? 0}
+                      {syncDashboard.failedSyncsLast24h ?? "Unknown"}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Missing GHL IDs</p>
-                    <p className={`font-semibold ${(syncDashboard.missingGhlContactId ?? 0) > 0 ? "text-amber-600" : "text-green-600"}`}
+                    <p className={`font-semibold ${syncDashboard.missingGhlContactId == null ? "text-muted-foreground" : syncDashboard.missingGhlContactId > 0 ? "text-amber-600" : "text-muted-foreground"}`}
                       data-testid="text-missing-ghl-ids">
-                      {syncDashboard.missingGhlContactId ?? 0}
+                      {syncDashboard.missingGhlContactId ?? "Unknown"}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Opt-Out Events (24h)</p>
                     <p className="font-semibold" data-testid="text-optout-events">
-                      {syncDashboard.optOutEventsLast24h ?? 0}
+                      {syncDashboard.optOutEventsLast24h ?? "Unknown"}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Webhook Events (24h)</p>
                     <p className="font-semibold" data-testid="text-webhook-events">
-                      {syncDashboard.webhookEventsLast24h ?? 0}
+                      {syncDashboard.webhookEventsLast24h ?? "Unknown"}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Permission Checks (24h)</p>
                     <p className="font-semibold" data-testid="text-perm-checks">
-                      {syncDashboard.permissionCheckCallsLast24h ?? 0}
+                      {syncDashboard.permissionCheckCallsLast24h ?? "Unknown"}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Field Write Errors (422)</p>
-                    <p className={`font-semibold ${(syncDashboard.fieldWriteErrors422 ?? 0) > 0 ? "text-amber-600" : "text-green-600"}`}
+                    <p className={`font-semibold ${syncDashboard.fieldWriteErrors422 == null ? "text-muted-foreground" : syncDashboard.fieldWriteErrors422 > 0 ? "text-amber-600" : "text-muted-foreground"}`}
                       data-testid="text-field-write-errors">
-                      {syncDashboard.fieldWriteErrors422 ?? 0}
+                      {syncDashboard.fieldWriteErrors422 ?? "Unknown"}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">GHL Webhook Secret</p>
                     <div className="flex items-center gap-1 mt-0.5">
-                      {circuitStatus?.ghlWebhookSecretConfigured
+                      {circuitStatus?.ghlWebhookSecretConfigured === true
                         ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                        : <XCircle className="w-3.5 h-3.5 text-red-500" />}
-                      <span className={`text-xs font-medium ${circuitStatus?.ghlWebhookSecretConfigured ? "text-green-600" : "text-red-600"}`}
+                        : circuitStatus?.ghlWebhookSecretConfigured === false
+                          ? <XCircle className="w-3.5 h-3.5 text-red-500" />
+                          : <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground" />}
+                      <span className={`text-xs font-medium ${circuitStatus?.ghlWebhookSecretConfigured === true ? "text-green-600" : circuitStatus?.ghlWebhookSecretConfigured === false ? "text-red-600" : "text-muted-foreground"}`}
                         data-testid="text-webhook-secret-status">
-                        {circuitStatus?.ghlWebhookSecretConfigured ? "Set" : "Not Set"}
+                        {circuitStatus?.ghlWebhookSecretConfigured === true ? "Set" : circuitStatus?.ghlWebhookSecretConfigured === false ? "Not set" : "Unknown"}
                       </span>
                     </div>
                   </div>
@@ -749,9 +757,15 @@ export default function GhlSettings() {
           </CardContent>
         </Card>
       )}
+      {syncDashboardError && (
+        <Alert variant="destructive" data-testid="alert-ghl-sync-dashboard-unavailable">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>Historical entity counts, sync error counters, and recent write errors are unavailable.</AlertDescription>
+        </Alert>
+      )}
 
-      {/* Wave 7: Force Permission Sync card — admin/manager only */}
-      {isAdminOrManager && <Card data-testid="card-force-permission-sync">
+      {/* Permission-field writes are queued durable commands; never report the 202 acceptance as success. */}
+      {user?.role === "admin" && <Card data-testid="card-force-permission-sync">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-muted-foreground" />
@@ -759,29 +773,14 @@ export default function GhlSettings() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Re-push Replit permission fields (lb_do_not_contact, lb_consent_tier, lb_can_email, etc.) to GHL for a specific contact. Use this after creating lb_* custom fields in GHL or after resolving a 422 field write error.
-          </p>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Contact ID (number)"
-              value={forceSyncContactId}
-              onChange={e => setForceSyncContactId(e.target.value)}
-              className="max-w-[200px]"
-              data-testid="input-force-sync-contact-id"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => forceSyncPermsMutation.mutate(forceSyncContactId)}
-              disabled={forceSyncPermsMutation.isPending || !forceSyncContactId.trim()}
-              className="gap-2"
-              data-testid="button-force-sync-perms"
-            >
-              {forceSyncPermsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              Sync Permissions
-            </Button>
-          </div>
+          <GhlCommandAction
+            title="Force contact permission sync"
+            description="Queue a server-authorized permission-field projection for one contact. HTTP 202 means queued, not completed; the actual field-write result is shown after polling."
+            endpoint="/api/ghl/sync-contact"
+            contactIdRequired
+            testId="ghl-permission-command"
+            statusEndpointToInvalidate="/api/ghl/sync-dashboard"
+          />
         </CardContent>
       </Card>}
 
@@ -796,8 +795,8 @@ export default function GhlSettings() {
           <ul className="mt-3 space-y-2 text-sm">
             <li className="flex items-center gap-2">
               <Key className="w-4 h-4 text-muted-foreground" />
-              <code className="bg-muted px-2 py-0.5 rounded text-xs">GHL_API_KEY</code>
-              <span className="text-muted-foreground">- Your GoHighLevel API key</span>
+              <span className="font-medium">Private integration token or legacy API key</span>
+              <span className="text-muted-foreground">- configure GHL_PRIVATE_INTEGRATION_TOKEN (preferred) or GHL_API_KEY</span>
             </li>
             <li className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-muted-foreground" />
@@ -918,62 +917,34 @@ export default function GhlSettings() {
               <Database className="w-4 h-4 text-muted-foreground" />
               <CardTitle className="text-base">GHL Contact ID Backfill</CardTitle>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => backfillMutation.mutate()}
-              disabled={backfillMutation.isPending || (backfillStatus?.missingGhlId === 0)}
-              className="gap-2"
-              data-testid="button-run-backfill"
-            >
-              {backfillMutation.isPending
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <RefreshCw className="w-4 h-4" />}
-              {backfillMutation.isPending ? "Running…" : "Run Backfill"}
-            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Looks up existing GHL contacts by email for any local contacts missing a GHL Contact ID.
-            Run this once after importing contacts or rotating your GHL token.
+            Looks up existing GHL contacts by email for local contacts missing a GHL Contact ID. The operation runs as a durable, bounded server command. Starting the command only queues work.
           </p>
           {backfillStatus && (
             <div className="flex gap-6 text-sm">
               <span data-testid="text-backfill-total">Total contacts: <strong>{backfillStatus.totalContacts}</strong></span>
               <span data-testid="text-backfill-missing">
                 Missing GHL ID:{" "}
-                <strong className={backfillStatus.missingGhlId > 0 ? "text-amber-600" : "text-green-600"}>
+                <strong className={backfillStatus.missingGhlId > 0 ? "text-amber-600" : "text-muted-foreground"}>
                   {backfillStatus.missingGhlId}
                 </strong>
               </span>
             </div>
           )}
-          {backfillResult && (
-            <div className="rounded-md border p-3 bg-muted/30 space-y-2" data-testid="card-backfill-result">
-              <div className="flex gap-4 text-sm font-medium flex-wrap">
-                <span className="text-green-600">✓ Matched: {backfillResult.results.matched}</span>
-                <span className="text-muted-foreground">Not found: {backfillResult.results.notFound}</span>
-                {backfillResult.results.errors > 0 && (
-                  <span className="text-red-600">Errors: {backfillResult.results.errors}</span>
-                )}
-                <span className="text-muted-foreground">Total scanned: {backfillResult.results.total}</span>
-              </div>
-              {backfillResult.results.errors > 0 && (
-                <div className="max-h-40 overflow-y-auto space-y-1">
-                  {backfillResult.log
-                    .filter(l => l.status === "error")
-                    .map((l, i) => (
-                      <p key={i} className="text-xs text-red-600">{l.email}: {l.error}</p>
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
+          {user?.role === "admin" && <GhlCommandAction
+            title="Backfill missing GHL contact IDs"
+            description="Queues a durable backfill command. Progress, bounded steps, terminal failures, and actual errors are polled from the server-provided command status URL."
+            endpoint="/api/admin/backfill-ghl-contacts"
+            testId="ghl-backfill-command"
+            statusEndpointToInvalidate="/api/admin/backfill-ghl-contacts/status"
+          />}
         </CardContent>
       </Card>
 
-      {/* ── GHL Pipeline Stage Mapping ───────────────────────────────────────── */}
+      {/* ── Semantic GHL Pipeline Stage Mapping ─────────────────────────────── */}
       <Card data-testid="card-ghl-stage-map">
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -991,31 +962,18 @@ export default function GhlSettings() {
                 data-testid="button-refresh-stages"
               >
                 {stagesLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Refresh
+                Refresh discovery
               </Button>
               {user?.role === "admin" && (
                 <Button
-                  variant="outline"
                   size="sm"
-                  onClick={() => syncStagesToGhlMutation.mutate()}
-                  disabled={syncStagesToGhlMutation.isPending}
-                  className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
-                  data-testid="button-sync-stages-to-ghl"
-                >
-                  {syncStagesToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
-                  Re-sync Now
-                </Button>
-              )}
-              {Object.keys(draftStageMap).length > 0 && (
-                <Button
-                  size="sm"
-                  onClick={() => saveStageMapMutation.mutate(draftStageMap)}
-                  disabled={saveStageMapMutation.isPending}
+                  onClick={() => saveStageMapMutation.mutate(draftStageMappings)}
+                  disabled={saveStageMapMutation.isPending || !stageMapChanged}
                   className="gap-2"
                   data-testid="button-save-stage-map"
                 >
                   {saveStageMapMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Save Overrides
+                  Save explicit ID mappings
                 </Button>
               )}
             </div>
@@ -1023,124 +981,140 @@ export default function GhlSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Every sync cycle, any local stage that doesn't exist in GHL is automatically created there
-            so the two systems stay in lockstep. The table below shows the current resolved state.
-            Use <strong>Re-sync Now</strong> to force an immediate refresh, or paste a UUID override
-            only if you need to point a stage at a specific existing GHL stage ID.
+            Map existing local pipeline/stage IDs to existing GHL pipeline/stage IDs. Displayed names are labels only and never select a match automatically. This screen does not create or mutate remote GHL stages.
           </p>
 
-          {pipelineStages?.pipelineId && (
-            <div className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 flex gap-4 flex-wrap" data-testid="text-pipeline-id">
-              <span>Pipeline: <code className="font-mono">{pipelineStages.pipelineId}</code></span>
-              <span>{pipelineStages.ghlStages.length} GHL stage{pipelineStages.ghlStages.length !== 1 ? "s" : ""} discovered</span>
-              {(() => {
-                const matched = pipelineStages.alignment.filter(r => r.ghlId || r.override).length;
-                const total = pipelineStages.alignment.length;
-                return <span className={matched === total ? "text-green-600" : "text-yellow-600"}>{matched}/{total} local stages resolved</span>;
-              })()}
-            </div>
-          )}
-
-          {pipelineStages && Object.keys(pipelineStages.envOverrides).length > 0 && (
-            <Alert data-testid="alert-env-overrides">
+          {stageMapError && (
+            <Alert variant="destructive">
               <AlertTriangle className="w-4 h-4" />
-              <AlertDescription className="text-xs">
-                <strong>GHL_STAGE_ID_MAP</strong> env var overrides {Object.keys(pipelineStages.envOverrides).length} stage(s) — env takes highest priority.
+              <AlertDescription>Version 2 semantic stage mappings are unavailable. Legacy title mappings will not be used as authority.</AlertDescription>
+            </Alert>
+          )}
+          {stagesError && (
+            <Alert variant="destructive" data-testid="alert-stage-discovery-unavailable">
+              <AlertTriangle className="w-4 h-4" />
+              <AlertDescription>
+                Local semantic stage IDs and read-only GHL pipeline/stage identities are unavailable. No title-based mapping is substituted.
               </AlertDescription>
             </Alert>
+          )}
+          {savedStageMap?.legacyDeprecated && Object.keys(savedStageMap.legacyStageMap ?? {}).length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100" data-testid="text-legacy-stage-map">
+              Deprecated legacy title-keyed map is read-only ({Object.keys(savedStageMap.legacyStageMap ?? {}).length} entr{Object.keys(savedStageMap.legacyStageMap ?? {}).length === 1 ? "y" : "ies"}). It is not used to choose or save semantic mappings.
+            </div>
+          )}
+          {((pipelineStages?.pipelines?.length ?? 0) > 0 || localPipelineOptions.length > 0) && (
+            <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2" data-testid="text-pipeline-id">
+              {localPipelineOptions.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Local pipeline</div>
+                  <Select value={selectedLocalPipeline} onValueChange={setSelectedLocalPipeline}>
+                    <SelectTrigger aria-label="Select local pipeline"><SelectValue placeholder="Choose local pipeline" /></SelectTrigger>
+                    <SelectContent>
+                      {localPipelineOptions.map((pipelineId) => (
+                        <SelectItem key={pipelineId} value={pipelineId}>{pipelineId}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">Local pipeline identity: Unknown</div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                <div>Existing GHL pipelines discovered: {pipelineStages?.pipelines?.length ?? "Unknown"}</div>
+                <div>Mapping policy: {pipelineStages?.matchingPolicy ?? "Unknown"}</div>
+              </div>
+            </div>
           )}
 
           {stagesLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading GHL pipeline stages…
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading local and existing GHL pipeline identities…
             </div>
           )}
-
-          {pipelineStages && !stagesLoading && (
-            <Table data-testid="table-stage-map">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Local Stage</TableHead>
-                  <TableHead>Auto-matched GHL Stage</TableHead>
-                  <TableHead className="w-8">Conf.</TableHead>
-                  <TableHead>Override UUID (if needed)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pipelineStages.alignment.map((row) => {
-                  const effectiveId = row.override || row.ghlId;
-                  const isExact = row.method === "exact";
-                  const isFuzzy = row.method === "fuzzy";
-                  const isNone = row.method === "none" && !row.override;
-                  const hasEnvOverride = !!pipelineStages.envOverrides[row.localName];
-                  const slug = row.localName.replace(/\W+/g, "-").toLowerCase();
-                  return (
-                    <TableRow
-                      key={row.localName}
-                      data-testid={`row-stage-${slug}`}
-                      className={isNone && !row.override ? "bg-red-50/40 dark:bg-red-950/20" : ""}
-                    >
-                      <TableCell className="text-sm font-medium">{row.localName}</TableCell>
-                      <TableCell>
-                        {hasEnvOverride ? (
-                          <span className="text-xs text-blue-600 font-mono">{pipelineStages.envOverrides[row.localName].slice(0, 12)}… (env)</span>
-                        ) : effectiveId ? (
-                          <div>
-                            <span className="text-xs font-medium">{row.ghlName || "override"}</span>
-                            <span className="text-xs text-muted-foreground font-mono ml-2">{effectiveId.slice(0, 10)}…</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-red-500">⚠ Not matched — enter UUID below</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {hasEnvOverride ? (
-                          <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">env</Badge>
-                        ) : isExact ? (
-                          <Badge variant="outline" className="text-xs text-green-600 border-green-300">exact</Badge>
-                        ) : isFuzzy ? (
-                          <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-300">{Math.round(row.score * 100)}%</Badge>
-                        ) : row.override ? (
-                          <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">manual</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-xs text-red-500 border-red-300">none</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1 items-center">
-                          <Input
-                            className="h-7 text-xs font-mono w-52"
-                            placeholder={isNone ? "Paste GHL stage UUID…" : "Override (optional)"}
-                            value={draftStageMap[row.localName] || ""}
-                            onChange={(e) => {
-                              const val = e.target.value.trim();
-                              setDraftStageMap(prev => {
-                                const n = { ...prev };
-                                if (val) n[row.localName] = val; else delete n[row.localName];
-                                return n;
-                              });
-                            }}
-                            data-testid={`input-override-${slug}`}
-                          />
-                          {draftStageMap[row.localName] && (
-                            <button
-                              className="text-muted-foreground hover:text-foreground text-xs px-1"
-                              onClick={() => setDraftStageMap(prev => { const n = { ...prev }; delete n[row.localName]; return n; })}
-                              title="Clear override"
-                            >✕</button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+          {!stagesLoading && pipelineStages && visibleLocalStages.length === 0 && (
+            <div className="text-sm text-muted-foreground py-4 text-center">No local stages were returned for this pipeline.</div>
           )}
-
-          {!pipelineStages && !stagesLoading && (
-            <div className="text-sm text-muted-foreground py-4 text-center">
-              GHL not connected or pipeline not yet discovered. Click <strong>Refresh from GHL</strong> to load.
+          {!stagesLoading && visibleLocalStages.length > 0 && (
+            <div className="space-y-3" data-testid="table-stage-map">
+              {visibleLocalStages.map((localStage) => {
+                const current = draftStageMappings.find((mapping) =>
+                  mapping.localPipelineId === localStage.pipeline && mapping.localStageId === localStage.id
+                );
+                const mappingKey = `${localStage.pipeline}:${localStage.id}`;
+                const externalPipelineId = draftExternalPipelineIds[mappingKey] ?? current?.ghlPipelineId ?? pipelineStages?.pipelines?.[0]?.id ?? "";
+                const selectedExternalPipeline = pipelineStages?.pipelines?.find((pipeline) => pipeline.id === externalPipelineId);
+                const selectedGhlStage = selectedExternalPipeline?.stages.find((stage) => stage.id === current?.ghlStageId);
+                return (
+                  <div key={`${localStage.pipeline}-${localStage.id}`} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{localStage.stageName}</div>
+                      <div className="break-all font-mono text-xs text-muted-foreground">
+                        Local pipeline ID: {localStage.pipeline} · Local stage ID: {localStage.id}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="mb-2">
+                        <Select
+                          value={externalPipelineId || "__unavailable"}
+                          disabled={user?.role !== "admin" || !(pipelineStages?.pipelines?.length ?? 0)}
+                          onValueChange={(ghlPipelineId) => {
+                            setDraftExternalPipelineIds((previous) => ({ ...previous, [mappingKey]: ghlPipelineId }));
+                            setDraftStageMappings((previous) => previous.filter((mapping) =>
+                              !(mapping.localPipelineId === localStage.pipeline && mapping.localStageId === localStage.id)
+                            ));
+                          }}
+                        >
+                          <SelectTrigger aria-label={`Choose GHL pipeline for ${localStage.stageName}`} data-testid={`select-ghl-pipeline-${localStage.id}`}>
+                            <SelectValue placeholder="Choose an existing GHL pipeline" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {pipelineStages?.pipelines?.length
+                              ? pipelineStages.pipelines.map((pipeline) => (
+                                  <SelectItem key={pipeline.id} value={pipeline.id}>{pipeline.name} — {pipeline.id}</SelectItem>
+                                ))
+                              : <SelectItem value="__unavailable" disabled>GHL pipeline IDs unavailable</SelectItem>}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Select
+                        value={current?.ghlPipelineId === externalPipelineId ? current.ghlStageId : "__unmapped"}
+                        disabled={user?.role !== "admin" || !selectedExternalPipeline}
+                        onValueChange={(ghlStageId) => {
+                          setDraftStageMappings((previous) => {
+                            const withoutCurrent = previous.filter((mapping) =>
+                              !(mapping.localPipelineId === localStage.pipeline && mapping.localStageId === localStage.id)
+                            );
+                            if (ghlStageId === "__unmapped") return withoutCurrent;
+                            return [...withoutCurrent, {
+                              localPipelineId: localStage.pipeline,
+                              localStageId: localStage.id,
+                              ghlPipelineId: externalPipelineId,
+                              ghlStageId,
+                            }];
+                          });
+                        }}
+                      >
+                        <SelectTrigger aria-label={`Map ${localStage.stageName} by GHL stage ID`} data-testid={`select-ghl-stage-${localStage.id}`}>
+                          <SelectValue placeholder="Select an existing GHL stage" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__unmapped">Not explicitly mapped</SelectItem>
+                          {(selectedExternalPipeline?.stages ?? []).map((ghlStage) => (
+                            <SelectItem key={ghlStage.id} value={ghlStage.id}>
+                              {ghlStage.name} — {ghlStage.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="mt-1 break-all text-xs text-muted-foreground">
+                        GHL pipeline ID: {(current?.ghlPipelineId ?? externalPipelineId) || "Unknown"} · GHL stage ID: {current?.ghlStageId ?? "Not explicitly mapped"}
+                        {selectedGhlStage ? ` (${selectedGhlStage.name})` : ""}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

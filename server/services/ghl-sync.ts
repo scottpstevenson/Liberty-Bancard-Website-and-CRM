@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import { storage } from "../storage";
-import { db } from "../db";
+import { db, pool } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
-import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES, systemSettings, contactProviderProjections } from "@shared/schema";
+import { ghlSyncStatus, ACTIVE_DEAL_STAGES, systemSettings, contactProviderProjections, pipelineStages } from "@shared/schema";
 import {
   upsertGhlContact,
   isGhlConfigured,
@@ -26,6 +26,27 @@ import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness } from "./go-live-gate";
 import { canExecute } from "./outbound-queue-coordinator";
 
 const CONTACT_PROJECTION_MAX_ATTEMPTS = 8;
+const GHL_SYNC_DEFERRED_STATS_KEY = "ghl_sync_deferred_stats";
+
+async function recordGhlSyncDeferred(entityType: string, reason: string): Promise<void> {
+  const reasonCode = reason.match(/(?:GHL_SYNC_DEFERRED_BLOCKED|GHL_CRM_[A-Z_]+|control_disabled|permissions_disabled|native_review_[a-z_]+|operation_not_reviewed|epoch_or_review_changed)/i)?.[0]
+    || "CRM_WRITE_DEFERRED";
+  try { await pool.query(
+    `INSERT INTO system_settings(key, value, updated_at)
+     VALUES ($1, jsonb_build_object('count', 1, 'lastAt', NOW(), 'lastEntityType', $2, 'lastReason', $3), NOW())
+     ON CONFLICT (key) DO UPDATE SET
+       value = jsonb_build_object(
+         'count', COALESCE((system_settings.value->>'count')::bigint, 0) + 1,
+         'lastAt', NOW(),
+         'lastEntityType', $2,
+         'lastReason', $3
+       ),
+       updated_at = NOW()`,
+    [GHL_SYNC_DEFERRED_STATS_KEY, entityType, reasonCode],
+  ); } catch (error) {
+    console.warn("[GHL Sync] Could not persist deferred-operation metric:", (error as Error).message);
+  }
+}
 
 /**
  * Claims committed local contact projection intents. This is deliberately
@@ -77,7 +98,16 @@ export async function processPendingContactProviderProjections(limit = 10): Prom
         continue;
       }
       const kind = classifyGhlSyncError(result.error);
-      if (kind === "skip" || kind === "auth" || projection.attempt_count >= CONTACT_PROJECTION_MAX_ATTEMPTS) {
+      if (isGhlSyncDeferred(result.error)) {
+        await db.update(contactProviderProjections).set({
+          state: "retry",
+          nextAttemptAt: new Date(Date.now() + 60_000),
+          lastErrorCode: "GHL_SYNC_DEFERRED_BLOCKED",
+          claimToken: null,
+          leaseExpiresAt: null,
+        }).where(sql`${contactProviderProjections.id} = ${projection.id} AND ${contactProviderProjections.claimToken} = ${claimToken}`);
+        retried++;
+      } else if (kind === "skip" || kind === "auth" || projection.attempt_count >= CONTACT_PROJECTION_MAX_ATTEMPTS) {
         await db.update(contactProviderProjections).set({
           state: "terminal",
           terminalReason: kind === "skip" ? "INVALID_OR_UNUSABLE_IDENTITY" : kind === "auth" ? "PROVIDER_AUTH_FAILURE" : "MAX_ATTEMPTS_EXHAUSTED",
@@ -263,7 +293,11 @@ function getConfig() {
 
 const GHL_MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigint } = {}) {
+function safeParseJson(value: string): unknown {
+  try { return JSON.parse(value); } catch { return undefined; }
+}
+
+async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigint; crmDecision?: any } = {}) {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
   // ── Canonical pause boundary (fetch-level enforcement) ────────────────────
@@ -271,7 +305,44 @@ async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigi
   // (signalled by pauseEpoch) gets the full authorize → register(epoch) →
   // recheck → I/O → deregister protocol here. Reads are never gated.
   const method = (options.method || "GET").toUpperCase();
-  if (GHL_MUTATION_METHODS.has(method) && options.pauseEpoch === undefined) {
+  let bodyValue = typeof options.body === "string" ? safeParseJson(options.body) : options.body;
+  if (bodyValue && typeof bodyValue === "object" && !Array.isArray(bodyValue)
+      && Array.isArray((bodyValue as any).customFields)) {
+    const inventory = await (await import("./ghl")).getGhlCustomFieldInventory(config.locationId);
+    const byKey = new Map(inventory.map(field => [field.key, field.id]));
+    bodyValue = {
+      ...bodyValue,
+      customFields: (bodyValue as any).customFields.map((field: any) => {
+        const id = typeof field?.id === "string" ? field.id : byKey.get(String(field?.key ?? ""));
+        const verified = inventory.find(candidate => candidate.id === id);
+        if (!verified || (field.key !== undefined && field.key !== verified.key)) {
+          throw new GhlSyncDeferredError("custom_field_id_unverified");
+        }
+        return { ...field, id, key: verified.key };
+      }),
+    };
+    options = { ...options, body: JSON.stringify(bodyValue) };
+  }
+  let crmDecision = options.crmDecision;
+  // Authorize every operation so unknown GETs cannot bypass the outbound fence.
+  if (options.pauseEpoch === undefined) {
+    const { authorizeGhlCrmOperation, recheckGhlCrmOperation } = await import("./ghl-sync-control");
+    crmDecision = crmDecision ?? await authorizeGhlCrmOperation({
+      method,
+      path,
+      body: bodyValue,
+      locationId: config.locationId,
+    });
+    if (crmDecision.capability === "crm_write" || crmDecision.capability === "permission_write") {
+      if (!crmDecision.allowed) throw new GhlSyncDeferredError(crmDecision.reasonCode);
+      if (!await recheckGhlCrmOperation(crmDecision)) {
+        throw new GhlSyncDeferredError("epoch_or_review_changed");
+      }
+      options.crmDecision = crmDecision;
+    } else if (crmDecision.capability === "crm_read" || crmDecision.capability === "diagnostic_read") {
+      if (!crmDecision.allowed) throw new Error(`GHL CRM read blocked: ${crmDecision.reasonCode}`);
+      options.crmDecision = crmDecision;
+    } else {
     const { authorize, recheckEpoch } = await import("./outbound-pause-authority");
     const { registerInflight, deregisterInflight } = await import("./outbound-control-service");
     const decision = await authorize({});
@@ -289,8 +360,11 @@ async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigi
     } finally {
       deregisterInflight(tokenId);
     }
+    }
   }
+  const pauseEpoch = options.pauseEpoch;
   delete (options as any).pauseEpoch;
+  delete (options as any).crmDecision;
   const url = `${GHL_API_BASE}${path}`;
   const headers: Record<string, string> = {
     "Authorization": `Bearer ${config.apiKey}`,
@@ -299,12 +373,35 @@ async function ghlFetch(path: string, options: RequestInit & { pauseEpoch?: bigi
     ...(options.headers as Record<string, string> || {}),
   };
   if (GHL_MUTATION_METHODS.has(method)) {
-    const coordinatorAllowed = await canExecute("ghl-sync");
-    if (!coordinatorAllowed) {
-      throw new Error(`GHL mutation blocked by outbound queue coordinator (${method} ${path.split("?")[0]})`);
+    if (crmDecision) {
+      const { recheckGhlCrmOperation } = await import("./ghl-sync-control");
+      if (!await recheckGhlCrmOperation(crmDecision)) {
+        throw new GhlSyncDeferredError("epoch_or_review_changed");
+      }
+    } else {
+      const coordinatorAllowed = await canExecute("ghl-sync");
+      if (!coordinatorAllowed) {
+        throw new Error(`GHL mutation blocked by outbound queue coordinator (${method} ${path.split("?")[0]})`);
+      }
     }
   }
-  const response = await fetch(url, { ...options, headers });
+  const performIo = async () => {
+    if (pauseEpoch !== undefined) {
+      const { recheckEpochFromDB } = await import("./outbound-pause-authority");
+      if (!await recheckEpochFromDB(pauseEpoch)) throw new Error("GHL outbound epoch changed before dispatch");
+    }
+    const transportBody = bodyValue && typeof bodyValue === "object" && Array.isArray((bodyValue as any).customFields)
+      ? JSON.stringify({
+          ...bodyValue,
+          customFields: (bodyValue as any).customFields.map(({ key: _key, ...field }: any) => field),
+        })
+      : options.body;
+    return fetch(url, { ...options, body: transportBody, headers, signal: options.signal ?? AbortSignal.timeout(20_000) });
+  };
+  const isCrmWrite = crmDecision?.capability === "crm_write" || crmDecision?.capability === "permission_write";
+  const response = isCrmWrite
+    ? await (await import("./ghl-sync-control")).withGhlCrmInflight(crmDecision, performIo)
+    : await performIo();
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
     const errMsg = `GHL API error ${response.status}: ${errorBody}`;
@@ -484,6 +581,10 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     }).catch(() => {});
     return { success: true, ghlContactId: ghlId };
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) {
+      await recordGhlSyncDeferred("contacts", err.message);
+      return { success: false, error: `GHL_SYNC_DEFERRED_BLOCKED:${err.message.match(/GHL_CRM_[A-Z_]+|control_disabled|permissions_disabled|native_review_[a-z_]+|operation_not_reviewed|epoch_or_review_changed/i)?.[0] ?? "POLICY"}` };
+    }
     // ── Terminal data-quality skip from the shared upsert boundary ──────────
     // upsertGhlContact already wrote the sanitized skip audit; just propagate
     // the normalized code (classified "skip") without any failure logging.
@@ -854,243 +955,92 @@ export async function fullSyncFromGhl(): Promise<{ created: number; updated: num
   return { created, updated, failed };
 }
 
-let cachedPipelineId: string | null = null;
-let cachedStageIdMap: Record<string, string> = {};
-// Timestamp of when the pipeline/stage cache was last populated.
-// A 5-minute TTL ensures stale stage IDs are refreshed without hammering GHL on every job.
-let cachedPipelineAt: number | null = null;
-const PIPELINE_CACHE_TTL_MS = 5 * 60 * 1000;
+type SemanticGhlStageMapping = {
+  localPipelineId: string;
+  localStageId: number;
+  ghlPipelineId: string;
+  ghlStageId: string;
+};
+type GhlPipelineMetadata = { id: string; name: string; stages: Array<{ id: string; name: string }> };
 
-// DB-backed stage ID overrides (set via admin UI → system_settings).
-// Merged with env-var overrides in getGhlStageIdOverrides(); env var takes precedence.
-let cachedDbStageMapOverrides: Record<string, string> = {};
-async function loadDbStageMapOverrides(): Promise<void> {
-  try {
-    const raw = await storage.getSystemSetting("ghl_stage_id_map");
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      cachedDbStageMapOverrides = raw as Record<string, string>;
-    }
-  } catch {
-    // non-fatal: fall back to empty
+let cachedProviderPipelines: GhlPipelineMetadata[] = [];
+let cachedProviderPipelinesAt = 0;
+const PIPELINE_CACHE_TTL_MS = 30_000;
+
+async function loadSemanticStageMappings(): Promise<SemanticGhlStageMapping[]> {
+  const raw = await storage.getSystemSetting("ghl_semantic_stage_id_map");
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((mapping: any): mapping is SemanticGhlStageMapping =>
+    !!mapping
+    && typeof mapping.localPipelineId === "string"
+    && Number.isSafeInteger(mapping.localStageId)
+    && typeof mapping.ghlPipelineId === "string"
+    && typeof mapping.ghlStageId === "string");
+}
+
+async function getFreshProviderPipelines(forceRefresh = false): Promise<GhlPipelineMetadata[]> {
+  if (!forceRefresh && cachedProviderPipelines.length > 0 && Date.now() - cachedProviderPipelinesAt < PIPELINE_CACHE_TTL_MS) {
+    return cachedProviderPipelines;
   }
+  const config = getConfig();
+  if (!config) throw new Error("GHL not configured");
+  const data = await ghlFetch(`/opportunities/pipelines?locationId=${config.locationId}`);
+  cachedProviderPipelines = (data.pipelines || []).filter((pipeline: any) => typeof pipeline.id === "string").map((pipeline: any) => ({
+    id: pipeline.id,
+    name: typeof pipeline.name === "string" ? pipeline.name : "",
+    stages: Array.isArray(pipeline.stages) ? pipeline.stages
+      .filter((stage: any) => typeof stage.id === "string")
+      .map((stage: any) => ({ id: stage.id, name: typeof stage.name === "string" ? stage.name : "" })) : [],
+  }));
+  cachedProviderPipelinesAt = Date.now();
+  return cachedProviderPipelines;
 }
 
-// ── Auto-alignment helpers ────────────────────────────────────────────────────
-
-/** Normalize a stage name for fuzzy comparison: lowercase, strip non-alphanumeric, collapse spaces. */
-function normalizeStage(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+async function resolveSemanticGhlStage(localPipelineId: string, localStageId: number): Promise<{
+  pipelineId: string;
+  stageId: string;
+}> {
+  const mappings = await loadSemanticStageMappings();
+  const mapping = mappings.find(candidate =>
+    candidate.localPipelineId === localPipelineId && candidate.localStageId === localStageId);
+  if (!mapping) {
+    throw new Error(`GHL_SEMANTIC_STAGE_MAPPING_UNRESOLVED:${localPipelineId}:${localStageId}`);
+  }
+  const pipelines = await getFreshProviderPipelines();
+  const pipeline = pipelines.find(candidate => candidate.id === mapping.ghlPipelineId);
+  if (!pipeline || !pipeline.stages.some(stage => stage.id === mapping.ghlStageId)) {
+    throw new Error(`GHL_SEMANTIC_STAGE_MAPPING_STALE:${localPipelineId}:${localStageId}:${mapping.ghlPipelineId}:${mapping.ghlStageId}`);
+  }
+  return { pipelineId: mapping.ghlPipelineId, stageId: mapping.ghlStageId };
 }
 
-/** Score how well two strings overlap (0–1). Uses word-overlap Jaccard similarity. */
-function stageSimilarity(a: string, b: string): number {
-  const na = normalizeStage(a);
-  const nb = normalizeStage(b);
-  if (na === nb) return 1;
-  const wa = new Set(na.split(" "));
-  const wb = new Set(nb.split(" "));
-  const intersection = [...wa].filter(w => wb.has(w)).length;
-  const union = new Set([...wa, ...wb]).size;
-  if (union === 0) return 0;
-  const jaccard = intersection / union;
-  // Bonus: one is a substring of the other
-  const subBonus = na.includes(nb) || nb.includes(na) ? 0.15 : 0;
-  return Math.min(1, jaccard + subBonus);
+async function resolveLocalSemanticStage(ghlPipelineId: string, ghlStageId: string): Promise<{ pipelineId: string; stageName: string }> {
+  const pipelines = await getFreshProviderPipelines();
+  const providerPipeline = pipelines.find(candidate => candidate.id === ghlPipelineId);
+  if (!providerPipeline || !providerPipeline.stages.some(stage => stage.id === ghlStageId)) {
+    throw new Error(`GHL_SEMANTIC_STAGE_MAPPING_STALE:${ghlPipelineId}:${ghlStageId}`);
+  }
+  const mappings = await loadSemanticStageMappings();
+  const mapping = mappings.find(candidate =>
+    candidate.ghlPipelineId === ghlPipelineId && candidate.ghlStageId === ghlStageId);
+  if (!mapping) throw new Error(`GHL_SEMANTIC_STAGE_MAPPING_UNRESOLVED:${ghlPipelineId}:${ghlStageId}`);
+  const [localStage] = await db.select().from(pipelineStages).where(
+    sql`${pipelineStages.id} = ${mapping.localStageId} AND ${pipelineStages.pipeline} = ${mapping.localPipelineId}`,
+  ).limit(1);
+  if (!localStage) throw new Error(`GHL_SEMANTIC_LOCAL_STAGE_MISSING:${mapping.localPipelineId}:${mapping.localStageId}`);
+  return { pipelineId: localStage.pipeline, stageName: localStage.stageName };
 }
 
-/** Auto-align local stage names to live GHL stage UUIDs by best-match scoring.
- *  Returns an array of alignment results for each local stage. */
+// Compatibility helper: a display title alone cannot resolve an ID-to-ID mapping.
 export function autoAlignStages(
   localStages: string[],
   ghlStages: Array<{ name: string; id: string }>,
 ): Array<{ localName: string; ghlId: string | null; ghlName: string | null; score: number; method: "exact" | "fuzzy" | "none" }> {
-  return localStages.map(local => {
-    // 1. Exact match (case-insensitive, trimmed)
-    const exact = ghlStages.find(s => s.name.toLowerCase().trim() === local.toLowerCase().trim());
-    if (exact) return { localName: local, ghlId: exact.id, ghlName: exact.name, score: 1, method: "exact" as const };
-
-    // 2. Normalized exact match
-    const normLocal = normalizeStage(local);
-    const normExact = ghlStages.find(s => normalizeStage(s.name) === normLocal);
-    if (normExact) return { localName: local, ghlId: normExact.id, ghlName: normExact.name, score: 0.95, method: "exact" as const };
-
-    // 3. Best fuzzy match above threshold
-    let best = { score: 0, stage: null as { name: string; id: string } | null };
-    for (const gs of ghlStages) {
-      const score = stageSimilarity(local, gs.name);
-      if (score > best.score) best = { score, stage: gs };
-    }
-    const THRESHOLD = 0.5;
-    if (best.stage && best.score >= THRESHOLD) {
-      return { localName: local, ghlId: best.stage.id, ghlName: best.stage.name, score: best.score, method: "fuzzy" as const };
-    }
-
-    return { localName: local, ghlId: null, ghlName: null, score: 0, method: "none" as const };
-  });
+  void ghlStages;
+  return localStages.map(local => ({ localName: local, ghlId: null, ghlName: null, score: 0, method: "none" as const }));
 }
 
-function isPipelineCacheValid(): boolean {
-  return (
-    cachedPipelineId !== null &&
-    Object.keys(cachedStageIdMap).length > 0 &&
-    cachedPipelineAt !== null &&
-    Date.now() - cachedPipelineAt < PIPELINE_CACHE_TTL_MS
-  );
-}
-
-async function ensurePipeline(): Promise<string> {
-  const envPipelineId = process.env.GHL_PIPELINE_ID;
-  if (envPipelineId && envPipelineId !== "default" && isPipelineCacheValid()) {
-    return envPipelineId;
-  }
-  if (isPipelineCacheValid()) return cachedPipelineId!;
-
-  const config = getConfig();
-  if (!config) throw new Error("GHL not configured");
-
-  try {
-    const data = await ghlFetch(`/opportunities/pipelines?locationId=${config.locationId}`);
-    const pipelines = data.pipelines || [];
-
-    let chosenPipeline = null;
-    if (envPipelineId && envPipelineId !== "default") {
-      chosenPipeline = pipelines.find((p: any) => p.id === envPipelineId);
-    }
-    if (!chosenPipeline) {
-      const lbPipeline = pipelines.find((p: any) =>
-        p.name?.toLowerCase().includes("liberty") || p.name?.toLowerCase().includes("lb-")
-      );
-      chosenPipeline = lbPipeline || (pipelines.length > 0 ? pipelines[0] : null);
-    }
-    if (chosenPipeline) {
-      cachedPipelineId = chosenPipeline.id;
-      let stages: Array<{ name: string; id: string }> = (chosenPipeline.stages || []).filter(
-        (s: any) => s.name && s.id,
-      );
-      // Store raw GHL stages by their own name first
-      for (const stage of stages) {
-        cachedStageIdMap[stage.name] = stage.id;
-      }
-      // Auto-align: map every local stage name → best-match GHL UUID
-      const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
-      const aligned = autoAlignStages(localNames, stages);
-      for (const r of aligned) {
-        if (r.ghlId) cachedStageIdMap[r.localName] = r.ghlId;
-      }
-
-      // Push any unmatched local stages into GHL by PUTting the full pipeline with all stages merged in
-      const unmatched = aligned.filter(r => !r.ghlId);
-      if (unmatched.length > 0) {
-        console.log(`[GHL Sync] ${unmatched.length} local stages missing from GHL — updating pipeline now…`);
-        try {
-          const config2 = getConfig()!;
-          const updatedStages = [
-            // Keep existing GHL stages (with their IDs so GHL doesn't re-create them)
-            ...stages.map((s, i) => ({ id: s.id, name: s.name, position: i })),
-            // Add each missing local stage at the end
-            ...unmatched.map((r, i) => ({ name: r.localName, position: stages.length + i })),
-          ];
-          const putResult = await ghlFetch(`/opportunities/pipelines/${chosenPipeline.id}`, {
-            method: "PUT",
-            body: JSON.stringify({
-              name: chosenPipeline.name,
-              stages: updatedStages,
-            }),
-          });
-          // GHL returns the updated pipeline; extract stage IDs for newly created stages
-          const returnedStages: Array<{ id: string; name: string }> =
-            putResult?.pipeline?.stages || putResult?.stages || [];
-          let added = 0;
-          for (const rs of returnedStages) {
-            if (rs.id && rs.name && !cachedStageIdMap[rs.name]) {
-              cachedStageIdMap[rs.name] = rs.id;
-              stages = [...stages, { name: rs.name, id: rs.id }];
-            }
-            // Also wire to local name if it matches exactly
-            if (rs.id && rs.name) {
-              const localMatch = unmatched.find(
-                u => u.localName.toLowerCase().trim() === rs.name.toLowerCase().trim(),
-              );
-              if (localMatch && !cachedStageIdMap[localMatch.localName]) {
-                cachedStageIdMap[localMatch.localName] = rs.id;
-                added++;
-              }
-            }
-          }
-          console.log(`[GHL Sync] Pipeline PUT complete — ${added} new stages wired`);
-        } catch (err: any) {
-          console.warn(`[GHL Sync] Could not update pipeline with missing stages: ${err.message}`);
-        }
-      }
-
-      const matchCount = localNames.filter(n => cachedStageIdMap[n]).length;
-      cachedPipelineAt = Date.now();
-      console.log(
-        `[GHL Sync] Pipeline ready: "${chosenPipeline.name}" (${chosenPipeline.id}) — ` +
-        `${stages.length} GHL stages, ${matchCount}/${localNames.length} local stages resolved`,
-      );
-      // Warm DB overrides in background so mapDealStageToGhl has them available
-      loadDbStageMapOverrides().catch(() => {});
-      return chosenPipeline.id;
-    }
-
-    const stageNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
-    const newPipeline = await ghlFetch("/opportunities/pipelines", {
-      method: "POST",
-      body: JSON.stringify({
-        locationId: config.locationId,
-        name: "Liberty Bancard Sales Pipeline",
-        stages: stageNames.map((name, i) => ({
-          name,
-          position: i,
-        })),
-      }),
-    });
-
-    cachedPipelineId = newPipeline.pipeline?.id || newPipeline.id;
-    const createdStages = newPipeline.pipeline?.stages || newPipeline.stages || [];
-    if (createdStages.length > 0) {
-      const stageIdMap: Record<string, string> = {};
-      for (const stage of createdStages) {
-        if (stage.name && stage.id) {
-          stageIdMap[stage.name] = stage.id;
-        }
-      }
-      cachedStageIdMap = stageIdMap;
-      cachedPipelineAt = Date.now();
-      console.log(`[GHL Sync] Captured ${Object.keys(stageIdMap).length} stage IDs from new pipeline`);
-    }
-
-    console.log(`[GHL Sync] Created new pipeline: ${cachedPipelineId}`);
-    return cachedPipelineId!;
-  } catch (err: any) {
-    console.error("[GHL Sync] Pipeline discovery failed:", err.message);
-    return process.env.GHL_PIPELINE_ID || "default";
-  }
-}
-
-function getGhlStageIdOverrides(): Record<string, string> {
-  // Start with DB-backed overrides (lower priority)
-  const overrides: Record<string, string> = { ...cachedDbStageMapOverrides };
-
-  // Env var overrides take precedence over DB setting
-  const raw = process.env.GHL_STAGE_ID_MAP;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        Object.assign(overrides, parsed);
-      } else {
-        console.warn(`[GHL Sync] GHL_STAGE_ID_MAP parsed but is not a plain object (got ${Array.isArray(parsed) ? "array" : typeof parsed}): ${raw}`);
-      }
-    } catch {
-      console.warn(`[GHL Sync] GHL_STAGE_ID_MAP failed to parse as JSON — env override disabled. Bad value: ${raw}`);
-    }
-  }
-  return overrides;
-}
-
-/** Returns the live GHL pipeline stages and auto-alignment status for the admin UI. */
+/** Returns freshly-read provider stages and only explicit local ID-to-ID mappings. */
 export async function getGhlPipelineStages(): Promise<{
   pipelineId: string | null;
   /** Raw GHL stages returned from the API */
@@ -1108,83 +1058,68 @@ export async function getGhlPipelineStages(): Promise<{
   dbOverrides: Record<string, string>;
   envOverrides: Record<string, string>;
 }> {
-  // Warm the cache
-  try {
-    await ensurePipeline();
-  } catch {
-    // non-fatal if GHL is unconfigured
+  const pipelines = await getFreshProviderPipelines(true);
+  const mappings = await loadSemanticStageMappings();
+  const localStages = await db.select().from(pipelineStages);
+  const providerStageByKey = new Map<string, { pipelineId: string; stage: { id: string; name: string } }>();
+  for (const pipeline of pipelines) {
+    for (const stage of pipeline.stages) providerStageByKey.set(`${pipeline.id}\0${stage.id}`, { pipelineId: pipeline.id, stage });
   }
-  await loadDbStageMapOverrides();
-
-  const envRaw = process.env.GHL_STAGE_ID_MAP;
-  let envOverrides: Record<string, string> = {};
-  if (envRaw) {
-    try { envOverrides = JSON.parse(envRaw); } catch { /* ignore */ }
-  }
-
-  // Reconstruct raw GHL stages (entries where both key and value look non-local)
-  // We stored GHL stage names → IDs AND local stage names → IDs in cachedStageIdMap.
-  // Pull only entries whose key matches a known local stage to build the raw GHL list separately.
-  const localNameSet = new Set(Object.keys(GHL_PIPELINE_STAGE_MAP));
-  const ghlStages = Object.entries(cachedStageIdMap)
-    .filter(([name]) => !localNameSet.has(name))
-    .map(([name, id]) => ({ name, id }));
-
-  // Compute fresh alignment from whatever GHL stages we have
-  const localNames = Object.keys(GHL_PIPELINE_STAGE_MAP);
-  const baseAlignment = autoAlignStages(localNames, ghlStages.length > 0 ? ghlStages : []);
-
-  // Annotate with overrides
-  const mergedOverrides = { ...cachedDbStageMapOverrides, ...envOverrides };
-  const alignment = baseAlignment.map(r => ({
-    ...r,
-    override: mergedOverrides[r.localName] || undefined,
-  }));
+  const mappingByLocalKey = new Map(mappings.map(mapping => [`${mapping.localPipelineId}\0${mapping.localStageId}`, mapping]));
+  const alignment = localStages.map(local => {
+    const mapping = mappingByLocalKey.get(`${local.pipeline}\0${local.id}`);
+    const provider = mapping ? providerStageByKey.get(`${mapping.ghlPipelineId}\0${mapping.ghlStageId}`) : undefined;
+    return {
+      localName: `${local.pipeline}/${local.stageName}`,
+      ghlId: provider?.stage.id ?? null,
+      ghlName: provider?.stage.name ?? null,
+      score: provider ? 1 : 0,
+      method: provider ? "exact" as const : "none" as const,
+      override: mapping?.ghlStageId,
+    };
+  });
+  const mappedPipelineIds = new Set(mappings.map(mapping => mapping.ghlPipelineId));
 
   return {
-    pipelineId: cachedPipelineId,
-    ghlStages,
+    pipelineId: mappedPipelineIds.size === 1 ? [...mappedPipelineIds][0] : null,
+    ghlStages: pipelines.flatMap(pipeline => pipeline.stages),
     alignment,
-    dbOverrides: { ...cachedDbStageMapOverrides },
-    envOverrides,
+    dbOverrides: {},
+    envOverrides: {},
   };
 }
 
 /**
- * Force a full pipeline re-sync: invalidates the cache so ensurePipeline()
- * re-fetches from GHL and pushes any still-missing local stages automatically.
+ * Refresh provider pipeline metadata and report the explicitly configured ID
+ * mappings. This function never creates or updates provider pipelines/stages.
  */
 export async function syncLocalStagesToGhl(): Promise<{
   resolved: number;
   total: number;
   alignment: Awaited<ReturnType<typeof getGhlPipelineStages>>["alignment"];
 }> {
-  // Bust the cache so ensurePipeline() does a full re-fetch + auto-push
-  cachedPipelineAt = null;
-  cachedStageIdMap = {};
-  await getGhlPipelineStages(); // warms everything
+  // Force a fresh provider read; never create or mutate pipeline stages.
+  cachedProviderPipelinesAt = 0;
   const result = await getGhlPipelineStages();
-  const resolved = result.alignment.filter(r => r.ghlId || r.override).length;
+  const resolved = result.alignment.filter(r => r.ghlId).length;
   return { resolved, total: result.alignment.length, alignment: result.alignment };
 }
 
 export function mapDealStageToGhl(stage: string): { pipelineStageId: string; status: "open" | "won" | "lost" | "abandoned" } {
-  const overrides = getGhlStageIdOverrides();
-  const ghlStageId = overrides[stage] || cachedStageIdMap[stage] || GHL_PIPELINE_STAGE_MAP[stage] || "new_lead";
+  throw new Error(`GHL_SEMANTIC_STAGE_MAPPING_REQUIRED:${stage}`);
+}
+
+function dealStatusForStage(stage: string): "open" | "won" | "lost" | "abandoned" {
   let status: "open" | "won" | "lost" | "abandoned" = "open";
   if (stage === "Closed Won") status = "won";
   else if (stage === "Closed Lost") status = "lost";
   else if (stage === "Nurture / Not Now") status = "abandoned";
-  return { pipelineStageId: ghlStageId, status };
+  return status;
 }
 
 export function mapGhlStageToDeal(ghlStageId: string, ghlStatus?: string): string {
-  if (ghlStatus === "won") return "Closed Won";
-  if (ghlStatus === "lost") return "Closed Lost";
-  const overrides = getGhlStageIdOverrides();
-  const reverseOverrides = Object.fromEntries(Object.entries(overrides).map(([k, v]) => [v, k]));
-  const reverseCached = Object.fromEntries(Object.entries(cachedStageIdMap).map(([k, v]) => [v, k]));
-  return reverseOverrides[ghlStageId] || reverseCached[ghlStageId] || GHL_PIPELINE_STAGE_REVERSE[ghlStageId] || "New Lead";
+  void ghlStatus;
+  throw new Error(`GHL_SEMANTIC_STAGE_MAPPING_REQUIRED:${ghlStageId}`);
 }
 
 export async function syncDealToGhl(dealId: number): Promise<{ success: boolean; ghlOpportunityId?: string; error?: string }> {
@@ -1204,21 +1139,25 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
     }
     if (!ghlContactId) return { success: false, error: "No GHL contact linked" };
 
-    const pipelineId = await ensurePipeline();
-    const stageMapping = mapDealStageToGhl(deal.stage);
+    const [localStage] = await db.select().from(pipelineStages).where(
+      sql`${pipelineStages.pipeline} = ${deal.pipeline} AND ${pipelineStages.stageName} = ${deal.stage}`,
+    ).limit(1);
+    if (!localStage) throw new Error(`GHL_SEMANTIC_LOCAL_STAGE_MISSING:${deal.pipeline}:${deal.stage}`);
+    const stageMapping = await resolveSemanticGhlStage(localStage.pipeline, localStage.id);
+    const status = dealStatusForStage(deal.stage);
 
     // POST (create) requires locationId; PUT (update) rejects it — keep separate.
     const createPayload: Record<string, any> = {
-      pipelineId,
+      pipelineId: stageMapping.pipelineId,
       locationId: config.locationId,
       name: deal.contactId ? `${contact?.companyName || contact?.firstName} - Deal #${deal.id}` : `Deal #${deal.id}`,
-      status: stageMapping.status,
+      status,
       contactId: ghlContactId,
       monetaryValue: deal.totalVolume ? Number(deal.totalVolume) : undefined,
-      pipelineStageId: stageMapping.pipelineStageId,
+      pipelineStageId: stageMapping.stageId,
     };
     const updatePayload: Record<string, any> = {
-      pipelineId,
+      pipelineId: stageMapping.pipelineId,
       name: createPayload.name,
       status: createPayload.status,
       contactId: ghlContactId,
@@ -1271,6 +1210,14 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
     await updateSyncStatusRecord("deals", "outbound", 1, 0);
     return { success: true, ghlOpportunityId };
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) {
+      await recordGhlSyncDeferred("deals", err.message);
+      return { success: false, error: `GHL_SYNC_DEFERRED_BLOCKED:${err.message.match(/GHL_CRM_[A-Z_]+|control_disabled|permissions_disabled|native_review_[a-z_]+|operation_not_reviewed|epoch_or_review_changed/i)?.[0] ?? "POLICY"}` };
+    }
+    if (/^GHL_SEMANTIC_(?:STAGE_MAPPING|LOCAL_STAGE)/.test(String(err?.message))) {
+      console.warn(`[GHL Sync] Deal ${dealId} stage mapping deferred:`, err.message);
+      return { success: false, error: err.message };
+    }
     console.error(`[GHL Sync] Failed to sync deal ${dealId}:`, err.message);
     await updateSyncStatusRecord("deals", "outbound", 0, 1, err.message);
     return { success: false, error: err.message };
@@ -1300,8 +1247,10 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
     if (!contact) return null;
 
     const ghlStageId = ghlOpportunity.pipelineStageId || ghlOpportunity.stageId;
-    const ghlStatus = ghlOpportunity.status;
-    const localStage = mapGhlStageToDeal(ghlStageId, ghlStatus);
+    const ghlPipelineId = ghlOpportunity.pipelineId || ghlOpportunity.pipeline?.id;
+    if (!ghlStageId || !ghlPipelineId) return null;
+    const localStageMapping = await resolveLocalSemanticStage(ghlPipelineId, ghlStageId);
+    const localStage = localStageMapping.stageName;
 
     const existingDeals = await storage.getDealsByContact(contact.id);
     const existingDeal = existingDeals.find(d => d.ghlOpportunityId === ghlOpportunity.id);
@@ -1344,6 +1293,7 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
 
       if (!stageBlocked && localStage && ghlCanWriteDealStage) {
         updatePayload.stage = localStage;
+        updatePayload.pipeline = localStageMapping.pipelineId;
       } else if (!stageBlocked && localStage && !ghlCanWriteDealStage) {
         // Liberty owns deal stages — log the drop for observability but do not apply
         console.log(
@@ -1373,7 +1323,7 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
     const newDeal = await storage.createDeal({
       contactId: contact.id,
       stage: localStage,
-      pipeline: "sales",
+      pipeline: localStageMapping.pipelineId,
       totalVolume: (ghlOpportunity.monetaryValue !== undefined && ghlOpportunity.monetaryValue !== null) ? String(ghlOpportunity.monetaryValue) : undefined,
       notes: `Synced from GHL opportunity: ${ghlOpportunity.name || ghlOpportunity.id}`,
     });
@@ -1386,7 +1336,9 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
     return { dealId: newDeal.id, created: true };
   } catch (err: any) {
     console.error("[GHL Sync] Failed to sync deal from GHL:", err.message);
-    await updateSyncStatusRecord("deals", "inbound", 0, 1, err.message);
+    if (!/^GHL_SEMANTIC_(?:STAGE_MAPPING|LOCAL_STAGE)/.test(String(err?.message))) {
+      await updateSyncStatusRecord("deals", "inbound", 0, 1, err.message);
+    }
     return null;
   }
 }
@@ -1417,6 +1369,10 @@ export async function syncCompanyToGhl(companyId: number): Promise<{ success: bo
     console.log(`[GHL Sync] Company ${companyId} (${company.legalName}) synced to GHL`);
     return { success: true };
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) {
+      await recordGhlSyncDeferred("companies", err.message);
+      return { success: false, error: `GHL_SYNC_DEFERRED_BLOCKED:${err.message.match(/GHL_CRM_[A-Z_]+|control_disabled|permissions_disabled|native_review_[a-z_]+|operation_not_reviewed|epoch_or_review_changed/i)?.[0] ?? "POLICY"}` };
+    }
     // 404 = GHL companies API not available at this integration tier — skip
     // silently rather than counting toward the circuit-breaker threshold.
     const is404 = err.message?.includes("404");
@@ -1478,6 +1434,10 @@ export async function syncTaskToGhl(taskId: number): Promise<{ success: boolean;
     console.log(`[GHL Sync] Task ${taskId} synced to GHL`);
     return { success: true };
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) {
+      await recordGhlSyncDeferred("tasks", err.message);
+      return { success: false, error: `GHL_SYNC_DEFERRED_BLOCKED:${err.message.match(/GHL_CRM_[A-Z_]+|control_disabled|permissions_disabled|native_review_[a-z_]+|operation_not_reviewed|epoch_or_review_changed/i)?.[0] ?? "POLICY"}` };
+    }
     console.error(`[GHL Sync] Failed to sync task ${taskId}:`, err.message);
     await updateSyncStatusRecord("tasks", "outbound", 0, 1, err.message);
     return { success: false, error: err.message };
@@ -1522,6 +1482,10 @@ export async function syncTicketToGhl(ticketId: number): Promise<{ success: bool
     console.log(`[GHL Sync] Ticket ${ticketId} synced to GHL as task`);
     return { success: true };
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) {
+      await recordGhlSyncDeferred("tickets", err.message);
+      return { success: false, error: `GHL_SYNC_DEFERRED_BLOCKED:${err.message.match(/GHL_CRM_[A-Z_]+|control_disabled|permissions_disabled|native_review_[a-z_]+|operation_not_reviewed|epoch_or_review_changed/i)?.[0] ?? "POLICY"}` };
+    }
     console.error(`[GHL Sync] Failed to sync ticket ${ticketId}:`, err.message);
     await updateSyncStatusRecord("tickets", "outbound", 0, 1, err.message);
     return { success: false, error: err.message };
@@ -1819,6 +1783,7 @@ export async function applyParentLocationTags(contact: Contact, ghlContactId?: s
       }
     }
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) throw new GhlSyncDeferredError(err.message);
     console.error(`[GHL Sync] Failed to apply parent/location tags for contact ${contact.id}:`, err.message);
   }
 }
@@ -1860,6 +1825,7 @@ export async function checkAndApplyActivePipelineTag(contact: Contact, ghlContac
       console.log(`[GHL Sync] Removed LB-ACTIVE-PIPELINE tag from contact ${contact.id}`);
     }
   } catch (err: any) {
+    if (isGhlSyncDeferred(err?.message)) throw new GhlSyncDeferredError(err.message);
     console.error(`[GHL Sync] Failed to check active pipeline for contact ${contact.id}:`, err.message);
   }
 }
@@ -2032,7 +1998,6 @@ export async function getFullSyncDashboard() {
   };
 }
 
-let syncIntervalId: ReturnType<typeof setInterval> | null = null;
 const syncedCompanyIds = new Set<number>();
 const syncedTaskIds = new Set<number>();
 
@@ -2053,6 +2018,19 @@ let halfOpenProbeCursorId = 0;
 const PROBE_PAGE_SIZE = 10;
 
 export type GhlSyncErrorClass = "auth" | "rate-limit" | "skip" | "retryable";
+
+/** A policy denial that leaves the entity eligible for a later authorized tick. */
+export class GhlSyncDeferredError extends Error {
+  readonly code = "GHL_SYNC_DEFERRED_BLOCKED";
+  constructor(reason?: string) {
+    super(reason ? `GHL_SYNC_DEFERRED_BLOCKED:${reason}` : "GHL_SYNC_DEFERRED_BLOCKED");
+    this.name = "GhlSyncDeferredError";
+  }
+}
+
+function isGhlSyncDeferred(error: string | undefined): boolean {
+  return !!error && /GHL_SYNC_DEFERRED_BLOCKED|GHL_CRM_(?:OPERATION_)?(?:BLOCKED|DEFERRED)|GHL CRM (?:operation|mutation) blocked|blocked by (?:GHL )?CRM (?:control|authorization)/i.test(error);
+}
 
 /**
  * Single classification dispatch for GHL sync error strings.  ALL circuit-
@@ -2081,8 +2059,9 @@ export function classifyGhlSyncError(error: string | undefined, httpStatus?: num
   // Pause-authority blocks are deliberate policy denials, not provider
   // failures — they must never count toward the circuit-breaker threshold.
   if (/blocked by pause authority/i.test(error)) return "skip";
+  if (isGhlSyncDeferred(error)) return "skip";
   if (/^No GHL contact linked/i.test(error)) return "skip";
-  if (/OPPORTUNITY_STAGE_ID_INVALID/.test(error)) return "skip";
+  if (/OPPORTUNITY_STAGE_ID_INVALID|GHL_SEMANTIC_(?:STAGE_MAPPING|LOCAL_STAGE)/.test(error)) return "skip";
   // Local DB misses: "Contact not found", "Deal not found", "Task not found", "Company not found"
   if (/^[A-Za-z ]*not found$/i.test(error.trim())) return "skip";
   if (isGhlNotFoundError(error)) return "skip";
@@ -2296,26 +2275,15 @@ export function getGhlCircuitState(): { open: boolean; state: GhlCircuitStateEnu
   return { open: ghlCircuitState === "open", state: ghlCircuitState, consecutiveFailures: consecutiveGhlFailures };
 }
 
-export function startAutoSyncLoop(intervalMs: number = 45000): void {
-  if (syncIntervalId) return;
-
-  console.log(`[GHL Sync] Auto-sync loop started (every ${intervalMs / 1000}s)`);
-  syncIntervalId = setInterval(async () => {
-    if (!isGhlConfigured()) return;
-    try {
-      await runGhlFullSyncTick();
-    } catch (err: any) {
-      console.error("[GHL Sync] Auto-sync loop error:", err.message);
-    }
-  }, intervalMs);
+export function startAutoSyncLoop(_intervalMs: number = 45000): void {
+  // Retained only for source compatibility. GHL sync has one execution
+  // mechanism (the owner-fenced BullMQ worker); never revive an interval that
+  // could race that durable runtime.
+  console.warn("[GHL Sync] Legacy interval fallback is disabled; use the owner-fenced BullMQ runtime.");
 }
 
 export function stopAutoSyncLoop(): void {
-  if (syncIntervalId) {
-    clearInterval(syncIntervalId);
-    syncIntervalId = null;
-    console.log("[GHL Sync] Auto-sync loop stopped");
-  }
+  // No legacy interval is started.
 }
 
 export function getGhlCircuitStatus(): {
@@ -2483,24 +2451,38 @@ export async function runHalfOpenProbeTick(deps?: {
 }
 
 /**
- * Full GHL sync tick — mirrors the complete body of startAutoSyncLoop's
- * setInterval callback (contacts, failed-contact retry, deals, recent tasks,
- * unsynced companies), sharing the same module-level tracking sets so state
- * is preserved across BullMQ repeatable job invocations within the same process.
+ * Owner-fenced CRM reconciliation tick (contacts, retry projections, deals,
+ * recent tasks, unsynced companies). Provider writes are independently
+ * authorized at the CRM transport boundary.
  */
 export async function runGhlFullSyncTick(): Promise<void> {
   if (!isGhlConfigured()) return;
-  // Restore persisted circuit state on first tick after a process restart.
-  // The restored state is AUTHORITATIVE — it is never unconditionally reset.
-  await restoreGhlCircuit();
   const { acquireJobLock, releaseJobLock, startJobLockHeartbeat, JOB_NAMES } = await import("./job-registry");
   const lease = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (lease.status !== "acquired") return;
   const lockToken = lease.lockToken;
   const heartbeat = startJobLockHeartbeat(JOB_NAMES.GHL_SYNC, lockToken);
+  const { acquireGhlSyncRuntimeLease } = await import("./ghl-sync-runtime");
+  const runtimeLease = await acquireGhlSyncRuntimeLease();
+  if (runtimeLease.status !== "acquired" || !runtimeLease.assertOwned || !runtimeLease.release) {
+    heartbeat.stop();
+    await releaseJobLock(JOB_NAMES.GHL_SYNC, true, undefined, lockToken);
+    return;
+  }
+  const assertOwnership = async () => {
+    heartbeat.assertOwned();
+    await runtimeLease.assertOwned!();
+  };
 
   try {
-  heartbeat.assertOwned();
+  // Restore persisted circuit state on first owner-fenced tick after restart.
+  await restoreGhlCircuit();
+  await assertOwnership();
+  // Durable operator commands share this owner, but not the legacy full-contact
+  // projection. Advance only one bounded page and await its fenced completion.
+  const { runPendingGhlSpecializedCommands } = await import("./ghl-specialized-commands");
+  await runPendingGhlSpecializedCommands();
+  await assertOwnership();
   // ── Circuit entry transitions (inside the lock) ──────────────────────────
   if (ghlCircuitState === "open") {
     // Open circuit → half-open: attempt a single probe, not a full batch.

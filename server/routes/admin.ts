@@ -1414,43 +1414,74 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // === GHL CONTACT ID BACKFILL ===
-  app.post("/api/admin/backfill-ghl-contacts", requireRole("admin", "manager"), async (req, res) => {
+  // === GHL CONTACT ID BACKFILL — durable bounded command ===
+  app.post("/api/admin/backfill-ghl-contacts", requireRole("admin"), async (req, res) => {
+    const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey.trim() : "";
+    if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+      return res.status(400).json({ code: "INVALID_IDEMPOTENCY_KEY", message: "idempotencyKey must contain 8–200 characters." });
+    }
     try {
-      return res.status(503).json({ code: "RECONCILIATION_COMMAND_REQUIRED", message: "GHL backfill requires a durable bounded reconciliation command." });
-      const { isGhlConfigured, lookupGhlContactByEmail } = await import("../services/ghl");
-      if (!isGhlConfigured()) {
-        return res.status(503).json({ message: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." });
+      const { createGhlContactBackfill } = await import("../services/ghl-specialized-commands");
+      const run = await createGhlContactBackfill(String((req.user as any)?.id ?? "admin"), idempotencyKey);
+      res.status(202).json({
+        accepted: true,
+        runId: run.runId,
+        kind: run.kind,
+        state: run.state,
+        pollingUrl: "/api/admin/backfill-ghl-contacts/status?runId=" + encodeURIComponent(run.runId),
+        stepUrl: `/api/admin/backfill-ghl-contacts/${run.runId}/step`,
+        processed: run.processed,
+        matched: run.matched,
+        notFound: run.notFound,
+        skipped: run.skipped,
+        errors: run.errors,
+        cursor: run.cursor,
+        watermark: run.watermark,
+        heartbeatAt: run.heartbeatAt,
+        lastError: run.lastError,
+        complete: run.state === "complete",
+      });
+    } catch (err: any) {
+      if (err?.message === "GHL_SPECIALIZED_COMMAND_ACTIVE") {
+        return res.status(409).json({ code: err.message, message: "Another GHL specialized command currently owns the active command slot." });
       }
+      serverError(res, err);
+    }
+  });
 
-      const rows = await db
-        .select()
-        .from(contacts)
-        .where(isNull(contacts.ghlContactId));
-
-      const results = { matched: 0, notFound: 0, errors: 0, total: rows.length };
-      const log: Array<{ id: number; email: string; status: string; ghlId?: string; error?: string }> = [];
-
-      for (const contact of rows) {
-        if (!contact.email) { results.errors++; log.push({ id: contact.id, email: "", status: "skipped_no_email" }); continue; }
-        try {
-          const ghlId = await lookupGhlContactByEmail(contact.email);
-          if (ghlId) {
-            await db.update(contacts).set({ ghlContactId: ghlId }).where(eq(contacts.id, contact.id));
-            results.matched++;
-            log.push({ id: contact.id, email: contact.email ?? "", status: "matched", ghlId: ghlId ?? undefined });
-          } else {
-            results.notFound++;
-            log.push({ id: contact.id, email: contact.email ?? "", status: "not_found" });
-          }
-        } catch (err: any) {
-          results.errors++;
-          log.push({ id: contact.id, email: contact.email, status: "error", error: safeMessage(err.message, "GHL lookup failed") });
-        }
-        await new Promise(r => setTimeout(r, 120));
+  app.post("/api/admin/backfill-ghl-contacts/:runId/step", requireRole("admin"), async (req, res) => {
+    try {
+      const { stepGhlSpecializedRun, getGhlSpecializedRun } = await import("../services/ghl-specialized-commands");
+      const runId = String(req.params.runId || "");
+      const maxItems = req.body?.maxItems === undefined ? 50 : Number(req.body.maxItems);
+      if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 50) {
+        return res.status(400).json({ code: "INVALID_STEP_SIZE", message: "maxItems must be an integer between 1 and 50." });
       }
-
-      res.json({ results, log });
+      const current = await getGhlSpecializedRun(runId);
+      if (!current || current.kind !== "contact_id_backfill") {
+        return res.status(404).json({ code: "GHL_BACKFILL_RUN_NOT_FOUND", message: "Backfill run was not found." });
+      }
+      const result = await stepGhlSpecializedRun(runId, maxItems);
+      const run = result.run;
+      res.status(result.leaseBusy ? 409 : 200).json({
+        accepted: !result.leaseBusy,
+        runId: run.runId,
+        kind: run.kind,
+        state: run.state,
+        pollingUrl: `/api/admin/backfill-ghl-contacts/status?runId=${encodeURIComponent(run.runId)}`,
+        stepUrl: `/api/admin/backfill-ghl-contacts/${run.runId}/step`,
+        processed: run.processed,
+        matched: run.matched,
+        notFound: run.notFound,
+        skipped: run.skipped,
+        errors: run.errors,
+        cursor: run.cursor,
+        watermark: run.watermark,
+        heartbeatAt: run.heartbeatAt,
+        lastError: run.lastError,
+        complete: run.state === "complete",
+        activeLease: !!run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) > Date.now(),
+      });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -1458,10 +1489,33 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/backfill-ghl-contacts/status", requireRole("admin", "manager"), async (req, res) => {
     try {
-      // Use COUNT aggregates — materialising all 155K contact IDs would OOM the server.
-      const [allCount] = await db.select({ total: count() }).from(contacts);
-      const [nullCount] = await db.select({ total: count() }).from(contacts).where(isNull(contacts.ghlContactId));
-      res.json({ totalContacts: Number(allCount?.total ?? 0), missingGhlId: Number(nullCount?.total ?? 0) });
+      const { getGhlSpecializedRun, getLatestGhlBackfillStatus } = await import("../services/ghl-specialized-commands");
+      const status = await getLatestGhlBackfillStatus();
+      if (req.query.runId) {
+        const run = await getGhlSpecializedRun(String(req.query.runId));
+        if (!run || run.kind !== "contact_id_backfill") {
+          return res.status(404).json({ code: "GHL_BACKFILL_RUN_NOT_FOUND", message: "Backfill run was not found." });
+        }
+        return res.json({
+          ...status,
+          run,
+          runId: run.runId,
+          kind: run.kind,
+          state: run.state,
+          cursor: run.cursor,
+          watermark: run.watermark,
+          processed: run.processed,
+          matched: run.matched,
+          notFound: run.notFound,
+          skipped: run.skipped,
+          errors: run.errors,
+          heartbeatAt: run.heartbeatAt,
+          lastError: run.lastError,
+          complete: run.state === "complete",
+          activeLease: !!run.leaseExpiresAt && Date.parse(run.leaseExpiresAt) > Date.now(),
+        });
+      }
+      res.json(status);
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4767,9 +4821,17 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/ghl/pipeline-stages", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const { getGhlPipelineStages } = await import("../services/ghl-sync");
-      const result = await getGhlPipelineStages();
-      res.json(result);
+      const { freshGhlPipelinesReadOnly } = await import("../services/ghl-specialized-commands");
+      const { pipelineStages } = await import("@shared/schema");
+      const [pipelines, localStages] = await Promise.all([
+        freshGhlPipelinesReadOnly(),
+        db.select({
+          id: pipelineStages.id,
+          pipeline: pipelineStages.pipeline,
+          stageName: pipelineStages.stageName,
+        }).from(pipelineStages),
+      ]);
+      res.json({ pipelines, localStages, matchingPolicy: "explicit_ids_only" });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -4777,47 +4839,76 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/admin/ghl/stage-map", requireRole("admin", "manager"), async (_req, res) => {
     try {
-      const dbMap = await storage.getSystemSetting("ghl_stage_id_map");
-      res.json({ stageMap: dbMap || {} });
+      const [legacyMap, semanticMap] = await Promise.all([
+        storage.getSystemSetting("ghl_stage_id_map"),
+        storage.getSystemSetting("ghl_semantic_stage_id_map"),
+      ]);
+      res.json({
+        version: 2,
+        mappings: Array.isArray(semanticMap) ? semanticMap : [],
+        legacyStageMap: legacyMap || {},
+        legacyDeprecated: true,
+      });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
   app.post("/api/admin/ghl/sync-stages", requireRole("admin"), async (_req, res) => {
-    try {
-      const { syncLocalStagesToGhl } = await import("../services/ghl-sync");
-      const result = await syncLocalStagesToGhl();
-      res.json(result);
-    } catch (err: any) {
-      serverError(res, err);
-    }
+    res.status(410).json({
+      code: "REMOTE_GHL_STAGE_MUTATION_RETIRED",
+      message: "GHL stages are read-only here. Map existing external pipeline and stage IDs instead.",
+    });
   });
 
-  app.post("/api/admin/ghl/stage-map", requireRole("admin", "manager"), async (req, res) => {
+  const saveGhlSemanticStageMap = async (req: any, res: any) => {
     try {
-      const { stageMap } = req.body as { stageMap: Record<string, string> };
-      if (!stageMap || typeof stageMap !== "object" || Array.isArray(stageMap)) {
-        return res.status(400).json({ message: "stageMap must be a plain object mapping local stage name → GHL stage UUID" });
+      const parsed = z.object({
+        version: z.literal(2),
+        mappings: z.array(z.object({
+          localPipelineId: z.string().trim().min(1).max(200),
+          localStageId: z.number().int().positive(),
+          ghlPipelineId: z.string().trim().min(1).max(200),
+          ghlStageId: z.string().trim().min(1).max(200),
+        }).strict()).max(500),
+      }).strict().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          code: "INVALID_SEMANTIC_STAGE_MAP",
+          message: "Expected version 2 with a mappings array containing at most 500 ID-to-ID mappings.",
+        });
       }
-      // Validate all values look like UUIDs or short IDs (non-empty strings)
-      for (const [k, v] of Object.entries(stageMap)) {
-        if (typeof k !== "string" || typeof v !== "string" || !k.trim() || !v.trim()) {
-          return res.status(400).json({ message: `Invalid entry: key="${k}" value="${v}" — both must be non-empty strings` });
-        }
-      }
-      await storage.setSystemSetting("ghl_stage_id_map", stageMap);
+      const body = parsed.data;
+      const { validateGhlSemanticStageMappings } = await import("../services/ghl-specialized-commands");
+      await validateGhlSemanticStageMappings(body.mappings);
+      await storage.setSystemSetting("ghl_semantic_stage_id_map", body.mappings);
       storage.createAuditLog({
-        action: "ghl_stage_map_updated",
+        action: "ghl_semantic_stage_map_updated",
         entityType: "system",
         entityId: 0,
-        details: { stageMappingCount: Object.keys(stageMap).length },
+        details: { version: 2, stageMappingCount: body.mappings.length },
       }).catch(() => {});
-      res.json({ ok: true, count: Object.keys(stageMap).length });
+      res.json({ version: 2, mappings: body.mappings, count: body.mappings.length });
     } catch (err: any) {
+      const message = String(err?.message || "");
+      if (message.startsWith("LOCAL_STAGE_NOT_FOUND:")) {
+        return res.status(400).json({ code: "LOCAL_STAGE_NOT_FOUND", message: "A local pipeline/stage ID pair does not exist." });
+      }
+      if (message.startsWith("GHL_STAGE_NOT_FOUND:")) {
+        return res.status(400).json({ code: "GHL_STAGE_NOT_FOUND", message: "A GHL pipeline/stage ID pair was not present in the fresh provider read." });
+      }
+      if (message.startsWith("DUPLICATE_LOCAL_STAGE_MAPPING:")) {
+        return res.status(400).json({ code: "DUPLICATE_LOCAL_STAGE_MAPPING", message: "A local stage may only appear once in the mapping set." });
+      }
+      if (message.startsWith("DUPLICATE_GHL_STAGE_MAPPING:")) {
+        return res.status(400).json({ code: "DUPLICATE_GHL_STAGE_MAPPING", message: "A GHL stage may only be assigned once in the mapping set." });
+      }
       serverError(res, err);
     }
-  });
+  };
+
+  app.post("/api/admin/ghl/stage-map", requireRole("admin"), saveGhlSemanticStageMap);
+  app.patch("/api/admin/ghl/stage-map", requireRole("admin"), saveGhlSemanticStageMap);
 
   // ── System Health: Incidents + DLQ ─────────────────────────────────────────
 

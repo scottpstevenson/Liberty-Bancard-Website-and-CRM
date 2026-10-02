@@ -44,6 +44,8 @@ async function main() {
   check("'Deal not found' → skip", classifyGhlSyncError("Deal not found") === "skip");
   check("'Task not found' → skip", classifyGhlSyncError("Task not found") === "skip");
   check("OPPORTUNITY_STAGE_ID_INVALID → skip", classifyGhlSyncError("GHL API error 422: OPPORTUNITY_STAGE_ID_INVALID") === "skip");
+  check("GHL CRM control denial → skip, not provider failure", classifyGhlSyncError("GHL CRM operation blocked: control_disabled") === "skip");
+  check("GHL CRM epoch denial → skip, not provider failure", classifyGhlSyncError("GHL_SYNC_DEFERRED_BLOCKED:epoch_or_review_changed") === "skip");
   check("GHL 400 not-found (tasks phase, VFC-05) → skip", classifyGhlSyncError("GHL API error 400: The contact was not found") === "skip");
   check("'GHL API error 500: boom' → retryable", classifyGhlSyncError("GHL API error 500: boom") === "retryable");
   check("undefined error → retryable", classifyGhlSyncError(undefined) === "retryable");
@@ -71,6 +73,8 @@ async function main() {
   check("'Company not found' does not increment", hooks.getState().consecutiveFailures === 0);
   hooks.recordFailure("GHL API error 400: contact not found", "tasks phase");
   check("tasks-phase GHL 400 not-found does not increment", hooks.getState().consecutiveFailures === 0);
+  hooks.recordFailure("GHL CRM operation blocked: operation_not_reviewed", "deals phase");
+  check("review-denied CRM write does not increment provider failures", hooks.getState().consecutiveFailures === 0);
   check("circuit still closed after skips", hooks.getState().state === "closed");
 
   console.log("\n[6] half-open probe sequence closes circuit only after N successes (VFC-06/07)");

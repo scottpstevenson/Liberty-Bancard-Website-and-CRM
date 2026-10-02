@@ -7,14 +7,18 @@
  * CRITICAL: Absent or invalid → "off" (fail-closed).
  * Enabling "full" always requires an explicit env-var change.
  * Never start any worker unless this is explicitly set to "core", "full",
- * or "selective:<group1>,<group2>".
+ * "ghl-sync-only", or "selective:<group1>,<group2>".
  *
  * ### Selective mode
  * BACKGROUND_JOB_PROFILE=selective:enrichment,ghl-integration
+ * BACKGROUND_JOB_PROFILE=selective:enrichment,ghl-sync-only
+ * BACKGROUND_JOB_PROFILE=ghl-sync-only starts only the owner-fenced GHL_SYNC
+ * queue; it does not imply enrollment recovery or voicemail capability.
  *
  * Permitted capability group names (defined in WORKER_CAPABILITY_GROUPS):
  *   critical-commands   — deal-stage-effects, chargeback-commands, statement-upload
  *   ghl-integration     — ghl-sync, ghl-enrollment-recovery, voicemail-sync
+ *   ghl-sync-only       — GHL CRM reconciliation queue only; no workflows or voicemail
  *   enrichment          — enrichment, post-enrichment, cro03a-qualification, discovery
  *   free-enrichment-lane — isolated RDAP/JSON-LD/contact-page/HTML-only enrichment
  *   provider-live       — cro03c-live
@@ -51,7 +55,7 @@
  * Consumer enablement, recurring scheduling, and send authority are independent.
  */
 
-export type BackgroundProfile = "off" | "core" | "full" | "selective";
+export type BackgroundProfile = "off" | "core" | "full" | "selective" | "ghl-sync-only";
 
 /**
  * Maps stable capability group names to physical queue names.
@@ -70,6 +74,10 @@ export const WORKER_CAPABILITY_GROUPS = {
     "ghl-sync",
     "ghl-enrollment-recovery",
     "voicemail-sync",
+  ],
+  /** Isolated CRM reconciliation capability; deliberately excludes outbound GHL workers. */
+  "ghl-sync-only": [
+    "ghl-sync",
   ],
   /** Contact data enrichment pipeline: enrichment, post-enrichment, CRO03A qualification */
   "enrichment": [
@@ -291,6 +299,11 @@ export function getBackgroundProfile(): BackgroundProfile {
     return "off";
   }
 
+  // Narrow profile for owner-fenced CRM reconciliation. Unlike the broader
+  // ghl-integration capability group, this starts only GHL_SYNC (never
+  // enrollment recovery or voicemail).
+  if (raw === "ghl-sync-only") return "ghl-sync-only";
+
   if (VALID_PROFILES.has(raw)) return raw as BackgroundProfile;
 
   if (raw.startsWith("selective:")) {
@@ -331,6 +344,16 @@ export function getBackgroundProfile(): BackgroundProfile {
     }),
   );
   return "off";
+}
+
+/** Profile-level physical queue selection (independent from capability groups). */
+export function isQueueSelectedByBackgroundProfile(queueName: string): boolean {
+  const profile = getBackgroundProfile();
+  if (profile === "ghl-sync-only") return queueName === "ghl-sync";
+  if (profile === "off") return false;
+  if (profile === "core") return CORE_QUEUE_ALLOWLIST.includes(queueName);
+  if (profile === "selective") return getQueuesForCapabilityGroups(getSelectiveGroups()).includes(queueName);
+  return true;
 }
 
 function _parseSelectiveRaw(raw: string): {
