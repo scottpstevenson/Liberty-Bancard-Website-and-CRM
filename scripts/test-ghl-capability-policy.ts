@@ -51,6 +51,17 @@ const control: GhlSyncControl = {
 };
 
 assert.equal(classifyGhlOperation("GET", "/contacts"), "crm_read");
+const readOnlyControl: GhlSyncControl = {
+  ...control, enabled: false, permissionsEnabled: false,
+  nativeReview: { ...control.nativeReview, state: "unverified" },
+};
+assert.equal(evaluateGhlCapabilityPolicy({
+  method: "GET", path: "/contacts/search/duplicate?locationId=loc-1&email=fixture%40example.test",
+  locationId: "loc-1",
+}, readOnlyControl).allowed, true);
+assert.equal(evaluateGhlCapabilityPolicy({
+  method: "POST", path: "/contacts", body: { email: "fixture@example.test" }, locationId: "loc-1",
+}, readOnlyControl).allowed, false);
 assert.equal(classifyGhlOperation("POST", "/contacts/search", { query: "x" }), "crm_read");
 assert.equal(classifyGhlOperation("POST", "/contacts/trigger/search", {}), "unknown");
 assert.equal(classifyGhlOperation("POST", "/opportunities/search", { query: "x" }), "crm_read");

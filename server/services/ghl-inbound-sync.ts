@@ -5,6 +5,7 @@ import { db, pool } from "../db";
 import { contacts } from "@shared/schema";
 import type { GhlInboundSyncCounts, GhlInboundSyncRun, GhlInboundSyncStatus } from "@shared/ghl-inbound-sync";
 import { writeContact, updateContactLocalFirst, type ContactWriterHookPolicy } from "./contact-writer";
+import { parseGhlInboundCursor } from "./ghl-inbound-pagination";
 
 const PREFIX = "ghl_inbound_contact_sync";
 const PAGE_SIZE = 100;
@@ -298,33 +299,7 @@ async function fetchPage(
   if (!items) throw new Error("GHL_INBOUND_PAGINATION_UNSUPPORTED");
   if (items.length > PAGE_SIZE) throw new Error("GHL_INBOUND_PAGE_SIZE_EXCEEDED");
   const meta = body.meta ?? body.data?.meta ?? {};
-  let next: StoredRun["scanCursor"] = null;
-  if (meta.nextPageUrl || meta.nextPage) {
-    const nextValue = meta.nextPageUrl || meta.nextPage;
-    if (typeof nextValue !== "string") throw new Error("GHL_INBOUND_PAGINATION_INVALID");
-    const nextUrl = new URL(nextValue, "https://services.leadconnectorhq.com/contacts/");
-    if (nextUrl.hostname !== "services.leadconnectorhq.com" || nextUrl.protocol !== "https:" ||
-        !/^\/contacts\/?$/.test(nextUrl.pathname)) {
-      throw new Error("GHL_INBOUND_PAGINATION_HOST_INVALID");
-    }
-    if (nextUrl.searchParams.get("locationId") !== location || nextUrl.searchParams.get("limit") !== String(PAGE_SIZE)) {
-      throw new Error("GHL_INBOUND_PAGINATION_SCOPE_INVALID");
-    }
-    const startAfter = nextUrl.searchParams.get("startAfter");
-    const startAfterId = nextUrl.searchParams.get("startAfterId");
-    if (!startAfter || !startAfterId || startAfter.length > 200 || startAfterId.length > 200) {
-      throw new Error("GHL_INBOUND_PAGINATION_CURSOR_MISSING");
-    }
-    next = { startAfter, startAfterId };
-  } else if (meta.startAfter && meta.startAfterId) {
-    if (typeof meta.startAfter !== "string" || typeof meta.startAfterId !== "string" ||
-        meta.startAfter.length > 200 || meta.startAfterId.length > 200) {
-      throw new Error("GHL_INBOUND_PAGINATION_CURSOR_INVALID");
-    }
-    next = { startAfter: meta.startAfter, startAfterId: meta.startAfterId };
-  } else if (meta.nextPageToken) {
-    throw new Error("GHL_INBOUND_PAGINATION_CURSOR_UNSUPPORTED");
-  }
+  const next = parseGhlInboundCursor(meta, location, PAGE_SIZE);
   const total = meta.total !== undefined && meta.total !== null && Number.isFinite(Number(meta.total)) && Number(meta.total) >= 0
     ? Number(meta.total) : null;
   return { contacts: items, next, total, locationId: location };

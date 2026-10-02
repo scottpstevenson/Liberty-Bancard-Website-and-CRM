@@ -324,13 +324,9 @@ export async function lookupExistingGhlContactByEmail(email: string, dependencie
 }
 
 async function processBackfill(runId: string, run: GhlSpecializedRun, token: string, maxItems: number) {
-  const control = await (await import("./ghl-sync-control")).getGhlSyncControl();
-  if (!control.enabled) {
-    run.state = "blocked";
-    run.lastError = "GHL_CRM_CONTROL_DISABLED";
-    await releaseRun(run, token, "blocked");
-    return run;
-  }
+  // This command only reads GHL and fills local IDs. The per-request
+  // authorizeGhlCrmOperation gate in lookupExistingGhlContactByEmail still
+  // applies; disabled provider writes must not block this read-only lane.
   const contactsPage = await db.select({
     id: contacts.id,
     email: contacts.email,
