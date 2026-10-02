@@ -28,3 +28,16 @@ Take the strongest required business-sentinel mode initially; if any write requi
 **Why:** Dispatch evidence readers do not all participate in the global eligibility fence. A reader can retain a shared business sentinel while waiting on a writer's address, making a late exclusive upgrade circular even when eligibility writers are serialized.
 
 **How to apply:** Review implicit trigger lock requests as well as explicit SQL. Check both read-only provider authorization and final projection paths when changing the ordering.
+
+Historical staged-proof restoration is not approval of a new candidate. Require
+the original immutable role-address/link/receipt evidence and current safety
+gates; leave invalid, unsafe, no-MX, suppressed, or independently reviewed rows
+held rather than treating every mismatch as repairable.
+
+**Why:** A detached projection can contain a genuine later negative validation
+for a different candidate. Restoring historical pins must not silently override
+that restrictive state or fabricate provider facts.
+
+**How to apply:** Use explicit bounded selection and lossless preview CAS, keep
+the audit in the repair transaction, never extend original expiry, and check
+all selected receipts against one final database-clock observation after waits.

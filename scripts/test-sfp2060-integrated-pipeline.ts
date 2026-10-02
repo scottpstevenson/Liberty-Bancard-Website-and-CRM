@@ -1060,6 +1060,7 @@ try {
   assert.equal(originalOwnerIntents.length, 1,
     "the persisted commitment identifies exactly one original free owner intent");
   const originalFreeIntent = originalOwnerIntents[0];
+  const originalFreeBusinessId = Number(originalFreeIntent.business_id);
   const freeIntentsWithMasterLead = freeIntents.filter(
     (intent: any) => intent.master_lead_id != null && String(intent.master_lead_id) !== "",
   );
@@ -1152,6 +1153,229 @@ try {
   assert.equal(Number(bridgeReplay.contactId), Number(bridgeReceipt.contactId));
   assert.equal(Number(bridgeReplay.sequenceEnrollmentId), Number(bridgeReceipt.sequenceEnrollmentId));
   assert.equal(bridgeReplay.enrollmentStatus, "paused");
+  // Exercise the narrowly authorized projection repair against a real
+  // disposable SLE/link/receipt/paused-enrollment fixture. Deliberately drift
+  // only the live eligibility projection; immutable evidence stays intact.
+  const repairForeignOperation = rows(await db.execute(sql`
+    SELECT id FROM provider_operations
+     WHERE state='completed'
+       AND id<>COALESCE((SELECT validation_operation_id FROM sfp_outreach_eligibility
+                          WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid),gen_random_uuid())
+     ORDER BY id LIMIT 1
+  `))[0];
+  assert.ok(repairForeignOperation, "disposable repair fixture has a distinct completed operation pin");
+  const repairAlternateGeneration = await createFreeDiscoveryGeneration({
+    runKey: `${runKey}-repair-alternate-address`,
+    actorId,
+    reason: "Disposable reconciliation fixture for a later business-role candidate.",
+    purpose: "email_discovery",
+  });
+  const repairAlternateCandidate = await recordFreeDiscoveryCandidate({
+    generationId: repairAlternateGeneration.id,
+    businessId: originalFreeBusinessId,
+    domain: sharedDomain,
+    source: "first_party_contact_page",
+    attributionScope: "role",
+    subjectType: "business",
+    email: `support@${sharedDomain}`,
+    confidence: 92,
+  });
+  await completeFreeDiscoveryGeneration(repairAlternateGeneration.id);
+  assert.notEqual(String(repairAlternateCandidate.id), String(originalFreeIntent.candidate_id));
+  const repairBaseline = rows(await db.execute(sql`
+    SELECT (SELECT COUNT(*)::int FROM provider_observations) AS observations,
+           (SELECT COUNT(*)::int FROM provider_operations) AS operations,
+           (SELECT COUNT(*)::int FROM contact_business_link_decisions) AS links,
+           (SELECT COUNT(*)::int FROM sequence_enrollments) AS enrollments,
+           (SELECT COUNT(*)::int FROM sfp_named_email_eligibility_reviews) AS reviews,
+           (SELECT COUNT(*)::int FROM audit_logs) AS audits
+  `))[0];
+  const projectionExpiryBeforeRepair = rows(await db.execute(sql`
+    SELECT validation_expires_at::text AS value FROM sfp_outreach_eligibility
+     WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `))[0].value;
+  const zeroBounceCallsBeforeRepair = zeroBounceCalls;
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility
+       SET source_kind='free',candidate_id=${String(repairAlternateCandidate.id)}::uuid,
+           paid_candidate_evidence_id=NULL,contact_id=NULL,
+           contact_business_link_decision_id=NULL,contact_business_link_revision=NULL,
+           normalized_value_hash=${"f".repeat(64)},validation_operation_id=${String(repairForeignOperation.id)}::uuid,
+           reused_from_operation_id=NULL,status='validated_review_required',named_contact=TRUE,role_inbox=FALSE,
+           decision_reason='zb_valid:named_or_unclassified_address:operator_review_required',
+           reason_codes='["zb_valid_review_required"]'::jsonb
+     WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `);
+  const { previewSfpStagedProjectionReconciliation, executeSfpStagedProjectionReconciliation } =
+    await import("../server/services/cro03/sfp-staged-projection-reconciliation");
+  const staleRepairPreview = await previewSfpStagedProjectionReconciliation([String(originalFreeIntent.id)]);
+  const staleRepairHash = staleRepairPreview.results[0].snapshotHash;
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility SET decision_reason='preview_changed_after_review'
+     WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `);
+  await assert.rejects(
+    () => executeSfpStagedProjectionReconciliation({
+      ids: [String(originalFreeIntent.id)],
+      expectedSnapshotHashes: { [String(originalFreeIntent.id)]: staleRepairHash },
+      actorId,
+    }),
+    /SFP_RECONCILIATION_PREVIEW_CHANGED/,
+    "projection state drift after the GET preview receives a transactional 409 conflict",
+  );
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility
+       SET decision_reason='zb_valid:named_or_unclassified_address:operator_review_required'
+     WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `);
+  const stagedRepairPreview = await previewSfpStagedProjectionReconciliation([String(originalFreeIntent.id)]);
+  assert.equal(stagedRepairPreview.results[0].disposition, "candidate_restore");
+  const stagedRepairedProjection = await executeSfpStagedProjectionReconciliation({
+    ids: [String(originalFreeIntent.id)],
+    expectedSnapshotHashes: { [String(originalFreeIntent.id)]: stagedRepairPreview.results[0].snapshotHash },
+    actorId,
+  });
+  assert.deepEqual(stagedRepairedProjection.restoredIntentIds, [String(originalFreeIntent.id)]);
+  const repairAfter = rows(await db.execute(sql`
+    SELECT e.source_kind,e.candidate_id,e.paid_candidate_evidence_id,e.contact_id,
+           e.contact_business_link_decision_id,e.contact_business_link_revision,
+           e.normalized_value_hash,e.normalized_value_hash_version,e.validation_operation_id,
+           e.reused_from_operation_id,e.validation_at::text AS validation_at,e.validation_expires_at::text AS expires_at,
+           e.masked_email,
+           e.status,e.named_contact,e.role_inbox,e.suppression_status,e.decision_reason,e.reason_codes,
+           e.validation_expires_at<=${String(projectionExpiryBeforeRepair)}::timestamptz AS no_projection_ttl_extension,
+           e.validation_expires_at<=NULLIF(i.validation_snapshot->>'validationExpiresAt','')::timestamptz
+             AS within_original_snapshot_expiry,
+           (SELECT po.observed_at::text FROM provider_observations po
+             WHERE po.operation_id=${String(stagedRepairPreview.results[0].pins.validationOperationId)}::uuid
+               AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
+               AND po.subject_type='business' AND po.subject_id=e.business_id
+             ORDER BY po.observed_at DESC LIMIT 1) AS original_observed_at,
+           (SELECT fc.masked_value FROM free_discovery_candidates fc
+             WHERE fc.id=${String(originalFreeIntent.candidate_id)}::uuid) AS source_masked_value
+      FROM sfp_outreach_eligibility e
+      JOIN sfp_campaign_staging_intents i ON i.id=${String(originalFreeIntent.id)}::uuid
+     WHERE e.id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `))[0];
+  assert.equal(repairAfter.source_kind, "free");
+  assert.equal(String(repairAfter.candidate_id), String(originalFreeIntent.candidate_id));
+  assert.notEqual(String(repairAlternateCandidate.id), String(originalFreeIntent.candidate_id),
+    "positive regression starts with a different current candidate pin than the immutable original");
+  assert.equal(repairAfter.paid_candidate_evidence_id, null);
+  assert.equal(repairAfter.contact_id, null);
+  assert.equal(repairAfter.contact_business_link_decision_id, null);
+  assert.equal(repairAfter.contact_business_link_revision, null);
+  assert.equal(String(repairAfter.normalized_value_hash), String(originalFreeIntent.normalized_value_hash));
+  assert.equal(Number(repairAfter.normalized_value_hash_version), Number(originalFreeIntent.normalized_value_hash_version));
+  assert.equal(String(repairAfter.validation_operation_id), String(stagedRepairPreview.results[0].pins.validationOperationId));
+  assert.equal(repairAfter.reused_from_operation_id, null);
+  assert.equal(repairAfter.validation_at, repairAfter.original_observed_at,
+    "validation_at is restored from the original immutable observation timestamp");
+  assert.equal(repairAfter.no_projection_ttl_extension, true);
+  assert.equal(repairAfter.within_original_snapshot_expiry, true);
+  assert.equal(repairAfter.masked_email, repairAfter.source_masked_value,
+    "the original source mask is preserved rather than reconstructed");
+  assert.equal(repairAfter.status, "validated_outreach_eligible");
+  assert.equal(repairAfter.named_contact, false);
+  assert.equal(repairAfter.role_inbox, true);
+  assert.equal(repairAfter.suppression_status, "not_suppressed");
+  assert.equal(repairAfter.decision_reason, "staged_projection_reconciled_from_immutable_business_role_evidence");
+  assert.deepEqual(repairAfter.reason_codes, ["staged_projection_reconciled_from_immutable_business_role_evidence"]);
+  const repairCountsAfter = rows(await db.execute(sql`
+    SELECT (SELECT COUNT(*)::int FROM provider_observations) AS observations,
+           (SELECT COUNT(*)::int FROM provider_operations) AS operations,
+           (SELECT COUNT(*)::int FROM contact_business_link_decisions) AS links,
+           (SELECT COUNT(*)::int FROM sequence_enrollments) AS enrollments,
+           (SELECT COUNT(*)::int FROM sfp_named_email_eligibility_reviews) AS reviews,
+           (SELECT COUNT(*)::int FROM audit_logs) AS audits
+  `))[0];
+  assert.equal(Number(repairCountsAfter.observations), Number(repairBaseline.observations));
+  assert.equal(Number(repairCountsAfter.operations), Number(repairBaseline.operations));
+  assert.equal(Number(repairCountsAfter.links), Number(repairBaseline.links));
+  assert.equal(Number(repairCountsAfter.enrollments), Number(repairBaseline.enrollments));
+  assert.equal(Number(repairCountsAfter.reviews), Number(repairBaseline.reviews));
+  assert.equal(Number(repairCountsAfter.audits), Number(repairBaseline.audits) + 1,
+    "repair and non-PII audit are committed atomically");
+  assert.equal(zeroBounceCalls, zeroBounceCallsBeforeRepair,
+    "projection reconciliation does not call ZeroBounce or any provider");
+  const alreadyIntactProjection = rows(await db.execute(sql`
+    SELECT updated_at::text,decision_reason,reason_codes
+      FROM sfp_outreach_eligibility WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `))[0];
+  const noOpPreview = await previewSfpStagedProjectionReconciliation([String(originalFreeIntent.id)]);
+  assert.equal(noOpPreview.results[0].disposition, "no_op");
+  const noOpResult = await executeSfpStagedProjectionReconciliation({
+    ids: [String(originalFreeIntent.id)],
+    expectedSnapshotHashes: { [String(originalFreeIntent.id)]: noOpPreview.results[0].snapshotHash },
+    actorId,
+  });
+  assert.deepEqual(noOpResult.noOpIntentIds, [String(originalFreeIntent.id)]);
+  const afterNoOpProjection = rows(await db.execute(sql`
+    SELECT updated_at::text,decision_reason,reason_codes
+      FROM sfp_outreach_eligibility WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `))[0];
+  assert.deepEqual(afterNoOpProjection, alreadyIntactProjection,
+    "already-intact projection is audited as a no-op without rewriting timestamps or decision reasons");
+  const auditsAfterNoOp = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM audit_logs
+  `))[0].count);
+  assert.equal(auditsAfterNoOp, Number(repairBaseline.audits) + 2,
+    "the no-op execution is also auditable without touching the projection");
+  const intactValidationFields = rows(await db.execute(sql`
+    SELECT zb_outcome,raw_provider_status,suppression_status
+      FROM sfp_outreach_eligibility WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+  `))[0];
+  for (const restrictive of [
+    { reason: "zb_do_not_mail:not_deliverable_per_policy", outcome: "do_not_mail", raw: "unsafe" },
+    { reason: "precheck_no_mx:authoritative_ineligible:zero_provider_spend", outcome: "valid", raw: "valid" },
+  ]) {
+    await db.execute(sql`
+      UPDATE sfp_outreach_eligibility SET status='invalid',
+        decision_reason=${restrictive.reason},zb_outcome=${restrictive.outcome},
+        raw_provider_status=${restrictive.raw}
+       WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+    `);
+    const deniedPreview = await previewSfpStagedProjectionReconciliation([String(originalFreeIntent.id)]);
+    assert.equal(deniedPreview.results[0].disposition, "rejected");
+    await assert.rejects(() => executeSfpStagedProjectionReconciliation({
+      ids: [String(originalFreeIntent.id)],
+      expectedSnapshotHashes: { [String(originalFreeIntent.id)]: deniedPreview.results[0].snapshotHash },
+      actorId,
+    }), /SFP_RECONCILIATION_REJECTED/);
+    const restrictiveAfter = rows(await db.execute(sql`
+      SELECT status,zb_outcome,raw_provider_status FROM sfp_outreach_eligibility
+       WHERE id=${String(originalFreeIntent.eligibility_id)}::uuid
+    `))[0];
+    assert.equal(restrictiveAfter.status, "invalid");
+    assert.equal(restrictiveAfter.zb_outcome, restrictive.outcome);
+    assert.equal(restrictiveAfter.raw_provider_status, restrictive.raw);
+  }
+  // Restore only this disposable fixture's saved provider facts, then test
+  // contact-source drift separately from alternate-candidate drift.
+  await db.execute(sql`
+    UPDATE sfp_outreach_eligibility e SET source_kind='contact',candidate_id=NULL,
+      contact_id=${Number(bridgeReceipt.contactId)},
+      contact_business_link_decision_id=le.contact_business_link_decision_id,
+      contact_business_link_revision=le.contact_business_link_revision,
+      status='validated_review_required',named_contact=TRUE,role_inbox=FALSE,
+      decision_reason='zb_valid:named_or_unclassified_address:operator_review_required',
+      reason_codes='["zb_valid_review_required"]'::jsonb,
+      zb_outcome=${intactValidationFields.zb_outcome},
+      raw_provider_status=${intactValidationFields.raw_provider_status},
+      suppression_status=${intactValidationFields.suppression_status}
+     FROM sfp_ready_held_enrollments le
+     WHERE e.id=${String(originalFreeIntent.eligibility_id)}::uuid
+       AND le.staging_intent_id=${String(originalFreeIntent.id)}::uuid
+  `);
+  const contactRepairPreview = await previewSfpStagedProjectionReconciliation([String(originalFreeIntent.id)]);
+  assert.equal(contactRepairPreview.results[0].disposition, "candidate_restore");
+  const contactRepairResult = await executeSfpStagedProjectionReconciliation({
+    ids: [String(originalFreeIntent.id)],
+    expectedSnapshotHashes: { [String(originalFreeIntent.id)]: contactRepairPreview.results[0].snapshotHash },
+    actorId,
+  });
+  assert.deepEqual(contactRepairResult.restoredIntentIds, [String(originalFreeIntent.id)]);
+  assert.equal(zeroBounceCalls, zeroBounceCallsBeforeRepair);
   const committedAssignment = rows(await db.execute(sql`
     SELECT l.id AS ledger_id,l.recipient_commitment_id,l.sequence_enrollment_id,
            l.contact_business_link_decision_id,l.contact_business_link_revision,
@@ -1580,20 +1804,20 @@ try {
     UPDATE contacts
        SET record_class='production'
      WHERE id=ANY(ARRAY[${Number(bridgeReceipt.contactId)},${Number(paidBridge.contactId)}]::integer[])
-       AND business_id=ANY(ARRAY[${businessA},${businessB}]::integer[])
+       AND business_id=ANY(ARRAY[${originalFreeBusinessId},${businessB}]::integer[])
     RETURNING id,business_id,record_class
   `));
   assert.equal(productionBridgeContacts.length, 2,
     "the disposable free/paid bridge contacts receive their normal startup production classification");
   assert.ok(productionBridgeContacts.every((contact: any) => contact.record_class === "production") &&
     productionBridgeContacts.some((contact: any) =>
-      Number(contact.id) === Number(bridgeReceipt.contactId) && Number(contact.business_id) === businessA) &&
+      Number(contact.id) === Number(bridgeReceipt.contactId) && Number(contact.business_id) === originalFreeBusinessId) &&
     productionBridgeContacts.some((contact: any) =>
       Number(contact.id) === Number(paidBridge.contactId) && Number(contact.business_id) === businessB),
   "only the two bridge-created contacts for their canonical test businesses are classified as production");
-  const bridgedContactCandidates = await getUnifiedSfpCandidates([businessA, businessB]);
+  const bridgedContactCandidates = await getUnifiedSfpCandidates([originalFreeBusinessId, businessB]);
   for (const [businessId, contactId] of [
-    [businessA, Number(bridgeReceipt.contactId)],
+    [originalFreeBusinessId, Number(bridgeReceipt.contactId)],
     [businessB, Number(paidBridge.contactId)],
   ] as const) {
     assert.ok(contactId > 0);
@@ -1624,7 +1848,7 @@ try {
            CASE WHEN e.id IS NULL THEN NULL ELSE md5(row_to_json(e)::text) END AS evidence_fingerprint
       FROM contact_business_link_decisions d
       LEFT JOIN contact_business_sfp_link_evidence e ON e.id=d.sfp_evidence_id
-     WHERE (d.contact_id=${Number(bridgeReceipt.contactId)} AND d.business_id=${businessA})
+     WHERE (d.contact_id=${Number(bridgeReceipt.contactId)} AND d.business_id=${originalFreeBusinessId})
         OR (d.contact_id=${Number(paidBridge.contactId)} AND d.business_id=${businessB})
         OR (d.contact_id=${Number(contactIntent.contact_id)} AND d.business_id=${businessC}
             AND d.id=${String(contactIntent.contact_business_link_decision_id)}::uuid)
@@ -1683,7 +1907,7 @@ try {
            CASE WHEN e.id IS NULL THEN NULL ELSE md5(row_to_json(e)::text) END AS evidence_fingerprint
       FROM contact_business_link_decisions d
       LEFT JOIN contact_business_sfp_link_evidence e ON e.id=d.sfp_evidence_id
-     WHERE (d.contact_id=${Number(bridgeReceipt.contactId)} AND d.business_id=${businessA})
+     WHERE (d.contact_id=${Number(bridgeReceipt.contactId)} AND d.business_id=${originalFreeBusinessId})
         OR (d.contact_id=${Number(paidBridge.contactId)} AND d.business_id=${businessB})
         OR (d.contact_id=${Number(contactIntent.contact_id)} AND d.business_id=${businessC}
             AND d.id=${String(contactIntent.contact_business_link_decision_id)}::uuid)

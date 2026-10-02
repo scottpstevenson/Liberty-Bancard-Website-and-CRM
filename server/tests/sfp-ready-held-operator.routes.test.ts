@@ -3,6 +3,7 @@ import express, { type Request } from "express";
 import cookieParser from "cookie-parser";
 import { csrfProtection } from "../middleware/csrf";
 import { registerSfpReadyHeldOperatorRoutes } from "../routes/sfp-ready-held-operator";
+import { registerSfpStagedProjectionReconciliationRoutes } from "../routes/sfp-staged-projection-reconciliation";
 
 const app = express();
 const calls: Array<{ action: string; value?: unknown; actorId?: string }> = [];
@@ -73,6 +74,7 @@ registerSfpReadyHeldOperatorRoutes(app, {
     calls.push({ action: "audit", value: input, actorId: input.userId });
   },
 });
+registerSfpStagedProjectionReconciliationRoutes(app);
 
 const server = app.listen(0);
 await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -108,8 +110,24 @@ const runPath = "/api/lead-ops/sfp/ready-held-consumer/run";
 const retryId = "00000000-0000-4000-8000-000000000302";
 const runtimeStatusPath = "/api/lead-ops/sfp/runtime-release-selection";
 const runtimeSelectPath = "/api/lead-ops/sfp/runtime-release-selection/select";
+const reconcilePreviewPath = "/api/lead-ops/sfp/staged-projection-reconciliation/preview";
+const reconcileExecutePath = "/api/lead-ops/sfp/staged-projection-reconciliation/execute";
 
 try {
+  const reconcileUnauthorized = await request(reconcilePreviewPath);
+  assert.equal(reconcileUnauthorized.status, 401);
+  const reconcileManager = await request(reconcilePreviewPath, { role: "manager", userId: "manager-1" });
+  assert.equal(reconcileManager.status, 403, "reconciliation preview remains admin-only");
+  const reconcileNoCsrf = await request(reconcileExecutePath, {
+    method: "POST", role: "admin", userId: "admin-8",
+    body: { ids: ["00000000-0000-4000-8000-000000000301"], expectedSnapshotHashes: { "00000000-0000-4000-8000-000000000301": "a".repeat(32) } },
+  });
+  assert.equal(reconcileNoCsrf.status, 403, "the global CSRF middleware protects reconciliation execution");
+  const reconcileInvalidSelection = await request(`${reconcilePreviewPath}?id=not-a-uuid`, {
+    role: "admin", userId: "admin-8",
+  });
+  assert.equal(reconcileInvalidSelection.status, 400, "preview requires explicit strict UUID intent selectors");
+
   const unauthorized = await request(schedulePath, { method: "POST", body: { recurringEnabled: true, batchSize: 5 } });
   assert.equal(unauthorized.status, 401);
   const manager = await request(schedulePath, {

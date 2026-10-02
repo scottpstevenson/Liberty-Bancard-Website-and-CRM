@@ -12,6 +12,7 @@ import { buildCanonicalBusinessEmailDisplay } from "../services/canonical-busine
 import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import { backgroundJobs, inboundRequestEffects, sdrMerchants } from "@shared/schema";
 import { registerSfpReadyHeldOperatorRoutes } from "./sfp-ready-held-operator";
+import { registerSfpStagedProjectionReconciliationRoutes } from "./sfp-staged-projection-reconciliation";
 
 /**
  * Truthful worker/queue health for the SFP campaign-staging telemetry
@@ -92,6 +93,7 @@ export function incrementLegacyEnrichAttemptCounter(): void {
 
 export function registerLeadOpsRoutes(app: Express) {
   registerSfpReadyHeldOperatorRoutes(app);
+  registerSfpStagedProjectionReconciliationRoutes(app);
   app.get("/api/lead-ops/inbound-requests", requireRole("admin", "manager"), async (req, res) => {
     try {
       const rows = await listInboundRequests({

@@ -41,3 +41,14 @@ Source identity identifies the candidate, not which execution produced evidence.
 **How to apply:** prove the current run's output and its direct/reused receipt
 lineage explicitly. Keep historical rows and their original evidence unchanged;
 do not broaden a passing proof to every row ever associated with the source.
+
+Duplicate-address fixtures must follow the actual committed owner, not assume
+the first seeded business wins. Separate intents can also share one candidate.
+
+**Why:** Recipient deduplication can select either alias as owner based on
+ordering. Assuming the first business or a distinct candidate made a complete
+pipeline certification fail intermittently or fail to exercise real pin drift.
+
+**How to apply:** Derive bridge-contact assertions and source lookups from the
+winning intent's business. For address-drift tests, mint a distinct candidate
+and prove its identity differs before making the mutation.
