@@ -13,6 +13,7 @@ import { getApiErrorMessage } from "@/lib/ghlTruth";
 import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
 import { GhlSyncControlCard } from "@/components/dashboard/GhlSyncControlCard";
+import { GhlInboundSyncCard } from "@/components/dashboard/GhlInboundSyncCard";
 import { GhlCommandAction } from "@/components/dashboard/GhlCommandAction";
 
 interface PipelineStagesResult {
@@ -143,6 +144,7 @@ export default function GhlSettings() {
   const [draftStageMappings, setDraftStageMappings] = useState<SemanticStageMapping[]>([]);
   const [selectedLocalPipeline, setSelectedLocalPipeline] = useState("");
   const [draftExternalPipelineIds, setDraftExternalPipelineIds] = useState<Record<string, string>>({});
+  const [outboundControlsOpen, setOutboundControlsOpen] = useState(false);
 
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
@@ -301,7 +303,7 @@ export default function GhlSettings() {
             <Settings className="w-5 h-5 text-muted-foreground" />
             <h2 className="text-xl font-semibold" data-testid="text-ghlsettings-title">GHL Integration Settings</h2>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">Manage your GoHighLevel integration and communication settings</p>
+          <p className="text-sm text-muted-foreground mt-1">Bring GHL contact information into this database without changing GHL records or enabling outbound messages</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button
@@ -313,26 +315,6 @@ export default function GhlSettings() {
           >
             {testConnectionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
             Test Connection
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => syncHotLeadsMutation.mutate()}
-            disabled={syncHotLeadsMutation.isPending}
-            className="gap-2"
-            data-testid="button-sync-hot-leads"
-          >
-            {syncHotLeadsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Sync Hot Leads
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => syncToGhlMutation.mutate()}
-            disabled={syncToGhlMutation.isPending}
-            className="gap-2"
-            data-testid="button-sync-all"
-          >
-            {syncToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
-            Sync All
           </Button>
         </div>
       </div>
@@ -393,7 +375,7 @@ export default function GhlSettings() {
         </Alert>
       )}
 
-      <GhlSyncControlCard canControl={user?.role === "admin"} />
+      <GhlInboundSyncCard canControl={user?.role === "admin"} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card data-testid="card-ghl-connection">
@@ -764,8 +746,16 @@ export default function GhlSettings() {
         </Alert>
       )}
 
-      {/* Permission-field writes are queued durable commands; never report the 202 acceptance as success. */}
-      {user?.role === "admin" && <Card data-testid="card-force-permission-sync">
+      {/* Provider-write controls are distinct and not needed by the one-way import. */}
+      {user?.role === "admin" && <details
+        className="rounded-lg border p-4"
+        onToggle={event => setOutboundControlsOpen(event.currentTarget.open)}
+      >
+        <summary className="cursor-pointer text-sm font-medium">Optional writes back to GHL — not needed for incoming contact sync</summary>
+        {outboundControlsOpen && <div className="mt-4 space-y-4">
+        <Alert><AlertDescription>Leave these provider-write controls disabled for one-way GHL → database synchronization. Native-trigger review applies only to writes back to GHL.</AlertDescription></Alert>
+        <GhlSyncControlCard canControl />
+        <Card data-testid="card-force-permission-sync">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-muted-foreground" />
@@ -782,7 +772,9 @@ export default function GhlSettings() {
             statusEndpointToInvalidate="/api/ghl/sync-dashboard"
           />
         </CardContent>
-      </Card>}
+       </Card>
+       </div>}
+       </details>}
 
       <Card data-testid="card-ghl-instructions">
         <CardHeader>

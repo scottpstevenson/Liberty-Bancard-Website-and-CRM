@@ -9,6 +9,12 @@ The current GHL sync requirement is one-way: GHL contacts supply information to 
 
 **How to apply:** Match and reconcile GHL records into local production contacts without GHL mutations, communication/enrollment activation, or implicit changes to local authoritative fields. Native GHL action-safety review is not a prerequisite for reading GHL contacts. Do not simply enable legacy inbound writes without checking their local overwrite and downstream side effects.
 
+For contact reconciliation, keep existing production values and use GHL only to fill missing contact details. Add identifiable GHL contacts that have no production match; ambiguous identities must be reported rather than silently merged.
+
+**Why:** The user explicitly selected “Keep production values” and “Add them as new contacts” when asked how to merge GHL contacts into production.
+
+**How to apply:** Preserve nonblank local details and protected consent/opt-out/ownership/status data. Use exact GHL-ID or normalized-email matching with collision checks, and use canonical local-only intake for genuinely new contacts without provider projection or paid-work hooks.
+
 If a future explicit request introduces writes back to GHL, require a fresh, location-bound native-workflow review covering exact operations, fields, custom-field IDs, tags and stages. The agent must not approve its own native safety review.
 
 **Why:** GHL field, tag, contact and stage changes can trigger native communications even when the app's outbound messaging is paused.

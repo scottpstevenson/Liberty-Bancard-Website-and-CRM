@@ -154,3 +154,4 @@
 - [Production SQL result verification](production-sql-result-verification.md) — success=true with only START TRANSACTION/ROLLBACK is not a valid empty census; require the actual result.
 - [Existing email inventory diagnosis](email-inventory-diagnosis.md) — Count existing inventory and trace intake before attributing low recipient growth to discovery yield.
 - [Generated-key partial indexes](generated-key-partial-index-predicates.md) — State source nullability predicates explicitly; generated-key matches alone may not permit the partial index.
+- [Raw SQL row naming](raw-sql-row-casing.md) — Raw snake_case rows need explicit mapping before camelCase field-policy checks; casts do not rename keys.

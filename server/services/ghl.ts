@@ -1495,7 +1495,8 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
   const webhookOccurrenceId = String(messageId ?? payload.eventId ?? payload.id ?? crypto.randomUUID());
 
   if (type === "ContactUpdate" || type === "contact-updated" || type === "ContactCreate" || type === "contact-created") {
-    await handleContactUpdated(payload);
+    const { reconcileGhlInboundWebhookContact } = await import("./ghl-inbound-sync");
+    await reconcileGhlInboundWebhookContact(payload);
     return;
   }
 

@@ -100,8 +100,8 @@ export interface ProvenanceInput {
 }
 
 export interface ContactWriterHookPolicy {
-  /** Internal CRO-03 intermediate writes must not fan out before finalization. */
-  source: "cro03";
+  /** Internal CRO-03 or deliberately isolated inbound reconciliation write. */
+  source: "cro03" | "ghl_inbound";
   deferValidation: true;
   deferReadiness: true;
   deferLeadScoring: true;
@@ -173,14 +173,23 @@ export async function writeContact(args: {
   _sourceEventId: number;
 }> {
   const { mode, provenance, actor, rowDisposition, hookPolicy } = args;
-  if (args.transaction && (mode !== "local_only" || !hookPolicy?.deferValidation ||
+  if (args.transaction && (!hookPolicy ||
+      !((mode === "local_only") || (mode === "ghl_inbound_no_echo" && hookPolicy.source === "ghl_inbound")) ||
+      !hookPolicy.deferValidation ||
       !hookPolicy.deferReadiness || !hookPolicy.deferLeadScoring || !hookPolicy.suppressProviderProjection)) {
-    throw new Error("CONTACT_WRITE_EXTERNAL_TRANSACTION_REQUIRES_DEFERRED_LOCAL_ONLY_HOOKS");
+    throw new Error("CONTACT_WRITE_EXTERNAL_TRANSACTION_REQUIRES_DEFERRED_LOCAL_HOOKS");
+  }
+  if (hookPolicy?.source === "ghl_inbound" &&
+      (mode !== "ghl_inbound_no_echo" || provenance.sourceCategory !== "ghl_sync" ||
+       provenance.sourceType !== "inbound" || !provenance.sourceExternalId ||
+       !hookPolicy.deferValidation || !hookPolicy.deferReadiness ||
+       !hookPolicy.deferLeadScoring || !hookPolicy.suppressProviderProjection)) {
+    throw new Error("CONTACT_WRITE_INVALID_GHL_INBOUND_HOOK_POLICY");
   }
   const mutation = stripContactAuthorityFields(args.mutation);
 
   assertValidSourceCombo(provenance.sourceCategory, provenance.sourceType);
-  if (!hookPolicy && provenance.sourceExternalId) {
+  if ((!hookPolicy || hookPolicy.source === "cro03") && provenance.sourceExternalId) {
     const { assertCro03bLegacySourceWriteAllowed } = await import("./cro03/admission-service");
     await assertCro03bLegacySourceWriteAllowed({
       subjectType: provenance.sourceType,
@@ -517,8 +526,14 @@ export async function updateContactLocalFirst(
     authorityCheck?: (tx: any) => Promise<boolean>;
   },
   hookPolicy?: ContactWriterHookPolicy,
+  transaction?: any,
 ): Promise<(Contact & { _ghlSyncFailed: boolean }) | null> {
-  if (!hookPolicy) {
+  if (hookPolicy?.source === "ghl_inbound" &&
+      (!hookPolicy.deferValidation || !hookPolicy.deferReadiness ||
+       !hookPolicy.deferLeadScoring || !hookPolicy.suppressProviderProjection)) {
+    throw new Error("CONTACT_WRITE_INVALID_GHL_INBOUND_HOOK_POLICY");
+  }
+  if (!hookPolicy || hookPolicy.source === "cro03") {
     const { assertCro03bLegacyContactWriteAllowed } = await import("./cro03/admission-service");
     await assertCro03bLegacyContactWriteAllowed(contactId, "contact-writer:update-local-first");
   }
@@ -527,7 +542,7 @@ export async function updateContactLocalFirst(
   const changedKeys = Object.keys(safeUpdates) as Array<keyof typeof safeUpdates>;
   const hasReadinessChange = changedKeys.some(k => READINESS_DEPENDENT_FIELDS.includes(k as any));
   const fingerprint = crypto.createHash("sha256").update(JSON.stringify(safeUpdates)).digest("hex").slice(0, 32);
-  const updated = await db.transaction(async (tx) => {
+  const updateInsideTransaction = async (tx: any) => {
     const [before] = await tx.select().from(contacts).where(eq(contacts.id, contactId)).limit(1).for("update");
     if (!before) return null;
     if (compareAndSet) {
@@ -579,7 +594,10 @@ export async function updateContactLocalFirst(
       entityId: contactId, before: null, after: safeUpdates as Record<string, unknown>,
     }, tx);
     return local;
-  });
+  };
+  const updated = transaction
+    ? await updateInsideTransaction(transaction)
+    : await db.transaction(updateInsideTransaction);
   if (!updated) return null;
 
   if (hasReadinessChange && !hookPolicy?.deferReadiness) {

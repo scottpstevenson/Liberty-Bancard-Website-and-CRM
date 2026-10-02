@@ -17,6 +17,7 @@ import { registerAiRoutes } from "./routes/ai";
 import { registerIntegrationsRoutes } from "./routes/integrations";
 import { registerGhlSyncControlRoutes } from "./routes/ghl-sync-control";
 import { registerGhlSyncTruthRoutes } from "./routes/ghl-sync-truth";
+import { registerGhlInboundSyncRoutes } from "./routes/ghl-inbound-sync";
 import { registerTemplatesSettingsRoutes } from "./routes/templates-settings";
 import { registerAnalyticsRoutes } from "./routes/analytics";
 import { registerProspectsRoutes } from "./routes/prospects";
@@ -145,6 +146,7 @@ export async function registerRoutes(
   registerIntegrationsRoutes(app);
   registerGhlSyncControlRoutes(app);
   registerGhlSyncTruthRoutes(app);
+  registerGhlInboundSyncRoutes(app);
   registerTemplatesSettingsRoutes(app);
   registerAnalyticsRoutes(app);
   registerProspectsRoutes(app);
