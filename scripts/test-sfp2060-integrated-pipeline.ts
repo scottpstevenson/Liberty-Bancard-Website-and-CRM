@@ -126,7 +126,7 @@ try {
     previewSfpValidation,
     executeSfpValidation,
   } = await import("../server/services/cro03/sfp-validation");
-  const { openSfpCandidatePlaintext } =
+  const { getUnifiedSfpCandidates, openSfpCandidatePlaintext } =
     await import("../server/services/cro03/sfp-paid-evidence-writer");
   const {
     previewSfpPaidWaterfall,
@@ -1566,6 +1566,143 @@ try {
   assert.equal(Number(contactRecipientClaim.business_id), businessC);
   assert.equal(String(contactRecipientClaim.staging_intent_id), String(contactIntent.id));
   assert.equal(String(contactRecipientClaim.contact_business_link_decision_id), String(approvedContactLink.id));
+
+  // The successful free and paid bridges create canonical contacts that are
+  // independently visible as alternate validation candidates. A staged
+  // business must remain excluded even when those candidates have a newer
+  // contact/link revision than the immutable eligibility it already owns.
+  // The isolated certification runner does not execute the server-startup
+  // contact-class backfill. These bridge-created contacts are genuine
+  // disposable business contacts (not synthetic/test rows), so model the
+  // production class that the normal startup convergence assigns before
+  // testing the same unified-candidate predicates used by runtime.
+  const productionBridgeContacts = rows(await db.execute(sql`
+    UPDATE contacts
+       SET record_class='production'
+     WHERE id=ANY(ARRAY[${Number(bridgeReceipt.contactId)},${Number(paidBridge.contactId)}]::integer[])
+       AND business_id=ANY(ARRAY[${businessA},${businessB}]::integer[])
+    RETURNING id,business_id,record_class
+  `));
+  assert.equal(productionBridgeContacts.length, 2,
+    "the disposable free/paid bridge contacts receive their normal startup production classification");
+  assert.ok(productionBridgeContacts.every((contact: any) => contact.record_class === "production") &&
+    productionBridgeContacts.some((contact: any) =>
+      Number(contact.id) === Number(bridgeReceipt.contactId) && Number(contact.business_id) === businessA) &&
+    productionBridgeContacts.some((contact: any) =>
+      Number(contact.id) === Number(paidBridge.contactId) && Number(contact.business_id) === businessB),
+  "only the two bridge-created contacts for their canonical test businesses are classified as production");
+  const bridgedContactCandidates = await getUnifiedSfpCandidates([businessA, businessB]);
+  for (const [businessId, contactId] of [
+    [businessA, Number(bridgeReceipt.contactId)],
+    [businessB, Number(paidBridge.contactId)],
+  ] as const) {
+    assert.ok(contactId > 0);
+    assert.ok(bridgedContactCandidates.some((candidate: any) =>
+      candidate.sourceKind === "contact" &&
+      candidate.businessId === businessId &&
+      candidate.evidenceId === `contact:${contactId}` &&
+      candidate.field === "email" &&
+      ["staged", "validation_admitted"].includes(candidate.disposition),
+    ), `positive bridge contact ${contactId} is present as an alternate validation candidate`);
+  }
+
+  const stagedBusinessIds = [businessA, businessB, businessC, businessD];
+  const stagedEligibilityPins = rows(await db.execute(sql`
+    SELECT e.id,md5(row_to_json(e)::text) AS fingerprint
+      FROM sfp_outreach_eligibility e
+     WHERE e.cohort_run_id=${cohortRunId}::uuid
+       AND e.business_id=ANY(ARRAY[${sql.join(stagedBusinessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY e.business_id
+  `));
+  assert.equal(stagedEligibilityPins.length, 4);
+  const sourceLinkProofs = rows(await db.execute(sql`
+    SELECT d.id,d.contact_id,d.business_id,d.decision,d.revision,d.superseded_at,
+           d.sfp_evidence_id,e.id AS evidence_id,e.eligibility_id,e.source_kind,
+           e.free_candidate_id,e.paid_candidate_evidence_id,e.normalized_value_hash,
+           e.normalized_value_hash_version,e.validation_operation_id,
+           md5(row_to_json(d)::text) AS decision_fingerprint,
+           CASE WHEN e.id IS NULL THEN NULL ELSE md5(row_to_json(e)::text) END AS evidence_fingerprint
+      FROM contact_business_link_decisions d
+      LEFT JOIN contact_business_sfp_link_evidence e ON e.id=d.sfp_evidence_id
+     WHERE (d.contact_id=${Number(bridgeReceipt.contactId)} AND d.business_id=${businessA})
+        OR (d.contact_id=${Number(paidBridge.contactId)} AND d.business_id=${businessB})
+        OR (d.contact_id=${Number(contactIntent.contact_id)} AND d.business_id=${businessC}
+            AND d.id=${String(contactIntent.contact_business_link_decision_id)}::uuid)
+     ORDER BY d.id
+  `));
+  assert.equal(sourceLinkProofs.length, 3,
+    "each bridged/new or original contact candidate retains its source-link proof");
+  assert.ok(sourceLinkProofs
+    .filter((proof: any) => Number(proof.business_id) !== businessC)
+    .every((proof: any) => proof.sfp_evidence_id && proof.evidence_id && proof.evidence_fingerprint),
+  "the new canonical-contact alternatives are backed by immutable SFP link evidence");
+  const validationReceiptFingerprints = rows(await db.execute(sql`
+    SELECT e.business_id,po.operation_id,md5(row_to_json(po)::text) AS fingerprint
+      FROM sfp_outreach_eligibility e
+      JOIN provider_observations po
+        ON po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+       AND po.provider='zerobounce'
+     WHERE e.cohort_run_id=${cohortRunId}::uuid
+       AND e.business_id=ANY(ARRAY[${sql.join(stagedBusinessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY e.business_id,po.operation_id
+  `));
+  assert.equal(validationReceiptFingerprints.length, 4,
+    "all staged source eligibilities retain their original immutable ZeroBounce observation");
+
+  const stagedCandidatePreview = await previewSfpValidation(cohortRunId);
+  assert.equal(stagedCandidatePreview.gateOpen, true);
+  assert.equal(stagedCandidatePreview.addressesForValidation, 0,
+    "already-staged businesses cannot be scheduled again through changed or alternate candidates");
+  assert.deepEqual(stagedCandidatePreview.selectedCandidates, [],
+    "new canonical-contact candidates created by positive bridges are excluded for their already-staged businesses");
+  const zeroBounceCallsBeforeStagedReplay = zeroBounceCalls;
+  await assert.rejects(() => executeSfpValidation(cohortRunId, {
+    idempotencyKey: `${runKey}-staged-alternate-candidate-regression`,
+    actorId,
+    maxValidations: 25,
+    snapshotHash: stagedCandidatePreview.snapshotHash,
+  }), /SFP_VALIDATION_BLOCKED:COHORT_FULLY_DECIDED/,
+  "an entirely staged cohort fails explicitly before any claim or provider I/O");
+  assert.equal(zeroBounceCalls, zeroBounceCallsBeforeStagedReplay,
+    "executing the empty staged-business preview makes no additional provider/network calls");
+  const stagedEligibilityPinsAfterReplay = rows(await db.execute(sql`
+    SELECT e.id,md5(row_to_json(e)::text) AS fingerprint
+      FROM sfp_outreach_eligibility e
+     WHERE e.cohort_run_id=${cohortRunId}::uuid
+       AND e.business_id=ANY(ARRAY[${sql.join(stagedBusinessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY e.business_id
+  `));
+  assert.deepEqual(stagedEligibilityPinsAfterReplay, stagedEligibilityPins,
+    "the complete immutable eligibility/source pins are unchanged by the empty replay");
+  const sourceLinkProofsAfterReplay = rows(await db.execute(sql`
+    SELECT d.id,d.contact_id,d.business_id,d.decision,d.revision,d.superseded_at,
+           d.sfp_evidence_id,e.id AS evidence_id,e.eligibility_id,e.source_kind,
+           e.free_candidate_id,e.paid_candidate_evidence_id,e.normalized_value_hash,
+           e.normalized_value_hash_version,e.validation_operation_id,
+           md5(row_to_json(d)::text) AS decision_fingerprint,
+           CASE WHEN e.id IS NULL THEN NULL ELSE md5(row_to_json(e)::text) END AS evidence_fingerprint
+      FROM contact_business_link_decisions d
+      LEFT JOIN contact_business_sfp_link_evidence e ON e.id=d.sfp_evidence_id
+     WHERE (d.contact_id=${Number(bridgeReceipt.contactId)} AND d.business_id=${businessA})
+        OR (d.contact_id=${Number(paidBridge.contactId)} AND d.business_id=${businessB})
+        OR (d.contact_id=${Number(contactIntent.contact_id)} AND d.business_id=${businessC}
+            AND d.id=${String(contactIntent.contact_business_link_decision_id)}::uuid)
+     ORDER BY d.id
+  `));
+  assert.deepEqual(sourceLinkProofsAfterReplay, sourceLinkProofs,
+    "the original human/system source-link proofs remain unchanged after replay");
+  const validationReceiptFingerprintsAfterReplay = rows(await db.execute(sql`
+    SELECT e.business_id,po.operation_id,md5(row_to_json(po)::text) AS fingerprint
+      FROM sfp_outreach_eligibility e
+      JOIN provider_observations po
+        ON po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
+       AND po.provider='zerobounce'
+     WHERE e.cohort_run_id=${cohortRunId}::uuid
+       AND e.business_id=ANY(ARRAY[${sql.join(stagedBusinessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
+     ORDER BY e.business_id,po.operation_id
+  `));
+  assert.deepEqual(validationReceiptFingerprintsAfterReplay, validationReceiptFingerprints,
+    "the original provider-observation fingerprints are unchanged after replay");
 
   // Revoking the human-reviewed source link after that success is visible on
   // historical replay; it never deletes or activates the paused enrollment.

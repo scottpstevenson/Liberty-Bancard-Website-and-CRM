@@ -95,7 +95,7 @@
 - [Production seed & migration convergence](production-seed-convergence.md) — Startup repairs missing seeds and migration hashes under locks/sentinel gates; see linked convergence note.
 - [DB pool/worker contention](db-pool-worker-contention.md) — system-wide 500s/timeouts can be pool exhaustion from shared BullMQ workers, not a regression; isolated pg.Pool ping fast = contention.
 - [pool.connect() wrapper danger](pool-connect-wrapper.md) — wrapping pool.connect() to intercept client.release() is unsafe (pg-pool recycles clients); use pool.query() wrapper only.
-- [Contact record_class production gap](contact-record-class-gap.md) — production contacts all land as 'unknown'; fire-and-forget backfill on startup reclassifies; excluded from sync SEED_TARGETS.
+- [Standalone contact classification](contact-record-class-gap.md) — Standalone tests miss startup classification; new versus reused bridge contacts can change candidate coverage.
 - [CRO03 safeError opaque redaction](cro03-safeerror-redaction.md) — routes/cro03.ts strips non-CRO03(A|B|C)?_-prefixed errors to a generic 400 with no server log; trace source, not logs.
 - [uuid cursor empty-string sentinel](uuid-cursor-empty-sentinel.md) — never compare a uuid column against '' on an empty table; Postgres throws invalid-uuid-syntax.
 - [CRO03D/CRO03C ceremony pitfalls](cro03d-ceremony-scope-mismatch.md) — Match cro03cApprovalScope(); RELEASE_SHA approvals expire on deploy and /tmp clears on restart.

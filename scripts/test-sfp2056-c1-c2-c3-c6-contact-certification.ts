@@ -2412,10 +2412,12 @@ try {
     }
   }
 
-  // The original receipt is genuinely settled, but its provider-reported
-  // verifiedAt is close to policy expiry. Hold the final transaction past
-  // that expiry at the lock-held barrier and prove no business email projection
-  // occurs from a receipt that expired while commit locks were held.
+  // Seed a genuinely reserved, dispatched, and settled ZeroBounce operation,
+  // then record its immutable observation once with a short explicit expiry.
+  // The private harness does not run this operation's stage finalizer, so
+  // retire its stage lease before settlement; this preserves the completed /
+  // committed operation while allowing the test to record the provider
+  // observation with its explicit expiry through the normal receipt schema.
   const expiredReceiptFixture = await createRaceFreeFixture("expired-receipt-projection");
   const expiredReceiptPreview = await previewSfpValidation(expiredReceiptFixture.cohortId);
   const ttl = rows(await db.execute(sql`
@@ -2426,19 +2428,130 @@ try {
   `))[0];
   assert.ok(Number.isInteger(Number(ttl?.validation_ttl_days)) && Number(ttl?.validation_ttl_days) > 0,
     "active validation TTL is required for the genuine expiring-receipt fixture");
-  let fakeVerifiedAt = "";
+  const {
+    finishSfpProviderOperation,
+    invokeSfpProviderTransport,
+    reserveSfpProviderOperation,
+  } = await import("../server/services/cro03/sfp-provider-operations");
+  const seedValidationStageId = randomUUID();
+  const seedValidationStageClaim = randomUUID();
+  await db.execute(sql`
+    INSERT INTO sfp_stage_runs
+      (id,cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,
+       payload_hash,preview_snapshot_hash,claim_token,started_at,last_heartbeat_at,lease_expires_at)
+    VALUES (${seedValidationStageId}::uuid,${expiredReceiptFixture.cohortId}::uuid,'validation',
+      ${`${runKey}-expired-receipt-seed`},${reviewerId},'running',1,'["zerobounce"]'::jsonb,
+      ${createHash("sha256").update(`${runKey}-expired-receipt-seed`).digest("hex")},
+      ${expiredReceiptPreview.snapshotHash},${seedValidationStageClaim}::uuid,
+      NOW(),NOW(),clock_timestamp()+INTERVAL '5 minutes')
+  `);
+  const expiredReceiptReservation = await reserveSfpProviderOperation({
+    stageRunId: seedValidationStageId,
+    cohortRunId: expiredReceiptFixture.cohortId,
+    businessId: expiredReceiptFixture.businessId,
+    candidateId: expiredReceiptFixture.candidateId,
+    provider: "zerobounce",
+    purpose: "sfp_email_validation",
+    idempotencyKey: `${runKey}-expired-receipt-seed`,
+    actorId: reviewerId,
+    workUnit: "request",
+    units: 1,
+  });
+  await invokeSfpProviderTransport(
+    expiredReceiptReservation,
+    async () => ({ status: "valid" }),
+    async (tx: any) => {
+      const source = rows(await tx.execute(sql`
+        SELECT id FROM free_discovery_candidates
+         WHERE id=${expiredReceiptFixture.candidateId}::uuid
+           AND business_id=${expiredReceiptFixture.businessId}
+           AND normalized_value_hash=${expiredReceiptFixture.normalizedValueHash}
+      `))[0];
+      if (!source) throw new Error("TASK_2056_EXPIRED_RECEIPT_SEED_SOURCE_MISMATCH");
+    },
+  );
+  // Invalidate only this disposable seed stage's promotion lease after the
+  // transport boundary. The provider operation itself remains settleable from
+  // its durable dispatch marker; its observation is recorded below exactly
+  // once with the explicit expiry rather than the default policy-age expiry.
+  await db.execute(sql`
+    UPDATE sfp_stage_runs
+       SET state='completed',claim_token=NULL,lease_expires_at=NULL,
+           completed_at=clock_timestamp(),updated_at=clock_timestamp()
+     WHERE id=${seedValidationStageId}::uuid
+  `);
+  const expiredReceiptSettlement = await finishSfpProviderOperation({
+    reservation: expiredReceiptReservation,
+    outcome: "completed",
+    observation: "valid",
+    businessId: expiredReceiptFixture.businessId,
+    emailTokenHash: hashEmailToken(expiredReceiptFixture.email),
+    workUnit: "request",
+    workCompleted: 1,
+    providerUsage: {
+      status: "unknown",
+      quantity: null,
+      unit: null,
+      source: "task_2056_disposable_expiring_receipt_fixture",
+    },
+    resultData: { retrievalState: "completed" },
+  });
+  assert.equal(expiredReceiptSettlement.replayed, false);
+  const expiredReceiptAttempt = rows(await db.execute(sql`
+    SELECT id,outcome,dispatch_marked_at
+      FROM provider_attempts
+     WHERE operation_id=${expiredReceiptReservation.operationId}::uuid
+       AND attempt_number=1
+  `))[0];
+  const expiredReceiptOperation = rows(await db.execute(sql`
+    SELECT state,billing_state
+      FROM provider_operations
+     WHERE id=${expiredReceiptReservation.operationId}::uuid
+  `))[0];
+  assert.ok(expiredReceiptAttempt?.id && expiredReceiptAttempt.dispatch_marked_at);
+  assert.equal(expiredReceiptAttempt.outcome, "completed");
+  assert.equal(expiredReceiptOperation.state, "completed");
+  assert.equal(expiredReceiptOperation.billing_state, "committed");
+  const seedObservationCount = Number(rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS count FROM provider_observations
+     WHERE operation_id=${expiredReceiptReservation.operationId}::uuid
+       AND provider='zerobounce'
+  `))[0].count);
+  assert.equal(seedObservationCount, 0,
+    "the retired disposable seed stage leaves the settled operation ready for one explicit-expiry observation");
+  const expiredReceipt = rows(await db.execute(sql`
+    INSERT INTO provider_observations
+      (provider,operation_id,attempt_id,subject_type,subject_id,email_token_hash,
+       outcome,retryable,observed_at,expires_at)
+    VALUES ('zerobounce',${expiredReceiptReservation.operationId}::uuid,
+      ${String(expiredReceiptAttempt.id)}::uuid,'business',${expiredReceiptFixture.businessId},
+      ${hashEmailToken(expiredReceiptFixture.email)},'valid',FALSE,
+      clock_timestamp(),clock_timestamp()+INTERVAL '15 seconds')
+    RETURNING id,operation_id,attempt_id,observed_at,expires_at::text AS expires_at
+  `))[0];
+  assert.ok(expiredReceipt?.id);
+  assert.equal(String(expiredReceipt.operation_id), String(expiredReceiptReservation.operationId));
+  assert.equal(String(expiredReceipt.attempt_id), String(expiredReceiptAttempt.id));
+  const expiredReceiptDeadline = String(expiredReceipt.expires_at);
+
+  const expiredReceiptRunId = await createFrozenBridgeCohort(
+    "expired-receipt-projection-finalization",
+    expiredReceiptFixture.businessId,
+  );
+  const expiredReceiptFinalPreview = await previewSfpValidation(expiredReceiptRunId);
+  assert.equal(expiredReceiptFinalPreview.addressesForValidation, 1,
+    "the finalization cohort selects the business whose genuine receipt is cached");
   const expiredReceiptReached = makeDeferred<void>();
   const expiredReceiptRelease = makeDeferred<void>();
-  const expiredReceiptValidation = observeBackground(executeSfpValidation(expiredReceiptFixture.cohortId, {
+  let expiredReceiptTransportCalls = 0;
+  const expiredReceiptValidation = observeBackground(executeSfpValidation(expiredReceiptRunId, {
     idempotencyKey: `${runKey}-expired-receipt-projection-validation`,
-    snapshotHash: expiredReceiptPreview.snapshotHash,
+    snapshotHash: expiredReceiptFinalPreview.snapshotHash,
     actorId: reviewerId,
     maxValidations: 25,
     zbTransport: async () => {
-      const providerClock = rows(await db.execute(sql`SELECT clock_timestamp() AS at`))[0].at;
-      const validationTtlMs = Number(ttl.validation_ttl_days) * 24 * 60 * 60 * 1000;
-      fakeVerifiedAt = new Date(Date.parse(String(providerClock)) - validationTtlMs + 2_000).toISOString();
-      return { status: "valid", verifiedAt: fakeVerifiedAt } as any;
+      expiredReceiptTransportCalls++;
+      return { status: "valid" } as any;
     },
     concurrencyTestHooks: {
       onFinalEligibilityLocksHeld: async (context: any) => {
@@ -2454,12 +2567,17 @@ try {
     let receiptExpiryReached = false;
     while (!receiptExpiryReached && Date.now() < expiryDeadline) {
       receiptExpiryReached = rows(await db.execute(sql`
-        SELECT ${fakeVerifiedAt}::timestamptz
-          + (${Number(ttl.validation_ttl_days)}::text||' days')::interval
-          <= clock_timestamp() AS expired
+        SELECT expires_at<=clock_timestamp() AS expired
+          FROM provider_observations WHERE id=${String(expiredReceipt.id)}::uuid
       `))[0]?.expired === true;
       if (!receiptExpiryReached) await delay(25);
     }
+    const observedReceiptDeadline = rows(await db.execute(sql`
+      SELECT expires_at::text AS expires_at
+        FROM provider_observations WHERE id=${String(expiredReceipt.id)}::uuid
+    `))[0]?.expires_at;
+    assert.equal(String(observedReceiptDeadline), expiredReceiptDeadline,
+      "the wait is bound to the exact immutable observation expiry stored by PostgreSQL");
     check(receiptExpiryReached,
       "the database clock passes the provider receipt's bounded expiry while final eligibility locks are held");
   } finally {
@@ -2467,26 +2585,27 @@ try {
   }
   const expiredReceiptResult = await expiredReceiptValidation;
   const expiredReceiptState = rows(await db.execute(sql`
-    SELECT e.status,e.decision_reason,e.validation_at,
+    SELECT e.status,e.decision_reason,e.validation_at,e.validation_operation_id,e.reused_from_operation_id,
            e.validation_expires_at<=clock_timestamp() AS expired_at_commit,
-           e.validation_operation_id,o.state AS operation_state,o.billing_state,
+           o.state AS operation_state,o.billing_state,
            b.main_email,b.email_discovery_status
       FROM sfp_outreach_eligibility e
-      JOIN provider_operations o ON o.id=e.validation_operation_id
+      JOIN provider_operations o ON o.id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
       JOIN businesses b ON b.id=e.business_id
-     WHERE e.cohort_run_id=${expiredReceiptFixture.cohortId}::uuid
+     WHERE e.cohort_run_id=${expiredReceiptRunId}::uuid
        AND e.business_id=${expiredReceiptFixture.businessId}
   `))[0];
-  check(Boolean(fakeVerifiedAt) &&
+  check(expiredReceiptTransportCalls === 0 &&
     expiredReceiptResult.failedCount > 0 &&
     expiredReceiptState?.expired_at_commit === true &&
     expiredReceiptState?.status === "validation_pending" &&
     expiredReceiptState?.decision_reason === "provider_observation_expired_before_eligibility_commit" &&
+    String(expiredReceiptState?.reused_from_operation_id) === String(expiredReceiptReservation.operationId) &&
     expiredReceiptState?.operation_state === "completed" &&
     expiredReceiptState?.billing_state === "committed" &&
     expiredReceiptState?.main_email == null &&
     expiredReceiptState?.email_discovery_status !== "provider_valid",
-  "receipt expiry during the held finalization barrier keeps the settled receipt but forbids a stale business email projection");
+  "cached receipt expiry during the held finalization barrier preserves the original settled operation but forbids a stale business email projection");
 } finally {
   if (reviewApiServer) {
     await new Promise<void>((resolve) => reviewApiServer.close(() => resolve()));

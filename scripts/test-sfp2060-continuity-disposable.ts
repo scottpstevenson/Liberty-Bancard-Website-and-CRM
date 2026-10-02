@@ -169,8 +169,8 @@ try {
   assert.equal(resolvedReview?.state, "completed");
   assert.equal(JSON.parse(resolvedReview?.outcome_code).route, "geography_review_revisited");
 
-  // Continuous discovery admits a bounded cohort before checking provider
-  // readiness, then stops quietly with transport globally disabled.
+  // Provider drainage stops quietly with transport globally disabled;
+  // admission still runs independently afterward.
   const discovery = await processSfpContinuousDiscoveryTick();
   assert.equal(discovery.newlyFrozenCount, 1, "eligible inventory is admitted independently of provider readiness");
   assert.equal(String(discovery.stopReason).startsWith("provider_paused:"), true);

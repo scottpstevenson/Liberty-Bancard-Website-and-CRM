@@ -431,6 +431,11 @@ async function getUndecidedCohortBizIds(cohortRunId: string): Promise<number[]> 
   const members = rows(await db.execute(sql`
     SELECT cm.business_id FROM sfp_cohort_members cm
      WHERE cm.cohort_run_id = ${cohortRunId}::uuid
+       AND NOT EXISTS (
+         SELECT 1 FROM sfp_outreach_eligibility staged
+          WHERE staged.cohort_run_id=cm.cohort_run_id AND staged.business_id=cm.business_id
+            AND staged.staging_intent_id IS NOT NULL
+       )
       ORDER BY cm.roi_score DESC,cm.business_id ASC
   `));
   return members.map((m: any) => Number(m.business_id));
@@ -644,6 +649,18 @@ async function selectWinnersPerBusiness(
   selectedContactTargets?: SfpSelectedContactTarget[],
 ): Promise<Map<number, UnifiedSfpCandidateView>> {
   const unified = await getUnifiedSfpCandidates(bizIds) as CandidateWithPin[];
+  if (!unified.length) return new Map();
+  // Includes contact-scoped callers and older policy versions. A staged
+  // business's existing evidence pins belong to its durable intent, not a
+  // newly discovered alternative candidate or bridge-created contact.
+  const stagedBusinesses = new Set(rows(await db.execute(sql`
+    SELECT business_id FROM sfp_outreach_eligibility
+     WHERE cohort_run_id=${cohortRunId}::uuid AND staging_intent_id IS NOT NULL
+       AND business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
+  `)).map((row: any) => Number(row.business_id)));
+  for (let index = unified.length - 1; index >= 0; index--) {
+    if (stagedBusinesses.has(unified[index].businessId)) unified.splice(index, 1);
+  }
   if (!unified.length) return new Map();
   for (const cand of unified) {
     cand._normalizedHash = cand.normalizedValueHash;
@@ -1778,7 +1795,8 @@ export async function executeSfpValidation(
             }
 
             const validationAt = observedAtForEligibility;
-            await tx.execute(sql`
+            await assertSfpEligibilityNotStaged(tx, cohortRunId, bizId);
+            const projected = rows(await tx.execute(sql`
               INSERT INTO sfp_outreach_eligibility
                (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
                 contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash_version,
@@ -1824,7 +1842,10 @@ export async function executeSfpValidation(
                 consent_tier = EXCLUDED.consent_tier, raw_provider_status = EXCLUDED.raw_provider_status,
                 raw_provider_substatus = EXCLUDED.raw_provider_substatus, reused_from_operation_id = EXCLUDED.reused_from_operation_id,
                 reason_codes = EXCLUDED.reason_codes, updated_at = NOW()
-            `);
+              WHERE sfp_outreach_eligibility.staging_intent_id IS NULL
+              RETURNING id
+            `));
+            if (!projected.length) throw new Error("SFP_VALIDATION_ALREADY_STAGED");
 
             if (zbOutcome === "valid" && status === "validated_outreach_eligible" && receiptMatches &&
                 contactIdentityCurrentAfterProvider && !suppressedAfterProvider && gateAfterProvider.eligible) {
@@ -2015,6 +2036,21 @@ export async function executeSfpValidation(
   return result;
 }
 
+async function assertSfpEligibilityNotStaged(
+  executor: { execute: (query: any) => Promise<any> },
+  cohortRunId: string,
+  businessId: number,
+): Promise<void> {
+  // Call only under the projection write gate/key. This also blocks a
+  // different policy version from replacing the staged business's proof.
+  const staged = rows(await executor.execute(sql`
+    SELECT id FROM sfp_outreach_eligibility
+     WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${businessId}
+       AND staging_intent_id IS NOT NULL LIMIT 1
+  `));
+  if (staged.length) throw new Error("SFP_VALIDATION_ALREADY_STAGED");
+}
+
 async function writeEligibilityRow(input: {
   cohortRunId: string;
   bizId: number;
@@ -2038,7 +2074,8 @@ async function writeEligibilityRow(input: {
   const write = async (target: { execute: (query: any) => Promise<any> }) => {
     await lockSfpEligibilityProjectionWriteGate(target);
     await lockSfpEligibilityProjectionKey(target, input.cohortRunId, input.bizId, policyVersion);
-    await target.execute(sql`
+    await assertSfpEligibilityNotStaged(target, input.cohortRunId, input.bizId);
+    const projected = rows(await target.execute(sql`
     INSERT INTO sfp_outreach_eligibility
       (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
        contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash_version,
@@ -2072,7 +2109,10 @@ async function writeEligibilityRow(input: {
             masked_email=EXCLUDED.masked_email,discovery_source=EXCLUDED.discovery_source,
            consent_tier=EXCLUDED.consent_tier, reason_codes=EXCLUDED.reason_codes,
            normalized_value_hash=EXCLUDED.normalized_value_hash, updated_at=NOW()
-    `);
+    WHERE sfp_outreach_eligibility.staging_intent_id IS NULL
+    RETURNING id
+    `));
+    if (!projected.length) throw new Error("SFP_VALIDATION_ALREADY_STAGED");
   };
   if (executor === db) await db.transaction(write);
   else await write(executor);

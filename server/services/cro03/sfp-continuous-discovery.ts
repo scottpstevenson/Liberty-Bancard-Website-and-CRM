@@ -120,6 +120,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     return { ran: false, reason: "program_inactive" };
   }
 
+  const tickStartedAt = Date.now();
   const end = deadline();
   // Phase 1 stops at whichever is sooner: its own bounded share of the tick,
   // or the overall tick deadline. This guarantees Phase 2 always gets the
@@ -135,36 +136,6 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   // we don't re-preview them on every loop iteration once they're drained.
   const exhaustedCohorts = new Set<string>();
   let sawWorkThisTick = false;
-
-  // Cohort admission is intentionally independent of Serper readiness and
-  // UTC-hour buckets. Use the selector's durable never-frozen count so
-  // inventory continues to enter bounded cohorts while discovery providers
-  // are paused. freezeCohort persists each sequence key and serializes
-  // concurrent identical attempts; failed attempts consume a key because
-  // their durable failed run remains part of the sequence.
-  try {
-    const admission = await previewRoiCohort({
-      maxCohort: program.maxCohortSize,
-      maxPreview: program.maxCohortSize,
-      verticalIds: program.verticalIds,
-      countyFips: program.countyFips,
-      taxonomyVersion: program.taxonomyVersion,
-      policyVersion: program.policyVersion,
-    });
-    if (admission.unadmittedEligibleCount > 0) {
-      const freeze = await freezeCohort({
-        idempotencyKey: await nextContinuousAdmissionKey(program.id),
-        actorId: "system:sfp-continuous-discovery",
-      });
-      if (freeze.newlyFrozen) newlyFrozenCount++;
-      cohortRunIds.add(freeze.run.id);
-    }
-  } catch (err: any) {
-    await auditTick("sfp_continuous_discovery_tick", "admission_failed", {
-      error: "SFP_COHORT_ADMISSION_FAILED",
-      ...safeSfpFailureDiagnostics(err),
-    });
-  }
 
   while (Date.now() < phase1End && calls < MAX_CALLS_PER_TICK) {
     // Durable-paused fast path: check the shared provider_controls gate
@@ -341,6 +312,46 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   }
   for (const id of waterfallCohortRunIds) cohortRunIds.add(id);
 
+  // Drain already-admitted work FIRST. A full census/freezing transaction
+  // can exceed the entire tick budget in production; putting it first
+  // previously prevented every provider call even when a freeze succeeded.
+  // Admission remains independent of provider readiness: paused providers
+  // finish their drain phases quietly and can still admit inventory.
+  // Busy inventories replenish after drainage leaves time, never by
+  // skipping immutable census decisions or changing spending controls.
+  if (Date.now() < end) {
+    try {
+      const admission = await previewRoiCohort({
+        maxCohort: program.maxCohortSize,
+        maxPreview: program.maxCohortSize,
+        verticalIds: program.verticalIds,
+        countyFips: program.countyFips,
+        taxonomyVersion: program.taxonomyVersion,
+        policyVersion: program.policyVersion,
+      });
+      if (admission.unadmittedEligibleCount > 0) {
+        const freeze = await freezeCohort({
+          idempotencyKey: await nextContinuousAdmissionKey(program.id),
+          actorId: "system:sfp-continuous-discovery",
+        });
+        if (freeze.newlyFrozen) newlyFrozenCount++;
+        cohortRunIds.add(freeze.run.id);
+      }
+    } catch (err: any) {
+      const diagnostics = safeSfpFailureDiagnostics(err);
+      // A concurrent canonical-row update invalidates REPEATABLE READ.
+      // Rollback is mandatory; the next scheduled tick retries admission
+      // with a new snapshot/key, after draining existing work first.
+      // Never downgrade isolation or reuse a durably failed sequence key.
+      await auditTick("sfp_continuous_discovery_tick", "admission_failed", {
+        error: "SFP_COHORT_ADMISSION_FAILED",
+        ...diagnostics,
+        retryable: diagnostics.sqlState === "40001" || diagnostics.sqlState === "40P01",
+        retryStrategy: "next_tick_fresh_snapshot",
+      });
+    }
+  }
+
   const summary = {
     ran: calls > 0 || waterfallCalls > 0 || newlyFrozenCount > 0,
     cohortRunIds: [...cohortRunIds],
@@ -348,7 +359,7 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
     calls, providerRequests, processed, succeeded, failed, noResult,
     waterfallProcessed, waterfallSucceeded, waterfallFailed,
     stopReason, waterfallStopReason,
-    elapsedMs: DRAIN_TIME_BUDGET_MS - Math.max(0, end - Date.now()),
+    elapsedMs: Date.now() - tickStartedAt,
   };
   await auditTick("sfp_continuous_discovery_tick", "drain_completed", summary);
   return summary;
@@ -378,6 +389,7 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
     return { ran: false, reason: "validation_promotion_disabled" };
   }
 
+  const tickStartedAt = Date.now();
   const end = deadline();
   const cohortRunIds = new Set<string>();
   let calls = 0, addressesValidated = 0, providerRequests = 0, validCount = 0;
@@ -445,7 +457,7 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
     cohortRunIds: [...cohortRunIds],
     calls, addressesValidated, providerRequests, validCount,
     stopReason,
-    elapsedMs: DRAIN_TIME_BUDGET_MS - Math.max(0, end - Date.now()),
+    elapsedMs: Date.now() - tickStartedAt,
   };
   await auditTick("sfp_continuous_validation_tick", "drain_completed", summary);
   return summary;

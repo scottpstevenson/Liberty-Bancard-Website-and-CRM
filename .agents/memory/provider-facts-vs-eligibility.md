@@ -17,6 +17,12 @@ Eligibility freshness must start from the original immutable observation, not th
 
 All participants must follow one compatible lock order. Existing-row locks do not protect absent restrictive facts or missing unique keys; the corresponding writers need a shared serialization mechanism. Read the real clock after waits and preserve any earlier explicit receipt expiry.
 
+Once eligibility is staged, preserve its accepted source/address/receipt pins instead of projecting a later candidate onto the same business row.
+
+**Why:** Bridging can create a canonical contact that subsequently appears as a new validation candidate for the already-staged business. Replacing the business-level projection detaches the existing intent and verified link from their original proof even if every provider receipt remains immutable.
+
+**How to apply:** Filter staged businesses during selection and fence every final projection write, including negative/pre-provider outcomes and policy-version changes. Address refresh needs a separately versioned review path, not an in-place replacement of staged evidence.
+
 Take the strongest required business-sentinel mode initially; if any write requires an exclusive sentinel, do not upgrade from shared after acquiring address locks.
 
 **Why:** Dispatch evidence readers do not all participate in the global eligibility fence. A reader can retain a shared business sentinel while waiting on a writer's address, making a late exclusive upgrade circular even when eligibility writers are serialized.
