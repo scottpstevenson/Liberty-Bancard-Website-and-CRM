@@ -63,3 +63,14 @@ Keep any owner-managed standard SQL-client administration separate from Agent
 read-only production access and prohibited custom production runners. Never
 retrieve the owner's production credentials. Report native repair only after
 independent production verification, and automatic Publish delivery separately.
+
+The user's established repair workflow here is the Database SQL console:
+"I've always used the console to do these repairs." They rejected being
+redirected to installing an external PostgreSQL client.
+
+**Why:** The user explicitly corrected the external-client handoff; an optional
+documented alternative must not become a prerequisite imposed on their workflow.
+
+**How to apply:** Continue console diagnosis with minimal non-mutating probes
+and actual owner-console results, not further speculative large repair variants.
+Distinguish Agent read-only SQL execution from owner-console compatibility.

@@ -99,7 +99,12 @@ Replit deployment backends, nor guarantee that Publish can never support native
 objects. It establishes that this specific pending native contract is not
 being delivered by the current project diff.
 
-## Supported owner administration alternative
+## Owner workflow: SQL console; external client is optional
+
+The user confirms their established repairs have always used the SQL console
+and rejects the external-client installation handoff. Continue diagnosing that
+console with minimal read-only probes; do not make a separate client a
+prerequisite or ask for another large repair paste.
 
 Replit's actual [Connection details documentation](https://docs.replit.com/features/data-and-storage/connection-details)
 explicitly says a production database can be connected to from a
@@ -108,7 +113,7 @@ PostgreSQL-compatible external SQL client using the connection string from
 not an application endpoint, startup hook, build hook or custom migration runner.
 Do not disclose the connection string to Agent or put it in this repository/chat.
 
-The owner, or an authorized database administrator, can load the existing
+If the owner independently chooses that optional alternative, they can load the existing
 **`migrations/0329_crm_native_contract_repair.sql`** as a whole SQL script in that
 client. Use script/file execution, not a selected fragment. The original
 versioned source is unchanged; there is no third SQL encoding to paste.
@@ -130,9 +135,9 @@ fails, do not partially paste/execute its inner definitions. Address the
 reported restriction/drift and replay the unchanged whole statement.
 
 The repair is not complete until independent production verification returns
-all seven true with the four intended routine fingerprints. If the owner cannot
-use an authorized PostgreSQL client, native delivery remains blocked. Routine
-republishing does not replace that prerequisite.
+all seven true with the four intended routine fingerprints. Native delivery is
+blocked pending a working authorized execution path, not pending installation
+of an external client. Routine republishing does not replace that prerequisite.
 
 ### Expected after-repair routines
 
