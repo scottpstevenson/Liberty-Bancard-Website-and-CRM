@@ -1,0 +1,57 @@
+{
+  "migrationFiles": [
+    {
+      "path": "migrations/0312_contact_business_system_links.sql",
+      "sha256": "2ad3368b98a06a849bea990ee117059bb6452e889a1087a10f937245016a2fee"
+    },
+    {
+      "path": "migrations/0314_sfp_verified_recipient_link_commitments.sql",
+      "sha256": "1086b507553d470df5e673b53ef11abc1ce343c3ae6efd605b268eadc92a574d"
+    },
+    {
+      "path": "migrations/0325_crm_evidence_relationship_authority.sql",
+      "sha256": "51670bda2ec7efad4a9c4cd0c8fc639979708c379a3e6655631addff30329957"
+    }
+  ],
+  "observedAt": "2026-10-03T20:08:14.613Z",
+  "development": {
+    "ledger": {
+      "exitCode": 0,
+      "exitReason": null,
+      "output": "hash,created_at\n2ad3368b98a06a849bea990ee117059bb6452e889a1087a10f937245016a2fee,1800000013700\n1086b507553d470df5e673b53ef11abc1ce343c3ae6efd605b268eadc92a574d,1800000013900\n",
+      "success": true
+    },
+    "catalog": {
+      "exitCode": 0,
+      "exitReason": null,
+      "output": "proname,signature,body_md5,return_type,lanname,provolatile,proparallel,prosecdef,proconfig,proacl,owner,can_execute,owns_via_role\ncrm_automatic_relationship_reasons,\"contact_key integer, business_key integer, source_key uuid, entity_key integer\",6868a6d639a3fd0af7a10346821dad19,text[],plpgsql,s,u,f,,,postgres,t,t\ncrm_identity_domain,value text,d0af69048a9c4845df1589219a522629,text,sql,i,s,f,,,postgres,t,t\ncrm_identity_name,value text,e45d1eb858ef5e5f9d94b8b9aa965c49,text,sql,i,s,f,,,postgres,t,t\ncro02_system_link_evidence_append_only,,0851a20c34b3ce424364b5c3fc6e556b,trigger,plpgsql,v,u,f,,,postgres,t,t\nenforce_reviewed_contact_business_link,,46f89326f7c158ac739814ce343c2559,trigger,plpgsql,v,u,f,,,postgres,t,t\n",
+      "success": true
+    },
+    "head": {
+      "exitCode": 0,
+      "exitReason": null,
+      "output": "hash,created_at\nb376aa24d100cdf6645502d80c301bbcde804f8411262fa4546ed8e43f1114bb,1800000015200\nec9d327ce37f1a048ed1efd5f96a5fd89182e9292c11460639d522fb19ff4844,1800000015100\n976b5c0006bcd33410005e06a9fbdbb6bd57a8261d6cb3037148ea9f8bd06776,1800000015000\n42813bae6ab0415ab39172d02d9f10bc244be13f191d458a120a94919d11830c,1800000014900\n2d4fa88a84915c4d6a94e047290067988d1373b813aec7488edb2ba99837ec1c,1800000014800\n",
+      "success": true
+    }
+  },
+  "production": {
+    "ledger": {
+      "exitCode": 0,
+      "exitReason": null,
+      "output": "hash,created_at\n",
+      "success": true
+    },
+    "catalog": {
+      "exitCode": 0,
+      "exitReason": null,
+      "output": "proname,signature,body_md5,return_type,lanname,provolatile,proparallel,prosecdef,proconfig,proacl,owner,can_execute,owns_via_role\ncro02_system_link_evidence_append_only,,0851a20c34b3ce424364b5c3fc6e556b,trigger,plpgsql,v,u,f,,,neondb_owner,t,t\nenforce_reviewed_contact_business_link,,30910090e380e90ea27bff572d2c5847,trigger,plpgsql,v,u,f,,,neondb_owner,t,t\n",
+      "success": true
+    },
+    "head": {
+      "exitCode": 0,
+      "exitReason": null,
+      "output": "hash,created_at\n1e7d37be72e10d213a9ac2913103dd0bc2b5c81f9c37c37a4b773e5162910fe6,1800000013301\n3c38af14a75e3075f8e6eb3e0cd92d978613f020f3f1788adc4c72fa4ae61fa8,1800000013300\n5605691926431819b3084014b139c7fac6d39eddfe34f843e0c1ca2f102c1064,1800000013200\n684dd086d96f90f21971876f901901b4633340ec6ad439789fea56f3ec701fb4,1800000013100\nbedbae301cd6010984fb47182151b10532d204bcb0d5352d36a333adfca64e9b,1800000013000\n",
+      "success": true
+    }
+  }
+}

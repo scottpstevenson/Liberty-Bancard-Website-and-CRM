@@ -28,3 +28,18 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 **Why:** Native-function rollout can lag the declarative schema even when published columns and tables are current. Coupling ordinary reads to that rollout caused several independent CRM screens to fail simultaneously.
 
 **How to apply:** Keep read evaluation and native evaluation semantically equivalent when changing relationship rules. Preserve fingerprinted native guards on writes and report missing production guards as a release hold, never as permission to bypass them.
+
+Native-body parity and migration-ledger provenance are separate evidence.
+A current routine body can match the intended source even when the exact
+source-file hash is absent from the development ledger. Do not fabricate an
+applied migration entry or replay historical table creation to reconcile that
+discrepancy.
+
+**Why:** Native-repair investigation found correctly installed development
+functions without an exact current-source migration hash, alongside production
+tables/constraints present without their original ledger entries.
+
+**How to apply:** Keep both observations explicit; certify a forward repair
+against the actual installed mismatch and preserve the historical discrepancy.
+The user-authorized owner-route exception is documented in `replit.md`;
+Agent production SQL access remains read-only.

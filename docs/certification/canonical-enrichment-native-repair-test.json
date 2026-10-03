@@ -1,0 +1,30 @@
+{
+  "scope": "Disposable native repair certificate; no production execution",
+  "repairFile": "migrations/0329_crm_native_contract_repair.sql",
+  "repairSha256": "6213c5ac119d9cca2ec5128b2f84b3f3e18ca79b24a01735e45ab649d27d4242",
+  "observedAt": "2026-10-03T20:13:31.963Z",
+  "checks": 24,
+  "productionMismatchReproduced": true,
+  "atomicFailureRecovery": true,
+  "safeReplay": true,
+  "unknownBodyRejected": true,
+  "disabledTriggerRejected": true,
+  "insufficientPermissionRejected": true,
+  "triggerIdentityAndConstraintsPreserved": true,
+  "functionOwnerAclAndSecurityPreserved": true,
+  "repairDataProviderEnrollmentAndJournalCountsUnchanged": true,
+  "supportedIdentityEvaluatorExecuted": true,
+  "missingEvidenceWriteRejected": true,
+  "supportedNativeLinkWritePassed": true,
+  "immutableEvidenceWriteRejected": true,
+  "nativeGuard": {
+    "installed": true,
+    "immutable_evidence_trigger": true,
+    "evidence_table": true,
+    "evidence_column": true,
+    "evidence_foreign_keys": true,
+    "sfp_contact_checks": true,
+    "relationship_evaluator": true
+  },
+  "productionVerified": false
+}

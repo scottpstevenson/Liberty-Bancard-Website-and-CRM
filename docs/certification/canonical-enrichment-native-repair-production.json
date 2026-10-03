@@ -1,0 +1,37 @@
+{
+  "observedAt": "2026-10-03T20:14:57.622Z",
+  "productionGuard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nf,t,t,t,t,t,f\n",
+    "success": true
+  },
+  "readOnlyTransportPermissionEvidence": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "current_user,transaction_read_only,schema_create,function_owner_membership,evidence_table_owner_membership\nneondb_owner,on,t,t,t\n",
+    "success": true
+  },
+  "deployment": {
+    "additionalUrls": [
+      "https://libertybancard.com",
+      "https://liberty-bancard-system.replit.app"
+    ],
+    "deploymentType": "autoscale",
+    "hasSuccessfulBuild": true,
+    "isDeployed": true,
+    "primaryUrl": "https://dev.libertybancard.com",
+    "success": true,
+    "visibility": "public"
+  },
+  "agentAppliedProductionDDL": false,
+  "productionVerified": false,
+  "servingHealth": {
+    "status": "ok",
+    "sha": "42309395870515b0a575e85f6c753a65da408c2a",
+    "builtAt": "2026-10-03T18:30:59.888Z",
+    "env": "production",
+    "publishBuildId": "67e0374c-e93f-45f5-8bb3-20d8d0cb981b",
+    "ghlTransportFailFast": false
+  }
+}

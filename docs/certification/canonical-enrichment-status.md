@@ -2,6 +2,14 @@
 
 ## Status
 
+**Updated owner-execution repair:** the user has amended the earlier
+project-level prohibition. A forward native-contract repair now passes
+disposable certification; see `canonical-enrichment-native-repair.md` for
+the exact versioned source, authorized-owner steps and verification queries.
+Production has not been repaired or verified. The investigation below is
+historical context for that deliverable, not a continuing ban on the
+user-authorized owner route.
+
 **Incomplete; contract-dependent implementation is blocked.** No application,
 schema, dependency, deployment configuration, production import, or outbound
 behavior was changed by this investigation.
