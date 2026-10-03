@@ -2,6 +2,15 @@
 
 ## Current disposition
 
+### Closed at user request — 2026-10-03
+
+The user explicitly instructed: “Close the task.” Work stops here. This closure
+supersedes the historical IN_PROGRESS instructions below; it is not a claim
+that the full pipeline was delivered or production acceptance achieved.
+The unresolved scope and release blockers remain documented below. No further
+implementation, production mutation, publication, or outbound release is
+authorized by this closure.
+
 ### CRM repair verification — 2026-10-03
 
 Task 2060 remains **IN_PROGRESS**, not accepted as a completed full pipeline.
