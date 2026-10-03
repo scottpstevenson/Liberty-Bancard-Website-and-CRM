@@ -1,6 +1,8 @@
 import { pool } from "../db";
 import { OPEN_SALES_LEAD_STAGES } from "@shared/schema";
 import { authorizeCommercialUseBatch } from "./commercial-resolution";
+import { contactTargetVerticalSql, resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
+import { CLASSIFIER_VERSION } from "./cro03/sfp-vertical-classifier";
 
 export type RevenueUser = { role?: string; email?: string | null };
 export type RevenueFilters = {
@@ -57,7 +59,38 @@ function addContactFilters(filters: RevenueFilters, values: unknown[], alias = "
   if (filters.churnRisk === "high") where.push(`${alias}.churn_risk_tier IN ('High', 'Critical')`);
   if (filters.noOutreach === "24h") where.push(`${alias}.created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours' AND ${alias}.last_contacted_at IS NULL`);
   if (filters.blocked) where.push(`(${alias}.do_not_contact = TRUE OR ${alias}.email_status IN ('bounced','invalid','opted_out','unsafe'))`);
-  if (filters.vertical) { values.push(filters.vertical); where.push(`${alias}.vertical = $${values.length}`); }
+  if (filters.vertical) {
+    const target = resolveContactTargetVertical(filters.vertical);
+    values.push(target ?? filters.vertical);
+    const p = `$${values.length}`;
+    where.push(target ? `(${contactTargetVerticalSql(`${alias}.vertical`)} = ${p}
+      OR EXISTS (SELECT 1 FROM contact_business_link_decisions vertical_link
+        JOIN businesses vertical_business ON vertical_business.id=vertical_link.business_id
+        WHERE vertical_link.contact_id=${alias}.id AND vertical_link.business_id=${alias}.business_id
+          AND vertical_link.decision='verified' AND vertical_link.superseded_at IS NULL
+          AND (${contactTargetVerticalSql("vertical_business.vertical")}=${p}
+            OR EXISTS (SELECT 1 FROM sfp_classification_evidence vertical_classification
+              JOIN sfp_programs vertical_program ON vertical_program.is_active=TRUE
+                AND vertical_program.taxonomy_version=2
+                AND vertical_program.policy_version=vertical_classification.policy_version
+              WHERE vertical_classification.business_id=vertical_business.id
+                AND vertical_classification.taxonomy_version=2
+                AND vertical_classification.classifier_version=${CLASSIFIER_VERSION}
+                AND vertical_classification.terminal_state='completed'
+                AND vertical_classification.outcome='target'
+                AND vertical_classification.admission_tier='resolved_high'
+                AND vertical_classification.resolved_vertical_id=${p}
+                AND vertical_classification.resolved_vertical_id=ANY(vertical_program.vertical_ids)
+                AND NOT EXISTS (SELECT 1 FROM sfp_classification_evidence later_classification
+                  WHERE later_classification.business_id=vertical_classification.business_id
+                    AND later_classification.taxonomy_version=2
+                    AND later_classification.classifier_version=${CLASSIFIER_VERSION}
+                    AND later_classification.policy_version=vertical_classification.policy_version
+                    AND later_classification.terminal_state='completed'
+                    AND (later_classification.created_at,later_classification.id)>
+                        (vertical_classification.created_at,vertical_classification.id))))))`
+      : `${alias}.vertical = ${p}`);
+  }
   if (filters.tag) { values.push(filters.tag); where.push(`$${values.length} = ANY(COALESCE(${alias}.tags, ARRAY[]::text[]))`); }
   if (filters.contactedToday) where.push(`${alias}.last_contacted_at >= CURRENT_DATE AND ${alias}.last_contacted_at < CURRENT_DATE + INTERVAL '1 day'`);
   if (filters.hasAssignee) where.push(`${alias}.assigned_to IS NOT NULL`);

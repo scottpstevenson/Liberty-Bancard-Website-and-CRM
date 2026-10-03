@@ -62,6 +62,7 @@ export interface ContactLinkCoverageState {
   startedAt: string;
   updatedAt: string;
   lastError: string | null;
+  serverProcessing?: boolean;
 }
 
 export interface ContactLinkCoverageSourceLink {
@@ -1320,6 +1321,7 @@ export async function initializeContactLinkCoverageRun(
     startedAt: now,
     updatedAt: now,
     lastError: null,
+    serverProcessing: true,
   };
   if (total === 0) {
     state.status = "completed";
@@ -1340,6 +1342,7 @@ export async function stepContactLinkCoverage(actorId: string) {
   return withCoverageTransaction(async client => {
     const state = await loadCoverageState(client, true);
     if (!state) throw new Error("CONTACT_LINK_COVERAGE_NOT_FOUND");
+    if (state.status === "paused") throw new Error("CONTACT_LINK_COVERAGE_PAUSED");
     if (state.status === "completed") throw new Error("CONTACT_LINK_COVERAGE_ALREADY_COMPLETED");
     if (state.status === "error") throw new Error("CONTACT_LINK_COVERAGE_RESUME_REQUIRED");
     return processContactLinkCoveragePage(client, state, actorId);
@@ -1351,6 +1354,7 @@ export async function pauseContactLinkCoverage(actorId: string) {
     const state = await loadCoverageState(client, true);
     if (!state) throw new Error("CONTACT_LINK_COVERAGE_NOT_FOUND");
     if (state.status !== "completed") state.status = "paused";
+    state.serverProcessing = false;
     state.updatedAt = new Date().toISOString();
     await writeCoverageCheckpoint(client, state, actorId);
     return state;
@@ -1363,6 +1367,7 @@ export async function resumeContactLinkCoverage(actorId: string) {
     if (!state) throw new Error("CONTACT_LINK_COVERAGE_NOT_FOUND");
     if (state.status === "completed") throw new Error("CONTACT_LINK_COVERAGE_ALREADY_COMPLETED");
     if (state.status === "error") throw new Error(state.lastError ?? "CONTACT_LINK_COVERAGE_DENOMINATOR_DRIFT");
+    state.serverProcessing = true;
     return processContactLinkCoveragePage(client, state, actorId);
   });
 }
@@ -1381,8 +1386,21 @@ function serializeCoverageStatus(state: ContactLinkCoverageState | null) {
       complete: false,
     };
   }
-  const { runId, status, watermark, cursor, total, processed, counts, reasonCounts, complete } = state;
-  return { runId, status, watermark, cursor, total, processed, counts, reasonCounts, complete };
+  const { runId, status, watermark, cursor, total, processed, counts, reasonCounts, complete, serverProcessing, updatedAt, lastError } = state;
+  return { runId, status, watermark, cursor, total, processed, counts, reasonCounts, complete,
+    serverProcessing: serverProcessing === true, updatedAt, lastError };
+}
+
+/** One bounded, transaction-serialized page; never requires a mounted browser. */
+export async function processContactLinkCoverageServerTick() {
+  return withCoverageTransaction(async client => {
+    const state = await loadCoverageState(client, true);
+    if (!state?.serverProcessing || state.complete || !["ready", "running"].includes(state.status)) {
+      return { ran: false, reason: state?.status ?? "not_started" };
+    }
+    const next = await processContactLinkCoveragePage(client, state, null);
+    return { ran: true, runId: next.runId, processed: next.processed, status: next.status };
+  });
 }
 
 export async function getContactLinkCoverageStatus() {
@@ -1397,6 +1415,7 @@ export async function getContactLinkCoverageStatus() {
 }
 
 export interface ContactLinkCoverageCandidateCursor {
+  reviewerId?: string;
   afterCreatedAt?: string;
   afterId?: string;
   limit?: number;
@@ -1443,12 +1462,17 @@ export async function listContactLinkCoverageCandidates(input: ContactLinkCovera
       const contact = contactById.get(contactId);
       const classification = classifiedByContact.get(contactId);
       const detail = classification?.candidates.find(item => item.businessId === businessId);
-      const evidenceSourceEventIds = detail?.evidenceSourceEventIds ?? contact?.sourceEvents.map(event => event.eventId) ?? [];
+      const evidenceSourceEventIds = detail && contact ? contact.sourceEvents
+        .filter(event => isContactLinkEvidenceIndependent(event, input.reviewerId ?? "")
+          && isContactLinkEvidenceBoundToCandidate(event, detail))
+        .map(event => event.eventId).sort((a, b) => a - b) : [];
       return {
         candidateId: String(candidate.candidateId),
         contactId,
         businessId,
         evidenceSourceEventIds,
+        reviewable: evidenceSourceEventIds.length > 0,
+        evidenceHoldReason: evidenceSourceEventIds.length ? null : "CONTACT_LINK_RETAINED_EVIDENCE_UNAVAILABLE",
         evidence: detail?.evidence ?? {},
         conflicts: detail?.conflicts ?? [],
         reasons: detail?.reasons ?? ["candidate_facts_no_longer_match"],
@@ -1575,10 +1599,39 @@ export async function reviewContactLinkCoverageBatch(
   const { decideContactBusinessLink } = await import("./commercial-link-authority");
   const outcomes: Array<Record<string, unknown>> = [];
   for (const item of items) {
-    const eventId = item.evidenceSourceEventId ?? null;
+    let eventId = item.evidenceSourceEventId ?? null;
     try {
+      // Resolve actual retained evidence, never ask an operator to invent an ID
+      // and never create derivative "independent" evidence to bypass the guard.
       if (item.decision === "verified" && eventId === null) {
-        throw new Error("COMMERCIAL_LINK_EVIDENCE_REQUIRED");
+        const retained = await queryDrizzleExecutor(db, `
+          SELECT decision_key,evidence_source_event_id FROM contact_business_link_decisions
+           WHERE contact_id=$1 AND business_id=$2 AND reviewed_by=$3 AND decision='verified'
+             AND revision=$4 AND evidence_source_event_id IS NOT NULL
+           ORDER BY id LIMIT 10
+        `, [item.contactId, item.businessId, reviewerId, item.expectedRevision + 1]);
+        for (const receipt of retained.rows as any[]) {
+          const receiptEventId = Number(receipt.evidence_source_event_id);
+          const receiptKey = reviewDecisionKey({
+            contactId: item.contactId, businessId: item.businessId, decision: item.decision,
+            reviewerId, expectedRevision: item.expectedRevision, snapshotHash: item.snapshotHash,
+            evidenceSourceEventId: receiptEventId,
+          });
+          if (receiptKey === receipt.decision_key) { eventId = receiptEventId; break; }
+        }
+      }
+      if (item.decision === "verified" && eventId === null) {
+        const contact = await fetchSingleContactCoverage(db, item.contactId);
+        const fact = contact ? candidateFact(item.contactId, item.businessId, [contact]) : null;
+        if (!fact || fact.candidate.snapshotHash !== item.snapshotHash ||
+            fact.candidate.expectedRevision !== item.expectedRevision) {
+          throw new Error("CONTACT_LINK_CANDIDATE_NOT_CURRENT");
+        }
+        const eligible = contact!.sourceEvents.filter(event =>
+          isContactLinkEvidenceIndependent(event, reviewerId) &&
+          isContactLinkEvidenceBoundToCandidate(event, fact.candidate));
+        if (!eligible.length) throw new Error("CONTACT_LINK_RETAINED_EVIDENCE_UNAVAILABLE");
+        eventId = eligible.sort((a, b) => a.eventId - b.eventId)[0].eventId;
       }
       const decisionBusinessId = item.decision === "verified" ? item.businessId : null;
       const decisionKey = reviewDecisionKey({

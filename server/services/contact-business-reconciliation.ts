@@ -19,6 +19,7 @@ export interface ContactBusinessSuggestionState {
   workflow?: string;
   jobId: string;
   status: "idle" | "running" | "ready" | "paused" | "completed" | "error";
+  serverProcessing?: boolean;
   cursorContactId: number;
   scannedContacts: number;
   suggestionsRecorded: number;
@@ -388,9 +389,8 @@ async function processOnePage(state: ContactBusinessSuggestionState, actorId: st
     state.unmatchedContacts += pageUnmatched;
     state.rawSunbizCandidates += pageRawSunbizCandidates;
     state.needsBusinessDiscovery += pageNeedsBusinessDiscovery;
-    // The workflow is operator-stepped: one bounded keyset page per start or
-    // resume request. "ready" means safely checkpointed and awaiting an operator,
-    // not an invisible background worker.
+    // Each page commits its cursor. The recurring server worker drains ready
+    // pages when initially authorized; browser requests are recovery only.
     state.status = page.length < state.batchSize ? "completed" : "ready";
     state.lastError = null;
     state.updatedAt = new Date().toISOString();
@@ -415,6 +415,7 @@ export async function startContactBusinessReconciliation(input: { batchSize?: nu
     const state: ContactBusinessSuggestionState = {
       jobId: crypto.randomUUID(),
       status: "running",
+      serverProcessing: true,
       cursorContactId: 0,
       scannedContacts: 0,
       suggestionsRecorded: 0,
@@ -440,6 +441,7 @@ export async function startContactBusinessReconciliation(input: { batchSize?: nu
 export async function pauseContactBusinessReconciliation(actorId: string) {
   return withReconciliationLock(async () => {
     const state = await loadState();
+    if (state) state.serverProcessing = false;
     if (!state) throw new Error("CONTACT_BUSINESS_RECONCILIATION_NOT_FOUND");
     if (state.status !== "completed") state.status = "paused";
     state.updatedAt = new Date().toISOString();
@@ -459,6 +461,7 @@ export async function resumeContactBusinessReconciliation(actorId: string) {
     if (!state) throw new Error("CONTACT_BUSINESS_RECONCILIATION_NOT_FOUND");
     if (state.status === "completed") throw new Error("CONTACT_BUSINESS_RECONCILIATION_ALREADY_COMPLETED");
     state.status = "running";
+    state.serverProcessing = true;
     state.lastError = null;
     state.updatedAt = new Date().toISOString();
     await saveState(state, actorId);
@@ -488,6 +491,17 @@ export async function getContactBusinessReconciliationProgress() {
     updatedAt: null,
     lastError: null,
   };
+}
+
+export async function processContactBusinessReconciliationServerTick() {
+  return withReconciliationLock(async () => {
+    const state = await loadState();
+    if (!state?.serverProcessing || !["ready", "running"].includes(state.status)) {
+      return { ran: false, status: state?.status ?? "idle" };
+    }
+    const next = await processOnePage(state, null);
+    return { ran: true, startedAt: next.startedAt, status: next.status, scanned: next.scannedContacts };
+  });
 }
 
 export async function listContactBusinessSuggestions(input: {

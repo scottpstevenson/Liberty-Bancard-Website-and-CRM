@@ -14,7 +14,10 @@ import {
 } from "./local-rehearsal-core";
 
 const localRole = () => process.env.USER || process.env.LOGNAME || os.userInfo().username;
-const targetScript = "scripts/test-sfp-validation-handoff-repair-certification.ts";
+const optionalOnly = process.argv.includes("--optional-providers-only");
+const targetScript = optionalOnly
+  ? "scripts/test-sfp-optional-provider-readiness-disposable.ts"
+  : "scripts/test-sfp-validation-handoff-repair-certification.ts";
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -73,6 +76,11 @@ async function main(): Promise<void> {
     exitCode = await run("npx", ["tsx", targetScript], env);
     if (exitCode !== 0) console.error(`✗ ${targetScript} failed with exit ${exitCode}`);
     else console.log(`✓ ${targetScript} passed`);
+    if (exitCode === 0 && !optionalOnly) {
+      const optionalProviderScript = "scripts/test-sfp-optional-provider-readiness-disposable.ts";
+      console.log(`\n══ ${optionalProviderScript} ══`);
+      exitCode = await run("npx", ["tsx", optionalProviderScript], env);
+    }
   } catch (error) {
     exitCode = exitCode || 1;
     console.error(error);

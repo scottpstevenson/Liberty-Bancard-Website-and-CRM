@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/use-auth";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { VERTICALS } from "@shared/schema";
+import { resolveContactTargetVertical, SFP_CONTACT_VERTICAL_IDS } from "@shared/contact-vertical-taxonomy";
 
 const formSchema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -1703,7 +1704,7 @@ export default function Contacts() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">All verticals</SelectItem>
-                  {VERTICALS.map(v => (
+                  {[...SFP_CONTACT_VERTICAL_IDS, ...VERTICALS.filter((v) => !resolveContactTargetVertical(v))].map(v => (
                     <SelectItem key={v} value={v}>{v}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1824,11 +1825,20 @@ export default function Contacts() {
               <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
                 <Users className="w-6 h-6 text-muted-foreground" />
               </div>
-              <p className="text-sm font-medium text-foreground" data-testid="text-empty-contacts">No contacts yet</p>
-              <p className="text-xs text-muted-foreground max-w-xs">Add your first contact to start tracking leads and customers.</p>
-              <Button size="sm" className="gap-1 mt-1" onClick={() => setIsDialogOpen(true)} data-testid="button-empty-add-contact">
-                <Plus className="w-3.5 h-3.5" /> Add Contact
-              </Button>
+              {searchTerm || activitySort || showArchived || statusFilter || recordClassFilter !== "production" || verticalFilter || tagFilter || leadSourceFilter || hasAssigneeOnly || churnRiskOnly || noOutreach24hOnly || blockedOnly || emailHealthFilter || assignedToMe || contactedTodayOnly || lifecycleFilter || staleContactsOnly || recentlyUpdated || neverContactedOnly || notContactedIn30Only || noDealOnly || createdThisWeekOnly ? (
+                <>
+                  <p className="text-sm font-medium text-foreground" data-testid="text-empty-contacts">No matching contacts</p>
+                  <p className="text-xs text-muted-foreground max-w-xs">Adjust or clear the active filters to broaden this list.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-foreground" data-testid="text-empty-contacts">No contacts yet</p>
+                  <p className="text-xs text-muted-foreground max-w-xs">Add your first contact to start tracking leads and customers.</p>
+                  <Button size="sm" className="gap-1 mt-1" onClick={() => setIsDialogOpen(true)} data-testid="button-empty-add-contact">
+                    <Plus className="w-3.5 h-3.5" /> Add Contact
+                  </Button>
+                </>
+              )}
             </div>
           ) : (
             <>

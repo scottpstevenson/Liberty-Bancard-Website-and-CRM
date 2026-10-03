@@ -31,6 +31,7 @@ import {
   documentedApolloSearchCredits, parseApolloUsageReceipt, type ApolloEmployerScope,
 } from "../sdr/sfp-provider-contracts";
 import { writeSfpPaidCandidateEvidence } from "./sfp-paid-evidence-writer";
+import { sfpUnavailableHttpReason } from "./sfp-continuous-progress";
 import {
   computeContactLinkReuse,
   computeSfpGapVector,
@@ -505,6 +506,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   if (!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
   const includeSerperDiscovery = input.includeSerperDiscovery !== false;
   const enabledProviders = new Set(input.enabledProviders ?? ["outscraper", "apollo"]);
+  let apolloUnavailableReason: string | null = null;
   const providers = [
     ...(includeSerperDiscovery ? ["serper"] : []),
     ...(enabledProviders.has("outscraper") ? ["outscraper"] : []),
@@ -685,7 +687,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     });
     const gapOpen = (dimension: string) => beforeVector.before.some((entry) => entry.dimension === dimension && entry.open);
     let apolloSkipReason: string | null = !enabledProviders.has("apollo")
-      ? "apollo_provider_not_ready"
+      ? (apolloUnavailableReason ?? "apollo_provider_not_ready")
       : gapOpen("named_decision_maker") ? null : (linkReuse.skipReason ?? "named_decision_maker_gap_closed");
     let outscraperSkipReason: string | null = !enabledProviders.has("outscraper")
       ? "outscraper_provider_not_ready"
@@ -863,6 +865,9 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
           init: RequestInit,
           employerScope?: ApolloEmployerScope,
         ) => {
+          if (!enabledProviders.has("apollo")) {
+            throw new Error("SFP_APOLLO_PROVIDER_UNAVAILABLE");
+          }
           const requestBody = typeof init.body === "string" ? init.body : "";
           let requestBodyValue: unknown = requestBody;
           try { requestBodyValue = JSON.parse(requestBody); } catch { /* retain only hashed payload below */ }
@@ -952,6 +957,17 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
             const errorMessage = body.error ?? body.error_message ?? body.message;
             const requestSucceeded = response.ok &&
               !(typeof errorMessage === "string" && errorMessage.trim());
+            if (!requestSucceeded) {
+              const unavailable = sfpUnavailableHttpReason("apollo", response.status);
+              if (unavailable) {
+                // Complete/settle this rejected request normally, but do not
+                // try Apollo again for every other business in this batch.
+                // Other providers and subsequent validation stay independent.
+                apolloUnavailableReason = unavailable;
+                apolloSkipReason = unavailable;
+                enabledProviders.delete("apollo");
+              }
+            }
             const documentedSearchCredits = documentedApolloSearchCredits(urlPath);
             const contradictsDocumentedSearchCost = !bulkEnrichment &&
               documentedSearchCredits !== null && receipt.certainty === "exact" &&
@@ -1169,7 +1185,8 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
         }
       } catch (error: any) {
         failed++;
-        apolloSkipReason = `apollo_failed:${String(error?.message ?? error).slice(0, 120)}`;
+        apolloSkipReason = apolloUnavailableReason ??
+          `apollo_failed:${String(error?.message ?? error).slice(0, 120)}`;
       }
     } else {
       skipped++;

@@ -4609,6 +4609,15 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
                     ),'hex')=e.normalized_value_hash)
                 )
            ))
+           AND NOT EXISTS (
+             SELECT 1 FROM sfp_outreach_eligibility newer
+              WHERE newer.business_id=e.business_id
+                AND newer.normalized_value_hash=e.normalized_value_hash
+                AND newer.normalized_value_hash_version IS NOT DISTINCT FROM e.normalized_value_hash_version
+                AND newer.contact_id IS NOT DISTINCT FROM e.contact_id
+                AND newer.policy_document_hash IS NOT DISTINCT FROM e.policy_document_hash
+                AND (newer.updated_at,newer.created_at,newer.id)>(e.updated_at,e.created_at,e.id)
+           )
          ORDER BY e.validation_at DESC, e.id
          LIMIT ${limit} OFFSET ${offset}
       `));

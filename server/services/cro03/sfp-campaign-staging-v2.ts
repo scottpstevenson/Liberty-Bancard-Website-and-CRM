@@ -1,3 +1,4 @@
+import { lockSfpRecipientCapacity, SfpRecipientCapacityError } from "./sfp-recipient-capacity";
 /**
  * sfp-campaign-staging-v2.ts
  *
@@ -1288,6 +1289,15 @@ async function stageOneRowTransactional(opts: {
          if (!recipientIdentityHash) {
            throw new SfpStagingV2Error("SFP_STAGING_RECIPIENT_IDENTITY_INVALID", "recipient address cannot be normalized", 422);
          }
+          const recipientCapacity = await lockSfpRecipientCapacity(tx,
+            String(sharedCurrentGate.row.program_id), SFP_INITIAL_RECIPIENT_OBJECTIVE_KEY,
+            opts.businessId, recipientIdentityHash).catch(error => {
+              if (error instanceof SfpRecipientCapacityError) {
+                throw new SfpStagingV2Error(error.code,
+                  "Recipient held: the business already has three recipients or the address belongs to a different business", 422);
+              }
+              throw error;
+            });
          intentValues = {
            candidateId: reference.sourceKind === "free" ? reference.freeDiscoveryCandidateId : null,
            paidCandidateEvidenceId: reference.sourceKind === "paid" ? reference.paidCandidateEvidenceId : null,
@@ -1312,6 +1322,7 @@ async function stageOneRowTransactional(opts: {
                    ${idempotencyKey}, ${opts.actorId}, 'ready_held', ${Number(eligRow.policy_version ?? 1)},
                     ${JSON.stringify({
                       status: eligRow.status, pinnedPackageContentHash, pinnedPolicyHash, validationExpiresAt: effectiveExpiresAt.toISOString(),
+                      recipientSlot: recipientCapacity.slot, recipientRole: recipientCapacity.role,
                       eligibilityReviewId: opts.eligibilityReviewId ?? null,
                       classifierVersion: Number(eligRow.classifier_version), taxonomyVersion: Number(eligRow.taxonomy_version),
                       classificationEvidenceId: String(eligRow.classification_evidence_id),

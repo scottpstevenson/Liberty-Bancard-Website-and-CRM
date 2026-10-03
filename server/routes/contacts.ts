@@ -2804,6 +2804,17 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // GET /api/contacts/:id/zerobounce-history — return ZeroBounce validation history for a contact
+  // Shares the canonical contact-object ownership guard; no PII or ledger writes.
+  app.get("/api/contacts/:id/sfp-readiness", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (!Number.isSafeInteger(contactId) || contactId <= 0) return res.status(400).json({ message: "Invalid contact ID" });
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const { getContactSfpReadiness } = await import("../services/contact-sfp-readiness");
+      res.json(await getContactSfpReadiness(contact));
+    } catch (error) { serverError(res, error); }
+  });
   app.get("/api/contacts/:id/zerobounce-history", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);

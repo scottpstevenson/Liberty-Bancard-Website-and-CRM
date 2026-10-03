@@ -50,6 +50,7 @@ const CONTACT_SUGGESTIONS_PATH = "/api/admin/contact-business-suggestions";
 type ContactBusinessReconciliationProgress = {
   jobId: string | null;
   status: "idle" | "running" | "ready" | "paused" | "completed" | "error";
+  serverProcessing: boolean;
   cursorContactId: number;
   scannedContacts: number;
   suggestionsRecorded: number;
@@ -256,8 +257,9 @@ function ContactBusinessReconciliationPanel({ contactId }: { contactId?: number 
 
   const progress = progressQuery.data;
   const canStart = progress?.status === "idle" || progress?.status === "completed";
-  const canResume = progress?.status === "ready" || progress?.status === "paused" || progress?.status === "error";
-  const canPause = progress?.status === "running" || progress?.status === "ready" || progress?.status === "error";
+  const canResume = Boolean(progress && !progress.serverProcessing
+    && ["ready", "paused", "running", "error"].includes(progress.status));
+  const canPause = Boolean(progress?.serverProcessing);
 
   return (
     <Card data-testid="contact-business-reconciliation">
@@ -281,6 +283,9 @@ function ContactBusinessReconciliationPanel({ contactId }: { contactId?: number 
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={progress.status === "error" ? "destructive" : progress.status === "completed" ? "default" : "secondary"}>
                 {progress.status}
+              </Badge>
+              <Badge variant={progress.serverProcessing ? "default" : "outline"}>
+                {progress.serverProcessing ? "Server processing enabled" : "Server processing paused"}
               </Badge>
               <span className="text-xs text-muted-foreground">
                 {progress.jobId ? `Run ${progress.jobId}` : "No reconciliation run recorded"}
@@ -315,11 +320,11 @@ function ContactBusinessReconciliationPanel({ contactId }: { contactId?: number 
                   Start new reconciliation run
                 </Button>
               )}
-              {canResume && (
+                  {canResume && (
                 <Button size="sm" onClick={() => runControlMutation.mutate("resume")}
                   disabled={runControlMutation.isPending || progressQuery.isError}>
                   {runControlMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
-                  Resume next bounded batch
+                      Resume server processing
                 </Button>
               )}
               {canPause && (
@@ -334,7 +339,8 @@ function ContactBusinessReconciliationPanel({ contactId }: { contactId?: number 
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Each start/resume processes one bounded keyset page (maximum 100 contacts) and checkpoints progress. A zero count is shown only after a successful response.
+              Start or resume enables the durable server worker, which drains bounded keyset pages and checkpoints progress independently of this page.
+              Resume is a recovery/control action, not a one-page-at-a-time workflow. Pause disables server processing.
             </p>
           </div>
         ) : null}

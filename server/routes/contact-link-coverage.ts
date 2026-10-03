@@ -5,7 +5,7 @@ import { serverError } from "../utils/server-error";
 
 export interface ContactLinkCoverageRouteDependencies {
   getStatus: () => Promise<unknown>;
-  listCandidates: (input: { afterCreatedAt?: string; afterId?: string; limit?: number }) => Promise<unknown>;
+  listCandidates: (input: { afterCreatedAt?: string; afterId?: string; limit?: number; reviewerId?: string }) => Promise<unknown>;
   start: (actorId: string) => Promise<unknown>;
   step: (actorId: string) => Promise<unknown>;
   pause: (actorId: string) => Promise<unknown>;
@@ -77,6 +77,29 @@ export function registerContactLinkCoverageRoutes(
   app: Express,
   dependencies: ContactLinkCoverageRouteDependencies = productionDependencies,
 ) {
+  app.get("/api/admin/contact-link-coverage/automation", isDashboardUser, requireRole("admin"),
+    async (_req, res) => {
+      try {
+        const { getContactLinkAutomationStatus } = await import("../services/contact-link-automation");
+        res.json({ program: await getContactLinkAutomationStatus() });
+      } catch (error) { serverError(res, error); }
+    });
+  app.post("/api/admin/contact-link-coverage/automation", isDashboardUser, requireRole("admin"),
+    async (req, res) => {
+      const actorId = authenticatedOperatorId(req);
+      if (!actorId) return res.status(401).json({ message: "Authenticated admin identity required" });
+      const parsed = z.object({
+        enabled: z.boolean(),
+        automaticCommitsAuthorized: z.literal(true).optional(),
+      }).strict().safeParse(req.body);
+      if (!parsed.success || (parsed.data.enabled && !parsed.data.automaticCommitsAuthorized)) {
+        return res.status(400).json({ message: "Explicit authorization for independently guarded automatic links is required" });
+      }
+      try {
+        const { setContactLinkAutomation } = await import("../services/contact-link-automation");
+        res.json({ program: await setContactLinkAutomation(parsed.data.enabled, actorId) });
+      } catch (error) { serverError(res, error); }
+    });
   app.get(
     "/api/admin/contact-link-coverage/status",
     isDashboardUser,
@@ -246,7 +269,7 @@ export function registerContactLinkCoverageRoutes(
         return res.status(400).json({ message: "Invalid contact-link candidate cursor", errors: parsed.error.errors });
       }
       try {
-        res.json(await dependencies.listCandidates(parsed.data));
+        res.json(await dependencies.listCandidates({ ...parsed.data, reviewerId: authenticatedOperatorId(req) ?? undefined }));
       } catch (error) {
         serverError(res, error);
       }

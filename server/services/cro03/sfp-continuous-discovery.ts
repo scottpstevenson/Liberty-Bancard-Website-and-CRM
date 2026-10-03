@@ -33,6 +33,7 @@ import { previewSfpValidation, executeSfpValidation } from "./sfp-validation";
 import { getSfpProviderReadiness } from "./sfp-provider-operations";
 import { getSfpCohortGapSnapshot } from "./sfp-cost-preview";
 import { safeSfpFailureDiagnostics } from "./sfp-failure-diagnostics";
+import { hasSfpValidationProgress, readIndependentSfpDiscoveryReadiness } from "./sfp-continuous-progress";
 
 const rows = (r: any): any[] => r?.rows ?? r ?? [];
 
@@ -239,10 +240,8 @@ export async function processSfpContinuousDiscoveryTick(): Promise<SfpContinuous
   let waterfallCalls = 0;
   if (program.isActive) {
     while (Date.now() < end && waterfallCalls < MAX_CALLS_PER_TICK) {
-      const [outscraperReady, apolloReady] = await Promise.all([
-        getSfpProviderReadiness("outscraper"),
-        getSfpProviderReadiness("apollo"),
-      ]);
+      const { outscraper: outscraperReady, apollo: apolloReady } =
+        await readIndependentSfpDiscoveryReadiness(getSfpProviderReadiness);
       if (!outscraperReady.ready && !apolloReady.ready) {
         waterfallStopReason = `provider_paused:outscraper=${outscraperReady.reason}|apollo=${apolloReady.reason}`;
         await auditTick("sfp_continuous_discovery_tick", "person_identity_provider_paused", {
@@ -436,11 +435,14 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
         addressesValidated += result.addressesValidated;
         providerRequests += result.providerRequests;
         validCount += result.validCount;
-        madeProgressThisPass = true;
+        const advanced = hasSfpValidationProgress(result);
+        if (advanced) madeProgressThisPass = true;
         await auditTick("sfp_continuous_validation_tick", "validation_batch_completed", {
           cohortRunId, addressesValidated: result.addressesValidated, validCount: result.validCount,
+          eligibilityRowsCreated: result.eligibilityRowsCreated,
+          selectionAdvanced: advanced,
         });
-        if (result.addressesValidated === 0) exhaustedCohorts.add(cohortRunId);
+        if (!advanced) exhaustedCohorts.add(cohortRunId);
       } catch (err: any) {
         await auditTick("sfp_continuous_validation_tick", "validation_failed", { cohortRunId, error: String(err?.message ?? err) });
         exhaustedCohorts.add(cohortRunId);

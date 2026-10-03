@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -35,7 +35,23 @@ type CoverageStatus = {
   counts: Record<CensusCategory, number>;
   reasonCounts: Record<string, number>;
   complete: boolean;
+  serverProcessing: boolean;
 };
+type AutomaticLinkProgram = {
+  enabled: boolean;
+  rule: string;
+  runId: string | null;
+  cursor: string | number | null;
+  scanned: number;
+  committed: number;
+  replayed: number;
+  held: number;
+  reasons: Record<string, number>;
+  complete: boolean;
+  updatedAt: string | null;
+  lastError: string | null;
+};
+type AutomaticLinkStatus = { program: AutomaticLinkProgram | null };
 type ContactLinkCandidate = {
   candidateId: string;
   contactId: number;
@@ -212,6 +228,11 @@ function getReviewBlockReason(candidate: ContactLinkCandidate): string | null {
   return null;
 }
 
+function getEligibleEvidenceId(candidate: ContactLinkCandidate): string {
+  return candidate.evidenceSourceEventIds?.map(String)
+    .find((value) => /^\d+$/.test(value) && Number(value) > 0) ?? "";
+}
+
 function getRawSunbizCandidates(candidate: ContactLinkCandidate): RawSunbizCandidate[] {
   const evidence = candidate.evidence as { rawSunbizCandidates?: unknown } | null;
   if (!Array.isArray(evidence?.rawSunbizCandidates)) return [];
@@ -249,9 +270,7 @@ function ContactLinkCoveragePanelAdmin() {
   const [sourceRecoverySelectedKeys, setSourceRecoverySelectedKeys] = useState<string[]>([]);
   const [sourceRecoveryPreviews, setSourceRecoveryPreviews] = useState<Record<string, SourceRecoveryPreview>>({});
   const [sourceRecoveryOutcomes, setSourceRecoveryOutcomes] = useState<Record<string, SourceRecoveryOutcome>>({});
-  const [autoRunning, setAutoRunning] = useState(false);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
-  const stopAutoRun = useRef(false);
 
   const statusQueryKey = [PATH, "status"] as const;
   const statusQuery = useQuery<CoverageStatus>({
@@ -259,6 +278,27 @@ function ContactLinkCoveragePanelAdmin() {
     queryFn: async () => (await apiRequest("GET", `${PATH}/status`)).json(),
     refetchInterval: 10_000,
     retry: false,
+  });
+  const automationQueryKey = [PATH, "automation"] as const;
+  const automationQuery = useQuery<AutomaticLinkStatus>({
+    queryKey: automationQueryKey,
+    queryFn: async () => (await apiRequest("GET", `${PATH}/automation`)).json(),
+    refetchInterval: 10_000,
+    retry: false,
+  });
+  const automationMutation = useMutation({
+    mutationFn: async (enabled: boolean) => (await apiRequest("POST", `${PATH}/automation`, enabled
+      ? { enabled: true, automaticCommitsAuthorized: true }
+      : { enabled: false })).json(),
+    onSuccess: async (_result, enabled) => {
+      await queryClient.invalidateQueries({ queryKey: automationQueryKey });
+      toast({ title: enabled ? "Automatic link commits authorized" : "Automatic link commits paused" });
+    },
+    onError: (error: Error) => toast({
+      title: "Automatic-link program control failed",
+      description: error.message,
+      variant: "destructive",
+    }),
   });
   const runId = statusQuery.data?.runId ?? null;
   useEffect(() => {
@@ -292,13 +332,13 @@ function ContactLinkCoveragePanelAdmin() {
   };
 
   const controlMutation = useMutation({
-    mutationFn: async (action: "start" | "step" | "pause" | "resume") => {
+    mutationFn: async (action: "start" | "pause" | "resume") => {
       const result = await (await apiRequest("POST", `${PATH}/${action}`, {})).json();
       await refreshStatus();
       return result;
     },
     onSuccess: (_result, action) => {
-      setOperatorMessage(action === "step" ? "One census page was requested." : null);
+      setOperatorMessage(null);
       toast({ title: action === "start" ? "Full-pool census started" : `Census ${action} requested` });
       invalidateCoverage();
     },
@@ -410,12 +450,12 @@ function ContactLinkCoveragePanelAdmin() {
       const decisions = selectedRows.map((candidate) => {
         const draft = reviewDrafts[candidate.candidateId];
         if (!draft?.decision) throw new Error(`Choose verify or reject for contact #${candidate.contactId}.`);
-        if (draft.decision === "verified" && draft.evidenceEventId) {
+        if (draft.decision === "verified") {
           const permittedEvidenceIds = candidate.evidenceSourceEventIds.map(String);
           const parsedEvidenceId = Number(draft.evidenceEventId);
-          if (!permittedEvidenceIds.includes(draft.evidenceEventId)
+          if (!draft.evidenceEventId || !permittedEvidenceIds.includes(draft.evidenceEventId)
             || !Number.isInteger(parsedEvidenceId) || parsedEvidenceId < 1) {
-            throw new Error(`Select a returned source event before verifying contact #${candidate.contactId}.`);
+            throw new Error(`Eligible retained source evidence is unavailable for contact #${candidate.contactId}. Recover source evidence before verification.`);
           }
         }
         return {
@@ -453,56 +493,10 @@ function ContactLinkCoveragePanelAdmin() {
   });
 
   const canStart = !statusQuery.data?.runId || statusQuery.data.complete;
-  const canPause = Boolean(statusQuery.data?.runId && !statusQuery.data.complete && statusQuery.data.status === "running");
+  const canPause = Boolean(statusQuery.data?.runId && !statusQuery.data.complete && statusQuery.data.serverProcessing);
   const canResume = Boolean(statusQuery.data?.runId && !statusQuery.data.complete
-    && (statusQuery.data.status === "paused" || statusQuery.data.status === "ready"));
-  const step = async () => {
-    await apiRequest("POST", `${PATH}/step`, {});
-    return refreshStatus();
-  };
-  const runOperatorPages = async (resume: boolean) => {
-    stopAutoRun.current = false;
-    setAutoRunning(true);
-    setOperatorMessage(null);
-    try {
-      if (resume) {
-        await apiRequest("POST", `${PATH}/resume`, {});
-      }
-      let current = await refreshStatus();
-      while (!stopAutoRun.current && !current.complete && current.status !== "paused" && current.status !== "error") {
-        const before = `${current.processed}:${current.cursor}:${current.watermark}`;
-        await step();
-        current = await refreshStatus();
-        const after = `${current.processed}:${current.cursor}:${current.watermark}`;
-        if (!current.complete && before === after) {
-          setOperatorMessage("The server reported no census progress after a page request. Auto-run stopped to avoid a tight retry loop; refresh or inspect server status.");
-          break;
-        }
-      }
-      if (stopAutoRun.current && !current.complete && current.status !== "paused") {
-        await apiRequest("POST", `${PATH}/pause`, {});
-        current = await refreshStatus();
-      }
-      if (current.complete) setOperatorMessage("Full contact-pool census is complete. The eight source-recovery buckets are exclusive per processed contact; reason counts may overlap.");
-      else if (stopAutoRun.current) setOperatorMessage("Auto-run paused by operator.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setOperatorMessage(`Auto-run stopped: ${message}`);
-      toast({ title: "Auto census stopped", description: message, variant: "destructive" });
-    } finally {
-      setAutoRunning(false);
-      await refreshStatus().catch(() => undefined);
-    }
-  };
-  const pause = async () => {
-    if (autoRunning) {
-      stopAutoRun.current = true;
-      setOperatorMessage("Pausing after the current bounded page finishes…");
-      return;
-    }
-    await controlMutation.mutateAsync("pause");
-  };
-
+    && !statusQuery.data.serverProcessing
+    && (statusQuery.data.status === "paused" || statusQuery.data.status === "ready" || statusQuery.data.status === "running"));
   const status = statusQuery.data;
   const exclusiveTotal = status
     ? CENSUS_CATEGORIES.reduce((sum, category) => sum + (Number(status.counts?.[category]) || 0), 0)
@@ -514,9 +508,8 @@ function ContactLinkCoveragePanelAdmin() {
   const selectedNeedsEvidence = selectedRows.some((candidate) => {
     const draft = reviewDrafts[candidate.candidateId];
     const evidenceId = Number(draft?.evidenceEventId);
-    return draft?.decision === "verified"
-      && Boolean(draft.evidenceEventId)
-      && (!candidate.evidenceSourceEventIds.map(String).includes(draft.evidenceEventId)
+    return draft?.decision === "verified" && (!draft.evidenceEventId
+      || !candidate.evidenceSourceEventIds.map(String).includes(draft.evidenceEventId)
         || !Number.isInteger(evidenceId) || evidenceId < 1);
   });
 
@@ -529,7 +522,7 @@ function ContactLinkCoveragePanelAdmin() {
         </CardTitle>
         <CardDescription>
           A resumable census of every contact-link classification, plus explicit operator review through the existing reviewed writer.
-          Census classification does not validate email or authorize outreach.
+          Census classification is read-only: starting a census does not authorize automatic link verification or outreach.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 pt-0">
@@ -545,6 +538,9 @@ function ContactLinkCoveragePanelAdmin() {
               <Badge variant={status.status === "error" ? "destructive" : status.complete ? "default" : "secondary"}>
                 {status.status}
               </Badge>
+              <Badge variant={status.serverProcessing ? "default" : "outline"}>
+                {status.serverProcessing ? "Server processing enabled" : "Server processing paused"}
+              </Badge>
               <span className="break-all text-xs text-muted-foreground">
                 {status.runId ? `Run ${status.runId}` : "No census run recorded"}
                 {status.watermark != null ? ` · watermark ${status.watermark}` : ""}
@@ -559,7 +555,9 @@ function ContactLinkCoveragePanelAdmin() {
               </div>
               <p className="text-xs text-muted-foreground">
                 {status.processed.toLocaleString()} of {status.total.toLocaleString()} records processed · {progressPercent}%
-                {status.complete ? " · server marked the full pool complete" : " · partial totals are not a full-pool census"}
+                {status.complete ? " · server marked the full pool complete" : status.serverProcessing
+                  ? " · durable server work continues independently of this page"
+                  : " · paused; resume to continue server-side processing"}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -601,32 +599,20 @@ function ContactLinkCoveragePanelAdmin() {
             <div className="flex flex-wrap gap-2">
               {canStart && (
                 <Button size="sm" onClick={() => controlMutation.mutate("start")}
-                  disabled={controlMutation.isPending || autoRunning || statusQuery.isError}>
+                  disabled={controlMutation.isPending || statusQuery.isError}>
                   Start full-pool census
                 </Button>
               )}
-              {status.runId && !status.complete && (
-                <Button size="sm" variant="outline" onClick={() => controlMutation.mutate("step")}
-                  disabled={controlMutation.isPending || autoRunning}>
-                  Process one page
-                </Button>
-              )}
               {canResume && (
-                <Button size="sm" variant="outline" onClick={() => void runOperatorPages(true)}
-                  disabled={controlMutation.isPending || autoRunning}>
-                  Resume + auto-process pages
+                <Button size="sm" variant="outline" onClick={() => controlMutation.mutate("resume")}
+                  disabled={controlMutation.isPending}>
+                  Resume server processing
                 </Button>
               )}
-              {status.runId && !status.complete && status.status === "running" && !autoRunning && (
-                <Button size="sm" variant="outline" onClick={() => void runOperatorPages(false)}
+              {canPause && (
+                <Button size="sm" variant="destructive" onClick={() => controlMutation.mutate("pause")}
                   disabled={controlMutation.isPending}>
-                  Auto-process remaining pages
-                </Button>
-              )}
-              {(canPause || autoRunning) && (
-                <Button size="sm" variant="destructive" onClick={() => void pause()}
-                  disabled={controlMutation.isPending}>
-                  Pause census
+                  Pause server processing
                 </Button>
               )}
               <Button size="sm" variant="ghost" onClick={() => statusQuery.refetch()} disabled={statusQuery.isFetching}>
@@ -639,11 +625,157 @@ function ContactLinkCoveragePanelAdmin() {
               </p>
             )}
             <p className="text-[11px] text-muted-foreground">
-              Auto-process requests one server page at a time and checks status between pages. Pause is available while it runs;
-              no contact records are approved by census processing.
+              Starting or resuming authorizes durable server-side processing; the run continues if this page closes. Pause disables
+              server processing. Census classification does not approve contact relationships.
             </p>
           </section>
         ) : null}
+
+        <section aria-label="Automatic contact link program" className="space-y-3 rounded-lg border border-amber-300/70 bg-amber-50/40 p-3 dark:border-amber-900 dark:bg-amber-950/15">
+          <div>
+            <h3 className="text-sm font-semibold">Automatic-link program · separate authorization</h3>
+            <p className="text-xs text-muted-foreground">
+              This control is independent from the read-only census. When enabled, only independently corroborated matches are
+              sent through the canonical link writer with exact database guards. Name-only and ambiguous matches remain held.
+              After the initial pass, new and changed records remain watched while enabled. No paid calls or outbound changes are made.
+              Scanned records are not links; review committed and held counts separately.
+            </p>
+          </div>
+          {automationQuery.isLoading ? (
+            <p className="text-xs text-muted-foreground" role="status">Loading automatic-link program status…</p>
+          ) : automationQuery.isError ? (
+            <p className="text-xs text-destructive" role="alert">
+              Automatic-link status unavailable — no counts are assumed: {(automationQuery.error as Error).message}
+            </p>
+          ) : automationQuery.data?.program ? (
+            <div className="space-y-3 rounded-md border bg-background/80 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={automationQuery.data.program.lastError ? "destructive" : automationQuery.data.program.enabled ? "default" : "secondary"}>
+                  {automationQuery.data.program.lastError ? "error" : automationQuery.data.program.enabled ? "server processing enabled" : "paused"}
+                </Badge>
+                <Badge variant={automationQuery.data.program.complete ? "outline" : "secondary"} className="whitespace-normal">
+                  {automationQuery.data.program.complete
+                    ? automationQuery.data.program.enabled
+                      ? "Pass complete; new/changed records remain watched while enabled"
+                      : "Pass complete; monitoring paused"
+                    : "Pass in progress"}
+                </Badge>
+                <span className="break-all text-xs text-muted-foreground">
+                  {automationQuery.data.program.runId ? `Run ${automationQuery.data.program.runId}` : "No run ID returned"}
+                  {automationQuery.data.program.cursor != null ? ` · cursor ${automationQuery.data.program.cursor}` : ""}
+                  {automationQuery.data.program.updatedAt
+                    ? ` · updated ${new Date(automationQuery.data.program.updatedAt).toLocaleString()}`
+                    : ""}
+                </span>
+              </div>
+            <p className="break-words text-xs text-muted-foreground">
+              Rule: <span className="font-medium text-foreground">{automationQuery.data.program.rule}</span>
+            </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  ["Scanned", automationQuery.data.program.scanned],
+                  ["Links committed", automationQuery.data.program.committed],
+                  ["Replayed", automationQuery.data.program.replayed],
+                  ["Held", automationQuery.data.program.held],
+                ].map(([label, count]) => (
+                  <div key={String(label)} className="min-w-0 rounded border bg-background px-2.5 py-2">
+                    <div className="text-lg font-semibold tabular-nums">{Number(count ?? 0).toLocaleString()}</div>
+                    <div className="text-[11px] text-muted-foreground">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Scanned is server progress, not link volume. Committed is the actual count of links written; replayed and held outcomes are reported separately.
+              </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {Object.entries(automationQuery.data.program.reasons ?? {}).map(([reason, count]) => (
+                  <div key={reason} className="rounded border bg-background px-2 py-1.5 text-xs">
+                    <span className="font-semibold tabular-nums">{Number(count).toLocaleString()}</span>
+                    <span className="ml-1.5 text-muted-foreground">{reason.replace(/_/g, " ")}</span>
+                  </div>
+                ))}
+                {Object.keys(automationQuery.data.program.reasons ?? {}).length === 0 && (
+                  <p className="col-span-full text-xs text-muted-foreground">No hold reasons returned.</p>
+                )}
+              </div>
+              {automationQuery.data.program.lastError && (
+                <p className="text-xs text-destructive" role="alert">Last error: {automationQuery.data.program.lastError}</p>
+              )}
+              {automationMutation.isError && (
+                <p className="text-xs text-destructive" role="alert">Program control failed: {(automationMutation.error as Error).message}</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {automationQuery.data.program.enabled ? (
+                  <Button size="sm" variant="destructive" onClick={() => automationMutation.mutate(false)} disabled={automationMutation.isPending}>
+                    Pause automatic link commits
+                  </Button>
+                ) : (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" disabled={automationMutation.isPending || automationQuery.isError}>
+                        Authorize automatic link commits
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Enable the automatic-link program?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This is a separate authorization from the contact census. The server will commit only independently corroborated,
+                          unambiguous links through the canonical writer and exact database guards. Name-only and ambiguous matches stay held.
+                          Scanned contacts are not counted as links. No paid calls or outbound actions occur.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => automationMutation.mutate(true)}>
+                          Authorize automatic links
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => automationQuery.refetch()} disabled={automationQuery.isFetching}>
+                  Refresh program
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed bg-background/70 p-3">
+              <p className="text-xs text-muted-foreground" role="status">No automatic-link program has been authorized. Census activity does not create verified links.</p>
+              {automationMutation.isError && (
+                <p className="mt-2 text-xs text-destructive" role="alert">Program control failed: {(automationMutation.error as Error).message}</p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" disabled={automationMutation.isPending || automationQuery.isError}>
+                      Authorize automatic link commits
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Enable the automatic-link program?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This authorization is separate from the read-only census. Only independently corroborated, unambiguous matches
+                        are committed through the canonical writer and exact database guards. Name-only and ambiguous matches stay held.
+                        No paid calls or outbound actions occur.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => automationMutation.mutate(true)}>
+                        Authorize automatic links
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <Button size="sm" variant="ghost" onClick={() => automationQuery.refetch()} disabled={automationQuery.isFetching}>
+                  Refresh program
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
 
         <section aria-label="Bounded Sunbiz source recovery" className="space-y-3 rounded-lg border p-3">
           <div>
@@ -768,9 +900,8 @@ function ContactLinkCoveragePanelAdmin() {
             <div>
               <h3 className="text-sm font-semibold">Human review queue</h3>
               <p className="text-xs text-muted-foreground">
-                Select records, cite a returned source event when available, and submit a bounded page through the reviewed writer.
-                If no event is selected, only the server may create a retained citation when its evidence rules permit. No automatic approval,
-                email validation, or message sending occurs here.
+                Select records and submit explicit decisions through the reviewed writer. Verification requires independently attributable,
+                business-bound retained evidence. No automatic approval, email validation, or message sending occurs here.
               </p>
             </div>
             {runId && (
@@ -855,27 +986,22 @@ function ContactLinkCoveragePanelAdmin() {
                             disabled={!selected || Boolean(blocked) || reviewBatchMutation.isPending}
                             onChange={(event) => setDraft(candidate.candidateId, {
                               decision: event.target.value as ReviewDraft["decision"],
-                              ...(event.target.value === "rejected" ? { evidenceEventId: "" } : {}),
+                              evidenceEventId: event.target.value === "verified" ? getEligibleEvidenceId(candidate) : "",
                             })}
                           >
                             <option value="">Choose…</option>
-                            <option value="verified">Verify link</option>
+                            <option value="verified" disabled={!getEligibleEvidenceId(candidate)}>Verify link</option>
                             <option value="rejected">Reject candidate</option>
                           </select>
-                          <label className="text-[11px] font-medium" htmlFor={`evidence-${candidate.candidateId}`}>Source evidence event</label>
-                          <select
-                            id={`evidence-${candidate.candidateId}`}
-                            className="h-9 w-full rounded-md border bg-background px-2 text-xs"
-                            aria-label={`Evidence source event for contact ${candidate.contactId}`}
-                            value={draft?.evidenceEventId ?? ""}
-                            disabled={!selected || draft?.decision !== "verified" || reviewBatchMutation.isPending}
-                            onChange={(event) => setDraft(candidate.candidateId, { evidenceEventId: event.target.value })}
-                          >
-                            <option value="">Select returned event ID…</option>
-                            {candidate.evidenceSourceEventIds.map((eventId) => (
-                              <option key={String(eventId)} value={String(eventId)}>{String(eventId)}</option>
-                            ))}
-                          </select>
+                          {getEligibleEvidenceId(candidate) ? (
+                            <p className="text-[11px] text-muted-foreground" role="status">
+                              {draft?.decision === "verified" ? "Eligible retained evidence will be attached automatically." : "Eligible retained evidence is available for verification."}
+                            </p>
+                          ) : (
+                            <p className="rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-950" role="note">
+                              Verification held: no eligible retained evidence is available. Next: recover the source record using Source recovery above, then refresh this candidate.
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
@@ -897,6 +1023,9 @@ function ContactLinkCoveragePanelAdmin() {
                           {outcome.code ? ` · ${redactText(outcome.code)}` : ""}
                           {/stale|revision|conflict/i.test(`${outcome.status} ${outcome.code ?? ""}`) && (
                             <span> · Refresh this candidate before retrying; the server rejected a stale or changed revision.</span>
+                          )}
+                          {outcome.code === "CONTACT_LINK_RETAINED_EVIDENCE_UNAVAILABLE" && (
+                            <span> · Verification held because no attributable, business-bound retained event was available. Next: recover the source record above, then refresh and review again.</span>
                           )}
                         </div>
                       )}
@@ -932,7 +1061,7 @@ function ContactLinkCoveragePanelAdmin() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline"
-                    disabled={selectedRows.length === 0 || reviewBatchMutation.isPending}
+                    disabled={selectedRows.length === 0 || selectedRows.some((candidate) => !getEligibleEvidenceId(candidate)) || reviewBatchMutation.isPending}
                     onClick={() => setReviewDrafts((current) => {
                       const next = { ...current };
                       for (const candidate of selectedRows) {
@@ -940,7 +1069,11 @@ function ContactLinkCoveragePanelAdmin() {
                           decision: "",
                           evidenceEventId: "",
                         };
-                        next[candidate.candidateId] = { ...previous, decision: "verified" };
+                        next[candidate.candidateId] = {
+                          ...previous,
+                          decision: "verified",
+                          evidenceEventId: getEligibleEvidenceId(candidate),
+                        };
                       }
                       return next;
                     })}>
@@ -975,8 +1108,8 @@ function ContactLinkCoveragePanelAdmin() {
                         <AlertDialogTitle>Submit these explicit contact-link decisions?</AlertDialogTitle>
                         <AlertDialogDescription>
                           The reviewed writer will recheck the candidate revision and snapshot. Stale, conflicting, or invalid decisions
-                          remain per-record results. Verification cites a selected pre-existing source event when supplied; the server may create a
-                          retained citation only when its independent-source checks allow it. Nothing is automatically approved.
+                          remain per-record results. Verification automatically attaches eligible retained evidence returned for the candidate.
+                          Evidence unavailable from an independent, business-bound source is held for source recovery. Nothing is automatically approved.
                           This does not validate email or authorize outbound contact.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
@@ -992,7 +1125,7 @@ function ContactLinkCoveragePanelAdmin() {
               </div>
               {(anyDraftMissing || selectedNeedsEvidence) && selectedRows.length > 0 && (
                 <p className="text-xs text-amber-800" role="status">
-                  Choose a decision for each selected record{selectedNeedsEvidence ? " and select a returned evidence event ID" : ""} before submitting.
+                  Choose a decision for each selected record{selectedNeedsEvidence ? " and recover eligible retained evidence before verifying" : ""} before submitting.
                 </p>
               )}
               {reviewBatchMutation.isError && (

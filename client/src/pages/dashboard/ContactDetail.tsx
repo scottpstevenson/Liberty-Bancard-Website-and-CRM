@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
@@ -337,6 +337,134 @@ function ZeroBounceHistorySection({ contactId }: { contactId: number }) {
             </div>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface SfpReadinessDecision {
+  eligibilityId: string;
+  businessId: number;
+  policyStatus: string;
+  zbOutcome: string | null;
+  validatedAt: string | null;
+  expiresAt: string | null;
+  fresh: boolean;
+  operationId: string | null;
+  receiptId: string | null;
+  linkDecisionId: string | null;
+  currentLink: boolean;
+  intentId: string | null;
+  intentState: string | null;
+  masterLeadId: string | null;
+  enrollmentId: string | null;
+  enrollmentStatus: string | null;
+  receiptStatus: "matched" | "unresolved";
+}
+
+interface SfpReadinessResult {
+  contactId: number;
+  crmEmailStatus: string | null;
+  separateFromCrm: true;
+  decisions: SfpReadinessDecision[];
+}
+
+function SfpReadinessSection({ contactId }: { contactId: number }) {
+  const readinessQuery = useQuery<SfpReadinessResult>({
+    queryKey: ["/api/contacts", contactId, "sfp-readiness"],
+    queryFn: async () => (await apiRequest("GET", `/api/contacts/${contactId}/sfp-readiness`)).json(),
+    enabled: Number.isInteger(contactId) && contactId > 0,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const decisions = readinessQuery.data?.decisions ?? [];
+
+  return (
+    <Card data-testid="section-sfp-readiness">
+      <CardContent className="space-y-3 pt-4 pb-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">South Florida program (SFP) validation &amp; readiness</h3>
+            <Badge variant="outline">Separate from CRM</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            This is an SFP-only decision, separate from the CRM Email Validation badge and history when present. An unvalidated CRM email
+            plus a stored valid SFP outcome does not certify eligibility; a receipt is an eligible match only when it is matched,
+            fresh, linked to the current employer, and the policy is eligible.
+          </p>
+        </div>
+
+        {readinessQuery.isLoading ? (
+          <p className="text-xs text-muted-foreground" role="status">Loading separate SFP readiness…</p>
+        ) : readinessQuery.isError ? (
+          <p className="text-xs text-destructive" role="alert">
+            SFP readiness is unavailable; CRM email-validation history is unchanged: {(readinessQuery.error as Error).message}
+          </p>
+        ) : readinessQuery.data && decisions.length === 0 ? (
+          <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" role="status">
+            No SFP validation decisions were returned for this contact. This is not a CRM validation result.
+          </p>
+        ) : readinessQuery.data ? (
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              CRM email status: <span className="font-medium text-foreground">{readinessQuery.data.crmEmailStatus || "Not recorded"}</span>
+              {" · "}SFP decisions: {decisions.length}
+            </p>
+            <div className="space-y-2">
+              {decisions.map((decision, index) => {
+                const eligibleMatchedReceipt = decision.receiptStatus === "matched"
+                  && decision.fresh
+                  && decision.currentLink
+                  && decision.policyStatus.trim().toLowerCase() === "eligible";
+                return (
+                  <article
+                    key={decision.eligibilityId || `${decision.businessId}-${index}`}
+                    className="space-y-2 rounded-md border bg-muted/15 p-3"
+                    data-testid={`sfp-readiness-decision-${index}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={decision.receiptStatus === "unresolved" ? "secondary" : eligibleMatchedReceipt ? "default" : "outline"}>
+                        {decision.receiptStatus === "unresolved"
+                          ? "Retained validation receipt unresolved"
+                          : eligibleMatchedReceipt
+                            ? "Matched SFP receipt · current eligible link"
+                            : "Matched receipt · SFP eligibility conditions not met"}
+                      </Badge>
+                      <Badge variant="outline">Policy: {decision.policyStatus || "unknown"}</Badge>
+                      {decision.businessId > 0 && (
+                        <Link
+                          href={`/dashboard/lead-ops/business/${decision.businessId}`}
+                          className="text-xs underline underline-offset-2"
+                        >
+                          Open employer record
+                        </Link>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                      <p>
+                        Validation outcome: <span className="font-medium">{decision.receiptStatus === "unresolved"
+                          ? "Retained validation receipt unresolved"
+                          : decision.zbOutcome || "Not returned"}</span>
+                      </p>
+                      <p>Freshness: <span className="font-medium">{decision.fresh ? "Fresh" : "Expired or not fresh"}</span></p>
+                      <p>Employer link: <span className="font-medium">{decision.currentLink ? "Current" : "Not current"}</span></p>
+                      <p>SFP outcome timestamp: <span className="font-medium">{decision.validatedAt ? new Date(decision.validatedAt).toLocaleString() : "Not recorded"}</span></p>
+                      <p>Expires: <span className="font-medium">{decision.expiresAt ? new Date(decision.expiresAt).toLocaleString() : "No expiry returned"}</span></p>
+                      <p>Intent: <span className="font-medium">{decision.intentState || "None recorded"}</span></p>
+                      <p>Enrollment: <span className="font-medium">{decision.enrollmentStatus || "None recorded"}</span></p>
+                      <p>Master lead: <span className="font-medium">{decision.masterLeadId ? "Associated" : "None recorded"}</span></p>
+                    </div>
+                    {decision.receiptStatus === "unresolved" && (
+                      <p className="text-[11px] text-muted-foreground" role="note">
+                        The retained validation receipt could not be resolved to this current employer decision. This record is not represented as validated or eligible.
+                      </p>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2195,6 +2323,7 @@ export default function ContactDetail() {
 
       {/* ZeroBounce Validation History */}
       {contact.email && <ZeroBounceHistorySection contactId={contactId} />}
+      <SfpReadinessSection contactId={contactId} />
 
       {/* Lifecycle Stage Transition History */}
       <LifecycleHistorySection contactId={contactId} />

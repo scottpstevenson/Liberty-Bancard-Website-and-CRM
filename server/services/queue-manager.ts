@@ -2657,6 +2657,25 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY: {
+          // Local-only reconciliation does not depend on discovery providers
+          // being enabled. Its own durable program/pause checkpoint is authoritative.
+          const { processContactLinkCoverageServerTick } = await import("./contact-link-coverage");
+          try {
+            const coverage = await processContactLinkCoverageServerTick();
+            if (coverage.ran) console.log(`[ContactLinkCoverage] ${JSON.stringify(coverage)}`);
+            const { processContactBusinessReconciliationServerTick } = await import("./contact-business-reconciliation");
+            const reconciliation = await processContactBusinessReconciliationServerTick();
+            if (reconciliation.ran) console.log(`[ContactBusinessReconciliation] ${JSON.stringify(reconciliation)}`);
+          } catch (error: any) {
+            console.error("[ContactLinkCoverage] bounded page deferred", { code: error?.code ?? error?.message });
+          }
+          try {
+            const { processContactLinkAutomationTick } = await import("./contact-link-automation");
+            const links = await processContactLinkAutomationTick();
+            if (links.ran) console.log(`[ContactLinkAutomation] ${JSON.stringify(links)}`);
+          } catch (error: any) {
+            console.error("[ContactLinkAutomation] held", { code: error?.code ?? error?.message });
+          }
           const { processSfpContinuousDiscoveryTick } = await import("./cro03/sfp-continuous-discovery");
           const result = await processSfpContinuousDiscoveryTick();
           if (result.ran) console.log(`[SfpContinuousDiscovery] ${JSON.stringify(result)}`);

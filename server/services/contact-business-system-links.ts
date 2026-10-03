@@ -92,7 +92,18 @@ function factsFromRows(contact: any, business: any, source: any, domainBusinessC
   };
 }
 
-async function loadPage(executor: any, afterContactId: number, limit: number, onlyContactId?: number) {
+function changedContactFilter(since?: string) {
+  return since ? sql`(c.updated_at >= ${since}::timestamptz OR EXISTS (
+    SELECT 1 FROM businesses changed_business
+     WHERE changed_business.record_class='canonical'
+       AND (changed_business.updated_at >= ${since}::timestamptz OR EXISTS (
+         SELECT 1 FROM canonical_source_links changed_source
+          WHERE changed_source.business_id=changed_business.id AND changed_source.updated_at >= ${since}::timestamptz))
+       AND NULLIF(btrim(changed_business.website_domain),'') IS NOT NULL
+       AND c.website ILIKE '%' || changed_business.website_domain || '%'
+  ))` : sql`TRUE`;
+}
+async function loadPage(executor: any, afterContactId: number, limit: number, onlyContactId?: number, changedSince?: string) {
   const contactResult = await executor.execute(sql`
     SELECT c.id contact_id,c.company_name,c.website contact_website,c.email contact_email,
            c.record_class contact_record_class,c.email_status,c.archived_at,
@@ -107,6 +118,7 @@ async function loadPage(executor: any, afterContactId: number, limit: number, on
         ON d.contact_id=c.id AND d.superseded_at IS NULL
      WHERE ${onlyContactId === undefined ? sql`c.id > ${afterContactId}` : sql`c.id = ${onlyContactId}`}
        AND c.website IS NOT NULL AND trim(c.website) <> ''
+        AND ${changedContactFilter(onlyContactId === undefined ? changedSince : undefined)}
      ORDER BY c.id
      LIMIT ${limit}
   `);
@@ -115,9 +127,10 @@ async function loadPage(executor: any, afterContactId: number, limit: number, on
   let hasMore = false;
   if (onlyContactId === undefined && pageContacts.length === limit && pageContacts.length) {
     const moreResult = await executor.execute(sql`SELECT EXISTS (
-      SELECT 1 FROM contacts
-       WHERE id > ${Number(pageContacts[pageContacts.length - 1].contact_id)}
-         AND website IS NOT NULL AND trim(website) <> ''
+      SELECT 1 FROM contacts c
+       WHERE c.id > ${Number(pageContacts[pageContacts.length - 1].contact_id)}
+         AND c.website IS NOT NULL AND trim(c.website) <> ''
+         AND ${changedContactFilter(changedSince)}
     ) AS more`);
     hasMore = Boolean(((moreResult as any).rows ?? moreResult ?? [])[0]?.more);
   }
@@ -218,7 +231,7 @@ async function loadPage(executor: any, afterContactId: number, limit: number, on
 }
 
 export async function previewContactBusinessSystemLinks(
-  input: { afterContactId: number; limit: number },
+  input: { afterContactId: number; limit: number; changedSince?: string },
   executor: Pick<typeof db, "execute"> = db,
 ) {
   const limit = Math.max(1, Math.min(25, Math.floor(input.limit)));
@@ -239,7 +252,7 @@ export async function previewContactBusinessSystemLinks(
         && error?.message !== "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") throw error;
     sfpTypedLinkSchemaReady = false;
   }
-  const page = await loadPage(executor, input.afterContactId, limit);
+  const page = await loadPage(executor, input.afterContactId, limit, undefined, input.changedSince);
   return {
     rows: page.previews,
     nextCursor: page.hasMore ? page.lastContactId : null,
@@ -272,7 +285,9 @@ export function isMatchingSystemLinkReplay(
     && Number(replay.source_entity_id) === item.sourceEntityId;
 }
 
-export async function applyContactBusinessSystemLink(item: SystemLinkApplyItem) {
+export async function applyContactBusinessSystemLink(
+  item: SystemLinkApplyItem, programAuthorityCheck?: (tx: any) => Promise<boolean>,
+) {
   try {
     await assertSystemLinkDatabaseGuard(db);
     const key = `sfp-system-link-v1:${item.contactId}:${item.businessId}:${item.sourceLinkId}:${item.sourceEntityId}:${item.snapshotHash}`;
@@ -308,7 +323,8 @@ export async function applyContactBusinessSystemLink(item: SystemLinkApplyItem) 
       authorityCheck: async (tx: any) => {
         const freshPage = await loadPage(tx, 0, 1, item.contactId);
         const freshPreview = freshPage.previews[0];
-        return isCurrentSystemLinkSnapshot(freshPreview, item);
+        return isCurrentSystemLinkSnapshot(freshPreview, item)
+          && (!programAuthorityCheck || await programAuthorityCheck(tx));
       },
     });
     return {

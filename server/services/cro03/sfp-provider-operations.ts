@@ -27,6 +27,7 @@ import {
   lockCommercialGraphNodes,
 } from "../commercial-graph-locks";
 import { lockSfpBusinessSafetySentinel } from "./sfp-eligibility-locks";
+import { sfpUnavailableHttpReason } from "./sfp-continuous-progress";
 import {
   getCurrentRoutineSfpDeploymentIdentity,
   getCurrentSfpRuntimeFence,
@@ -1443,6 +1444,25 @@ export async function getSfpProviderReadiness(
   if (!control.enabled) return { ready: false, reason: `provider_disabled:${controlProvider}` };
   if (control.circuit_state !== "closed") return { ready: false, reason: `provider_circuit_${control.circuit_state}:${controlProvider}` };
   if (!process.env[SECRET_KEY[provider]]) return { ready: false, reason: `credential_missing:${SECRET_KEY[provider]}` };
+  if (provider === "apollo") {
+    // Optional-provider scheduling hint, not a new control or spend limit.
+    // Use the existing 15-minute failed-attempt cooldown across businesses:
+    // one provider-wide rejection must not cause a request on every business.
+    // A later successful response supersedes the hint immediately.
+    const latest = rows(await db.execute(sql`
+      SELECT sfp_result_data->>'httpStatus' AS http_status,
+             sfp_result_data->>'retrievalState' AS retrieval_state
+        FROM provider_operations
+       WHERE provider='apollo' AND purpose='sfp_named_decision_maker_discovery'
+         AND state IN ('completed','failed')
+         AND sfp_result_data->>'retrievalState' IN ('completed','failed')
+         AND updated_at>=NOW()-INTERVAL '15 minutes'
+       ORDER BY updated_at DESC,id DESC LIMIT 1
+    `))[0];
+    const unavailable = latest?.retrieval_state === "failed"
+      ? sfpUnavailableHttpReason("apollo", latest.http_status) : null;
+    if (unavailable) return { ready: false, reason: unavailable };
+  }
   return { ready: true, reason: null };
 }
 
