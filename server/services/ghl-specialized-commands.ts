@@ -618,25 +618,36 @@ export async function stepGhlSpecializedRun(runId: string, maxItems = BACKFILL_P
  * Called by the selected GHL runtime tick. At most one durable command page is
  * advanced per call; admin HTTP steps share the exact same claim/CAS path.
  */
-export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_SIZE, readOnly = false) {
+export const PENDING_GHL_COMMAND_POINTERS_SQL = `
+  SELECT value #>> '{}' AS run_id FROM system_settings
+   WHERE (key=$1 OR (key LIKE 'ghl_specialized_command_active_%' AND NOT EXISTS (
+     SELECT 1 FROM system_settings current_pointer
+      WHERE current_pointer.key=$1 AND current_pointer.value IS NOT NULL
+        AND current_pointer.value <> 'null'::jsonb
+   )))
+     AND value IS NOT NULL AND value <> 'null'::jsonb
+   ORDER BY updated_at ASC LIMIT 100`;
+
+interface PendingCommandDependencies {
+  queryPointers?: (query: string, values: string[]) => Promise<{ rows: { run_id: string }[] }>;
+  readRun?: typeof getGhlSpecializedRun;
+  stepRun?: typeof stepGhlSpecializedRun;
+}
+
+export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_SIZE, readOnly = false,
+  dependencies: PendingCommandDependencies = {}) {
   const limit = Number.isFinite(maxItems)
     ? Math.min(BACKFILL_PAGE_SIZE, Math.max(1, Math.floor(maxItems)))
     : BACKFILL_PAGE_SIZE;
-  const control = await (await import("./ghl-sync-control")).getGhlSyncControl();
-  const pointers = await pool.query<{ run_id: string }>(
-    `SELECT value #>> '{}' AS run_id FROM system_settings
-      WHERE key LIKE 'ghl_specialized_command_active_%'
-        AND value IS NOT NULL AND value <> 'null'::jsonb
-      ORDER BY updated_at ASC LIMIT 100`,
-  );
+  const pointers = await (dependencies.queryPointers ?? ((query, values) => pool.query<{ run_id: string }>(query, values)))(
+    PENDING_GHL_COMMAND_POINTERS_SQL, [activeSettingKey("contact_id_backfill")]);
   const candidates: GhlSpecializedRun[] = [];
   for (const pointer of pointers.rows) {
     if (!pointer.run_id) continue;
-    const run = await getGhlSpecializedRun(pointer.run_id);
-    if (!run || !["pending", "retry", "blocked"].includes(run.state)) continue;
+    const run = await (dependencies.readRun ?? getGhlSpecializedRun)(pointer.run_id);
+    if (!run || !["pending", "retry", "blocked", "running"].includes(run.state)) continue;
+    if (hasUnexpiredGhlCommandLease(run)) continue;
     if (readOnly && run.kind !== "contact_id_backfill") continue;
-    if (run.kind === "permission_projection" && (!control.enabled || !control.permissionsEnabled
-        || control.ownerProfile !== "ghl-sync-only" || !control.selectedRuntime)) continue;
     candidates.push(run);
   }
   candidates.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -645,13 +656,18 @@ export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_
   // Local identity backfill is provider GET-only. Its command lease fences
   // execution; enabling provider writes or selecting their runtime is unrelated.
   if (next.kind === "permission_projection") {
+    const control = await (await import("./ghl-sync-control")).getGhlSyncControl();
+    if (!control.enabled || !control.permissionsEnabled
+        || control.ownerProfile !== "ghl-sync-only" || !control.selectedRuntime) {
+      return { advanced: false, held: true, reason: "GHL_RUNTIME_NOT_SELECTED_OR_DISABLED", runId: next.runId, state: next.state };
+    }
     const { getGhlSyncRuntimeTruth } = await import("./ghl-sync-runtime");
     const truth = await getGhlSyncRuntimeTruth();
     if (truth.owner.state !== "current" || !truth.worker.selected || !truth.worker.active) {
       return { advanced: false, held: true, reason: "GHL_RUNTIME_OWNER_LEASE_NOT_CURRENT", runId: next.runId, state: next.state };
     }
   }
-  const result = await stepGhlSpecializedRun(next.runId, limit);
+  const result = await (dependencies.stepRun ?? stepGhlSpecializedRun)(next.runId, limit);
   return {
     advanced: !result.leaseBusy,
     held: result.leaseBusy || result.run.state === "blocked",

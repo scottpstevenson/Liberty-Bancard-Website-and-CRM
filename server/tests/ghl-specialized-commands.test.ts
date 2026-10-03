@@ -4,6 +4,8 @@ import {
   hasUnexpiredGhlCommandLease,
   lookupExistingGhlContactByEmail,
   permissionFields,
+  runPendingGhlSpecializedCommands,
+  PENDING_GHL_COMMAND_POINTERS_SQL,
 } from "../services/ghl-specialized-commands";
 import { evaluateGhlCapabilityPolicy } from "../services/ghl-sync-control";
 
@@ -109,4 +111,68 @@ assert.match(admin, /backfill-ghl-contacts\/:runId\/step/);
 assert.match(admin, /ghl_semantic_stage_id_map/);
 assert.match(admin, /fresh provider read/);
 
-console.log("GHL specialized command safety tests passed (mocked lookup, opt-out, unreviewed-write refusal, bounded ownership).");
+// Reproduce the real blocked-command pointer, without DB/provider writes.
+const blockedRun = {
+  runId: "test-shared-pointer", kind: "contact_id_backfill",
+  state: "blocked", cursor: 0, createdAt: "2026-10-02T20:41:42.335Z",
+  lastError: "GHL_CRM_CONTROL_DISABLED", leaseExpiresAt: null,
+} as any;
+let stepped = 0;
+const recoveryDeps = {
+  queryPointers: async (query: string, values: string[]) => {
+    assert.equal(query, PENDING_GHL_COMMAND_POINTERS_SQL);
+    assert.match(query, /key=\$1/);
+    assert.match(query, /ghl_specialized_command_active_%/);
+    assert.deepEqual(values, ["ghl_specialized_command_active"]);
+    return { rows: [{ run_id: blockedRun.runId }] };
+  },
+  readRun: async () => blockedRun,
+  stepRun: async (id: string, limit = 1) => {
+    assert.equal(id, blockedRun.runId);
+    assert.equal(limit, 1);
+    stepped++;
+    return { leaseBusy: false, run: { ...blockedRun, state: "pending", cursor: 1, processed: 1, lastError: null } };
+  },
+};
+const recovered = await runPendingGhlSpecializedCommands(1, true, recoveryDeps);
+assert.equal(recovered.advanced, true, "the shared pointer must recover a historical write-control-blocked read");
+assert.equal(stepped, 1);
+blockedRun.state = "running";
+blockedRun.leaseExpiresAt = new Date(Date.now() - 60_000).toISOString();
+await runPendingGhlSpecializedCommands(1, true, recoveryDeps);
+assert.equal(stepped, 2, "an interrupted running command with an expired lease is recoverable");
+blockedRun.leaseExpiresAt = new Date(Date.now() + 60_000).toISOString();
+assert.equal((await runPendingGhlSpecializedCommands(1, true, recoveryDeps)).advanced, false);
+assert.equal(stepped, 2, "a live owner lease must not be stolen");
+blockedRun.leaseExpiresAt = null;
+blockedRun.state = "blocked";
+blockedRun.kind = "permission_projection";
+assert.equal((await runPendingGhlSpecializedCommands(1, true, recoveryDeps)).advanced, false);
+assert.equal(stepped, 2, "read-only recovery must never dispatch permission writes");
+blockedRun.kind = "contact_id_backfill";
+blockedRun.state = "complete";
+assert.equal((await runPendingGhlSpecializedCommands(1, true, recoveryDeps)).advanced, false);
+assert.equal(stepped, 2, "completed commands must not replay");
+if (process.argv.includes("--database")) {
+  const { pool } = await import("../db");
+  try {
+    // A read-only CTE shadows system_settings: exercise the actual selector
+    // without inserting commands, changing production, or calling GHL.
+    for (const [canonical, legacy, expected] of [
+      ["shared-run", "legacy-run", "shared-run"],
+      [null, "legacy-run", "legacy-run"],
+      ["shared-run", null, "shared-run"],
+      [null, null, null],
+    ]) {
+      const result = await pool.query(`
+        WITH system_settings(key,value,updated_at) AS (
+          VALUES ($1::text,to_jsonb($2::text),now()),
+            ($1::text||'_contact_id_backfill',to_jsonb($3::text),now()-interval '1 day')
+        ) ${PENDING_GHL_COMMAND_POINTERS_SQL}`,
+        ["ghl_specialized_command_active", canonical, legacy]);
+      assert.deepEqual(result.rows.map(row => row.run_id), expected ? [expected] : []);
+    }
+    console.log("GHL pointer SQL: canonical authority precedence, legacy fallback, and empty-pointer cases passed.");
+  } finally { await pool.end(); }
+}
+console.log("GHL specialized command safety tests passed (mocked lookup, opt-out, unreviewed-write refusal, shared-pointer recovery, expired-lease recovery, bounded ownership).");

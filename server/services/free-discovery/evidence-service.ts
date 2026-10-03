@@ -391,7 +391,8 @@ export async function promoteCandidateForValidation(candidateId: string,
   if (candidate.business_id) {
     const { businessLacksDbprLineageSql } = await import("../dbpr");
     const dbprCheck = rows(await db.execute(sql`
-      SELECT id FROM businesses WHERE id = ${candidate.business_id} AND ${businessLacksDbprLineageSql(sql`id`)}
+      SELECT businesses.id FROM businesses WHERE businesses.id = ${candidate.business_id}
+        AND ${businessLacksDbprLineageSql(sql`businesses.id`)}
     `))[0];
     if (!dbprCheck) {
       return { status: "PENDING_OPERATOR_ACTIVATION", reason: "DBPR_LINEAGE_EXCLUSION" };
