@@ -217,7 +217,7 @@ async function buildSfpValidationSelectionSnapshot(
     ? await getDurableScopedContactReceipts(cohortRunId, scope.resolvedTargets, policy)
     : [];
   const receiptByContact = new Map(durableReceipts.map((receipt) => [receipt.contactId, receipt]));
-  const actionableWinners = Array.from(winners.entries()).filter(([businessId, candidate]) => {
+  const actionableWinners = winners.filter(([businessId, candidate]) => {
     if (!scope || candidate.sourceKind !== "contact") return true;
     const contactId = Number(candidate.evidenceId.replace(/^contact:/, ""));
     const receipt = receiptByContact.get(contactId);
@@ -272,7 +272,7 @@ async function buildSfpValidationSelectionSnapshot(
     selectedContactIds: scope?.selectedContactIds,
     resolvedTargets: scope?.resolvedTargets,
     businessIds: bizIds,
-    totalWinners: scope ? actionableWinners.length + durableReceipts.length : winners.size,
+    totalWinners: scope ? actionableWinners.length + durableReceipts.length : winners.length,
   };
 }
 
@@ -431,11 +431,6 @@ async function getUndecidedCohortBizIds(cohortRunId: string): Promise<number[]> 
   const members = rows(await db.execute(sql`
     SELECT cm.business_id FROM sfp_cohort_members cm
      WHERE cm.cohort_run_id = ${cohortRunId}::uuid
-       AND NOT EXISTS (
-         SELECT 1 FROM sfp_outreach_eligibility staged
-          WHERE staged.cohort_run_id=cm.cohort_run_id AND staged.business_id=cm.business_id
-            AND staged.staging_intent_id IS NOT NULL
-       )
       ORDER BY cm.roi_score DESC,cm.business_id ASC
   `));
   return members.map((m: any) => Number(m.business_id));
@@ -640,28 +635,38 @@ async function getDurableScopedContactReceipts(
     .sort((a, b) => a.businessId - b.businessId);
 }
 
-/** Best currently actionable candidate per business, retaining justified alternatives. */
-async function selectWinnersPerBusiness(
+/** Up to three distinct actionable addresses per business, across cohort history. */
+export async function selectWinnersPerBusiness(
   bizIds: number[],
   cohortRunId: string,
   policyVersion: number,
   validationTtlDays: number,
   selectedContactTargets?: SfpSelectedContactTarget[],
-): Promise<Map<number, UnifiedSfpCandidateView>> {
+): Promise<Array<[number, UnifiedSfpCandidateView]>> {
   const unified = await getUnifiedSfpCandidates(bizIds) as CandidateWithPin[];
-  if (!unified.length) return new Map();
-  // Includes contact-scoped callers and older policy versions. A staged
-  // business's existing evidence pins belong to its durable intent, not a
-  // newly discovered alternative candidate or bridge-created contact.
-  const stagedBusinesses = new Set(rows(await db.execute(sql`
-    SELECT business_id FROM sfp_outreach_eligibility
-     WHERE cohort_run_id=${cohortRunId}::uuid AND staging_intent_id IS NOT NULL
-       AND business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
-  `)).map((row: any) => Number(row.business_id)));
-  for (let index = unified.length - 1; index >= 0; index--) {
-    if (stagedBusinesses.has(unified[index].businessId)) unified.splice(index, 1);
+  if (!unified.length) return [];
+  // Cohort membership is provenance, not business capacity. Existing intents
+  // exclude their address only; an invalid winner must not strand alternatives.
+  const commitments = rows(await db.execute(sql`
+    SELECT k.business_id,k.recipient_identity_hash,e.normalized_value_hash,
+           e.normalized_value_hash_version
+      FROM sfp_recipient_address_commitments k
+      LEFT JOIN sfp_campaign_staging_intents i ON i.id=k.staging_intent_id
+      LEFT JOIN sfp_outreach_eligibility e ON e.id=i.eligibility_id
+     WHERE k.business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
+       AND k.state IN ('claimed','committed')
+  `));
+  const reservedAddresses = new Map<number, Set<string>>();
+  const reservedCandidateHashes = new Set<string>();
+  for (const commitment of commitments) {
+    const businessId = Number(commitment.business_id);
+    const addresses = reservedAddresses.get(businessId) ?? new Set<string>();
+    addresses.add(String(commitment.recipient_identity_hash));
+    reservedAddresses.set(businessId, addresses);
+    if (commitment.normalized_value_hash) reservedCandidateHashes.add(
+      `${businessId}:${commitment.normalized_value_hash_version}:${commitment.normalized_value_hash}`,
+    );
   }
-  if (!unified.length) return new Map();
   for (const cand of unified) {
     cand._normalizedHash = cand.normalizedValueHash;
     cand._candidateRevision = [
@@ -686,11 +691,13 @@ async function selectWinnersPerBusiness(
       }
     }
   }
-  if (!unified.length) return new Map();
+  if (!unified.length) return [];
   const history = rows(await db.execute(sql`
-    SELECT e.business_id,e.source_kind,e.candidate_id::text AS candidate_id,
+     SELECT e.business_id,e.cohort_run_id,e.source_kind,e.candidate_id::text AS candidate_id,
            e.paid_candidate_evidence_id::text AS paid_id,e.contact_id::text AS contact_id,
-           e.normalized_value_hash,e.normalized_value_hash_version,e.status,e.updated_at,e.decision_reason,
+            e.normalized_value_hash,e.normalized_value_hash_version,e.status,e.updated_at,e.decision_reason,
+            e.staging_intent_id,e.named_contact,e.validation_expires_at,
+            e.contact_business_link_decision_id,e.contact_business_link_revision,
            (
              e.status='validated_outreach_eligible' AND e.staging_intent_id IS NULL
              AND EXISTS (
@@ -703,7 +710,8 @@ async function selectWinnersPerBusiness(
                   AND LEAST(COALESCE(po.expires_at,po.observed_at+(${validationTtlDays}::text||' days')::interval),
                             po.observed_at+(${validationTtlDays}::text||' days')::interval)>clock_timestamp()
                   AND (
-                    e.validation_at IS NULL OR e.validation_expires_at IS NULL
+                     e.cohort_run_id<>${cohortRunId}::uuid
+                     OR e.validation_at IS NULL OR e.validation_expires_at IS NULL
                     OR e.validation_at NOT BETWEEN po.observed_at-INTERVAL '5 minutes'
                                                    AND po.observed_at+INTERVAL '5 minutes'
                     OR e.validation_expires_at>LEAST(
@@ -713,16 +721,26 @@ async function selectWinnersPerBusiness(
              )
            ) AS receipt_projection_needs_repair
       FROM sfp_outreach_eligibility e
-     WHERE e.cohort_run_id=${cohortRunId}::uuid
-       AND e.business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
-       AND e.policy_version=${policyVersion}
+     WHERE e.business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
+       AND e.outreach_policy_version=${policyVersion}
+       AND EXISTS (
+         SELECT 1 FROM sfp_cohort_runs previous_run
+         JOIN sfp_cohort_runs selected_run ON selected_run.id=${cohortRunId}::uuid
+          WHERE previous_run.id=e.cohort_run_id
+            AND previous_run.program_id=selected_run.program_id
+       )
+     ORDER BY e.updated_at,e.id
   `));
-  const lastByBiz = new Map<number, any>();
-  for (const row of history) lastByBiz.set(Number(row.business_id), row);
+  const lastByAddress = new Map<string, any>();
+  for (const row of history) lastByAddress.set(
+    `${row.business_id}:${row.normalized_value_hash_version}:${row.normalized_value_hash}`, row,
+  );
   const candidateWorkRows = rows(await db.execute(sql`
     SELECT i.business_id,i.state,i.attempt_count,i.next_attempt_at,i.lease_expires_at,i.redacted_result,i.updated_at
       FROM sfp_stage_items i JOIN sfp_stage_runs s ON s.id=i.stage_run_id
-     WHERE s.cohort_run_id=${cohortRunId}::uuid AND i.provider='zerobounce'
+     JOIN sfp_cohort_runs work_run ON work_run.id=s.cohort_run_id
+     JOIN sfp_cohort_runs selected_run ON selected_run.id=${cohortRunId}::uuid
+     WHERE work_run.program_id=selected_run.program_id AND i.provider='zerobounce'
        AND i.business_id=ANY(ARRAY[${sql.join(bizIds.map(x=>sql`${x}`),sql`, `)}]::integer[])
       ORDER BY i.updated_at DESC
   `));
@@ -745,12 +763,17 @@ async function selectWinnersPerBusiness(
   const ranked = unified
     .filter((cand) => cand.field === "email" && ["staged", "validation_admitted"].includes(cand.disposition) && !cand.duplicateOfEvidenceId)
     .sort((a, b) => b.confidence - a.confidence || a.businessId - b.businessId || a.evidenceId.localeCompare(b.evidenceId));
-  const winners = new Map<number, UnifiedSfpCandidateView>();
+  const winners: Array<[number, UnifiedSfpCandidateView]> = [];
+  const selectedByBusiness = new Map<number, Set<string>>();
   for (const cand of ranked) {
-    if (winners.has(cand.businessId)) continue;
+    const addressKey = `${cand.businessId}:${cand.normalizedValueHashVersion}:${cand._normalizedHash}`;
+    const selectedAddresses = selectedByBusiness.get(cand.businessId) ?? new Set<string>();
+    const remainingSlots = Math.max(0, 3 - (reservedAddresses.get(cand.businessId)?.size ?? 0));
+    if (!/^[0-9a-f]{64}$/i.test(String(cand._normalizedHash ?? "")) || reservedCandidateHashes.has(addressKey)
+        || selectedAddresses.has(addressKey) || selectedAddresses.size >= remainingSlots) continue;
     const candidateKey = `${cand.businessId}:${cand.sourceKind}:${candidateSourceId(cand)}:${cand._normalizedHash ?? ""}:${cand.normalizedValueHashVersion ?? ""}:${cand._candidateRevision ?? cand.createdAt}:${policyVersion}`;
     const candidateWork = latestCandidateWork.get(candidateKey);
-    const prior = lastByBiz.get(cand.businessId);
+    const prior = lastByAddress.get(addressKey);
     const repairProjection = isSfpReceiptProjectionRepairCandidate(prior, cand);
     if (candidateWork) {
       if (candidateWork.state === "claimed" && Date.parse(String(candidateWork.lease_expires_at)) <= now) {
@@ -765,7 +788,7 @@ async function selectWinnersPerBusiness(
         continue;
       }
     }
-    if (!candidateWork && cand.sourceKind !== "contact" && prior && prior.source_kind === cand.sourceKind && prior.normalized_value_hash &&
+    if (!candidateWork && prior && prior.normalized_value_hash &&
         String(prior.normalized_value_hash) === String(cand._normalizedHash)) {
       if (prior.status === "validation_pending") {
         cand._retryAttempt = Number(String(prior.decision_reason ?? "").match(/attempt:(\d+)/)?.[1] ?? 1) + 1;
@@ -775,7 +798,9 @@ async function selectWinnersPerBusiness(
         continue; // terminal only for this exact address revision
       }
     }
-    winners.set(cand.businessId, cand);
+    selectedAddresses.add(addressKey);
+    selectedByBusiness.set(cand.businessId, selectedAddresses);
+    winners.push([cand.businessId, cand]);
   }
   return winners;
 }
@@ -785,18 +810,14 @@ function retryDelayMs(reason: string): number {
   return Math.min(24 * 60 * 60_000, 15 * 60_000 * 2 ** Math.max(0, attempt - 1));
 }
 
-function candidateClaimKey(cand: UnifiedSfpCandidateView, policyVersion: number): string {
+function candidateClaimKey(cand: UnifiedSfpCandidateView, policyVersion: number, programId: string): string {
   return createHash("sha256").update(JSON.stringify({
-    sourceKind: cand.sourceKind,
-    candidateId: cand.evidenceId,
+    programId,
     businessId: cand.businessId,
     normalizedAddressHash: cand.normalizedValueHash,
     normalizedAddressHashVersion: cand.normalizedValueHashVersion,
-    candidateRevision: [
-      cand.createdAt,
-      cand.contactBusinessLinkDecisionId ?? "",
-      cand.contactBusinessLinkRevision ?? "",
-    ].join(":"),
+    // Source-row IDs and cohort IDs are deliberately not work authority.
+    // Current source pins are still checked independently before dispatch.
     policyVersion,
   })).digest("hex");
 }
@@ -817,7 +838,6 @@ export async function claimValidationCandidate(input: {
   policyVersion: number;
 }): Promise<boolean> {
   const { candidate } = input;
-  const claimKey = candidateClaimKey(candidate, input.policyVersion);
   const reference = candidate.sourceKind === "free"
     ? { candidateId: candidate.evidenceId, paidCandidateEvidenceId: null, contactId: null }
     : candidate.sourceKind === "paid"
@@ -829,6 +849,11 @@ export async function claimValidationCandidate(input: {
   // the generic candidate_id FK on a zerobounce item.
   const stageCandidateId = candidate.sourceKind === "free" ? candidate.evidenceId : null;
   return db.transaction(async (tx) => {
+    const run = rows(await tx.execute(sql`
+      SELECT program_id FROM sfp_cohort_runs WHERE id=${input.cohortRunId}::uuid
+    `))[0];
+    if (!run) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+    const claimKey = candidateClaimKey(candidate, input.policyVersion, String(run.program_id));
     await tx.execute(sql`
       SELECT pg_advisory_xact_lock(hashtextextended(${`sfp-validation-candidate:${claimKey}`},0))
     `);
@@ -836,7 +861,8 @@ export async function claimValidationCandidate(input: {
       SELECT 1
         FROM sfp_stage_items i
         JOIN sfp_stage_runs s ON s.id=i.stage_run_id
-       WHERE s.cohort_run_id=${input.cohortRunId}::uuid
+        JOIN sfp_cohort_runs r ON r.id=s.cohort_run_id
+       WHERE r.program_id=${String(run.program_id)}::uuid
          AND s.stage='validation'
          AND i.business_id=${input.businessId}
          AND i.provider='zerobounce'
@@ -918,8 +944,6 @@ export async function previewSfpValidation(
       throw new Error("FREE_DISCOVERY_VALIDATION_PROMOTION_DISABLED");
     }
     await assertSfpRuntimeAuthority(cohortRunId);
-    const { assertPaidBudgetAuthorized } = await import("../mi09-pilot-authority");
-    await assertPaidBudgetAuthorized();
     const control = rows(await db.execute(sql`
       SELECT enabled,circuit_state
         FROM provider_controls WHERE provider='zerobounce'
@@ -1228,7 +1252,7 @@ export async function executeSfpValidation(
       cohortRunId,
       stageRunId: String(stageRun.id),
       businessId: bizId,
-      candidateClaimKey: candidateClaimKey(cand, policy.version),
+      candidateClaimKey: candidateClaimKey(cand, policy.version, String(runRow.program_id)),
     });
     const assertCurrentStageFinalization = async (executor: { execute: (query: any) => Promise<any> }) => {
       try {
@@ -1416,7 +1440,7 @@ export async function executeSfpValidation(
                    SET lease_expires_at=NOW()+INTERVAL '30 minutes',updated_at=NOW()
                  WHERE stage_run_id=${String(stageRun.id)}::uuid
                    AND business_id=${bizId} AND provider='zerobounce' AND state='claimed'
-                   AND redacted_result->>'candidateClaimKey'=${candidateClaimKey(cand,policy.version)}
+                   AND redacted_result->>'candidateClaimKey'=${candidateClaimKey(cand,policy.version,String(runRow.program_id))}
               `);
               providerFailurePhase = "provider_adapter_import";
               const verifyTransport = opts.zbTransport
@@ -1795,7 +1819,7 @@ export async function executeSfpValidation(
             }
 
             const validationAt = observedAtForEligibility;
-            await assertSfpEligibilityNotStaged(tx, cohortRunId, bizId);
+            await assertSfpEligibilityNotStaged(tx, cohortRunId, bizId, candidateIdentityHash);
             const projected = rows(await tx.execute(sql`
               INSERT INTO sfp_outreach_eligibility
                (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
@@ -1822,7 +1846,7 @@ export async function executeSfpValidation(
                   ${candidateIdentityHash}, ${policy.id}::uuid, ${policy.documentHash}, ${consentTierAfterProvider},
                 ${rawStatus}, ${rawSubstatus}, ${reusedFromOperationId}::uuid, ${JSON.stringify(reasonCodes)}::jsonb
               )
-              ON CONFLICT (cohort_run_id, business_id, policy_version)
+              ON CONFLICT (cohort_run_id, business_id, policy_version, normalized_value_hash)
               DO UPDATE SET
                 status = EXCLUDED.status, decision_reason = EXCLUDED.decision_reason,
                 zb_outcome = EXCLUDED.zb_outcome, validation_at = EXCLUDED.validation_at,
@@ -1914,13 +1938,14 @@ export async function executeSfpValidation(
         FROM sfp_outreach_eligibility
        WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${bizId}
          AND policy_version=${policy.version}
+         AND normalized_value_hash=${cand.normalizedValueHash}
        LIMIT 1
     `))[0];
     if (decision) {
       const decisionReason = String(decision.decision_reason ?? "");
       const isRetry = decision.status === "validation_pending";
       const attemptCount = Number(decisionReason.match(/attempt:(\d+)/)?.[1] ?? (cand as CandidateWithPin)._retryAttempt ?? 1);
-      const claimKey = candidateClaimKey(cand, policy.version);
+      const claimKey = candidateClaimKey(cand, policy.version, String(runRow.program_id));
       const nextAttemptAt = isRetry
         ? new Date(Date.now() + retryDelayMs(decisionReason)).toISOString()
         : new Date().toISOString();
@@ -1979,7 +2004,8 @@ export async function executeSfpValidation(
             (cohort_run_id, business_id, policy_version, status, decision_reason)
           VALUES (${cohortRunId}::uuid, ${bizId}, ${policy.version},
                   'discovery_required', 'no_staged_candidate')
-          ON CONFLICT (cohort_run_id, business_id, policy_version) DO NOTHING
+          ON CONFLICT (cohort_run_id, business_id, policy_version)
+            WHERE normalized_value_hash IS NULL DO NOTHING
         `);
       });
   }
@@ -2040,12 +2066,14 @@ async function assertSfpEligibilityNotStaged(
   executor: { execute: (query: any) => Promise<any> },
   cohortRunId: string,
   businessId: number,
+  addressHash: string | null | undefined,
 ): Promise<void> {
-  // Call only under the projection write gate/key. This also blocks a
-  // different policy version from replacing the staged business's proof.
+  // A staged address's source proof is immutable across policy versions.
+  // A distinct address is a distinct projection, not a replacement of it.
   const staged = rows(await executor.execute(sql`
     SELECT id FROM sfp_outreach_eligibility
      WHERE cohort_run_id=${cohortRunId}::uuid AND business_id=${businessId}
+       AND normalized_value_hash IS NOT DISTINCT FROM ${addressHash ?? null}
        AND staging_intent_id IS NOT NULL LIMIT 1
   `));
   if (staged.length) throw new Error("SFP_VALIDATION_ALREADY_STAGED");
@@ -2074,12 +2102,12 @@ async function writeEligibilityRow(input: {
   const write = async (target: { execute: (query: any) => Promise<any> }) => {
     await lockSfpEligibilityProjectionWriteGate(target);
     await lockSfpEligibilityProjectionKey(target, input.cohortRunId, input.bizId, policyVersion);
-    await assertSfpEligibilityNotStaged(target, input.cohortRunId, input.bizId);
+    await assertSfpEligibilityNotStaged(target, input.cohortRunId, input.bizId, normalizedValueHash);
     const projected = rows(await target.execute(sql`
     INSERT INTO sfp_outreach_eligibility
       (cohort_run_id, business_id, candidate_id, paid_candidate_evidence_id, contact_id, source_kind,
        contact_business_link_decision_id,contact_business_link_revision,normalized_value_hash_version,
-       policy_version,policy_document_id,policy_document_hash,
+       policy_version,outreach_policy_version,policy_document_id,policy_document_hash,
        status, decision_reason, suppression_status, masked_email, discovery_source,
         consent_tier, reason_codes, normalized_value_hash,named_contact,role_inbox)
     VALUES (${input.cohortRunId}::uuid, ${input.bizId},
@@ -2090,12 +2118,12 @@ async function writeEligibilityRow(input: {
       ${input.cand.sourceKind === "contact" ? input.cand.contactBusinessLinkDecisionId : null}::uuid,
       ${input.cand.sourceKind === "contact" ? input.cand.contactBusinessLinkRevision : null}::int,
       ${normalizedValueHashVersion},
-      ${policyVersion}, ${input.policyDocumentId}::uuid, ${input.policyDocumentHash},
+      ${policyVersion}, ${policyVersion}, ${input.policyDocumentId}::uuid, ${input.policyDocumentHash},
       ${input.status}, ${input.decisionReason},
       ${input.suppressionStatus ?? "unchecked"}, ${input.cand.maskedValue}, ${input.cand.provider ?? "free"},
        ${input.consentTier ?? null}, ${JSON.stringify(input.reasonCodes)}::jsonb,
          ${normalizedValueHash},${input.cand.subjectType === "person"},${input.cand.subjectType !== "person"})
-    ON CONFLICT (cohort_run_id, business_id, policy_version) DO UPDATE
+    ON CONFLICT (cohort_run_id, business_id, policy_version, normalized_value_hash) DO UPDATE
       SET status=EXCLUDED.status, decision_reason=EXCLUDED.decision_reason,
           suppression_status=EXCLUDED.suppression_status, source_kind=EXCLUDED.source_kind,
           paid_candidate_evidence_id=EXCLUDED.paid_candidate_evidence_id, candidate_id=EXCLUDED.candidate_id,
@@ -2105,6 +2133,7 @@ async function writeEligibilityRow(input: {
            normalized_value_hash_version=EXCLUDED.normalized_value_hash_version,
            policy_document_id=EXCLUDED.policy_document_id,
            policy_document_hash=EXCLUDED.policy_document_hash,
+           outreach_policy_version=EXCLUDED.outreach_policy_version,
             named_contact=EXCLUDED.named_contact,role_inbox=EXCLUDED.role_inbox,
             masked_email=EXCLUDED.masked_email,discovery_source=EXCLUDED.discovery_source,
            consent_tier=EXCLUDED.consent_tier, reason_codes=EXCLUDED.reason_codes,

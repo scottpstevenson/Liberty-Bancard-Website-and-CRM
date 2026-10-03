@@ -5,6 +5,7 @@
  */
 export function isSfpReceiptProjectionRepairCandidate(
   prior: {
+    business_id?: unknown;
     receipt_projection_needs_repair?: unknown;
     status?: unknown;
     source_kind?: unknown;
@@ -15,6 +16,7 @@ export function isSfpReceiptProjectionRepairCandidate(
     normalized_value_hash_version?: unknown;
   } | undefined,
   candidate: {
+    businessId: number;
     sourceKind: string;
     evidenceId: string;
     normalizedValueHash?: string | null;
@@ -23,7 +25,9 @@ export function isSfpReceiptProjectionRepairCandidate(
 ): boolean {
   if (prior?.receipt_projection_needs_repair !== true ||
       prior.status !== "validated_outreach_eligible" ||
-      prior.source_kind !== candidate.sourceKind ||
+      prior.business_id == null ||
+      Number(prior.business_id) !== candidate.businessId ||
+      !["free", "paid", "contact"].includes(candidate.sourceKind) ||
       !candidate.normalizedValueHash ||
       prior.normalized_value_hash !== candidate.normalizedValueHash ||
       prior.normalized_value_hash_version == null ||
@@ -31,11 +35,8 @@ export function isSfpReceiptProjectionRepairCandidate(
       Number(prior.normalized_value_hash_version) !== candidate.normalizedValueHashVersion) {
     return false;
   }
-  const sourceId = candidate.sourceKind === "free" ? prior.candidate_id
-    : candidate.sourceKind === "paid" ? prior.paid_id
-      : candidate.sourceKind === "contact" ? prior.contact_id : null;
-  const candidateId = candidate.sourceKind === "contact"
-    ? candidate.evidenceId.replace(/^contact:/, "")
-    : candidate.evidenceId;
-  return sourceId != null && String(sourceId) === candidateId;
+  // An identical address may be retained by a different source or cohort.
+  // This only schedules a recheck; the ordinary validator must reopen that
+  // source and match its plaintext to a fresh provider observation.
+  return true;
 }

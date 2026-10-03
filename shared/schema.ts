@@ -9745,7 +9745,13 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("sfp_outreach_run_business_policy_uidx").on(table.cohortRunId, table.businessId, table.policyVersion),
+  uniqueIndex("sfp_outreach_run_business_recipient_policy_uidx")
+    .on(table.cohortRunId, table.businessId, table.policyVersion, table.normalizedValueHash),
+  // Non-recipient placeholders retain their old one-per-business identity.
+  // Qualified recipient rows no longer overwrite another address's receipt.
+  uniqueIndex("sfp_outreach_run_business_unresolved_policy_uidx")
+    .on(table.cohortRunId, table.businessId, table.policyVersion)
+    .where(sql`normalized_value_hash IS NULL`),
   index("idx_sfp_outreach_eligibility_run").on(table.cohortRunId, table.status),
   index("idx_sfp_outreach_eligibility_status").on(table.status, table.createdAt),
   index("sfp_outreach_candidate_idx").on(table.candidateId),

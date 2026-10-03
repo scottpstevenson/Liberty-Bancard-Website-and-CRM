@@ -15,18 +15,26 @@ export async function lockSfpRecipientCapacity(
   tx: any, programId: string, objectiveKey: string, businessId: number, addressHash: string,
 ): Promise<{ slot: number; role: "primary" | "alternate"; replay: boolean }> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(
-    hashtextextended(${`sfp-business-recipient-capacity:${programId}:${objectiveKey}:${businessId}`},0))`);
+    hashtextextended(${`sfp-business-recipient-capacity:${businessId}`},0))`);
+  // Separate businesses must not concurrently claim the same mailbox through
+  // different program-scoped unique indexes. Always take business then address.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(
+    hashtextextended(${`sfp-recipient-address-owner:${addressHash}`},0))`);
+  const conflictingOwner = rows(await tx.execute(sql`
+    SELECT business_id FROM sfp_recipient_address_commitments
+     WHERE recipient_identity_hash=${addressHash} AND business_id<>${businessId}
+     LIMIT 1
+  `))[0];
+  if (conflictingOwner) {
+    throw new SfpRecipientCapacityError("SFP_STAGING_RECIPIENT_BUSINESS_CONFLICT");
+  }
   const current = rows(await tx.execute(sql`
     SELECT id,business_id,recipient_identity_hash
       FROM sfp_recipient_address_commitments
-     WHERE program_id=${programId}::uuid AND objective_key=${objectiveKey}
-       AND (business_id=${businessId} OR recipient_identity_hash=${addressHash})
+     WHERE business_id=${businessId}
+       AND state IN ('claimed','committed')
      ORDER BY created_at,id FOR UPDATE
   `));
-  const address = current.find(row => row.recipient_identity_hash === addressHash);
-  if (address && Number(address.business_id) !== businessId) {
-    throw new SfpRecipientCapacityError("SFP_STAGING_RECIPIENT_BUSINESS_CONFLICT");
-  }
   const businessAddresses = [...new Set(current.filter(row => Number(row.business_id) === businessId)
     .map(row => String(row.recipient_identity_hash)))];
   const existingIndex = businessAddresses.indexOf(addressHash);

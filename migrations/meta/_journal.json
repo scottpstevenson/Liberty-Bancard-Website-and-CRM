@@ -2289,6 +2289,13 @@
       "when": 1800000014700,
       "tag": "0323_sunbiz_publish_safe_identity_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 327,
+      "version": "7",
+      "when": 1800000014800,
+      "tag": "0324_sfp_recipient_scoped_eligibility",
+      "breakpoints": true
     }
   ]
 }

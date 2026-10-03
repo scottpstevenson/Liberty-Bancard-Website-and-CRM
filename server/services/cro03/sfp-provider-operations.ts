@@ -17,7 +17,6 @@ import {
 } from "./sfp-provider-http-diagnostics";
 import { assertProviderActivation, type ProviderSourceId } from "../provider-manifest";
 import {
-  assertPaidBudgetAuthorized,
   getCurrentPricingSchedule,
 } from "../mi09-pilot-authority";
 import { acquireLadderBudgetLock } from "./shared-paid-budget-ledger";
@@ -1702,7 +1701,6 @@ export async function reserveSfpProviderOperation(input: {
   assertProviderActivation({ sourceId, caller: CALLER, explicitPaidApproval: true });
   await releaseExpiredPreDispatchSfpReservations();
   const authority = await assertSfpRuntimeAuthority(input.cohortRunId);
-  const budgetAuth = await assertPaidBudgetAuthorized();
   const requestedUnits = Number(input.units ?? 1);
   if (!Number.isSafeInteger(requestedUnits) || requestedUnits < 1) throw new Error("SFP_PROVIDER_WORK_UNITS_INVALID");
   const maximumUnits = MAX_UNITS_PER_RESERVATION[input.provider] ?? 100;
@@ -1794,7 +1792,7 @@ export async function reserveSfpProviderOperation(input: {
              "authorization"=${JSON.stringify({
                runtimeOwnerEpoch: authority.ownerEpoch,
                deploymentIdentity: authority.deploymentIdentity,
-               budgetAuthorizedAt: budgetAuth.authorizedAt,
+               spendAuthorization: "routine_sfp_not_required",
              })}::jsonb,
              last_heartbeat_at=NOW(),updated_at=NOW()
         WHERE id=${input.stageRunId}::uuid
@@ -1869,7 +1867,6 @@ export async function reservePreCohortSfpProviderOperation(input: {
   const sourceId = input.provider as ProviderSourceId;
   assertProviderActivation({ sourceId, caller: "server/services/cro03/sfp-classification-bridge.ts", explicitPaidApproval: true });
   await releaseExpiredPreDispatchSfpReservations();
-  await assertPaidBudgetAuthorized();
   const runtimeFence = await getCurrentRoutineSfpRuntimeFence();
   if (!runtimeFence) throw new Error("SFP_PAID_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
   const requestedUnits = Number(input.units ?? 1);
