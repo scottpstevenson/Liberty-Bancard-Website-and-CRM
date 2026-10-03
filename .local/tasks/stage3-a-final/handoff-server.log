@@ -1,0 +1,1097 @@
+[CI server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[CI server-required] disposable database confirmed: test_stage3_server7
+
+══ CI server-required: 18 required suite(s) ══
+
+[1/18] CSV Import Reconciliation — scripts/test-import-reconciliation.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+
+CSV Import Reconciliation Smoke Test (against http://127.0.0.1:5402)
+
+Scenario 1: mixed file, first upload (2 new + 1 blank-invalid + 1 missing-contact-invalid + 1 new)
+  ✓ Scenario 1: HTTP 201 (got 201)
+  ✓ Scenario 1: response includes import.totalRows (got 5)
+  ✓ Scenario 1: totalRows(5) === created(4) + duplicates(0) + invalid(1) + skipped(0) + errors(0) = 5
+  ✓ Scenario 1: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 1: response exposes all six durable disposition counts
+  ✓ Scenario 1: durable disposition counts reconcile to totalRows
+  ✓ Scenario 1: persisted csv_imports record has invalidRows and skippedRows columns populated
+  ✓ Scenario 1: csv_imports projection agrees with the immutable ledger summary
+  ✓ Scenario 1: ordinary headers remain custom (got custom)
+  ✓ Scenario 1: generic valid rows reach canonical contact intake (got 4)
+  ✓ Scenario 1: at least 1 invalid row detected (got 1)
+  ✓ Scenario 1: processedRows equals totalRows (5/5)
+  ✓ Scenario 1: import has completedAt populated
+  ✓ Scenario 1: import has lastProgressAt populated
+
+Scenario 2: same mixed file uploaded again (replays the original durable execution)
+  ✓ Scenario 2: HTTP 200 replay (got 200)
+  ✓ Scenario 2: response marks execution as replayed
+  ✓ Scenario 2: response includes import.totalRows (got 5)
+  ✓ Scenario 2: totalRows(5) === created(4) + duplicates(0) + invalid(1) + skipped(0) + errors(0) = 5
+  ✓ Scenario 2: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 2: response exposes all six durable disposition counts
+  ✓ Scenario 2: durable disposition counts reconcile to totalRows
+  ✓ Scenario 2: replay returns original created count without writing contacts (got 4)
+  ✓ Scenario 2: replay returns the original durable execution identity
+
+Scenario 3: all-invalid file (every row invalid, zero created)
+  ✓ Scenario 3: HTTP 201 (got 201)
+  ✓ Scenario 3: response includes import.totalRows (got 2)
+  ✓ Scenario 3: totalRows(2) === created(0) + duplicates(0) + invalid(2) + skipped(0) + errors(0) = 2
+  ✓ Scenario 3: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 3: response exposes all six durable disposition counts
+  ✓ Scenario 3: durable disposition counts reconcile to totalRows
+  ✓ Scenario 3: persisted csv_imports record has invalidRows and skippedRows columns populated
+  ✓ Scenario 3: csv_imports projection agrees with the immutable ledger summary
+  ✓ Scenario 3: zero inserts (got 0)
+  ✓ Scenario 3: all rows counted invalid (invalidRows=2, totalRows=2)
+  ✓ Scenario 3: invalid generic headers remain custom (got custom)
+  ✓ Scenario 3: processedRows equals totalRows (2/2)
+  ✓ Scenario 3: import has completedAt populated
+  ✓ Scenario 3: import has lastProgressAt populated
+
+Scenario 4: Outscraper-shaped file is staged as deferred evidence, not promoted
+  ✓ Scenario 4: HTTP 201 (got 201)
+  ✓ Scenario 4: response includes import.totalRows (got 4)
+  ✓ Scenario 4: totalRows(4) === created(0) + duplicates(0) + invalid(0) + skipped(4) + errors(0) = 4
+  ✓ Scenario 4: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 4: response exposes all six durable disposition counts
+  ✓ Scenario 4: durable disposition counts reconcile to totalRows
+  ✓ Scenario 4: persisted csv_imports record has invalidRows and skippedRows columns populated
+  ✓ Scenario 4: csv_imports projection agrees with the immutable ledger summary
+  ✓ Scenario 4: distinctive Outscraper headers are recognized (got google_maps_outscraper)
+  ✓ Scenario 4: all 4 provider rows are deferred with zero direct inserts (inserted=0, deferred=4)
+  ✓ Scenario 4: no deals are created (got 0)
+  ✓ Scenario 4: provider rows created no contacts (found 0)
+  ✓ Scenario 4: processedRows equals totalRows (4/4)
+  ✓ Scenario 4: import has completedAt populated
+  ✓ Scenario 4: import has lastProgressAt populated
+
+Scenario 5: common headers alone stay custom
+  ✓ Scenario 5: HTTP 201 (got 201)
+  ✓ Scenario 5: response includes import.totalRows (got 1)
+  ✓ Scenario 5: totalRows(1) === created(1) + duplicates(0) + invalid(0) + skipped(0) + errors(0) = 1
+  ✓ Scenario 5: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 5: response exposes all six durable disposition counts
+  ✓ Scenario 5: durable disposition counts reconcile to totalRows
+  ✓ Scenario 5: persisted csv_imports record has invalidRows and skippedRows columns populated
+  ✓ Scenario 5: csv_imports projection agrees with the immutable ledger summary
+  ✓ Scenario 5: common overlap headers remain custom (got custom)
+  ✓ Scenario 5: ambiguous row reaches canonical intake (got inserted=1)
+  ✓ Scenario 5: processedRows equals totalRows (1/1)
+  ✓ Scenario 5: import has completedAt populated
+  ✓ Scenario 5: import has lastProgressAt populated
+
+Scenario 6: Known Outscraper format is staged without provider promotion
+  ✓ Scenario 6: HTTP 201 (got 201)
+  ✓ Scenario 6: response includes import.totalRows (got 1)
+  ✓ Scenario 6: totalRows(1) === created(0) + duplicates(0) + invalid(0) + skipped(1) + errors(0) = 1
+  ✓ Scenario 6: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 6: response exposes all six durable disposition counts
+  ✓ Scenario 6: durable disposition counts reconcile to totalRows
+  ✓ Scenario 6: persisted csv_imports record has invalidRows and skippedRows columns populated
+  ✓ Scenario 6: csv_imports projection agrees with the immutable ledger summary
+  ✓ Scenario 6: provider row is deferred with zero direct inserts (inserted=0, deferred=1)
+  ✓ Scenario 6: sourceFormat detected as google_maps_outscraper (got google_maps_outscraper)
+  ✓ Scenario 6: no deals are created (got 0)
+  ✓ Scenario 6: provider row created no contact (found 0)
+  ✓ Scenario 6: processedRows equals totalRows (1/1)
+  ✓ Scenario 6: import has completedAt populated
+  ✓ Scenario 6: import has lastProgressAt populated
+
+Scenario 7: Apollo-shaped file is staged as deferred evidence
+  ✓ Scenario 7: HTTP 201 (got 201)
+  ✓ Scenario 7: response includes import.totalRows (got 1)
+  ✓ Scenario 7: totalRows(1) === created(0) + duplicates(0) + invalid(0) + skipped(1) + errors(0) = 1
+  ✓ Scenario 7: response JSON exposes both invalidRows and skippedRows fields
+  ✓ Scenario 7: response exposes all six durable disposition counts
+  ✓ Scenario 7: durable disposition counts reconcile to totalRows
+  ✓ Scenario 7: persisted csv_imports record has invalidRows and skippedRows columns populated
+  ✓ Scenario 7: csv_imports projection agrees with the immutable ledger summary
+  ✓ Scenario 7: Apollo signature is recognized (got apollo_lead_list)
+  ✓ Scenario 7: Apollo row is deferred with zero direct inserts (inserted=0, deferred=1)
+  ✓ Scenario 7: no deals are created (got 0)
+  ✓ Scenario 7: provider row created no contact (found 0)
+  ✓ Scenario 7: processedRows equals totalRows (1/1)
+  ✓ Scenario 7: import has completedAt populated
+  ✓ Scenario 7: import has lastProgressAt populated
+
+Scenario 8: normalized provider headers still classify consistently
+  ✓ Scenario 8: Outscraper signature is case/space insensitive
+  ✓ Scenario 8: Apollo signature is case/underscore/hyphen insensitive
+  ✓ Scenario 8: one common overlap set remains custom
+  ✓ Scenario 8: common Apollo-like headers remain custom
+
+99 passed, 0 failed
+
+
+[2/18] Identity Crosswalk Certification (#1830) — scripts/test-identity-crosswalk.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+======================================================================
+  Identity Crosswalk Certification Suite (Task #1830)
+======================================================================
+
+── Phase H: Static source code guards ───────────────────────────────────
+  ✓ identity-crosswalk routes registered in server/routes.ts
+  ✓ PATCH /enrichment-jobs returns 503
+  ✓ IdentityCrosswalk route in App.tsx
+  ✓ Journal has 0230_identity_crosswalk_runs
+  ✓ Journal has 0231_identity_crosswalk_candidates
+  ✓ 0230 when > 1800000000500 (above high-water)
+  ✓ 0231 when > 0230 when
+  ✓ lead-ops stats uses NULLIF(BTRIM(email))
+  ✓ lead-ops stats has processing_completed alias
+  ✓ lead-ops stats has current_email_inventory alias
+
+── Phase B: Fail-close guards ───────────────────────────────────────────
+  ✓ promoteQualifiedToContacts has fail-closed guard as first statement
+  ✓ promoteQualifiedToContacts guard returns immediately after audit log
+  ✓ checkAndHandleOrphanDeal has fail-closed guard at function entry
+  ✓ checkAndHandleOrphanDeal guard returns before existing body
+
+── Phase C: Reconciliation approval allowlist ───────────────────────────
+  ✓ APPROVED_FIELDS does not include vertical
+  ✓ REVERTABLE_FIELDS includes vertical
+  ✓ Approve path uses APPROVED_FIELDS (not ALLOWED_FIELDS)
+  ✓ Revert path uses REVERTABLE_FIELDS
+  ✓ 409 message references Gen-2 crosswalk for vertical rejection
+
+── Phase I: Runner batch query schema correctness ───────────────────────
+  ✓ Prospects BATCH scan does not select sunbiz_entity_id
+  ✓ Prospects BATCH scan does not select business_id as a top-level column
+  ✓ Prospects batch selects contact_id (the real FK)
+  ✓ master_leads batch uses 'company AS entity_name' (not company_name)
+  ✓ master_leads batch does not select nonexistent company_name
+  ✓ Tier 2 filing_number join on businesses is not in any active query
+  ✓ Tier 2 is marked as Gen-2 deferred in runner
+  ✓ #1836: runner imports decideMarketingEmailValidation
+  ✓ #1836: email probe fetches provider-readiness fields
+  ✓ #1836: email match tier splits validated vs unvalidated (tier 3 vs tier 7)
+  ✓ #1836: raw email_status IN probe removed from email match query
+  ✓ #1836: ambiguous email writes AMBIGUOUS_MATCH candidates
+  ✓ #1836: email and owner_email probed independently via emailsToProbe set
+  ✓ #1836: old coalesced email shortcircuit removed
+  ✓ #1836: phone and owner_phone probed independently via phonesToProbe set
+  ✓ #1836: company+domain tier 4 implemented
+  ✓ #1836: company+address tier 6 implemented
+  ✓ #1836: business matching on website_domain implemented
+  ✓ #1836: business matching on company+phone implemented
+  ✓ #1836: multiple business matches write all candidates (not just first)
+  ✓ #1836: mixed contact+business writes both types (business not silently discarded)
+  ✓ #1836: insertSubjectWithCandidates accepts candidateType per candidate
+  ✓ #1836: insertSubjectWithCandidates iterates over cand.providers (all evidence signals)
+  ✓ #1836: SOURCE_CONFLICT multi-candidate call passes providers: s.providers (not providers[0])
+  ✓ #1836: ambiguous-email + business → promotes ambiguous contacts when businessCandidateMap has entries
+  ✓ #1836: sourceDomain uses explicit website/domain field with normalizeDomain()
+  ✓ #1836: free-mail domains are blocked from company+domain matching
+  ✓ #1836: website added to prospects batch SELECT
+  ✓ #1836: domain added to master_leads batch SELECT
+  ✓ #1836: normalizeBusinessNameCanonical imported from sdr/dedupe
+  ✓ #1836: sourceBusinessName derived from normalizeBusinessNameCanonical(row.entity_name)
+  ✓ #1836: business company+phone probe uses sourceBusinessName (not sourceCompany)
+  ✓ #1836: business company+city+state probe uses sourceBusinessName (not sourceCompany)
+  ✓ #1836: business name-only probe uses sourceBusinessName (not sourceCompany)
+  ✓ #1836: RULES_VERSION exported from runner
+  ✓ #1836: POST route uses RULES_VERSION constant (not hardcoded string)
+  ✓ #1836: email query uses LIMIT 100 safety cap (not 5 or 20)
+  ✓ #1836: email match queries provider_observations for evidence generation
+  ✓ #1836: email match uses po.outcome as providerOutcome (not email_status alone)
+  ✓ #1836: email match uses po.observed_at as verifiedAt (not email_validation_updated_at alone)
+  ✓ #1836: business domain probe loops over all rows (not if rows.length === 1)
+  ✓ #1836: business phone probe loops over all rows
+  ✓ #1836: business address probe loops over all rows
+  ✓ #1836: business name-only probe loops over all rows
+  ✓ #1836: purelyAmbiguousEmailCandidates filters out contacts already in candidateMap
+  ✓ #1836: tier 4-7 contact probes gated on purelyAmbiguousEmailCandidates (not ambiguousEmailCandidates)
+  ✓ #1836: ambiguous branch only fires when candidateMap is empty
+  ✓ #1836: mixed ambiguous+unique case promotes ambiguous contacts into candidateMap for SOURCE_CONFLICT
+  ✓ #1836: frozenBusinessesMaxId parameter in processBatch signature
+  ✓ #1836: executeIdentityRun extracts frozenBusinessesMaxId from run row
+  ✓ #1836: insertVerticalCandidate calls resolveCanonicalVertical
+  ✓ #1836: CursorUpdateFn type used for atomic cursor advancement
+  ✓ #1836: cursorUpdateFn called inside processBatch before COMMIT
+  ✓ MI-03: Tier-2 canonical-source precondition outcome is recorded in run_notes
+  ✓ #1836: sunbiz batch fetch includes principal_address, principal_city, principal_state
+  ✓ #1836: diagnostic census endpoint registered
+  ✓ #1836: UI displays 'Scan #N' not 'Gen-N' in run list
+  ✓ #1836: startMutation toast uses 'Scan #N'
+  ✓ #1836: architectural Gen-1/Gen-2 text preserved
+  ✓ #1836: migration 0232_crosswalk_run_notes journaled
+  ✓ Org-candidate decide path loads from contact_organization_candidates
+  ✓ Org-candidate branch is separated from identity-candidate branch
+  ✓ Org-candidate branch requires crosswalk_run_id in request body (FK domain fix)
+  ✓ Org-candidate branch validates crosswalk_run_id against contact_identity_reconciliation_runs
+  ✓ Org-candidate decision uses crosswalk_run_id (not org candidate's run_id) for decision FK
+  ✓ Decide endpoint validates ALLOWED_DECISIONS
+  ✓ Decide endpoint validates ALLOWED_TARGET_TYPES
+  ✓ org_candidate requires organization_candidate_id
+  ✓ Runner increments 'processed' counter on success path
+  ✓ Runner increments 'exceptions' counter on catch path
+  ✓ processBatch returns { processed, exceptions, classCounts, cursorUpdated }
+  ✓ executeIdentityRun signature returns Promise<void> (no data return)
+  ✓ Sunbiz FK traversal helper query exists (SELECT ... FROM prospects WHERE id = $1)
+  ✓ Sunbiz FK traversal helper does NOT select business_id (column not on prospects)
+  ✓ Sunbiz FK traversal helper selects contact_id
+  ✓ Master-leads watermark uses ORDER BY created_at DESC, id DESC LIMIT 1 (not independent MAXes)
+  ✓ classifyEvidence signature uses 'distinctRootSources' parameter (not providers.length)
+  ✓ processBatch calls classifyEvidence with literal 1 (Gen-1 single root source)
+  ✓ STRONG_REVIEW_CANDIDATE requires distinctRootSources >= 2 in classifyEvidence
+  ✓ processBatch no longer passes sig.providers.length to classifyEvidence
+  ✓ processBatch uses SAVEPOINT per row for atomic writes
+  ✓ processBatch uses ROLLBACK TO SAVEPOINT on write error
+  ✓ processBatch acquires a dedicated pool client (pool.connect()) for the batch
+  ✓ Helper functions (insertSubjectWithSingleCandidate) accept tx: PoolClient parameter
+  ✓ leaseOwnerTag() appends crypto.randomUUID() for per-invocation uniqueness
+  ✓ executeIdentityRun has a lifecycle-level try/catch that marks the run failed (covering pending and running)
+
+── Phase J: DB-backed atomicity and watermark tests ────────────────────
+[Private identity-crosswalk DB atomicity fixtures] disposable database confirmed: test_stage3_server7
+  ✓ J1: master_leads watermark query always returns exactly 1 row (including empty-table case)
+  ✓ J1: Empty master_leads watermark returns null max_ts and max_uuid
+  ✓ J2a: subject row is visible after SAVEPOINT / RELEASE / COMMIT
+  ✓ J2b: ROLLBACK TO SAVEPOINT within BEGIN/COMMIT leaves only previously committed rows
+  ✓ J2b: rolled-back row source_id '8888888' is absent (not committed)
+  ✓ J3: processBatch returns { processed=1, exceptions=0 } for a NO_MATCH row with valid run
+  ✓ J3: processBatch writes the subject row to the DB
+  ✓ J3: no_match_count incremented to 1 after first processBatch call
+  ✓ J3: processBatch returns { processed=1 } on replay (idempotent, no throw)
+  ✓ J3: no_match_count stays at 1 after replay (counter not double-incremented)
+  ✓ J3: exactly 1 subject row after replay (no duplicate)
+  ✓ J4: Stale worker cursor CAS returns 0 rows when lease is superseded
+  ✓ J4: Resumed worker cursor CAS succeeds (1 row) with the new lease owner
+  ✓ GET /api/csrf-token returns a token
+  ✓ CSRF token is bound to the retained csrf_token cookie
+  ✓ POST /api/auth/login returns 200
+  ✓ Canonical login establishes an admin session
+  ✓ Canonical login retains the connect.sid session cookie
+
+── Session and CSRF verification ────────────────────────────────────────
+  ✓ Authenticated admin session with invalid CSRF token is rejected before route handling
+
+── Phase A: Schema migrations 0230–0231 ─────────────────────────────────
+  ✓ Tables created (runs endpoint returns 200)
+
+── Phase D: Enrichment-jobs 503 gate ────────────────────────────────────
+  ✓ PATCH /api/enrichment-jobs/:id returns 503
+  ✓ 503 body has ENRICHMENT_JOB_CONTROL_GOVERNED code
+
+── Phase E: Identity crosswalk routes ────────────────────────────────────
+  ✓ GET /runs without auth → 401 or 302
+  ✓ GET /runs returns 200
+  ✓ GET /runs returns { runs: [] } shape
+  ✓ POST /runs returns 201 or 409
+  ✓ POST /runs returns runId
+  ✓ POST /runs returns generation
+  ✓ GET /runs/:runId returns 200
+  ✓ Run detail has generation field
+  ✓ GET /runs/not-a-uuid → 400
+  ✓ GET /subjects returns 200
+  ✓ GET /subjects returns { subjects: [] } shape
+  ✓ GET /vertical-candidates returns 200
+  ✓ GET /vertical-candidates returns { candidates: [] } shape
+  ✓ POST /candidates/invalid/decide → 400
+  ✓ POST /candidates/nonexistent/decide → 404
+  ✓ POST /runs/:runId/cancel returns 200 or 409
+  ✓ POST /runs after cancel returns 201
+
+── Phase F: Lead-ops stats renamed fields ────────────────────────────────
+  ✓ GET /api/lead-ops/stats returns 200
+  ✓ stats has processing_completed (not enriched)
+  ✓ stats has pending_processing (not pending)
+  ✓ stats has current_email_inventory (not has_email)
+  ✓ stats has current_phone_inventory (not has_phone)
+  ✓ stats does NOT have legacy 'enriched' field
+  ✓ stats does NOT have legacy 'has_email' field
+
+── Phase G: Reconciliation org-candidate members ────────────────────────
+  ✓ GET /org-candidates/invalid/members → 400
+  ✓ GET /org-candidates/999999999/members → 200
+  ✓ org-candidate members returns { members: [] } shape
+
+======================================================================
+  ✅ ALL 154 ASSERTIONS PASSED — GO
+======================================================================
+
+
+[3/18] CR-06 HTTP Authorization, CSRF, and Opaque-ID Contract — scripts/test-cr06-http-authorization.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+(node:44540) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+CR-06 HTTP authorization certification passed (36 assertions; no provider transport invoked).
+
+[4/18] Contactability Engine — scripts/test-contactability.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+[contactability-test] disposable database confirmed: test_stage3_server7
+
+=== Wave 1A Contactability Engine — Smoke Tests ===
+
+▶ deriveConsentTier() unit tests
+  ✓ cold scraped → cold_no_consent
+  ✓ inbound source → warm_no_pewc
+  ✓ doNotContact → do_not_contact
+  ✓ opted_out smsStatus → opted_out
+  ✓ Fix 2: scraped contact + pewcEvidenceVerified=true → pewc_full_automation
+  ✓ Fix 2: inbound contact + pewcEvidenceVerified=true → pewc_full_automation
+  ✓ Fix 2: pewcEvidenceVerified=false still respects source heuristics (inbound→warm)
+  ✓ Fix 2: DNC takes priority even when pewcEvidenceVerified=true
+  ✓ Fix 2: opted_out takes priority even when pewcEvidenceVerified=true
+
+▶ evaluateContactability() integration tests
+
+  [Cold scraped lead]
+(node:44836) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  ✓ cold scraped can receive email
+  ✓ cold scraped can get manual call task
+  ✓ cold scraped cannot receive SMS
+  ✓ cold SMS block reason mentions consent
+  ✓ cold scraped cannot receive AI voice
+  ✓ cold scraped cannot receive ringless voicemail
+
+  [Warm no-PEWC lead]
+  ✓ warm no-PEWC: SMS blocked
+  ✓ warm no-PEWC: AI voice blocked
+  ✓ warm no-PEWC: ringless VM blocked
+
+  [doNotContact = true]
+  ✓ doNotContact blocks email
+  ✓ doNotContact blocks manual_call
+  ✓ doNotContact blocks sms
+  ✓ doNotContact blocks voice_ai
+  ✓ doNotContact blocks ringless_vm
+
+  [doNotAutoContact = true]
+  ✓ doNotAutoContact does NOT block manual_call
+  ✓ doNotAutoContact blocks automated email
+  ✓ doNotAutoContact email block mentions allowedChannels=[manual_call]
+
+  [SMS STOP (smsStatus=opted_out)]
+  ✓ SMS STOP blocks SMS channel
+  ✓ SMS STOP does not block email
+
+  [emailStatus=bounced]
+  ✓ bounced email blocks email channel
+
+  [dncReason set]
+  ✓ DNC reason blocks manual_call
+  ✓ DNC reason does not block email
+
+  [PEWC tier without audit evidence (step 12)]
+  ✓ PEWC tier without audit evidence is blocked at step 12
+  ✓ Step 12 block reason mentions evidence/audit
+
+  [Fix 2: PEWC evidence in audit log upgrades cold contact to pewc_full_automation]
+  ✓ Fix 2: PEWC audit evidence recognized — SMS block (if any) is NOT a consent-tier rejection
+  ✓ Fix 2: PEWC audit evidence recognized — voice_ai block (if any) is NOT a consent-tier rejection
+
+  [Florida rule]
+  ✓ Florida: SMS blocked without PEWC
+  ✓ Florida: AI voice blocked without PEWC
+  ✓ Florida: email NOT blocked solely by FL state
+  ✓ Florida: manual_call NOT blocked solely by FL state
+
+  [ghlPermissionPayload shape]
+  ✓ ghlPermissionPayload has all 7 required fields
+  ✓ ghlPermissionPayload: email allowed for cold contact
+  ✓ ghlPermissionPayload: sms blocked for cold contact (no PEWC)
+
+  [Audit log: dryRun mode writes no logs]
+  ✓ dryRun mode: zero audit logs written
+
+  [Audit log: enforcement mode writes blocked log for automated channel]
+  ✓ enforcement mode: at least one audit log written
+  ✓ enforcement audit log marks allowed=false
+
+▶ Gate integration tests — ghl-workflow-enrollment wiring
+
+  [enrollContactInGhlWorkflow gate — doNotAutoContact contact]
+[GHL Enrollment] outboundChannels not declared for sequence "Wave 1A Test Sequence" (id 0). Defaulting to ["email"]. Set triggerConfig.outboundChannels in the sequence to suppress this warning.
+  ✓ enrollContactInGhlWorkflow: returns enrolled=false for doNotAutoContact contact
+  ✓ enrollContactInGhlWorkflow: method is 'skipped'
+  ✓ enrollContactInGhlWorkflow: reason present (contactability gate)
+  ✓ enrollContactInGhlWorkflow: reason is NOT 'Contact not found' or 'do-not-contact list'
+
+  [enrollContactInGhlWorkflow gate — doNotContact contact (step 2)]
+  ✓ enrollContactInGhlWorkflow: doNotContact blocked before contactability gate
+  ✓ enrollContactInGhlWorkflow: doNotContact reason is the existing DNC check
+
+  [enrollContactInGhlWorkflow gate — email-first default (no outboundChannels)]
+[GHL Enrollment] outboundChannels not declared for sequence "Wave 1A Default-Channels Test" (id 0). Defaulting to ["email"]. Set triggerConfig.outboundChannels in the sequence to suppress this warning.
+  ✓ email-first default: warm_no_pewc contact NOT blocked by consent/PEWC gate when outboundChannels is omitted
+
+  [enrollContactInGhlWorkflow gate — explicit email-only outboundChannels, warm contact]
+  ✓ explicit email-only outboundChannels: warm_no_pewc contact not blocked by consent gate
+
+▶ SDR checkBeforeSend — Fix 1: fail-closed for ALL channels when no contacts record
+
+[SDR Compliance] No contacts record found for merchant 3 (email: sdr-orphan-1791047072523@wave1a-test.invalid). Blocking all automated channels (email) — create a contact record first.
+  ✓ Fix 1: checkBeforeSend blocks EMAIL when no contacts record (fail-closed, no legacy bypass)
+  ✓ Fix 1: email block reason references missing contacts record (not legacy reason)
+[SDR Compliance] No contacts record found for merchant 3 (email: sdr-orphan-1791047072523@wave1a-test.invalid). Blocking all automated channels (sms) — create a contact record first.
+  ✓ Fix 1: checkBeforeSend blocks SMS when no contacts record
+[SDR Compliance] No contacts record found for merchant 3 (email: sdr-orphan-1791047072523@wave1a-test.invalid). Blocking all automated channels (call) — create a contact record first.
+  ✓ Fix 1: checkBeforeSend blocks CALL when no contacts record
+  ✓ All SDR compliance Fix 1 assertions passed — no channel bypasses legacy gate.
+[SDR Compliance] Merchant 4 has no mainEmail — contactability bridge unavailable. Blocking sms.
+  ✓ Fix 1: checkBeforeSend blocks when merchant has no mainEmail
+[SDR Compliance] Merchant 4 has no mainEmail — contactability bridge unavailable. Blocking email.
+  ✓ Fix 1: checkBeforeSend blocks email when merchant has no mainEmail
+
+▶ API-level tests — GET /api/contacts/:id/contactability (dryRun endpoint)
+
+  ✓ GET /api/contacts/:id/contactability returns 200
+  ✓ API response has 'results' key
+  ✓ API response has 'summary' key
+  ✓ API response 'results' contains channel 'email'
+  ✓ API response 'results' contains channel 'manual_call'
+  ✓ API response 'results' contains channel 'sms'
+  ✓ API response 'results' contains channel 'voice_ai'
+  ✓ API response 'results' contains channel 'ringless_vm'
+  ✓ API summary has allowedChannels array
+  ✓ API summary has blockedChannels array
+  ✓ API summary has ghlPermissionPayload
+  ✓ API summary has consentTier
+  ✓ API summary has lifecycleStage
+  ✓ API: cold scraped contact allowed for email
+  ✓ API: cold scraped contact blocked for SMS
+  ✓ API endpoint (dryRun): zero audit logs written to consent_audit_logs
+  ✓ API: unauthenticated request returns 401
+
+▶ Wave 12 — 5 additional contactability assertions
+
+  [Case 1: ringless_vm blocked without PEWC gate — even with mobile phone type]
+  ✓ Case 1: ringless_vm blocked without PEWC (even with mobile phone type)
+  ✓ Case 1: RVM block reason references consent/PEWC tier
+
+  [Case 2: email-only consent tier — smsStatus=opted_out, emailStatus=active]
+  ✓ Case 2: email-only tier — email channel allowed
+  ✓ Case 2: email-only tier — SMS blocked (opted_out)
+  ✓ Case 2: SMS block reason references opt-out
+
+  [Case 3: manual_call channel allowed when no block rules apply]
+  ✓ Case 3: manual_call allowed for warm unblocked contact
+  ✓ Case 3: manual_call allowedChannels includes manual_call
+
+  [Case 4: PEWC contact + SMS_ENABLED=false → SMS blocked with flag_gated reason]
+  ✓ Case 4: PEWC+SMS_ENABLED=false → SMS blocked
+  ✓ Case 4: block reason mentions SMS_ENABLED feature flag
+  ✓ Case 4: ghlPermissionPayload.lb_sms_allowed=false when SMS_ENABLED=false
+
+  [Case 5: PEWC contact + SMS_ENABLED=true (env override) → lb_sms_allowed=true]
+  ✓ Case 5: lb_sms_allowed=true when SMS_ENABLED=true (or only TCPA quiet hours blocks)
+  ✓ Case 5: if SMS not allowed, only quiet hours can block (not flag gate)
+
+========================================================
+Wave 1A Contactability Test Results:
+  Passed: 88
+  Failed: 0
+========================================================
+
+✅ All contactability tests passed.
+
+
+[5/18] Speed-to-Lead Pipeline — scripts/test-speed-to-lead.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+
+═══════════════════════════════════════════════════════════
+ Speed-to-Lead Pipeline Smoke Test
+═══════════════════════════════════════════════════════════
+
+(node:44869) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [setup] Created test contact #202 (stl-smoke-1791047074795@test.libertybancard.internal)
+
+─── Running processNewLead ───────────────────────────────
+[Lifecycle] Contact #202: PROSPECT → ENGAGED (trigger: pre_deploy_gate)
+[processNewLead] #202 complete in 222ms — score=37 lifecycle=ENGAGED nba=NO_ACTION slaDue=none
+
+─── Assertions ───────────────────────────────────────────
+  ✓ Pipeline completed within 60s
+  ✓ No unexpected pipeline errors
+  ✓ Lead score was computed
+  ✓ Lifecycle advanced past PROSPECT
+  ✓ NBA row computed and persisted
+  ○ SLA timer check skipped — score 37 < threshold 40
+  ✓ GET /api/admin/lead-queue-stats endpoint exists (not 404)
+[cleanup] Failed to remove contacts for #202: update or delete on table "contacts" violates foreign key constraint "consent_audit_logs_contact_id_contacts_id_fk" on table "consent_audit_logs"
+
+  [cleanup] Test contact #202 removed
+
+─── Results ──────────────────────────────────────────────
+  Passed: 6  Failed: 0  Duration: 222ms
+═══════════════════════════════════════════════════════════
+
+
+[6/18] CRO-02 HTTP Privacy and Provider Denial — scripts/test-cro02-http.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+  ✓ TEST_DATABASE_URL is required; HTTP proof never skips
+[cro02-http] disposable database confirmed: test_stage3_server7
+[CanonicalURL] ⚠️  Neither APP_URL nor REPLIT_DOMAINS is set. Email verification/reset links will point to libertybancard.com. Set APP_URL=<your deployment URL> in Replit Secrets to fix.
+[CanonicalURL] Resolved: https://libertybancard.com (source: static_fallback)
+(node:44897) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  ✓ automatic link candidate stays in dedicated append-only axis without projection
+  ✓ heuristic candidate cannot authorize marketing_outreach
+  ✓ heuristic candidate cannot authorize provider_pre_spend
+  ✓ legacy compatibility businessId is preserved but cannot authorize graph use
+  ✓ repeated passive HTTP observations create no snapshot, dependency, aggregate, or control writes
+  ✓ anonymous coverage request returns 401
+  ✓ malformed purpose returns 400
+  ✓ admin receives authenticated aggregate coverage
+  ✓ admin aggregate contains no IDs, PII, tokens, or evidence
+  ✓ admin report reconciles distinct evaluated snapshots against all commercial roots
+  ✓ manager receives authenticated aggregate coverage
+  ✓ manager aggregate contains no IDs, PII, tokens, or evidence
+  ✓ manager report reconciles distinct evaluated snapshots against all commercial roots
+  ✓ agent cannot expand privileged global coverage scope
+  ✓ agent can access a business through an assigned linked contact
+  ✓ absent business is non-enumerating 404
+  ✓ unauthorized business has the same non-enumerating 404 shape
+  ✓ relationship read validates endpoint scope and returns reviewed projection only
+  ✓ unscoped relationship graph is non-enumerating 404
+  ✓ stale authority version returns privacy-safe 409
+  ✓ well-formed quarantined resolution returns 422
+  ✓ malformed resolution input returns 400
+  ✓ unknown inbound acknowledgement without server binding is denied
+  ✓ unknown inbound acknowledgement requires current intended-recipient binding
+Internal server error {
+  correlationId: '9cc39d62-bbd5-4bae-ad9c-44ac15e804bb',
+  errorClass: 'Error',
+  reasonCode: 'internal_error',
+  route: '/api/commercial/coverage',
+  method: 'GET',
+  status: 500
+}
+  ✓ 500 is sanitized and correlated in body/header
+  ✓ HTTP suite made no provider/network calls beyond explicit loopback requests
+  ✓ HTTP suite executed a substantive non-zero assertion set
+CRO-02 HTTP contract passed (28 assertions)
+
+[7/18] CRO-03 HTTP Authorization and Ownership — scripts/test-cro03-http-authorization.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+(node:44929) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+CRO-03 HTTP authorization certification passed (no worker/provider transport invoked).
+
+[8/18] CRM Operator Experience — scripts/test-crm-operator-experience.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+(node:44968) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+CRM operator regression boundary and two-agent ownership checks passed.
+
+[9/18] Sequence Compliance — scripts/test-sequence-compliance.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+[sequence-compliance-test] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[sequence-compliance-test] disposable database confirmed: test_stage3_server7
+=== Wave 12 Sequence Compliance Tests ===
+
+Mode: disposable dryRun — no real messages sent; synthetic audit receipts are required
+
+Test correlation ID: 43cb6e80-67d5-4b94-a5ce-819b7bab0de7
+
+(node:45023) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+MAX(ledger_epoch) query plan:
+  Aggregate  (cost=26.94..26.95 rows=1 width=32) (actual time=0.155..0.155 rows=1 loops=1)
+    ->  Seq Scan on logical_job_control_holds  (cost=0.00..25.35 rows=635 width=8) (actual time=0.004..0.105 rows=635 loops=1)
+  Planning Time: 0.769 ms
+  Execution Time: 0.214 ms
+
+  ✓ Isolation probe: uncorrelated release_pending hold survives clearTestHolds()
+Non-test active coordinator holds at start: 18
+
+  ✓ Real direct trigger without request authority remains denied
+  ✓ Real direct trigger denial retains its truthful CR-04 receipt
+Case 1: Cold scraped lead in PEWC-required sequence → blocked
+  ✓ Cold lead blocked by PEWC-required sequence
+  ✓ Block reason references consent tier
+
+Case 2: smsStatus opted_out → SMS step blocked by evaluateContactability
+  ✓ Opted-out SMS blocked
+  ✓ Block reason references SMS opt-out
+
+Case 3: doNotContact true → all 5 channels blocked
+  ✓ doNotContact blocks email
+  ✓ doNotContact blocks manual_call
+  ✓ doNotContact blocks sms
+  ✓ doNotContact blocks voice_ai
+  ✓ doNotContact blocks ringless_vm
+
+Case 4: doNotAutoContact → automated blocked, manual_call allowed
+  ✓ doNotAutoContact blocks automated channel: email
+  ✓ doNotAutoContact block reason mentions manual call task
+  ✓ doNotAutoContact blocks automated channel: sms
+  ✓ doNotAutoContact block reason mentions manual call task
+  ✓ doNotAutoContact blocks automated channel: voice_ai
+  ✓ doNotAutoContact block reason mentions manual call task
+  ✓ doNotAutoContact blocks automated channel: ringless_vm
+  ✓ doNotAutoContact block reason mentions manual call task
+  ✓ doNotAutoContact: manual_call is allowed (forced business-hours time)
+  ✓ allowed channels includes manual_call
+
+Case 5: DNC contact with dncReason → blocked
+  ✓ DNC contact (dncReason set) email blocked
+  ✓ DNC contact (dncReason set) SMS blocked
+  ✓ DNC contact blocked from sequence enrollment
+
+Case 6: Florida contact without PEWC → SMS blocked (PEWC required before FL TCPA step)
+  ✓ Florida warm contact: SMS blocked (missing PEWC evidence)
+  ✓ Block reason references consent tier or PEWC
+
+Case 7: Mid-sequence opt-out — PEWC contact → eligible → opt out → blocked
+  ✓ PEWC contact email allowed before opt-out
+  ✓ After email opt-out: email blocked
+  ✓ After opt-out: reason references unsubscribed/opted_out
+
+Case 8: Valid PEWC + SMS_ENABLED=true + VOICE_AI_ENABLED=true → SMS/email allowed in dryRun
+  ✓ PEWC contact: email allowed (flags on)
+  ✓ email ghlPermissionPayload.lb_email_allowed=true
+  ✓ PEWC contact: lb_sms_allowed=true when SMS_ENABLED=true (or only TCPA quiet hours blocks)
+  ✓ If SMS not allowed, only acceptable reason is quiet hours
+  ✓ PEWC contact: sequence enrollment allowed
+
+Case 9 (Pre-Enrollment Gate): opted-out contact — no enrollment row written
+  ✓ opted-out: autoEnrollFromTrigger returns 0 enrolled
+  ✓ opted-out: no sequenceEnrollments row created
+  ✓ opted-out: auto_enrollment_blocked_contactability audit log written
+
+Case 10 (Pre-Enrollment Gate): bounced email — blocked for email sequence
+  ✓ bounced email: autoEnrollFromTrigger returns 0 enrolled
+  ✓ bounced email: no sequenceEnrollments row created
+  ✓ bounced email: auto_enrollment_blocked_contactability audit log written
+
+Case 11 (Pre-Enrollment Gate): cold/no-consent contact blocked for SMS sequence
+  ✓ cold contact: autoEnrollFromTrigger returns 0 for SMS sequence
+  ✓ cold contact: no sequenceEnrollments row created for SMS sequence
+
+Case 12 (Pre-Enrollment Gate): email contactability cannot replace cohort activation authority
+  ✓ otherwise email-contactable fixture passes the independent contactability gate
+  ✓ contactability without cohort authority returns 0 enrolled
+  ✓ contactability without cohort authority creates no membership
+  ✓ canonical fence independently identifies missing cohort authority
+
+Case 13 (Pre-Enrollment Gate): warm contact passes email but fails SMS — mixed sequence blocked
+  ✓ warm contact: mixed-channel sequence blocked (SMS requires PEWC)
+  ✓ warm contact: no enrollment row for mixed sequence
+  [Case 13b: email-only declaration does not supply missing cohort activation authority]
+  ✓ declared outboundChannels=[email]: missing cohort authority still blocks activation
+  ✓ declared outboundChannels=[email]: no unauthorized mixed-channel membership
+  ✓ declared email fixture independently passes email contactability
+  ✓ declared email-only channels do not bypass the canonical cohort fence
+
+Case 14 (Execution-Time Gate preserved): processSequenceEnrollments pauses enrollment before send
+[Coordinator] Global-outbound holds transitioned to release_pending for 18 keys
+  [holds] clearTestHolds: released 18 test-owned hold(s) (correlation 43cb6e80-67d5-4b94-a5ce-819b7bab0de7)
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":79,"enrollments_processed":1,"enrollments_due_total":0,"errors":0,"ran_at":"2026-10-03T17:05:17.328Z"}
+[OutboundControlService] Pause activation: legacy flag written atomically with activating state
+[OutboundControlService] Pause activation: drain drained (remaining in-flight: 0)
+[Coordinator] Global-outbound holds written for 18 logical job keys (epoch=99)
+  ✓ Gate (a): processSequenceEnrollments paused enrollment for doNotAutoContact contact
+  ✓ Gate (a): sequence_enrollment_blocked_contactability audit log written
+
+Case 15 (CAN-SPAM): isColdOutreachSequence — cold-email-manual-call family = true
+  ✓ cold-email-manual-call family → isColdOutreachSequence=true
+
+Case 16 (CAN-SPAM): isColdOutreachSequence — contact_created trigger = true
+  ✓ contact_created trigger → isColdOutreachSequence=true
+
+Case 17 (CAN-SPAM): isColdOutreachSequence — transactional families = false
+  ✓ closed_won → isColdOutreachSequence=false
+  ✓ onboarding_step → isColdOutreachSequence=false
+  ✓ merchant_welcome → isColdOutreachSequence=false
+  ✓ no_show → isColdOutreachSequence=false
+
+Case 18 (CAN-SPAM): isColdOutreachSequence — transactional triggers = false
+  ✓ trigger=deal_stage_changed → isColdOutreachSequence=false
+  ✓ trigger=merchant_approved → isColdOutreachSequence=false
+  ✓ trigger=application_submitted → isColdOutreachSequence=false
+  ✓ trigger=onboarding_complete → isColdOutreachSequence=false
+
+Case 19 (CAN-SPAM): Unsubscribe token round-trip (generate → verify)
+  ✓ Token is a non-empty string
+  ✓ verifyUnsubscribeToken returns valid=true
+  ✓ Verified contactId matches (999999 === 999999)
+
+Case 20 (CAN-SPAM): Tampered and malformed tokens are rejected
+  ✓ Tampered token (non-hex suffix) → valid=false
+  ✓ Extra-segment token (3 parts) → valid=false
+  ✓ Trailing-dot token → valid=false
+  ✓ No-dot token → valid=false
+  ✓ Empty string token → valid=false
+  ✓ Cross-contactId token → valid=false
+
+Case 21 (CAN-SPAM): getComplianceFooterHtml contains required elements
+  ✓ Footer contains mailing address
+  ✓ Footer contains Liberty Bancard
+  ✓ Footer contains unsubscribe link
+  ✓ Footer contains contactId in URL token
+  ✓ Footer contains opt-out instructions
+
+Case 22 (CAN-SPAM): Different contactIds produce unique tokens
+  ✓ Tokens for different contactIds are unique (1001 vs 1002)
+  ✓ Tokens for different contactIds are unique (1001 vs 9999)
+  ✓ Cross-contact token rejection: token for 1001 does not verify as 1002
+
+Case 23 (CAN-SPAM): Worker pauses cold-email enrollment when mailing address is missing
+  ✓ CAN-SPAM transport gate: canonical config fails closed without mailing address
+[Coordinator] Global-outbound holds transitioned to release_pending for 18 keys
+  [holds] clearTestHolds: released 18 test-owned hold(s) (correlation 43cb6e80-67d5-4b94-a5ce-819b7bab0de7)
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":208,"enrollments_processed":1,"enrollments_due_total":0,"errors":0,"ran_at":"2026-10-03T17:05:17.986Z"}
+[OutboundControlService] Pause activation: legacy flag written atomically with activating state
+[OutboundControlService] Pause activation: drain drained (remaining in-flight: 0)
+[Coordinator] Global-outbound holds written for 18 logical job keys (epoch=102)
+  ✓ CAN-SPAM worker gate: enrollment paused when mailing address is missing
+
+Case 24 (CAN-SPAM): /unsubscribe endpoint DB effects and idempotency
+  ✓ First /unsubscribe request returns 200
+  ✓ First /unsubscribe response contains unsubscribed text
+  ✓ Contact optedOutEmail=true after /unsubscribe
+  ✓ Contact emailStatus=opted_out after /unsubscribe
+  ✓ Contact consentTier=opted_out after /unsubscribe
+  ✓ contact_email_unsubscribed_via_link audit log written
+  ✓ Idempotent second /unsubscribe returns 200
+  ✓ Invalid token returns 400
+  ✓ Invalid token response does not disclose contact existence (no 'not found')
+  ✓ Ghost contactId (999999999) has no DB record (pre-condition)
+  ✓ Ghost contactId handler returns success page (code-path verified)
+
+Case 25 (CAN-SPAM): After unsubscribe, opted-out contact is blocked by evaluateContactability
+  ✓ Before unsubscribe: email allowed for warm contact
+  ✓ After unsubscribe: email blocked for opted-out contact
+  ✓ After unsubscribe: block reason references opt-out
+
+Case 26 (Kill Switch): Global pause ON → enrollment stays active + hold-deferred audit log written
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":29,"enrollments_processed":1,"enrollments_due_total":1,"errors":0,"ran_at":"2026-10-03T17:05:19.096Z"}
+  ✓ Case 26: enrollment.status stays active after canonical pause (hold is logical)
+  ✓ Case 26: _holdDeferredStep set in enrollment metadata
+  ✓ Case 26: _holdDeferredReason set in enrollment metadata
+  ✓ Case 26: _holdDeferredAt set in enrollment metadata
+  ✓ Case 26: sequence_step_hold_deferred audit log written
+  ✓ Case 26: legacy sequence_step_skipped_global_pause NOT written (post-#1532)
+[Coordinator] Global-outbound holds transitioned to release_pending for 18 keys
+
+Case 27 (Kill Switch): Global pause dedup — second tick skips duplicate hold-deferred log
+[OutboundControlService] Pause activation: legacy flag written atomically with activating state
+[OutboundControlService] Pause activation: drain drained (remaining in-flight: 0)
+[Coordinator] Global-outbound holds written for 18 logical job keys (epoch=106)
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":45,"enrollments_processed":2,"enrollments_due_total":2,"errors":0,"ran_at":"2026-10-03T17:05:19.515Z"}
+  ✓ Case 27: enrollment stays active after first pause tick
+  ✓ Case 27: first tick writes at least one sequence_step_hold_deferred log
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":32,"enrollments_processed":2,"enrollments_due_total":2,"errors":0,"ran_at":"2026-10-03T17:05:19.870Z"}
+  ✓ Case 27: second tick does NOT write a second hold-deferred log (dedup)
+[Coordinator] Global-outbound holds transitioned to release_pending for 18 keys
+
+Case 28 (Kill Switch): Global pause OFF → canonical hold-deferred gate does not fire
+  [holds] clearTestHolds: released 18 test-owned hold(s) (correlation 43cb6e80-67d5-4b94-a5ce-819b7bab0de7)
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":181,"enrollments_processed":3,"enrollments_due_total":3,"errors":0,"ran_at":"2026-10-03T17:05:20.493Z"}
+  ✓ Case 28: no sequence_step_hold_deferred log when canonical pause is OFF
+  ✓ Case 28: no legacy sequence_step_skipped_global_pause log (post-#1532 code never writes it)
+  ✓ Case 28: enrollment has no _holdDeferredReason (canonical pause gate did not fire)
+
+Case 29 (Daily Cap): Cap exceeded → cold outreach email step deferred
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":330,"enrollments_processed":4,"enrollments_due_total":3,"errors":0,"ran_at":"2026-10-03T17:05:21.169Z"}
+  ✓ Case 29: enrollment deferred (paused) when daily cap exceeded
+  ✓ Case 29: audit log sequence_step_deferred_daily_cap written
+
+Case 30 (Daily Cap): Cap deferred dedup — second tick does not write second audit log
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":318,"enrollments_processed":4,"enrollments_due_total":4,"errors":0,"ran_at":"2026-10-03T17:05:21.836Z"}
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":173,"enrollments_processed":4,"enrollments_due_total":4,"errors":0,"ran_at":"2026-10-03T17:05:22.324Z"}
+  ✓ Case 30: second tick does NOT add a second cap-deferred audit log
+
+Case 31 (Daily Cap): Transactional sequence bypasses daily email cap
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"sequence_worker_run_complete","duration_ms":194,"enrollments_processed":5,"enrollments_due_total":5,"errors":0,"ran_at":"2026-10-03T17:05:22.871Z"}
+  ✓ Case 31: transactional sequence NOT deferred by daily cap
+
+Case 32 (Kill Switch API): outbound settings storage layer works correctly
+  ✓ Case 32: outboundGlobalPaused stored and retrieved correctly (false)
+  ✓ Case 32: outboundGlobalPausedReason stored and retrieved correctly
+  ✓ Case 32: outboundDailyEmailCap stored and retrieved as numeric 150
+  ✓ Case 32: coldEmailSendsToday is a non-negative integer
+  ✓ Case 32: coldEmailRemainingToday computed correctly (cap - sendsToday)
+
+Case 33 (Counter): outbound_send_counters atomic upsert increments correctly
+  ✓ Case 33: first upsert creates row with count=1
+  ✓ Case 33: second upsert increments count to 2
+  ✓ Case 33: third upsert increments to 3 without unique-constraint error
+
+Case 34 (Concurrency): daily cap atomic reservation prevents overshoot
+  ✓ Case 34A: exactly 1 of 2 concurrent upserts reserved a slot
+  ✓ Case 34A: exactly 1 of 2 concurrent upserts was blocked by WHERE guard
+  ✓ Case 34A: final counter = 1 (not 2) after concurrent cap=1 upserts
+  ✓ Case 34B: real promotional sequence claim stays held
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":1,"checkoutDurationMs":null,"fingerprintSql":"select \"record_class\" from \"contacts\" where \"contacts\".\"id\" = $1 limit $2","poolAtAcquire":{"total":8,"idle":8,"waiting":5},"poolAtRelease":{"total":8,"idle":3,"waiting":0},"ts":"2026-10-03T17:05:23.273Z"}
+{"event":"sequence_worker_run_complete","duration_ms":785,"enrollments_processed":6,"enrollments_due_total":5,"errors":0,"ran_at":"2026-10-03T17:05:24.053Z"}
+  ✓ Case 34B: enrollment paused when cap reached
+  ✓ Case 34B: sequence_step_deferred_daily_cap audit log written for deferred enrollment
+
+Case 35: 'unvalidated' email status → blocked at Step 9 and excluded from campaign audience
+  ✓ unvalidated emailStatus blocked by contactability
+  ✓ block reason references email status or unvalidated
+  ✓ unvalidated contact absent from getContactsForCampaignAudience
+
+Case 36 (Pre-enrollment ZB gate): provider readiness deferral; valid → not blocked
+  ✓ Case 36A: real promotional sequence claim stays held
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":2,"checkoutDurationMs":null,"fingerprintSql":"select \"record_class\" from \"contacts\" where \"contacts\".\"id\" = $1 limit $2","poolAtAcquire":{"total":8,"idle":8,"waiting":5},"poolAtRelease":{"total":8,"idle":3,"waiting":0},"ts":"2026-10-03T17:05:24.467Z"}
+{"event":"sequence_worker_run_complete","duration_ms":373,"enrollments_processed":6,"enrollments_due_total":5,"errors":0,"ran_at":"2026-10-03T17:05:24.836Z"}
+  ✓ Case 36A: unvalidated contact stays ACTIVE while provider evidence is unavailable
+  ✓ Case 36A: nextActionAt advanced to future (enrollment is genuinely deferred)
+  ✓ Case 36A: truthful provider-readiness deferral audit log written
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":3,"checkoutDurationMs":null,"fingerprintSql":"select \"record_class\" from \"contacts\" where \"contacts\".\"id\" = $1 limit $2","poolAtAcquire":{"total":10,"idle":10,"waiting":5},"poolAtRelease":{"total":10,"idle":5,"waiting":0},"ts":"2026-10-03T17:05:25.159Z"}
+{"event":"sequence_worker_run_complete","duration_ms":541,"enrollments_processed":6,"enrollments_due_total":5,"errors":0,"ran_at":"2026-10-03T17:05:25.694Z"}
+  ✓ Case 36A: enrollment is retried by the worker
+[SequenceWorker] EXPLAIN due-work query: Seq Scan ✗ (index missing or not used)
+Seq Scan on sequence_enrollments  (cost=0.00..1.93 rows=1 width=4)
+  Filter: ((next_action_at IS NOT NULL) AND (status = 'active'::text) AND (next_action_at <= now()))
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":2,"checkoutDurationMs":null,"fingerprintSql":"select \"record_class\" from \"contacts\" where \"contacts\".\"id\" = $1 limit $2","poolAtAcquire":{"total":10,"idle":10,"waiting":5},"poolAtRelease":{"total":10,"idle":5,"waiting":0},"ts":"2026-10-03T17:05:26.036Z"}
+[email-signatures] APP_URL is not set — logo omitted from email signature
+{"event":"sequence_worker_run_complete","duration_ms":334,"enrollments_processed":6,"enrollments_due_total":5,"errors":0,"ran_at":"2026-10-03T17:05:26.367Z"}
+  ✓ Case 36B: valid emailStatus contact NOT blocked by contactability for email status
+
+── Cleanup ─────────────────────────────────────────────────
+[OutboundControlService] Pause activation: legacy flag written atomically with activating state
+[OutboundControlService] Pause activation: drain drained (remaining in-flight: 0)
+[Coordinator] Global-outbound holds written for 18 logical job keys (epoch=115)
+  [holds] Non-test coordinator holds verified intact.
+  Deleted 29 test contact(s), 5 consent log(s), 17 sequence(s).
+
+========================================================
+Sequence Compliance Results:
+  Passed: 137
+  Failed: 0
+========================================================
+
+✅ All 137 sequence compliance assertions passed.
+
+
+[10/18] New-Lead Enrollment Policy — scripts/test-new-lead-enrollment-policy.ts
+[Certification suite server-required] disposable Redis namespace confirmed: ci_certification_2061_final_server2_be9f352724f5454f9793d859e6d2aded_
+[Certification suite server-required] disposable database confirmed: test_stage3_server7
+[new-lead-enrollment-policy-test] disposable database confirmed: test_stage3_server7
+
+═══════════════════════════════════════════════════════
+  New Lead Enrollment Policy — Full Behavioral Test
+═══════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════
+  PART A — HTTP Endpoint Smoke Tests
+════════════════════════════════════════════════════════
+
+  ✓ Logged in as admin, CSRF token obtained
+
+── Anon access → all 7 endpoints must return 401 ──────
+  ✓ ANON GET /api/admin/pipeline/stage-health → 401
+  ✓ ANON POST /api/admin/pipeline/auto-enroll-toggle → 401
+  ✓ ANON POST /api/admin/pipeline/vertical-sequence-map → 401
+  ✓ ANON POST /api/admin/pipeline/new-leads/enroll-preview → 401
+  ✓ ANON POST /api/admin/pipeline/new-leads/enroll → 401
+  ✓ ANON GET /api/admin/pipeline/new-leads/enroll-status → 401
+  ✓ ANON POST /api/admin/pipeline/new-leads/enroll-cancel → 401
+
+── Test 1: GET /api/admin/pipeline/stage-health ────────
+  ✓ stage-health 200 OK
+  ✓   field present: totalNewLeadDeals
+  ✓   field present: newLeadNoMovement7d
+  ✓   field present: newLeadNoActiveEnrollment
+  ✓   field present: autoEnrollNewLeadDeals
+  ✓   field present: staleness_proxy
+  ✓   staleness_proxy is 'updatedAt' (documented)
+  ✓   totalNewLeadDeals is a non-negative number (0)
+
+── Test 2: POST /api/admin/pipeline/auto-enroll-toggle ─
+  ✓ auto-enroll disabled → autoEnrollNewLeadDeals: false
+  ✓ KILL LINE: autoEnrollNewLeadDeals=false persists (no auto enrollments)
+  ✓ invalid 'enabled' type → 400
+
+── Test 3: POST /api/admin/pipeline/vertical-sequence-map
+  ✓ vertical-sequence-map saved → { saved: true }
+  ✓ array verticalMap → 400
+
+── Test 4: POST /api/admin/pipeline/new-leads/enroll-preview
+  ✓ enroll-preview 200 OK
+  ✓   field present: total
+  ✓   field present: eligible
+  ✓   field present: alreadyEnrolled
+  ✓   field present: dncBlocked
+  ✓   field present: optOutBlocked
+  ✓   field present: noSequenceBlocked
+  ✓   field present: inactiveSequenceBlocked
+  ✓   field present: noContactBlocked
+  ✓   field present: sequenceChannelLabel
+  ✓   field present: requiresTypedConfirmation
+  ✓   requiresTypedConfirmation is boolean
+
+── Test 5: POST /api/admin/pipeline/new-leads/enroll ───
+  ✓ enroll without durable command owner → 503 DURABLE_COMMAND_REQUIRED
+  ✓ enroll with confirmed:false still requires durable command owner
+
+── Test 6: GET /api/admin/pipeline/new-leads/enroll-status
+  ✓ enroll-status 200 OK
+  ✓   field present: status
+  ✓   field present: total
+  ✓   field present: processed
+  ✓   field present: enrolled
+  ✓   field present: dncBlocked
+  ✓   field present: optOutBlocked
+  ✓   field present: noSequenceBlocked
+  ✓   field present: errors
+  ✓   field present: jobRunning
+  ✓   status is valid enum: 'idle'
+
+── Test 7: POST /api/admin/pipeline/new-leads/enroll-cancel (no job)
+  ✓ enroll-cancel with no job running → 400
+
+── Test 8: Kill line — autoEnrollNewLeadDeals must default false
+  ✓ KILL LINE: autoEnrollNewLeadDeals=false (default OFF — no unsolicited enrollment)
+
+  (HTTP state reset: auto-enroll=false, map cleared)
+
+════════════════════════════════════════════════════════
+  PART B — Behavioral Gate Tests (direct storage layer)
+════════════════════════════════════════════════════════
+
+(node:45076) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  [Setup] activeSeq=103, pausedSeq=104
+
+── B1: DNC gate ─────────────────────────────────────────
+  ✓ B1: doNotContact=true stored correctly — service gate: `if (contact.doNotContact) continue`
+
+── B2: opted_out gate ───────────────────────────────────
+  ✓ B2: consentTier=opted_out stored — service gate: `if (tier === 'opted_out') continue`
+
+── B3: No email gate ────────────────────────────────────
+  ✓ B3: empty email stored ("") — !contact.email is truthy → missingContactMethod gate fires
+
+── B4: No sequence configured → noSequenceBlocked ───────
+  ✓ B4: defaultSeqId=null + empty map → service resolves seqId=null → noSequenceBlocked gate fires
+
+── B5: Paused sequence → inactiveSequenceBlocked ────────
+  ✓ B5: pausedSeq.status='paused' — service gate: `if (sequence.status !== 'active') → inactiveSequenceBlocked`
+
+── B6: Already enrolled (same seq) → alreadyEnrolled ───
+  ✓ B6: Same-seq active enrollment → alreadyEnrolled gate fires (any-sequence check)
+
+── B7: Different-seq enrollment → alreadyEnrolled [verifies fix]
+  ✓ B7-a: NEW logic — cross-sequence enrollment blocks re-enrollment (any-seq gate)
+  ✓ B7-b: OLD logic would NOT have blocked this contact (confirms bug and fix necessity)
+
+── B8: Preview zero-write guarantee ─────────────────────
+  ✓ B8: Preview returned 200 and created 0 new enrollment rows for test contact (zero-write)
+
+── B9: autoEnroll=false → no enrollment (kill line) ─────
+  ✓ B9: runNewLeadAutoEnrollCheck() with autoEnabled=false wrote 0 enrollments (kill-line holds)
+  ✗ B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected
+
+── B10: autoEnroll=true enrollment write path ───────────
+  ✓ B10: autoEnroll=true enrollment write path works — enrollment created (id=69)
+  ✓ B10: Kill line re-engaged — autoEnrollEnabled reset to false after test
+
+── B11: Vertical map precedence over default ─────────────
+  ✓ B11: vertical='restaurant' → resolves to map entry 104 (not default 103)
+
+── B12: Default fallback when vertical not in map ────────
+  ✓ B12: vertical='unknown_vertical' → not in map → falls back to default 103
+
+── B13: stage_progression_sweep_ran audit shape ─────────
+  ✓ B13: stage_progression_sweep_ran audit has startedAt, completedAt, errors (all required fields)
+
+── B14: Cancel flag storage round-trip ───────────────────
+  ✓ B14: Cancel flag write/read round-trip: false→false, true→true ✓
+
+── B15: PEWC gate in auto-enroll path ────────────────────
+  ✓ B15-a: SMS sequence step detected → requiresPewc=true
+  ✓ B15-b: Non-PEWC contact gate fires: requiresPewc=true && tier!='pewc_full_automation' → skip
+  ✓ B15-c: pewc_full_automation contact passes the PEWC gate (not blocked)
+  ✓ B15-d: No enrollment created for non-PEWC contact → SMS seq PEWC gate held
+
+── B16: null vertical → __unknown__ key ─────────────────
+  ✓ B16: vertical=null → resolves to __unknown__ seq (106), not default (103)
+
+── B17: empty string vertical → __unknown__ key ─────────
+  ✓ B17: vertical="" → resolves to __unknown__ seq (106), not default
+
+── B18: known vertical unaffected by __unknown__ fix ────
+  ✓ B18: vertical='restaurant' → still resolves to its own mapped seq (104), not __unknown__
+
+── B19: __unknown__ mapping beats default ────────────────
+  ✓ B19: __unknown__ (106) beats default (103) for null vertical
+
+── B20: default used when no __unknown__ mapping ─────────
+  ✓ B20: No __unknown__ mapping → null vertical falls back to default (103)
+
+── B21: no sequence mapped at all → null (noSequenceBlocked) ─
+  ✓ B21: no map + no default → null seqId → noSequenceBlocked gate fires correctly
+
+── B22: candidate audit log uses __unknown__ seqId ──────
+  ✗ B22: no candidate audit log written for null-vertical deal with __unknown__ mapping
+  ✓ B22: no enrollment created (autoEnabled=false kill-line holds with __unknown__ seq)
+
+── B23: autoEnabled=true enrolls null-vertical into __unknown__ seq ─
+  ✗ B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]
+  ✓ B23: kill-line restored — autoEnrollEnabled=false after test
+
+── B24: saving __unknown__ mapping does not enroll ───────
+  ✓ B24: writing __unknown__ map entry alone creates 0 enrollments (no side-effect)
+
+  [Cleanup] Test fixtures deleted, DB settings restored
+
+═══════════════════════════════════════════════════════
+ Results: 76 passed, 3 failed
+═══════════════════════════════════════════════════════
+
+
+ FAILURES:
+  • B9: no candidate audit log written for test deal: expected new_lead_auto_enrollment_candidate_detected
+  • B22: no candidate audit log written for null-vertical deal with __unknown__ mapping
+  • B23: null-vertical deal NOT enrolled into __unknown__ seq: enrollments=[]
+
+✗ CI suite runner failed: New-Lead Enrollment Policy failed (exit=1, signal=none).

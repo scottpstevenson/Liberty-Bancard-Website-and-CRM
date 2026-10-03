@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * task #1940 — static (no-DB, no-network) certification for the CRO-03C
+ * task #1940 — DB-bound unit (no provider/network) certification for the CRO-03C
  * OpenAI bundle: prompt/template/system approval (positive + negative
  * fixtures), token reservation sizing, and structured-response validation.
  *
@@ -11,6 +11,9 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+import type { Cro03cOpenAiInput } from "../server/services/cro03/live-provider-executors";
+await assertDisposableTestInfrastructure({ operation: "OpenAI bundle DB-bound unit graph", requireRedis: false });
 import {
   CRO03C_OPENAI_MODEL,
   CRO03C_OPENAI_SYSTEM_PROMPT,
@@ -22,14 +25,13 @@ import {
   renderCro03cOpenAiPrompt,
   validateCro03cOpenAiClassification,
 } from "../server/services/cro03/cro03c-openai-prompt";
-import {
+const {
   assertCro03cOpenAiInputApproved,
-  type Cro03cOpenAiInput,
-} from "../server/services/cro03/live-provider-executors";
-import {
+} = await import("../server/services/cro03/live-provider-executors");
+const {
   deriveCro03cProviderInput,
   CRO03C_PROVIDER_CONTRACTS,
-} from "../server/services/cro03/live-execution";
+} = await import("../server/services/cro03/live-execution");
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");

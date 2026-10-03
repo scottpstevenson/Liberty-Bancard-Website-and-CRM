@@ -97,10 +97,10 @@ test("recurring free lane is configurable and bounded", () => {
   has(files.queue, "Math.min(100");
   lacks(files.queue, "const FREE_LANE_BATCH = 20;");
 });
-test("paid provider execution keeps approval and dispatch fences without an in-app money ceiling", () => {
+test("paid provider execution keeps activation and dispatch fences without paid approval or an in-app money ceiling", () => {
   has(files.providerOps, "reserveSfpProviderOperation");
   has(files.providerOps, "assertCurrentSfpProviderReservation");
-  has(files.providerOps, "assertPaidBudgetAuthorized");
+  lacks(files.providerOps, "assertPaidBudgetAuthorized");
   has(files.providerOps, "assertProviderActivation");
   has(files.providerOps, "markSfpProviderOperationDispatchBoundary");
   lacks(files.providerOps, "assertAggregatePaidBudgetAvailable");

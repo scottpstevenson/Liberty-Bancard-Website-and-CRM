@@ -33,13 +33,8 @@ interface ColdLeadsResult {
   data: ColdLead[];
   total: number;
   avgDaysDormant: number;
-  estimatedValue: number;
   page: number;
   pageSize: number;
-}
-
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
 function formatDate(iso: string) {
@@ -57,7 +52,7 @@ export default function ColdLeads() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  const { data, isLoading, refetch } = useQuery<ColdLeadsResult>({
+  const { data, isLoading, isError, refetch } = useQuery<ColdLeadsResult>({
     queryKey: ["/api/contacts/cold-leads", page],
     queryFn: async () => {
       const res = await fetch(`/api/contacts/cold-leads?page=${page}`, { credentials: "include" });
@@ -69,7 +64,6 @@ export default function ColdLeads() {
   const leads = data?.data ?? [];
   const total = data?.total ?? 0;
   const avgDaysDormant = data?.avgDaysDormant ?? 0;
-  const estimatedValue = data?.estimatedValue ?? 0;
   const totalPages = Math.ceil(total / (data?.pageSize ?? 100));
 
   const reEngageMutation = useMutation({
@@ -79,14 +73,7 @@ export default function ColdLeads() {
     },
     onSuccess: (result, contactId) => {
       setEnrollingId(null);
-      if (result.enrolled) {
-        toast({ title: "Re-engagement queued", description: "Contact enrolled in GHL re-engagement sequence." });
-      } else {
-        toast({
-          title: "Queued for direct outreach",
-          description: result.reason || "Contact tagged and will be reached via direct sequence.",
-        });
-      }
+      toast({ title: "Request processed; no enrollment", description: result.reason || "No receipt-backed enrollment authority. No tags or provider effects were created." });
       queryClient.invalidateQueries({ queryKey: ["/api/contacts/cold-leads"] });
     },
     onError: (err: any) => {
@@ -103,7 +90,7 @@ export default function ColdLeads() {
     onSuccess: (result) => {
       setSelectedIds(new Set());
       toast({
-        title: "Bulk re-engagement complete",
+        title: "Requests processed; no enrollment",
         description: `Enrolled: ${result.enrolled}, Skipped: ${result.skipped}, Errors: ${result.errors}`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/contacts/cold-leads"] });
@@ -178,7 +165,7 @@ export default function ColdLeads() {
             <div>
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Cold Leads</p>
               <p className="text-2xl font-bold" data-testid="text-cold-leads-total">
-                {isLoading ? <Skeleton className="h-7 w-12" /> : total}
+                {isLoading ? <Skeleton className="h-7 w-12" /> : isError ? "Unavailable" : total}
               </p>
             </div>
           </CardContent>
@@ -192,7 +179,7 @@ export default function ColdLeads() {
             <div>
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Avg Days Dormant</p>
               <p className="text-2xl font-bold" data-testid="text-avg-days-dormant">
-                {isLoading ? <Skeleton className="h-7 w-12" /> : avgDaysDormant}
+                {isLoading ? <Skeleton className="h-7 w-12" /> : isError ? "Unavailable" : avgDaysDormant}
               </p>
             </div>
           </CardContent>
@@ -204,11 +191,11 @@ export default function ColdLeads() {
               <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Est. Re-engage Value</p>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Audience revenue</p>
               <p className="text-2xl font-bold" data-testid="text-estimated-value">
-                {isLoading ? <Skeleton className="h-7 w-24" /> : formatCurrency(estimatedValue)}
+                Unavailable
               </p>
-              <p className="text-xs text-muted-foreground">at $15k avg deal × 10–20% conversion</p>
+              <p className="text-xs text-muted-foreground">Dormancy does not establish revenue or send permission</p>
             </div>
           </CardContent>
         </Card>
@@ -233,9 +220,8 @@ export default function ColdLeads() {
       <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-sm" data-testid="re-engage-info-banner">
         <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
         <span className="text-amber-700 dark:text-amber-300">
-          <strong>Manual review required.</strong> All re-engagement is human-initiated. Clicking "Re-engage" tags the contact as{" "}
-          <code className="text-xs bg-amber-100 dark:bg-amber-900/40 px-1 rounded">COLD-NO-DEAL</code> and enrolls them in the{" "}
-          <em>Reactivation — Cold Lead Revival</em> sequence in GHL.
+          <strong>Manual review required.</strong> Requests are audited locally as blocked or held.
+          No activation tags, queue jobs or provider enrollment are created. Audience membership is not consent or send permission.
         </span>
       </div>
 
@@ -270,6 +256,8 @@ export default function ColdLeads() {
                     ))}
                   </TableRow>
                 ))
+              ) : isError ? (
+                <TableRow><TableCell colSpan={9} role="alert">Cold-lead audience unavailable. Retry the read; this is not an empty result.</TableCell></TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9}>

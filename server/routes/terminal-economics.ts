@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { computeDealTerminalEconomics, getEconomicsConfig } from "../services/terminal-economics";
 import { normalizeTaskCompletionState } from "../services/task-normalization";
 import { serverError } from "../utils/server-error";
+import { readTerminalRecommendationReport } from "../services/terminal-report-authority";
 
 export function registerTerminalEconomicsRoutes(app: Express) {
 
@@ -266,90 +267,10 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
   app.get("/api/admin/terminal-roi-report", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { data: allDeals } = await storage.getDeals({ limit: 5000 });
       const config = await getEconomicsConfig();
-      const models = await storage.getEquipmentModels();
-      const modelMap = new Map(models.map((m) => [m.name.toLowerCase(), m]));
-
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-
-      const dealsWithTerminal = allDeals.filter((d) => d.terminalRecommendation);
-
-      const rows = await Promise.all(
-        dealsWithTerminal.map(async (deal) => {
-          const modelKey = deal.terminalRecommendation!.toLowerCase();
-          const model = modelMap.get(modelKey) || [...modelMap.values()].find(
-            (m) => modelKey.includes(m.name.toLowerCase().split(" ")[0])
-          );
-
-          const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
-          const merchantName = contact?.companyName || [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") || `Deal #${deal.id}`;
-
-          const monthlyGP = deal.estimatedGrossProfitMonthly
-            ? parseFloat(deal.estimatedGrossProfitMonthly.replace(/[^0-9.-]/g, ""))
-            : 0;
-          const terminalCost = (deal as any).terminalCostAtOrder ?? model?.libertyCost ?? 0;
-
-          let paybackMonths: number | null = null;
-          let tier: "green" | "yellow" | "red" | "unknown" = "unknown";
-          if (model && monthlyGP > 0) {
-            paybackMonths = Math.ceil(terminalCost / monthlyGP);
-            tier = paybackMonths <= config.greenThresholdMonths ? "green" : paybackMonths <= config.yellowThresholdMonths ? "yellow" : "red";
-          }
-
-          const isThisMonth = deal.closedAt && new Date(deal.closedAt) >= startOfMonth;
-          const monthlyVolume = deal.totalVolume ? parseFloat(deal.totalVolume.replace(/[^0-9.-]/g, "")) : 0;
-          const monthsOpen = deal.closedAt ? Math.max(1, Math.ceil((now.getTime() - new Date(deal.closedAt).getTime()) / (30 * 24 * 3600 * 1000))) : 0;
-          let paybackStatus: "on_track" | "paid_off" | "at_risk" | "unknown" = "unknown";
-          if (paybackMonths) {
-            if (monthsOpen >= paybackMonths) paybackStatus = "paid_off";
-            else if (tier === "red") paybackStatus = "at_risk";
-            else paybackStatus = "on_track";
-          }
-
-          return {
-            dealId: deal.id,
-            merchantName,
-            terminalModel: deal.terminalRecommendation,
-            terminalCost,
-            monthlyVolume,
-            monthlyGP,
-            paybackMonths,
-            tier,
-            paybackStatus,
-            stage: deal.stage,
-            terminalApprovalStatus: (deal as any).terminalApprovalStatus || "not_required",
-            closedAt: deal.closedAt,
-            isThisMonth: !!isThisMonth,
-            monthStr,
-          };
-        })
-      );
-
-      const totalTerminalCost = rows.reduce((sum, r) => sum + (r.terminalCost || 0), 0);
-      const thisMonthRows = rows.filter((r) => r.isThisMonth);
-      const thisMonthCost = thisMonthRows.reduce((sum, r) => sum + (r.terminalCost || 0), 0);
-      const atRisk = rows.filter((r) => r.paybackStatus === "at_risk");
-      const paidOff = rows.filter((r) => r.paybackStatus === "paid_off");
-
-      res.json({
-        rows,
-        summary: {
-          totalDeployedTerminals: rows.length,
-          totalCost: totalTerminalCost,
-          thisMonthCount: thisMonthRows.length,
-          thisMonthCost,
-          atRiskCount: atRisk.length,
-          paidOffCount: paidOff.length,
-          greenCount: rows.filter((r) => r.tier === "green").length,
-          yellowCount: rows.filter((r) => r.tier === "yellow").length,
-          redCount: rows.filter((r) => r.tier === "red").length,
-        },
-        config,
-        generatedAt: now.toISOString(),
-      });
+      const page = Number(req.query.page ?? 0);
+      if (!Number.isSafeInteger(page) || page < 0) return res.status(400).json({ message: "Invalid page" });
+      res.json({ ...await readTerminalRecommendationReport(page, config), config });
     } catch (err: any) {
       serverError(res, err);
     }

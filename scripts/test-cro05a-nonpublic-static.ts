@@ -15,7 +15,8 @@ const ghlSync = read("server/services/ghl-sync.ts");
 
 assert.match(contacts, /app\.post\("\/api\/contacts"[\s\S]*Idempotency-Key[\s\S]*claimInboundRequest/);
 assert.match(contacts, /eventKey:\s*`manual:\$\{inboundClaim\.request\.id\}`/);
-assert.match(contacts, /await orchestrateInboundRequest\(\{ requestId: inboundClaim\.request\.id, contactId: contact\.id \}\)/);
+assert.match(contacts, /const handoffLocalContact = creationDependencies\.orchestrateInboundRequest \?\? orchestrateInboundRequest/);
+assert.match(contacts, /await handoffLocalContact\(\{ requestId: inboundClaim\.request\.id, contactId: contact\.id \}\)/);
 assert.doesNotMatch(contacts.slice(contacts.indexOf('app.post("/api/contacts"'), contacts.indexOf("// === COLD LEADS")), /\b(?:syncContactToGhl|enrollContactInGhlWorkflow|enqueuePromotionalEnrollment|sendPushToAllReps)\s*\(/);
 
 assert.match(imports, /CSV rows are acquisition evidence, never an inbound occurrence/);

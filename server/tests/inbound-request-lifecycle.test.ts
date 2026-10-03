@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { decideInboundLifecycle } from "../services/inbound-request-authority";
+import { assertDisposableTestInfrastructure } from "../../scripts/test-infrastructure-guard";
+await assertDisposableTestInfrastructure({ operation: "Inbound lifecycle decision contract", requireRedis: false });
+const { decideInboundLifecycle } = await import("../services/inbound-request-authority");
 
 assert.equal(
   decideInboundLifecycle([{ state: "sent" }, { state: "sent" }]),

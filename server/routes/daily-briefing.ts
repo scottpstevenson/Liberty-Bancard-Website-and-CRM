@@ -18,6 +18,8 @@ import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 import { serverError } from "../utils/server-error";
 import { queryCr04ReadyProjection } from "../services/cr04-cohort-ready-authority";
+import { taskReadPredicate, readTaskMetrics } from "../services/task-read-authority";
+import { dealReadPredicate } from "../services/revenue-read-authority";
 
 function getTodayStr(): string {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -41,7 +43,7 @@ function getTodayRange(): { start: Date; end: Date } {
 }
 
 async function generateAiBriefing(stats: {
-  tasksDueToday: number;
+  tasksDueToday: number | null;
   overdueSlaCount: number;
   unreadCount: number;
   outreachReadyCount: number | null;
@@ -100,7 +102,7 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       // Check cache: per user per calendar day
       // V2 avoids serving the old hot-lead contract after the shared
       // Ready-for-Outreach membership predicate replaced it.
-      const cacheKey = `daily_briefing_v2_${userId}_${getTodayStr()}`;
+      const cacheKey = `daily_briefing_v3_${userId}_${role}_${getTodayStr()}`;
       const cached = await storage.getSystemSetting(cacheKey);
       if (!bypassCache && cached && typeof cached === "object" && (cached as any).generatedAt) {
         return cached;
@@ -108,16 +110,16 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
 
       const todayRange = getTodayRange();
       const yesterdayRange = getYesterdayRange();
+      const taskAsOf = new Date();
+      const taskScope = { actor: user, asOf: taskAsOf, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" };
 
       // ── 1. Tasks due today ──────────────────────────────────────────────────
-      let tasksDueToday = 0;
+      let tasksDueToday: number | null = null;
       try {
         const taskRows = await db.execute(sql`
           SELECT COUNT(*) AS cnt FROM tasks
-          WHERE status NOT IN ('completed', 'cancelled')
-            AND due_date >= ${todayRange.start.toISOString()}
-            AND due_date < ${todayRange.end.toISOString()}
-            ${!isAdminOrManager ? sql`AND (assigned_to = ${userEmail} OR created_by = ${userEmail})` : sql``}
+          WHERE ${taskReadPredicate({ ...taskScope, states: ["open", "in_progress"],
+            dueFrom: todayRange.start, dueBefore: todayRange.end })}
         `);
         tasksDueToday = Number((taskRows.rows[0] as any)?.cnt || 0);
         sectionStatus.tasks = "ok";
@@ -165,27 +167,22 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       // ── 5. Yesterday's closed/won deals ─────────────────────────────────────
       let closedWonYesterday = 0;
       try {
-        const wonRows = await db.execute(sql`
-          SELECT COUNT(*) AS cnt FROM deals
+        const values: unknown[] = [yesterdayRange.start, yesterdayRange.end];
+        const predicate = dealReadPredicate(user, {}, values);
+        const wonRows = await pool.query(`
+          SELECT COUNT(*) AS cnt FROM deals d
           WHERE stage = 'Closed Won'
-            AND updated_at >= ${yesterdayRange.start.toISOString()}
-            AND updated_at < ${yesterdayRange.end.toISOString()}
-            ${!isAdminOrManager ? sql`AND owner = ${userEmail}` : sql``}
-        `);
+            AND updated_at >= $1 AND updated_at < $2 AND ${predicate}
+        `, values);
         closedWonYesterday = Number((wonRows.rows[0] as any)?.cnt || 0);
         sectionStatus.closedWon = "ok";
       } catch { sectionStatus.closedWon = "degraded"; }
 
       // ── 6. Overdue tasks count ───────────────────────────────────────────────
-      let overdueTaskCount = 0;
+      let overdueTaskCount: number | null = null;
       try {
-        const overdueRows = await db.execute(sql`
-          SELECT COUNT(*) AS cnt FROM tasks
-          WHERE status NOT IN ('completed', 'cancelled')
-            AND due_date < NOW()
-            ${!isAdminOrManager ? sql`AND (assigned_to = ${userEmail} OR created_by = ${userEmail})` : sql``}
-        `);
-        overdueTaskCount = Number((overdueRows.rows[0] as any)?.cnt || 0);
+        const overdueRows = await readTaskMetrics(taskScope);
+        overdueTaskCount = Number(overdueRows.rows[0]?.overdue);
         sectionStatus.overdueTasks = "ok";
       } catch { sectionStatus.overdueTasks = "degraded"; }
 
@@ -211,6 +208,9 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
         generatedAt: new Date().toISOString(),
         dateKey: getTodayStr(),
         sectionStatus,
+        taskMetricContract: { version: 1, population: "scoped_non_deleted_tasks", recordClass: "production",
+          asOf: taskAsOf.toISOString(), timezone: taskScope.timezone, snapshot: "separate_statements",
+          cachedDailySnapshot: true },
       };
 
       // Cache for the calendar day (expire at next midnight ~28 hours max)

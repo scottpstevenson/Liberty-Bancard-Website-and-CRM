@@ -12,3 +12,9 @@ Use a disposable PostgreSQL cluster under `/tmp` for the full pre-deploy gate, w
 Do not rely on `export`/`source .env` inside a ShellExec command to override `DATABASE_URL` for a disposable-DB run — the shell's per-command env sync silently reverts it back to the real dev DB before node/tsx reads it. Instead prefix the exact command with inline `VAR=value` assignments in one simple command (e.g. `DATABASE_URL=... TEST_DATABASE_URL=... NODE_ENV=test npx tsx script.ts`), which does survive.
 
 The disposable DB's name must itself satisfy `isClearlyDisposableName()` in `scripts/test-infrastructure-guard.ts` (must start with `test`/`ci` or have `test`/`ci` set off by `_`/`-`): a name like `sfp2001test` fails this even though it "looks like a test DB" — use `test_sfp2001` or similar. To seed the schema into a fresh disposable DB, prefer `npx tsx scripts/migrate.ts` (idempotent, no prompts) over `drizzle-kit push`, since `push` can hit an interactive destructive-constraint prompt that fails even under `yes |` (the prompt library hard-requires a real TTY, not just readable stdin).
+
+Use a freshly migrated disposable database for a full certification retry after a failed cohort suite. Do not start the application against that database while its integration suites are running.
+
+**Why:** Failed suites can retain eligible synthetic businesses and global package state; later frozen selections can include those leftovers. Application startup also performs classification reconciliations even with background jobs off.
+
+**How to apply:** Allocate a new test database and Redis namespace for the retry. Keep browser and server-startup checks on separate disposable databases, and bind clean-checkout receipts to the tested commit.

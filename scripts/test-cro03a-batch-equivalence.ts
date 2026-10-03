@@ -15,19 +15,21 @@
  *   - handoffs exist iff disposition === "selected"
  *   - run counters reconcile
  *
- * No production data touched.  All writes go to the local dev DB.
+ * Disposable database only; the population is created through source authority.
  * Run: npx tsx scripts/test-cro03a-batch-equivalence.ts
  */
 
 import { sql } from "drizzle-orm";
-import { db } from "../server/db";
-import {
-  stageCro03aSourceCensus,
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+import { seedCro03aBatchFixtures } from "./helpers/cro03a-batch-fixtures";
+await assertDisposableTestInfrastructure({ operation: "CRO03A batch equivalence", requireRedis: false });
+const { db } = await import("../server/db");
+const {
   createCro03aQualificationRun,
   processCro03aQualificationRunBatch,
-} from "../server/services/cro03a/qualification-service";
+} = await import("../server/services/cro03a/qualification-service");
 import { evaluateCro03aCandidate, CRO03A_FIT_V2_POLICY_IDENTITY } from "../server/services/cro03a/fit";
-import { hashCro03Evidence } from "../server/services/cro03/source-staging";
+const { hashCro03Evidence } = await import("../server/services/cro03/source-staging");
 
 const resultRows = (r: any): any[] => r?.rows ?? r ?? [];
 const json = <T>(v: T | string): T =>
@@ -144,20 +146,8 @@ async function main() {
   console.log(`Active policy: ${policy.id} v${policy.version}`);
 
   // ── 2. Stage fresh occurrences ─────────────────────────────────────────────
-  console.log("Staging census page (limitPerSource=50)…");
-  const staged = await stageCro03aSourceCensus({ actorId: ACTOR_ID, limitPerSource: 50 });
-  console.log(`  created=${staged.created} replayed=${staged.replayed}`);
-
-  const candidateRows = resultRows(await db.execute(sql`
-    SELECT DISTINCT ON (s.id) o.id AS occurrence_id
-      FROM cro03_source_occurrences o
-      JOIN cro03_source_subjects s ON s.id = o.source_subject_id
-     WHERE s.subject_type IN ('prospect','sunbiz_entity','sdr_merchant',
-                              'provider_csv_row','lead_discovery_result','master_lead')
-     ORDER BY s.id, o.source_observed_at DESC, o.ingested_at DESC, o.id DESC
-     LIMIT 134
-  `));
-  const occurrenceIds = candidateRows.map((r: any) => String(r.occurrence_id));
+  console.log("Creating isolated source receipts…");
+  const occurrenceIds = await seedCro03aBatchFixtures("equivalence");
   console.log(`Occurrence candidates: ${occurrenceIds.length}`);
   if (occurrenceIds.length < 10) throw new Error("Too few occurrences.");
 

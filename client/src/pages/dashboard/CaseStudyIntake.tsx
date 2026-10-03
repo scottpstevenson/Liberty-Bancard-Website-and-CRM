@@ -71,22 +71,14 @@ export default function CaseStudyIntake() {
         priority: "normal",
       });
 
-      await apiRequest("POST", "/api/audit-logs", {
-        action: "case_study_intake_submitted",
-        entityType: "deal",
-        entityId: dealId,
-        details: {
-          contactId,
-          businessVertical: values.businessVertical,
-          monthlyVolume: values.monthlyVolume,
-          permissionObtained: values.permissionObtained,
-        },
-      });
+      // Persist the intake in the authorized task record. Never let the
+      // browser manufacture an audit event or claim an unobserved notification.
+      return taskRes.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-      toast({ title: "Case study intake submitted", description: "Task created and team notified." });
+      toast({ title: "Case study intake submitted", description: "Task created." });
       form.reset();
       setSelectedContactId("");
     },

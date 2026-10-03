@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getApiErrorMessage } from "@/lib/ghlTruth";
 import { useToast } from "@/hooks/use-toast";
+import { GhlRuntimeObservations } from "./GhlRuntimeObservations";
 
 const ENDPOINT = "/api/admin/ghl/inbound-contact-sync";
 const QUERY_KEY = [ENDPOINT];
@@ -40,8 +41,9 @@ export function GhlInboundSyncCard({ canControl }: { canControl: boolean }) {
   const statusQuery = useQuery<GhlInboundSyncStatus>({
     queryKey: QUERY_KEY, enabled: canControl, retry: false, refetchInterval: 3_000,
   });
-  const status = statusQuery.data;
+  const status = canControl && !statusQuery.isError ? statusQuery.data : undefined;
   const run = status?.run;
+  const runtime = status?.runtime;
   const safeToApply = status?.configured === true && status.outboundPaused === true;
   const acceptRun = (newRun: GhlInboundSyncRun) => {
     queryClient.setQueryData<GhlInboundSyncStatus>(QUERY_KEY, old => old ? { ...old, run: newRun } : old);
@@ -128,6 +130,7 @@ export function GhlInboundSyncCard({ canControl }: { canControl: boolean }) {
           <span>GHL credentials: {status.configured ? "Configured" : "Not configured"}</span>
           <span>Outbound: {status.outboundPaused === true ? "Paused" : status.outboundPaused === false ? "Not paused — import blocked" : "Unknown — import blocked"}</span>
         </div>}
+        <GhlRuntimeObservations runtime={runtime} />
         <div className="rounded-md border p-3 text-sm">
           <div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><div>
             <p className="font-medium">One-way, fill-missing-only policy</p>

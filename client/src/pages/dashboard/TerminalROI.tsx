@@ -23,9 +23,9 @@ interface ReportRow {
   dealId: number;
   merchantName: string;
   terminalModel: string | null;
-  terminalCost: number;
-  monthlyVolume: number;
-  monthlyGP: number;
+  terminalCost: number | null;
+  monthlyVolume: number | null;
+  monthlyGP: number | null;
   paybackMonths: number | null;
   tier: "green" | "yellow" | "red" | "unknown";
   paybackStatus: "on_track" | "paid_off" | "at_risk" | "unknown";
@@ -35,18 +35,21 @@ interface ReportRow {
 }
 
 interface ReportSummary {
-  totalDeployedTerminals: number;
-  totalCost: number;
+  totalRecommendations: number;
+  totalDeployedTerminals: null;
+  totalCost: null;
+  forecastCost: number | null;
   thisMonthCount: number;
-  thisMonthCost: number;
+  thisMonthCost: number | null;
   atRiskCount: number;
-  paidOffCount: number;
+  paidOffCount: null;
   greenCount: number;
   yellowCount: number;
   redCount: number;
 }
 
 interface RoiReport {
+  meta: { total: number; page: number; pageSize: number };
   rows: ReportRow[];
   summary: ReportSummary;
   config: { greenThresholdMonths: number; yellowThresholdMonths: number };
@@ -86,9 +89,15 @@ export default function TerminalROI() {
   const [greenThreshold, setGreenThreshold] = useState("");
   const [yellowThreshold, setYellowThreshold] = useState("");
   const [filterTier, setFilterTier] = useState<string>("all");
+  const [reportPage, setReportPage] = useState(0);
 
   const { data: report, isLoading, refetch, isFetching } = useQuery<RoiReport>({
-    queryKey: ["/api/admin/terminal-roi-report"],
+    queryKey: ["/api/admin/terminal-roi-report", reportPage],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/terminal-roi-report?page=${reportPage}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Terminal recommendation report unavailable");
+      return response.json();
+    },
     enabled: isManagerOrAdmin,
   });
 
@@ -165,8 +174,8 @@ export default function TerminalROI() {
         dealId: r.dealId,
         merchant: r.merchantName,
         model: r.terminalModel,
-        cost: r.terminalCost.toFixed(2),
-        monthlyGP: r.monthlyGP.toFixed(2),
+        cost: r.terminalCost?.toFixed(2) ?? "Unavailable",
+        monthlyGP: r.monthlyGP?.toFixed(2) ?? "Unavailable",
         paybackMonths: r.paybackMonths ?? "N/A",
         tier: r.tier,
         status: r.paybackStatus,
@@ -203,10 +212,10 @@ export default function TerminalROI() {
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2" data-testid="text-terminal-roi-title">
             <Monitor className="w-6 h-6 text-primary" />
-            Terminal ROI Report
+          Terminal Recommendation Forecasts
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Track equipment cost recovery across your active merchant portfolio.
+            Model-based forecasts; verified deployment and actual cash recovery are unavailable.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -236,10 +245,10 @@ export default function TerminalROI() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 text-muted-foreground mb-1.5">
                 <Monitor className="w-4 h-4" />
-                <span className="text-xs font-medium uppercase tracking-wide">Deployed</span>
+                <span className="text-xs font-medium uppercase tracking-wide">Recommendations</span>
               </div>
-              <div className="text-2xl font-bold">{summary.totalDeployedTerminals}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">${summary.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} total invested</div>
+              <div className="text-2xl font-bold">{summary.totalRecommendations}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{summary.forecastCost === null ? "Forecast cost unavailable" : `$${summary.forecastCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} modelled cost (not invested cash)`}</div>
             </CardContent>
           </Card>
           <Card data-testid="stat-this-month">
@@ -249,7 +258,7 @@ export default function TerminalROI() {
                 <span className="text-xs font-medium uppercase tracking-wide">This Month</span>
               </div>
               <div className="text-2xl font-bold">{summary.thisMonthCount}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">${summary.thisMonthCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} deployed</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{summary.thisMonthCost === null ? "Forecast cost unavailable" : `$${summary.thisMonthCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} forecast cost`} · close-date cohort, not deployment</div>
             </CardContent>
           </Card>
           <Card data-testid="stat-paid-off">
@@ -258,7 +267,7 @@ export default function TerminalROI() {
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
                 <span className="text-xs font-medium uppercase tracking-wide">Paid Off</span>
               </div>
-              <div className="text-2xl font-bold text-green-600">{summary.paidOffCount}</div>
+              <div className="text-xl font-bold text-green-600">Unavailable</div>
               <div className="text-xs text-muted-foreground mt-0.5">{summary.greenCount} green / {summary.yellowCount} yellow</div>
             </CardContent>
           </Card>
@@ -266,7 +275,7 @@ export default function TerminalROI() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 text-muted-foreground mb-1.5">
                 <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span className="text-xs font-medium uppercase tracking-wide">At Risk</span>
+                <span className="text-xs font-medium uppercase tracking-wide">Forecast threshold</span>
               </div>
               <div className="text-2xl font-bold text-red-600">{summary.atRiskCount}</div>
               <div className="text-xs text-muted-foreground mt-0.5">{summary.redCount} exceed {report?.config?.yellowThresholdMonths}mo threshold</div>
@@ -328,8 +337,8 @@ export default function TerminalROI() {
                     <tr key={row.dealId} className="border-b last:border-0 hover:bg-muted/30 transition-colors" data-testid={`row-terminal-${row.dealId}`}>
                       <td className="py-3 px-4 font-medium">{row.merchantName}</td>
                       <td className="py-3 px-4 text-muted-foreground">{row.terminalModel || "—"}</td>
-                      <td className="py-3 px-4 text-right font-mono">${row.terminalCost.toFixed(0)}</td>
-                      <td className="py-3 px-4 text-right font-mono">{row.monthlyGP > 0 ? `$${row.monthlyGP.toFixed(0)}` : "—"}</td>
+                      <td className="py-3 px-4 text-right font-mono">{row.terminalCost === null ? "Unavailable" : `$${row.terminalCost.toFixed(0)}`}</td>
+                      <td className="py-3 px-4 text-right font-mono">{row.monthlyGP !== null && row.monthlyGP > 0 ? `$${row.monthlyGP.toFixed(0)}` : "Unavailable"}</td>
                       <td className="py-3 px-4 text-center">
                         {row.paybackMonths != null ? (
                           <span className="inline-flex items-center gap-1 text-xs">
@@ -352,6 +361,9 @@ export default function TerminalROI() {
 
       {report && (
         <p className="text-xs text-muted-foreground text-right" data-testid="text-report-generated-at">
+          <span>Production recommendations · forecasts only; verified deployment and actual cash recovery unavailable. Details and exports cover page {reportPage + 1} only; tier filter applies to this page.</span>
+          <Button variant="outline" disabled={reportPage === 0 || isFetching} onClick={() => setReportPage(page => page - 1)}>Previous</Button>
+          <Button variant="outline" disabled={(reportPage + 1) * report.meta.pageSize >= report.meta.total || isFetching} onClick={() => setReportPage(page => page + 1)}>Next</Button>
           Report generated: {new Date(report.generatedAt).toLocaleString()}
           {report.config && (
             <> · Thresholds: ≤{report.config.greenThresholdMonths}mo = green, ≤{report.config.yellowThresholdMonths}mo = yellow</>

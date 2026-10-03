@@ -216,6 +216,11 @@ export async function writeContact(args: {
   const { auditChange } = await import("./audit-change");
 
   const writeInsideTransaction = async (tx: any) => {
+    // Serialize concurrent deliveries of one manual-create occurrence inside
+    // the writer's own transaction; never hold its key on another connection.
+    if (provenance.sourceCategory === "manual_crm" && provenance.sourceType === "dashboard") {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${provenance.eventKey}, 0))`);
+    }
     if (hookPolicy?.authorityCheck && !(await hookPolicy.authorityCheck(tx))) {
       throw new Error("CONTACT_WRITE_AUTHORITY_FENCE_LOST");
     }
@@ -272,7 +277,7 @@ export async function writeContact(args: {
     // not a newly discovered identity match. Resolve it before email matching
     // so a recovery worker preserves the original `created` disposition.
     const prior = await tx.execute(sql`
-      SELECT c.*, e.id AS _source_event_id
+      SELECT c.id
       FROM contact_source_events e
       JOIN contacts c ON c.id = e.contact_id
       WHERE e.event_key = ${provenance.eventKey}
@@ -280,7 +285,7 @@ export async function writeContact(args: {
     `);
     const replayedSourceContact = ((prior as any).rows ?? [])[0];
     let [existing] = replayedSourceContact
-      ? [replayedSourceContact]
+      ? await tx.select().from(contacts).where(eq(contacts.id, replayedSourceContact.id)).limit(1)
       : email && !syntheticPlaceholder
         ? await tx.select().from(contacts).where(and(eq(contacts.email, email), isNull(contacts.archivedAt))).limit(1)
         : [];

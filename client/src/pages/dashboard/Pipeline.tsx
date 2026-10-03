@@ -2596,9 +2596,13 @@ export default function Pipeline() {
                         key={agent.id}
                         data-testid={`button-bulk-assign-${agent.id}`}
                         onClick={async () => {
+                           if (!agent.email) {
+                             toast({ title: "Cannot assign agent", description: "This agent has no ownership email.", variant: "destructive" });
+                             return;
+                           }
                           await Promise.all(
                             Array.from(selectedDealIds).map(id =>
-                              apiRequest("POST", `/api/deals/${id}/assign-agent`, { agentId: agent.id })
+                               apiRequest("PUT", `/api/deals/${id}`, { owner: agent.email })
                             )
                           );
                           queryClient.invalidateQueries({ queryKey: ["/api/deals"] });

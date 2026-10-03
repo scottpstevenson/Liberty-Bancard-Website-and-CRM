@@ -24,6 +24,17 @@ export interface GhlInboundSyncRun {
   issues: Array<{ ghlContactId: string | null; reason: string }>;
 }
 export interface GhlInboundSyncStatus {
+  runtime?: {
+    asOf: string; mode: "manual_request" | "webhook" | "not_observed";
+    owner: "lease_observed" | "lease_expired" | "not_observed";
+    checkpoint: { phase: "read" | "plan"; pages: number; planned: number; applied: number } | null;
+    lastUpdatedAt: string | null;
+    backlog: "unavailable";
+    heartbeat: "not_observed";
+    connectionProbe: "not_observed";
+    freshness: "not_observed" | "current" | "stale";
+    freshnessThresholdMs: number;
+  };
   environment: "production" | "development";
   configured: boolean;
   inboundEnabled: boolean;

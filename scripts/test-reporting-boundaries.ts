@@ -20,9 +20,11 @@ const assertions: Array<[string, boolean]> = [
   ["campaign/A-B route ownership is untouched", !read("server/routes/analytics.ts").includes("/api/sequences/trigger-ab-check")],
   ["support aggregate never uses capped ticket storage", !read("server/routes/analytics.ts").includes("storage.getTickets({ limit: 500 })")],
   ["task aggregate never uses array storage", !read("server/routes/analytics.ts").includes("storage.getTasks()")],
-  ["support and task aggregates declare exact metadata", ["scope: \"all tickets\"", "scope: \"non-deleted tasks\""].every(
-    marker => read("server/routes/analytics.ts").includes(marker),
-  )],
+  ["support and shared task aggregates declare exact metadata",
+    read("server/routes/analytics.ts").includes('scope: "all tickets"')
+    && read("server/routes/analytics.ts").includes("meta: summaryRows.meta")
+    && read("server/services/task-read-authority.ts").includes('population: "scoped_non_deleted_tasks"')
+    && read("server/services/task-read-authority.ts").includes('snapshot: "statement"')],
   ["operations production aggregate excludes top-N truncation", !read("server/routes/acquisition.ts").includes("GROUP BY source ORDER BY leads::int DESC LIMIT 20")],
   ["operations does not use mutable lifecycle labels", !read("server/routes/acquisition.ts").includes("lifecycle_stage")],
   ["operations does not proxy conversions as replies", !read("server/routes/acquisition.ts").includes("converted ÷ enrolled")],

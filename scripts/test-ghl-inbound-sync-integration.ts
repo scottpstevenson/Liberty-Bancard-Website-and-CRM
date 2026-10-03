@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
 
 const assertNamed = (name: string, check: () => void) => {
@@ -69,7 +70,19 @@ async function main() {
   const originalGhlApiKey = process.env.GHL_API_KEY;
   const originalLocation = process.env.GHL_LOCATION_ID;
   const originalWebhookSecret = process.env.GHL_WEBHOOK_SECRET;
-  const pageSets: Array<Array<{ body: unknown; expectedCursor?: string }>> = [];
+  const pageSets: Array<Array<{ body?: unknown; expectedCursor?: string; timeout?: boolean; httpStatus?: number; redirect?: { status: number; location: string } }>> = [];
+  let redirectDestinationRequests = 0;
+  let fakeRedirect: { status: number; location: string } | null = null;
+  const redirectServer = createServer((req, res) => {
+    if (req.url === "/first" && fakeRedirect) {
+      res.writeHead(fakeRedirect.status, { Location: fakeRedirect.location }).end();
+    } else {
+      redirectDestinationRequests++;
+      res.writeHead(200, { "Content-Type": "application/json" }).end('{"contacts":[],"meta":{}}');
+    }
+  });
+  await new Promise<void>(resolve => redirectServer.listen(0, "127.0.0.1", resolve));
+  const redirectOrigin = `http://127.0.0.1:${(redirectServer.address() as any).port}`;
   const fetchCalls: Array<{ url: string; method: string }> = [];
   const idempotencyKeys: Array<{ kind: "idem" | "execute"; key: string }> = [];
   const leaseTriggerName = `ghl_inbound_lease_test_${fixtureSuffix.replace(/-/g, "_")}`;
@@ -91,6 +104,18 @@ async function main() {
     const pages = pageSets.at(-1);
     if (!pages?.length) throw new Error("INTEGRATION_FAKE_GHL_PAGE_UNAVAILABLE");
     const page = pages.shift()!;
+    assert.equal(init?.redirect, "error", "actual service fetch boundary must reject HTTP redirects");
+    if (page.timeout) {
+      await new Promise<void>((_resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("FIXTURE_TIMEOUT_SIGNAL_NOT_USED")), 2000);
+        init?.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(init.signal!.reason); }, { once: true });
+      });
+    }
+    if (page.httpStatus) return new Response("", { status: page.httpStatus });
+    if (page.redirect) {
+      fakeRedirect = page.redirect;
+      return originalFetch(`${redirectOrigin}/first`, { ...init, headers: {} });
+    }
     const parsed = new URL(url);
     if (page.expectedCursor !== undefined) {
       assert.equal(parsed.searchParams.get("startAfterId"), page.expectedCursor);
@@ -646,7 +671,61 @@ async function main() {
       assert.equal(webhookEvents.rowCount, 1);
       assert.deepEqual(forbiddenUrls, []);
     });
+    for (const status of [302, 307]) {
+      for (const location of [`${redirectOrigin}/redirected`, `${redirectOrigin}/contacts/?locationId=other`,
+        `${redirectOrigin.replace("127.0.0.1", "127.0.0.2")}/alternate`, "https://example.invalid/contacts/"]) {
+        await pool.query("DELETE FROM system_settings WHERE key='ghl_inbound_contact_sync_active'");
+        pageSets.push([{ redirect: { status, location } }]);
+        const redirectKey = randomUUID();
+        idempotencyKeys.push({ kind: "idem", key: redirectKey });
+        const redirectRun = await sync.createGhlInboundPreview(redirectKey, actorId);
+        runIds.push(redirectRun.runId);
+        await assert.rejects(sync.advanceGhlInboundSyncStep(redirectRun.runId), /fetch failed/);
+        const refused = (await sync.getGhlInboundSyncRun(redirectRun.runId))!;
+        assert.ok(refused.lastError, "failed read records an explicit safe error");
+        assert.equal(refused.counts.created, 0);
+        assert.equal(refused.counts.updated, 0);
+        assert.notEqual(refused.state, "complete");
+        assert.equal(redirectDestinationRequests, 0);
+      }
+    }
+    assert.equal((await sync.getGhlInboundSyncStatus()).inboundEnabled, true, "read failure does not disable incoming");
+    console.log("PASS actual fake-service 302/307 origin/path/location redirect rejection; zero destination requests or apply; incoming remains Enabled");
+    const oldTimeout = process.env.GHL_REQUEST_TIMEOUT_MS;
+    process.env.GHL_REQUEST_TIMEOUT_MS = "25";
+    try {
+      for (const failure of [{ timeout: true }, { httpStatus: 429 }]) {
+        await pool.query("DELETE FROM system_settings WHERE key='ghl_inbound_contact_sync_active'");
+        pageSets.push([{
+          body: { contacts: [source(`retry-${fixtureSuffix}`, `retry-${fixtureSuffix}@example.test`)],
+            meta: { total: 2, nextPage: 2, startAfter: "2025-01-01T00:00:00.000Z", startAfterId: "retry-cursor" } },
+        }, { ...failure, expectedCursor: "retry-cursor" }]);
+        const key = randomUUID();
+        idempotencyKeys.push({ kind: "idem", key });
+        const preview = await sync.createGhlInboundPreview(key, actorId);
+        runIds.push(preview.runId);
+        await sync.advanceGhlInboundSyncStep(preview.runId);
+        const checkpoint = (await sync.getGhlInboundSyncRun(preview.runId))!;
+        assert.equal(checkpoint.counts.scanned, 1);
+        await assert.rejects(sync.advanceGhlInboundSyncStep(preview.runId));
+        const failed = (await sync.getGhlInboundSyncRun(preview.runId))!;
+        assert.equal(failed.state, "failed");
+        assert.equal(failed.counts.scanned, checkpoint.counts.scanned);
+        assert.equal(failed.counts.created, 0); assert.equal(failed.counts.updated, 0);
+        assert.ok(failed.lastError);
+        const calls = fetchCalls.length;
+        assert.equal((await sync.createGhlInboundPreview(key, actorId)).runId, preview.runId);
+        assert.equal((await sync.advanceGhlInboundSyncStep(preview.runId)).run.state, "failed");
+        assert.equal(fetchCalls.length, calls, "failed replay neither advances cursor nor silently releases work");
+        assert.equal((await sync.getGhlInboundSyncStatus()).inboundEnabled, true);
+      }
+    } finally {
+      if (oldTimeout === undefined) delete process.env.GHL_REQUEST_TIMEOUT_MS;
+      else process.env.GHL_REQUEST_TIMEOUT_MS = oldTimeout;
+    }
+    console.log("PASS actual timeout/429 second-page checkpoint preservation and safe terminal replay; zero apply and incoming remains Enabled");
   } finally {
+    await new Promise<void>(resolve => redirectServer.close(() => resolve()));
     await pool.query(`DROP TRIGGER IF EXISTS ${leaseTriggerName} ON system_settings`).catch(() => undefined);
     await pool.query(`DROP FUNCTION IF EXISTS ${leaseFunctionName}()`).catch(() => undefined);
     await pool.query(`DROP TRIGGER IF EXISTS ${pauseTriggerName} ON contacts`).catch(() => undefined);

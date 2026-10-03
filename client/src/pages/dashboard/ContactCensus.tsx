@@ -1384,7 +1384,7 @@ function ReconciliationRunDetail({ runId }: { runId: string }) {
 
   const cancelReconMutation = useMutation({
     mutationFn: () =>
-      apiRequest("POST", `/api/admin/reconciliation/runs/${runId}/cancel`, {}),
+      apiRequest("DELETE", `/api/admin/reconciliation/runs/${runId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/reconciliation/runs"] });
       qc.invalidateQueries({ queryKey: [`/api/admin/reconciliation/runs/${runId}`] });

@@ -81,6 +81,48 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {
+    name: "Stage 3 A Registered Session Authority and Metrics",
+    script: "scripts/test-stage3-a-authority.ts",
+    capability: "deterministic-integration",
+    providerDenial: "pre-import disposable DB guard; actual local password sessions and ephemeral loopback server; provider fetches denied",
+  },
+  {
+    name: "GHL Inbound Pagination Parser",
+    script: "scripts/test-ghl-inbound-pagination.ts",
+    capability: "deterministic-static",
+    providerDenial: "pure parser and source assertions; no service/DB imports, no network",
+  },
+  {
+    name: "GHL Inbound Focused Sanitizer and Source Checks",
+    script: "scripts/test-ghl-inbound-sync.ts",
+    capability: "deterministic-integration",
+    providerDenial: "pre-import disposable DB guard; DB-bound service sanitizer/source assertions only, not HTTP/session proof",
+  },
+  {
+    name: "GHL Inbound Route Middleware",
+    script: "scripts/test-ghl-inbound-route-guards.ts",
+    capability: "deterministic-integration",
+    providerDenial: "pre-import disposable DB guard; registered middleware/validation only, not persisted sessions",
+  },
+  {
+    name: "GHL Inbound Service and Redirect Certification",
+    script: "scripts/test-ghl-inbound-sync-integration.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable DB; fake GHL GETs and actual loopback redirect server; no provider POST/PATCH/send/enrollment",
+  },
+  {
+    name: "GHL Inbound UI Static Render",
+    script: "scripts/test-ghl-inbound-ui-render.mjs",
+    capability: "deterministic-static",
+    providerDenial: "React server render fixtures; no API requests, browser interactions or DB",
+  },
+  {
+    name: "Stage 3 A Sequence Runtime UI Static Render",
+    script: "scripts/test-stage3-a-runtime-render.mjs",
+    capability: "deterministic-static",
+    providerDenial: "27 typed configuration/pause permutations plus unavailable-read render; no probe, send or DB",
+  },
   // ── deterministic-static ─────────────────────────────────────────────────
   {
     name: "South Florida Enrichment Pipeline Correction",
@@ -109,13 +151,13 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "CRO-03A Batch Processor Semantic Equivalence",
     script: "scripts/test-cro03a-batch-equivalence.ts",
-    capability: "server-required",
-    providerDenial: "qualification-service batch processor vs per-item evaluator; no GHL/SMTP",
+    capability: "deterministic-integration",
+    providerDenial: "guarded disposable source receipts; qualification-service batch processor vs per-item evaluator; no HTTP server or provider transport",
   },
   {
     name: "CRO-03A Batch Processor Performance & Recovery",
     script: "scripts/test-cro03a-batch-performance.ts",
-    capability: "server-required",
+    capability: "deterministic-integration",
     providerDenial: "batch processor timing, idempotency, crash-resume, cancellation; no GHL/SMTP",
   },
   {
@@ -685,10 +727,10 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source, schema, and migration certification only; no database, queue, network, or provider transport",
   },
   {
-    name: "CRO-05A Inbound Lifecycle Pure Contract",
+    name: "CRO-05A DB-bound Lifecycle Decision Contract",
     script: "server/tests/inbound-request-lifecycle.test.ts",
-    capability: "deterministic-static",
-    providerDenial: "pure lifecycle decision only; no database, queue, network, or provider transport",
+    capability: "deterministic-integration",
+    providerDenial: "pre-import disposable DB guard for the authority import graph; lifecycle decision assertions only, not persisted-effect proof; no provider transport",
   },
   {
     name: "CRO-05A Non-Public Adapter Classification Certification",
@@ -715,10 +757,10 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "disposable PostgreSQL only; no provider client, HTTP transport, queue, or scheduler is touched",
   },
   {
-    name: "CRO-03C OpenAI Bundle Static Certification",
+    name: "CRO-03C OpenAI Bundle DB-bound Unit Certification",
     script: "scripts/test-cro03c-openai-bundle-static.ts",
-    capability: "deterministic-static",
-    providerDenial: "pure constructor/approval/validator unit tests; no database, network, queue, or provider transport; OpenAI stage remains unreachable from the live planner",
+    capability: "deterministic-integration",
+    providerDenial: "pre-import disposable DB guard for the eager service graph; constructor/approval/validator unit assertions only, not dispatch proof; no provider transport",
   },
   {
     name: "CRO-03B Durable Recipe Lifecycle",
@@ -771,8 +813,8 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
   {
     name: "SEC-02 Session Validity Fail-Closed",
     script: "scripts/test-session-validity-fail-closed.ts",
-    capability: "deterministic-static",
-    providerDenial: "no server, DB, or provider transport; authStorage monkey-patched in-process",
+    capability: "deterministic-integration",
+    providerDenial: "pre-import disposable DB guard; real guards with authStorage monkey-patched in-process, not persisted-session proof; no server or provider transport",
   },
   // ── server-required (live server + DB; hard-fails if server absent) ──────
   {

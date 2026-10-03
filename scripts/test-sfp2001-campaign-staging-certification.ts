@@ -161,6 +161,10 @@ const { CLASSIFIER_VERSION, SFP_TARGET_VERTICALS_V2, TAXONOMY_VERSION_V2 } = awa
   const { GEOGRAPHY_RESOLVER_VERSION, resolveGeographyForBusiness } = await import("../server/services/cro03/sfp-geography-resolver");
 const { ensureProgram } = await import("../server/services/cro03/south-florida-prospecting");
 const { previewSfpValidation, executeSfpValidation } = await import("../server/services/cro03/sfp-validation");
+const { renewSfpRuntimeDeploymentOwner } = await import("../server/services/cro03/sfp-provider-operations");
+let ownerHeartbeat: ReturnType<typeof setInterval> | undefined;
+let ownerHeartbeatPending = false;
+let ownerHeartbeatError: unknown;
 
 try {
   // Runtime and release identity are bootstrapped only through the audited
@@ -173,6 +177,15 @@ try {
     "current test release is selected through the helper with its persisted live runtime owner");
   check(releaseSelection.selectedRelease?.artifactSha === currentTestRuntime.artifactSha,
     "the private runtime selection is bound to this process's current release identity");
+  // A long CLI fixture has no application heartbeat. Renew only its existing,
+  // live, selected owner through the ordinary fenced API; never seed authority.
+  ownerHeartbeat = setInterval(async () => {
+    if (ownerHeartbeatPending) return;
+    ownerHeartbeatPending = true;
+    try { await renewSfpRuntimeDeploymentOwner(); }
+    catch (error) { ownerHeartbeatError = error; }
+    finally { ownerHeartbeatPending = false; }
+  }, 5000);
 
   const { authorizePaidBudget, MI09_PAID_BUDGET_TYPED_CONFIRMATION } =
     await import("../server/services/mi09-pilot-authority");
@@ -202,6 +215,7 @@ try {
       String(row.candidate_id ?? row.paid_candidate_evidence_id ?? "") === sourceId);
   }
   async function validateFixtureCandidates(cohortId: string, label: string): Promise<FixtureValidationRun> {
+    if (ownerHeartbeatError) throw ownerHeartbeatError;
     const preview = await previewSfpValidation(cohortId);
     check(preview.gateOpen, `${label} validation preview passes the governed runtime/provider gates`);
     check(preview.addressesForValidation > 0, `${label} validation selects at least one persisted source candidate`);
@@ -535,7 +549,8 @@ try {
     `);
   }
   const fixture: Array<{ eligibilityId: string; businessId: number; kind: "free" | "paid"; candidateId?: string; paidId?: string }> = [];
-  const emails = [`free-${runKey}@example.org`, `paid-${runKey}@example.org`, `drift-${runKey}@example.org`, `legacy-${runKey}@example.org`];
+  // These are positive business-inbox eligibility fixtures, not named people.
+  const emails = ["free", "paid", "drift", "legacy"].map(kind => `info@${kind}-${runKey}.example.org`);
   for (let i = 0; i < emails.length; i++) {
     const business = rows(await db.execute(sql`
       INSERT INTO businesses (canonical_name, normalized_name, vertical, state, record_class, created_at)
@@ -718,14 +733,22 @@ try {
   // Rows using these historical state values remain legal and queryable
   // after migration 0290. Each row has an isolated eligibility identity.
   for (const [index, state] of ["staged", "rejected", "cancelled"].entries()) {
-    const stateEmail = `legacy-${state}-${runKey}@example.org`;
+    // Constraint-retention fixtures are historical rows, not additional
+    // actionable members of the live cohort. Keep each business independent.
+    const legacyBusiness = rows(await db.execute(sql`
+      INSERT INTO businesses (canonical_name, normalized_name, state, record_class)
+      VALUES (${`${runKey}-legacy-state-${state}`}, ${`${runKey}-legacy-state-${state}`.toLowerCase()}, 'FL', 'canonical')
+      RETURNING id
+    `))[0];
+    const legacyBusinessId = Number(legacyBusiness.id);
+    const stateEmail = `info@legacy-${state}-${runKey}.example.org`;
     const sealedStateCandidate = seal("email", stateEmail);
     const stateCandidate = rows(await db.execute(sql`
       INSERT INTO free_discovery_candidates
         (generation_id, business_id, field, subject_type, domain, source, attribution_scope,
          disposition, confidence, envelope_ciphertext, envelope_nonce, envelope_tag,
          envelope_key_version, normalized_value_hash, masked_value, created_at)
-      VALUES (${String(generation.id)}::uuid, ${fixture[3].businessId}, 'email', 'business',
+       VALUES (${String(generation.id)}::uuid, ${legacyBusinessId}, 'email', 'business',
         ${`${runKey}-${state}.example.org`}, 'certification', 'role', 'staged', 85,
         ${sealedStateCandidate.ciphertext}, ${sealedStateCandidate.nonce}, ${sealedStateCandidate.tag},
         1, ${sealedStateCandidate.normalizedValueHash}, ${sealedStateCandidate.maskedValue}, NOW())
@@ -735,7 +758,7 @@ try {
       INSERT INTO sfp_outreach_eligibility
         (cohort_run_id, business_id, candidate_id, source_kind, policy_version, status,
          decision_reason, validation_at, validation_expires_at, role_inbox, normalized_value_hash)
-      VALUES (${cohortRunId}::uuid, ${fixture[3].businessId}, ${String(stateCandidate.id)}::uuid, 'free',
+       VALUES (${cohortRunId}::uuid, ${legacyBusinessId}, ${String(stateCandidate.id)}::uuid, 'free',
           ${Number(policy.version) + index + 10}, 'validated_review_required', ${`legacy-${state}`},
          NOW(), NOW()+INTERVAL '20 days', TRUE, ${createHash("sha256").update(`${state}${runKey}`).digest("hex")})
       RETURNING id
@@ -744,7 +767,7 @@ try {
       INSERT INTO sfp_campaign_staging_intents
         (cohort_run_id, eligibility_id, business_id, candidate_id, source_kind,
          idempotency_key, actor_id, state, policy_version, validation_snapshot, lineage)
-      VALUES (${cohortRunId}::uuid, ${String(eligibility.id)}::uuid, ${fixture[3].businessId},
+       VALUES (${cohortRunId}::uuid, ${String(eligibility.id)}::uuid, ${legacyBusinessId},
          ${String(stateCandidate.id)}::uuid, 'free', ${`${runKey}-${state}`}, ${runKey},
          ${state}, ${Number(policy.version)}, '{}'::jsonb, '{}'::jsonb)
     `);
@@ -767,7 +790,7 @@ try {
   const rollbackSentinel = new Error("SFP2001_MIGRATION_SIMULATION_ROLLBACK");
   try {
     await db.transaction(async (tx) => {
-      const promotedEmail = `legacy-promoted-${runKey}@example.org`;
+      const promotedEmail = `info@legacy-promoted-${runKey}.example.org`;
       const sealedPromotedCandidate = seal("email", promotedEmail);
       const promotedCandidate = rows(await tx.execute(sql`
         INSERT INTO free_discovery_candidates
@@ -837,7 +860,7 @@ try {
   // this and reject the row rather than projecting fixture[0]'s address
   // into business B's master-lead record.
   const mismatchBusinessId = extraBusinessIds.mismatch;
-  const mismatchEmail = `mismatch-${runKey}@example.org`;
+  const mismatchEmail = `info@mismatch-${runKey}.example.org`;
   const sealedMismatch = seal("email", mismatchEmail);
   const mismatchCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -898,7 +921,7 @@ try {
   // This mirrors the integrated-pipeline certification and intentionally
   // avoids legacy campaign columns or empty setup fields.
   const driftBusinessId = extraBusinessIds.drift2;
-  const driftEmail = `content-drift-${runKey}@example.org`;
+  const driftEmail = `info@content-drift-${runKey}.example.org`;
   const sealedDrift = seal("email", driftEmail);
   const driftCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -977,7 +1000,7 @@ try {
 
   // --- Concurrent duplicate execution converges to one intent (Defect 3) -
   const concurrentBusinessId = extraBusinessIds.concurrent;
-  const concurrentEmail = `concurrent-${runKey}@example.org`;
+  const concurrentEmail = `info@concurrent-${runKey}.example.org`;
   // Use the exact v1 normalized hash produced by seal(); a run-key-only hash
   // would exercise the email-drift rejection instead of concurrent staging.
   const sealedConcurrent = seal("email", concurrentEmail);
@@ -1064,12 +1087,19 @@ try {
      WHERE id = ${String(program.id)}::uuid
   `);
   process.env.BACKGROUND_JOB_PROFILE = "selective:sfp-campaign-staging";
+  // Profile changes alter the attested queue-topology hash. Bind the positive
+  // worker fixture to its actual topology before validation, not afterward.
+  const workerTopologySelection = await runtimeIdentityHelper.selectSfpRuntimeTestRelease(runKey);
+  check(workerTopologySelection.currentReleaseSelected && workerTopologySelection.ownerLive && workerTopologySelection.ready,
+    "positive worker validation is bound to the newly selected test queue topology");
+  if (!workerTopologySelection.ready) throw new Error("SFP2001_WORKER_TOPOLOGY_NOT_READY");
+  ownerHeartbeatError = undefined;
 
   // The positive worker probe gets an isolated, genuinely frozen cohort so
   // unrelated still-eligible negative-regression fixtures cannot occupy the
   // worker's bounded inventory ahead of it. The retry/dead-letter lifecycle
   // is exercised below with its own dedicated frozen cohort.
-  const workerOkEmail = `worker-ok-${runKey}@example.org`;
+  const workerOkEmail = `info@worker-ok-${runKey}.example.org`;
   const workerCohortRunId = randomUUID();
   await db.execute(sql`
     INSERT INTO sfp_cohort_runs
@@ -1276,7 +1306,7 @@ try {
   // The next identical request must replay the persisted result without
   // fabricating/deleting a command, intent, eligibility, or lead row.
   const crashBusinessId = extraBusinessIds.crash;
-  const crashEmail = `crash-resume-${runKey}@example.org`;
+  const crashEmail = `info@crash-resume-${runKey}.example.org`;
   const sealedCrash = seal("email", crashEmail);
   const crashCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -1465,7 +1495,7 @@ try {
     UPDATE sfp_cohort_runs SET status='frozen', cohort_state='frozen', frozen_at=NOW()
      WHERE id=${retryCohortRunId}::uuid
   `);
-  const retryEmail = `retry-lifecycle-${runKey}@example.org`;
+  const retryEmail = `info@retry-lifecycle-${runKey}.example.org`;
   const sealedRetry = seal("email", retryEmail);
   const retryCandidate = rows(await db.execute(sql`
     INSERT INTO free_discovery_candidates
@@ -1576,7 +1606,7 @@ try {
   // fail closed with SFP_STAGING_ADDRESS_SUPPRESSED even though the eligibility
   // row's own masked/normalized hash was clean at preview time — this is
   // exactly the scenario the tx-bound recheck exists to catch.
-  const suppressedEmail = `suppressed-real-${runKey}@example.org`;
+  const suppressedEmail = `info@suppressed-real-${runKey}.example.org`;
   const suppressedTokenHash = createHash("sha256").update(suppressedEmail.trim().toLowerCase()).digest("hex");
   // The candidate/evidence business-membership check inside
   // openSfpCandidatePlaintext() requires this business to already be a
@@ -1700,6 +1730,8 @@ try {
     console.log("  (no dead-lettered item produced in this run to exercise the PM-13 retry transition against — non-fatal)");
   }
 } finally {
+  if (ownerHeartbeat) clearInterval(ownerHeartbeat);
+  while (ownerHeartbeatPending) await new Promise(resolve => setTimeout(resolve, 10));
   await pool.end();
 }
 

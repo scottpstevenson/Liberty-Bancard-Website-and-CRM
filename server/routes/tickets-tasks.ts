@@ -8,6 +8,7 @@ import { createPreferenceAwareNotification } from "../services/digest-service";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess, denyCrmObject } from "../services/crm-object-access";
 import { legacyTaskStatusToAuthorityState } from "../storage/tasks";
+import { readTaskMetrics } from "../services/task-read-authority";
 
 const updateTicketSchema = insertTicketSchema.partial().extend({
   slaDeadline: z.coerce.date().optional().nullable(),
@@ -42,29 +43,6 @@ async function authorizeTaskScope(req: any, res: any, task: { contactId?: number
     if (!ticket || !await authorizeTicketScope(req, res, ticket)) return false;
   }
   return task.contactId || task.dealId || task.ticketId || req.user?.role !== "agent" ? true : denyCrmObject(res);
-}
-
-async function canListTask(req: any, task: any) {
-  if (req.user?.role !== "agent") return true;
-  const email = req.user?.email;
-  let hasLinkedObject = false;
-  if (task.contactId) {
-    hasLinkedObject = true;
-    const contact = await storage.getContact(task.contactId);
-    if (!contact || contact.assignedTo !== email) return false;
-  }
-  if (task.dealId) {
-    hasLinkedObject = true;
-    const deal = await storage.getDeal(task.dealId);
-    if (!deal || deal.owner !== email) return false;
-  }
-  if (task.ticketId) {
-    hasLinkedObject = true;
-    const ticket = await storage.getTicket(task.ticketId);
-    const contact = ticket?.contactId ? await storage.getContact(ticket.contactId) : null;
-    if (!contact || contact.assignedTo !== email) return false;
-  }
-  return hasLinkedObject;
 }
 
 export function registerTicketsTasksRoutes(app: Express) {
@@ -181,13 +159,9 @@ export function registerTicketsTasksRoutes(app: Express) {
   // #385 — Overdue task count for sidebar badge
   app.get("/api/tasks/overdue-count", isDashboardUser, async (req, res) => {
     try {
-      const allTasks = await storage.getTasks({});
       const now = new Date();
-      const visibility = await Promise.all(allTasks.map((t: any) => canListTask(req, t)));
-      const count = allTasks.filter((t: any, i: number) => visibility[i] &&
-        t.dueDate && new Date(t.dueDate) < now && t.status !== "completed" && t.status !== "done"
-      ).length;
-      res.json({ count });
+      const metrics = await readTaskMetrics({ actor: req.user as any, asOf: now, timezone: "UTC" });
+      res.json({ count: Number(metrics.rows[0]?.overdue), meta: metrics.meta });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -200,9 +174,9 @@ export function registerTicketsTasksRoutes(app: Express) {
         if (req.query.source !== undefined) {
           return res.status(400).json({ message: "Cannot combine dealId and source filters" });
         }
-        const tasks = await storage.getTasksByDeal(dealId);
+        const tasks = await storage.getTasksByDeal(dealId, { actor: req.user as any, asOf: new Date(), timezone: "UTC" });
         if (!await authorizeDealAccess(req, res, dealId)) return;
-        return res.json((await Promise.all(tasks.map(async task => await canListTask(req, task) ? task : null))).filter(Boolean));
+        return res.json(tasks);
       }
       let source: "sla" | "manual" | undefined;
       try {
@@ -210,8 +184,8 @@ export function registerTicketsTasksRoutes(app: Express) {
       } catch {
         return res.status(400).json({ message: "Invalid source filter. Allowed values: sla, manual" });
       }
-      const tasks = await storage.getTasks({ source });
-      res.json((await Promise.all(tasks.map(async (task: any) => await canListTask(req, task) ? task : null))).filter(Boolean));
+      const tasks = await storage.getTasks({ source, scope: { actor: req.user as any, asOf: new Date(), timezone: "UTC" } });
+      res.json(tasks);
     } catch (err: any) {
       serverError(res, err);
     }

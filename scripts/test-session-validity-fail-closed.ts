@@ -7,11 +7,14 @@
  *
  * This exercises the real exported guards (isAuthenticated, isDashboardUser,
  * requireRole, etc.) against a fake req/res, monkey-patching the real
- * `authStorage` singleton so no DB is required.
+ * `authStorage` singleton. Its DB-bound import graph requires guarded
+ * disposable infrastructure; these are unit guard assertions, not DB sessions.
  */
 import assert from "node:assert";
-import { authStorage } from "../server/replit_integrations/auth/storage";
-import { isAuthenticated, isDashboardUser, requireRole } from "../server/replit_integrations/auth/replitAuth";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({ operation: "Session validity DB-bound unit graph", requireRedis: false });
+const { authStorage } = await import("../server/replit_integrations/auth/storage");
+const { isAuthenticated, isDashboardUser, requireRole } = await import("../server/replit_integrations/auth/replitAuth");
 
 function fakeReqRes(sessionId: string, userId: string) {
   let destroyed = false;

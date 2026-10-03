@@ -1,0 +1,261 @@
+[Stage 3 A authority] disposable database confirmed: test_stage3_a
+[CanonicalURL] ⚠️  Neither APP_URL nor REPLIT_DOMAINS is set. Email verification/reset links will point to libertybancard.com. Set APP_URL=<your deployment URL> in Replit Secrets to fix.
+[CanonicalURL] Resolved: https://libertybancard.com (source: static_fallback)
+(node:33221) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Operational diagnostic {
+  correlationId: '45286268-fb20-4f25-8cd8-c94375e37e0d',
+  operation: 'auth_admin_seed',
+  errorClass: 'Error',
+  reasonCode: 'admin_seed_failed',
+  route: 'background',
+  method: 'N/A',
+  status: 0
+}
+PASS real owned-deal collection versus direct-object policy, changed-deal scope, concurrent contact-owner recheck and consent block; zero enrollment/tag/provider effects
+PASS actual session cold/workflow authorization, CSRF, whole-set denial, replay and no-tag outcomes
+PASS DB same-scope task list/metric/open-state/deletion/date parity
+PASS independent DB 2-step/3-membership counts and repeated-contact identity
+PASS full >5000 scoped forecast population, unavailable actuals and zero provider calls
+PASS task linked class/archive/owner/ticket/unlinked/empty-state and inclusive/exclusive date boundaries; canonical NOT NULL states preserved
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":0,"checkoutDurationMs":null,"fingerprintSql":"SELECT COUNT(*)::int AS total, COUNT(*) FILTER(WHERE COALESCE(\"tasks\".\"authority_state\", CASE WHEN lower(\"tasks\".\"status","poolAtAcquire":{"total":3,"idle":2,"waiting":5},"poolAtRelease":{"total":11,"idle":5,"waiting":0},"ts":"2026-10-03T16:06:12.194Z"}
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":0,"checkoutDurationMs":null,"fingerprintSql":"SELECT COUNT(*)::int AS total, COUNT(*) FILTER(WHERE COALESCE(\"tasks\".\"authority_state\", CASE WHEN lower(\"tasks\".\"status","poolAtAcquire":{"total":11,"idle":6,"waiting":5},"poolAtRelease":{"total":12,"idle":5,"waiting":0},"ts":"2026-10-03T16:06:12.194Z"}
+{"event":"db:slow_query","correlationId":null,"normalizedRoute":null,"acquireWaitMs":null,"queryDurationMs":0,"checkoutDurationMs":null,"fingerprintSql":"SELECT COUNT(*)::int AS total, COUNT(*) FILTER(WHERE COALESCE(\"tasks\".\"authority_state\", CASE WHEN lower(\"tasks\".\"status","poolAtAcquire":{"total":12,"idle":12,"waiting":5},"poolAtRelease":{"total":12,"idle":7,"waiting":0},"ts":"2026-10-03T16:06:12.194Z"}
+PASS actual same-clock task HTTP list/overview/analytics/briefing parity and scoped agent contact/deal scalar reads
+Internal server error {
+  correlationId: 'e6420c8b-e1bd-4ca0-a152-a4eb35e0dcf3',
+  errorClass: 'Error',
+  reasonCode: 'internal_error',
+  route: '/api/sequence-enrollments/owned',
+  method: 'GET',
+  status: 500
+}
+PASS empty sequence DB counts, real manager owned-positive/global-and-other-denied sessions and failed read not empty
+PASS archived/test recommendations excluded, rejected recommendation remains only a forecast and missing monthly cost is unavailable
+Internal server error {
+  correlationId: '12204227-c43b-4cd6-a9a2-5e25d36174fb',
+  errorClass: 'Error',
+  reasonCode: 'internal_error',
+  route: '/api/contacts',
+  method: 'POST',
+  status: 500
+}
+[Readiness] Failed to enqueue recalculation for contact 205: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 205: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 205,contact_created,Sat Oct 03 2026 16:06:12 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 205: deferred
+[Readiness] Failed to enqueue recalculation for contact 206: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 206: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 206,contact_created,Sat Oct 03 2026 16:06:12 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 206: deferred
+[Readiness] Failed to enqueue recalculation for contact 206: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 206: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 206,contact_created,Sat Oct 03 2026 16:06:12 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 206: deferred
+[Readiness] Failed to enqueue recalculation for contact 207: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 207: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 207,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 207: deferred
+[Readiness] Failed to enqueue recalculation for contact 207: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 207: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 207,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 207: deferred
+[Readiness] Failed to enqueue recalculation for contact 208: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 208: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 208,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 208: deferred
+[Readiness] Failed to enqueue recalculation for contact 209: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 209: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 209,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 209: deferred
+[Readiness] Failed to enqueue recalculation for contact 209: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 209: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 209,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 209: deferred
+[Readiness] Failed to enqueue recalculation for contact 210: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 210: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 210,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 210: deferred
+[Readiness] Failed to enqueue recalculation for contact 210: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 210: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 210,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 210: deferred
+[Readiness] Failed to enqueue recalculation for contact 211: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 211: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 211,contact_created,Sat Oct 03 2026 16:06:13 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 211: deferred
+[Readiness] Failed to enqueue recalculation for contact 212: QueueManager not yet initialized — use getQueueManager() from server/index.ts startup, not from route handlers or health probes. This prevents lazy worker initialization from HTTP requests.
+[LeadScoringTrigger] Unexpected error for contact 212: Failed query: 
+      INSERT INTO contact_lead_scoring_jobs
+        (contact_id, requested_generation, processed_generation, status, trigger_sources,
+         input_version_snapshot, enqueue_attempts, execution_attempts, created_at, updated_at)
+      VALUES
+        ($1, 1, 0, 'pending_enqueue', ARRAY[$2::text],
+         $3, 0, 0, NOW(), NOW())
+      ON CONFLICT (contact_id) WHERE status NOT IN ('completed', 'contact_not_found', 'failed_terminal')
+      DO UPDATE SET
+        requested_generation = contact_lead_scoring_jobs.requested_generation + 1,
+        trigger_sources      = array_append(contact_lead_scoring_jobs.trigger_sources, $4::text),
+        status               = 'pending_enqueue',
+        updated_at           = NOW()
+      RETURNING id, (xmax = 0) AS was_inserted
+    
+params: 212,contact_created,Sat Oct 03 2026 16:06:14 GMT+0000 (Coordinated Universal Time),contact_created
+[ContactWriter] Lead scoring enqueued for contact 212: deferred
+PASS real manual-create pre/postcommit timeout, orchestration/task failures, stable identity, conflict/scope denial and concurrent replay; one contact/task, external effects held
+PASS actual DB link/work-link/effect boundary faults recover the persisted contact and canonical one-task obligation; pending provider projection remains visible
+PASS Chromium public website desktop/phone preservation; signed-in SequenceReport/cold/finance desktop and phone desktop-view mode; manager read-error is unavailable, not zero; external requests denied; no native mobile-workqueue claim

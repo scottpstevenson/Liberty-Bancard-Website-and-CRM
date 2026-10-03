@@ -1616,3 +1616,165 @@ Current actual strict real-lock policy execution returns exit 1 with 4 PRIVATE_P
 | GHL redirect boundary | A existing incoming service fetch rejects unvalidated redirects; fake-service 302/307/host/path/scope/timeout/retry tests prove no destination request or premature apply. Preserve parser/no-echo/incoming Enabled; no claim of actual attack/token leak/historical pagination cause. |
 
 Keep outbound Paused, incoming independently Enabled and proposals Hold for Review as required policy; authenticated runtime controls were not newly observed. Exact task review/addendum contains source evidence, gate commands and copy-paste Replit instructions. A scope is aligned; apply amendments and execute existing CI/DB/session/browser gates. No additional unique repair-group total or fully verified-source-entry count is asserted. Update same report and ledger after implementation, separating source-fixed/tested/merged/deployed/live-verified. Stages 1–2 remain recorded complete; Stage 3 remains open; C1–C5/D and later-lane obligations unchanged.
+
+## Stage 3 A intermediate implementation dispositions — 2026-10-03
+
+**INCOMPLETE; NOT MERGED, DEPLOYED OR LIVE-VERIFIED.** These are workspace source
+changes and bounded component certifications. No parent/composite finding is
+closed. All original 95 IDs, historical allegations, rejected inferences and
+B/C/D/later-stage owners above remain unchanged. The 33 original A parent rows
+below are not 33 unique defects. Amendment subclaims follow separately.
+
+Exact commands, scope, symbols, changed paths and gate limits:
+`.local/tasks/liberty-stage3-task-a-execution-receipts.md`. Passing typecheck,
+build, portable-lock policy, supported stock install and focused fixtures do not
+replace missing stock CI, exhaustive handler/DB/browser gates or native history.
+Security audit currently rejects **seven high** Tailwind-chain findings; all
+published braces versions through public latest 3.0.3 are affected by
+GHSA-vfj7-8cjw-p6xm. No major package migration, automatic typography downgrade,
+exception or audit-policy weakening was authorized. Stock static CI separately
+previously failed the baseline SFP `assertPaidBudgetAuthorized` assertion. The user
+confirmed paid approval and paid limits were intentionally removed. The stale
+expectation now checks their absence while retaining activation/reservation/dispatch
+checks; the focused source suite passes all 21 assertions. No runtime paid gate or
+limit was restored. Full stock CI has not been recertified. Stage 3 stays open.
+
+| Original A parent | Individual A slice outcome / actual proof | Remaining owner / qualification |
+| --- | --- | --- |
+| CRM3-01 | Source/manifest/lock recorded at dirty workspace HEAD 1c6f81a; local build succeeds. Prior c85deb3c serving receipt predates repair. | A clean final candidate; D/platform repaired serving artifact/install/live receipt. No source-to-deployment equivalence. |
+| CRM3-02 | Public npm regeneration preserves package identities; supported scripts-enabled stock install PASS; real-lock strict policy and policy/inventory fixtures PASS. Security FAIL; stale paid-approval SFP expectation corrected with focused 21-assertion PASS. Complete stock jobs remain uncertified. | A blocked dependency remediation and both full stock jobs. Historic 502 not reproduced. |
+| CRM3-03 | Existing parser/no-echo preserved; guarded actual service multi-page/apply/epoch/lease/webhook/replay PASS; redirect boundary tested. Local-create degraded/replay source repaired only. | A timeout/429/retry and create fault/concurrency matrix; B consumers; D historic/native/fleet. |
+| CRM3-04 | Typed runtime DTO separates configured/global pause from unobserved enablement/probe/delivery. 27 static-render permutations plus unavailable read PASS; no compliance/SMTP literal assertions. | A interacting signed-in UI/fleet evidence mapping; D current native/worker observations. Configuration is not health. |
+| CRM3-05 | Parameterized task read/state/metric contract actually adopted in storage/routes/overview/report/briefing. Same-fixture list/metrics/state/deleted/asOf comparison PASS; briefing task failure is degraded, not zero. | A exhaustive cross-reader HTTP/snapshot/class/archive/owner/timezone fixtures; B UI/AI factual input/fallback/actions/assignment/SLA/notifications; D history. |
+| CRM3-11 | Cold read now shares actor authority before rows/count/page; contact/deal population differences retained. Focused owned/unassigned/nonowned route fixture PASS. | A complete count/facet/export/cache/analytics population parity matrix; C2/C4 presentation; D immutable historic IDs. No native parity forced. |
+| CRM3-12 | Full-population recommendation forecast query and paged details replace inferred deployed/paid-off actuals. 5,001-added-row DB fixture PASS; deployment/cash actuals null. | A exhaustive order/shipment/archive/test/empty/missing-value fixtures; Stage 6 authoritative deployment/cash ingestion. Mutable shipment is not cash proof. |
+| CRM3-14 | Cold collection and complete selected-set locks/recheck; processed held/blocked outcomes, enrolled=0, no deceptive tags. Actual sessions, mixed-ID denial, CSRF and retry PASS. | A stale-owner/state races, all action predicates and false-bridge/true-receipt fixture matrix; B lifecycle; Stage 9 broader security. Numeric guard preserved. |
+| CRM3-15 | Unsupported audience dollars removed in route/UI; handler fixture proves no estimatedValue. Dormant census is not consent/readiness. | A full browser/label receipt; C2/C4 design. No source-based revenue or invalidity inference. |
+| CRM3-16 | Independent child aggregates; actual DB 2 steps/3 historical memberships/1 unique contact PASS. Paused active memberships no longer automatically stalled/delivered. | A zero children and manager/browser gates; B archive/cancel; C3; D native historical membership receipts. |
+| CRM3-17 | Owned manager enrollment endpoint/client replaces forbidden global dependency; loading/error counts explicit, including per-card counts. | A owned-manager positive/global-denied/session/browser/API-failure certification; B lifecycle. Global restriction retained. |
+| CRM3-20 | Stored incoming lease/checkpoint/update observation is typed and separate from queue/worker proof. Missing observation is unavailable/not observed. | A exact owner-source coverage and interacting UI; D/Stage 4 current enrichment runtime receipts. No jobs enabled. |
+| CRM3-23 | No provisioning/invitation/deactivation feature added or certified under A. | B lifecycle/discoverability; C5; Stage 9. Prior capability finding retained. |
+| CRM3-25 | Focused workflow management/role/identifier denial gates PASS with actual sessions and zero workflow runs/provider fetches on denial. No overall readiness verdict. | A remaining positive/executor-race cases; B Knowledge; C5/D/Stages 8–9. |
+| REF-003 | Stable committed contact 202 degraded receipt and canonical incomplete replay source changes; accepted/completed replay remains no-op. | A full linkage/task/effect/audit/queue/timeout/concurrent fault fixtures; B work UI; D original production request/contact/error receipt. Not closed by dedupe. |
+| REF-006 | Existing class/archive/relationship distinctions retained; task predicate adoption and focused fixtures do not reproduce historic 2-vs-3 pipeline. | A full object/deal metric parity; C2/C4; D immutable same-scope linked IDs. |
+| REF-008 | Independent incoming lane preserved; actual fake-GET service certification PASS; default HTTP redirects rejected. | A timeout/429/retry cases; D original pagination metadata/backlog/approved stage semantics. Numeric nextPage not proved historic cause. |
+| REF-009 | No worker activation; configured/paused/stored checkpoint labels do not claim 12/20 active workers. | A remaining owner diagnostics; D/Stage 4 actual ownership/heartbeat/checkpoint receipts. Historical counts remain dated. |
+| REF-011 | Fanout and runtime assertions source repaired; DB independent memberships and static runtime permutations PASS. | A zero/manager/browser cases; B lifecycle; C3; D native 39/stalled identities and delivery. Under pause, active is not permission. |
+| REF-014 | No paid OpenAI/model/index request; runtime report does not claim verified consumption. | B Knowledge; D current observations; Stage 8 model/index evidence. Prior configured/405 facts remain qualified. |
+| REF-015 | Disposable Redis exists only for test infrastructure, not production worker proof. Incoming checkpoint/lease DTO does not claim queue health. | A remaining runtime map; D production Redis/worker receipts. Connected is not consumed. |
+| REF-017 | Incoming/manual/webhook observation separated; no invented native workflow IDs or mapping. | A remaining explicit owner classes; D/Stage 4 approved native dependency inventory. No blanket 39-workflow requirement. |
+| REF-018 | Production predicates/synthetic-QA exclusions preserved; focused actor/data fixtures only. No production cleanup/census. | A exhaustive class/archive fixtures; B users; D historical/live counts. No purge authority. |
+| REF-020 | Prior disproved “no Invite” allegation retained; no invitation sent. | B discoverability/lifecycle; C5/Stage 9 certification. |
+| REF-029 | Membership and unique-contact counters separated; paused/terminal meaning clarified. No stalled cleanup performed. | A remaining counter fixtures; B governed cleanup; Stage 4. Upgrade not new defect. |
+| REF-041 | No external/local stage count parity or mapping guessed. Incoming observation is not approved semantic mapping. | D native IDs/semantic approval and Stage 4; A unmapped-label browser proof pending. |
+| REF-046 | No reliance on old 6,471 inventory or superseded screenshot as current denominator. Scoped source repairs only. | A full object/event metric labels; C2/C4 workspace; D current-view receipt. |
+| REF-052 | Six actual local-password role sessions and changed route/CSRF denial matrix PASS; not universal auth/2FA/deactivation proof. | A full registered server/browser gate coverage; B lifecycle; Stage 9. |
+| REF-059 | Rejected appearance/plausibility→83% validity inference retained; no rows deleted or reclassified. | Stage 5/8 actual evidence; no A defect manufactured. |
+| REF-060 | QQ/numeric-address invalidity inference rejected and retained. | Validation authority only; no appearance-based purge. |
+| REF-061 | No immutable historic email/name examples obtained; raw identity preserved. | D exact IDs/history; B/C2 separately owned display work. |
+| REF-066 | Actual DB proves memberships versus unique contacts and fanout correction, not old 2,094/2,097/~2,040 native census. | A remaining counter matrix; B later lifecycle; D original immutable history. |
+| REF-069 | Local no-echo/identity/preservation service fixtures PASS; no native contacts/stages/users/forms/phone comparison or mapping performed. | A remaining runtime/pagination cases; D native semantic inventory/Stage 4. No forced numerical parity. |
+
+Assigned amendment subclaims: REF-016/V18 receives typed SMTP/global-pause/
+unknown/error static-render proof, not delivery/cap change (A interacting UI;
+D/Stage 4 delivery; C3 design remain). REF-056/V22 receives actual session
+workflow denial/input/zero-run proof, not all positive executor/security cases
+(A remaining fixtures; B editor; Stage 9). REF-037/038/065 and REF-064/067 retain
+D immutable deletion/restore/actor/timestamp/before-after history obligations;
+none is closed by new component fixtures. No additional defect total is asserted.
+
+## Latest Task A evidence update — 2026-10-03
+
+**INCOMPLETE / NOT READY FOR REVIEW OR RELEASE.** This update supersedes the
+intermediate A dispositions above, not the 95 original findings or their dated
+evidence. No merge, deployment, production DDL, provider spend/send/enrollment,
+native write, held-work release or proposal approval is asserted.
+
+Proof references below are receipts, not additional finding IDs:
+**HTTP** = real session/CSRF/DB cold/workflow handlers and contact/related-deal
+ownership lock races; **TASK** = shared storage/list/overview/analytics/briefing
+same-clock static-fixture comparisons plus class/archive/link/date rules;
+**SEQ** = independent DB child/zero/historical/manager/error cases;
+**FIN** = full-population 5,001-row forecast/unknown-actual/missing-cost cases;
+**CREATE** = registered writer/request fault/replay/concurrency fixtures;
+**GET** = actual fake-service incoming pagination/redirect/timeout/429/checkpoint/
+lease/epoch/webhook/no-echo fixtures; **UI** = 27 typed runtime render permutations,
+unavailable read, and real signed-in desktop plus phone viewport in existing
+desktop-view mode. Native mobile work queues are not certified.
+
+Exact commands, paths, DTOs, gate failures and durable logs:
+`.local/tasks/liberty-stage3-task-a-execution-receipts.md`,
+`.local/tasks/stage3-a-final/` and `.local/tasks/stage3-a-browser/`.
+All focused proofs above exited 0 with zero provider calls.
+
+| Original A parent | Latest individual A disposition / proof | Remaining owner or qualification |
+| --- | --- | --- |
+| CRM3-01 | Final isolated build/typecheck/inventory/redacting scan PASS; dirty candidate identity recorded. | A clean candidate/full gates; D/platform repaired serving artifact/install/live proof. |
+| CRM3-02 | Stock public install and real-lock policy PASS; final writable-build 1/1 PASS. Audit FAIL, 7 high; static API nine baseline mismatches; integration clean/diff gate blocked. | A dependency remediation and full stock CI. Install is not security/CI success. |
+| CRM3-03 | GET and CREATE PASS, including redirects, later-page timeout/429 checkpoints and committed-identity fault recovery. | B consumers; D original incident/native/fleet receipts; A full stock gates. |
+| CRM3-04 | UI PASS; runtime facts visible even with no identities; active state/configured limit not send permission or throughput. | D real probe/delivery/worker observations; C3 design. |
+| CRM3-05 | TASK PASS; actual backend adoption, not an unused helper; same-clock HTTP parity and failed-read degradation. | B UI/AI factual input/fallback/actions/assignment/SLA/notifications; D history. Full parent remains PARTIAL. |
+| CRM3-11 | Shared contact/deal overview/briefing predicates and actor scalar comparisons PASS; HTTP owned/unassigned scope retained. | A broader facet/export/cache population matrix; C2/C4 presentation; D immutable native census. |
+| CRM3-12 | FIN PASS; rejected recommendations only forecasts; archived/test exclusion and missing total/month cost unavailable. | Stage 6 authoritative shipment/deployment/cash ledger evidence. No actual deployment/cash proof inferred. |
+| CRM3-14 | HTTP PASS; whole-set and related-deal/contact lock rechecks, mixed denial, consent block, repeat enrolled=0, no deceptive tags/provider effects. | B lifecycle; Stage 9 broader security; A no receipt-backed live enrollment introduced. |
+| CRM3-15 | HTTP/UI PASS; audience dollars absent; no revenue/consent/readiness inference from dormant rows. | C2/C4 design; no purge or appearance-based invalidity authority. |
+| CRM3-16 | SEQ PASS, 2 steps/3 memberships/1 unique contact and zero children; paused memberships not delivery/stalled people. | B archive/cancel; C3; D native historical identities/delivery. |
+| CRM3-17 | SEQ PASS; real manager owned-positive/global-and-other-denied reads; injected failure not empty success. | B lifecycle; A broader interacting manager-card UI remains uncertified. |
+| CRM3-20 | Stored run owner mode/checkpoint/lease/freshness is typed, distinct from live queue/worker consumption. | D/Stage 4 current exact fleet observations; A broader diagnostic UI map. |
+| CRM3-23 | No provisioning/invitation/deactivation feature or certification added. | B lifecycle/discoverability; C5; Stage 9. |
+| CRM3-25 | HTTP PASS for workflow roles/IDs/no denied executor run and legitimate empty-action management run. | B editor/actions/trigger workflows; Stage 9 full executor/security matrix. |
+| REF-003 | CREATE PASS for pre/postcommit/task/link/work-link/effect faults, concurrent retry, one identity/task and visible pending projection. | D immutable historic incident; B modal/workflow consumers. Delivery remains not observed. |
+| REF-006 | TASK and scoped contact/deal scalar comparisons PASS; populations explicitly separate. | A broader contact facet/export/cache parity; D native same-scope linked IDs. |
+| REF-008 | GET PASS including actual redirects and timeout/429 checkpoint/replay; incoming stays Enabled. | D historic pagination metadata/backlog/approved stage semantics; no reconstructed historical cause. |
+| REF-009 | No worker activation or “all workers healthy” assertion; configured/stored-run states remain qualified. | D/Stage 4 exact current owner/heartbeat/checkpoint evidence. |
+| REF-011 | SEQ/UI PASS; fanout repaired, terminal history retained, zero-child and runtime unknown/error states explicit. | B lifecycle; C3; D historic stalled/native identities and actual delivery. |
+| REF-014 | No paid model/index call; configuration is not consumed-work evidence. | B Knowledge; D current observations; Stage 8 model/index proof. |
+| REF-015 | Disposable Redis is test infrastructure only; incoming run observation not live queue health. | D production Redis/worker observations; A broader runtime map. |
+| REF-017 | Manual incoming/webhook source distinguished; no guessed native workflow IDs/mapping. | D/Stage 4 approved native inventory; A broader explicit owner-class UI. |
+| REF-018 | Production/test/archive/owner fixtures PASS; newer synthetic-QA filters preserved. No production purge/reclassification. | B users; D historical/live census. |
+| REF-020 | Disproved “no Invite” allegation preserved; no invitation sent. | B discoverability/lifecycle; C5/Stage 9 certification. |
+| REF-029 | SEQ PASS for membership/unique-contact/paused/terminal meanings; no cleanup performed. | B governed cleanup; Stage 4. Upgrade, not another defect. |
+| REF-041 | No local/native stage parity or semantic mapping inferred; incoming observation stays factual. | D native IDs/approval; Stage 4; A broader unmapped-label UI. |
+| REF-046 | No dated global inventory used as current denominator; shared scoped scalar reads tested. | A broader object/event labels; C2/C4 workspace; D current live-view receipt. |
+| REF-052 | Six real local-session roles, CSRF/handler denial and signed-in report/cold browser proof PASS. | Stage 9 universal auth/2FA/deactivation; B lifecycle; A full stock server/browser coverage. |
+| REF-059 | Appearance/plausibility validity inference rejected; no rows purged or reclassified. | Stage 5/8 actual validation authority. |
+| REF-060 | QQ/numeric-address invalidity inference rejected; source identity preserved. | Validation authority only; no appearance-based purge. |
+| REF-061 | No immutable historic identity examples obtained or raw identity rewritten. | D exact IDs/history; B/C2 separately owned display work. |
+| REF-066 | SEQ actual membership-versus-contact proof PASS; not historic native-count equivalence. | B lifecycle; D original immutable census/history. |
+| REF-069 | GET PASS for local preserve/fill/create/dedupe/no-echo and safe continuation. | D native contacts/stages/users/forms/phones and Stage 4 semantic inventory. |
+
+Assigned amendment slices: REF-016/V18 has UI configuration/pause/unknown/error
+proof, not cap enforcement or verified delivery (D/Stage 4/C3 remain).
+REF-056/V22 has HTTP role/entity/denied-run proof, not universal executor/editor/
+security closure (B/Stage 9 remain). REF-037/038/065 and REF-064/067 retain their
+D deletion/restore/actor/time/before-after history obligations. All composite
+parents with outstanding B/C/D/later-stage claims remain PARTIAL.
+
+### Final scoped A handoff correction — 2026-10-03
+
+Implementation and focused certification are complete at the user's confirmed
+scope; broader legacy test repairs stopped. **NOT RELEASE-READY:** full stock
+integration/server jobs still fail. No deployment/live/native/Stage 3 closure is
+asserted. Original findings and all 95 IDs remain intact. The following individually
+supersedes outdated cells in the 33-parent matrix above; every other row and its
+B/C/D/later-stage qualification remains in force.
+
+| Original A parent | Final A outcome / receipt | Remaining owner or qualification |
+| --- | --- | --- |
+| CRM3-01 | Implementation committed at 255d25bbbf6d014ed34a18ca5e46aae0be1278df; isolated typecheck/build/inventory/redacting scan PASS. | D/platform repaired serving/install/live proof; full CI remains blocked, not release-ready. |
+| CRM3-02 | Supported public install, strict real-lock policy (939 fingerprints), API census, security (zero high/critical; 7 moderate/1 low), static 57/57 and writable-build 1/1 PASS. | Full integration stops at CR-06 Redis reservation; server stops at New-Lead Enrollment Policy B9/B22/B23. No full-CI or baseline-equivalence claim. |
+| CRM3-11 | Same-clock shared scalar comparisons plus actual session list/facet/cache/export population parity PASS; owned/unassigned scope preserved. | C2/C4 presentation; D immutable native census. |
+| CRM3-17 | Owned manager positive/global-and-other-owner denial PASS; signed-in read-error is unavailable, not zero. | B lifecycle; comprehensive work-queue UI remains outside this handoff. |
+| CRM3-20 | Incoming facts rendered separately from explicit unavailable legacy GHL/enrichment/SLA/communications owners and native mapping; 27 permutations plus unavailable-read PASS. | D/Stage 4 exact current fleet observations; stored run facts are not worker consumption. |
+| REF-006 | TASK/scalar and actual session list/facet/cache/export parity PASS; different populations explicitly separate. | D native same-scope linked IDs. |
+| REF-015 | Runtime owner classes explicitly unavailable where unobserved; render PASS. Disposable Redis is not production queue-health evidence. | D production Redis/worker observations. |
+| REF-017 | Manual incoming/webhook facts distinct; native mapping and legacy owner observations explicitly unavailable, not guessed. | D/Stage 4 approved native inventory. |
+| REF-041 | Explicit unavailable native-mapping proof in diagnostic UI; no numerical/semantic stage equivalence inferred. | D approved native IDs/semantics; Stage 4. |
+| REF-046 | Scoped scalar/list/facet/export/cache populations tested; record censuses remain distinct from performed-action/event claims. | C2/C4 workspace; D current live-view receipt. |
+| REF-052 | Focused real role sessions/CSRF/denial and signed-in reporting browser proof PASS; stock server-required job FAILED separately. | B lifecycle; Stage 9 universal auth/2FA/deactivation; full-CI release blocker. |
+
+Exact commands, logs, exported contracts and changed-path handoff:
+`.local/tasks/liberty-stage3-task-a-execution-receipts.md`, final scoped section
+and its `stage3-a-final/handoff-*` receipts. This correction closes A implementation
+slices only, not composite parents, native/history obligations or release gates.
+Outbound remains Paused, incoming independently Enabled, proposals Hold for Review.

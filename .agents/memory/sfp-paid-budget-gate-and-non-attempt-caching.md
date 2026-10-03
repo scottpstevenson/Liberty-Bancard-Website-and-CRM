@@ -1,9 +1,19 @@
 ---
-name: SFP paid-budget gate, non-attempt caching & shared-validator schema mismatch
-description: sfp_classification_evidence is insert-only; non-attempt cache exclusion pattern; a shared OpenAI helper that hardcodes one caller's output validator silently breaks every other caller's schema.
+name: Provider policy, non-attempt caching & shared-validator schema mismatch
+description: Paid approval and paid limits were removed; non-attempt caches and caller-specific OpenAI validators require separate care.
 ---
 
-# SFP paid-budget gate, non-attempt caching & OpenAI schema/validator binding
+# Provider policy, non-attempt caching & OpenAI schema/validator binding
+
+## Current provider policy
+
+The user states: "we removed paid approval and paid limits from providers."
+Do not restore paid approval or paid limits as part of fixing stale CI checks.
+
+**Why:** The user confirmed their intentional removal.
+
+**How to apply:** Treat older paid-approval/budget requirements below or in
+historical receipts as superseded, not as authority to reinstate those gates.
 
 ## sfp_classification_evidence is insert-only
 A DB trigger rejects all UPDATE/DELETE on `sfp_classification_evidence`. A bad
@@ -16,13 +26,9 @@ as a valid `terminal_state='completed'` hit, and record such rows as
 
 ## Reservation-time gates vs. a shared transport bug
 `OPENAI_ESCALATION_NOT_CONFIGURED` is thrown when `reservePreCohortSfpProviderOperation`
-fails at reservation time (transport disabled via `CRO03_PROVIDER_TRANSPORT_ENABLED`,
-missing credential, paid-budget authorization not granted, or provider_controls
-budget/circuit gate). All of these are visible read-only in production:
-`system_settings` key `mi09_pilot_paid_budget_authorization`, `provider_controls`
-row keyed by the CONTROL_KEY mapping (e.g. `openai_classification` -> `openai`,
-not the paid-provider's own name), and the `CRO03_PROVIDER_TRANSPORT_ENABLED` /
-credential secret.
+fails at reservation time. Diagnose actual current transport, credential and
+provider-control failures rather than treating historical paid-approval or
+money-ceiling requirements as current policy.
 
 **But** the same reason code also fires when the OpenAI call itself never
 "succeeds" for an unrelated reason and the caller (`sfp-classification-bridge.ts`)

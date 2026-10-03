@@ -43,6 +43,9 @@ await assertDisposableTestInfrastructure({
   requireRedis: false,
 });
 process.env.VG_PROVIDER_DENY_MODE = "1";
+// This gate is part of the fixture's intended positive promotion case, not a
+// production setting. Set it only after disposable infrastructure is proved.
+process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED = "true";
 applyCertificationProviderDenyBoundary({ fatal: true });
 // The provider governance path requires transport activation and a configured
 // credential before it will reserve work. These disposable-only values let
@@ -155,7 +158,9 @@ const genRow = rows(await db.execute(sql`
 `))[0];
 const generationId = String(genRow.id);
 
-const freeEmail = `free-winner-${RUN_ID}@gmail.com`;
+// Positive eligibility cases use generic business inboxes. Named Gmail
+// addresses correctly remain review-required under the current policy.
+const freeEmail = `info@free-${RUN_ID}.example.com`;
 {
   const sealedFree = seal("email", freeEmail);
   await db.execute(sql`
@@ -175,7 +180,7 @@ const freeEmail = `free-winner-${RUN_ID}@gmail.com`;
 // business, only sfp_paid_candidate_evidence. If the validator only read
 // free_discovery_candidates, this business would silently get zero
 // validation coverage.
-const paidEmail = `paid-winner-${RUN_ID}@gmail.com`;
+const paidEmail = `sales@paid-${RUN_ID}.example.com`;
 const paidWrite = await writeSfpPaidCandidateEvidence({
   businessId: paidOnlyBizId,
   provider: "outscraper",
@@ -188,7 +193,7 @@ check(paidWrite.wasNew, "T2K-01a", "paid-only candidate evidence written for a b
 
 // Third business gets a free candidate too, used for the freshness-reuse
 // and staging-fence checks below.
-const thirdEmail = `third-${RUN_ID}@gmail.com`;
+const thirdEmail = `support@third-${RUN_ID}.example.com`;
 {
   const sealedThird = seal("email", thirdEmail);
   await db.execute(sql`
@@ -384,6 +389,18 @@ check(priorProviderLineageSettled,
 
 // ── T2K-02: masked-vs-real transport (positive + negative control) ───────
 const receivedByTransport: string[] = [];
+// Exact completed candidate revisions are deliberately terminal. Exercise the
+// supported receipt-repair path, not an implicit release of terminal work:
+// remove only this fixture's staging projection link.
+// The settled provider operation/observation remains intact and must be reused.
+const repairFixture = rows(await db.execute(sql`
+  UPDATE sfp_outreach_eligibility
+     SET staging_intent_id=NULL
+   WHERE cohort_run_id=${priorCohortRunId}::uuid AND business_id=${freeBizId}
+   RETURNING validation_operation_id
+`));
+check(repairFixture.length === 1 && String(repairFixture[0].validation_operation_id) === priorOpId,
+  "T2K-03repair-setup", "one fixture-local projection link is missing; the exact settled receipt is preserved for guarded repair");
 const preview1 = await previewSfpValidation(cohortRunId);
 check(preview1.gateOpen, "T2K-02setup", `validation gate must be open (reason: ${preview1.gateBlockedReason})`);
 

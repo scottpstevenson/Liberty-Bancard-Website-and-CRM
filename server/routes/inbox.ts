@@ -684,6 +684,16 @@ export function registerInboxRoutes(app: Express) {
     }
   });
 
+  // A thread read uses the same immutable source/object authority as classify;
+  // it never accepts caller-supplied content or fetches a provider.
+  app.get("/api/inbox/items/:id", isDashboardUser, async (req, res) => {
+    try {
+      const resolved = await authorizeInboxItemAccess(req, res, String(req.params.id));
+      if (!resolved) return;
+      res.json({ id: String(req.params.id), contactId: resolved.contact?.id ?? null, body: resolved.body ?? null });
+    } catch (error) { serverError(res, error); }
+  });
+
   // ─── POST /api/inbox/items/:id/classify ───────────────────────────────────
   app.post("/api/inbox/items/:id/classify", isDashboardUser, async (req, res) => {
     try {

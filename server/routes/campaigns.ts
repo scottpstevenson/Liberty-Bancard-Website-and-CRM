@@ -1,4 +1,6 @@
 import type { Express, Request, Response } from "express";
+import { readSequenceRuntimeStatus } from "../services/sequence-runtime-status";
+import { SEQUENCE_REPORT_SQL } from "../services/sequence-report-query";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { logAiCall } from "../services/ai-audit-logger";
 import { storage } from "../storage";
@@ -1183,6 +1185,16 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === SEQUENCE ENROLLMENTS ===
+  app.get("/api/sequence-enrollments/owned", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const sequences = await storage.getFollowUpSequences();
+      const owned = sequences.filter(sequence => (req.user as any)?.role === "admin"
+        || canMutateOwnedCampaignObject(req, sequence.createdBy));
+      const enrollments = (await Promise.all(owned.map(sequence => storage.getSequenceEnrollments(sequence.id)))).flat();
+      res.json(enrollments);
+    } catch (err: any) { serverError(res, err); }
+  });
+
   app.get("/api/sequence-enrollments", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
       const sequenceId = req.query.sequenceId ? Number(req.query.sequenceId) : undefined;
@@ -1922,27 +1934,7 @@ export function registerCampaignsRoutes(app: Express) {
     try {
       const client = await pool.connect();
       try {
-        const seqRows = await client.query(`
-          SELECT
-            s.id, s.name, s.status, s.trigger_type, s.sequence_family,
-            s.description, s.eligible_consent_tiers, s.channels_allowed,
-            s.lifecycle_stages_allowed, s.total_steps,
-            COUNT(ss.id)::int AS step_count,
-            SUM(CASE WHEN ss.action_type = 'email' THEN 1 ELSE 0 END)::int AS email_steps,
-            SUM(CASE WHEN ss.action_type = 'sms' THEN 1 ELSE 0 END)::int AS sms_steps,
-            SUM(CASE WHEN ss.action_type = 'ghl_workflow' THEN 1 ELSE 0 END)::int AS ghl_steps,
-            SUM(CASE WHEN ss.action_type = 'task' THEN 1 ELSE 0 END)::int AS task_steps,
-            MAX(ss.delay_days + COALESCE(ss.delay_hours, 0) / 24.0)::numeric(6,1) AS max_delay_days,
-            COUNT(CASE WHEN e.status = 'active' THEN 1 END)::int AS active_enrollments,
-            COUNT(CASE WHEN e.status = 'completed' THEN 1 END)::int AS completed_enrollments
-          FROM follow_up_sequences s
-          LEFT JOIN sequence_steps ss ON ss.sequence_id = s.id
-          LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
-          GROUP BY s.id, s.name, s.status, s.trigger_type, s.sequence_family,
-                   s.description, s.eligible_consent_tiers, s.channels_allowed,
-                   s.lifecycle_stages_allowed, s.total_steps
-          ORDER BY s.status DESC, s.sequence_family NULLS LAST, s.name
-        `);
+        const seqRows = await client.query(SEQUENCE_REPORT_SQL);
 
         const siRows = await client.query(`
           SELECT id, label, domain, email_address, mailbox_type, provider,
@@ -1982,6 +1974,9 @@ export function registerCampaignsRoutes(app: Express) {
         }
 
         res.json({
+          runtime: await readSequenceRuntimeStatus(),
+          metricContract: { version: 1, unit: "memberships", pausedActiveMeaning: "held by sequence state; not proven stalled or unique people",
+            verifiedDelivery: "not_observed" },
           generatedAt: new Date().toISOString(),
           summary: {
             total: sequences.length,

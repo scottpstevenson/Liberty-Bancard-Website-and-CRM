@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import {
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({ operation: "GHL inbound focused sanitizer and source checks", requireRedis: false });
+const {
   evaluateGhlInboundIdentity,
   findDuplicateGhlInboundIdentities,
   normalizeGhlInboundLocalContactRow,
   sanitizeGhlInboundContact,
-} from "../server/services/ghl-inbound-sync";
+} = await import("../server/services/ghl-inbound-sync");
 
 const source = sanitizeGhlInboundContact({
   id: "ghl-001", firstName: "Remote", lastName: "Person", email: " New@Example.com ",
@@ -79,3 +81,4 @@ assert.match(route, /json\(\{ run: await createGhlInboundPreview/);
 assert.match(route, /Idempotency-Key/);
 assert.doesNotMatch(service, /sendGhlEmail|sendGhlSms|enroll|scoreLead|paidValidation/i);
 console.log("GHL inbound sync focused checks passed.");
+await (await import("../server/db")).pool.end();

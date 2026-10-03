@@ -206,7 +206,6 @@ export default function UserManagement() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [resettingId, setResettingId] = useState<string | null>(null);
-  const [togglingVtId, setTogglingVtId] = useState<string | null>(null);
   const [expandedSessionsUserId, setExpandedSessionsUserId] = useState<string | null>(null);
 
   const { data: users, isLoading } = useQuery<AdminUser[]>({
@@ -250,21 +249,6 @@ export default function UserManagement() {
     },
   });
 
-  const toggleVtPermissionMutation = useMutation({
-    mutationFn: async ({ id, permissions }: { id: string; permissions: string[] }) => {
-      const res = await apiRequest("PUT", `/api/admin/users/${id}/permissions`, { permissions });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      setTogglingVtId(null);
-      toast({ title: "Permission Updated", description: "Virtual Terminal access has been updated." });
-    },
-    onError: (error: Error) => {
-      setTogglingVtId(null);
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    },
-  });
 
   const resetMfaMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -415,23 +399,7 @@ export default function UserManagement() {
                           )}
                         </TableCell>
                         <TableCell data-testid={`cell-vt-${u.id}`}>
-                          {u.role === "admin" || u.role === "manager" ? (
-                            <Badge variant="outline" className="text-xs text-muted-foreground">Always On</Badge>
-                          ) : (
-                            <Switch
-                              checked={(u.permissions || []).includes("virtual_terminal")}
-                              disabled={togglingVtId === u.id || toggleVtPermissionMutation.isPending}
-                              onCheckedChange={(checked) => {
-                                setTogglingVtId(u.id);
-                                const current = u.permissions || [];
-                                const updated = checked
-                                  ? [...current.filter((p) => p !== "virtual_terminal"), "virtual_terminal"]
-                                  : current.filter((p) => p !== "virtual_terminal");
-                                toggleVtPermissionMutation.mutate({ id: u.id, permissions: updated });
-                              }}
-                              data-testid={`switch-vt-${u.id}`}
-                            />
-                          )}
+                          <Badge variant="outline" className="text-xs text-muted-foreground">Retired</Badge>
                         </TableCell>
                         <TableCell data-testid={`text-joined-${u.id}`}>
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "-"}

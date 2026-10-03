@@ -132,6 +132,16 @@ export async function getGhlInboundSyncStatus(): Promise<GhlInboundSyncStatus> {
     environment: process.env.NODE_ENV === "production" ? "production" : "development",
     configured, inboundEnabled: enabled === true, outboundPaused,
     run: stored ? publicRun(stored) : null,
+    runtime: {
+      asOf: new Date().toISOString(), mode: stored ? stored.isWebhook ? "webhook" : "manual_request" : "not_observed",
+      owner: !stored?.leaseToken ? "not_observed"
+        : stored.leaseExpiresAt && Date.parse(stored.leaseExpiresAt) > Date.now() ? "lease_observed" : "lease_expired",
+      checkpoint: stored ? { phase: stored.phase, pages: stored.pageCount, planned: stored.planCursor, applied: stored.applyCursor } : null,
+      lastUpdatedAt: stored?.updatedAt ?? null, backlog: "unavailable", heartbeat: "not_observed",
+      connectionProbe: "not_observed", freshness: !stored ? "not_observed"
+        : Date.now() - Date.parse(stored.updatedAt) > 15 * 60_000 ? "stale" : "current",
+      freshnessThresholdMs: 15 * 60_000,
+    },
   };
 }
 
@@ -290,6 +300,7 @@ async function fetchPage(
     query.set("startAfterId", cursor.startAfterId);
   }
   const response = await fetch(`https://services.leadconnectorhq.com/contacts/?${query}`, {
+    redirect: "error",
     method: "GET", headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", "Content-Type": "application/json" },
     signal: AbortSignal.timeout(Number(process.env.GHL_REQUEST_TIMEOUT_MS || 20000)),
   });

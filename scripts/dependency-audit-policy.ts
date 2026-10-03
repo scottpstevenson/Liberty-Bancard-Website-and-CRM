@@ -43,4 +43,5 @@ if (path.basename(process.argv[1] ?? "") === "dependency-audit-policy.ts") {
   const full = runAudit([]);
   const production = runAudit(["--omit=dev"]);
   console.log(JSON.stringify({ policy: "fail on reachable critical/high", full, production }, null, 2));
+  console.log("PASS dependency audit policy: both full and production reports validated; zero high/critical findings.");
 }

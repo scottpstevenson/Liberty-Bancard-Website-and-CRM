@@ -80,8 +80,8 @@ const rows = (r: any): any[] => r?.rows ?? r ?? [];
 // remains unchanged and this is not a fallback in the validation service.
 const { execFileSync } = await import("node:child_process");
 const certificationEnvironment = process.env.NODE_ENV ?? "development";
-execFileSync("npx", [
-  "tsx", "scripts/seed-mi09-pricing.ts", "--apply",
+execFileSync(process.execPath, [
+  "node_modules/tsx/dist/cli.mjs", "scripts/seed-mi09-pricing.ts", "--apply",
   `--confirm-env=${certificationEnvironment}`,
 ], { stdio: "pipe", env: process.env });
 const { getCurrentPricingSchedule } = await import("../server/services/mi09-pilot-authority");
@@ -970,13 +970,16 @@ await phase("7j. Verified named contact validates with typed source pins and fak
       return "valid";
     },
   });
-  const eligibility = rows(await db.execute(sql`
+   const contactEligibility = rows(await db.execute(sql`
     SELECT source_kind,contact_id,contact_business_link_decision_id,contact_business_link_revision,
            normalized_value_hash,normalized_value_hash_version,status,named_contact,role_inbox,
            validation_operation_id
       FROM sfp_outreach_eligibility
-     WHERE cohort_run_id=${noMxCohortRunId}::uuid AND business_id=${noMxBizId}
-  `))[0];
+      WHERE cohort_run_id=${noMxCohortRunId}::uuid AND business_id=${noMxBizId}
+        AND source_kind='contact' AND contact_id=${contactId}
+   `));
+   assert.equal(contactEligibility.length, 1, "Exactly one receipt belongs to this verified contact source; the earlier free-source receipt is not substituted");
+   const eligibility = contactEligibility[0];
   const expectedHash = createHash("sha256").update(`email\0${contactEmail.trim().toLowerCase()}`).digest("hex");
   assert.deepEqual(received, [contactEmail], "Only the real contact address reaches the injected fake transport");
   assert.equal(result.providerRequests, 1, "The fake transport accounts for one provider request");

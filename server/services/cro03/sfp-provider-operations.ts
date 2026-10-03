@@ -2,7 +2,7 @@
  * Durable paid-provider boundary for the independent SFP program.
  *
  * A credential is never authority. Live I/O requires program activation,
- * current durable deployment/job ownership, explicit paid approval, provider
+ * current durable deployment/job ownership, provider
  * manifest admission, an enabled/closed control row, an operation receipt,
  * and a final pre-I/O lease
  * check.  Tests may inject a fake transport; fake execution never reserves or
@@ -1825,7 +1825,7 @@ export async function reserveSfpProviderOperation(input: {
  * sfp_stage_runs/sfp_stage_items — so this omits `assertSfpRuntimeAuthority`
  * (which requires a frozen `sfp_cohort_runs` row) and the stage-run/item
  * writes, but keeps every other real guardrail: provider transport flag,
- * credential presence, provider-manifest admission, explicit paid approval,
+ * credential presence, provider-manifest admission,
  * and the provider_controls enabled/circuit-breaker gate.
  */
 export interface SfpPreCohortProviderReservation {

@@ -125,7 +125,7 @@ export function LocationsTab({ contact }: LocationsTabProps) {
 
   const markParentMutation = useMutation({
     mutationFn: async (isParent: boolean) => {
-      const res = await apiRequest("PATCH", `/api/contacts/${contact.id}`, {
+      const res = await apiRequest("PUT", `/api/contacts/${contact.id}`, {
         isParentAccount: isParent,
       });
       return res.json();

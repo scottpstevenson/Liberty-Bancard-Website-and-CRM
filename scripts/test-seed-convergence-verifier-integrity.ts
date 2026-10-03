@@ -18,8 +18,10 @@
  * Exits 0 on pass, 1 on any assertion failure.
  */
 import { sql } from "drizzle-orm";
-import { db } from "../server/db";
-import { verifyProductionSeedConvergence } from "../server/services/production-seed-convergence";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({ operation: "Seed convergence integrity", requireRedis: false });
+const { db } = await import("../server/db");
+const { verifyProductionSeedConvergence } = await import("../server/services/production-seed-convergence");
 
 const rows = (result: unknown) => ((result as any)?.rows ?? []) as any[];
 
@@ -150,7 +152,21 @@ async function main(): Promise<number> {
   // ever queried commercial_subject_revisions).
   const deletedMembership = rows(await db.execute(sql`
     DELETE FROM commercial_membership_revisions
-    WHERE ctid = (SELECT ctid FROM commercial_membership_revisions LIMIT 1)
+    WHERE ctid = (
+      SELECT r.ctid FROM commercial_membership_revisions r
+      WHERE r.edge_type='contact_business'
+        AND EXISTS (
+          SELECT 1 FROM contact_business_link_decisions d
+          WHERE r.left_subject_type='contact' AND r.left_subject_id=d.contact_id
+            AND r.right_subject_id=COALESCE(d.business_id,d.contact_id)
+            AND r.right_subject_type=CASE WHEN d.business_id IS NULL THEN 'contact' ELSE 'business' END
+        )
+        AND 1=(SELECT COUNT(*) FROM commercial_membership_revisions sibling
+          WHERE sibling.edge_type=r.edge_type AND sibling.left_subject_type=r.left_subject_type
+            AND sibling.left_subject_id=r.left_subject_id AND sibling.right_subject_type=r.right_subject_type
+            AND sibling.right_subject_id=r.right_subject_id)
+      LIMIT 1
+    )
     RETURNING *
   `))[0];
   try {

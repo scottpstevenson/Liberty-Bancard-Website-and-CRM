@@ -50,7 +50,14 @@ const { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEn
 const { eq, and, inArray } = drizzle;
 const { evaluateContactability } = contactability;
 const { canEnrollContactInSequence } = eligibility;
-const { autoEnrollFromTrigger, processSequenceEnrollments } = worker;
+const { processSequenceEnrollments } = worker;
+// Existing internal test authority only, on fresh disposable operational fixtures.
+// Direct runtime triggers remain denied; the real denial is separately asserted.
+const autoEnrollFromTrigger = (triggerType: string, data: Parameters<typeof worker.autoEnrollFromTrigger>[1]) =>
+  worker.autoEnrollFromTrigger(triggerType, data, { promotionalIntent: {
+    idempotencyKey: crypto.randomUUID(), actorId: "disposable-compliance-fixture",
+    source: "synthetic-operational-notice-fixture",
+  } });
 const { generateUnsubscribeToken, verifyUnsubscribeToken } = unsubscribe;
 const { isColdOutreachSequence, getComplianceFooterHtml } = signatures;
 const { applyPauseMutation } = control;
@@ -506,9 +513,10 @@ async function makeAutoTriggerSequence(opts: {
   status?: string;
 } = {}): Promise<number> {
   const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const triggerConfig = opts.outboundChannels
-    ? { outboundChannels: opts.outboundChannels }
-    : {};
+  // Synthetic operational notices test downstream consent/channel behavior.
+  // Real promotional permission is never inferred from these fixture families.
+  const triggerConfig = { communicationPurpose: "transactional",
+    ...(opts.outboundChannels ? { outboundChannels: opts.outboundChannels } : {}) };
   const [seq] = await db
     .insert(followUpSequences)
     .values({
@@ -618,9 +626,9 @@ async function testCase11(): Promise<void> {
   assert("cold contact: no sequenceEnrollments row created for SMS sequence", !rowExists);
 }
 
-// ── Case 12: eligible contact enrolled for email-only sequence ─────────────
+// ── Case 12: contactable email is not cohort activation authority ─────────
 async function testCase12(): Promise<void> {
-  console.log("\nCase 12 (Pre-Enrollment Gate): eligible contact — enrolled for email-only sequence");
+  console.log("\nCase 12 (Pre-Enrollment Gate): email contactability cannot replace cohort activation authority");
   const contactId = await makeContact({
     consentTier: "warm_no_pewc",
     sourceCategory: "inbound",
@@ -633,10 +641,20 @@ async function testCase12(): Promise<void> {
   });
 
   const result = await autoEnrollFromTrigger(triggerType12, { contactId });
-  assert("eligible contact: autoEnrollFromTrigger returns 1 enrolled", result.count === 1, `enrolled=${result.count}`);
+  const permission = await evaluateContactability({ contactId, channel: "email", mode: "dryRun" });
+  assert("otherwise email-contactable fixture passes the independent contactability gate", permission.allowed, permission.reason);
+  assert("contactability without cohort authority returns 0 enrolled", result.count === 0, `enrolled=${result.count}`);
 
   const rowExists = await enrollmentRowExists(contactId, seqId);
-  assert("eligible contact: sequenceEnrollments row created", rowExists);
+  assert("contactability without cohort authority creates no membership", !rowExists);
+  const { enrollThroughCr04Fence } = await import("../server/services/cr04-cohort-ready-authority");
+  const fenced = await enrollThroughCr04Fence({
+    contactId, sequenceId: seqId, channel: "email", idempotencyKey: crypto.randomUUID(),
+    source: "synthetic-operational-notice-fixture",
+    actor: { role: "admin", actorId: "disposable-compliance-fixture", email: null },
+  });
+  assert("canonical fence independently identifies missing cohort authority", "blocked" in fenced && fenced.blocked === true
+    && "reasonCode" in fenced && fenced.reasonCode === "COHORT_REQUIRED");
 }
 
 // ── Case 13: mixed-channel sequence requires every channel to pass ─────────
@@ -664,12 +682,9 @@ async function testCase13(): Promise<void> {
   const rowExists = await enrollmentRowExists(contactId, seqId);
   assert("warm contact: no enrollment row for mixed sequence", !rowExists);
 
-  // ── Case 13b: declared outboundChannels=["email"] is authoritative — enrollment allowed ──
-  // When triggerConfig.outboundChannels is explicitly set, it is used as the sole
-  // authority for the enrollment gate; step-derived channels are NOT unioned in.
-  // The per-step gates (Gate b + SMS consent skip) handle SMS compliance at execution
-  // time, so the enrollment gate only needs to check the declared channels.
-  console.log("  [Case 13b: outboundChannels=[email] declared — warm contact CAN enroll; SMS handled per-step]");
+  // Preserve the existing explicit email declaration/per-step SMS policy.
+  // Passing that independent gate is still not cohort activation permission.
+  console.log("  [Case 13b: email-only declaration does not supply missing cohort activation authority]");
   const contactId2 = await makeContact({
     consentTier: "warm_no_pewc",
     sourceCategory: "inbound",
@@ -689,12 +704,22 @@ async function testCase13(): Promise<void> {
 
   const result2 = await autoEnrollFromTrigger(triggerType13b, { contactId: contactId2 });
   assert(
-    "declared outboundChannels=[email]: warm contact CAN enroll in mixed sequence (SMS skipped per-step)",
-    result2.count === 1,
-    `enrolled=${result2.count} — declared email-only outboundChannels should allow enrollment; SMS handled at step execution time`
+    "declared outboundChannels=[email]: missing cohort authority still blocks activation",
+    result2.count === 0,
+    `enrolled=${result2.count} — channel eligibility does not confer cohort authority`
   );
   const rowExists2 = await enrollmentRowExists(contactId2, seqId2);
-  assert("declared outboundChannels=[email]: enrollment row created for mixed sequence", rowExists2);
+  assert("declared outboundChannels=[email]: no unauthorized mixed-channel membership", !rowExists2);
+  const emailPermission = await evaluateContactability({ contactId: contactId2, channel: "email", mode: "dryRun" });
+  assert("declared email fixture independently passes email contactability", emailPermission.allowed, emailPermission.reason);
+  const { enrollThroughCr04Fence } = await import("../server/services/cr04-cohort-ready-authority");
+  const fence = await enrollThroughCr04Fence({
+    contactId: contactId2, sequenceId: seqId2, channel: "email", idempotencyKey: crypto.randomUUID(),
+    source: "synthetic-operational-notice-fixture",
+    actor: { role: "admin", actorId: "disposable-compliance-fixture", email: null },
+  });
+  assert("declared email-only channels do not bypass the canonical cohort fence",
+    "blocked" in fence && fence.blocked === true && "reasonCode" in fence && fence.reasonCode === "COHORT_REQUIRED");
 }
 
 // ── Case 14: processSequenceEnrollments Gate (a) still re-checks before first send ──
@@ -1193,7 +1218,7 @@ async function testCase23(): Promise<void> {
         status: "active" as any,
         triggerType: "contact_created",
         sequenceFamily: "cold-email-manual-call",
-        triggerConfig: { outboundChannels: ["email"] } as any,
+        triggerConfig: { outboundChannels: ["email"], communicationPurpose: "transactional" } as any,
       })
       .returning({ id: followUpSequences.id });
     testSequenceIds.push(seq.id);
@@ -1384,7 +1409,7 @@ async function makeKillSwitchSequence(): Promise<{ seqId: number; stepId: number
       name: `KillSwitch Test ${tag}`,
       status: "active" as const,
       triggerType: "form_submitted",
-      triggerConfig: {},
+      triggerConfig: { communicationPurpose: "transactional" },
       sequenceFamily: "cold-email-manual-call",
     } as any)
     .returning({ id: followUpSequences.id });
@@ -1404,7 +1429,7 @@ async function makeKillSwitchSequence(): Promise<{ seqId: number; stepId: number
   return { seqId: seq.id, stepId: step.id };
 }
 
-async function makeDailyCapSequence(): Promise<{ seqId: number; stepId: number }> {
+async function makeDailyCapSequence(communicationPurpose: "promotional" | "transactional" = "transactional"): Promise<{ seqId: number; stepId: number }> {
   const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const [seq] = await db
     .insert(followUpSequences)
@@ -1412,7 +1437,7 @@ async function makeDailyCapSequence(): Promise<{ seqId: number; stepId: number }
       name: `DailyCap Test ${tag}`,
       status: "active" as const,
       triggerType: "form_submitted",
-      triggerConfig: { outboundChannels: ["email"] },
+      triggerConfig: { outboundChannels: ["email"], communicationPurpose },
       sequenceFamily: "cold-email-manual-call",
     } as any)
     .returning({ id: followUpSequences.id });
@@ -1782,7 +1807,7 @@ async function testCase31(): Promise<void> {
         name: `Transactional Test ${tag}`,
         status: "active" as const,
         triggerType: "deal_closed_won",
-        triggerConfig: {},
+        triggerConfig: { communicationPurpose: "transactional" },
       } as any)
       .returning({ id: followUpSequences.id });
     testSequenceIds.push(seq.id);
@@ -1996,7 +2021,14 @@ async function testCase34(): Promise<void> {
          SET count = ${CAP}, updated_at = now()`
     );
 
-    const { seqId } = await makeDailyCapSequence();
+    // A fresh, synthetic transactional fixture exercises the legacy cold-family
+    // cap bucket after the commercial gate. Do not release/relabel an existing
+    // promotional hold or change production policy to reach this downstream gate.
+    const { decideCr06PromotionalLifecycle } = await import("../server/services/cr06-promotional-lifecycle-decision");
+    assert("Case 34B: real promotional sequence claim stays held", !decideCr06PromotionalLifecycle({
+      boundary: "sequence_claim", purpose: "promotional",
+    }).allowed);
+    const { seqId } = await makeDailyCapSequence("transactional");
     // emailStatus: "valid" skips ZB pre-enrollment (fires before the daily-cap gate)
     // so the daily-cap gate is guaranteed to be the first gate to pause the enrollment.
     const contactId = await makeContact({
@@ -2080,7 +2112,13 @@ async function testCase36(): Promise<void> {
     await storage.setSystemSetting("zerobounce_validation_daily_limit", 1);
 
     // ── Part A: Unvalidated contact is deferred by provider readiness ─────────
-    const { seqId: seqIdA } = await makeDailyCapSequence();
+    // Fresh synthetic transactional purpose isolates provider readiness from
+    // the separately tested, intentionally held real promotional boundary.
+    const { decideCr06PromotionalLifecycle } = await import("../server/services/cr06-promotional-lifecycle-decision");
+    assert("Case 36A: real promotional sequence claim stays held", !decideCr06PromotionalLifecycle({
+      boundary: "sequence_claim", purpose: "promotional",
+    }).allowed);
+    const { seqId: seqIdA } = await makeDailyCapSequence("transactional");
     const unvalidatedId = await makeContact({
       emailStatus: "unvalidated",
       consentTier: "pewc_full_automation",
@@ -2193,7 +2231,7 @@ async function testCase36(): Promise<void> {
 
 async function runTests(): Promise<void> {
   console.log("=== Wave 12 Sequence Compliance Tests ===\n");
-  console.log("Mode: dryRun — no real messages sent, no audit logs written\n");
+  console.log("Mode: disposable dryRun — no real messages sent; synthetic audit receipts are required\n");
   console.log(`Test correlation ID: ${TEST_CORRELATION_ID}\n`);
 
   // One-time non-mutating EXPLAIN ANALYZE report for the coordinator's
@@ -2240,6 +2278,12 @@ async function runTests(): Promise<void> {
   }
 
   try {
+    const directContact = await makeContact({ emailStatus: "valid" });
+    const direct = await worker.autoEnrollFromTrigger("test_no_intent_authority", { contactId: directContact });
+    assert("Real direct trigger without request authority remains denied", direct.count === 0);
+    const directAudit = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.entityId, directContact), eq(auditLogs.action, "cr04_auto_enrollment_blocked")));
+    assert("Real direct trigger denial retains its truthful CR-04 receipt", directAudit.length === 1);
     await testCase1();
     await testCase2();
     await testCase3();

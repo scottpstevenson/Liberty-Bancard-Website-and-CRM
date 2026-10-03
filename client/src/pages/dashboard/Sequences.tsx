@@ -198,8 +198,8 @@ export default function Sequences() {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">("all");
   const [wiringFilter, setWiringFilter] = useState<"all" | "missing">("all");
 
-  const { data: allEnrollmentsRaw } = useQuery<any[]>({
-    queryKey: ["/api/sequence-enrollments"],
+  const { data: allEnrollmentsRaw, isError: enrollmentReadError, isLoading: enrollmentReadLoading } = useQuery<any[]>({
+    queryKey: ["/api/sequence-enrollments/owned"],
   });
   const allEnrollments = Array.isArray(allEnrollmentsRaw) ? allEnrollmentsRaw : [];
 
@@ -474,8 +474,8 @@ export default function Sequences() {
   };
 
   const totalEnrollments = allEnrollments?.length || 0;
-  const activeEnrollments = allEnrollments?.filter(e => e.status === "active").length || 0;
-  const completedEnrollments = allEnrollments?.filter(e => e.status === "completed").length || 0;
+  const activeEnrollments = enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : allEnrollments.filter(e => e.status === "active").length;
+  const completedEnrollments = enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : allEnrollments.filter(e => e.status === "completed").length;
 
   if (isLoading) {
     return (
@@ -573,7 +573,7 @@ export default function Sequences() {
               <div className="p-2 rounded-md bg-orange-500/10"><BarChart3 className="w-5 h-5 text-orange-600" /></div>
               <div>
                 <p className="text-2xl font-bold">
-                  {totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : 0}%
+                  {enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : `${totalEnrollments > 0 ? Math.round((Number(completedEnrollments) / totalEnrollments) * 100) : 0}%`}
                 </p>
                 <p className="text-xs text-muted-foreground">Completion Rate</p>
               </div>
@@ -695,6 +695,7 @@ export default function Sequences() {
             const hasSmsSteps = seq.channelsAllowed?.includes("sms");
             return (
               <Card key={seq.id} data-testid={`card-sequence-${seq.id}`}>
+                {(enrollmentReadError || enrollmentReadLoading) && <p role="status" className="px-4 pt-3 text-sm">Enrollment counts {enrollmentReadError ? "unavailable" : "loading"}; no zero-result assertion.</p>}
                 <CardContent className="pt-4 pb-4">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -734,8 +735,8 @@ export default function Sequences() {
                         {(seq as any).avgDelayDays != null && (
                           <span data-testid={`text-avg-delay-${seq.id}`}>~{(seq as any).avgDelayDays}d avg delay</span>
                         )}
-                        <span>{seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
-                        <span>{seqEnrollments.filter((e: any) => e.status === "completed").length} completed</span>
+                        <span>{enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
+                        <span>{enrollmentReadError ? "Unavailable" : enrollmentReadLoading ? "Loading" : seqEnrollments.filter((e: any) => e.status === "completed").length} completed</span>
                       </div>
                       {/* #547 — Per-card completion percent bar */}
                       {seqEnrollments.length > 0 && (() => {

@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import { coldLeadPredicate, requestColdReengagement } from "../services/cold-lead-authority";
+import { authorizeContactAccess } from "../services/crm-object-access";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
@@ -39,7 +41,7 @@ import { LifecycleService, adminOverrideTransition, LIFECYCLE_STATES } from "../
 import type { LifecycleState } from "../services/lifecycle-service";
 import { applyConsentCommand } from "../services/consent-authority";
 import { agentOwnershipEmail, invalidPagination, parseStrictPagination } from "../services/crm-object-access";
-import { readPeople, readPeopleFacets } from "../services/revenue-read-authority";
+import { contactReadPredicate, readPeople, readPeopleFacets } from "../services/revenue-read-authority";
 import { createCro03Batch } from "../services/cro03/enrichment-factory";
 import { enrichContactBatch, isContactEnrichRunning, getContactIdsNeedingEnrichment, getEnrichmentBacklogCount } from "../services/enrichment";
 import { claimInboundRequest, orchestrateInboundRequest } from "../services/inbound-request-authority";
@@ -154,7 +156,12 @@ function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
 }
 
-export function registerContactsRoutes(app: Express) {
+export function registerContactsRoutes(app: Express, creationDependencies: Partial<{
+  writeContact: typeof writeContact;
+  orchestrateInboundRequest: typeof orchestrateInboundRequest;
+}> = {}) {
+  const createLocalContact = creationDependencies.writeContact ?? writeContact;
+  const handoffLocalContact = creationDependencies.orchestrateInboundRequest ?? orchestrateInboundRequest;
   // BT-07 reviewed identity merge API. Read/preview is deliberately limited to
   // managers/admins; every transition that can mutate records is admin-only.
   app.get("/api/contacts/:id/merge-candidates", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
@@ -390,6 +397,8 @@ export function registerContactsRoutes(app: Express) {
   });
 
   app.post("/api/contacts", isDashboardUser, async (req, res) => {
+    let committedContact: Awaited<ReturnType<typeof writeContact>> | undefined;
+    let durableRequestId: string | undefined;
     try {
       const input = insertContactSchema.parse(req.body);
       const userId = (req.user as any)?.id ?? null;
@@ -412,11 +421,27 @@ export function registerContactsRoutes(app: Express) {
       if (inboundClaim.outcome === "scope_mismatch") {
         return res.status(403).json({ code: "IDEMPOTENCY_KEY_SCOPE_MISMATCH", message: "Idempotency-Key belongs to a different user" });
       }
+      durableRequestId = inboundClaim.request.id;
       if (inboundClaim.outcome === "replay" && inboundClaim.request.contactId) {
         const existing = await storage.getContact(inboundClaim.request.contactId);
-        if (existing) return res.status(200).json(existing);
+        if (existing) {
+          if (!await authorizeContactAccess(req, res, existing.id)) return;
+          committedContact = existing as Awaited<ReturnType<typeof writeContact>>;
+          const request = ["accepted", "completed"].includes(inboundClaim.request.lifecycleState)
+            ? inboundClaim.request
+            : await handoffLocalContact({ requestId: inboundClaim.request.id, contactId: existing.id });
+          const projection = await pool.query<{ state: string }>(
+            "SELECT state FROM contact_provider_projections WHERE contact_id=$1 AND provider='ghl' LIMIT 1", [existing.id],
+          );
+          const projectionState = projection.rows[0]?.state ?? "not_observed";
+          const projectionPending = projection.rows.length > 0 && projectionState !== "completed";
+          return res.status(!projectionPending && ["accepted", "completed"].includes(request.lifecycleState) ? 200 : 202)
+            .json({ ...existing, _ghlSyncPending: projectionPending,
+              _handoff: { requestId: request.id, state: request.lifecycleState, replay: true,
+                providerProjection: projectionState, providerDelivery: "not_observed" } });
+        }
       }
-      const contact = await writeContact({
+      const contact = await createLocalContact({
         mode: "local_first",
         mutation: input as any,
         provenance: {
@@ -428,13 +453,33 @@ export function registerContactsRoutes(app: Express) {
         },
         actor: { actorType: "user", actorId: userId ? String(userId) : null, userId },
       });
+      committedContact = contact;
       // The request authority owns the only task/assignment handoff.  All
       // external effects remain held in its frozen manifest.
-      await orchestrateInboundRequest({ requestId: inboundClaim.request.id, contactId: contact.id });
+      const handoff = await handoffLocalContact({ requestId: inboundClaim.request.id, contactId: contact.id });
 
-      const statusCode = contact._ghlSyncPending ? 202 : 201;
-      res.status(statusCode).json(contact);
+      const statusCode = contact._ghlSyncPending || !["accepted", "completed"].includes(handoff.lifecycleState) ? 202 : 201;
+      res.status(statusCode).json({ ...contact, _handoff: { requestId: handoff.id, state: handoff.lifecycleState, replay: false } });
     } catch (err: any) {
+      // A writer can commit before its caller observes a timeout. Recover only
+      // this claimed occurrence's source-event identity, never an email guess.
+      if (!committedContact && durableRequestId) {
+        const persisted = await pool.query<{ contact_id: number }>(
+          "SELECT contact_id FROM contact_source_events WHERE event_key=$1 LIMIT 1",
+          [`manual:${durableRequestId}`],
+        ).catch(() => undefined);
+        const contactId = persisted?.rows[0]?.contact_id;
+        if (contactId) {
+          const existing = await authorizeContactAccess(req, res, contactId);
+          if (!existing) return;
+          committedContact = existing as Awaited<ReturnType<typeof writeContact>>;
+        }
+      }
+      if (committedContact) {
+        return res.status(202).json({ ...committedContact,
+          _handoff: { requestId: durableRequestId, state: "degraded", retryable: true },
+          message: "Contact saved locally. Handoff is incomplete; retry with the same Idempotency-Key." });
+      }
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
       if (isUniqueEmailViolation(err)) {
         const existing = await storage.getContactByEmail(req.body?.email || "").catch(() => undefined);
@@ -450,8 +495,13 @@ export function registerContactsRoutes(app: Express) {
   // === COLD LEADS (Re-engagement segment) ===
   app.get("/api/contacts/cold-leads", isDashboardUser, async (req, res) => {
     try {
-      const page = req.query.page ? Number(req.query.page) : 0;
+      const parsedPage = z.coerce.number().int().nonnegative().safe().safeParse(req.query.page ?? 0);
+      if (!parsedPage.success) return res.status(400).json({ message: "Invalid page" });
+      const page = parsedPage.data;
       const pageSize = 100;
+      const asOf = new Date();
+      const values: unknown[] = [];
+      const predicate = coldLeadPredicate(req.user as any, values, asOf);
 
       // Single efficient query: all cold leads across full dataset.
       // Uses NOT EXISTS to exclude contacts with any active (non-closed) deal.
@@ -474,36 +524,24 @@ export function registerContactsRoutes(app: Express) {
           COALESCE(c.last_contacted_at, c.created_at) AS "lastActivityDate",
           EXTRACT(DAY FROM NOW() - COALESCE(c.last_contacted_at, c.created_at))::int AS "daysDormant"
         FROM contacts c
-        WHERE c.archived_at IS NULL
-          AND (c.do_not_contact IS NULL OR c.do_not_contact = FALSE)
-          AND c.status IS DISTINCT FROM 'Won'
-          AND (
-            c.lead_source   IS NOT NULL OR
-            c.utm_source    IS NOT NULL OR
-            c.referral_source IS NOT NULL
-          )
-          AND COALESCE(c.last_contacted_at, c.created_at) < NOW() - INTERVAL '45 days'
-          AND NOT EXISTS (
-            SELECT 1 FROM deals d
-            WHERE d.contact_id = c.id
-              AND d.archived_at IS NULL
-              AND d.stage NOT IN ('Closed Lost', 'Nurture / Not Now')
-          )
+        WHERE ${predicate}
         ORDER BY COALESCE(c.last_contacted_at, c.created_at) ASC
-      `);
+      `, values);
 
       const allColdLeads = result.rows;
       const total = allColdLeads.length;
       const avgDaysDormant = total > 0
         ? Math.round(allColdLeads.reduce((s: number, c: any) => s + (Number(c.daysDormant) || 0), 0) / total)
         : 0;
-      const estimatedValue = total * 15000;
 
       res.json({
         data: allColdLeads.slice(page * pageSize, (page + 1) * pageSize),
         total,
         avgDaysDormant,
-        estimatedValue,
+        meta: { contractVersion: 1, asOf: asOf.toISOString(), unit: "contacts",
+          population: "Production sourced contacts dormant over 45 days with no active deal",
+          actorScope: (req.user as any)?.role === "agent" ? "owned_or_unassigned_or_owned_deal" : "management",
+          revenue: "unavailable", eligibility: "audience_membership_is_not_send_permission" },
         page,
         pageSize,
       });
@@ -541,7 +579,7 @@ export function registerContactsRoutes(app: Express) {
   app.post("/api/contacts/confirmation-status/batch", isDashboardUser, async (req, res) => {
     try {
       const schema = z.object({
-        contactIds: z.array(z.number().int().positive()).min(1).max(200),
+        contactIds: z.array(z.number().int().positive().safe()).min(1).max(200),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -708,50 +746,17 @@ export function registerContactsRoutes(app: Express) {
   // Admin/manager only. Uses raw pool query — no ORM-imposed 500-row limit.
   app.get("/api/contacts/export-csv", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const status     = req.query.status     ? String(req.query.status)     : undefined;
-      const vertical   = req.query.vertical   ? String(req.query.vertical)   : undefined;
-      const assignedTo = req.query.assignedTo ? String(req.query.assignedTo) : undefined;
-      const search     = req.query.search     ? String(req.query.search)     : undefined;
-
+      const parsed = parseContactsFilters(req);
+      if (parsed.error) return res.status(400).json(parsed.error);
       const params: unknown[] = [];
-      const conditions: string[] = ["archived_at IS NULL"];
-
-      if (status) {
-        params.push(status);
-        conditions.push(`status = $${params.length}`);
-      }
-      if (vertical) {
-        params.push(vertical);
-        conditions.push(`vertical = $${params.length}`);
-      }
-      if (assignedTo) {
-        params.push(assignedTo);
-        conditions.push(`assigned_to = $${params.length}`);
-      }
-      if (search) {
-        params.push(`%${search.toLowerCase()}%`);
-        const n = params.length;
-        // #505 — phone search: normalize digits-only pattern for phone matching
-        const phoneDigits = search.replace(/\D/g, "");
-        const phoneParam = phoneDigits.length >= 7 ? `%${phoneDigits}%` : null;
-        let phoneCond = "";
-        if (phoneParam) {
-          params.push(phoneParam);
-          phoneCond = ` OR regexp_replace(COALESCE(phone,''),'\\D','','g') LIKE $${params.length}`;
-        }
-        conditions.push(
-          `(lower(first_name) LIKE $${n} OR lower(last_name) LIKE $${n} OR lower(email) LIKE $${n} OR lower(company_name) LIKE $${n}${phoneCond})`
-        );
-      }
-
-      const whereClause = conditions.join(" AND ");
+      const whereClause = contactReadPredicate(req.user as any, parsed.filters!, params);
       const result = await pool.query(
         `SELECT id, first_name, last_name, email, phone,
                 company_name, vertical, status,
                 email_status, sms_status, do_not_contact,
                 monthly_volume, current_provider, assigned_to,
                 created_at, last_contacted_at
-         FROM contacts
+          FROM contacts c
          WHERE ${whereClause}
          ORDER BY id DESC`,
         params,
@@ -786,6 +791,9 @@ export function registerContactsRoutes(app: Express) {
       const csv = [headers.join(","), ...rows].join("\n");
       const date = new Date().toISOString().split("T")[0];
       res.setHeader("Content-Type", "text/csv");
+      res.setHeader("X-Metric-Population", "people_matching_shared_filters");
+      res.setHeader("X-Metric-Record-Class", parsed.filters!.recordClass ?? "all");
+      res.setHeader("X-Metric-Observed-At", new Date().toISOString());
       res.setHeader("Content-Disposition", `attachment; filename="contacts-${date}.csv"`);
       res.send(csv);
     } catch (err: any) {
@@ -1215,33 +1223,10 @@ export function registerContactsRoutes(app: Express) {
         contactIds: z.array(z.number().int().positive()).min(1).max(200),
       });
       const { contactIds } = schema.parse(req.body);
-      const sequenceName = "19. Reactivation — Cold Lead Revival";
-
-      let enrolled = 0;
-      let skipped = 0;
-      let errors = 0;
-
-      for (const contactId of contactIds) {
-        try {
-          const contact = await storage.getContact(contactId);
-          if (!contact) { skipped++; continue; }
-          const existingTags = contact.tags || [];
-          const newTags = [...new Set([...existingTags, "COLD-NO-DEAL", "RE-ENGAGE-60"])];
-          await storage.updateContact(contactId, { tags: newTags });
-          const result = await enrollContactInGhlWorkflow({
-            contactId,
-            sequenceName,
-            sequenceId: 0,
-            vertical: contact.vertical || undefined,
-          });
-          if (result.enrolled || result.method === "replit_direct") enrolled++;
-          else skipped++;
-        } catch {
-          errors++;
-        }
-      }
-
-      res.json({ enrolled, skipped, errors, total: contactIds.length });
+      if (new Set(contactIds).size !== contactIds.length) return res.status(400).json({ message: "Duplicate contact ids" });
+      const result = await requestColdReengagement(req.user as any, contactIds);
+      if (result.denied) return res.status(404).json({ message: "Not found" });
+      res.json(result);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
@@ -1250,30 +1235,11 @@ export function registerContactsRoutes(app: Express) {
 
   app.post("/api/contacts/:id/re-engage", isDashboardUser, async (req, res) => {
     try {
-      const contactId = Number(req.params.id);
-      const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
-
-      const existingTags = contact.tags || [];
-      const newTags = [...new Set([...existingTags, "COLD-NO-DEAL", "RE-ENGAGE-60"])];
-      await storage.updateContact(contactId, { tags: newTags });
-
-      const sequenceName = "19. Reactivation — Cold Lead Revival";
-      const result = await enrollContactInGhlWorkflow({
-        contactId,
-        sequenceName,
-        sequenceId: 0,
-        vertical: contact.vertical || undefined,
-      });
-
-      await storage.createAuditLog({
-        action: "re_engage_enrolled",
-        entityType: "contact",
-        entityId: contactId,
-        details: { sequenceName, enrolled: result.enrolled, method: result.method },
-      });
-
-      res.json({ success: true, enrolled: result.enrolled, method: result.method, reason: result.reason });
+      const parsedId = z.coerce.number().int().positive().safe().safeParse(req.params.id);
+      if (!parsedId.success) return res.status(400).json({ message: "Invalid contact id" });
+      const result = await requestColdReengagement(req.user as any, [parsedId.data]);
+      if (result.denied) return res.status(404).json({ message: "Not found" });
+      res.json({ success: false, processed: true, ...result.outcomes[0] });
     } catch (err: any) {
       serverError(res, err);
     }

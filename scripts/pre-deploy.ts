@@ -99,6 +99,13 @@ export interface Suite {
 // server-required, or server-optional. CI jobs must run only the deterministic classes.
 // To verify the manifest: npx tsx scripts/ci-suite-manifest.ts --check
 export const MANDATORY_SUITES: Suite[] = [
+  { name: "Stage 3 A Registered Session Authority and Metrics", script: "scripts/test-stage3-a-authority.ts", timeoutSecs: 180 },
+  { name: "GHL Inbound Pagination Parser", script: "scripts/test-ghl-inbound-pagination.ts", timeoutSecs: 60 },
+  { name: "GHL Inbound Focused Sanitizer and Source Checks", script: "scripts/test-ghl-inbound-sync.ts", timeoutSecs: 60 },
+  { name: "GHL Inbound Route Middleware", script: "scripts/test-ghl-inbound-route-guards.ts", timeoutSecs: 60 },
+  { name: "GHL Inbound Service and Redirect Certification", script: "scripts/test-ghl-inbound-sync-integration.ts", timeoutSecs: 180 },
+  { name: "GHL Inbound UI Static Render", script: "scripts/test-ghl-inbound-ui-render.mjs", timeoutSecs: 60 },
+  { name: "Stage 3 A Sequence Runtime UI Static Render", script: "scripts/test-stage3-a-runtime-render.mjs", timeoutSecs: 60 },
   // ── Static / pure-function suites (no server required) ───────────────────
   {
     name: "Migration Integrity Check (journal consistency, unjournaled files, high-water enforcement)",

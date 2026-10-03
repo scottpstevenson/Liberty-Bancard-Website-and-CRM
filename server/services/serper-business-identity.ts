@@ -13,7 +13,7 @@
  *  - No raw query, response, email, phone, personal name, or address in logs
  */
 
-import { serperGateway, type SerperGateway } from "./serper-gateway";
+import type { SerperGateway } from "./serper-gateway";
 
 // ── Threshold constants (named + justified by fixture tests) ─────────────────
 
@@ -522,7 +522,9 @@ export async function lookupBusinessIdentity(
   input: BusinessIdentityInput,
   context: BusinessIdentityContext,
 ): Promise<LookupOutcome> {
-  const gateway = context.gateway ?? serperGateway;
+  // Injected unit transports must not initialize production database state.
+  // The non-injected path still uses the identical governed gateway.
+  const gateway = context.gateway ?? (await import("./serper-gateway")).serperGateway;
   const startedAt = Date.now();
   const strategyVersion = input.requireGeographicCorroboration ? 2 : 1;
   let requestsUsed = 0;

@@ -2,6 +2,7 @@
   // Methods are mixed into DatabaseStorage in server/storage.ts.
   import { db, pool } from "../db";
 import type { InternalTaskInsert } from "../types/task-types";
+import { taskReadPredicate, type TaskReadScope } from "../services/task-read-authority";
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
@@ -133,23 +134,16 @@ export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): str
 }
 
   export class TasksStorage {
-    async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual" }) {
-    let whereClause;
-    if (opts?.source === "sla") {
-      whereClause = and(isNull(tasks.deletedAt), eq(tasks.source, "sla"));
-    } else if (opts?.source === "manual") {
-      whereClause = and(isNull(tasks.deletedAt), isNull(tasks.source));
-    } else {
-      whereClause = isNull(tasks.deletedAt);
-    }
+    async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual"; scope?: TaskReadScope }) {
+    const whereClause = taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...opts?.scope, source: opts?.source ?? opts?.scope?.source });
     let query = db.select().from(tasks).where(whereClause).orderBy(desc(tasks.createdAt)) as any;
     if (opts?.limit) query = query.limit(opts.limit);
     if (opts?.offset) query = query.offset(opts.offset);
     return await query;
   }
 
-  async getTasksByDeal(dealId: number) {
-    return db.select().from(tasks).where(and(eq(tasks.dealId, dealId), isNull(tasks.deletedAt))).orderBy(asc(tasks.createdAt));
+  async getTasksByDeal(dealId: number, scope?: TaskReadScope) {
+    return db.select().from(tasks).where(taskReadPredicate({ asOf: new Date(), timezone: "UTC", ...scope, dealId })).orderBy(asc(tasks.createdAt));
   }
 
   async getTaskById(id: number) {

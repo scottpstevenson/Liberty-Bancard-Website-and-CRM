@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import tailwindcss from "@tailwindcss/vite";
 
 // Allow a single server-side GHL_BOOKING_URL env var to drive the public
 // "Book a Call" CTA without requiring a separate VITE_GHL_BOOKING_URL.
@@ -14,6 +15,7 @@ const bookingUrl =
 
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     react(),
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== "production" &&

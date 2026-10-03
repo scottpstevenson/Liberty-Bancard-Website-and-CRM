@@ -564,15 +564,15 @@ export async function orchestrateInboundRequest(input: {
   const policy = getInboundSourcePolicy(request.sourceCategory, request.sourceType);
   const slaDueAt = inboundSlaDueAt(policy.sourceClass, request.sourceReceivedAt);
 
-  await linkInboundRequest(request.id, {
-    contactId: input.contactId ?? request.contactId,
-    dealId: input.dealId ?? request.dealId,
-    ticketId: input.ticketId ?? request.ticketId,
-    slaDueAt: slaDueAt ?? request.slaDueAt,
-    lifecycleState: "processing",
-  });
-
   try {
+    const initialLink = await linkInboundRequest(request.id, {
+      contactId: input.contactId ?? request.contactId,
+      dealId: input.dealId ?? request.dealId,
+      ticketId: input.ticketId ?? request.ticketId,
+      slaDueAt: slaDueAt ?? request.slaDueAt,
+      lifecycleState: "processing",
+    });
+    if (!initialLink) throw new Error("INBOUND_REQUEST_LINK_FAILED");
     let reviewRequired = false;
     if (policy.sourceClass === "sales_request") {
       const assignment = await evaluateInboundAssignment({

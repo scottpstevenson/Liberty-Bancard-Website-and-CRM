@@ -1,4 +1,6 @@
 import { useState } from "react";
+import type { SequenceRuntimeStatus } from "@shared/sequence-runtime-status";
+import { SequenceRuntimeFacts } from "@/components/dashboard/SequenceRuntimeFacts";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Helmet } from "react-helmet-async";
 import {
@@ -55,6 +57,7 @@ interface SendingIdentity {
 }
 
 interface ReportData {
+  runtime: SequenceRuntimeStatus;
   generatedAt: string;
   summary: {
     total: number;
@@ -299,11 +302,11 @@ export default function SequenceReport() {
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <KpiCard label="Total Sequences" value={summary.total} icon={BarChart3} />
-          <KpiCard label="Active" value={summary.active} sub="firing on trigger" icon={CheckCircle2} />
-          <KpiCard label="Paused" value={summary.paused} sub="blocked by compliance gate" icon={Activity} />
+          <KpiCard label="Active" value={summary.active} sub="sequence state; not delivery proof" icon={CheckCircle2} />
+          <KpiCard label="Paused" value={summary.paused} sub="sequence state; reason not recorded" icon={Activity} />
           <KpiCard label="Sending Identities" value={summary.activeIdentities} sub={`${summary.dailyCap} emails/day cap`} icon={Inbox} />
           <KpiCard label="Active Enrollments" value={activeEnroll} sub={`${completedEnroll} completed`} icon={Users} />
-          <KpiCard label="Stalled Contacts" value={summary.stallCount} sub="in paused sequences" icon={ShieldAlert} warn={summary.stallCount > 0} />
+          <KpiCard label="Held Memberships" value={summary.stallCount} sub="active members in paused sequences" icon={ShieldAlert} warn={summary.stallCount > 0} />
         </div>
 
         {/* Stalled Enrollments Warning */}
@@ -312,10 +315,10 @@ export default function SequenceReport() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-amber-800 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4" />
-                {summary.stallCount} Contacts Stalled in Paused Sequences
+                {summary.stallCount} Active Memberships Held in Paused Sequences
               </CardTitle>
               <CardDescription className="text-amber-700 text-xs">
-                These contacts have active enrollments but their sequences are paused — they will not advance until sequences are activated or enrollments are resolved.
+                Memberships are held by sequence state. These are not unique-contact counts or delivery evidence; activation alone does not authorize sending.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -335,7 +338,7 @@ export default function SequenceReport() {
                 ))}
               </div>
               <p className="text-xs text-amber-700 mt-3 font-medium">
-                Action: Go to the Campaigns page, locate each sequence above, and either (a) activate the sequence to let contacts advance, or (b) bulk-complete/cancel their enrollments.
+                Review sequence state and membership status in Campaigns. Changing sequence state does not by itself authorize sending or releasing held work.
               </p>
             </CardContent>
           </Card>
@@ -405,14 +408,16 @@ export default function SequenceReport() {
                 <div className="bg-slate-50 rounded-lg p-3 border text-xs text-slate-600 space-y-1">
                   <p className="font-medium text-slate-700">Capacity Summary</p>
                   <p>• <strong>{summary.activeIdentities}</strong> active sending {summary.activeIdentities === 1 ? "identity" : "identities"} · combined daily cap: <strong>{summary.dailyCap} emails/day</strong></p>
-                  <p>• SMTP fallback: <span className="text-amber-600 font-medium">not configured</span> — all email goes through GoHighLevel API</p>
                   <p>• Total email steps across all sequences: <strong>{summary.totalEmailSteps}</strong> · SMS steps: <strong>{summary.totalSmsSteps}</strong></p>
                   {summary.dailyCap < 100 && (
-                    <p className="text-amber-700 font-medium mt-1">⚠ Daily cap of {summary.dailyCap} emails is a bottleneck for any volume campaign. Add sending identities to scale.</p>
+                    <p className="text-amber-700 font-medium mt-1">Configured identity limit: {summary.dailyCap} emails/day. This is not verified transport throughput or send permission.</p>
                   )}
                 </div>
               </div>
             )}
+            <div className="mt-3 bg-slate-50 rounded-lg p-3 border text-xs text-slate-600 space-y-1">
+              <SequenceRuntimeFacts runtime={data?.runtime} />
+            </div>
           </CardContent>
         </Card>
 
@@ -423,7 +428,7 @@ export default function SequenceReport() {
               <CheckCircle2 className="h-4 w-4 text-green-500" />
               Active Sequences ({activeSequences.length})
             </CardTitle>
-            <CardDescription>These sequences are live and will fire when triggered</CardDescription>
+            <CardDescription>Active sequence state is not send permission. Pause, consent, readiness and execution authority still apply.</CardDescription>
           </CardHeader>
           <CardContent>
             {activeSequences.length === 0 ? (

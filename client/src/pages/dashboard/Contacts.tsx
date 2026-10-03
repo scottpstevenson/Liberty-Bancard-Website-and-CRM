@@ -1479,8 +1479,9 @@ export default function Contacts() {
             if (role === "admin" || role === "manager") {
               // Server-side export — no row cap, respects active filters
               const params = new URLSearchParams();
-              if (statusFilter) params.set("status", statusFilter);
-              if (searchTerm) params.set("search", searchTerm);
+              for (const [key, value] of Object.entries(facetsParams)) {
+                if (value !== undefined && value !== false && value !== "") params.set(key, String(value));
+              }
               const url = `/api/contacts/export-csv${params.toString() ? `?${params}` : ""}`;
               const a = document.createElement("a");
               a.href = url;

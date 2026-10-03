@@ -7,6 +7,9 @@ import { executeWorkflowActions, triggerWorkflowsByEvent } from "../services/wor
 import { parse } from "csv-parse/sync";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 import { serverError } from "../utils/server-error";
+import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+
+const positiveId = z.coerce.number().int().positive().safe();
 
 export function registerWorkflowsRoutes(app: Express) {
   // === RFIs ===
@@ -115,7 +118,7 @@ export function registerWorkflowsRoutes(app: Express) {
 
 
   // === WORKFLOWS ===
-  app.get("/api/workflows", isAuthenticated, async (req, res) => {
+  app.get("/api/workflows", requireRole("admin", "manager"), async (req, res) => {
     try {
       const wfs = await storage.getWorkflows();
       res.json(wfs);
@@ -124,9 +127,11 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/workflows/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/workflows/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const wf = await storage.getWorkflow(Number(req.params.id));
+      const id = positiveId.safeParse(req.params.id);
+      if (!id.success) return res.status(400).json({ message: "Invalid workflow id" });
+      const wf = await storage.getWorkflow(id.data);
       if (!wf) return res.status(404).json({ message: "Not found" });
       res.json(wf);
     } catch (err: any) {
@@ -134,7 +139,7 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/workflows", isAuthenticated, async (req, res) => {
+  app.post("/api/workflows", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertWorkflowSchema.parse(req.body);
       const wf = await storage.createWorkflow(input);
@@ -146,10 +151,12 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/workflows/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/workflows/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
+      const id = positiveId.safeParse(req.params.id);
+      if (!id.success) return res.status(400).json({ message: "Invalid workflow id" });
       const allowed = insertWorkflowSchema.partial().parse(req.body);
-      const updated = await storage.updateWorkflow(Number(req.params.id), allowed);
+      const updated = await storage.updateWorkflow(id.data, allowed);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -160,16 +167,21 @@ export function registerWorkflowsRoutes(app: Express) {
 
   app.delete("/api/workflows/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      await storage.deleteWorkflow(Number(req.params.id));
+      const id = positiveId.safeParse(req.params.id);
+      if (!id.success) return res.status(400).json({ message: "Invalid workflow id" });
+      if (!await storage.getWorkflow(id.data)) return res.status(404).json({ message: "Not found" });
+      await storage.deleteWorkflow(id.data);
       res.json({ success: true });
     } catch (err: any) {
       serverError(res, err);
     }
   });
 
-  app.get("/api/workflow-runs", isAuthenticated, async (req, res) => {
+  app.get("/api/workflow-runs", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const workflowId = req.query.workflowId ? Number(req.query.workflowId) : undefined;
+      const parsed = req.query.workflowId === undefined ? undefined : positiveId.safeParse(req.query.workflowId);
+      if (parsed && !parsed.success) return res.status(400).json({ message: "Invalid workflow id" });
+      const workflowId = parsed?.success ? parsed.data : undefined;
       const runs = workflowId
         ? await storage.getWorkflowRunsByWorkflow(workflowId)
         : await storage.getWorkflowRuns();
@@ -179,16 +191,24 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/workflows/:id/run", isAuthenticated, async (req, res) => {
+  app.post("/api/workflows/:id/run", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const wf = await storage.getWorkflow(Number(req.params.id));
+      const id = positiveId.safeParse(req.params.id);
+      const entity = z.object({ entityType: z.enum(["contact", "deal"]), entityId: z.number().int().positive().safe() }).safeParse(req.body);
+      if (!id.success || !entity.success) return res.status(400).json({ message: "Valid workflow and contact/deal entity required" });
+      const authorized = entity.data.entityType === "contact"
+        ? await authorizeContactAccess(req, res, entity.data.entityId)
+        : await authorizeDealAccess(req, res, entity.data.entityId);
+      if (!authorized) return;
+      if ("archivedAt" in authorized && authorized.archivedAt) return res.status(404).json({ message: "Not found" });
+      const wf = await storage.getWorkflow(id.data);
       if (!wf) return res.status(404).json({ message: "Workflow not found" });
       if (!wf.enabled) return res.status(400).json({ message: "Workflow is disabled" });
 
       const actions = (wf.actions as any[]) || [];
       const result = await executeWorkflowActions(wf.id, actions, {
-        entityType: req.body.entityType || undefined,
-        entityId: req.body.entityId || undefined,
+        entityType: entity.data.entityType,
+        entityId: entity.data.entityId,
       });
 
       res.json({ success: true, runId: result.runId, status: result.status, steps: result.log });

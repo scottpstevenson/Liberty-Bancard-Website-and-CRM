@@ -1,9 +1,11 @@
 import type { Config } from "tailwindcss";
+import legacyTheme from "./tailwind-legacy-theme.json";
 
 export default {
-  darkMode: ["class"],
+  darkMode: "class",
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
   theme: {
+    ...legacyTheme,
     extend: {
       borderRadius: {
         lg: ".5rem", /* 8px */

@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { readTaskMetrics, taskReadPredicate } from "../services/task-read-authority";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { pool } from "../db";
@@ -10,7 +11,7 @@ import { agents, deals, leaderboardSettings, agentMerchants } from "@shared/sche
 import { eq, and, gte, lte, desc, sql, count, inArray, isNull } from "drizzle-orm";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { serverError } from "../utils/server-error";
-import { readPipelineAnalytics } from "../services/revenue-read-authority";
+import { readPipelineAnalytics, contactReadPredicate, dealReadPredicate } from "../services/revenue-read-authority";
 // CRO-02 population observation runs as a scheduled BullMQ job (CRO02_OBSERVATION queue,
 // every 2h in prod) and is NOT triggered from HTTP requests. Doing it per-request was
 // the primary cause of db:pool_pressure: up to 2 000 per-subject graph-resolution queries
@@ -99,6 +100,13 @@ export function registerAnalyticsRoutes(app: Express) {
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const sevenDaysAgo  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000);
+      const actor = req.user as any;
+      const dealValues: unknown[] = [thirtyDaysAgo, sevenDaysAgo];
+      const dealPredicate = dealReadPredicate(actor, {}, dealValues);
+      const contactValues: unknown[] = [thirtyDaysAgo, sevenDaysAgo, now];
+      const contactPredicate = contactReadPredicate(actor, { limit: 1, offset: 0, recordClass: "production" }, contactValues);
+      const repValues: unknown[] = [];
+      const repPredicate = dealReadPredicate(actor, {}, repValues);
 
       // Query 1 — all deal aggregates in one scan (was 7 separate queries)
       const [dealsAggRow, contactsAggRow, ticketsAggRow, tasksAggRow, topRepsRow] =
@@ -129,10 +137,10 @@ export function registerAnalyticsRoutes(app: Express) {
                 THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly,'[^0-9.]','','g') AS DECIMAL)
                 ELSE 0 END),0)::text                                                         AS total_profit,
               COUNT(*)::text                                                                  AS deal_count
-            FROM deals
-            WHERE archived_at IS NULL AND record_class = 'production'
+            FROM deals d
+            WHERE ${dealPredicate}
             GROUP BY stage, pipeline
-          `, [thirtyDaysAgo, sevenDaysAgo]),
+          `, dealValues),
 
           // Query 2 — all contact aggregates (was 6 separate queries)
           pool.query<{
@@ -146,11 +154,11 @@ export function registerAnalyticsRoutes(app: Express) {
               COUNT(*) FILTER (WHERE do_not_contact = true
                 OR email_status IN ('bounced','invalid','opted_out','unsafe'))::text                 AS blocked,
               COUNT(*) FILTER (WHERE churn_risk_tier IN ('High','Critical'))::text                   AS churn_risk,
-              COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'
+              COUNT(*) FILTER (WHERE created_at >= $3::timestamptz - INTERVAL '24 hours'
                 AND last_contacted_at IS NULL)::text                                                 AS no_outreach_24h
-            FROM contacts
-            WHERE archived_at IS NULL AND record_class = 'production'
-          `, [thirtyDaysAgo, sevenDaysAgo]),
+            FROM contacts c
+            WHERE ${contactPredicate}
+          `, contactValues),
 
           // Query 3 — ticket aggregates (was 3 separate queries)
           pool.query<{
@@ -180,27 +188,19 @@ export function registerAnalyticsRoutes(app: Express) {
           // Only count tasks linked to production contacts (or unlinked tasks).
           // Excludes test/demo/synthetic-linked tasks so the dashboard count
           // matches what real operators need to action.
-          pool.query<{ pending: string; overdue: string }>(`
-            SELECT
-              COUNT(*) FILTER (WHERE t.status = 'pending'
-                AND (c.id IS NULL OR c.record_class = 'production'))::text                  AS pending,
-              COUNT(*) FILTER (WHERE t.status = 'pending' AND t.due_date < $1
-                AND (c.id IS NULL OR c.record_class = 'production'))::text                  AS overdue
-            FROM tasks t
-            LEFT JOIN contacts c ON c.id = t.contact_id
-          `, [now]),
+          readTaskMetrics({ actor: req.user as any, asOf: now, timezone: "UTC" }),
 
           // Query 5 — top 5 reps by open deal count
           pool.query<{ owner: string; cnt: string }>(`
             SELECT owner, COUNT(*)::text AS cnt
-            FROM deals
-            WHERE archived_at IS NULL AND record_class = 'production'
+            FROM deals d
+            WHERE ${repPredicate}
               AND owner IS NOT NULL
               AND stage NOT IN ('Closed Won','Closed Lost')
             GROUP BY owner
             ORDER BY COUNT(*) DESC
             LIMIT 5
-          `),
+          `, repValues),
         ]);
 
       // ── Deals ──────────────────────────────────────────────────────────────
@@ -219,10 +219,10 @@ export function registerAnalyticsRoutes(app: Express) {
         if (row.pipeline === "onboarding") {
           onboardingStages[row.stage] = (onboardingStages[row.stage] ?? 0) + cnt;
         }
-        closedWon30d   = Math.max(closedWon30d,   parseInt(row.closed_won_30d  ?? "0", 10));
-        closedLost30d  = Math.max(closedLost30d,  parseInt(row.closed_lost_30d ?? "0", 10));
-        recentDealsCount = Math.max(recentDealsCount, parseInt(row.new_leads_30d ?? "0", 10));
-        newLeads7d     = Math.max(newLeads7d,     parseInt(row.new_leads_7d    ?? "0", 10));
+        closedWon30d   += parseInt(row.closed_won_30d  ?? "0", 10);
+        closedLost30d  += parseInt(row.closed_lost_30d ?? "0", 10);
+        recentDealsCount += parseInt(row.new_leads_30d ?? "0", 10);
+        newLeads7d     += parseInt(row.new_leads_7d    ?? "0", 10);
         totalVolume   += parseFloat(row.total_volume  ?? "0");
         totalResidual += parseFloat(row.total_residual ?? "0");
         totalProfit   += parseFloat(row.total_profit  ?? "0");
@@ -263,10 +263,13 @@ export function registerAnalyticsRoutes(app: Express) {
           avgResolutionHours: tick?.avg_hours != null ? parseFloat(tick.avg_hours) : null,
         },
         tasks: {
-          pending: parseInt(ta?.pending ?? "0", 10),
-          overdue: parseInt(ta?.overdue ?? "0", 10),
+          pending: Number(ta?.pending),
+          overdue: Number(ta?.overdue),
+          meta: tasksAggRow.meta,
         },
         contacts: {
+          meta: { contractVersion: 1, population: "visible_non_archived_production_contacts",
+            asOf: now.toISOString(), timezone: "UTC", snapshot: "separate_statements" },
           total:        parseInt(ca?.total          ?? "0", 10),
           new30d:       parseInt(ca?.new_30d        ?? "0", 10),
           new7d:        parseInt(ca?.new_7d         ?? "0", 10),
@@ -422,33 +425,24 @@ export function registerAnalyticsRoutes(app: Express) {
     try {
       const now = new Date();
       const [summaryRows, priorityRows] = await Promise.all([
-        pool.query<{ total: string; pending: string; in_progress: string; completed: string; overdue: string }>(`
-          SELECT
-            COUNT(*)::text AS total,
-            COUNT(*) FILTER (WHERE status = 'pending')::text AS pending,
-            COUNT(*) FILTER (WHERE status = 'in_progress')::text AS in_progress,
-            COUNT(*) FILTER (WHERE status = 'completed')::text AS completed,
-            COUNT(*) FILTER (WHERE COALESCE(status, 'pending') <> 'completed' AND due_date < $1)::text AS overdue
-          FROM tasks
-          WHERE deleted_at IS NULL
-        `, [now]),
-        pool.query<{ priority: string; count: string }>(`
+        readTaskMetrics({ actor: req.user as any, asOf: now, timezone: "UTC" }),
+        db.execute(sql`
           SELECT COALESCE(priority, 'normal') AS priority, COUNT(*)::text AS count
-          FROM tasks WHERE deleted_at IS NULL
+          FROM tasks WHERE ${taskReadPredicate({ actor: req.user as any, asOf: now, timezone: "UTC" })}
           GROUP BY COALESCE(priority, 'normal')
         `),
       ]);
       const summary = summaryRows.rows[0];
-      const priorityBreakdown = Object.fromEntries(priorityRows.rows.map(row => [row.priority, parseInt(row.count, 10)]));
+      const priorityBreakdown = Object.fromEntries(priorityRows.rows.map((row: any) => [row.priority, Number(row.count)]));
 
       res.json({
-        total: parseInt(summary?.total ?? "0", 10),
-        pending: parseInt(summary?.pending ?? "0", 10),
-        inProgress: parseInt(summary?.in_progress ?? "0", 10),
-        completed: parseInt(summary?.completed ?? "0", 10),
-        overdue: parseInt(summary?.overdue ?? "0", 10),
+        total: Number(summary?.total),
+        pending: Number(summary?.pending),
+        inProgress: Number(summary?.in_progress),
+        completed: Number(summary?.completed),
+        overdue: Number(summary?.overdue),
         priorityBreakdown,
-        meta: { exact: true, asOf: now.toISOString(), scope: "non-deleted tasks" },
+        meta: summaryRows.meta,
       });
     } catch (err: any) {
       serverError(res, err);

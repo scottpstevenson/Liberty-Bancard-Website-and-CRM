@@ -5,8 +5,8 @@
  * effects; CI must run only on disposable infrastructure and own no release
  * state.
  */
-import type { ChildProcess } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { execFileSync, type ChildProcess } from "node:child_process";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -93,6 +93,16 @@ async function runSuite(suite: SuiteManifestEntry, capability: SuiteCapability):
           );
         },
       });
+      // The build mints its identity from Git HEAD. Give the isolated copy
+      // independent metadata, not a symlink into the creator's live checkout.
+      // --no-checkout preserves the copied candidate files (including WIP);
+      // --no-hardlinks prevents shared mutable Git objects/references.
+      const metadataClone = path.join(outputDirectory, "git-source");
+      execFileSync("git", ["clone", "--no-checkout", "--no-hardlinks", process.cwd(), metadataClone], {
+        stdio: "pipe",
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, GIT_TERMINAL_PROMPT: "0" },
+      });
+      await rename(path.join(metadataClone, ".git"), path.join(suiteCwd, ".git"));
       await symlink(path.join(process.cwd(), "node_modules"), path.join(suiteCwd, "node_modules"), "dir");
       await symlink(
         path.join(process.cwd(), "attached_assets"),

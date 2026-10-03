@@ -16,8 +16,6 @@
  */
 
 import crypto from "crypto";
-import os from "node:os";
-import path from "node:path";
 
 const BASE = process.env.BASE_URL ?? process.env.TEST_BASE_URL ?? "http://localhost:5000";
 const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL ?? "";
@@ -117,7 +115,7 @@ async function login(): Promise<boolean> {
   return loginOk && loginBody.role === "admin" && cookieJar.has("connect.sid");
 }
 
-function requirePrivateDisposableDatabaseUrl(): string {
+async function requirePrivateDisposableDatabaseUrl(): Promise<string> {
   const databaseUrl = process.env.DATABASE_URL ?? "";
   if (
     !databaseUrl ||
@@ -129,24 +127,14 @@ function requirePrivateDisposableDatabaseUrl(): string {
   }
   try {
     const parsed = new URL(databaseUrl);
-    const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
-    const socketPath = parsed.searchParams.get("host") ?? "";
-    const tempRoot = path.resolve(os.tmpdir()) + path.sep;
-    const socketParent = path.basename(path.dirname(socketPath));
-    const socketPort = Number(parsed.searchParams.get("port"));
-    const privateSocketDatabase =
-      parsed.protocol === "postgresql:" &&
-      parsed.hostname === "localhost" &&
-      Boolean(parsed.username) &&
-      !parsed.password &&
-      /^test_sfp2060_[a-z0-9_]+$/.test(databaseName) &&
-      socketPath.startsWith(tempRoot) &&
-      socketParent.startsWith("local-rehearsal-") &&
-      Number.isInteger(socketPort) &&
-      socketPort > 0;
-    if (!privateSocketDatabase) {
-      throw new Error("DATABASE_URL is not the owned local-rehearsal PostgreSQL socket URL.");
+    if (!["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
+      throw new Error("Private identity fixtures require a loopback PostgreSQL host.");
     }
+    const { assertDisposableTestInfrastructure } = await import("./test-infrastructure-guard");
+    await assertDisposableTestInfrastructure({
+      operation: "Private identity-crosswalk DB atomicity fixtures",
+      requireRedis: false,
+    });
     return databaseUrl;
   } catch (error) {
     throw new Error(`Refusing direct identity-crosswalk DB access outside the private disposable database: ${(error as Error).message}`);
@@ -1061,7 +1049,7 @@ async function phaseJ_dbAtomicity(): Promise<void> {
   // Use the exact app DATABASE_URL, but refuse anything except the owned local
   // rehearsal socket. Node-postgres SSL must be disabled for this Unix socket;
   // never fall back to a remote host or a looser SSL mode.
-  const privateDatabaseUrl = requirePrivateDisposableDatabaseUrl();
+  const privateDatabaseUrl = await requirePrivateDisposableDatabaseUrl();
   const pgPool = new Pool({
     connectionString: privateDatabaseUrl,
     ssl: false,

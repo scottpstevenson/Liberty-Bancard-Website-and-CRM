@@ -1,7 +1,9 @@
 /** Middleware/validation tests only: no HTTP server, session bypass, or service mutations. */
 import assert from "node:assert/strict";
-import { registerGhlInboundSyncRoutes } from "../server/routes/ghl-inbound-sync";
-import { pool } from "../server/db";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({ operation: "GHL inbound route middleware checks (not sessions)", requireRedis: false });
+const { registerGhlInboundSyncRoutes } = await import("../server/routes/ghl-inbound-sync");
+const { pool } = await import("../server/db");
 
 type Registered = { method: string; path: string; guard: any; handler: any };
 const registered: Registered[] = [];

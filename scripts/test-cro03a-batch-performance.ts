@@ -19,14 +19,16 @@
  */
 
 import { sql } from "drizzle-orm";
-import { db } from "../server/db";
-import {
-  stageCro03aSourceCensus,
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+import { seedCro03aBatchFixtures } from "./helpers/cro03a-batch-fixtures";
+await assertDisposableTestInfrastructure({ operation: "CRO03A batch performance", requireRedis: false });
+const { db } = await import("../server/db");
+const {
   createCro03aQualificationRun,
   processCro03aQualificationRunBatch,
   processCro03aQualificationRun,
   cancelCro03aRun,
-} from "../server/services/cro03a/qualification-service";
+} = await import("../server/services/cro03a/qualification-service");
 
 const resultRows = (r: any): any[] => r?.rows ?? r ?? [];
 const json = <T>(v: T | string): T =>
@@ -53,18 +55,8 @@ function checkTrue(label: string, value: boolean) {
   check(label, value, true);
 }
 
-async function stageAndCreateRun(suffix: string, limit = 50): Promise<{ runId: string; total: number; occurrenceIds: string[] }> {
-  await stageCro03aSourceCensus({ actorId: ACTOR_ID, limitPerSource: limit });
-  const candidateRows = resultRows(await db.execute(sql`
-    SELECT DISTINCT ON (s.id) o.id AS occurrence_id
-      FROM cro03_source_occurrences o
-      JOIN cro03_source_subjects s ON s.id = o.source_subject_id
-     WHERE s.subject_type IN ('prospect','sunbiz_entity','sdr_merchant',
-                              'provider_csv_row','lead_discovery_result','master_lead')
-     ORDER BY s.id, o.source_observed_at DESC, o.ingested_at DESC, o.id DESC
-     LIMIT 134
-  `));
-  const occurrenceIds = candidateRows.map((r: any) => String(r.occurrence_id));
+async function stageAndCreateRun(suffix: string): Promise<{ runId: string; total: number; occurrenceIds: string[] }> {
+  const occurrenceIds = await seedCro03aBatchFixtures(`performance-${suffix}`);
   const ikey = `perf-test-${suffix}-${Date.now()}`;
   const run = await createCro03aQualificationRun({
     idempotencyKey: ikey, occurrenceIds, actorId: ACTOR_ID, actorRole: "admin",

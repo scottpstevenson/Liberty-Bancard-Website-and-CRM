@@ -34,7 +34,7 @@ const observeRevenueSubjects = async (
 };
 
 /** SQL ownership is deliberately expressed at every canonical read boundary. */
-function contactScope(user: RevenueUser, alias = "c", values: unknown[] = []): string {
+export function contactScope(user: RevenueUser, alias = "c", values: unknown[] = []): string {
   if (privileged(user)) return "TRUE";
   // Unassigned records remain in an agent's work queue; assigned records and
   // records with a deal owned by the agent are visible only to that agent.
@@ -51,8 +51,16 @@ function addContactFilters(filters: RevenueFilters, values: unknown[], alias = "
   if (filters.search) {
     values.push(`%${filters.search.trim()}%`);
     const p = `$${values.length}`;
+    // Retain the existing CSV's digits-only phone search in the shared boundary,
+    // so rows, facets and exports describe the same selected population.
+    const digits = filters.search.replace(/\D/g, "");
+    let phone = "";
+    if (digits.length >= 7) {
+      values.push(`%${digits}%`);
+      phone = ` OR regexp_replace(COALESCE(${alias}.phone,''),'[^0-9]','','g') LIKE $${values.length}`;
+    }
     where.push(`(coalesce(${alias}.first_name,'') || ' ' || coalesce(${alias}.last_name,'') ILIKE ${p}
-      OR coalesce(${alias}.email,'') ILIKE ${p} OR coalesce(${alias}.company_name,'') ILIKE ${p})`);
+      OR coalesce(${alias}.email,'') ILIKE ${p} OR coalesce(${alias}.company_name,'') ILIKE ${p}${phone})`);
   }
   if (filters.status) { values.push(filters.status); where.push(`${alias}.status = $${values.length}`); }
   if (filters.emailHealth) { values.push(filters.emailHealth); where.push(`${alias}.email_status = $${values.length}`); }
@@ -81,6 +89,27 @@ function addContactFilters(filters: RevenueFilters, values: unknown[], alias = "
   if (filters.noDeal) where.push(`NOT EXISTS (SELECT 1 FROM deals no_deal WHERE no_deal.contact_id = ${alias}.id AND no_deal.archived_at IS NULL)`);
   if (filters.createdThisWeek) where.push(`${alias}.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
   return where;
+}
+
+/** Shared parameterized population boundary for list/facet/scalar readers.
+ * Caller-owned parameter arrays let aggregates pin their date windows too.
+ */
+export function contactReadPredicate(user: RevenueUser, filters: RevenueFilters, values: unknown[], alias = "c"): string {
+  return [...addContactFilters(filters, values, alias), contactScope(user, alias, values)].join(" AND ");
+}
+
+/** Same production/nonarchived/owned-or-unassigned population as the deal list. */
+export function dealReadPredicate(user: RevenueUser, filters: Pick<RevenueFilters, "pipeline">, values: unknown[], alias = "d"): string {
+  const where = [`${alias}.archived_at IS NULL`, `${alias}.record_class='production'`];
+  if (filters.pipeline) {
+    values.push(filters.pipeline);
+    where.push(`${alias}.pipeline=$${values.length}`);
+  }
+  if (!privileged(user)) {
+    values.push(user.email ?? "");
+    where.push(`(LOWER(${alias}.owner)=LOWER($${values.length}) OR ${alias}.owner IS NULL)`);
+  }
+  return where.join(" AND ");
 }
 
 function orderForPeople(sort?: string): string {
@@ -194,9 +223,7 @@ function _setCachedFacet(key: string, value: FacetResult): void {
  */
 export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [];
-  const where = addContactFilters(filters, values);
-  where.push(contactScope(user, "c", values));
-  const predicate = where.join(" AND ");
+  const predicate = contactReadPredicate(user, filters, values);
   const order = orderForPeople(filters.sort);
 
   const limitIdx  = values.length + 1;
@@ -253,9 +280,7 @@ export async function readPeopleFacets(user: RevenueUser, filters: RevenueFilter
 
   // 3. Cold — build predicate, launch exactly one DB query.
   const values: unknown[] = [];
-  const where = addContactFilters(filters, values);
-  where.push(contactScope(user, "c", values));
-  const predicate = where.join(" AND ");
+  const predicate = contactReadPredicate(user, filters, values);
 
   const promise: Promise<FacetResult> = pool.query(
     `SELECT
@@ -381,14 +406,7 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
 export async function readRevenueDeals(user: RevenueUser, filters: RevenueFilters) {
   const values: unknown[] = [];
   const value = (input: unknown) => { values.push(input); return `$${values.length}`; };
-  const where = [
-    "d.archived_at IS NULL",
-    "d.record_class = 'production'",
-  ];
-  if (filters.pipeline) where.push(`d.pipeline = ${value(filters.pipeline)}`);
-  const ownerEmail = privileged(user) ? null : (user.email ?? "");
-  if (ownerEmail) where.push(`(LOWER(d.owner) = LOWER(${value(ownerEmail)}) OR d.owner IS NULL)`);
-  const predicate = where.join(" AND ");
+  const predicate = dealReadPredicate(user, filters, values);
 
   // Count uses parameters $1..$p; data appends LIMIT=$(p+1), OFFSET=$(p+2).
   const countValues = [...values];
