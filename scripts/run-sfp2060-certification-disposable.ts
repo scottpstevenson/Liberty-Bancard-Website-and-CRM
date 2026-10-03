@@ -76,6 +76,7 @@ async function main(): Promise<void> {
         seedMi09Pricing: true,
       },
       { name: "integrated-pipeline", script: "scripts/test-sfp2060-integrated-pipeline.ts", database: true },
+      { name: "crm-repair-v2", script: "scripts/test-crm-repair-v2-disposable.ts", database: true },
       { name: "legacy1999", script: "scripts/test-sfp1999-postmerge-audit-certification.ts", database: true, seedMi09Pricing: true },
       { name: "legacy2000", script: "scripts/test-sfp2000-disposable-certification.ts", database: true, seedMi09Pricing: true },
       { name: "legacy2001", script: "scripts/test-sfp2001-campaign-staging-certification.ts", database: true, seedMi09Pricing: true },

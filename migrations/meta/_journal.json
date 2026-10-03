@@ -2296,6 +2296,34 @@
       "when": 1800000014800,
       "tag": "0324_sfp_recipient_scoped_eligibility",
       "breakpoints": true
+    },
+    {
+      "idx": 328,
+      "version": "7",
+      "when": 1800000014900,
+      "tag": "0325_crm_evidence_relationship_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 329,
+      "version": "7",
+      "when": 1800000015000,
+      "tag": "0326_sfp_global_recipient_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 330,
+      "version": "7",
+      "when": 1800000015100,
+      "tag": "0327_crm_effective_vertical_projection",
+      "breakpoints": true
+    },
+    {
+      "idx": 331,
+      "version": "7",
+      "when": 1800000015200,
+      "tag": "0328_sfp_recipient_association_pins",
+      "breakpoints": true
     }
   ]
 }

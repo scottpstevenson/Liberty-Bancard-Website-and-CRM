@@ -4,7 +4,7 @@ import { pool } from "../db";
 import { previewContactBusinessSystemLinks, applyContactBusinessSystemLink } from "./contact-business-system-links";
 
 const KEY = "contact_link_automation_v1";
-const RULE = "independent_guarded_system_links_v1";
+const RULE = "independent_guarded_system_links_v2";
 type Program = {
   version: 1; rule: string; runId: string; enabled: boolean; authorizedBy: string;
   cursor: number; scanned: number; committed: number; replayed: number; held: number;
@@ -56,6 +56,36 @@ export async function setContactLinkAutomation(enabled: boolean, actorId: string
  * evidence/snapshot and actual database guard for every automatic decision.
  */
 export async function processContactLinkAutomationTick() {
+  const exists = await pool.query("SELECT 1 FROM system_settings WHERE key=$1",[KEY]);
+  if (!exists.rowCount) {
+    const parent = await pool.query(`SELECT r.id FROM sfp_cohort_runs r
+      JOIN sfp_programs p ON p.id=r.program_id AND p.is_active=TRUE
+      WHERE r.cohort_state='frozen' AND r.voided_at IS NULL AND r.superseded_at IS NULL
+      ORDER BY r.frozen_at DESC NULLS LAST,r.created_at DESC LIMIT 1`);
+    if (parent.rows[0]) {
+      try {
+        const { assertSfpRuntimeAuthority } = await import("./cro03/sfp-provider-operations");
+        const owner = await assertSfpRuntimeAuthority(String(parent.rows[0].id));
+        const initial: Program = {version:1,rule:RULE,runId:crypto.randomUUID(),enabled:true,
+          authorizedBy:`system:sfp_runtime_owner_epoch_${owner.ownerEpoch}`,cursor:0,scanned:0,
+          committed:0,replayed:0,held:0,reasons:{},leaseToken:null,leaseUntil:null,
+          updatedAt:new Date().toISOString(),lastError:null,complete:false};
+        await pool.query(`INSERT INTO system_settings(key,value,updated_at)
+          VALUES($1,$2::jsonb,NOW()) ON CONFLICT(key) DO NOTHING`,[KEY,JSON.stringify(initial)]);
+      } catch {
+        // Never invent ownership or replace an explicit disabled programme.
+        return {ran:false,reason:"awaiting_current_sfp_runtime_owner"};
+      }
+    }
+  }
+  // A policy repair must revisit earlier held records even when their source
+  // rows did not change. Preserve authorization/off state and live leases.
+  await pool.query(`UPDATE system_settings SET value=value ||
+    '{"rule":"independent_guarded_system_links_v2","cursor":0,"complete":false,
+      "changedSince":null,"scanStartedAt":null,"backfillComplete":false}'::jsonb,
+    updated_at=NOW()
+    WHERE key=$1 AND value->>'rule'='independent_guarded_system_links_v1'
+      AND (value->>'leaseUntil' IS NULL OR (value->>'leaseUntil')::timestamptz<=NOW())`, [KEY]);
   const token = crypto.randomUUID();
   const claim = await pool.query(`UPDATE system_settings
     SET value=jsonb_set(jsonb_set(value,'{leaseToken}',to_jsonb($2::text)),

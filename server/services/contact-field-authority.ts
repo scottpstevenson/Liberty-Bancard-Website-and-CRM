@@ -3,6 +3,7 @@
  * authorities and must never be silently accepted by generic writers.
  */
 export const CONTACT_AUTHORITY_OWNED_FIELDS = [
+  "effectiveVerticalId","effectiveVerticalStatus",
   "recordClass",
   // Commercial graph compatibility projections are authority-only.
   "businessId", "isDecisionMaker", "decisionMakerConfidence",

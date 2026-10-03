@@ -131,6 +131,10 @@ export async function listSfpPaidCandidateEvidence(businessIds: number[]): Promi
  * consumer can always trace back to the exact source row.
  */
 export interface UnifiedSfpCandidateView {
+  recipientAssociationEvidence?: Array<{ contactId: number;decisionId: string;revision: number }>;
+  recipientFactsRevision?: string;
+  recipientPersonNameEvidence?: string | null;
+  verifiedBusinessAssociation?: boolean;
   sourceKind: "free" | "paid" | "contact";
   evidenceId: string;
   businessId: number;
@@ -767,6 +771,23 @@ export async function getUnifiedSfpCandidates(businessIds: number[]): Promise<Un
    // but propagate the strictest classification to every observation before
    // choosing a canonical billing/validation representative.
    const classifiedUnified = propagateRestrictiveSfpSubjectType(unified);
+   const verifiedAddressAssociations = new Set(unified.filter(entry => entry._linkDecisionId)
+     .map(entry => `${entry.businessId}:${entry._hashKey}`));
+   const personNamesByAddress = new Map(unified.filter(entry => entry.personNameEvidence?.trim())
+     .map(entry => [`${entry.businessId}:${entry._hashKey}`,entry.personNameEvidence]));
+   for (const entry of classifiedUnified) {
+     // Propagate a REAL verified contact relationship across equal-address
+     // observations; changing which source ranks first cannot alter the fact.
+     entry.verifiedBusinessAssociation = verifiedAddressAssociations.has(`${entry.businessId}:${entry._hashKey}`);
+     entry.recipientPersonNameEvidence = personNamesByAddress.get(`${entry.businessId}:${entry._hashKey}`) ?? null;
+     entry.recipientAssociationEvidence = unified.filter(source=>source.businessId===entry.businessId
+       && source._hashKey===entry._hashKey && source._linkDecisionId)
+       .map(source=>({contactId:Number(source.evidenceId.replace(/^contact:/,"")),
+         decisionId:String(source._linkDecisionId),revision:Number(source._linkRevision)}))
+       .sort((a,b)=>a.contactId-b.contactId);
+     entry.recipientFactsRevision = createHash("sha256").update(JSON.stringify([
+       entry.createdAt,entry.recipientAssociationEvidence,entry.recipientPersonNameEvidence])).digest("hex");
+   }
 
    const tier = (entry: Internal): number => {
     const metadata = entry.candidateMetadata

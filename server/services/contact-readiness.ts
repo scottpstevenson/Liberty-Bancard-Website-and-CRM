@@ -13,6 +13,7 @@
  */
 import type { Contact } from "@shared/schema";
 import { getQueueManager } from "./queue-manager";
+import { resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -130,7 +131,7 @@ export type ReadinessBreakdown = {
 export function computeDataReadinessScore(contact: Pick<Contact,
   "email" | "companyName" | "vertical" | "phone" | "phoneType" |
   "firstName" | "city" | "state" | "website" | "lastName"
->): { score: number; grade: string; breakdown: ReadinessBreakdown; missingFields: string[] } {
+> & Partial<Pick<Contact,"effectiveVerticalId" | "effectiveVerticalStatus">>): { score: number; grade: string; breakdown: ReadinessBreakdown; missingFields: string[] } {
   const missingReasons: string[] = [];
 
   // Email (25 pts)
@@ -155,9 +156,11 @@ export function computeDataReadinessScore(contact: Pick<Contact,
 
   // Vertical (15 pts) — must be a known canonical value
   let verticalStatus: string, verticalReason: string | null = null, verticalPts = 0;
-  if (!contact.vertical || !contact.vertical.trim()) {
+  const effectiveVertical = contact.effectiveVerticalStatus
+    ? contact.effectiveVerticalId : contact.effectiveVerticalId ?? contact.vertical;
+  if (!effectiveVertical || !effectiveVertical.trim()) {
     verticalStatus = "missing"; verticalReason = REASON_CODES.MISSING_VERTICAL; missingReasons.push(verticalReason);
-  } else if (!CANONICAL_VERTICALS.has(contact.vertical)) {
+  } else if (!resolveContactTargetVertical(effectiveVertical)) {
     verticalStatus = "non_canonical"; verticalReason = REASON_CODES.NON_CANONICAL_VERTICAL; missingReasons.push(verticalReason);
   } else {
     verticalStatus = "present"; verticalPts = 15;

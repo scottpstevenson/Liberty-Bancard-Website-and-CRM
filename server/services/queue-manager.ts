@@ -2671,6 +2671,9 @@ class QueueManager {
           }
           try {
             const { processContactLinkAutomationTick } = await import("./contact-link-automation");
+            const { processEffectiveVerticalProjectionTick } = await import("./crm-effective-vertical-projection");
+            const verticals = await processEffectiveVerticalProjectionTick();
+            if (verticals.ran) console.log(`[CrmEffectiveVerticalProjection] ${JSON.stringify(verticals)}`);
             const links = await processContactLinkAutomationTick();
             if (links.ran) console.log(`[ContactLinkAutomation] ${JSON.stringify(links)}`);
           } catch (error: any) {

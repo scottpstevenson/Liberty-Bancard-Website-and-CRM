@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, customType, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date, uuid, check, bigint, customType, primaryKey, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -77,6 +77,8 @@ export const contacts = pgTable("contacts", {
   phone: text("phone").notNull(),
   companyName: text("company_name"),
   vertical: text("vertical"),
+  effectiveVerticalId: text("effective_vertical_id"),
+  effectiveVerticalStatus: text("effective_vertical_status"),
   monthlyVolume: text("monthly_volume"),
   estimatedProcessingVolume: text("estimated_processing_volume"),
   estimatedResidual: text("estimated_residual"),
@@ -4863,6 +4865,8 @@ export const businesses = pgTable("businesses", {
   industryPrimary: text("industry_primary"),
   industrySecondary: text("industry_secondary"),
   vertical: text("vertical"),
+  effectiveVerticalId: text("effective_vertical_id"),
+  effectiveVerticalStatus: text("effective_vertical_status"),
   subVertical: text("sub_vertical"),
   googlePlaceId: text("google_place_id"),
   facebookUrl: text("facebook_url"),
@@ -8441,7 +8445,7 @@ export const contactBusinessSystemLinkEvidence = pgTable("contact_business_syste
   contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "restrict" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   sourceLinkId: uuid("source_link_id").notNull().references(() => canonicalSourceLinks.id, { onDelete: "restrict" }),
-  sourceEntityId: integer("source_entity_id").notNull().references(() => sunbizEntities.id, { onDelete: "restrict" }),
+  sourceEntityId: integer("source_entity_id").references(() => sunbizEntities.id, { onDelete: "restrict" }),
   ruleVersion: text("rule_version").notNull(),
   factsHash: text("facts_hash").notNull(),
   facts: jsonb("facts").notNull(),
@@ -9741,6 +9745,7 @@ export const sfpOutreachEligibility = pgTable("sfp_outreach_eligibility", {
   rawProviderStatus: text("raw_provider_status"),
   rawProviderSubstatus: text("raw_provider_substatus"),
   reusedFromOperationId: uuid("reused_from_operation_id").references(() => providerOperations.id, { onDelete: "set null" }),
+  recipientAssociationPins: jsonb("recipient_association_pins").notNull().default([]),
   reasonCodes: jsonb("reason_codes").notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10241,11 +10246,25 @@ export const sfpReadyHeldEnrollments = pgTable("sfp_ready_held_enrollments", {
 
 export type SfpReadyHeldEnrollment = typeof sfpReadyHeldEnrollments.$inferSelect;
 
+export const sfpGlobalRecipientSlots = pgTable("sfp_global_recipient_slots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
+  recipientIdentityHash: text("recipient_identity_hash").notNull(),
+  slot: integer("slot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  check("sfp_global_recipient_slots_slot_check",sql`${t.slot} BETWEEN 1 AND 3`),
+  unique("sfp_global_slot_business_number_unique").on(t.businessId,t.slot),
+  unique("sfp_global_slot_address_unique").on(t.recipientIdentityHash),
+  unique("sfp_global_slot_subject_unique").on(t.id,t.businessId,t.recipientIdentityHash),
+]);
+
 export const sfpRecipientAddressCommitments = pgTable("sfp_recipient_address_commitments", {
   id: uuid("id").primaryKey().defaultRandom(),
   programId: uuid("program_id").notNull().references(() => sfpPrograms.id, { onDelete: "restrict" }),
   objectiveKey: text("objective_key").notNull().default("sfp.initial_recipient_acquisition.v1"),
   recipientIdentityHash: text("recipient_identity_hash").notNull(),
+  globalSlotId: uuid("global_slot_id"),
   recipientIdentityHashVersion: integer("recipient_identity_hash_version").notNull(),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   packageVersionId: uuid("package_version_id").notNull().references(() => sfpCampaignPackageVersions.id, { onDelete: "restrict" }),
@@ -10259,6 +10278,10 @@ export const sfpRecipientAddressCommitments = pgTable("sfp_recipient_address_com
 }, (table) => [
   uniqueIndex("sfp_recipient_address_commitments_program_hash_uidx")
     .on(table.programId, table.objectiveKey, table.recipientIdentityHash),
+  foreignKey({ name: "sfp_recipient_global_slot_subject_fk",
+    columns: [table.globalSlotId,table.businessId,table.recipientIdentityHash],
+    foreignColumns: [sfpGlobalRecipientSlots.id,sfpGlobalRecipientSlots.businessId,sfpGlobalRecipientSlots.recipientIdentityHash],
+  }).onDelete("restrict"),
   index("sfp_recipient_address_commitments_business_idx").on(table.programId, table.businessId, table.createdAt),
   unique("sfp_recipient_address_commitments_staging_intent_uidx").on(table.stagingIntentId),
   check("sfp_recipient_address_commitments_identity_chk", sql`

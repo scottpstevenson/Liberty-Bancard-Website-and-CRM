@@ -113,6 +113,7 @@ export interface ContactLinkCoverageRawSunbizMatch {
 }
 
 export interface ContactLinkCoverageBusiness {
+  automaticRelationshipReasons?: string[];
   businessId: number;
   canonicalName: string;
   normalizedName: string;
@@ -305,6 +306,8 @@ function normalizeCoverageContactRow(row: any): ContactLinkCoverageContact {
       recordClass: business.recordClass ?? business.record_class ?? null,
       doNotVisit: Boolean(business.doNotVisit ?? business.do_not_visit),
       domainBusinessCount: Number(business.domainBusinessCount ?? business.domain_business_count ?? 0),
+      automaticRelationshipReasons: Array.isArray(business.automaticRelationshipReasons)
+        ? business.automaticRelationshipReasons.map(String) : undefined,
       rawSunbizMatches: parseJson<any[]>(business.rawSunbizMatches ?? business.raw_sunbiz_matches, [])
         .map(mapRawSunbizMatch),
       sourceLinks: parseJson<any[]>(business.sourceLinks ?? business.source_links, []).map((source: any) => ({
@@ -415,6 +418,7 @@ function stableHash(value: unknown): string {
 }
 
 function strictReasons(contact: ContactLinkCoverageContact, business: ContactLinkCoverageBusiness): string[] {
+  if (business.automaticRelationshipReasons) return [...business.automaticRelationshipReasons];
   const sourceTuples: Array<ContactLinkCoverageSourceLink | null> = business.sourceLinks.length
     ? business.sourceLinks
     : [null];

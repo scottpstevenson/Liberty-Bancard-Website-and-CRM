@@ -97,16 +97,20 @@ import {
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count, getTableColumns } from "drizzle-orm";
+import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
+import { resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class BusinessesStorage {
     async getBusinesses(filters?: { status?: string; vertical?: string; limit?: number }): Promise<Business[]> {
     const conditions = [];
     if (filters?.status) conditions.push(eq(businesses.status, filters.status));
-    if (filters?.vertical) conditions.push(eq(businesses.vertical, filters.vertical));
+    if (filters?.vertical) conditions.push(sql`${sql.raw(effectiveBusinessVerticalSql("businesses"))}=${resolveContactTargetVertical(filters.vertical) ?? filters.vertical}`);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    return db.select().from(businesses)
+    return db.select({...getTableColumns(businesses),rawVertical:businesses.vertical,
+      vertical:sql<string | null>`${sql.raw(effectiveBusinessVerticalSql("businesses"))}`,
+      effectiveVerticalId:sql<string | null>`${sql.raw(effectiveBusinessVerticalSql("businesses"))}`}).from(businesses)
       .where(whereClause)
       .orderBy(desc(businesses.createdAt))
       .limit(filters?.limit || 500);
@@ -114,7 +118,9 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async getBusiness(id: number): Promise<Business | undefined> {
-    const [biz] = await db.select().from(businesses).where(eq(businesses.id, id));
+    const [biz] = await db.select({...getTableColumns(businesses),rawVertical:businesses.vertical,
+      vertical:sql<string | null>`${sql.raw(effectiveBusinessVerticalSql("businesses"))}`,
+      effectiveVerticalId:sql<string | null>`${sql.raw(effectiveBusinessVerticalSql("businesses"))}`}).from(businesses).where(eq(businesses.id, id));
     return biz;
   }
 

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { loadEvidenceRelationshipPage } from "./contact-business-evidence-page";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import {
@@ -19,7 +20,7 @@ export {
   type SystemLinkFacts,
 } from "./contact-business-system-link-policy";
 
-export const CONTACT_BUSINESS_SYSTEM_LINK_RULE = "sfp_sunbiz_exact_identity_v1";
+export const CONTACT_BUSINESS_SYSTEM_LINK_RULE = "crm_evidence_identity_v2";
 
 function snapshotHash(facts: SystemLinkFacts): string {
   return crypto.createHash("sha256").update(JSON.stringify(minimizedEvidenceFacts(facts))).digest("hex");
@@ -29,6 +30,8 @@ function minimizedEvidenceFacts(f: SystemLinkFacts) {
   const email = String(f.contactEmail ?? "").trim().toLowerCase().split("@");
   return {
     ruleVersion: CONTACT_BUSINESS_SYSTEM_LINK_RULE,
+    identityRevision: f.identityRevision,
+    relationshipReasons: f.relationshipReasons,
     contactId: f.contactId,
     businessId: f.businessId,
     sourceLinkId: f.sourceLinkId,
@@ -103,7 +106,8 @@ function changedContactFilter(since?: string) {
        AND c.website ILIKE '%' || changed_business.website_domain || '%'
   ))` : sql`TRUE`;
 }
-async function loadPage(executor: any, afterContactId: number, limit: number, onlyContactId?: number, changedSince?: string) {
+const loadPage = loadEvidenceRelationshipPage;
+async function loadLegacyPage(executor: any, afterContactId: number, limit: number, onlyContactId?: number, changedSince?: string) {
   const contactResult = await executor.execute(sql`
     SELECT c.id contact_id,c.company_name,c.website contact_website,c.email contact_email,
            c.record_class contact_record_class,c.email_status,c.archived_at,
@@ -252,7 +256,11 @@ export async function previewContactBusinessSystemLinks(
         && error?.message !== "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING") throw error;
     sfpTypedLinkSchemaReady = false;
   }
-  const page = await loadPage(executor, input.afterContactId, limit, undefined, input.changedSince);
+   if (!schemaReady) return {
+     rows: [],nextCursor: null,schemaReady,sfpTypedLinkSchemaReady,writes: 0,paidProviderCalls: 0,
+     unavailableReason: "COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING",
+   };
+   const page = await loadPage(executor, input.afterContactId, limit, undefined, input.changedSince);
   return {
     rows: page.previews,
     nextCursor: page.hasMore ? page.lastContactId : null,
@@ -264,7 +272,7 @@ export async function previewContactBusinessSystemLinks(
 }
 
 export interface SystemLinkApplyItem {
-  contactId: number; businessId: number; sourceLinkId: string; sourceEntityId: number; snapshotHash: string;
+  contactId: number; businessId: number; sourceLinkId: string; sourceEntityId: number | null; snapshotHash: string;
 }
 
 export function isCurrentSystemLinkSnapshot(
@@ -282,7 +290,7 @@ export function isMatchingSystemLinkReplay(
 ): boolean {
   return Number(replay.contact_id) === item.contactId && Number(replay.business_id) === item.businessId
     && replay.facts_hash === item.snapshotHash && String(replay.source_link_id) === item.sourceLinkId
-    && Number(replay.source_entity_id) === item.sourceEntityId;
+    && (replay.source_entity_id == null ? null : Number(replay.source_entity_id)) === item.sourceEntityId;
 }
 
 export async function applyContactBusinessSystemLink(

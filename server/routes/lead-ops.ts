@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
+import { resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
 import { db } from "../db";
 import { eq, inArray, sql } from "drizzle-orm";
 import { storage } from "../storage";
@@ -1944,7 +1946,8 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
           b.website_domain,
           b.city,
           b.state,
-          b.vertical,
+          ${sql.raw(effectiveBusinessVerticalSql("b"))} AS vertical,
+          b.vertical AS raw_vertical,
           b.record_class,
           b.free_enrichment_status,
           b.email_discovery_status,
@@ -1982,7 +1985,7 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
         FROM businesses b
         WHERE b.record_class = 'canonical'
           AND (${search === ""} OR b.canonical_name ILIKE ${'%' + search + '%'} OR b.website_domain ILIKE ${'%' + search + '%'})
-          AND (${vertical === ""} OR b.vertical = ${vertical})
+          AND (${vertical === ""} OR ${sql.raw(effectiveBusinessVerticalSql("b"))} = ${resolveContactTargetVertical(vertical) ?? vertical})
           AND (${emailStatus === ""} OR b.email_discovery_status = ${emailStatus})
         ORDER BY b.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
@@ -2112,11 +2115,11 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   app.get("/api/lead-ops/business-verticals", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const result = await db.execute(sql`
-        SELECT vertical, COUNT(*)::int AS count
-        FROM businesses
-        WHERE vertical IS NOT NULL
-          AND record_class = 'canonical'
-        GROUP BY vertical
+        SELECT ${sql.raw(effectiveBusinessVerticalSql("b"))} AS vertical, COUNT(*)::int AS count
+        FROM businesses b
+        WHERE ${sql.raw(effectiveBusinessVerticalSql("b"))} IS NOT NULL
+          AND b.record_class = 'canonical'
+        GROUP BY ${sql.raw(effectiveBusinessVerticalSql("b"))}
         ORDER BY count DESC
         LIMIT 50
       `);

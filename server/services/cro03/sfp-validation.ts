@@ -63,6 +63,8 @@ import {
 } from "./sfp-outreach-policy";
 import { lockSfpContactAddress } from "./sfp-contact-address-lock";
 import { isSfpReceiptProjectionRepairCandidate } from "./sfp-eligibility-receipt-repair";
+import { classifySfpRecipientFacts } from "./sfp-recipient-classification";
+import { lockSfpRecipientAssociationGraph,sfpRecipientAssociationCurrent } from "./sfp-recipient-association";
 import {
   lockSfpBusinessSafetySentinel,
   lockSfpEligibilityProjectionKey,
@@ -471,6 +473,9 @@ async function isSfpValidationSourceAndRunCurrent(input: {
   // Common authority order: policy -> typed commercial graph -> business
   // safety sentinel -> normalized address -> frozen cohort/source rows.
   await lockCurrentSfpOutreachPolicy(executor, input.policy);
+  const associationPins = candidate.recipientAssociationEvidence ?? [];
+  await lockSfpRecipientAssociationGraph(executor,input.businessId,associationPins);
+  if (!await sfpRecipientAssociationCurrent(executor,input.businessId,input.plaintext,associationPins)) return false;
   if (candidate.sourceKind === "contact") {
     const contactId = Number(resolved.evidenceId);
     const graphNodes: CommercialGraphNode[] = [
@@ -670,6 +675,7 @@ export async function selectWinnersPerBusiness(
   for (const cand of unified) {
     cand._normalizedHash = cand.normalizedValueHash;
     cand._candidateRevision = [
+      cand.recipientFactsRevision ?? "",
       cand.createdAt,
       cand.contactBusinessLinkDecisionId ?? "",
       cand.contactBusinessLinkRevision ?? "",
@@ -1324,7 +1330,12 @@ export async function executeSfpValidation(
           // spend — this is the SAME canonical filter used by the free-discovery
           // winner-selection path (rejectEmailCandidate), never a second
           // implementation.
-          const realRejection = rejectEmailCandidate(realEmail, subjectTypeForPrefilter);
+          const factualRecipient = classifySfpRecipientFacts({
+            address: realEmail,subjectType: subjectTypeForPrefilter,
+            personNameEvidence: cand.recipientPersonNameEvidence ?? cand.personNameEvidence,
+            verifiedBusinessAssociation: cand.verifiedBusinessAssociation === true,
+          });
+          const realRejection = rejectEmailCandidate(realEmail, factualRecipient.namedContact ? "person" : "business");
           if (realRejection) {
             invalidCount++;
             await writeEligibilityRow({
@@ -1602,8 +1613,13 @@ export async function executeSfpValidation(
           // Role-inbox / named-contact decision is driven by the same persisted
           // subject_type used for the pre-check above, never re-inferred from
           // whether name evidence happens to be present.
-          const isNamedContact = subjectTypeForPrefilter === "person";
-          const isRoleInbox = !isNamedContact;
+          const recipientFacts = classifySfpRecipientFacts({
+            address: realEmail,subjectType: subjectTypeForPrefilter,
+            personNameEvidence: cand.recipientPersonNameEvidence ?? cand.personNameEvidence,
+            verifiedBusinessAssociation: cand.verifiedBusinessAssociation === true,
+          });
+          const isNamedContact = recipientFacts.namedContact;
+          const isRoleInbox = recipientFacts.roleInbox;
           const roleEligibleForColdB2b = policy.roleInboxPolicy?.role_inbox_eligible_for_cold_b2b !== false;
           const namedRequiresReview = policy.roleInboxPolicy?.named_or_unclassified_requires_review !== false;
 
@@ -1650,7 +1666,8 @@ export async function executeSfpValidation(
           } else if (zbOutcome === "valid" && isAccepted) {
             const roleOk = isRoleInbox && roleEligibleForColdB2b;
             const emailTypePolicy = evaluateSfpEmailTypePolicy({
-              namedContact: isNamedContact, roleInbox: isRoleInbox, policy,
+              namedContact: isNamedContact, roleInbox: isRoleInbox,
+              businessAssociated: recipientFacts.businessAssociated, policy,
             });
             const eligibleByPolicy = emailTypePolicy.status === "eligible_for_staging_review";
             status = eligibleByPolicy ? "validated_outreach_eligible" : "validated_review_required";
@@ -1828,7 +1845,7 @@ export async function executeSfpValidation(
                  named_contact, role_inbox, masked_email, discovery_source, evidence_confidence,
                  suppression_status, outreach_policy_version, outreach_policy_reason, validation_operation_id,
                  normalized_value_hash, policy_document_id, policy_document_hash, consent_tier,
-                 raw_provider_status, raw_provider_substatus, reused_from_operation_id, reason_codes)
+                  raw_provider_status, raw_provider_substatus, reused_from_operation_id, reason_codes,recipient_association_pins)
               VALUES (
                 ${cohortRunId}::uuid, ${bizId},
                 ${cand.sourceKind === "free" ? cand.evidenceId : null}::uuid,
@@ -1844,7 +1861,8 @@ export async function executeSfpValidation(
                  ${suppressionStatus}, ${policy.version}, ${decisionReason},
                  ${reservation?.operationId ?? null}::uuid,
                   ${candidateIdentityHash}, ${policy.id}::uuid, ${policy.documentHash}, ${consentTierAfterProvider},
-                ${rawStatus}, ${rawSubstatus}, ${reusedFromOperationId}::uuid, ${JSON.stringify(reasonCodes)}::jsonb
+                ${rawStatus}, ${rawSubstatus}, ${reusedFromOperationId}::uuid, ${JSON.stringify(reasonCodes)}::jsonb,
+                ${JSON.stringify(cand.recipientAssociationEvidence ?? [])}::jsonb
               )
               ON CONFLICT (cohort_run_id, business_id, policy_version, normalized_value_hash)
               DO UPDATE SET
@@ -1865,7 +1883,7 @@ export async function executeSfpValidation(
                 policy_document_id = EXCLUDED.policy_document_id, policy_document_hash = EXCLUDED.policy_document_hash,
                 consent_tier = EXCLUDED.consent_tier, raw_provider_status = EXCLUDED.raw_provider_status,
                 raw_provider_substatus = EXCLUDED.raw_provider_substatus, reused_from_operation_id = EXCLUDED.reused_from_operation_id,
-                reason_codes = EXCLUDED.reason_codes, updated_at = NOW()
+                reason_codes = EXCLUDED.reason_codes,recipient_association_pins=EXCLUDED.recipient_association_pins, updated_at = NOW()
               WHERE sfp_outreach_eligibility.staging_intent_id IS NULL
               RETURNING id
             `));
@@ -1969,6 +1987,7 @@ export async function executeSfpValidation(
             sourceKind: cand.sourceKind, ...evidenceReference,
              candidateClaimKey: claimKey,
             candidateRevision: (cand as CandidateWithPin)._candidateRevision ?? cand.createdAt,
+            recipientAssociationEvidence: cand.recipientAssociationEvidence ?? [],
              normalizedAddressHash: cand.normalizedValueHash ?? decision.normalized_value_hash ?? null,
              normalizedAddressHashVersion: cand.normalizedValueHashVersion ?? 1,
             policyVersion: policy.version, outcome: decision.zb_outcome ?? null, status: decision.status,

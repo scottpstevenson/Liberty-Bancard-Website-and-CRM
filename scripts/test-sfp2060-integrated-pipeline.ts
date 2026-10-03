@@ -854,8 +854,8 @@ try {
     String(contactEligibility.contact_business_link_decision_id));
   assert.equal(Number(namedReviewCandidate.contact_business_link_revision),
     Number(contactEligibility.contact_business_link_revision));
-  assert.ok(!JSON.stringify(reviewListPayload).includes(contactEmail),
-    "named-email review GET does not disclose plaintext email");
+  assert.ok(JSON.stringify(reviewListPayload).includes(contactEmail),
+    "authorized admin review GET exposes the actual address for review as required by the repair handoff");
   const namedReviewResponse = await fetch(
     `${reviewApiBaseUrl}/api/lead-ops/sfp/named-email-eligibility-reviews/${contactEligibility.id}`,
     {
@@ -921,7 +921,7 @@ try {
      WHERE cohort_run_id=${cohortRunId}::uuid
      ORDER BY business_id
   `));
-  assert.equal(intents.length, 4);
+  assert.equal(intents.length, 3,`one shared mailbox cannot create intents under competing businesses: ${JSON.stringify(staged)}`);
   assert.ok(intents.every((intent: any) =>
     intent.state === "ready_held" && String(intent.package_version_id) === String(packageVersion.id) &&
     intent.package_key === packageKey,
@@ -931,10 +931,10 @@ try {
   const contactIntent = intents.find((intent: any) => intent.source_kind === "contact");
   const freeIntent = freeIntents.find((intent: any) => Number(intent.business_id) === businessA);
   const duplicateFreeIntent = freeIntents.find((intent: any) => Number(intent.business_id) === businessD);
-  assert.ok(freeIntent && duplicateFreeIntent && paidIntent && contactIntent);
+  assert.ok(freeIntent && !duplicateFreeIntent && paidIntent && contactIntent);
   assert.deepEqual(
     intents.map((intent: any) => String(intent.source_kind)).sort(),
-    ["contact", "free", "free", "paid"],
+    ["contact", "free", "paid"],
     "the mapper persists every selected camelCase API source as the correct database source_kind",
   );
   const eligibilityById = new Map(eligibilities.map((item: any) => [String(item.id), item]));
@@ -992,7 +992,7 @@ try {
     businessA,
   );
   await assertSourceOpensAs(
-    { sourceKind: "free", freeDiscoveryCandidateId: String(duplicateFreeIntent.candidate_id) },
+    { sourceKind: "free", freeDiscoveryCandidateId: String(eligibilityForBusinessD.candidate_id) },
     sharedEmail,
     businessD,
   );
@@ -1743,19 +1743,8 @@ try {
   const duplicateAliasIntent = freeIntents.find(
     (intent: any) => String(intent.id) !== String(originalFreeIntent.id),
   );
-  assert.ok(duplicateAliasIntent, "the non-owner free intent aliases the persisted original commitment");
-  const duplicateRecipientBridge =
-    await bridgeReadyHeldIntentToPausedEnrollment(String(duplicateAliasIntent.id), actorId);
-  assert.equal(duplicateRecipientBridge.status, "left_held");
-  assert.equal(duplicateRecipientBridge.heldReason, "recipient_assignment_conflict",
-    "the non-owner alias is held because its business differs from the committed owner");
-  const duplicateAlias = rows(await db.execute(sql`
-    SELECT disposition,reason_code,staging_intent_id
-      FROM sfp_recipient_commitment_aliases
-     WHERE staging_intent_id=${String(duplicateAliasIntent.id)}::uuid
-  `))[0];
-  assert.equal(duplicateAlias.disposition, "held");
-  assert.equal(String(duplicateAlias.staging_intent_id), String(duplicateAliasIntent.id));
+  assert.equal(duplicateAliasIntent,undefined,
+    "competing business is held before duplicate intent/enrollment creation");
 
   // An existing verified decision is locked and consulted by the real bridge
   // path. Inject a transaction-local failure after that lock to verify
@@ -1875,20 +1864,24 @@ try {
 
   const stagedCandidatePreview = await previewSfpValidation(cohortRunId);
   assert.equal(stagedCandidatePreview.gateOpen, true);
-  assert.equal(stagedCandidatePreview.addressesForValidation, 0,
-    "already-staged businesses cannot be scheduled again through changed or alternate candidates");
-  assert.deepEqual(stagedCandidatePreview.selectedCandidates, [],
-    "new canonical-contact candidates created by positive bridges are excluded for their already-staged businesses");
+  assert.equal(stagedCandidatePreview.addressesForValidation, 1,
+    "a staged primary leaves capacity for the remaining distinct alternative");
+  assert.equal(stagedCandidatePreview.selectedCandidates[0].businessId,businessA);
+  const alternativeSource = rows(await db.execute(sql`SELECT normalized_value_hash
+    FROM free_discovery_candidates
+    WHERE id=${stagedCandidatePreview.selectedCandidates[0].candidateId}::uuid`))[0];
+  assert.ok(alternativeSource?.normalized_value_hash);
+  assert.ok(intents.every((intent:any)=>intent.normalized_value_hash!==alternativeSource.normalized_value_hash),
+    "already committed addresses are not scheduled again through another source");
   const zeroBounceCallsBeforeStagedReplay = zeroBounceCalls;
-  await assert.rejects(() => executeSfpValidation(cohortRunId, {
+  await executeSfpValidation(cohortRunId, {
     idempotencyKey: `${runKey}-staged-alternate-candidate-regression`,
     actorId,
     maxValidations: 25,
     snapshotHash: stagedCandidatePreview.snapshotHash,
-  }), /SFP_VALIDATION_BLOCKED:COHORT_FULLY_DECIDED/,
-  "an entirely staged cohort fails explicitly before any claim or provider I/O");
-  assert.equal(zeroBounceCalls, zeroBounceCallsBeforeStagedReplay,
-    "executing the empty staged-business preview makes no additional provider/network calls");
+  });
+  assert.equal(zeroBounceCalls, zeroBounceCallsBeforeStagedReplay+1,
+    "only the distinct alternative is validated; original staged addresses are not recharged");
   const stagedEligibilityPinsAfterReplay = rows(await db.execute(sql`
     SELECT e.id,md5(row_to_json(e)::text) AS fingerprint
       FROM sfp_outreach_eligibility e
@@ -1896,8 +1889,9 @@ try {
        AND e.business_id=ANY(ARRAY[${sql.join(stagedBusinessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
      ORDER BY e.business_id
   `));
-  assert.deepEqual(stagedEligibilityPinsAfterReplay, stagedEligibilityPins,
-    "the complete immutable eligibility/source pins are unchanged by the empty replay");
+  assert.deepEqual(stagedEligibilityPinsAfterReplay.filter((after:any)=>
+    stagedEligibilityPins.some((before:any)=>String(before.id)===String(after.id))),stagedEligibilityPins,
+    "original immutable eligibility/source pins are unchanged while a distinct alternative is validated");
   const sourceLinkProofsAfterReplay = rows(await db.execute(sql`
     SELECT d.id,d.contact_id,d.business_id,d.decision,d.revision,d.superseded_at,
            d.sfp_evidence_id,e.id AS evidence_id,e.eligibility_id,e.source_kind,
@@ -1925,7 +1919,9 @@ try {
        AND e.business_id=ANY(ARRAY[${sql.join(stagedBusinessIds.map((id) => sql`${id}`), sql`, `)}]::integer[])
      ORDER BY e.business_id,po.operation_id
   `));
-  assert.deepEqual(validationReceiptFingerprintsAfterReplay, validationReceiptFingerprints,
+  assert.deepEqual(validationReceiptFingerprintsAfterReplay.filter((after:any)=>
+    validationReceiptFingerprints.some((before:any)=>String(before.operation_id)===String(after.operation_id))),
+    validationReceiptFingerprints,
     "the original provider-observation fingerprints are unchanged after replay");
 
   // Revoking the human-reviewed source link after that success is visible on

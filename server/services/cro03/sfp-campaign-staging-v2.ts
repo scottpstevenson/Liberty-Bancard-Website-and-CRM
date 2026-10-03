@@ -1,4 +1,5 @@
 import { lockSfpRecipientCapacity, SfpRecipientCapacityError } from "./sfp-recipient-capacity";
+import { lockSfpRecipientAssociationGraph,sfpRecipientAssociationCurrent } from "./sfp-recipient-association";
 /**
  * sfp-campaign-staging-v2.ts
  *
@@ -318,6 +319,7 @@ export async function previewStagingV2(opts: {
     validationContactLinkDecisionId: row.contact_business_link_decision_id ?? null,
     validationContactLinkRevision: row.contact_business_link_revision ?? null,
     validationNormalizedValueHash: row.normalized_value_hash ?? null,
+    recipientAssociationPins: row.recipient_association_pins ?? [],
     validationNormalizedValueHashVersion: row.normalized_value_hash_version ?? null,
     currentContactLinkDecisionId: row.source_contact_link_decision_id ?? null,
     currentContactLinkRevision: row.source_contact_link_revision ?? null,
@@ -693,6 +695,7 @@ export async function executeStagingV2(opts: {
   // idempotent no-ops inside stageOneRowTransactional(), not reclassified
   // as drift, because they carry this exact commandKey.
   const freshPreview = await previewStagingV2({ cohortRunId: opts.cohortRunId, eligibilityIds: orderedIds, actorId: opts.actorId, resumeCommandKey: opts.commandKey, attemptSalt: opts.attemptSalt });
+  freshPreview.rows.sort((a,b)=>a.businessId-b.businessId);
   if (freshPreview.snapshotHash !== opts.snapshotHash) {
     throw new SfpStagingV2Error("SFP_STAGING_SNAPSHOT_DRIFTED", "snapshot has drifted since preview (policy/package/eligibility changed) — request a new preview", 409);
   }
@@ -756,6 +759,19 @@ export async function executeStagingV2(opts: {
     } catch (err: any) {
       rejected++;
       const code = err instanceof SfpStagingV2Error ? err.code : "staging_transaction_failed";
+      if (code === "SFP_STAGING_RECIPIENT_BUSINESS_CONFLICT") {
+        // Preserve the valid provider receipt but stop retrying an ineligible
+        // ownership projection. A changed identity/policy can reopen it.
+        await db.transaction(async tx=>{
+          await lockSfpEligibilityProjectionWriteGate(tx);
+          await tx.execute(sql`UPDATE sfp_outreach_eligibility e
+            SET status='validated_review_required',decision_reason=${code},updated_at=NOW()
+            WHERE e.id=${previewRow.eligibilityId}::uuid
+              AND e.status='validated_outreach_eligible'
+              AND EXISTS (SELECT 1 FROM sfp_outreach_policy_control pc
+                WHERE pc.singleton=TRUE AND pc.active_policy_id=e.policy_document_id)`);
+        });
+      }
       reasons[code] = (reasons[code] ?? 0) + 1;
       await markStageItemDeadLetter(itemId, code, { incrementAttempt: !isWorkerOwnedAttempt });
     }
@@ -835,6 +851,10 @@ async function stageOneRowTransactional(opts: {
   return db.transaction(async (tx) => {
     await lockSfpEligibilityProjectionWriteGate(tx);
     await lockCurrentSfpOutreachPolicy(tx, activePolicy);
+    const associatedRow = rows(await tx.execute(sql`SELECT recipient_association_pins FROM sfp_outreach_eligibility
+      WHERE id=${opts.eligibilityId}::uuid AND business_id=${opts.businessId}`))[0];
+    const associationPins = associatedRow?.recipient_association_pins ?? [];
+    await lockSfpRecipientAssociationGraph(tx,opts.businessId,associationPins);
     let initialSourceAddress: string | null = null;
     if (opts.sourceKind === "contact" && Number.isSafeInteger(Number(opts.sourceReferenceId))) {
       const sourceContactNode: CommercialGraphNode = { type: "contact", id: Number(opts.sourceReferenceId) };
@@ -1286,6 +1306,10 @@ async function stageOneRowTransactional(opts: {
            contactTitle = null;
          }
          const recipientIdentityHash = sfpRecipientIdentityHash(plaintext);
+          if (!await sfpRecipientAssociationCurrent(tx,opts.businessId,plaintext,associationPins)) {
+            throw new SfpStagingV2Error("SFP_STAGING_RECIPIENT_ASSOCIATION_STALE",
+              "Recipient association changed; recompute eligibility from its retained receipt",409);
+          }
          if (!recipientIdentityHash) {
            throw new SfpStagingV2Error("SFP_STAGING_RECIPIENT_IDENTITY_INVALID", "recipient address cannot be normalized", 422);
          }
@@ -1355,10 +1379,10 @@ async function stageOneRowTransactional(opts: {
          const claimed = rows(await tx.execute(sql`
            INSERT INTO sfp_recipient_address_commitments
              (program_id,objective_key,recipient_identity_hash,recipient_identity_hash_version,
-              business_id,package_version_id,staging_intent_id,state)
+              business_id,package_version_id,staging_intent_id,state,global_slot_id)
            VALUES (${String(sharedCurrentGate.row.program_id)}::uuid,${SFP_INITIAL_RECIPIENT_OBJECTIVE_KEY},
                    ${recipientIdentityHash},1,${opts.businessId},${String(pkgRow.id)}::uuid,
-                   ${String(intent.id)}::uuid,'claimed')
+                   ${String(intent.id)}::uuid,'claimed',${recipientCapacity.globalSlotId}::uuid)
            ON CONFLICT (program_id,objective_key,recipient_identity_hash) DO NOTHING
            RETURNING id
          `))[0];

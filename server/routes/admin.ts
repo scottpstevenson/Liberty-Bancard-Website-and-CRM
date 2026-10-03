@@ -93,7 +93,7 @@ export function registerAdminRoutes(app: Express) {
           contactId: z.number().int().positive(),
           businessId: z.number().int().positive(),
           sourceLinkId: z.string().uuid(),
-          sourceEntityId: z.number().int().positive(),
+          sourceEntityId: z.number().int().positive().nullable(),
           snapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
         }).strict()).min(1).max(25),
       }).strict().safeParse(req.body);

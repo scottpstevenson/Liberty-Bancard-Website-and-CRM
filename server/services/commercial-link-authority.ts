@@ -22,7 +22,7 @@ export class CommercialRevisionConflict extends Error {
 // exact body hashes intentionally fail closed even for formatting-only rewrites;
 // update them only from a reviewed, freshly migrated schema.
 const SYSTEM_LINK_EVIDENCE_TRIGGER_BODY_MD5 = "0851a20c34b3ce424364b5c3fc6e556b";
-const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "30910090e380e90ea27bff572d2c5847";
+const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "46f89326f7c158ac739814ce343c2559";
 
 // Fingerprints of PostgreSQL's canonical pg_get_expr(conbin, conrelid, true)
 // output for the 0309 typed-contact source contracts. Whitespace is folded and
@@ -120,10 +120,20 @@ export async function assertSystemLinkDatabaseGuard(executor: any) {
        AND ns.nspname='public' AND con.contype='c' AND con.convalidated
        AND con.conislocal AND con.coninhcount=0
     ) AS sfp_contact_checks
+    ,(SELECT count(*)=3 AND bool_and(md5(p.prosrc)=expected.body_hash)
+      FROM (VALUES
+        ('crm_identity_name','e45d1eb858ef5e5f9d94b8b9aa965c49'),
+        ('crm_identity_domain','d0af69048a9c4845df1589219a522629'),
+        ('crm_automatic_relationship_reasons','6868a6d639a3fd0af7a10346821dad19')
+      ) expected(function_name,body_hash)
+      JOIN pg_proc p ON p.proname=expected.function_name
+        AND p.pronamespace='public'::regnamespace
+    ) AS relationship_evaluator
   `) as any).rows?.[0];
   if (!triggerCheck?.installed || !triggerCheck?.immutable_evidence_trigger
       || !triggerCheck?.evidence_table || !triggerCheck?.evidence_column
-      || !triggerCheck?.evidence_foreign_keys || !triggerCheck?.sfp_contact_checks) {
+      || !triggerCheck?.evidence_foreign_keys || !triggerCheck?.sfp_contact_checks
+      || !triggerCheck?.relationship_evaluator) {
     throw new Error("COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING");
   }
 }
@@ -636,7 +646,7 @@ export async function decideSystemContactBusinessLink(input: {
   contactId: number;
   businessId: number;
   sourceLinkId: string;
-  sourceEntityId: number;
+  sourceEntityId: number | null;
   decisionKey: string;
   ruleVersion: string;
   factsHash: string;
@@ -664,7 +674,7 @@ export async function decideSystemContactBusinessLink(input: {
     if (replay) {
       if (Number(replay.contact_id) !== input.contactId || Number(replay.business_id) !== input.businessId
           || replay.facts_hash !== input.factsHash || String(replay.source_link_id) !== input.sourceLinkId
-          || Number(replay.source_entity_id) !== input.sourceEntityId) {
+          || (replay.source_entity_id == null ? null : Number(replay.source_entity_id)) !== input.sourceEntityId) {
         throw new Error("COMMERCIAL_LINK_DIVERGENT_REPLAY");
       }
       return { ...replay, replayed: true };

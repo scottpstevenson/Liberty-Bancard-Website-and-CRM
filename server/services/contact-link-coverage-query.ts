@@ -598,6 +598,20 @@ SELECT
     'doNotVisit', b.do_not_visit,
     'domainBusinessCount', b.domain_business_count,
      'sourceLinks', b.source_links,
+     'automaticRelationshipReasons', (
+       WITH proofs AS MATERIALIZED (
+         SELECT crm_automatic_relationship_reasons(c.contact_id,b.business_id,sl.id,se.id) AS reasons
+         FROM canonical_source_links sl
+         LEFT JOIN sunbiz_entities se ON sl.source_system='sunbiz' AND sl.source_type='sunbiz_entity'
+           AND se.filing_number=sl.stable_key AND se.source IN ('sunbiz','cordata','corevt')
+         WHERE sl.business_id=b.business_id
+       )
+       SELECT CASE WHEN EXISTS (SELECT 1 FROM proofs WHERE cardinality(reasons)=0)
+         THEN '[]'::jsonb
+         WHEN NOT EXISTS (SELECT 1 FROM proofs) THEN '["independent_source_link_missing"]'::jsonb
+         ELSE to_jsonb(ARRAY(SELECT DISTINCT reason FROM proofs
+           CROSS JOIN LATERAL unnest(reasons) AS reason ORDER BY reason)) END
+     ),
      'rawSunbizMatches', b.raw_sunbiz_matches
   ) ORDER BY b.business_id) FILTER (WHERE b.business_id IS NOT NULL), '[]'::jsonb) AS businesses
 FROM contact_data c

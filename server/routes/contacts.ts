@@ -1092,6 +1092,10 @@ export function registerContactsRoutes(app: Express) {
       if ((strippedBody as any).ghlContactId !== undefined) {
         (strippedBody as any).ghlContactId = normalizeGhlId((strippedBody as any).ghlContactId);
       }
+      if (Object.prototype.hasOwnProperty.call(strippedBody,"vertical")) {
+        (strippedBody as any).manualVerticalOverride = (req.body as any).manualVerticalOverride === false
+          ? false : !!(strippedBody as any).vertical;
+      }
       const body = strippedBody;
       const updated = await updateContactLocalFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });

@@ -25,12 +25,14 @@ export interface SfpActivePolicy {
   validationTtlDays: number;
   acceptedOutcomes: string[];
   retryableOutcomes: string[];
-  roleInboxPolicy: { role_inbox_eligible_for_cold_b2b: boolean; named_or_unclassified_requires_review: boolean };
+  roleInboxPolicy: { role_inbox_eligible_for_cold_b2b: boolean; named_or_unclassified_requires_review: boolean;
+    corroborated_business_contact_eligible?: boolean; corroborated_named_business_contact_eligible?: boolean };
   consentTierPolicy: Record<string, "eligible_for_staging_review" | "ineligible">;
   reasonCodes: string[];
 }
 
 let _cachedActivePolicy: SfpActivePolicy | null = null;
+let _cachedActivePolicyAt = 0;
 
 /**
  * Applies the singleton-enforcing CHECK constraint out-of-band, on startup,
@@ -65,7 +67,7 @@ export async function ensureSfpOutreachPolicyControlCheckConstraint(): Promise<v
 
 /** Reads the singleton active policy pointer. Never writes/seeds — that is migration-owned. */
 export async function getActiveSfpOutreachPolicy(opts: { bypassCache?: boolean } = {}): Promise<SfpActivePolicy> {
-  if (_cachedActivePolicy && !opts.bypassCache) return _cachedActivePolicy;
+  if (_cachedActivePolicy && !opts.bypassCache && Date.now()-_cachedActivePolicyAt<5000) return _cachedActivePolicy;
   const row = rows(await db.execute(sql`
     SELECT d.id, d.version, d.document_hash, d.validation_ttl_days,
            d.accepted_outcomes, d.retryable_outcomes, d.role_inbox_policy,
@@ -88,6 +90,7 @@ export async function getActiveSfpOutreachPolicy(opts: { bypassCache?: boolean }
     reasonCodes: row.reason_codes,
   };
   _cachedActivePolicy = policy;
+  _cachedActivePolicyAt = Date.now();
   return policy;
 }
 
@@ -146,15 +149,22 @@ export interface SfpEmailPolicyDecision {
 export function evaluateSfpEmailTypePolicy(input: {
   namedContact: boolean;
   roleInbox: boolean;
+  businessAssociated?: boolean;
   policy: SfpActivePolicy;
 }): SfpEmailPolicyDecision {
   if (input.namedContact) {
+    if (input.businessAssociated && input.policy.roleInboxPolicy.corroborated_named_business_contact_eligible === true) {
+      return { status: "eligible_for_staging_review", reasonCode: "corroborated_named_business_contact_policy_eligible" };
+    }
     return input.policy.roleInboxPolicy?.named_or_unclassified_requires_review !== false
       ? { status: "eligibility_review_required", reasonCode: "named_email_requires_eligibility_review" }
       : { status: "eligible_for_staging_review", reasonCode: "named_email_policy_eligible_for_review" };
   }
   if (input.roleInbox && input.policy.roleInboxPolicy?.role_inbox_eligible_for_cold_b2b !== false) {
     return { status: "eligible_for_staging_review", reasonCode: "role_inbox_policy_eligible_for_review" };
+  }
+  if (input.businessAssociated && input.policy.roleInboxPolicy.corroborated_business_contact_eligible === true) {
+    return { status: "eligible_for_staging_review", reasonCode: "corroborated_business_contact_policy_eligible" };
   }
   return { status: "eligibility_review_required", reasonCode: "unclassified_email_requires_eligibility_review" };
 }

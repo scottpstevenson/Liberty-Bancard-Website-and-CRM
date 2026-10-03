@@ -2,6 +2,42 @@
 
 ## Current disposition
 
+### CRM repair verification — 2026-10-03
+
+Task 2060 remains **IN_PROGRESS**, not accepted as a completed full pipeline.
+
+- The latest disposable integrated-pipeline certification passes: five governed
+  ZeroBounce fixtures, two paid-result fixtures, three typed sources and three
+  paused enrollments. A distinct alternative is validated without changing the
+  original eligibility records or provider-observation fingerprints.
+- The CRM repair v2 disposable certification passes 20 checks with zero provider
+  calls and zero outbound changes. Typecheck and migration integrity pass.
+- The recipient-scoped migration also removes the older table-level UNIQUE
+  constraint on `(cohort_run_id,business_id,policy_version)` by its exact column
+  shape, preserving recipient-scoped uniqueness and historical records.
+- The current development relationship evaluator is installed and its native
+  body hash is `6868a6d639a3fd0af7a10346821dad19`. The development global-capacity
+  guard hash is `f539e6284a16e3686ab61df964c16779`.
+- A production-scoped read still finds the old reviewed-relationship guard
+  (`30910090e380e90ea27bff572d2c5847`) and neither replacement evaluator nor
+  global-capacity guard. This is a release blocker; a normal column/index diff
+  must not be assumed to transfer native functions and triggers.
+- A production read at 2026-10-03 05:58:52 UTC finds 85,631 canonical businesses,
+  154,418 contact rows and 32 current verified contacts linked to canonical
+  businesses. These are separate populations, not a full funnel census or a
+  qualified-recipient count.
+- The development application starts with background workers disabled and
+  outbound paused. Its public landing page renders; signed-in CRM UI was not
+  verified by that screenshot.
+
+Outstanding acceptance work includes supported production guard transfer and
+exact-definition verification, the full scoped source/business/contact census,
+general-lane admission tracing, complete metric/UI reconciliation, two successive
+scheduled executions with actual movement, and proof of 5,000 unique qualified
+recipients plus the separate 20-business-per-vertical coverage requirement.
+Workbook imports remain deferred. No production DDL or outbound release was
+performed.
+
 ### Publish index-syntax repair
 
 The failed Publish attempt generated truncated SQL for both Sunbiz contact

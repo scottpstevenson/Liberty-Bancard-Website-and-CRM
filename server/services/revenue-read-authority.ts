@@ -3,6 +3,7 @@ import { OPEN_SALES_LEAD_STAGES } from "@shared/schema";
 import { authorizeCommercialUseBatch } from "./commercial-resolution";
 import { contactTargetVerticalSql, resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
 import { CLASSIFIER_VERSION } from "./cro03/sfp-vertical-classifier";
+import { effectiveContactVerticalSql,effectiveContactVerticalStatusSql } from "@shared/effective-vertical";
 
 export type RevenueUser = { role?: string; email?: string | null };
 export type RevenueFilters = {
@@ -63,32 +64,7 @@ function addContactFilters(filters: RevenueFilters, values: unknown[], alias = "
     const target = resolveContactTargetVertical(filters.vertical);
     values.push(target ?? filters.vertical);
     const p = `$${values.length}`;
-    where.push(target ? `(${contactTargetVerticalSql(`${alias}.vertical`)} = ${p}
-      OR EXISTS (SELECT 1 FROM contact_business_link_decisions vertical_link
-        JOIN businesses vertical_business ON vertical_business.id=vertical_link.business_id
-        WHERE vertical_link.contact_id=${alias}.id AND vertical_link.business_id=${alias}.business_id
-          AND vertical_link.decision='verified' AND vertical_link.superseded_at IS NULL
-          AND (${contactTargetVerticalSql("vertical_business.vertical")}=${p}
-            OR EXISTS (SELECT 1 FROM sfp_classification_evidence vertical_classification
-              JOIN sfp_programs vertical_program ON vertical_program.is_active=TRUE
-                AND vertical_program.taxonomy_version=2
-                AND vertical_program.policy_version=vertical_classification.policy_version
-              WHERE vertical_classification.business_id=vertical_business.id
-                AND vertical_classification.taxonomy_version=2
-                AND vertical_classification.classifier_version=${CLASSIFIER_VERSION}
-                AND vertical_classification.terminal_state='completed'
-                AND vertical_classification.outcome='target'
-                AND vertical_classification.admission_tier='resolved_high'
-                AND vertical_classification.resolved_vertical_id=${p}
-                AND vertical_classification.resolved_vertical_id=ANY(vertical_program.vertical_ids)
-                AND NOT EXISTS (SELECT 1 FROM sfp_classification_evidence later_classification
-                  WHERE later_classification.business_id=vertical_classification.business_id
-                    AND later_classification.taxonomy_version=2
-                    AND later_classification.classifier_version=${CLASSIFIER_VERSION}
-                    AND later_classification.policy_version=vertical_classification.policy_version
-                    AND later_classification.terminal_state='completed'
-                    AND (later_classification.created_at,later_classification.id)>
-                        (vertical_classification.created_at,vertical_classification.id))))))`
+    where.push(target ? `${effectiveContactVerticalSql(alias)} = ${p}`
       : `${alias}.vertical = ${p}`);
   }
   if (filters.tag) { values.push(filters.tag); where.push(`$${values.length} = ANY(COALESCE(${alias}.tags, ARRAY[]::text[]))`); }
@@ -227,7 +203,9 @@ export async function readPeople(user: RevenueUser, filters: RevenueFilters) {
 
   // Fast index scan — connection auto-released after this single query.
   const dataResult = await pool.query(
-    `SELECT c.* FROM contacts c WHERE ${predicate}
+    `SELECT c.*,c.vertical AS raw_vertical,${effectiveContactVerticalSql("c")} AS vertical,
+      ${effectiveContactVerticalSql("c")} AS effective_vertical_id,
+      ${effectiveContactVerticalStatusSql("c")} AS effective_vertical_status FROM contacts c WHERE ${predicate}
      ORDER BY ${order}
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     dataValues,

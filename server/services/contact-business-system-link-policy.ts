@@ -36,6 +36,7 @@ function normalizeDatabaseGuardDomain(value: unknown): string {
 }
 
 export function matchesSystemLinkDatabaseGuardIdentity(facts: SystemLinkFacts): boolean {
+  if (facts.relationshipReasons) return facts.relationshipReasons.length === 0;
   const businessDomain = normalizeDatabaseGuardDomain(facts.businessDomain);
   const contactDomain = normalizeDatabaseGuardWebsite(facts.contactWebsite);
   const sourceDomain = normalizeDatabaseGuardWebsite(facts.sunbizWebsite);
@@ -51,6 +52,8 @@ export function matchesSystemLinkDatabaseGuardIdentity(facts: SystemLinkFacts): 
 }
 
 export interface SystemLinkFacts {
+  relationshipReasons?: string[];
+  identityRevision?: string;
   contactId: number;
   businessId: number;
   sourceLinkId: string | null;
@@ -89,6 +92,7 @@ export interface SystemLinkFacts {
 
 /** Predicate intentionally identical to the existing strict system writer. */
 export function evaluateSystemLinkFacts(f: SystemLinkFacts): string[] {
+  if (f.relationshipReasons) return [...f.relationshipReasons];
   const reasons: string[] = [];
   const domain = normalizeSystemBusinessDomain(f.businessDomain);
   const contactDomain = normalizeSystemBusinessDomain(f.contactWebsite);
