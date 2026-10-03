@@ -1,0 +1,95 @@
+{
+  "observedAt": "2026-10-03T21:33:47.405Z",
+  "scope": "Native delivery investigation; no production mutation",
+  "ownerConsole": {
+    "dollarQuotedFormatFailed": true,
+    "escapeStringFormatFailed": true,
+    "latestError": "unterminated quoted string at or near E'",
+    "screenshots": [
+      "attached_assets/Screenshot_2026-10-03_at_5.21.56_PM_1791062518289.png",
+      "attached_assets/Screenshot_2026-10-03_at_5.22.05_PM_1791062529450.png",
+      "attached_assets/Screenshot_2026-10-03_at_5.22.15_PM_1791062537333.png",
+      "attached_assets/Screenshot_2026-10-03_at_5.22.22_PM_1791062545118.png",
+      "attached_assets/Screenshot_2026-10-03_at_5.22.30_PM_1791062552550.png"
+    ],
+    "handoffRecommendationsWithdrawn": true,
+    "actualExecutionPathRootCauseEstablished": false,
+    "doNotRequestAnotherLargePaste": true
+  },
+  "publicVendorParser": {
+    "sourceUrl": "https://local.drizzle.studio/index.js",
+    "bundleSha256": "d7bbd02f9b5cb2631419aa1f48777b31b356f068836e20202ae74fd2e9317591",
+    "exactOwnerBuildIdentified": false,
+    "cases": [
+      {
+        "file": "migrations/0329_crm_native_contract_repair.sql",
+        "dialect": "psql",
+        "statementCount": 1,
+        "wholeStatementPreserved": true,
+        "statementChars": 24644
+      },
+      {
+        "file": "migrations/0329_crm_native_contract_repair.sql",
+        "dialect": "generic",
+        "statementCount": 1,
+        "wholeStatementPreserved": true,
+        "statementChars": 24644
+      },
+      {
+        "file": "migrations/0329_crm_native_contract_repair.sql",
+        "dialect": "sqlite",
+        "statementCount": 1,
+        "wholeStatementPreserved": true,
+        "statementChars": 24644
+      },
+      {
+        "file": "docs/certification/canonical-enrichment-native-console.sql",
+        "dialect": "psql",
+        "statementCount": 1,
+        "wholeStatementPreserved": true,
+        "statementChars": 25741
+      },
+      {
+        "file": "docs/certification/canonical-enrichment-native-console.sql",
+        "dialect": "generic",
+        "statementCount": 1,
+        "wholeStatementPreserved": true,
+        "statementChars": 25741
+      },
+      {
+        "file": "docs/certification/canonical-enrichment-native-console.sql",
+        "dialect": "sqlite",
+        "statementCount": 1,
+        "wholeStatementPreserved": true,
+        "statementChars": 25741
+      }
+    ]
+  },
+  "officialDocumentation": {
+    "url": "https://docs.replit.com/features/data-and-storage/connection-details",
+    "verifiedText": "You can connect to your production database from any PostgreSQL-compatible SQL client using the connection string from the production database Settings tab.",
+    "ownerKeepsCredentialsPrivate": true,
+    "agentMayNotRetrieveCredentialsOrRunProductionDdl": true
+  },
+  "productionCatalogRead": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "proname,body_md5\nenforce_reviewed_contact_business_link,30910090e380e90ea27bff572d2c5847\n",
+    "success": true
+  },
+  "standardClient": {
+    "sourceFile": "migrations/0329_crm_native_contract_repair.sql",
+    "sourceSha256": "6213c5ac119d9cca2ec5128b2f84b3f3e18ca79b24a01735e45ab649d27d4242",
+    "client": "psql",
+    "disposableChecks": 28,
+    "receipt": "docs/certification/canonical-enrichment-native-psql-test.json",
+    "ownerPrimaryProductionConnectionVerified": false,
+    "productionExecutionVerified": false
+  },
+  "automaticNativePublishDeliveryFixed": false,
+  "productionRepaired": false,
+  "taskComplete": false,
+  "agentProductionMutation": false,
+  "productionCredentialsRetrieved": false,
+  "customProductionRunnerAdded": false
+}

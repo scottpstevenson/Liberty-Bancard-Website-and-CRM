@@ -45,8 +45,9 @@ The user-authorized owner-route exception is documented in `replit.md`;
 Agent production SQL access remains read-only.
 
 PostgreSQL driver certification is not owner SQL-console certification.
-An editable production SQL runner rejected a byte-identical, driver-tested
-native DO block with an unterminated dollar-quoted-string error.
+An editable production SQL runner rejected both a driver-tested dollar-quoted
+native DO block and its exact-body escape-string transport, reporting
+unterminated dollar-quoted and quoted strings respectively.
 
 **Why:** Repeating instructions to paste the same block did not change the
 failure; owner screenshots established both the correct target and the actual
@@ -54,7 +55,11 @@ syntax error. Documentation-search claims about console parser behavior were
 not sufficient evidence.
 
 **How to apply:** Inspect execution errors before asking for repeated exports.
-If adapting console transport, prove exact decoded-body parity and atomic
-recovery without changing native fingerprints. A transport with one literal
-statement terminator can avoid inner-delimiter splitting, but report actual
-console success only after independent production verification.
+Do not offer more speculative console encodings. Exact decoded-body parity and
+one literal terminator did not establish console compatibility. The current
+public vendor parser preserved both failed forms intact; this does not identify
+the owner's actual deployed console parser or downstream transport.
+Keep any owner-managed standard SQL-client administration separate from Agent
+read-only production access and prohibited custom production runners. Never
+retrieve the owner's production credentials. Report native repair only after
+independent production verification, and automatic Publish delivery separately.

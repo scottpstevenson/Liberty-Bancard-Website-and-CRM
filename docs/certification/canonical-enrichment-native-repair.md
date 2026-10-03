@@ -1,12 +1,12 @@
 # Versioned native-contract repair
 
-## Immediate deliverable and remaining owner action
+## Native repair blocked in the owner SQL runner
 
-**The repair is tested and executable, but has not been applied to production.**
+**Both SQL-runner handoffs failed. Do not execute either form there again.**
 Task #2063 remains open. Do not resume dependent enrichment or production
 workbook imports until the production verification returns all seven `true`.
 
-### Confirmed SQL-runner failure and corrected transport
+### Confirmed failures; no console compatibility certificate
 
 The owner's screenshots confirm **Production Database** and **Enable Editing**,
 and show an **unterminated dollar-quoted string** error when submitting the
@@ -14,26 +14,32 @@ original repair. The earlier driver-level certificate did not prove that
 Replit's SQL runner would submit that dollar-quoted block intact. Do not keep
 asking the owner to paste the same original block or change database selection.
 
-For **owner SQL-runner execution**, use:
+The replacement also failed with **unterminated quoted string at or near E'**,
+as shown in the owner's five subsequent screenshots. The file below is retained
+as failed-handoff evidence, **not recommended for owner execution**:
 
 **`docs/certification/canonical-enrichment-native-console.sql`**
 
 SHA256: **`a8aa0616cf110c0d7a5e8a9f5b5c18041fc9d6884c1a06daddbd231dabd22fc6`**
 
-This is a transport form of the same versioned 0329 repair, not another
+This was a transport form of the same versioned 0329 repair, not another
 migration or another schema authority. It uses a PostgreSQL escape-string DO
 body, with inner semicolons and dollar signs escaped. The submitted text has
 exactly one literal semicolon (the final terminator) and no dollar-quote
 delimiters. A PostgreSQL round-trip proves the decoded body is byte-for-byte
-identical to the canonical migration's body. All 29 console-form disposable
-checks pass, including the original 24 safety checks.
+identical to the canonical migration's body. All 29 PostgreSQL-driver checks
+passed, including the original 24 safety checks. Those checks did not certify
+the live owner SQL runner; its subsequent failure supersedes that handoff.
 
 The observed error is consistent with an incomplete dollar-quoted statement;
 a deliberately split original statement reproduces it. This does not claim
 knowledge of the SQL runner's internal parser or prove live console success.
-Owner execution of the corrected transport and independent production
-verification are still required. The canonical migration source and guard
-fingerprints remain unchanged.
+No console-specific corrected transport is currently established. The current
+public Drizzle Studio parser preserves both files as single complete statements
+in isolated parsing tests; that public bundle is not proven to be the exact
+owner-console build or execution path. A simple semicolon-splitting diagnosis
+is not established. The canonical migration source and guard fingerprints
+remain unchanged.
 
 The user explicitly authorized a versioned native-schema repair through an
 authorized database administration route. This is a narrow amendment to the
@@ -93,37 +99,28 @@ Replit deployment backends, nor guarantee that Publish can never support native
 objects. It establishes that this specific pending native contract is not
 being delivered by the current project diff.
 
-## Where the authorized owner can execute
+## Supported owner administration alternative
 
-Replit's [Work with your data documentation](https://docs.replit.com/features/data-and-storage/work-with-your-data)
-documents selecting the production database, enabling **Edit** in **My Data**,
-and using its **SQL runner**.
+Replit's actual [Connection details documentation](https://docs.replit.com/features/data-and-storage/connection-details)
+explicitly says a production database can be connected to from a
+PostgreSQL-compatible external SQL client using the connection string from
+**Production Database → Settings**. This is an owner-managed database client,
+not an application endpoint, startup hook, build hook or custom migration runner.
+Do not disclose the connection string to Agent or put it in this repository/chat.
 
-1. Open **Database**, select **Production**, then **My Data** and **Edit**.
-   Open **SQL runner**. Confirm production is selected; do not overwrite/copy
-   development data into production.
-2. In a cleared editor, run
-   `docs/certification/canonical-enrichment-native-before.sql`, then
-   `docs/certification/canonical-enrichment-native-verify.sql`.
-   Inspect the *new* results, not an older result panel.
-   Owner execution needs `transaction_read_only=off`, schema CREATE, and owner
-   membership for the reviewed routine and system-evidence table. The current
-   known guard result is `false,true,true,true,true,true,false`; the current
-   reviewed body is `30910090e380e90ea27bff572d2c5847`.
-3. Paste the **entire** tested
-   `docs/certification/canonical-enrichment-native-console.sql` into a cleared editor and
-   execute it once. Do not add `BEGIN`, `COMMIT`, or another transaction wrapper:
-   the single DO statement is atomic and works with transaction-wrapping
-   consoles. The BEGIN inside its encoded PL/pgSQL body belongs there; this
-   instruction only forbids adding separate transaction commands.
-   Do not paste over uncleared prior contents. Do not use the original
-   dollar-quoted migration in this SQL runner after its confirmed rejection.
-4. Run both read-only verification files again. Save the actual new results.
-   The main native verification must return **all seven true**. Check the
-   signatures and hashes below. Notify Agent after execution so production
-   can be independently rechecked through its read-only connection.
+The owner, or an authorized database administrator, can load the existing
+**`migrations/0329_crm_native_contract_repair.sql`** as a whole SQL script in that
+client. Use script/file execution, not a selected fragment. The original
+versioned source is unchanged; there is no third SQL encoding to paste.
 
-**Consequences:** this narrowly changes native definitions and one intended
+The before/verify SQL files remain read-only diagnostic tools. The repair's
+permission, predecessor and postcondition checks are enforced inside its one
+atomic statement. Actual primary production endpoint access, permissions and
+execution through an owner client remain unverified until the owner performs
+them. The Agent does not retrieve credentials, execute production DDL, or
+create a production runner.
+
+**Consequences of authorized execution:** this narrowly changes native definitions and one intended
 nullability contract. It may briefly wait for the evidence-table lock;
 lock waits are limited to five seconds. Existing records, foreign keys,
 trigger identities, function owner/ACL and outbound pause are preserved.
@@ -132,11 +129,10 @@ postcheck raises an error and rolls back the entire statement. If the statement
 fails, do not partially paste/execute its inner definitions. Address the
 reported restriction/drift and replay the unchanged whole statement.
 
-The SQL runner route is documented, but **successful owner execution of this
-specific DDL remains unverified until step 4**. If Edit is unavailable, the
-SQL runner remains read-only, or it rejects native DDL, stop and use the
-platform-resolution reproduction below. Do not obtain a production connection
-string or add a runner to work around it.
+The repair is not complete until independent production verification returns
+all seven true with the four intended routine fingerprints. If the owner cannot
+use an authorized PostgreSQL client, native delivery remains blocked. Routine
+republishing does not replace that prerequisite.
 
 ### Expected after-repair routines
 
@@ -171,10 +167,21 @@ The existing native/read-only evaluator comparison passed its disposable
 database probes. TypeScript and migration-integrity checks pass. No production
 schema mutation or workbook import is included in this certificate.
 
-The additional `--console` run passed 29 checks, including exact decoded-body
+The additional `--console` PostgreSQL-driver run passed 29 checks, including exact decoded-body
 parity, one literal statement delimiter, no dollar-quote delimiters, and
 reproduction of the partial-original-statement syntax failure. Its receipt is
-`canonical-enrichment-native-console-test.json`.
+`canonical-enrichment-native-console-test.json`. This is not a console
+compatibility certificate; the actual owner console subsequently rejected it.
+
+The `--psql` run passed 28 checks against a fresh disposable PostgreSQL
+database. It executes the unchanged canonical repair through the standard
+`psql` client, confirms all seven native guards and unchanged triggers,
+constraints and data counts, reconstructs the same predecessor, then runs the
+24 existing driver-level safety checks. Its receipt is
+`canonical-enrichment-native-psql-test.json`. The test's disposable-infrastructure
+guard runs before any client connection or child process. Neither the test
+nor that receipt authorizes Agent production execution or proves the owner's
+production endpoint connection.
 
 ### Publish/build investigation
 
@@ -183,12 +190,13 @@ it does not run the separate pre-deploy workflow or replay SQL migrations.
 Production logs explicitly confirm startup migrations are skipped, as required
 for this managed database. Adding unsafe production DDL to build/startup is
 not a fix. The zero native-object diff remains the automatic-delivery gap:
-the corrected console transport addresses the owner's execution error, not
-that separate Publish limitation.
+neither failed console transport establishes repair, and automatic native
+Publish delivery is still unresolved.
 
-## Support-ready reproduction if owner execution is restricted
+## Recorded delivery evidence
 
-Platform owner: **Replit managed database / Publish schema delivery**.
+The application build, managed Publish diff, owner console, and owner
+PostgreSQL client are distinct paths; do not conflate their certificates.
 
 1. Production has old reviewed body `30910090e380e90ea27bff572d2c5847`;
    development has expected `46f89326f7c158ac739814ce343c2559`.
@@ -196,10 +204,10 @@ Platform owner: **Replit managed database / Publish schema delivery**.
 3. `explainSchemaDiff()` reports success, no diff, and zero statements.
 4. Production read-only Agent transport reports `transaction_read_only=on`
    even though its underlying role has ownership/CREATE privileges.
-5. Supply the tested 0329 schema source and JSON receipts listed below. If the
-   owner's SQL runner rejected it, include the exact error and whether Edit was
-   enabled. Do not include credentials or contact data.
-6. Required platform resolution: authorized delivery of the exact native
+5. Both owner's SQL-runner errors and enabled editing are already recorded.
+   Do not ask for repeated screenshots or exports. Keep credentials and contact
+   data out of receipts.
+6. Required native delivery outcome: authorized delivery of the exact native
    contract, followed by all seven guard predicates passing. Routine
    republishing without a changed native diff is not sufficient proof.
 
@@ -210,6 +218,8 @@ Receipts:
 - `canonical-enrichment-native-repair-test.json`
 - `canonical-enrichment-native-repair-production.json`
 - `canonical-enrichment-native-console-test.json`
+- `canonical-enrichment-native-psql-test.json`
+- `canonical-enrichment-native-execution-investigation.json`
 
 The latest production receipt records serving revision
 `42309395870515b0a575e85f6c753a65da408c2a` and native guards still failing.

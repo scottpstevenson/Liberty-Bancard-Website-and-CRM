@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { Pool } from "pg";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 
@@ -14,6 +15,8 @@ async function main() {
   const client = await pool.connect();
   const canonicalRepair = fs.readFileSync("migrations/0329_crm_native_contract_repair.sql", "utf8");
   const consoleMode = process.argv.includes("--console");
+  const psqlMode = process.argv.includes("--psql");
+  assert(!(consoleMode && psqlMode), "Choose one transport certificate");
   const repairFile = consoleMode
     ? "docs/certification/canonical-enrichment-native-console.sql"
     : "migrations/0329_crm_native_contract_repair.sql";
@@ -83,6 +86,24 @@ async function main() {
     }); checks++;
     const before = await snapshot();
     check(before.procedures[0].body_md5 === "30910090e380e90ea27bff572d2c5847", "Exact production predecessor reproduced");
+
+    if (psqlMode) {
+      // Infrastructure is already confirmed disposable above. This certifies
+      // the standard client, not a production executor or a SQL-console path.
+      const cli = spawnSync("psql", ["--no-psqlrc", "--dbname", process.env.TEST_DATABASE_URL!,
+        "--set", "ON_ERROR_STOP=1", "--file", repairFile],
+        { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+      check(cli.status === 0, `Disposable psql repair failed: ${cli.error?.message ?? cli.stderr}`);
+      check(allTrue(await guard()), "Standard psql execution restores all seven native guards");
+      const cliAfter = await snapshot();
+      assert.deepEqual([cliAfter.triggers, cliAfter.constraints, cliAfter.counts],
+        [before.triggers, before.constraints, before.counts]); checks++;
+      await client.query(oldReview);
+      await client.query(`DROP FUNCTION crm_automatic_relationship_reasons(integer,integer,uuid,integer);
+        DROP FUNCTION crm_identity_name(text); DROP FUNCTION crm_identity_domain(text);
+        ALTER TABLE contact_business_system_link_evidence ALTER COLUMN source_entity_id SET NOT NULL;`);
+      assert.deepEqual(await snapshot(), before); checks++;
+    }
 
     // Inject failure after the native definitions execute. Single-statement
     // atomicity must roll back all definitions and nullability, without BEGIN.
@@ -157,11 +178,13 @@ async function main() {
     assert.deepEqual(await snapshot(), beforeReplay); checks++;
     check(allTrue(await guard()), "Replay leaves native guards passing");
     const receipt = {
-      scope: "Disposable native repair certificate; no production execution",
+      scope: "Disposable PostgreSQL-client certificate; not owner SQL-console compatibility or production execution",
       repairFile,
       repairSha256: createHash("sha256").update(repair).digest("hex"),
       canonicalSourceSha256: createHash("sha256").update(canonicalRepair).digest("hex"),
       consoleTransport: consoleMode,
+      standardPsqlClientCertified: psqlMode,
+      ownerSqlConsoleCompatibilityVerified: false,
       partialDollarQuotedStatementFailureReproduced: consoleMode,
       consoleBodyRoundTripExact: consoleMode,
       observedAt: new Date().toISOString(), checks,
@@ -175,7 +198,8 @@ async function main() {
     };
     const receiptFile = consoleMode
       ? "docs/certification/canonical-enrichment-native-console-test.json"
-      : "docs/certification/canonical-enrichment-native-repair-test.json";
+      : psqlMode ? "docs/certification/canonical-enrichment-native-psql-test.json"
+        : "docs/certification/canonical-enrichment-native-repair-test.json";
     fs.writeFileSync(receiptFile, JSON.stringify(receipt,null,2)+"\n");
     console.log(JSON.stringify(receipt,null,2));
   } finally {
