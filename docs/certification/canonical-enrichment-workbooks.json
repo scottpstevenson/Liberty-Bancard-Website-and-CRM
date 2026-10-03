@@ -1,0 +1,73 @@
+{
+  "scope": "Independent parser parity and existing underlying evidence-staging boundary only; not repaired HTTP ingestion or downstream readiness",
+  "observedAt": "2026-10-03T19:23:51.266Z",
+  "files": [
+    {
+      "file": "Outscraper-20261002160911s8d6b_1791037870877.xlsx",
+      "rows": 537,
+      "columns": 93,
+      "csvCellParity": "PASS",
+      "rawEvidencePersistence": "PASS",
+      "stagingReplay": "PASS",
+      "changedPayloadRejection": "PASS"
+    },
+    {
+      "file": "Outscraper-20261002160955s00ed_1791037870876.xlsx",
+      "rows": 578,
+      "columns": 93,
+      "csvCellParity": "PASS",
+      "rawEvidencePersistence": "PASS",
+      "stagingReplay": "PASS",
+      "changedPayloadRejection": "PASS"
+    },
+    {
+      "file": "Outscraper-20261002161052s68e5_1791037870877.xlsx",
+      "rows": 513,
+      "columns": 93,
+      "csvCellParity": "PASS",
+      "rawEvidencePersistence": "PASS",
+      "stagingReplay": "PASS",
+      "changedPayloadRejection": "PASS"
+    },
+    {
+      "file": "Outscraper-20261002161147s2b94_1791037870876.xlsx",
+      "rows": 653,
+      "columns": 93,
+      "csvCellParity": "PASS",
+      "rawEvidencePersistence": "PASS",
+      "stagingReplay": "PASS",
+      "changedPayloadRejection": "PASS"
+    },
+    {
+      "file": "Outscraper-20261002161239s8aab_1791037870874.xlsx",
+      "rows": 633,
+      "columns": 93,
+      "csvCellParity": "PASS",
+      "rawEvidencePersistence": "PASS",
+      "stagingReplay": "PASS",
+      "changedPayloadRejection": "PASS"
+    }
+  ],
+  "aggregate": {
+    "rows": 2914,
+    "businesses": 1245,
+    "emails": 2754,
+    "pairs": 2822,
+    "receiving_emails": 1890,
+    "receiving_businesses": 1042
+  },
+  "noExternalHttpAttempts": true,
+  "crmProviderPreparationEnrollmentCountsUnchanged": true,
+  "knownCurrentRouteGaps": {
+    "xlsxRejected": true,
+    "originalRowNotPassedToStaging": true,
+    "unmappedNonblankCells": 148523,
+    "dottedVendorStatusRowsNotRetainedByCurrentMapping": 2836
+  },
+  "pending": [
+    "Supported native production delivery",
+    "Repaired shared importer replay",
+    "Canonical entity/outbox/receipt/preparation trace",
+    "Production imports and scheduled cycles"
+  ]
+}

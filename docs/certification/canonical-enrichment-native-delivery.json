@@ -1,0 +1,72 @@
+{
+  "observedAt": "2026-10-03T19:20:12.860Z",
+  "schemaDiff": {
+    "columnsToRemove": [],
+    "hasDiff": false,
+    "hasStructuralDataLoss": false,
+    "matViewsToRemove": [],
+    "maybeNonBackwardsCompatible": false,
+    "schemasToRemove": [],
+    "statementsToExecute": [],
+    "success": true,
+    "tablesToRemove": [],
+    "tablesToTruncate": [],
+    "warnings": []
+  },
+  "productionGuard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nf,t,t,t,t,t,f\n",
+    "success": true
+  },
+  "requiredOwner": "Replit managed database / Publish schema synchronization",
+  "requiredResolution": "Supported platform-owned delivery or documented verified supported route for exact functions, trigger bodies and constraints; no application DDL workaround.",
+  "supportedRouteProved": false,
+  "documentation": {
+    "relevantPages": [
+      {
+        "title": "Support Policy",
+        "url": "https://docs.replit.com/legal-and-security-info/support-policy"
+      },
+      {
+        "title": "Database",
+        "url": "https://docs.replit.com/features/data-and-storage/sql-database"
+      },
+      {
+        "title": "Development and production",
+        "url": "https://docs.replit.com/features/data-and-storage/development-and-production"
+      }
+    ],
+    "response": "To report a schema synchronization bug in a Replit managed production database, please reach out to the Replit Support team by selecting the '?' Get Help button located in the top-right corner of the Replit interface. When submitting your ticket, ensure you include your project URL, the evidence that the development and production databases are out of sync, and the result indicating that there is no diff in the schema. Please avoid including any sensitive data or credentials in your report."
+  },
+  "catalogQuery": "SELECT p.proname,pg_get_function_identity_arguments(p.oid) AS signature,md5(p.prosrc) AS body_md5 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('crm_identity_name','crm_identity_domain','crm_automatic_relationship_reasons','enforce_reviewed_contact_business_link','cro02_system_link_evidence_append_only') ORDER BY p.proname",
+  "developmentCatalog": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "proname,signature,body_md5\ncrm_automatic_relationship_reasons,\"contact_key integer, business_key integer, source_key uuid, entity_key integer\",6868a6d639a3fd0af7a10346821dad19\ncrm_identity_domain,value text,d0af69048a9c4845df1589219a522629\ncrm_identity_name,value text,e45d1eb858ef5e5f9d94b8b9aa965c49\ncro02_system_link_evidence_append_only,,0851a20c34b3ce424364b5c3fc6e556b\nenforce_reviewed_contact_business_link,,46f89326f7c158ac739814ce343c2559\n",
+    "success": true
+  },
+  "productionCatalog": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "proname,signature,body_md5\ncro02_system_link_evidence_append_only,,0851a20c34b3ce424364b5c3fc6e556b\nenforce_reviewed_contact_business_link,,30910090e380e90ea27bff572d2c5847\n",
+    "success": true
+  },
+  "requiredReviewedBodyHash": "46f89326f7c158ac739814ce343c2559",
+  "deployedUrl": "https://dev.libertybancard.com",
+  "productionGuardQuery": {
+    "sql": "\n    SELECT EXISTS (\n      SELECT 1 FROM pg_trigger t\n      JOIN pg_class c ON c.oid=t.tgrelid\n      JOIN pg_namespace n ON n.oid=c.relnamespace\n      JOIN pg_proc p ON p.oid=t.tgfoid\n      WHERE n.nspname='public' AND c.relname='contact_business_link_decisions'\n        AND t.tgname='contact_business_link_review_contract'\n        AND t.tgenabled IN ('O','A')\n        AND NOT t.tgisinternal AND t.tgqual IS NULL\n        AND t.tgtype=23\n        AND p.proname='enforce_reviewed_contact_business_link'\n        AND p.pronamespace='public'::regnamespace\n        AND md5(p.prosrc)=$1\n    ) AS installed,\n    EXISTS (\n      SELECT 1 FROM pg_trigger t\n      JOIN pg_class c ON c.oid=t.tgrelid\n      JOIN pg_namespace n ON n.oid=c.relnamespace\n      JOIN pg_proc p ON p.oid=t.tgfoid\n      WHERE n.nspname='public' AND c.relname='contact_business_system_link_evidence'\n        AND t.tgname='contact_business_system_link_evidence_append_only'\n        AND t.tgenabled IN ('O','A')\n        AND NOT t.tgisinternal AND t.tgqual IS NULL\n        AND t.tgtype=27\n        AND p.proname='cro02_system_link_evidence_append_only'\n        AND p.pronamespace='public'::regnamespace\n        AND md5(p.prosrc)=$2\n    ) AS immutable_evidence_trigger,\n    to_regclass('public.contact_business_system_link_evidence') IS NOT NULL AS evidence_table,\n    EXISTS (\n      SELECT 1 FROM information_schema.columns\n      WHERE table_schema='public' AND table_name='contact_business_link_decisions'\n        AND column_name='system_evidence_id' AND data_type='uuid'\n    ) AS evidence_column,\n    (SELECT bool_and(EXISTS (\n        SELECT 1\n          FROM pg_constraint con\n          JOIN pg_class rel ON rel.oid=con.conrelid\n          JOIN pg_namespace ns ON ns.oid=rel.relnamespace\n          JOIN pg_attribute local_col ON local_col.attrelid=con.conrelid\n                                    AND local_col.attnum=con.conkey[1]\n          JOIN pg_class referenced_rel ON referenced_rel.oid=con.confrelid\n          JOIN pg_namespace referenced_ns ON referenced_ns.oid=referenced_rel.relnamespace\n          JOIN pg_attribute referenced_col ON referenced_col.attrelid=con.confrelid\n                                          AND referenced_col.attnum=con.confkey[1]\n         WHERE ns.nspname='public' AND rel.relname=expected.table_name\n           AND con.conname=expected.constraint_name AND con.contype='f'\n           AND con.convalidated AND con.confdeltype='r'\n           AND array_length(con.conkey,1)=1 AND array_length(con.confkey,1)=1\n           AND local_col.attname=expected.column_name\n           AND referenced_ns.nspname='public'\n           AND referenced_rel.relname=expected.referenced_table\n           AND referenced_col.attname=expected.referenced_column\n      ))\n       FROM (VALUES\n         ('contact_business_system_link_evidence','contact_business_system_link_evidence_contact_id_fkey','contact_id','contacts','id'),\n         ('contact_business_system_link_evidence','contact_business_system_link_evidence_business_id_fkey','business_id','businesses','id'),\n         ('contact_business_system_link_evidence','contact_business_system_link_evidence_source_link_id_fkey','source_link_id','canonical_source_links','id'),\n         ('contact_business_system_link_evidence','contact_business_system_link_evidence_source_entity_id_fkey','source_entity_id','sunbiz_entities','id'),\n         ('contact_business_link_decisions','contact_business_link_decisions_system_evidence_id_fkey','system_evidence_id','contact_business_system_link_evidence','id')\n       ) AS expected(table_name,constraint_name,column_name,referenced_table,referenced_column)\n    ) AS evidence_foreign_keys,\n    (SELECT COUNT(*) = 2 AND bool_and(\n        CASE rel.relname\n          WHEN 'sfp_outreach_eligibility' THEN\n            md5(lower(regexp_replace(btrim(pg_get_expr(con.conbin,con.conrelid,true)),\n                                     '[[:space:]]+',' ','g')))=$3\n          WHEN 'sfp_campaign_staging_intents' THEN\n            md5(lower(regexp_replace(btrim(pg_get_expr(con.conbin,con.conrelid,true)),\n                                     '[[:space:]]+',' ','g')))=$4\n          ELSE false\n        END\n      )\n       FROM pg_constraint con\n      JOIN pg_class rel ON rel.oid=con.conrelid\n      JOIN pg_namespace ns ON ns.oid=rel.relnamespace\n      WHERE (rel.relname,con.conname) IN (\n        ('sfp_outreach_eligibility','sfp_outreach_eligibility_source_ref_one_of_chk'),\n        ('sfp_campaign_staging_intents','sfp_campaign_staging_intents_source_ref_one_of_chk')\n      )\n       AND ns.nspname='public' AND con.contype='c' AND con.convalidated\n       AND con.conislocal AND con.coninhcount=0\n    ) AS sfp_contact_checks\n    ,(SELECT count(*)=3 AND bool_and(md5(p.prosrc)=expected.body_hash)\n      FROM (VALUES\n        ('crm_identity_name','e45d1eb858ef5e5f9d94b8b9aa965c49'),\n        ('crm_identity_domain','d0af69048a9c4845df1589219a522629'),\n        ('crm_automatic_relationship_reasons','6868a6d639a3fd0af7a10346821dad19')\n      ) expected(function_name,body_hash)\n      JOIN pg_proc p ON p.proname=expected.function_name\n        AND p.pronamespace='public'::regnamespace\n    ) AS relationship_evaluator\n  ",
+    "params": [
+      "46f89326f7c158ac739814ce343c2559",
+      "0851a20c34b3ce424364b5c3fc6e556b",
+      "e83217cf6cea8fb0a75857ac2100d4e3",
+      "ddb906e4ac5e57a0700b1ea776bf8ed6"
+    ]
+  },
+  "servingHealth": {
+    "status": "ok",
+    "sha": "42309395870515b0a575e85f6c753a65da408c2a",
+    "builtAt": "2026-10-03T18:30:59.888Z",
+    "environment": "production"
+  }
+}
