@@ -22,3 +22,9 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 **Why:** Published tables can have their columns and CHECKs while migration-defined guards remain absent and the Publish diff reports no outstanding changes. An existing trigger can also survive publication with its older function body, so trigger-name presence alone is insufficient.
 
 **How to apply:** Compare `pg_trigger` and `pg_proc` on production with the intended reviewed definitions, including function-body fingerprints, before allowing guarded writes or claiming a pipeline ready. Do not mistake a healthy deployment or a no-diff Publish report for trigger parity.
+
+**Read availability and write authority are separate:** Missing native relationship functions must not make Contacts, census scanning, or evidence-review reads unavailable. A read-only equivalent is acceptable only with semantic parity checks against the reviewed native evaluator; it does not authorize a replacement application-side write fence.
+
+**Why:** Native-function rollout can lag the declarative schema even when published columns and tables are current. Coupling ordinary reads to that rollout caused several independent CRM screens to fail simultaneously.
+
+**How to apply:** Keep read evaluation and native evaluation semantically equivalent when changing relationship rules. Preserve fingerprinted native guards on writes and report missing production guards as a release hold, never as permission to bypass them.

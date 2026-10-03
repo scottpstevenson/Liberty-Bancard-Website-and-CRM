@@ -169,7 +169,7 @@ export function GhlCommandAction({
             <span>Status: {["succeeded", "completed", "complete"].includes(currentCommand.state.toLowerCase())
               ? "Succeeded"
               : ["failed", "error", "blocked", "needs_identity_backfill", "cancelled", "canceled"].includes(currentCommand.state.toLowerCase())
-                ? "Failed"
+                ? (currentCommand.state.toLowerCase() === "blocked" ? "Blocked" : "Failed")
                 : active ? "Pending / running" : currentCommand.state}</span>
             <span className="font-normal text-muted-foreground">({currentCommand.state})</span>
             <span className="font-normal text-muted-foreground">Run {currentCommand.runId}</span>

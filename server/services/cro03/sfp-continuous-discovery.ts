@@ -419,6 +419,11 @@ export async function processSfpContinuousValidationTick(): Promise<SfpContinuou
       if (Date.now() >= end || calls >= MAX_CALLS_PER_TICK) break;
       const cohortRunId = String(c.id);
       try {
+        const { promoteRoutineSfpValidationCandidates } = await import("../free-discovery/evidence-service");
+        const admission = await promoteRoutineSfpValidationCandidates(VALIDATION_BATCH_PER_CALL, cohortRunId);
+        await auditTick("sfp_continuous_validation_admission", "admission_batch_completed", {
+          cohortRunId, ...admission,
+        });
         const preview = await previewSfpValidation(cohortRunId);
         if (!preview.gateOpen || preview.selectedCandidates.length === 0) {
           exhaustedCohorts.add(cohortRunId);

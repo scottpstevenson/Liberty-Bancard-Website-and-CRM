@@ -193,6 +193,8 @@ interface PromotionState {
   runtimeOwnerReason: string | null;
   gateOpen: boolean;
   staged: number;
+  scopedStaged: number;
+  unscopedStaged: number;
   validationAdmitted: number;
   note: string;
 }
@@ -250,6 +252,7 @@ interface BackfillResult {
   skipped: number;
   failed: number;
   errors: string[];
+  reasons?: Record<string, number>;
 }
 
 export function ProgramHealthPanel() {
@@ -291,13 +294,13 @@ export function ProgramHealthPanel() {
 
   const backfillMutation = useMutation<BackfillResult, Error, number>({
     mutationFn: async (limit: number) => {
-      const res = await apiRequest("POST", "/api/lead-ops/candidates/backfill-promotion", { limit });
+      const res = await apiRequest("POST", "/api/lead-ops/candidates/routine-promotion", { limit });
       return res.json();
     },
     onSuccess: (data) => {
       toast({
         title: "Backfill complete",
-        description: `Examined ${data.examined} — promoted ${data.promoted}, skipped ${data.skipped}${data.failed > 0 ? `, failed ${data.failed}` : ""}.`,
+        description: `Examined ${data.examined} — promoted ${data.promoted}, skipped ${data.skipped}${data.failed > 0 ? `, failed ${data.failed}` : ""}.${data.reasons && Object.keys(data.reasons).length ? ` Reasons: ${Object.entries(data.reasons).map(([reason, count]) => `${reason}: ${count}`).join("; ")}` : ""}`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/health"] });
       queryClient.invalidateQueries({ queryKey: ["/api/lead-ops/candidates/promotion-state"] });
@@ -645,7 +648,7 @@ export function ProgramHealthPanel() {
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-sm">CRO-03C Readiness</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">Prerequisites for runtime attestation issuance. SHA equality is diagnostic — not a hard gate.</CardDescription>
+                  <CardDescription className="text-xs mt-0.5">Separate certificate-governed CRO-03C lane. These checks do not authorize or block routine SFP. SHA equality is diagnostic.</CardDescription>
                 </div>
                 {allPass ? (
                   warnings.length > 0 ? (
@@ -701,7 +704,7 @@ export function ProgramHealthPanel() {
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <CardTitle className="text-sm">Candidate Pipeline</CardTitle>
+              <CardTitle className="text-sm">Routine SFP Candidate Pipeline</CardTitle>
               <CardDescription className="text-xs mt-0.5">
                 Free-discovery candidates by validation state. Stuck = businesses locked in 'processing' (reaper recovers these every 15 min).
               </CardDescription>
@@ -729,6 +732,9 @@ export function ProgramHealthPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           {/* Stuck processing count */}
+          {ps && <p className="text-xs text-muted-foreground">
+            {ps.note} Scoped staged: {ps.scopedStaged?.toLocaleString() ?? "Unknown"}; outside current scope: {ps.unscopedStaged?.toLocaleString() ?? "Unknown"}.
+          </p>}
           <div className="flex items-center gap-3">
             <div className="rounded-md border bg-muted/10 px-3 py-2 flex-1">
               <div className="text-xs text-muted-foreground mb-0.5">Stuck in processing</div>

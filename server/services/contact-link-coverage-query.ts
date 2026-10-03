@@ -9,6 +9,7 @@
  */
 // The database generates these keys with the exact prior normalization.
 // Ordinary column indexes avoid Publish's broken nested-index serialization.
+import { relationshipReasonsSql } from "../../shared/relationship-evidence-sql";
 const SUNBIZ_NAME_KEY_ENTITY_SQL = "se.contact_identity_name_key";
 const SUNBIZ_NAME_KEY_DBA_SQL = "se.contact_identity_dba_key";
 
@@ -600,7 +601,7 @@ SELECT
      'sourceLinks', b.source_links,
      'automaticRelationshipReasons', (
        WITH proofs AS MATERIALIZED (
-         SELECT crm_automatic_relationship_reasons(c.contact_id,b.business_id,sl.id,se.id) AS reasons
+         SELECT ${relationshipReasonsSql("c.contact_id", "b.business_id", "sl.id", "se.id")} AS reasons
          FROM canonical_source_links sl
          LEFT JOIN sunbiz_entities se ON sl.source_system='sunbiz' AND sl.source_type='sunbiz_entity'
            AND se.filing_number=sl.stable_key AND se.source IN ('sunbiz','cordata','corevt')

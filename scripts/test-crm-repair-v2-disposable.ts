@@ -8,6 +8,7 @@ import { getUnifiedSfpCandidates } from "../server/services/cro03/sfp-paid-evide
 import { classifySfpRecipientFacts } from "../server/services/cro03/sfp-recipient-classification";
 import { processEffectiveVerticalProjectionTick } from "../server/services/crm-effective-vertical-projection";
 import { effectiveContactVerticalSql,effectiveBusinessVerticalSql } from "../shared/effective-vertical";
+import { relationshipReasonsSql } from "../shared/relationship-evidence-sql";
 
 const prefix = `crm-v2-${crypto.randomUUID()}`;
 let checks = 0;
@@ -34,6 +35,15 @@ async function main() {
   const safe = (await pool.query(`SELECT current_database() LIKE 'test_sfp2060_crm_repair_v2_%' AS safe`)).rows[0]?.safe;
   assert.equal(safe,true,"must run through the private disposable launcher");
   const good = await fixture("corroborated");
+  async function parity(f: typeof good) {
+    const row = (await pool.query(`SELECT
+      ${relationshipReasonsSql("$1","$2","$3","$4")} inline,
+      crm_automatic_relationship_reasons($1,$2,$3,$4) native`,
+      [f.contactId,f.businessId,f.sourceId,f.entityId])).rows[0];
+    assert.deepEqual([...row.inline].sort(),[...row.native].sort());
+    checks++;
+  }
+  await parity(good);
   const preview = await previewContactBusinessSystemLinks({afterContactId: good.contactId-1,limit: 1});
   check(preview.schemaReady,"matching native relationship evaluator is installed");
   check(preview.rows[0]?.eligible,"trusted DBA + address establishes a relationship without a website/corporate email");
@@ -46,7 +56,9 @@ async function main() {
     "automatic relationship does not manufacture human approval");
   check(decision.rule_version==="crm_evidence_identity_v2","evidence identifies the current rule");
   check((await applyContactBusinessSystemLink(preview.rows[0] as any)).status==="replayed","repeat is idempotent");
+  await parity(good);
   const weak = await fixture("name-only",false);
+  await parity(weak);
   const weakPreview = await previewContactBusinessSystemLinks({afterContactId:weak.contactId-1,limit:1});
   check(!weakPreview.rows[0]?.eligible,"name-only remains unresolved including SQL NULL domain values");
   const capacity = await pool.query(`SELECT conname FROM pg_constraint

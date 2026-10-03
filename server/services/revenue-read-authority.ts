@@ -4,6 +4,7 @@ import { authorizeCommercialUseBatch } from "./commercial-resolution";
 import { contactTargetVerticalSql, resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
 import { CLASSIFIER_VERSION } from "./cro03/sfp-vertical-classifier";
 import { effectiveContactVerticalSql,effectiveContactVerticalStatusSql } from "@shared/effective-vertical";
+import { syntheticQaIdentitySql } from "@shared/synthetic-qa-identity";
 
 export type RevenueUser = { role?: string; email?: string | null };
 export type RevenueFilters = {
@@ -57,6 +58,7 @@ function addContactFilters(filters: RevenueFilters, values: unknown[], alias = "
   if (filters.emailHealth) { values.push(filters.emailHealth); where.push(`${alias}.email_status = $${values.length}`); }
   if (filters.assignedTo) { values.push(filters.assignedTo); where.push(`${alias}.assigned_to = $${values.length}`); }
   if (filters.recordClass) { values.push(filters.recordClass); where.push(`${alias}.record_class = $${values.length}`); }
+  if (filters.recordClass === "production") where.push(`NOT ${syntheticQaIdentitySql(alias)}`);
   if (filters.churnRisk === "high") where.push(`${alias}.churn_risk_tier IN ('High', 'Critical')`);
   if (filters.noOutreach === "24h") where.push(`${alias}.created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours' AND ${alias}.last_contacted_at IS NULL`);
   if (filters.blocked) where.push(`(${alias}.do_not_contact = TRUE OR ${alias}.email_status IN ('bounced','invalid','opted_out','unsafe'))`);
@@ -330,7 +332,9 @@ export async function readRevenueLeads(user: RevenueUser, filters: RevenueFilter
 
   // 2. Total count — cached 30 s.
   // Key includes scope + all filter fields that affect the predicate.
-  const cacheKey = _facetCacheKey(user, { ...filters, archived: false, recordClass: "production" });
+  // Revenue leads have an additional open-sales-deal predicate. Never reuse
+  // the People facet total for this narrower population (or vice versa).
+  const cacheKey = `revenue-leads:v1:${JSON.stringify(OPEN_SALES_LEAD_STAGES)}:${_facetCacheKey(user, { ...filters, archived: false, recordClass: "production" })}`;
   const _cachedLeads = _getCachedFacet(cacheKey);
   let countRow: { total: number; as_of: string | Date } = _cachedLeads
     ? { total: _cachedLeads.total, as_of: _cachedLeads.asOf }

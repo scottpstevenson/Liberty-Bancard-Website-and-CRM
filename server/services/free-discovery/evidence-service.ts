@@ -344,9 +344,11 @@ export type PromotionResult =
  *     master_leads staging intent — that step is governed by the projection-service.
  *   - Does NOT write to contacts, GHL, campaigns, or outreach.
  */
-export async function promoteCandidateForValidation(candidateId: string): Promise<PromotionResult> {
-  // Gate 1: operator opt-in
-  if (process.env.FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED !== "true") {
+export async function promoteCandidateForValidation(candidateId: string,
+  routine?: { cohortRunId: string }): Promise<PromotionResult> {
+  // Both the health page and producer use the same effective control.
+  const { isSfpValidationPromotionEnabled } = await import("../cro03/south-florida-prospecting");
+  if (!(await isSfpValidationPromotionEnabled())) {
     return { status: "PENDING_OPERATOR_ACTIVATION", reason: "FREE_DISCOVERY_VALIDATION_PROMOTION_DISABLED" };
   }
 
@@ -358,6 +360,23 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
   `))[0];
   if (!candidate) {
     return { status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_NOT_FOUND" };
+  }
+  if (routine) {
+    // Routine SFP is not the separately restricted MI-09/CRO03C pilot lane.
+    // Admission is bound to a frozen, current active-program cohort, not a
+    // generic staged row or the adjacent certificate diagnostics.
+    const membership = rows(await db.execute(sql`
+      SELECT m.business_id FROM sfp_cohort_members m
+      JOIN sfp_cohort_runs r ON r.id=m.cohort_run_id
+      JOIN sfp_programs p ON p.id=r.program_id AND p.is_active=TRUE
+      WHERE r.id=${routine.cohortRunId}::uuid AND r.cohort_state='frozen'
+        AND r.voided_at IS NULL AND r.superseded_at IS NULL
+        AND m.business_id=${candidate.business_id}
+    `))[0];
+    if (!membership) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "ROUTINE_SFP_COHORT_SCOPE_MISSING" };
+    const { getSfpProviderReadiness } = await import("../cro03/sfp-provider-operations");
+    const readiness = await getSfpProviderReadiness("zerobounce");
+    if (!readiness.ready) return { status: "PENDING_OPERATOR_ACTIVATION", reason: `ROUTINE_SFP_PROVIDER_HELD:${readiness.reason}` };
   }
 
   // Gate 2: only 'staged' candidates may be admitted. Already-admitted is idempotent.
@@ -390,6 +409,9 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
       tag: String(candidate.envelope_tag),
       keyVersion: Number(candidate.envelope_key_version ?? 1),
     });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(plaintext.trim())) {
+      return { status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_EMAIL_SYNTAX_UNUSABLE" };
+    }
     contactEmailTokenHash = createHash("sha256").update(plaintext.trim().toLowerCase()).digest("hex");
   } catch (decryptErr: any) {
     console.error("[FreeDiscovery] candidate envelope could not be opened:", decryptErr?.message);
@@ -431,27 +453,40 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
   }
 
   // Gate 5: MI-09 ZeroBounce authorization — a currently-approved activation policy must exist.
-  const policy = rows(await db.execute(sql`
+  const policy = routine ? null : rows(await db.execute(sql`
     SELECT id FROM cro03c_activation_policies WHERE status = 'approved' ORDER BY expected_revision DESC LIMIT 1
   `))[0];
-  if (!policy) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_APPROVED_ACTIVATION_POLICY" };
+  if (!routine && !policy) return { status: "PENDING_OPERATOR_ACTIVATION", reason: "NO_APPROVED_ACTIVATION_POLICY" };
 
   // All gates passed — advance disposition to 'validation_admitted' and write audit row.
   // This is a single-column UPDATE; use raw db.execute to avoid Drizzle's silent-drop
   // behaviour on cast-type SET objects (see drizzle-set-silent-drop memory note).
-  const updated = rows(await db.execute(sql`
+  return db.transaction(async tx => {
+  const updated = rows(await tx.execute(sql`
     UPDATE free_discovery_candidates
        SET disposition = 'validation_admitted'
      WHERE id = ${candidateId}::uuid AND disposition = 'staged'
+       AND ${routine ? sql`EXISTS (
+         SELECT 1 FROM sfp_cohort_members m
+         JOIN sfp_cohort_runs r ON r.id=m.cohort_run_id
+         JOIN sfp_programs p ON p.id=r.program_id AND p.is_active=TRUE
+         WHERE m.business_id=free_discovery_candidates.business_id
+           AND r.id=${routine.cohortRunId}::uuid AND r.cohort_state='frozen'
+           AND r.voided_at IS NULL AND r.superseded_at IS NULL
+       )` : sql`EXISTS(SELECT 1 FROM cro03c_activation_policies WHERE id=${policy.id}::uuid AND status='approved')`}
      RETURNING id
   `))[0];
   if (!updated) {
     // Another concurrent caller already advanced the state — idempotent.
+    const current = rows(await tx.execute(sql`SELECT disposition FROM free_discovery_candidates WHERE id=${candidateId}::uuid`))[0];
+    if (current?.disposition !== "validation_admitted") return {
+      status: "PENDING_OPERATOR_ACTIVATION", reason: "CANDIDATE_DISPOSITION_CHANGED",
+    };
     return { status: "PROMOTED", candidateEvidenceId: candidateId, admittedDisposition: "validation_admitted" };
   }
 
   const { auditLogs } = await import("@shared/schema");
-  await db.insert(auditLogs).values({
+  await tx.insert(auditLogs).values({
     action: "free_discovery_candidate_admitted",
     entityType: "free_discovery_candidate",
     entityKey: candidateId,
@@ -460,13 +495,46 @@ export async function promoteCandidateForValidation(candidateId: string): Promis
       businessId: candidate.business_id ?? null,
       contactId: candidate.contact_id ?? null,
       domain: candidate.domain,
-      policyId: String(policy.id),
+      policyId: policy ? String(policy.id) : null,
+      lane: routine ? "routine_sfp" : "legacy_pilot",
+      cohortRunId: routine?.cohortRunId ?? null,
     }),
     actorType: "system",
     actorId: "free-discovery-promotion",
-  }).catch((err) => console.error("[FreeDiscovery] Failed to write admission audit log for candidate", candidateId, err));
+  });
 
   return { status: "PROMOTED", candidateEvidenceId: candidateId, admittedDisposition: "validation_admitted" };
+  });
+}
+
+/** Bounded, frozen-program-scoped producer for the existing routine consumer. */
+export async function promoteRoutineSfpValidationCandidates(limit = 25, cohortRunId?: string) {
+  const bounded = Math.min(50, Math.max(1, Math.floor(limit)));
+  const candidates = rows(await db.execute(sql`
+    SELECT DISTINCT ON (f.id) f.id,r.id cohort_run_id
+    FROM free_discovery_candidates f
+    JOIN sfp_cohort_members m ON m.business_id=f.business_id
+    JOIN sfp_cohort_runs r ON r.id=m.cohort_run_id
+    JOIN sfp_programs p ON p.id=r.program_id AND p.is_active=TRUE
+    WHERE f.disposition='staged' AND f.field='email'
+      AND r.cohort_state='frozen' AND r.voided_at IS NULL AND r.superseded_at IS NULL
+      AND ${cohortRunId ? sql`r.id=${cohortRunId}::uuid` : sql`TRUE`}
+    ORDER BY f.id,r.frozen_at DESC,r.id LIMIT ${bounded}
+  `));
+  const result = { examined: candidates.length, promoted: 0, skipped: 0, failed: 0,
+    lane: "routine_sfp", reasons: {} as Record<string, number> };
+  for (const candidate of candidates) {
+    try {
+      const outcome = await promoteCandidateForValidation(String(candidate.id), { cohortRunId: String(candidate.cohort_run_id) });
+      if (outcome.status === "PROMOTED") result.promoted++;
+      else { result.skipped++; result.reasons[outcome.reason] = (result.reasons[outcome.reason] ?? 0) + 1; }
+    } catch (error: any) {
+      result.failed++;
+      result.reasons.ADMISSION_ERROR = (result.reasons.ADMISSION_ERROR ?? 0) + 1;
+      console.error("[Routine SFP] admission failed:", error?.cause?.message ?? error?.message);
+    }
+  }
+  return result;
 }
 
 export function newFreeDiscoveryRunKey(prefix: string): string {

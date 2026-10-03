@@ -19,7 +19,7 @@ import { seedContentEngine } from "./services/seed-content-engine";
 import { runDrizzleMigrations } from "./db-migrate";
 import { shouldRunStartupMigrations } from "./startup-migration-policy";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
-import { getBackgroundProfile } from "./services/background-profile";
+import { getBackgroundProfile, getSelectiveGroups } from "./services/background-profile";
 import { validateEnv } from "./lib/validate-env";
 import { storage } from "./storage";
 import { setDbContext } from "./lib/db-context";
@@ -170,6 +170,8 @@ async function startSfpRuntimeOwnerHeartbeat(): Promise<void> {
 async function gracefulShutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  const { stopGhlReadBackfillWorker } = await import("./services/ghl-specialized-commands");
+  stopGhlReadBackfillWorker();
   console.log(`[Process] ${signal} received — starting graceful shutdown (hard ceiling ${SHUTDOWN_HARD_CEILING_MS}ms)`);
   if (sfpRuntimeOwnerHeartbeatTimer) {
     clearInterval(sfpRuntimeOwnerHeartbeatTimer);
@@ -601,6 +603,13 @@ app.use((req, _res, next) => {
       await startSfpRuntimeOwnerHeartbeat().catch((runtimeOwnerError: any) => {
         console.warn(`[SFP Runtime] Owner heartbeat setup deferred: ${runtimeOwnerError?.message ?? runtimeOwnerError}`);
       });
+      // Free-only profiles must never acquire a GHL capability. The read-only
+      // worker recovers only commands an admin already explicitly requested.
+      if (_bgProfile === "full" || (_bgProfile === "selective" && getSelectiveGroups().some(
+        group => ["provider-live", "ghl-integration", "ghl-sync-only"].includes(group)))) {
+        const { startGhlReadBackfillWorker } = await import("./services/ghl-specialized-commands");
+        startGhlReadBackfillWorker();
+      }
       getQueueManager().then(async qm => {
         log("[Queue] BullMQ job queues initialized");
         // BullMQ's GHL_SYNC repeatable job is now the sole active GHL sync mechanism.

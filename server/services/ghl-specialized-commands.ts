@@ -346,6 +346,7 @@ async function processBackfill(runId: string, run: GhlSpecializedRun, token: str
 
   for (const row of contactsPage) {
     if (run.leaseToken !== token) throw new Error("GHL_SPECIALIZED_LEASE_LOST");
+    const previousCursor = run.cursor;
     run.cursor = row.id;
     run.processed++;
     const email = row.email?.trim().toLowerCase();
@@ -414,9 +415,14 @@ async function processBackfill(runId: string, run: GhlSpecializedRun, token: str
       run.lastError = null;
       await persistOwnedRun(run, token);
     } catch (error: any) {
+      // A transport/configuration failure is not a processed identity. Retain
+      // this address at the cursor for a later retry instead of losing it.
+      run.cursor = previousCursor;
+      run.processed--;
       run.errors++;
       run.lastError = String(error?.message || "GHL_LOOKUP_FAILED").slice(0, 500);
-      await persistOwnedRun(run, token);
+      await releaseRun(run, token, "retry");
+      return run;
     }
   }
   const remaining = await db.select({ id: contacts.id }).from(contacts)
@@ -612,19 +618,11 @@ export async function stepGhlSpecializedRun(runId: string, maxItems = BACKFILL_P
  * Called by the selected GHL runtime tick. At most one durable command page is
  * advanced per call; admin HTTP steps share the exact same claim/CAS path.
  */
-export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_SIZE) {
+export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_SIZE, readOnly = false) {
   const limit = Number.isFinite(maxItems)
     ? Math.min(BACKFILL_PAGE_SIZE, Math.max(1, Math.floor(maxItems)))
     : BACKFILL_PAGE_SIZE;
   const control = await (await import("./ghl-sync-control")).getGhlSyncControl();
-  if (!control.enabled || control.ownerProfile !== "ghl-sync-only" || !control.selectedRuntime) {
-    return { advanced: false, held: true, reason: "GHL_RUNTIME_NOT_SELECTED_OR_DISABLED", runId: null, state: null };
-  }
-  const { getGhlSyncRuntimeTruth } = await import("./ghl-sync-runtime");
-  const truth = await getGhlSyncRuntimeTruth();
-  if (truth.owner.state !== "current" || !truth.worker.selected || !truth.worker.active) {
-    return { advanced: false, held: true, reason: "GHL_RUNTIME_OWNER_LEASE_NOT_CURRENT", runId: null, state: null };
-  }
   const pointers = await pool.query<{ run_id: string }>(
     `SELECT value #>> '{}' AS run_id FROM system_settings
       WHERE key LIKE 'ghl_specialized_command_active_%'
@@ -636,12 +634,23 @@ export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_
     if (!pointer.run_id) continue;
     const run = await getGhlSpecializedRun(pointer.run_id);
     if (!run || !["pending", "retry", "blocked"].includes(run.state)) continue;
-    if (run.kind === "permission_projection" && !control.permissionsEnabled) continue;
+    if (readOnly && run.kind !== "contact_id_backfill") continue;
+    if (run.kind === "permission_projection" && (!control.enabled || !control.permissionsEnabled
+        || control.ownerProfile !== "ghl-sync-only" || !control.selectedRuntime)) continue;
     candidates.push(run);
   }
   candidates.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const next = candidates[0];
   if (!next) return { advanced: false, held: false, reason: "NO_PENDING_COMMAND", runId: null, state: null };
+  // Local identity backfill is provider GET-only. Its command lease fences
+  // execution; enabling provider writes or selecting their runtime is unrelated.
+  if (next.kind === "permission_projection") {
+    const { getGhlSyncRuntimeTruth } = await import("./ghl-sync-runtime");
+    const truth = await getGhlSyncRuntimeTruth();
+    if (truth.owner.state !== "current" || !truth.worker.selected || !truth.worker.active) {
+      return { advanced: false, held: true, reason: "GHL_RUNTIME_OWNER_LEASE_NOT_CURRENT", runId: next.runId, state: next.state };
+    }
+  }
   const result = await stepGhlSpecializedRun(next.runId, limit);
   return {
     advanced: !result.leaseBusy,
@@ -660,6 +669,28 @@ export async function runPendingGhlSpecializedCommands(maxItems = BACKFILL_PAGE_
     heartbeatAt: result.run.heartbeatAt,
     lastError: result.run.lastError,
   };
+}
+
+let readBackfillTimer: ReturnType<typeof setInterval> | null = null;
+let readBackfillInFlight = false;
+/** Recover durable, explicitly requested GET-only commands after a restart.
+ * This never starts a new backfill and can never dispatch a permission write. */
+export function startGhlReadBackfillWorker() {
+  if (readBackfillTimer) return;
+  const tick = async () => {
+    if (readBackfillInFlight) return;
+    readBackfillInFlight = true;
+    try { await runPendingGhlSpecializedCommands(BACKFILL_PAGE_SIZE, true); }
+    catch (error: any) { console.error("[GHL read backfill] command tick failed:", error?.message); }
+    finally { readBackfillInFlight = false; }
+  };
+  readBackfillTimer = setInterval(tick, 30_000);
+  readBackfillTimer.unref();
+  void tick();
+}
+export function stopGhlReadBackfillWorker() {
+  if (readBackfillTimer) clearInterval(readBackfillTimer);
+  readBackfillTimer = null;
 }
 
 export async function getGhlSpecializedRun(runId: string) {

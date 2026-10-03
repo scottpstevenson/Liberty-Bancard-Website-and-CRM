@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { lockCommercialGraphNodes,lockCommercialGraphMembershipSets } from "../commercial-graph-locks";
 import type { CommercialGraphNode } from "../commercial-graph-locks";
+import { relationshipReasonsSql } from "../../../shared/relationship-evidence-sql";
 
 export type SfpRecipientAssociationPin = { contactId: number;decisionId: string;revision: number };
 export async function lockSfpRecipientAssociationGraph(tx: any,businessId: number,pins: SfpRecipientAssociationPin[]) {
@@ -23,7 +24,7 @@ export async function sfpRecipientAssociationCurrent(tx: any,businessId: number,
       AND d.contact_id=c.id AND d.business_id=${businessId} AND d.revision=wanted.revision
       AND d.decision='verified' AND d.superseded_at IS NULL
     LEFT JOIN contact_business_system_link_evidence evidence ON evidence.id=d.system_evidence_id
-    WHERE evidence.id IS NULL OR crm_automatic_relationship_reasons(c.id,${businessId},
-      evidence.source_link_id,evidence.source_entity_id)<@ARRAY['current_link_decision_exists']::text[]`);
+    WHERE evidence.id IS NULL OR ${sql.raw(relationshipReasonsSql("c.id","c.business_id",
+      "evidence.source_link_id","evidence.source_entity_id"))}<@ARRAY['current_link_decision_exists']::text[]`);
   return Number((result?.rows ?? result)[0]?.matched)===pins.length;
 }

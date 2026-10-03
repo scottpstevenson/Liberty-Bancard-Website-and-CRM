@@ -1,4 +1,5 @@
 import { contactTargetVerticalSql } from "./contact-vertical-taxonomy";
+import { relationshipReasonsSql } from "./relationship-evidence-sql";
 
 const alias = (name: string) => {
   if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error("VERTICAL_SQL_ALIAS_INVALID");
@@ -9,8 +10,7 @@ function currentVerifiedRelationshipSql(c: string) {
     LEFT JOIN contact_business_system_link_evidence vproof ON vproof.id=vl.system_evidence_id
     WHERE vl.contact_id=${c}.id AND vl.business_id=${c}.business_id
       AND vl.decision='verified' AND vl.superseded_at IS NULL
-      AND (vproof.id IS NULL OR crm_automatic_relationship_reasons(
-        ${c}.id,${c}.business_id,vproof.source_link_id,vproof.source_entity_id)
+      AND (vproof.id IS NULL OR ${relationshipReasonsSql(`${c}.id`, `${c}.business_id`, "vproof.source_link_id", "vproof.source_entity_id")}
         <@ ARRAY['current_link_decision_exists']::text[]))`;
 }
 /** Current immutable evidence wins; a conflicting/unresolved latest row cannot

@@ -214,6 +214,7 @@ export function registerContactLinkCoverageRoutes(
         if (String(error?.message ?? "").startsWith("CONTACT_LINK_COVERAGE_")) {
           return res.status(409).json({ message: error.message });
         }
+        console.error("[ContactLinkCoverage] start failed:", error?.cause?.message ?? error?.message);
         serverError(res, error);
       }
     },
@@ -250,6 +251,7 @@ export function registerContactLinkCoverageRoutes(
         if (String(error?.message ?? "").startsWith("CONTACT_LINK_COVERAGE_")) {
           return res.status(409).json({ message: error.message });
         }
+        console.error("[ContactLinkCoverage] resume failed:", error?.cause?.message ?? error?.message);
         serverError(res, error);
       }
     },
@@ -271,6 +273,7 @@ export function registerContactLinkCoverageRoutes(
       try {
         res.json(await dependencies.listCandidates({ ...parsed.data, reviewerId: authenticatedOperatorId(req) ?? undefined }));
       } catch (error) {
+        console.error("[ContactLinkCoverage] candidates failed:", (error as any)?.cause?.message ?? (error as any)?.message);
         serverError(res, error);
       }
     },

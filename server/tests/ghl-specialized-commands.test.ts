@@ -51,6 +51,17 @@ const denied = evaluateGhlCapabilityPolicy({
 });
 assert.equal(denied.allowed, false, "unreviewed permission writes must be blocked");
 assert.equal(denied.reasonCode, "native_review_unverified");
+const readAllowed = evaluateGhlCapabilityPolicy({
+  method: "GET",
+  path: "/contacts/search/duplicate?locationId=test-location&email=known%40example.test",
+  locationId: "test-location",
+}, {
+  enabled: false, permissionsEnabled: false, epoch: 0,
+  ownerProfile: null, selectedRuntime: null,
+  nativeReview: { state: "unverified", reviewedAt: null, expiresAt: null,
+    evidenceReference: null, allowedOperations: [] },
+});
+assert.equal(readAllowed.allowed, true, "disabled writes must not disable identity reads");
 
 const optOutProjection = permissionFields([
   { channel: "email", payload: { lb_email_allowed: true } },
@@ -75,6 +86,9 @@ assert.match(service, /watermark/);
 assert.match(service, /runPendingGhlSpecializedCommands/);
 assert.match(service, /truth\.owner\.state !== "current"/);
 assert.match(service, /control\.ownerProfile !== "ghl-sync-only"/);
+assert.match(service, /readOnly && run\.kind !== "contact_id_backfill"/);
+assert.match(service, /run\.cursor = previousCursor/);
+assert.match(service, /releaseRun\(run, token, "retry"\)/);
 assert.match(service, /withGhlCrmInflight\(decision, \(\) => fetch\(/);
 const controlSource = await readFile(new URL("../services/ghl-sync-control.ts", import.meta.url), "utf8");
 const barrier = controlSource.slice(controlSource.indexOf("export async function withGhlCrmInflight"));

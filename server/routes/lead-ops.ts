@@ -1,3 +1,4 @@
+import { serverError } from "../utils/server-error";
 import type { Express } from "express";
 import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
 import { resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
@@ -3346,35 +3347,67 @@ Return maximum 5 segments, 4 recommendations, 4 outreach priorities, 3 quick win
   });
 
   // ── GET /api/lead-ops/candidates/promotion-state ────────────────────────────
+  app.post("/api/lead-ops/candidates/routine-promotion", requireRole("admin"), async (req, res) => {
+    const limit = req.body?.limit === undefined ? 25 : Number(req.body.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+      return res.status(400).json({ error: "limit must be an integer between 1 and 50" });
+    }
+    try {
+      const { promoteRoutineSfpValidationCandidates } = await import("../services/free-discovery/evidence-service");
+      res.json(await promoteRoutineSfpValidationCandidates(limit));
+    } catch (error: any) {
+      console.error("[Routine SFP] promotion batch failed:", error?.cause?.message ?? error?.message);
+      serverError(res, error);
+    }
+  });
   // Exposes the runtime gate for FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED so
   // the UI can display correct status without having admins guess from env vars.
   app.get("/api/lead-ops/candidates/promotion-state", requireRole("admin", "manager"), async (_req, res) => {
     try {
       const { isSfpValidationPromotionEnabled } = await import("../services/cro03/south-florida-prospecting");
       const enabled = await isSfpValidationPromotionEnabled();
-      const { getSfpDeploymentOwnerReadiness } = await import("../services/cro03/sfp-provider-operations");
+      const { getSfpDeploymentOwnerReadiness, getSfpProviderReadiness } = await import("../services/cro03/sfp-provider-operations");
       const runtimeOwner = await getSfpDeploymentOwnerReadiness();
-      const gateOpen = enabled && runtimeOwner.ready;
+      const provider = await getSfpProviderReadiness("zerobounce");
       const stagedCount = ((await db.execute(sql`
         SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'staged'
       `)) as any).rows?.[0]?.cnt ?? 0;
       const validationAdmittedCount = ((await db.execute(sql`
         SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates WHERE disposition = 'validation_admitted'
       `)) as any).rows?.[0]?.cnt ?? 0;
+      const scopedStaged = Number(((await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM free_discovery_candidates f
+        WHERE f.disposition='staged' AND f.field='email' AND EXISTS (
+          SELECT 1 FROM sfp_cohort_members m JOIN sfp_cohort_runs r ON r.id=m.cohort_run_id
+          JOIN sfp_programs p ON p.id=r.program_id AND p.is_active=TRUE
+          WHERE m.business_id=f.business_id AND r.cohort_state='frozen'
+            AND r.voided_at IS NULL AND r.superseded_at IS NULL)
+      `)) as any).rows?.[0]?.cnt ?? 0);
+      const gateOpen = enabled && runtimeOwner.ready && provider.ready && scopedStaged > 0;
       let note: string;
       if (!enabled) {
         note = "Promotion configuration is disabled (effective environment/override setting).";
       } else if (!runtimeOwner.ready) {
         note = `Promotion gate is CLOSED — durable routine-SFP deployment ownership is not ready (${runtimeOwner.reason}).`;
+      } else if (!provider.ready) {
+        note = `Routine SFP validation provider is held: ${provider.reason}.`;
+      } else if (scopedStaged === 0) {
+        note = "No staged email candidates belong to a current frozen active-program SFP cohort. Global staged inventory is not admitted work.";
       } else {
         note = "Promotion gate is OPEN. Candidates still need identity, provider, validation and policy checks; an open gate is not proof of output.";
       }
       res.json({
+        lane: "routine_sfp",
+        consumer: "sfp-continuous-validation",
         promotionEnabled: enabled,
         runtimeOwnerReady: runtimeOwner.ready,
         runtimeOwnerReason: runtimeOwner.reason,
         gateOpen,
         staged: Number(stagedCount),
+        scopedStaged,
+        unscopedStaged: Math.max(0, Number(stagedCount) - scopedStaged),
+        providerReady: provider.ready,
+        providerReason: provider.reason,
         validationAdmitted: Number(validationAdmittedCount),
         note,
       });

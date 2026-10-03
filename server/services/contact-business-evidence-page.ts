@@ -1,12 +1,13 @@
 import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { SystemLinkFacts } from "./contact-business-system-link-policy";
+import { identityNameSql, identityDomainSql, relationshipReasonsSql } from "../../shared/relationship-evidence-sql";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const hash = (value: unknown) => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 /**
- * Match generation and the native write fence call the SAME database evaluator.
+ * Match generation uses the read-only equivalent of the native write evaluator.
  * A candidate or a matching company name alone is never relationship authority.
  */
 export async function loadEvidenceRelationshipPage(
@@ -24,7 +25,7 @@ export async function loadEvidenceRelationshipPage(
     WHERE ${onlyContactId === undefined ? sql`c.id>${afterContactId}` : sql`c.id=${onlyContactId}`}
       AND ${changedSince && onlyContactId === undefined ? sql`(c.updated_at>=${changedSince}::timestamptz OR
         EXISTS (SELECT 1 FROM businesses changed WHERE changed.updated_at>=${changedSince}::timestamptz
-          AND crm_identity_name(changed.canonical_name)=crm_identity_name(c.company_name)))` : sql`TRUE`}
+          AND ${sql.raw(identityNameSql("changed.canonical_name"))}=${sql.raw(identityNameSql("c.company_name"))}))` : sql`TRUE`}
     ORDER BY c.id LIMIT ${limit + (onlyContactId === undefined ? 1 : 0)}
   `));
   const page = contacts.slice(0, limit);
@@ -37,17 +38,17 @@ export async function loadEvidenceRelationshipPage(
       se.dba sunbiz_dba,se.principal_address,se.principal_city,se.principal_state,
       to_jsonb(se)->>'updated_at' entity_revision,
       se.website sunbiz_website,se.source sunbiz_entity_source,se.filing_number,
-      crm_automatic_relationship_reasons(c.id,b.id,sl.id,se.id) relationship_reasons
+      ${sql.raw(relationshipReasonsSql("c.id","b.id","sl.id","se.id"))} relationship_reasons
     FROM contacts c JOIN businesses b ON b.record_class='canonical'
     JOIN canonical_source_links sl ON sl.business_id=b.id
     LEFT JOIN sunbiz_entities se ON sl.source_system='sunbiz' AND sl.source_type='sunbiz_entity'
       AND se.filing_number=sl.stable_key AND se.source IN ('sunbiz','cordata','corevt')
     WHERE c.id=ANY(ARRAY[${sql.join(ids.map((id: number) => sql`${id}`),sql`, `)}]::integer[])
-      AND (crm_identity_name(c.company_name)<>'' AND
-        crm_identity_name(c.company_name) IN (crm_identity_name(b.canonical_name),
-          crm_identity_name(se.entity_name),crm_identity_name(se.dba))
-        OR crm_identity_domain(c.website) IS NOT NULL
-          AND crm_identity_domain(c.website)=crm_identity_domain(b.website_domain)
+      AND (${sql.raw(identityNameSql("c.company_name"))}<>'' AND
+        ${sql.raw(identityNameSql("c.company_name"))} IN (${sql.raw(identityNameSql("b.canonical_name"))},
+          ${sql.raw(identityNameSql("se.entity_name"))},${sql.raw(identityNameSql("se.dba"))})
+        OR ${sql.raw(identityDomainSql("c.website"))} IS NOT NULL
+          AND ${sql.raw(identityDomainSql("c.website"))}=${sql.raw(identityDomainSql("b.website_domain"))}
         OR EXISTS (SELECT 1 FROM contact_source_events ev WHERE ev.contact_id=c.id
           AND (ev.metadata->>'filingNumber'=sl.stable_key OR ev.metadata->>'filing_number'=sl.stable_key
             OR ev.metadata->>'place_id'=sl.stable_key OR ev.metadata->>'placeId'=sl.stable_key
