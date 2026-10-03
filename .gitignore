@@ -38,6 +38,7 @@ backups/
 !server/add-indexes.sql
 !docs/certification/canonical-enrichment-native-before.sql
 !docs/certification/canonical-enrichment-native-verify.sql
+!docs/certification/canonical-enrichment-native-console.sql
 
 # CRO-03D ceremony working files — must never be committed
 /scope.json

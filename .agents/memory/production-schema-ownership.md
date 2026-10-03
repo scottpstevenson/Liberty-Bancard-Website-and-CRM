@@ -43,3 +43,18 @@ tables/constraints present without their original ledger entries.
 against the actual installed mismatch and preserve the historical discrepancy.
 The user-authorized owner-route exception is documented in `replit.md`;
 Agent production SQL access remains read-only.
+
+PostgreSQL driver certification is not owner SQL-console certification.
+An editable production SQL runner rejected a byte-identical, driver-tested
+native DO block with an unterminated dollar-quoted-string error.
+
+**Why:** Repeating instructions to paste the same block did not change the
+failure; owner screenshots established both the correct target and the actual
+syntax error. Documentation-search claims about console parser behavior were
+not sufficient evidence.
+
+**How to apply:** Inspect execution errors before asking for repeated exports.
+If adapting console transport, prove exact decoded-body parity and atomic
+recovery without changing native fingerprints. A transport with one literal
+statement terminator can avoid inner-delimiter splitting, but report actual
+console success only after independent production verification.

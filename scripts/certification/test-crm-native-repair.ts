@@ -12,7 +12,12 @@ async function main() {
   await assertDisposableTestInfrastructure({ operation: "crm-native-repair" });
   const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
   const client = await pool.connect();
-  const repair = fs.readFileSync("migrations/0329_crm_native_contract_repair.sql", "utf8");
+  const canonicalRepair = fs.readFileSync("migrations/0329_crm_native_contract_repair.sql", "utf8");
+  const consoleMode = process.argv.includes("--console");
+  const repairFile = consoleMode
+    ? "docs/certification/canonical-enrichment-native-console.sql"
+    : "migrations/0329_crm_native_contract_repair.sql";
+  const repair = fs.readFileSync(repairFile, "utf8");
   const verify = fs.readFileSync("docs/certification/canonical-enrichment-native-verify.sql", "utf8");
   const original = fs.readFileSync("migrations/0314_sfp_verified_recipient_link_commitments.sql", "utf8");
   const match = original.match(/CREATE OR REPLACE FUNCTION enforce_reviewed_contact_business_link\(\)[\s\S]*?END \$\$;/);
@@ -21,6 +26,12 @@ async function main() {
   const readerRole = `cert_native_reader_${randomUUID().replaceAll("-", "")}`;
   let checks = 0;
   const check = (value: unknown, message: string) => { assert(value, message); checks++; };
+  const consoleForm = (source: string) => {
+    const body = source.match(/DO \$crm_native_repair\$([\s\S]+)\$crm_native_repair\$;\s*$/)?.[1];
+    assert(body, "Canonical repair block not found");
+    return "DO E'" + body.replace(/\\/g, "\\\\").replace(/'/g, "''")
+      .replace(/;/g, "\\073").replace(/\$/g, "\\044") + "';\n";
+  };
   const guard = async () => (await client.query(verify)).rows[0];
   const allTrue = (row: Record<string, boolean>) => Object.values(row).every(v => v === true);
   const snapshot = async () => ({
@@ -47,6 +58,19 @@ async function main() {
       (SELECT count(*) FROM drizzle.__drizzle_migrations) journal_rows`)).rows[0],
   });
   try {
+    if (consoleMode) {
+      const originalDo = canonicalRepair.slice(canonicalRepair.indexOf("DO $crm_native_repair$"));
+      await assert.rejects(client.query(originalDo.split(";")[0]),
+        /unterminated dollar-quoted string/); checks++;
+      check((repair.match(/;/g) ?? []).length === 1, "Console transport has only the terminating semicolon");
+      check(!repair.includes("$"), "Console transport has no dollar-quote delimiters");
+      const start = repair.indexOf("DO E'");
+      check(start >= 0, "Console transport uses a PostgreSQL escape-string literal");
+      const literal = repair.slice(start + 3).trim().replace(/;$/, "");
+      const decoded = (await client.query("SELECT " + literal + " AS body")).rows[0].body;
+      assert.equal(decoded, canonicalRepair.match(/DO \$crm_native_repair\$([\s\S]+)\$crm_native_repair\$;\s*$/)?.[1]);
+      checks++;
+    }
     check(allTrue(await guard()), "Fresh normal migration chain must satisfy native guards");
     // Reproduce only the observed physical mismatch, not whole historical DDL.
     await client.query(oldReview);
@@ -62,7 +86,8 @@ async function main() {
 
     // Inject failure after the native definitions execute. Single-statement
     // atomicity must roll back all definitions and nullability, without BEGIN.
-    const faulted = repair.replace("$reviewed_0325$;\n", "$reviewed_0325$;\n  RAISE EXCEPTION 'CERT_INJECTED_FAILURE';\n");
+    const canonicalFaulted = canonicalRepair.replace("$reviewed_0325$;\n", "$reviewed_0325$;\n  RAISE EXCEPTION 'CERT_INJECTED_FAILURE';\n");
+    const faulted = consoleMode ? consoleForm(canonicalFaulted) : canonicalFaulted;
     check(faulted !== repair, "Fault injection is at the reviewed source boundary");
     await assert.rejects(client.query(faulted), /CERT_INJECTED_FAILURE/); checks++;
     assert.deepEqual(await snapshot(), before); checks++;
@@ -133,8 +158,12 @@ async function main() {
     check(allTrue(await guard()), "Replay leaves native guards passing");
     const receipt = {
       scope: "Disposable native repair certificate; no production execution",
-      repairFile: "migrations/0329_crm_native_contract_repair.sql",
+      repairFile,
       repairSha256: createHash("sha256").update(repair).digest("hex"),
+      canonicalSourceSha256: createHash("sha256").update(canonicalRepair).digest("hex"),
+      consoleTransport: consoleMode,
+      partialDollarQuotedStatementFailureReproduced: consoleMode,
+      consoleBodyRoundTripExact: consoleMode,
       observedAt: new Date().toISOString(), checks,
       productionMismatchReproduced: true, atomicFailureRecovery: true, safeReplay: true,
       unknownBodyRejected: true, disabledTriggerRejected: true, insufficientPermissionRejected: true,
@@ -144,7 +173,10 @@ async function main() {
       supportedNativeLinkWritePassed: true, immutableEvidenceWriteRejected: true,
       nativeGuard: await guard(), productionVerified: false,
     };
-    fs.writeFileSync("docs/certification/canonical-enrichment-native-repair-test.json", JSON.stringify(receipt,null,2)+"\n");
+    const receiptFile = consoleMode
+      ? "docs/certification/canonical-enrichment-native-console-test.json"
+      : "docs/certification/canonical-enrichment-native-repair-test.json";
+    fs.writeFileSync(receiptFile, JSON.stringify(receipt,null,2)+"\n");
     console.log(JSON.stringify(receipt,null,2));
   } finally {
     await client.query("RESET ROLE");

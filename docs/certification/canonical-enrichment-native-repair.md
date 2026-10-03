@@ -6,6 +6,35 @@
 Task #2063 remains open. Do not resume dependent enrichment or production
 workbook imports until the production verification returns all seven `true`.
 
+### Confirmed SQL-runner failure and corrected transport
+
+The owner's screenshots confirm **Production Database** and **Enable Editing**,
+and show an **unterminated dollar-quoted string** error when submitting the
+original repair. The earlier driver-level certificate did not prove that
+Replit's SQL runner would submit that dollar-quoted block intact. Do not keep
+asking the owner to paste the same original block or change database selection.
+
+For **owner SQL-runner execution**, use:
+
+**`docs/certification/canonical-enrichment-native-console.sql`**
+
+SHA256: **`a8aa0616cf110c0d7a5e8a9f5b5c18041fc9d6884c1a06daddbd231dabd22fc6`**
+
+This is a transport form of the same versioned 0329 repair, not another
+migration or another schema authority. It uses a PostgreSQL escape-string DO
+body, with inner semicolons and dollar signs escaped. The submitted text has
+exactly one literal semicolon (the final terminator) and no dollar-quote
+delimiters. A PostgreSQL round-trip proves the decoded body is byte-for-byte
+identical to the canonical migration's body. All 29 console-form disposable
+checks pass, including the original 24 safety checks.
+
+The observed error is consistent with an incomplete dollar-quoted statement;
+a deliberately split original statement reproduces it. This does not claim
+knowledge of the SQL runner's internal parser or prove live console success.
+Owner execution of the corrected transport and independent production
+verification are still required. The canonical migration source and guard
+fingerprints remain unchanged.
+
 The user explicitly authorized a versioned native-schema repair through an
 authorized database administration route. This is a narrow amendment to the
 previous project prohibition, not permission for startup/build DDL, weaker
@@ -82,10 +111,13 @@ and using its **SQL runner**.
    known guard result is `false,true,true,true,true,true,false`; the current
    reviewed body is `30910090e380e90ea27bff572d2c5847`.
 3. Paste the **entire** tested
-   `migrations/0329_crm_native_contract_repair.sql` into a cleared editor and
+   `docs/certification/canonical-enrichment-native-console.sql` into a cleared editor and
    execute it once. Do not add `BEGIN`, `COMMIT`, or another transaction wrapper:
    the single DO statement is atomic and works with transaction-wrapping
-   consoles. Do not paste over uncleared prior contents.
+   consoles. The BEGIN inside its encoded PL/pgSQL body belongs there; this
+   instruction only forbids adding separate transaction commands.
+   Do not paste over uncleared prior contents. Do not use the original
+   dollar-quoted migration in this SQL runner after its confirmed rejection.
 4. Run both read-only verification files again. Save the actual new results.
    The main native verification must return **all seven true**. Check the
    signatures and hashes below. Notify Agent after execution so production
@@ -139,6 +171,21 @@ The existing native/read-only evaluator comparison passed its disposable
 database probes. TypeScript and migration-integrity checks pass. No production
 schema mutation or workbook import is included in this certificate.
 
+The additional `--console` run passed 29 checks, including exact decoded-body
+parity, one literal statement delimiter, no dollar-quote delimiters, and
+reproduction of the partial-original-statement syntax failure. Its receipt is
+`canonical-enrichment-native-console-test.json`.
+
+### Publish/build investigation
+
+The configured Publish build runs `npm run build`, which compiles the app;
+it does not run the separate pre-deploy workflow or replay SQL migrations.
+Production logs explicitly confirm startup migrations are skipped, as required
+for this managed database. Adding unsafe production DDL to build/startup is
+not a fix. The zero native-object diff remains the automatic-delivery gap:
+the corrected console transport addresses the owner's execution error, not
+that separate Publish limitation.
+
 ## Support-ready reproduction if owner execution is restricted
 
 Platform owner: **Replit managed database / Publish schema delivery**.
@@ -162,6 +209,7 @@ Receipts:
 - `canonical-enrichment-native-delivery.json`
 - `canonical-enrichment-native-repair-test.json`
 - `canonical-enrichment-native-repair-production.json`
+- `canonical-enrichment-native-console-test.json`
 
 The latest production receipt records serving revision
 `42309395870515b0a575e85f6c753a65da408c2a` and native guards still failing.

@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-10-03T21:03:26.712Z",
+  "ownerEvidence": {
+    "productionSelected": true,
+    "editingEnabled": true,
+    "error": "unterminated dollar-quoted string",
+    "screenshot": "attached_assets/IMG_1339_1791060974291.png",
+    "originalPasteByteIdenticalToSource": true
+  },
+  "diagnosis": "Owner SQL runner rejected the dollar-quoted block. Deliberate statement fragmentation reproduces that error; the exact internal SQL-runner parser is not established.",
+  "publishEvidence": {
+    "build": "npm run build -> script/build.ts (bundle only)",
+    "preDeploy": "Separate configured workflow, not invoked by the Publish build",
+    "migrationFilesReplayedByPublish": false,
+    "nativeDiffPreviouslyReportedZero": true,
+    "productionStartupMigrationsExplicitlySkipped": true,
+    "logs": {
+      "found": true,
+      "logs": "[2026-10-03T18:30:58.720Z ERROR] healthcheck failed error=healthcheck / returned status 500\n[2026-10-03T18:30:59.832Z ERROR] healthcheck failed error=healthcheck / returned status 500\n[2026-10-03T18:30:59.888Z INFO] [SFP Publish Artifact Loaded] {\"version\":1,\"artifactSha\":\"42309395870515b0a575e85f6c753a65da408c2a\",\"buildId\":\"67e0374c-e93f-45f5-8bb3-20d8d0cb981b\",\"deploymentIdentity\":\"publish-build:67e0374c-e93f-45f5-8bb3-20d8d0cb981b\"}\n[2026-10-03T18:31:00.143Z ERROR] [Sentry] SENTRY_DSN not set — error monitoring is disabled\n[2026-10-03T18:31:00.147Z INFO] [DB Migrate] Production startup migrations skipped — schema is managed by Replit Publish.\n[2026-10-03T18:31:00.864Z ERROR] healthcheck failed error=healthcheck / returned status 500"
+    }
+  },
+  "correctedTransport": {
+    "file": "docs/certification/canonical-enrichment-native-console.sql",
+    "sha256": "a8aa0616cf110c0d7a5e8a9f5b5c18041fc9d6884c1a06daddbd231dabd22fc6",
+    "exactDecodedBody": true,
+    "literalSemicolonCount": 1,
+    "dollarQuoteDelimiters": 0,
+    "disposableChecks": 29,
+    "liveConsoleExecutionVerified": false,
+    "automaticNativePublishDeliveryFixed": false
+  },
+  "agentProductionMutation": false,
+  "productionVerified": false
+}
