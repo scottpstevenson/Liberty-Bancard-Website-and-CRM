@@ -346,3 +346,17 @@ mtime_ms = 1790955537983
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/a36e0df0-d3e9-49f0-9687-2fed80e95a89/20222918-c564-4355-b86b-db9b07fd3e42"
 storage_version_token = "1790955585333071"
 content_type = "text/html"
+
+[[outputs]]
+id = "obwz0dDPJ3w6pacHxiCPw"
+uri = "file://.local/reports/crm-enrichment-reconciliation-2026-10-02/reconciliation.md"
+type = "text"
+title = "CRM enrichment: production reconciliation"
+description = "Read-only census, current historical task IDs, confirmed source conflicts, remaining verification gaps, and the integrated repair design. Not a repair completion certificate."
+logical_id = "cfe356dc-ca3b-45b2-8a77-4337da94836b"
+content_hash = "sha256:3e68087c44eb4abc8f838a2cb087e019eb7a6751ad408086fc6ef00cf7b631e7"
+size = 14744
+mtime_ms = 1790987861866
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/cfe356dc-ca3b-45b2-8a77-4337da94836b/e131aede-809b-44d7-80c4-84c0965a9d31"
+storage_version_token = "1790987866954879"
+content_type = "text/markdown"
