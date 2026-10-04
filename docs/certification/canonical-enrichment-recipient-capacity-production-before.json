@@ -1,0 +1,24 @@
+{
+  "observedAt": "2026-10-04T05:08:07.189Z",
+  "environment": "production",
+  "readOnly": true,
+  "slotsTable": true,
+  "capacityTrigger": false,
+  "matchingSubjectForeignKey": true,
+  "functionMissing": true,
+  "triggerMissing": true,
+  "requiredBodyMd5": "f539e6284a16e3686ab61df964c16779",
+  "guardEvidence": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "slots_table,capacity_trigger,matching_subject_fk\nt,f,t\n",
+    "success": true
+  },
+  "catalogEvidence": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "proname,arguments,body_md5\ntgname,tgenabled,tgtype,tgisinternal,no_when_clause,proname,public_function,body_md5\n",
+    "success": true
+  },
+  "repairExecuted": false
+}

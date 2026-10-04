@@ -1,10 +1,28 @@
 # Versioned native-contract repair
 
-## Native repair blocked in the owner SQL runner
+## Native repair independently verified in production
 
-**Both SQL-runner handoffs failed. Do not execute either form there again.**
-Task #2063 remains open. Do not resume dependent enrichment or production
-workbook imports until the production verification returns all seven `true`.
+After the owner reported executing the complete unchanged canonical repair
+in the production SQL console, an independent production read returned all
+seven native guard predicates true. All four routine body fingerprints match
+the intended definitions. A separate read confirms nullable `source_entity_id`
+and successful execution of both identity functions and the relationship
+evaluator. The current receipt is
+`canonical-enrichment-native-repair-production-after.json`.
+
+The native delivery prerequisite is satisfied for this contract. Earlier
+console failures below remain historical evidence; their exact cause was not
+established. No new SQL encoding or external client was needed for the
+successful owner execution. Automatic Publish delivery is still unresolved,
+and Task #2063's broader consolidation and operational acceptance remain open.
+No additional repair paste is needed.
+
+### Historical failed handoffs
+
+Both earlier SQL-runner handoffs failed. Their local certificates alone did not
+establish production success. Dependent native work may now proceed against the
+verified contract; outbound release and production workbook imports remain
+subject to their separate gates.
 
 ### Confirmed failures; no console compatibility certificate
 
@@ -34,12 +52,13 @@ the live owner SQL runner; its subsequent failure supersedes that handoff.
 The observed error is consistent with an incomplete dollar-quoted statement;
 a deliberately split original statement reproduces it. This does not claim
 knowledge of the SQL runner's internal parser or prove live console success.
-No console-specific corrected transport is currently established. The current
+No separate console-specific corrected transport was established. The current
 public Drizzle Studio parser preserves both files as single complete statements
 in isolated parsing tests; that public bundle is not proven to be the exact
 owner-console build or execution path. A simple semicolon-splitting diagnosis
 is not established. The canonical migration source and guard fingerprints
-remain unchanged.
+remain unchanged. The later owner execution of the canonical dollar-quoted
+source succeeded and was independently verified in production.
 
 The user explicitly authorized a versioned native-schema repair through an
 authorized database administration route. This is a narrow amendment to the
@@ -120,9 +139,9 @@ versioned source is unchanged; there is no third SQL encoding to paste.
 
 The before/verify SQL files remain read-only diagnostic tools. The repair's
 permission, predecessor and postcondition checks are enforced inside its one
-atomic statement. Actual primary production endpoint access, permissions and
-execution through an owner client remain unverified until the owner performs
-them. The Agent does not retrieve credentials, execute production DDL, or
+atomic statement. Owner SQL-console execution now has independent production
+postcondition verification; external-client execution remains optional and
+unverified. The Agent does not retrieve credentials, execute production DDL, or
 create a production runner.
 
 **Consequences of authorized execution:** this narrowly changes native definitions and one intended
@@ -135,9 +154,9 @@ fails, do not partially paste/execute its inner definitions. Address the
 reported restriction/drift and replay the unchanged whole statement.
 
 The repair is not complete until independent production verification returns
-all seven true with the four intended routine fingerprints. Native delivery is
-blocked pending a working authorized execution path, not pending installation
-of an external client. Routine republishing does not replace that prerequisite.
+all seven true with the four intended routine fingerprints. These postconditions
+now pass following owner SQL-console execution. This does not establish
+automatic native delivery on future Publish operations.
 
 ### Expected after-repair routines
 
@@ -222,11 +241,14 @@ Receipts:
 - `canonical-enrichment-native-delivery.json`
 - `canonical-enrichment-native-repair-test.json`
 - `canonical-enrichment-native-repair-production.json`
+- `canonical-enrichment-native-repair-production-after.json`
 - `canonical-enrichment-native-console-test.json`
 - `canonical-enrichment-native-psql-test.json`
 - `canonical-enrichment-native-execution-investigation.json`
 
-The latest production receipt records serving revision
+The earlier failed-state production receipt records serving revision
 `42309395870515b0a575e85f6c753a65da408c2a` and native guards still failing.
+The current after-repair receipt independently establishes the native contract,
+not a freshly checked serving revision or enrichment completion.
 **Source certification is not production success.** A user SQL handoff alone
 does not satisfy schema repair or enrichment completion.

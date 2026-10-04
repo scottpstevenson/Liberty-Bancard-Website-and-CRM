@@ -1,0 +1,159 @@
+/**
+ * Cohort-independent local linking against real migrated disposable PostgreSQL.
+ * No HTTP provider fixtures are needed: all external transport is denied.
+ */
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { randomUUID } from "node:crypto";
+import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
+import {
+  applyCertificationProviderDenyBoundary,
+  getBlockedCertificationNetworkAttemptCount,
+} from "../certification-provider-deny";
+
+await assertDisposableTestInfrastructure({ operation: "crm automatic relationship certification" });
+process.env.VG_PROVIDER_DENY_MODE = "1";
+applyCertificationProviderDenyBoundary({ fatal: true });
+const { pool } = await import("../../server/db");
+const {
+  processContactLinkAutomationTick,
+  getContactLinkAutomationStatus,
+  setContactLinkAutomation,
+} = await import("../../server/services/contact-link-automation");
+const prefix = `cert_crm_links_${randomUUID().replaceAll("-", "")}`;
+const KEY = "contact_link_automation_v1";
+const actorId = `${prefix}_admin`;
+let checks = 0;
+const check = (value: unknown, label: string) => { assert(value, label); checks++; };
+const verify = fs.readFileSync("docs/certification/canonical-enrichment-native-verify.sql", "utf8");
+const originalEnv = {
+  NODE_ENV: process.env.NODE_ENV, REPLIT_DEPLOYMENT: process.env.REPLIT_DEPLOYMENT,
+  RELEASE_SHA: process.env.RELEASE_SHA, SFP_PUBLISH_ARTIFACT_SHA: process.env.SFP_PUBLISH_ARTIFACT_SHA,
+  SFP_PUBLISH_BUILD_ID: process.env.SFP_PUBLISH_BUILD_ID, SFP_PUBLISH_BUILT_AT: process.env.SFP_PUBLISH_BUILT_AT,
+};
+const base = Date.now() - 120_000;
+const first = { sha: "c".repeat(40), id: randomUUID(), at: new Date(base).toISOString() };
+const second = { sha: "d".repeat(40), id: randomUUID(), at: new Date(base + 1000).toISOString() };
+function deploy(build: typeof first) {
+  // Private disposable-process fixtures, never workspace environment changes.
+  process.env.NODE_ENV = "production";
+  process.env.REPLIT_DEPLOYMENT = "1";
+  process.env.RELEASE_SHA = build.sha;
+  process.env.SFP_PUBLISH_ARTIFACT_SHA = build.sha;
+  process.env.SFP_PUBLISH_BUILD_ID = build.id;
+  process.env.SFP_PUBLISH_BUILT_AT = build.at;
+}
+async function counts() {
+  return (await pool.query(`SELECT
+    (SELECT count(*) FROM provider_operations) provider_operations,
+    (SELECT count(*) FROM sequence_enrollments) enrollments,
+    (SELECT count(*) FROM communication_events) communications,
+    (SELECT count(*) FROM sfp_cohort_runs) cohort_runs,
+    (SELECT count(*) FROM sfp_cohort_members) cohort_members,
+    (SELECT jsonb_agg(to_jsonb(p) ORDER BY provider) FROM provider_controls p) provider_controls`)).rows[0];
+}
+async function fixture(label: string) {
+  const name = `${prefix} ${label}`;
+  const place = `${prefix}_${label}_place`;
+  const contact = (await pool.query(`INSERT INTO contacts
+    (first_name,last_name,email,phone,company_name,record_class)
+    VALUES('Automatic','Fixture',$1,'',$2,'production') RETURNING id`,
+    [`${prefix}.${label}@example.invalid`, `${name} LLC`])).rows[0];
+  const business = (await pool.query(`INSERT INTO businesses
+    (canonical_name,normalized_name,record_class,google_place_id)
+    VALUES($1,$2,'canonical',$3) RETURNING id`, [name, name.replaceAll(" ", ""), place])).rows[0];
+  await pool.query(`INSERT INTO canonical_source_links
+    (business_id,source_system,source_type,stable_key) VALUES($1,'google_maps','place',$2)`,
+    [business.id, place]);
+  await pool.query(`INSERT INTO contact_source_events
+    (contact_id,event_key,source_category,source_type,source_external_id,actor_type,actor_id,metadata)
+    VALUES($1,$2,'import','google_maps_outscraper',$2,'system',$3,$4::jsonb)`,
+    [contact.id, `${prefix}_${label}_event`, prefix, JSON.stringify({ place_id: place })]);
+  return { contactId: Number(contact.id), businessId: Number(business.id) };
+}
+async function decisionCount(contactId: number) {
+  return Number((await pool.query(`SELECT count(*) n FROM contact_business_link_decisions
+    WHERE contact_id=$1 AND decision='verified' AND superseded_at IS NULL`, [contactId])).rows[0].n);
+}
+try {
+  const guard = (await pool.query(verify)).rows[0];
+  check(Object.values(guard).every(v => v === true), "Real migrated native guards required");
+  check(await getContactLinkAutomationStatus() === null, "Fresh database has no operator program");
+  const baseline = await counts();
+  check(baseline.cohort_runs === "0" && baseline.cohort_members === "0", "No historical/frozen cohort fixture");
+  await assert.rejects(processContactLinkAutomationTick(), /DEPLOYMENT_IDENTITY_UNVERIFIED/); checks++;
+  check(await getContactLinkAutomationStatus() === null, "Unverified deployment cannot initialize work");
+  await pool.query("INSERT INTO users(id,email,first_name,last_name,role) VALUES($1,$2,'Automatic','Admin','admin')",
+    [actorId, `${actorId}@example.invalid`]);
+  const supported = await fixture("supported");
+  deploy(first);
+  // Missing native authority fails before creating an automatic program.
+  await pool.query("ALTER TABLE contact_business_link_decisions DISABLE TRIGGER contact_business_link_review_contract");
+  await assert.rejects(processContactLinkAutomationTick(), /DATABASE_GUARD_MISSING/); checks++;
+  check(await getContactLinkAutomationStatus() === null, "Native repair automatically unblocks, not initializes while missing");
+  await pool.query("ALTER TABLE contact_business_link_decisions ENABLE TRIGGER contact_business_link_review_contract");
+  const applied = await processContactLinkAutomationTick();
+  check(applied.ran === true, "Routine tick initializes without manual approval or a cohort");
+  check(await decisionCount(supported.contactId) === 1, "Supported no-website identity commits through the real native trigger");
+  const state = await getContactLinkAutomationStatus();
+  check(state?.enabled === true && state.committed === 1, "Committed outcomes, not cursor-only progress");
+  check(state.leaseToken === null && state.leaseUntil === null, "Lease released after commit");
+  check(state.authorizedBy.startsWith("system:canonical_contact_links_owner_epoch_"), "Not a fabricated human review");
+  const replay = await processContactLinkAutomationTick();
+  check(replay.ran === true && await decisionCount(supported.contactId) === 1, "Incremental replay has no duplicate decision");
+  check((await getContactLinkAutomationStatus())?.committed === 1, "Replay does not inflate committed count");
+  const disabled = await setContactLinkAutomation(false, actorId);
+  const ownerBeforeOff = (await pool.query("SELECT owner_epoch,owner_token,lease_expires_at FROM sfp_runtime_owner_authority")).rows;
+  assert.deepEqual(await processContactLinkAutomationTick(), { ran: false }); checks++;
+  assert.deepEqual((await pool.query("SELECT owner_epoch,owner_token,lease_expires_at FROM sfp_runtime_owner_authority")).rows,
+    ownerBeforeOff); checks++;
+  check((await getContactLinkAutomationStatus())?.enabled === false, "Explicit off survives routine ticks");
+  // Existing disabled programs cannot be overwritten by default initialization.
+  await pool.query(`UPDATE system_settings SET value=jsonb_set(value,'{rule}','"independent_guarded_system_links_v1"')
+    WHERE key=$1`, [KEY]);
+  assert.deepEqual(await processContactLinkAutomationTick(), { ran: false }); checks++;
+  const upgraded = await getContactLinkAutomationStatus();
+  check(upgraded?.enabled === false && upgraded.authorizedBy === disabled.authorizedBy, "Rule migration preserves operator hold");
+  await setContactLinkAutomation(true, actorId);
+  // A live worker lease cannot be stolen, even by another routine tick.
+  const leaseToken = randomUUID();
+  await pool.query(`UPDATE system_settings SET value=value ||
+    jsonb_build_object('leaseToken',$2::text,'leaseUntil',(NOW()+INTERVAL '1 minute')::text) WHERE key=$1`,
+    [KEY, leaseToken]);
+  assert.deepEqual(await processContactLinkAutomationTick(), { ran: false }); checks++;
+  check((await getContactLinkAutomationStatus())?.leaseToken === leaseToken, "Live token-fenced lease preserved");
+  await pool.query(`UPDATE system_settings SET value=value ||
+    jsonb_build_object('leaseUntil',(NOW()-INTERVAL '1 second')::text) WHERE key=$1`, [KEY]);
+  check((await processContactLinkAutomationTick()).ran === true, "Expired local claim recovers automatically");
+  check((await getContactLinkAutomationStatus())?.leaseToken === null, "Recovery releases only current claim");
+  deploy(second);
+  check((await processContactLinkAutomationTick()).ran === true, "Published successor takes over existing program");
+  const afterTransfer = await getContactLinkAutomationStatus();
+  deploy(first);
+  await assert.rejects(processContactLinkAutomationTick(), /RETIRED_BUILD/); checks++;
+  assert.deepEqual(await getContactLinkAutomationStatus(), afterTransfer); checks++;
+  deploy(second);
+  await pool.query("UPDATE sfp_runtime_owner_authority SET revoked_at=clock_timestamp()");
+  await assert.rejects(processContactLinkAutomationTick(), /OWNER_REVOKED/); checks++;
+  assert.deepEqual(await getContactLinkAutomationStatus(), afterTransfer); checks++;
+  assert.deepEqual(await counts(), baseline); checks++;
+  check(getBlockedCertificationNetworkAttemptCount() === 0, "No provider/network attempts");
+  check(Object.values((await pool.query(verify)).rows[0]).every(v => v === true), "Native fingerprints unchanged");
+  const receipt = {
+    observedAt: new Date().toISOString(), checks, scope: "Disposable real-DB automatic relationship linking only",
+    cohortIndependent: true, automaticNativeRepairRecovery: true, noWebsiteIdentityCommitted: true,
+    explicitOffPreserved: true, ruleUpgradePreservesOff: true, claimAndReplaySafe: true,
+    currentPublishedOwnerRequired: true, retiredBuildDenied: true, revokedOwnerDenied: true,
+    providerEnrollmentCommunicationAndCohortCountsUnchanged: true, externalNetworkAttempts: 0,
+    nativeFingerprintsUnchanged: true, productionExecution: false, taskComplete: false,
+  };
+  fs.writeFileSync("docs/certification/canonical-enrichment-contact-link-automation-test.json",
+    JSON.stringify(receipt, null, 2) + "\n");
+  console.log(JSON.stringify(receipt, null, 2));
+} finally {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  await pool.end();
+}

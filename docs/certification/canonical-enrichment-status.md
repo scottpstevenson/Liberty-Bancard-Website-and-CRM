@@ -111,6 +111,39 @@ Receipts:
 
 ## Remaining closure gates
 
+### Latest continuation: automatic linking and separate recipient native gate
+
+- General-link production repair remains verified by the earlier seven native
+  predicates and four routine fingerprints; this is not all-branch readiness.
+- Workspace automatic linking no longer needs a frozen cohort. The selected
+  deployment owner fences initialization, claims and canonical writes.
+  Explicit off, old-rule off, live leases, expiry recovery, replay, retired
+  builds and revoked ownership are covered by 31 real disposable-DB checks.
+  No provider operations, enrollments, communications or cohorts were added.
+  Receipt: `canonical-enrichment-contact-link-automation-test.json`.
+- Independent production reads show the recipient slot table and subject FK
+  present, but `crm_enforce_global_recipient_capacity` and its trigger absent.
+  Evidence: `canonical-enrichment-recipient-capacity-production-before.json`.
+  This is a separate preparation blocker, not a reversal of the general repair.
+- Owner-only repair:
+  `canonical-enrichment-recipient-capacity-native-repair-v1.sql`.
+  SHA256: `424e0a7da2f95d5fae93c113a1ddac2dc5a3bc3d4ade1e9a4ba6c248cd227476`.
+  Five disposable checks reproduce absence and certify exact installation,
+  reapplication, and unchanged complete rows/FK. This does not certify
+  recipient selection, concurrency or production execution.
+- `npm run check` passes. The older preflight suite fails at its existing
+  private-schema recipient-capacity test before reaching the modified linking
+  assertion (zero of three expected successful reservations). Not a passing
+  integration certificate. The existing full pre-deploy log also failed its
+  environment posture check; older role smoke was skipped. None is relabeled.
+- Preview server starts with background jobs off and canonical outbound pause
+  still on. The unchanged public homepage retains the previously observed
+  styling defect; visual verification is not passing. Signed-in UI was not
+  verified. No frontend/dependency/style changes were made.
+- No production workbook imports, provider dispatches, outbound release or
+  publishing occurred. The entire task remains open and operational acceptance
+  is incomplete; recipient-dependent work awaits the owner native repair.
+
 The approved task remains open. Native supported delivery/parity, shared
 authority construction, repaired ingestion/replay, whole-population accounting,
 production entity-to-receipt-to-preparation traces, all five production workbook

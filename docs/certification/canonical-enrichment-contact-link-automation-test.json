@@ -1,0 +1,19 @@
+{
+  "observedAt": "2026-10-04T05:09:25.368Z",
+  "checks": 31,
+  "scope": "Disposable real-DB automatic relationship linking only",
+  "cohortIndependent": true,
+  "automaticNativeRepairRecovery": true,
+  "noWebsiteIdentityCommitted": true,
+  "explicitOffPreserved": true,
+  "ruleUpgradePreservesOff": true,
+  "claimAndReplaySafe": true,
+  "currentPublishedOwnerRequired": true,
+  "retiredBuildDenied": true,
+  "revokedOwnerDenied": true,
+  "providerEnrollmentCommunicationAndCohortCountsUnchanged": true,
+  "externalNetworkAttempts": 0,
+  "nativeFingerprintsUnchanged": true,
+  "productionExecution": false,
+  "taskComplete": false
+}

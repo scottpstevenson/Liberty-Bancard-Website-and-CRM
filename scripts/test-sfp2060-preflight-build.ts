@@ -95,8 +95,10 @@ try {
   assert.equal(empty.separateFromCrm, true);
   const { getContactLinkAutomationStatus, processContactLinkAutomationTick } = await import("../server/services/contact-link-automation");
   assert.equal(await getContactLinkAutomationStatus(), null);
-  assert.deepEqual(await processContactLinkAutomationTick(), { ran: false }, "no implicit automatic-write authorization");
-  console.log(`PASS: ${checked} SQL/UI aliases, concurrent 1–3 reservations, replay/conflict, real read and incremental SQL, no implicit activation`);
+  await assert.rejects(processContactLinkAutomationTick(), /DEPLOYMENT_IDENTITY_UNVERIFIED/,
+    "no implicit activation without a verified published deployment owner");
+  assert.equal(await getContactLinkAutomationStatus(), null);
+  console.log(`PASS: ${checked} SQL/UI aliases, concurrent 1–3 reservations, replay/conflict, real read and incremental SQL, published-owner activation fence`);
 } finally {
   await control.query(`DROP SCHEMA "${schema}" CASCADE`);
   await control.end();

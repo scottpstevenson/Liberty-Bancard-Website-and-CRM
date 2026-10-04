@@ -1,0 +1,12 @@
+{
+  "observedAt": "2026-10-04T05:06:13.268Z",
+  "checks": 5,
+  "scope": "Disposable native delivery/reapply and whole-row preservation only; not recipient selection or concurrency",
+  "reproducedMissingProductionFunctionAndTrigger": true,
+  "installedExactRequiredFingerprintAndTriggerShape": true,
+  "reapplySafe": true,
+  "originalRowsAndSubjectForeignKeyUnchanged": true,
+  "repairPath": "docs/certification/canonical-enrichment-recipient-capacity-native-repair-v1.sql",
+  "productionExecution": false,
+  "taskComplete": false
+}

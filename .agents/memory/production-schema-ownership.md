@@ -15,7 +15,7 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 
 **New-table CREATE also mis-generates `check()` — and the bug follows the live dev DB, not `schema.ts`:** for a table that doesn't exist in production yet, Publish's diff generator introspects the constraint from the live development database (where `pg_get_constraintdef` already returns full text like `CHECK (singleton)`) and wraps that text in another `CHECK (...)` when emitting the new table's `CREATE TABLE` for production, producing invalid SQL (`CHECK (CHECK (singleton))`). Removing the `check()` call from `shared/schema.ts` alone does **not** fix this — the physically installed development constraint must also be considered. Do not work around this with application-startup DDL or a custom production migration executor; a failed/omitted Publish contract is a release blocker requiring supported platform/operator resolution.
 
-**Human-console operational history, not agent migration authority:** a user previously executed constraint changes through the production SQL console. This is not permission to bypass the managed-database rules or generate a custom production migration executor. Agent production access remains read-only. Two verified console quirks matter for read-only diagnostic scripts too: (1) the console auto-wraps multi-statement input and rejects explicit `BEGIN`/`COMMIT`/`END`/`ROLLBACK`; (2) repeated pastes can concatenate and mangle tokens. Clear the editor and independently verify results rather than trusting a potentially stale result panel.
+**Human-console operational history, not agent migration authority:** the user executed the complete canonical repair through the production SQL console, with independently verified persisted guards. Earlier syntax failures do not establish a general ban on explicit transactions or dollar-quoted function bodies; their cause remains unproved. Clear the editor and verify persisted results instead of treating a result panel or speculative parser diagnosis as proof. Agent production access remains read-only, and owner execution does not authorize a custom production migration executor.
 
 **Migration-only triggers also need separate verification:** Publish can create a new table and its declarative constraints without executing a migration's `CREATE FUNCTION`/`CREATE TRIGGER`; the table's existence does not prove its append-only audit guard exists.
 
@@ -45,14 +45,17 @@ The user-authorized owner-route exception is documented in `replit.md`;
 Agent production SQL access remains read-only.
 
 PostgreSQL driver certification is not owner SQL-console certification.
-An editable production SQL runner rejected both a driver-tested dollar-quoted
+Earlier editable production SQL-runner attempts rejected both a driver-tested dollar-quoted
 native DO block and its exact-body escape-string transport, reporting
-unterminated dollar-quoted and quoted strings respectively.
+unterminated dollar-quoted and quoted strings respectively. A later owner
+execution of the complete unchanged canonical dollar-quoted statement
+succeeded, with independent production postcondition verification.
 
 **Why:** Repeating instructions to paste the same block did not change the
 failure; owner screenshots established both the correct target and the actual
 syntax error. Documentation-search claims about console parser behavior were
-not sufficient evidence.
+not sufficient evidence. The later successful execution also means those
+failures do not establish that the console cannot execute complex native SQL.
 
 **How to apply:** Inspect execution errors before asking for repeated exports.
 Do not offer more speculative console encodings. Exact decoded-body parity and
@@ -74,3 +77,7 @@ documented alternative must not become a prerequisite imposed on their workflow.
 **How to apply:** Continue console diagnosis with minimal non-mutating probes
 and actual owner-console results, not further speculative large repair variants.
 Distinguish Agent read-only SQL execution from owner-console compatibility.
+When the user requests the complete reviewed repair, provide the whole atomic
+statement without splitting its definitions or claiming an unproved parser fix.
+Verify persisted production postconditions before calling the repair successful;
+do not impose an external client based on earlier syntax errors.

@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
-import { pool } from "../db";
+import { db, pool } from "../db";
 import { previewContactBusinessSystemLinks, applyContactBusinessSystemLink } from "./contact-business-system-links";
+import { assertSystemLinkDatabaseGuard } from "./commercial-link-authority";
+import {
+  claimSfpRuntimeDeploymentOwner,
+  lockCurrentSfpRuntimeOwner,
+} from "./cro03/sfp-provider-operations";
 
 const KEY = "contact_link_automation_v1";
 const RULE = "independent_guarded_system_links_v2";
@@ -18,7 +23,7 @@ export async function getContactLinkAutomationStatus(): Promise<Program | null> 
   return state?.version === 1 && state?.rule === RULE ? state : null;
 }
 
-/** Explicit one-time admin authorization, distinct from starting a read-only census. */
+/** Operator enable/disable override; routine initialization is automatic. */
 export async function setContactLinkAutomation(enabled: boolean, actorId: string) {
   const client = await pool.connect();
   try {
@@ -56,28 +61,6 @@ export async function setContactLinkAutomation(enabled: boolean, actorId: string
  * evidence/snapshot and actual database guard for every automatic decision.
  */
 export async function processContactLinkAutomationTick() {
-  const exists = await pool.query("SELECT 1 FROM system_settings WHERE key=$1",[KEY]);
-  if (!exists.rowCount) {
-    const parent = await pool.query(`SELECT r.id FROM sfp_cohort_runs r
-      JOIN sfp_programs p ON p.id=r.program_id AND p.is_active=TRUE
-      WHERE r.cohort_state='frozen' AND r.voided_at IS NULL AND r.superseded_at IS NULL
-      ORDER BY r.frozen_at DESC NULLS LAST,r.created_at DESC LIMIT 1`);
-    if (parent.rows[0]) {
-      try {
-        const { assertSfpRuntimeAuthority } = await import("./cro03/sfp-provider-operations");
-        const owner = await assertSfpRuntimeAuthority(String(parent.rows[0].id));
-        const initial: Program = {version:1,rule:RULE,runId:crypto.randomUUID(),enabled:true,
-          authorizedBy:`system:sfp_runtime_owner_epoch_${owner.ownerEpoch}`,cursor:0,scanned:0,
-          committed:0,replayed:0,held:0,reasons:{},leaseToken:null,leaseUntil:null,
-          updatedAt:new Date().toISOString(),lastError:null,complete:false};
-        await pool.query(`INSERT INTO system_settings(key,value,updated_at)
-          VALUES($1,$2::jsonb,NOW()) ON CONFLICT(key) DO NOTHING`,[KEY,JSON.stringify(initial)]);
-      } catch {
-        // Never invent ownership or replace an explicit disabled programme.
-        return {ran:false,reason:"awaiting_current_sfp_runtime_owner"};
-      }
-    }
-  }
   // A policy repair must revisit earlier held records even when their source
   // rows did not change. Preserve authorization/off state and live leases.
   await pool.query(`UPDATE system_settings SET value=value ||
@@ -86,14 +69,46 @@ export async function processContactLinkAutomationTick() {
     updated_at=NOW()
     WHERE key=$1 AND value->>'rule'='independent_guarded_system_links_v1'
       AND (value->>'leaseUntil' IS NULL OR (value->>'leaseUntil')::timestamptz<=NOW())`, [KEY]);
+  const exists = await pool.query("SELECT value FROM system_settings WHERE key=$1", [KEY]);
+  // Do not renew deployment ownership or implicitly reactivate an operator hold.
+  if (exists.rows[0] && exists.rows[0].value?.enabled !== true) return { ran: false };
+  await assertSystemLinkDatabaseGuard(db);
+  // Local identity linking has no cohort or paid-provider admission dependency.
+  // Reuse the selected deployment owner; old builds and explicit revocation
+  // remain fenced even after a program was initialized by an earlier build.
+  const owner = await claimSfpRuntimeDeploymentOwner();
+  if (!exists.rowCount) {
+    const initial: Program = {version:1,rule:RULE,runId:crypto.randomUUID(),enabled:true,
+      authorizedBy:`system:canonical_contact_links_owner_epoch_${owner.ownerEpoch}`,cursor:0,scanned:0,
+      committed:0,replayed:0,held:0,reasons:{},leaseToken:null,leaseUntil:null,
+      updatedAt:new Date().toISOString(),lastError:null,complete:false};
+    await db.transaction(async tx => {
+      const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
+      if (currentOwner.ownerEpoch !== owner.ownerEpoch || currentOwner.ownerToken !== owner.ownerToken) {
+        throw new Error("CONTACT_LINK_AUTOMATION_RUNTIME_OWNER_CHANGED");
+      }
+      await assertSystemLinkDatabaseGuard(tx);
+      // A concurrent explicit off decision always wins over automatic bootstrap.
+      await tx.execute(sql`INSERT INTO system_settings(key,value,updated_at)
+        VALUES(${KEY},${JSON.stringify(initial)}::jsonb,NOW()) ON CONFLICT(key) DO NOTHING`);
+    });
+  }
   const token = crypto.randomUUID();
-  const claim = await pool.query(`UPDATE system_settings
-    SET value=jsonb_set(jsonb_set(value,'{leaseToken}',to_jsonb($2::text)),
-      '{leaseUntil}',to_jsonb((NOW()+INTERVAL '2 minutes')::text)),updated_at=NOW()
-    WHERE key=$1 AND value->>'enabled'='true' AND value->>'version'='1' AND value->>'rule'=$3
-      AND (value->>'leaseUntil' IS NULL OR (value->>'leaseUntil')::timestamptz <= NOW())
-    RETURNING value,NOW()::text AS scan_time`, [KEY, token, RULE]);
-  const state = claim.rows[0]?.value as Program | undefined;
+  const claim = await db.transaction(async tx => {
+    const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
+    if (currentOwner.ownerEpoch !== owner.ownerEpoch || currentOwner.ownerToken !== owner.ownerToken) {
+      throw new Error("CONTACT_LINK_AUTOMATION_RUNTIME_OWNER_CHANGED");
+    }
+    await assertSystemLinkDatabaseGuard(tx);
+    const result = await tx.execute(sql`UPDATE system_settings
+      SET value=jsonb_set(jsonb_set(value,'{leaseToken}',to_jsonb(${token}::text)),
+        '{leaseUntil}',to_jsonb((clock_timestamp()+INTERVAL '2 minutes')::text)),updated_at=NOW()
+      WHERE key=${KEY} AND value->>'enabled'='true' AND value->>'version'='1' AND value->>'rule'=${RULE}
+        AND (value->>'leaseUntil' IS NULL OR (value->>'leaseUntil')::timestamptz <= clock_timestamp())
+      RETURNING value,clock_timestamp()::text AS scan_time`);
+    return (result as any).rows as any[];
+  });
+  const state = claim[0]?.value as Program | undefined;
   if (!state) return { ran: false };
   try {
     if (!state.scanStartedAt || state.complete) {
@@ -103,7 +118,7 @@ export async function processContactLinkAutomationTick() {
         state.cursor = 0;
         state.complete = false;
       }
-      state.scanStartedAt = claim.rows[0].scan_time;
+      state.scanStartedAt = claim[0].scan_time;
       await checkpoint(state, token);
     }
     const preview = await previewContactBusinessSystemLinks({
@@ -115,12 +130,26 @@ export async function processContactLinkAutomationTick() {
       if (!current?.enabled || current.leaseToken !== token) break;
       let outcome: any = null;
       if (candidate.eligible) outcome = await applyContactBusinessSystemLink(candidate as any, async tx => {
+        const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
+        if (currentOwner.ownerEpoch !== owner.ownerEpoch || currentOwner.ownerToken !== owner.ownerToken) {
+          throw new Error("CONTACT_LINK_AUTOMATION_RUNTIME_OWNER_CHANGED");
+        }
         const result = await tx.execute(sql`SELECT value,
           (value->>'leaseUntil')::timestamptz > NOW() AS live
           FROM system_settings WHERE key=${KEY} FOR SHARE`);
         const pinned = (result as any).rows?.[0];
-        return pinned?.value?.enabled === true && pinned?.value?.leaseToken === token && pinned?.live === true;
+        if (pinned?.value?.leaseToken !== token || pinned?.live !== true) {
+          throw new Error("CONTACT_LINK_AUTOMATION_LEASE_LOST");
+        }
+        if (pinned.value.enabled !== true) throw new Error("CONTACT_LINK_AUTOMATION_DISABLED");
+        return true;
       });
+      // Authority/lease loss is retryable, not an identity-conflict disposition.
+      // Keep this contact ahead of the cursor so restoration needs no manual
+      // rewind, source-row update, or fresh cohort.
+      if (outcome?.status === "rejected" && /(?:AUTHORITY_FENCE_LOST|DATABASE_GUARD_MISSING|RUNTIME_OWNER|LEASE_LOST|AUTOMATION_DISABLED)/.test(outcome.code ?? "")) {
+        throw new Error(outcome.code);
+      }
       state.scanned++;
       if (outcome?.status === "applied") state.committed++;
       else if (outcome?.status === "replayed") state.replayed++;

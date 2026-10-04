@@ -1,0 +1,32 @@
+{
+  "observedAt": "2026-10-04T04:43:02.041Z",
+  "scope": "Independent read-only production verification after owner SQL-console execution; native repair milestone only",
+  "sourceFile": "migrations/0329_crm_native_contract_repair.sql",
+  "sourceSha256": "6213c5ac119d9cca2ec5128b2f84b3f3e18ca79b24a01735e45ab649d27d4242",
+  "productionGuard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nt,t,t,t,t,t,t\n",
+    "success": true
+  },
+  "productionCatalog": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "proname,arguments,body_md5\ncrm_automatic_relationship_reasons,\"contact_key integer, business_key integer, source_key uuid, entity_key integer\",6868a6d639a3fd0af7a10346821dad19\ncrm_identity_domain,value text,d0af69048a9c4845df1589219a522629\ncrm_identity_name,value text,e45d1eb858ef5e5f9d94b8b9aa965c49\nenforce_reviewed_contact_business_link,,46f89326f7c158ac739814ce343c2559\n",
+    "success": true
+  },
+  "productionExecutionSmoke": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "source_entity_nullable,identity_name_ok,identity_domain_ok,relationship_execution_ok\nt,t,t,t\n",
+    "success": true
+  },
+  "ownerReportedExecutionRoute": "Production Database SQL console",
+  "agentAppliedProductionDDL": false,
+  "agentRetrievedProductionCredentials": false,
+  "productionNativeRepairVerified": true,
+  "automaticPublishNativeDeliveryFixed": false,
+  "consolidationTaskComplete": false,
+  "outboundReleaseAuthorized": false,
+  "productionWorkbookImportsPerformed": false
+}
