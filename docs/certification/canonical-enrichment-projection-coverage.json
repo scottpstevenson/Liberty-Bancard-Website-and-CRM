@@ -1,12 +1,12 @@
 {
-  "observedAt": "2026-10-04T19:29:28.351Z",
+  "observedAt": "2026-10-04T21:25:54.307Z",
   "checks": 13,
   "scope": "Disposable full-population local projection only; not deployed scheduled cycles or whole-task acceptance",
   "completedLocalPasses": 2,
   "lastCompletedCoverage": {
     "scope": "all_record_classes",
-    "startedAt": "2026-10-04 19:29:27.863606+00",
-    "completedAt": "2026-10-04T19:29:27.975Z",
+    "startedAt": "2026-10-04 21:25:54.200832+00",
+    "completedAt": "2026-10-04T21:25:54.227Z",
     "businessHighWater": 3,
     "contactHighWater": 3,
     "populationBusinesses": 3,

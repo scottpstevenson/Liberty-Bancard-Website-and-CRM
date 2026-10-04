@@ -1,0 +1,26 @@
+{
+  "observedAt": "2026-10-04T21:58:29.727Z",
+  "checks": 13,
+  "rawRows": 2,
+  "selectedRows": 1,
+  "scope": "Disposable actual source-registry importer; all-column retention and CSV record accounting",
+  "effectsBefore": {
+    "contacts": "0",
+    "providers": "0",
+    "validations": "0",
+    "messages": "0",
+    "enrollments": "0",
+    "cohorts": "0"
+  },
+  "effectsAfter": {
+    "contacts": "0",
+    "providers": "0",
+    "validations": "0",
+    "messages": "0",
+    "enrollments": "0",
+    "cohorts": "0"
+  },
+  "networkAttempts": 0,
+  "productionExecution": false,
+  "taskComplete": false
+}

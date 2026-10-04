@@ -106,6 +106,12 @@ export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
     timeoutSecs:900,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"Canonical address/preparation owner delivery",script:"scripts/certification/test-canonical-address-preparation-owner-repair.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Canonical registry original retention",script:"scripts/certification/test-canonical-registry-originals.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Canonical registry entity projection",script:"scripts/certification/test-canonical-registry-projection.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"Canonical source outbox accounting",script:"scripts/certification/test-canonical-source-outbox.ts",
     timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"Canonical full-population projection coverage",script:"scripts/certification/test-canonical-projection-coverage.ts",

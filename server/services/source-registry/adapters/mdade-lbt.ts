@@ -118,6 +118,10 @@ export const mdadeLbtAdapter: SourceAdapter = {
       sourceStatusActive: ACTIVE_STATUS_MAPPING[sourceStatus] ?? false,
       businessName,
       zip,
+      address:rawRow["Business_Address"] || rawRow["Address"] || rawRow["business_address"] || null,
+      city:rawRow["City"] || rawRow["CITY"] || rawRow["city"] || null,
+      state:"FL",
+      phone:rawRow["Phone"] || rawRow["PHONE"] || rawRow["phone"] || null,
     };
   },
 };

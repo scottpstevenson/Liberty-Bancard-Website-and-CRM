@@ -9,6 +9,11 @@ import {assertCanonicalAddressReceiptContract} from "./canonical-address-receipt
 /** Observational projection only. Counts are not enrollment, transport,
  * qualification or completion authority. Failed reads never become zeroes. */
 export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichmentStatus> {
+  // Missing native prerequisites must remain visible in Settings & Health,
+  // not make the whole observational endpoint fail before its guard report.
+  const preparationSchemaAvailable=(await pool.query(`SELECT count(*)::int n FROM pg_attribute
+    WHERE attrelid='public.cr04_enrollment_intents'::regclass AND NOT attisdropped
+      AND attname IN ('program_id','business_id','normalized_email_hash','preparation_state','preparation_snapshot')`)).rows[0].n===5;
   const importOutcomes = (exceptions: boolean) => pool.query(`
     SELECT accounting.execution_id,accounting.source_row_number,accounting.disposition,
       accounting.reason_code,accounting.contact_id,
@@ -33,7 +38,7 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
       AND source_item.terminal_code IS DISTINCT FROM 'CANONICAL_LOCAL_IMPORT_FULFILLED'` : ""}
     ORDER BY accounting.completed_at DESC,accounting.id DESC LIMIT 25`);
   const [contacts, businesses, preparations, imports, providers, nativeContracts, preparationCursor, validationQueue,
-    recentImportOutcomes, importExceptions, projection] = await Promise.all([
+    recentImportOutcomes, importExceptions, projection, registryProjection, registryRecent] = await Promise.all([
     pool.query(`SELECT count(*)::int total,
       count(*) FILTER (WHERE email_status='valid')::int valid,
       count(*) FILTER (WHERE email_status IS NULL OR email_status IN ('active','unvalidated'))::int unvalidated,
@@ -49,9 +54,9 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
     pool.query(`SELECT state,sum(n)::int n FROM (
       SELECT 'historical_sfp:'||state AS state,count(*)::int n
         FROM sfp_campaign_staging_intents GROUP BY state
-      UNION ALL
+      ${preparationSchemaAvailable ? `UNION ALL
       SELECT preparation_state AS state,count(*)::int n FROM cr04_enrollment_intents
-        WHERE program_id IS NOT NULL GROUP BY preparation_state
+        WHERE program_id IS NOT NULL GROUP BY preparation_state` : ""}
     ) preparation_states GROUP BY state`),
     pool.query("SELECT status AS state,count(*)::int n FROM import_executions GROUP BY status"),
     pool.query("SELECT state,count(*)::int n FROM provider_operations GROUP BY state"),
@@ -63,21 +68,51 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
       state: "verified" as const, reason: null,
     })).catch(error => ({
       state: "blocked" as const,
-      reason: /DATABASE_GUARD_MISSING/.test(String(error?.message))
+      reason: /DATABASE_GUARD_MISSING|^CANONICAL_(?:ADDRESS|PREPARATION)_NATIVE_CONTRACT_REQUIRED$/.test(String(error?.message))
         ? String(error.message).slice(0, 250) : "Native contract verification unavailable",
     })),
     pool.query("SELECT value FROM system_settings WHERE key='canonical_recipient_preparation_cursor'"),
-    pool.query(`SELECT count(*) FILTER(WHERE state='pending')::int pending,
+    preparationSchemaAvailable ? pool.query(`SELECT count(*) FILTER(WHERE state='pending')::int pending,
       count(*) FILTER(WHERE state='processing')::int processing,
       min(created_at) FILTER(WHERE state='pending')::text oldest_pending_at
       FROM validation_intents WHERE state IN ('pending','processing')
         AND EXISTS(SELECT 1 FROM cr04_enrollment_intents prepared
           WHERE prepared.contact_id=validation_intents.contact_id
             AND prepared.normalized_email_hash=validation_intents.normalized_email_token_hash
-            AND prepared.preparation_state IN ('pending_validation','ready_held'))`),
+             AND prepared.preparation_state IN ('pending_validation','ready_held'))`)
+      : Promise.resolve({rows:[{pending:null,processing:null,oldest_pending_at:null}]}),
     importOutcomes(false),
     importOutcomes(true),
     pool.query("SELECT value FROM system_settings WHERE key='crm_effective_vertical_projection_v1'"),
+    pool.query(`SELECT count(*)::int total,
+      count(*) FILTER(WHERE item.terminal_code='CANONICAL_REGISTRY_ENTITY_FULFILLED')::int fulfilled,
+      count(*) FILTER(WHERE item.state='blocked' AND item.terminal_code LIKE 'CANONICAL_REGISTRY_%')::int held,
+      count(*) FILTER(WHERE item.state='running')::int processing,
+      count(*) FILTER(WHERE item.state='blocked' AND item.terminal_code='STAGING_RECIPE_DISABLED'
+        AND run.status='completed' AND subject.tombstoned_at IS NULL)::int pending,
+      count(*) FILTER(WHERE run.status<>'completed' OR subject.tombstoned_at IS NOT NULL)::int source_unavailable,
+      min(item.created_at) FILTER(WHERE item.state='blocked' AND item.terminal_code='STAGING_RECIPE_DISABLED'
+        AND run.status='completed' AND subject.tombstoned_at IS NULL)::text oldest_pending_at
+      FROM cro03_enrichment_items item JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id
+      JOIN cro03_batch_memberships member ON member.id=item.membership_id
+      JOIN cro03_source_subjects subject ON subject.id=member.source_subject_id
+      JOIN source_import_runs run ON
+        batch.idempotency_key LIKE 'source-registry:'||run.adapter_key||':'||run.id::text||':offset-%'
+      WHERE batch.purpose='staging_review' AND batch.idempotency_key LIKE 'source-registry:%'`),
+    pool.query(`SELECT item.id item_id,run.id import_run_id,subject.source_system,item.state,
+        CASE WHEN run.status<>'completed' THEN 'SOURCE_IMPORT_'||upper(run.status)
+          WHEN subject.tombstoned_at IS NOT NULL THEN 'SOURCE_RECORD_RETIRED'
+          ELSE item.terminal_code END terminal_code,
+        canonical.business_id,item.next_attempt_at::text next_attempt_at
+      FROM cro03_enrichment_items item JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id
+      JOIN cro03_batch_memberships member ON member.id=item.membership_id
+      JOIN cro03_source_subjects subject ON subject.id=member.source_subject_id
+      JOIN source_import_runs run ON
+        batch.idempotency_key LIKE 'source-registry:'||run.adapter_key||':'||run.id::text||':offset-%'
+      LEFT JOIN canonical_source_links canonical ON canonical.source_system=subject.source_system
+        AND canonical.source_type='public_registry' AND canonical.stable_key=subject.subject_key
+      WHERE batch.purpose='staging_review' AND batch.idempotency_key LIKE 'source-registry:%'
+      ORDER BY item.updated_at DESC,item.id DESC LIMIT 25`),
   ]);
   const outcomeRows=(result:{rows:any[]})=>result.rows.map(row=>({
     executionId:String(row.execution_id),sourceRowNumber:Number(row.source_row_number),
@@ -95,8 +130,17 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
   return {
     observedAt: new Date().toISOString(), scope: "production_records_with_historical_work",
     contacts: contacts.rows[0], businesses: businesses.rows[0],
-    preparations: states(preparations), imports: states(imports), providers: states(providers),
+    preparations: {...states(preparations),currentAvailable:preparationSchemaAvailable}, imports: states(imports), providers: states(providers),
     recentImportOutcomes:outcomeRows(recentImportOutcomes),importExceptions:outcomeRows(importExceptions),
+    registryProjection:{
+      total:Number(registryProjection.rows[0].total),fulfilled:Number(registryProjection.rows[0].fulfilled),
+      held:Number(registryProjection.rows[0].held),processing:Number(registryProjection.rows[0].processing),
+      pending:Number(registryProjection.rows[0].pending),oldestPendingAt:registryProjection.rows[0].oldest_pending_at,
+      sourceUnavailable:Number(registryProjection.rows[0].source_unavailable),
+      recent:registryRecent.rows.map(row=>({itemId:String(row.item_id),importRunId:String(row.import_run_id),
+        sourceSystem:String(row.source_system),state:String(row.state),reason:row.terminal_code ?? null,
+        businessId:row.business_id == null ? null : Number(row.business_id),nextAttemptAt:row.next_attempt_at ?? null})),
+    },
     nativeContracts,
     automaticProgress:{
       projection:{
@@ -117,7 +161,9 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
         lastCycleAt:preparationCursor.rows[0]?.value?.lastCycleAt ?? null,
         reasons:preparationCursor.rows[0]?.value?.reasons ?? {},
       },
-      validation:{pending:Number(validationQueue.rows[0].pending),processing:Number(validationQueue.rows[0].processing),
+      validation:{available:preparationSchemaAvailable,
+        pending:preparationSchemaAvailable ? Number(validationQueue.rows[0].pending) : null,
+        processing:preparationSchemaAvailable ? Number(validationQueue.rows[0].processing) : null,
         oldestPendingAt:validationQueue.rows[0].oldest_pending_at},
     },
     limitations: [

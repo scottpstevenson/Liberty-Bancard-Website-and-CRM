@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { businesses, type InsertBusiness } from "@shared/schema";
+type ResolutionTransaction=Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type OrganizationResolution =
   | { kind: "created"; business: typeof businesses.$inferSelect }
@@ -34,6 +35,8 @@ export async function resolveOrganization(input: {
   state?: string | null;
   create?: Omit<InsertBusiness, "canonicalName" | "normalizedName" | "websiteDomain" | "googlePlaceId" | "mainPhone">;
   authorityCheck?: (tx: any) => Promise<boolean>;
+  transaction?: ResolutionTransaction;
+  sourceIdentity?: {sourceSystem:string;sourceType:string;stableKey:string};
 }): Promise<OrganizationResolution> {
   const domain = normal(input.websiteDomain);
   const placeId = input.googlePlaceId?.trim() || null;
@@ -42,6 +45,7 @@ export async function resolveOrganization(input: {
   const city = normal(input.city);
   const state = normal(input.state);
   const lockKeys = [
+    input.sourceIdentity ? `source:${input.sourceIdentity.sourceSystem}:${input.sourceIdentity.sourceType}:${input.sourceIdentity.stableKey}` : null,
     placeId ? `place:${placeId}` : null,
     domain ? `domain:${domain}` : null,
     phone ? `phone:${phone}` : null,
@@ -49,7 +53,7 @@ export async function resolveOrganization(input: {
   ].filter((value): value is string => !!value).sort();
   if (lockKeys.length === 0) return { kind: "deferred", reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE", candidateIds: [] };
 
-  return db.transaction(async (tx) => {
+  const resolve=async (tx:ResolutionTransaction):Promise<OrganizationResolution> => {
     if (input.authorityCheck && !(await input.authorityCheck(tx))) {
       throw new Error("ORGANIZATION_RESOLUTION_AUTHORITY_FENCE_LOST");
     }
@@ -64,10 +68,16 @@ export async function resolveOrganization(input: {
     // only in an IS NULL / IS NOT NULL predicate. Cast every evidence parameter
     // explicitly so partially populated organization inputs remain valid.
     const candidates = await tx.select().from(businesses).where(sql`
-      (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
+      EXISTS(SELECT 1 FROM canonical_source_links source_link
+        WHERE source_link.business_id=businesses.id
+          AND source_link.source_system=${input.sourceIdentity?.sourceSystem ?? null}::text
+          AND source_link.source_type=${input.sourceIdentity?.sourceType ?? null}::text
+          AND source_link.stable_key=${input.sourceIdentity?.stableKey ?? null}::text)
+         OR (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
          OR (${domain}::text IS NOT NULL AND lower(website_domain) = ${domain}::text)
          OR (${phone}::text IS NOT NULL AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${phone}::text)
          OR (${placeId}::text IS NULL AND ${domain}::text IS NULL AND ${phone}::text IS NULL
+              AND ${city}::text IS NOT NULL AND ${state}::text IS NOT NULL
              AND normalized_name = ${name} AND lower(coalesce(city, '')) = ${city ?? ""}
              AND lower(coalesce(state, '')) = ${state ?? ""})
     `).for("update");
@@ -101,7 +111,8 @@ export async function resolveOrganization(input: {
       ...(input.create ?? {}),
     }).returning();
     return { kind: "created", business };
-  });
+  };
+  return input.transaction ? resolve(input.transaction) : db.transaction(resolve);
 }
 
 /**

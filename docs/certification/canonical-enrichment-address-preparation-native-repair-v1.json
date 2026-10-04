@@ -1,0 +1,27 @@
+{
+  "observedAt": "2026-10-04T21:53:15.519Z",
+  "checks": 21,
+  "scope": "Disposable complete owner SQL; installation, reapply, original constraint preservation and drift denial",
+  "productionExecution": false,
+  "ownerConsoleExecution": false,
+  "taskComplete": false,
+  "effectsBefore": {
+    "contacts": "0",
+    "businesses": "0",
+    "providers": "0",
+    "observations": "0",
+    "enrollments": "0",
+    "messages": "0",
+    "cohorts": "0"
+  },
+  "effectsAfter": {
+    "contacts": "0",
+    "businesses": "0",
+    "providers": "0",
+    "observations": "0",
+    "enrollments": "0",
+    "messages": "0",
+    "cohorts": "0"
+  },
+  "networkAttempts": 0
+}

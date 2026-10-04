@@ -1,3 +1,4 @@
+- [Canonical consolidation completion](canonical-consolidation-scope.md) — Finish the original scope; production blockers do not justify stopping independent local work.
 - [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — Non-admin/manager roles may still see retired pages; inspect every redirect branch before deletion.
 - [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService side-effect wiring; backfill not yet run on prod.
 - [NBA Engine & ChannelOrchestrator](wave1-nba-channel-orchestrator.md) — ChannelOrchestrator compliance fence, transport adapters, NBA tables/routes/UI at /dashboard/nba.
@@ -149,3 +150,4 @@
 - [Partial patch results](partial-patch-results.md) — A failed multi-file patch may retain successful edits; inspect per-file results before retrying.
 - [Dev startup mutation scope](dev-startup-mutation-scope.md) — Background profile off disables jobs, not all startup reconciliations; no-mutation verification needs separate care.
 - [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
+- [SFP owner lock ordering](sfp-owner-lock-order.md) — Lock release selector before owner explicitly; joined FOR SHARE is not a lock-order guarantee.

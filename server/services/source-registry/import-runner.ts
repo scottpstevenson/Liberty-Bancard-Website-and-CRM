@@ -28,10 +28,12 @@
 
 import { createHash, randomUUID } from "crypto";
 import { parse } from "csv-parse/sync";
-import { pool } from "../../db";
+import {sql} from "drizzle-orm";
+import { pool,db } from "../../db";
 import { createCro03SourceBatch } from "../cro03/source-staging";
 import { getAdapter, IMPLEMENTED_ADAPTER_KEYS } from "./registry";
 import type { NormalizedSourceRecord } from "./adapter";
+import {encryptRawPayload} from "./adapter";
 
 const BATCH_SIZE = 200;
 /** Advisory lock base offset — distinct from other app advisory locks */
@@ -228,6 +230,12 @@ export async function runSourceImport(params: {
 
     // Atomically claim the run — only from queued or running state
     const myLeaseToken = randomUUID();
+    const authorityCheck=async(tx:any)=>{
+      const result=await tx.execute(sql`SELECT id FROM source_import_runs
+        WHERE id=${runId}::uuid AND status='running' AND lease_token=${myLeaseToken}::uuid
+          AND lease_expires_at>clock_timestamp() FOR UPDATE`);
+      return (result?.rows ?? result ?? []).length===1;
+    };
     const claimResult = await client.query<{ id: string }>(
       `UPDATE source_import_runs
        SET status = 'running', started_at = COALESCE(started_at, NOW()),
@@ -312,6 +320,10 @@ export async function runSourceImport(params: {
         );
       }
     }
+    // CSV records, not physical lines: quoted multiline cells remain one row.
+    await client.query(`UPDATE source_import_runs SET source_row_count=$2
+      WHERE id=$1::uuid AND status='running' AND lease_token=$3::uuid`,
+      [runId,rows.length,myLeaseToken]);
 
     // ── Tombstone baseline guard setup ───────────────────────────────────────
     // For full-snapshot runs, read the current active population BEFORE processing.
@@ -336,6 +348,28 @@ export async function runSourceImport(params: {
       const chunk = rows.slice(offset, offset + BATCH_SIZE);
       const normalized: NormalizedSourceRecord[] = [];
       let normalizationExceptions = 0; // only THROWN exceptions count — null=filtered
+      // Preserve ALL original columns before adapter selection, including
+      // skipped/out-of-scope rows. Never infer a business/person from this
+      // evidence-only envelope or discard it when transient CSV bytes clear.
+      const originals=await createCro03SourceBatch({
+        idempotencyKey:`source-registry-original:${adapterKey}:${runId}:offset-${offset}`,
+        actorType:"import",actorId:`source-registry-${adapterKey}`,purpose:"staging_review",authorityCheck,
+        subjects:chunk.map((row,index)=>({
+          subjectType:"provider_csv_row" as const,
+          subjectKey:`original:${runId}:${offset+index+1}`,sourceSystem:adapterKey,
+          payload:{rawPayload:encryptRawPayload(row),sourceRowNumber:offset+index+1,
+            csvSha256,sourceFormat:"source_registry_original",evidenceOnly:true},
+          provenance:{sourceSystem:adapterKey,runId,adapterKey,mappingVersion:adapter.mappingVersion,csvSha256},
+          sourceEventKey:`source-registry-original:${runId}:${offset+index+1}`,timestampProvenance:"import",
+        })),
+      });
+      await db.transaction(async tx=>{
+        if (!await authorityCheck(tx)) throw new Error("SOURCE_REGISTRY_ORIGINAL_EVIDENCE_LEASE_LOST");
+        await tx.execute(sql`UPDATE cro03_enrichment_items
+          SET state='completed',terminal_code='SOURCE_REGISTRY_ORIGINAL_EVIDENCE_RETAINED',
+            updated_at=clock_timestamp(),completed_at=clock_timestamp()
+          WHERE batch_id=${originals.id}::uuid AND state='blocked' AND terminal_code='STAGING_RECIPE_DISABLED'`);
+      });
 
       for (const row of chunk) {
         try {
@@ -386,6 +420,7 @@ export async function runSourceImport(params: {
         actorType: "import",
         actorId: `source-registry-${adapterKey}`,
         purpose: "staging_review",
+        authorityCheck,
         subjects: normalized.map((r) => ({
           subjectType: "provider_csv_row" as const,
           subjectKey: `${r.registryId}:${r.stableKey}`,

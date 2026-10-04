@@ -45,8 +45,8 @@ const views: { key: ViewKey; label: string; eyebrow: string }[] = [
 
 const numberFormat = new Intl.NumberFormat("en-US");
 
-function formatCount(value: number) {
-  return numberFormat.format(value);
+function formatCount(value: number|null) {
+  return value===null ? "Unavailable" : numberFormat.format(value);
 }
 
 function formatDate(value: string) {
@@ -275,8 +275,8 @@ export default function CanonicalEnrichment() {
               />
               <CurrentSignal
                 label="Preparation-linked validation queue"
-                value={`${formatCount(data.automaticProgress.validation.pending)} pending`}
-                detail={`${formatCount(data.automaticProgress.validation.processing)} processing · oldest pending ${formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}`}
+                value={data.automaticProgress.validation.available ? `${formatCount(data.automaticProgress.validation.pending)} pending` : "Unavailable"}
+                detail={data.automaticProgress.validation.available ? `${formatCount(data.automaticProgress.validation.processing)} processing · oldest pending ${formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}` : "Programme preparation fields are not installed. Missing queue observations are not zero work."}
               />
             </div>
             <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50/70 p-4 dark:border-amber-900/70 dark:bg-amber-950/20">
@@ -296,7 +296,7 @@ export default function CanonicalEnrichment() {
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <StatTile label="Contacts" value={formatCount(data.contacts.total)} note={`${formatCount(data.contacts.valid)} valid · ${formatCount(data.contacts.unvalidated)} unvalidated · ${formatCount(data.contacts.blocked)} blocked`} icon={Users} />
               <StatTile label="Businesses" value={formatCount(data.businesses.total)} note={`${formatCount(data.businesses.mapped)} mapped · ${formatCount(data.businesses.unresolved)} unresolved · ${formatCount(data.businesses.excluded)} excluded`} icon={Building2} />
-              <StatTile label="Preparation history" value={formatCount(data.preparations.total)} note="Historical preparation states; not enrollment or send success." icon={GitBranch} />
+              <StatTile label={data.preparations.currentAvailable ? "Preparation history" : "Legacy preparation history"} value={formatCount(data.preparations.total)} note={data.preparations.currentAvailable ? "Historical preparation states; not enrollment or send success." : "Canonical preparation counts are unavailable until native fields install; only legacy history is shown."} icon={GitBranch} />
               <StatTile label="Import / provider history" value={`${formatCount(data.imports.total)} / ${formatCount(data.providers.total)}`} note="Historical import and provider state totals." icon={FileInput} />
             </div>
           </section>
@@ -308,7 +308,7 @@ export default function CanonicalEnrichment() {
               description="These state totals summarize recorded history. They do not establish a live queue age, automatic retry, downstream advancement, or outreach authorization."
             />
             <div className="grid gap-3 lg:grid-cols-3">
-              <StateList title="Preparation history" total={data.preparations.total} states={data.preparations.byState} />
+              <StateList title={data.preparations.currentAvailable ? "Preparation history" : "Legacy preparation history · current unavailable"} total={data.preparations.total} states={data.preparations.byState} />
               <StateList title="Import history" total={data.imports.total} states={data.imports.byState} />
               <StateList title="Provider history" total={data.providers.total} states={data.providers.byState} />
             </div>
@@ -396,10 +396,38 @@ export default function CanonicalEnrichment() {
             description="Use the existing import, lead operations, and integration surfaces for batch details and provider history. No source records are created or edited here."
           />
           <ImportOutcomeList rows={data.recentImportOutcomes} />
+          <Card>
+            <CardHeader>
+              <CardTitle>Source-registry canonical projection</CardTitle>
+              <CardDescription>Original registry work items progressing to canonical businesses. Geography qualification and paid validation remain separate.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <StatTile label="Fulfilled source items" value={formatCount(data.registryProjection.fulfilled)} note="Committed canonical business/source bindings, not distinct qualified recipients." icon={Building2} />
+                <StatTile label="Pending source items" value={formatCount(data.registryProjection.pending)} note={`Oldest pending: ${formatOptionalDate(data.registryProjection.oldestPendingAt)}`} icon={Clock3} />
+                <StatTile label="Held source items" value={formatCount(data.registryProjection.held)} note={`${formatCount(data.registryProjection.processing)} processing. Held items retain their evidence and retry time.`} icon={AlertTriangle} />
+              </div>
+              <p className="text-xs text-muted-foreground">{formatCount(data.registryProjection.sourceUnavailable)} retained source items have incomplete/failed imports or retired source identities. They are not actionable pending work.</p>
+              {data.registryProjection.recent.map(row=>(
+                <div key={row.itemId} className="rounded-lg border p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{row.sourceSystem}</span>
+                    <Badge variant="outline">{stateLabel(row.reason ?? row.state)}</Badge>
+                  </div>
+                  <p className="mt-1 break-all text-xs text-muted-foreground">Source item {row.itemId} · Import {row.importRunId}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    {row.businessId ? <Link href={`/dashboard/lead-ops/business/${row.businessId}`} className="text-primary underline">Business #{row.businessId}</Link> : <span>No canonical business binding</span>}
+                    {row.state!=="completed" && <span className="text-xs text-muted-foreground">Next attempt: {formatOptionalDate(row.nextAttemptAt)}</span>}
+                  </div>
+                </div>
+              ))}
+              {!data.registryProjection.recent.length && <p className="text-sm text-muted-foreground">No retained source-registry work observed.</p>}
+            </CardContent>
+          </Card>
           <div className="mb-5 grid gap-3 sm:grid-cols-3">
             <StatTile label="Import history" value={formatCount(data.imports.total)} note={`${formatCount(sumStates(data.imports.byState))} represented across reported states.`} icon={FileClock} />
             <StatTile label="Provider history" value={formatCount(data.providers.total)} note="Historical provider state total, not a live delivery result." icon={Activity} />
-            <StatTile label="Preparation history" value={formatCount(data.preparations.total)} note="Separate from imports, validation, and enrollment." icon={GitBranch} />
+            <StatTile label={data.preparations.currentAvailable ? "Preparation history" : "Legacy preparation history"} value={formatCount(data.preparations.total)} note={data.preparations.currentAvailable ? "Separate from imports, validation, and enrollment." : "Current canonical counts unavailable; required native fields are absent."} icon={GitBranch} />
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <NavCard href="/dashboard/lead-ops?tab=imports" title="Lead Ops · Imports" description="Review existing import batches and source-origin details." label="Import records" icon={FileInput} />
@@ -465,7 +493,7 @@ export default function CanonicalEnrichment() {
               </p>
             )}
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              Last cycle: {formatOptionalDate(data.automaticProgress.preparation.lastCycleAt)} · Preparation-linked validation queue: {formatCount(data.automaticProgress.validation.pending)} pending, {formatCount(data.automaticProgress.validation.processing)} processing · oldest pending {formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}.
+              Last cycle: {formatOptionalDate(data.automaticProgress.preparation.lastCycleAt)} · {data.automaticProgress.validation.available ? `Preparation-linked validation queue: ${formatCount(data.automaticProgress.validation.pending)} pending, ${formatCount(data.automaticProgress.validation.processing)} processing · oldest pending ${formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}.` : "Preparation-linked validation queue unavailable: required native fields are absent."}
             </p>
           </section>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

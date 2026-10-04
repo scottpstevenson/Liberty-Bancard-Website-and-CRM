@@ -1,12 +1,12 @@
 {
-  "observedAt": "2026-10-04T21:26:46.750Z",
-  "checks": 13,
-  "scope": "Disposable source qualification accounting only; not canonical entity projection or whole-task acceptance",
-  "retainedOccurrences": 3,
-  "decisions": 3,
-  "historicalReplay": true,
-  "networkAttempts": 0,
+  "observedAt": "2026-10-04T21:59:27.083Z",
+  "checks": 26,
+  "scope": "Disposable source-registry canonical entity projection",
+  "concurrentWorkers": true,
+  "originalEvidencePreserved": true,
+  "leaseLossRollsBackBusiness": true,
   "effectsBefore": {
+    "contacts": "0",
     "providers": "0",
     "validations": "0",
     "enrollments": "0",
@@ -14,12 +14,14 @@
     "cohorts": "0"
   },
   "effectsAfter": {
+    "contacts": "0",
     "providers": "0",
     "validations": "0",
     "enrollments": "0",
     "messages": "0",
     "cohorts": "0"
   },
+  "networkAttempts": 0,
   "productionExecution": false,
   "taskComplete": false
 }

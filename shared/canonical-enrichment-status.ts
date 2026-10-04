@@ -15,11 +15,17 @@ export interface CanonicalEnrichmentStatus {
   scope: "production_records_with_historical_work";
   contacts: { total: number; valid: number; unvalidated: number; blocked: number };
   businesses: { total: number; mapped: number; excluded: number; unresolved: number };
-  preparations: { total: number; byState: Record<string, number> };
+  preparations: { total: number; byState: Record<string, number>;currentAvailable:boolean };
   imports: { total: number; byState: Record<string, number> };
   providers: { total: number; byState: Record<string, number> };
   recentImportOutcomes: CanonicalImportOutcome[];
   importExceptions: CanonicalImportOutcome[];
+  registryProjection: {
+    total: number; fulfilled: number; held: number; processing: number; pending: number; sourceUnavailable:number;
+    oldestPendingAt: string | null;
+    recent: {itemId:string;importRunId:string;sourceSystem:string;state:string;
+      reason:string|null;businessId:number|null;nextAttemptAt:string|null}[];
+  };
   nativeContracts: { state: "verified" | "blocked"; reason: string | null };
   automaticProgress: {
     projection: {
@@ -35,7 +41,7 @@ export interface CanonicalEnrichmentStatus {
     };
     preparation: { observed: boolean; cycles: number; afterContactId: number; scanned: number;
       prepared: number; held: number; lastCycleAt: string | null; reasons: Record<string,number> };
-    validation: { pending: number; processing: number; oldestPendingAt: string | null };
+    validation: { available:boolean;pending: number|null; processing: number|null; oldestPendingAt: string | null };
   };
   limitations: string[];
 }

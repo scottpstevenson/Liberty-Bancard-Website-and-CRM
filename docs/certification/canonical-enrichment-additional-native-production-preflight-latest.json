@@ -1,0 +1,12 @@
+{
+  "environment": "production",
+  "readOnly": true,
+  "result": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,address_claims_present,preparation_state_present,preparation_capacity_exact,address_receipt_clause_present\n2026-10-04 22:32:44.429615+00,f,f,f,f\n",
+    "success": true
+  },
+  "ownerConsoleExecution": false,
+  "taskComplete": false
+}

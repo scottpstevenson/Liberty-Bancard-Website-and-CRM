@@ -2693,6 +2693,13 @@ class QueueManager {
             console.error("[CanonicalImportRecovery] held",{code:error?.code ?? error?.message});
           }
           try {
+            const {processCanonicalRegistryProjectionTick}=await import("./canonical-registry-projection-worker");
+            const registry=await processCanonicalRegistryProjectionTick();
+            if (registry.ran) console.log(`[CanonicalRegistryProjection] ${JSON.stringify(registry)}`);
+          } catch(error:any) {
+            console.error("[CanonicalRegistryProjection] held",{code:error?.code ?? error?.message});
+          }
+          try {
             const {processCanonicalRecipientPreparationTick}=await import("./canonical-recipient-preparation-worker");
             const preparations=await processCanonicalRecipientPreparationTick();
             if (preparations.ran) console.log(`[CanonicalRecipientPreparation] ${JSON.stringify(preparations)}`);

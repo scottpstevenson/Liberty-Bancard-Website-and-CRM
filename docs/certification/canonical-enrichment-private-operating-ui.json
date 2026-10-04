@@ -1,0 +1,41 @@
+{
+  "observedAt": "2026-10-04T22:34:30.236Z",
+  "scope": "Actual signed-in five-view desktop UI against existing disposable fixture",
+  "views": [
+    {
+      "view": "Pipeline",
+      "rendered": true,
+      "signedInRole": "admin"
+    },
+    {
+      "view": "Records",
+      "rendered": true,
+      "signedInRole": "admin"
+    },
+    {
+      "view": "Imports & Sources",
+      "rendered": true,
+      "signedInRole": "admin"
+    },
+    {
+      "view": "Exceptions",
+      "rendered": true,
+      "signedInRole": "admin"
+    },
+    {
+      "view": "Settings & Health",
+      "rendered": true,
+      "signedInRole": "admin"
+    }
+  ],
+  "viewport": {
+    "width": 1440,
+    "height": 1040
+  },
+  "uncaughtExceptions": [],
+  "productionExecution": false,
+  "scheduledProgression": false,
+  "managerAgentRoleCertification": false,
+  "nativeMobileCertification": false,
+  "taskComplete": false
+}

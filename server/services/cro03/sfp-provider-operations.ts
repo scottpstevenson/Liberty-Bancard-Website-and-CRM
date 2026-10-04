@@ -489,6 +489,12 @@ async function lockSelectedSfpRuntimeRelease(
 export async function lockCurrentSfpRuntimeOwner(executor: SqlExecutor): Promise<SfpRuntimeAuthority> {
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
+  // Match publish/claim lock order explicitly. A joined FOR SHARE can lock
+  // owner before selector depending on the plan, deadlocking a simultaneous
+  // claimant that holds selector and is waiting to update owner.
+  if (!await lockSelectedSfpRuntimeRelease(executor,fence)) {
+    throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
+  }
   const current = rows(await executor.execute(sql`
     SELECT oa.deployment_identity,oa.environment_identity,oa.artifact_sha,oa.queue_topology_hash,
            oa.owner_epoch,oa.owner_token,oa.lease_expires_at,oa.revoked_at

@@ -263,6 +263,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial:"disposable PostgreSQL with fatal network denial; no purchases, cohorts or messages",
   },
   {
+    name:"Canonical registry entity projection",
+    script:"scripts/certification/test-canonical-registry-projection.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL with fatal network denial; local businesses only",
+  },
+  {
+    name:"Canonical registry original retention",
+    script:"scripts/certification/test-canonical-registry-originals.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL with fatal network denial; original encrypted rows only",
+  },
+  {
+    name:"Canonical address/preparation owner delivery",
+    script:"scripts/certification/test-canonical-address-preparation-owner-repair.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL with fatal network denial; schema-only owner delivery",
+  },
+  {
     name:"Canonical contact linking automation",
     script:"scripts/certification/test-crm-contact-link-automation.ts",
     capability:"deterministic-integration",
