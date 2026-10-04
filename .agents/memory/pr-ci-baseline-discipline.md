@@ -7,7 +7,7 @@ When reconciling an existing PR, compare each failing check against the current 
 
 For a specific pipeline task, a failing repository check is not automatically part of the task. Establish whether it was introduced by the change or demonstrably blocks the requested runtime path. A formally required release check can remain a reported blocker; its failure does not authorize unrelated repository-wide repairs.
 
-**Why:** Successive pre-existing failures prompted unrelated repairs and delayed the requested feature and production execution. The user explicitly rejected expanding shared-authority/reporting repairs into repairing every legacy test; a specific task must not become an implicit repository-cleanup project.
+**Why:** Successive pre-existing failures prompted unrelated repairs and delayed the requested feature and production execution. The user explicitly rejected expanding shared-authority/reporting repairs into repairing every legacy test; a specific task must not become an implicit repository-cleanup project. For canonical enrichment consolidation, they reiterated that remaining scope is “not fixing old broken tests.”
 
 **How to apply:** Check the exact failing test on both main and PR, verify the feature's focused certification, and check whether the branch has required status protections. Do not bypass required checks; also do not assume every red non-required check was caused by the PR.
 
