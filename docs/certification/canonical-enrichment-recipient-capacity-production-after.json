@@ -1,0 +1,15 @@
+{
+  "scope": "Independent production read-only native catalog verification after owner console execution",
+  "verification": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,slots_table,commitments_table,exact_function,function_body_md5,exact_enabled_trigger,exact_validated_subject_fk\n2026-10-04 06:11:32.045751+00,t,t,t,f539e6284a16e3686ab61df964c16779,t,t\n",
+    "success": true
+  },
+  "expectedFunctionBodyMd5": "f539e6284a16e3686ab61df964c16779",
+  "nativePrerequisiteVerified": true,
+  "recipientSelectionOrConcurrencyCertified": false,
+  "productionFlowCertified": false,
+  "agentProductionWrites": false,
+  "taskComplete": false
+}

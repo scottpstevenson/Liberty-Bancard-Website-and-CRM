@@ -2,6 +2,18 @@
 
 ## Status
 
+**Current:** the general-link owner repair was independently verified, and the
+recipient-capacity owner repair is now independently verified in production at
+2026-10-04 06:11:32 UTC. Both recipient tables, the exact required function
+fingerprint, enabled BEFORE INSERT row trigger, and exact validated subject FK
+pass. Receipt: `canonical-enrichment-recipient-capacity-production-after.json`.
+This clears that native prerequisite only; the complete consolidation,
+additional typed-SFP contract inventory and deployed operational acceptance
+remain unfinished. No Agent production writes, outbound release or workbook
+imports occurred.
+
+### Historical native-delivery investigation (superseded by current status)
+
 **Updated owner-execution repair:** the user has amended the earlier
 project-level prohibition. A forward native-contract repair now passes
 disposable certification; see `canonical-enrichment-native-repair.md` for
@@ -121,16 +133,18 @@ Receipts:
   builds and revoked ownership are covered by 31 real disposable-DB checks.
   No provider operations, enrollments, communications or cohorts were added.
   Receipt: `canonical-enrichment-contact-link-automation-test.json`.
-- Independent production reads show the recipient slot table and subject FK
+- Initial production reads showed the recipient slot table and subject FK
   present, but `crm_enforce_global_recipient_capacity` and its trigger absent.
   Evidence: `canonical-enrichment-recipient-capacity-production-before.json`.
-  This is a separate preparation blocker, not a reversal of the general repair.
+  This was a separate preparation blocker, not a reversal of the general repair.
 - Owner-only repair:
   `canonical-enrichment-recipient-capacity-native-repair-v1.sql`.
   SHA256: `424e0a7da2f95d5fae93c113a1ddac2dc5a3bc3d4ade1e9a4ba6c248cd227476`.
   Five disposable checks reproduce absence and certify exact installation,
   reapplication, and unchanged complete rows/FK. This does not certify
-  recipient selection, concurrency or production execution.
+  recipient selection or concurrency. Subsequent independent production catalog
+  verification passes the exact function, trigger and validated FK; see
+  `canonical-enrichment-recipient-capacity-production-after.json`.
 - `npm run check` passes. The older preflight suite fails at its existing
   private-schema recipient-capacity test before reaching the modified linking
   assertion (zero of three expected successful reservations). Not a passing
@@ -142,7 +156,8 @@ Receipts:
   verified. No frontend/dependency/style changes were made.
 - No production workbook imports, provider dispatches, outbound release or
   publishing occurred. The entire task remains open and operational acceptance
-  is incomplete; recipient-dependent work awaits the owner native repair.
+  is incomplete. The recipient-capacity native blocker is now cleared; no
+  deployed recipient-flow or full-task completion is claimed.
 
 The approved task remains open. Native supported delivery/parity, shared
 authority construction, repaired ingestion/replay, whole-population accounting,
