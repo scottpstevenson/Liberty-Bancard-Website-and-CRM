@@ -12,3 +12,13 @@ keeps stopping. Production prerequisites do not block genuinely independent loca
 **How to apply:** Continue independent implementation and verification without
 repeated approval prompts. Keep production-only dependencies explicitly blocked,
 outbound paused and the original task open until its acceptance requirements are met.
+
+Report completion at the exact scope proved: disposable workbook ingestion is
+not production import, and cohort-free validation is not cohort-free discovery.
+
+**Why:** Earlier completion reporting conflated these scopes, causing contradictory
+status updates and misleading the user about what remained.
+
+**How to apply:** Separate implementation, disposable certification and production
+execution in status reports. Correct an overstated claim directly rather than
+presenting the unfinished original requirement as new work.
