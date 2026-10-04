@@ -1,0 +1,17 @@
+{
+  "scope": "Production read-only catalog verification; repair not verified",
+  "verification": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,slots_table,commitments_table,exact_function,function_body_md5,exact_enabled_trigger,validated_subject_fk,subject_fk_definition\n2026-10-04 06:06:18.798025+00,t,t,f,,f,t,\"FOREIGN KEY (global_slot_id, business_id, recipient_identity_hash) REFERENCES sfp_global_recipient_slots(id, business_id, recipient_identity_hash) ON DELETE RESTRICT\"\n",
+    "success": true
+  },
+  "catalogDetails": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "object_type,schema_name,object_name,body_md5,definition\n",
+    "success": true
+  },
+  "productionWrites": false,
+  "taskComplete": false
+}
