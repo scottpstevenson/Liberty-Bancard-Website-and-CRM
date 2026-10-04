@@ -708,10 +708,19 @@ export async function enrollThroughCr04Fence(input: {
   idempotencyKey: string;
   source: string;
   actor: Cr04ActorScope;
+  programId?: string | null;
   cohortRunId?: string | null;
   dealId?: number | null;
   nextActionAt?: Date;
 }) {
+  if (input.channel === "email") {
+    const { prepareCanonicalRecipient } = await import("./canonical-recipient-preparation");
+    return prepareCanonicalRecipient({
+      contactId: input.contactId, sequenceId: input.sequenceId, programId: input.programId,
+      actor: input.actor, source: input.source, dealId: input.dealId,
+      historicalCohortRunId: input.cohortRunId,
+    });
+  }
   const replay = await db.select().from(cr04EnrollmentIntents)
     .where(eq(cr04EnrollmentIntents.idempotencyKey, input.idempotencyKey)).limit(1);
   if (replay[0]) return { replayed: true, intent: replay[0], enrollmentId: replay[0].enrollmentId };

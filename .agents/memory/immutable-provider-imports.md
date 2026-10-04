@@ -7,3 +7,26 @@ Retain original provider-import observations when a mapping or raw-evidence cont
 **Why:** Immutable batch fingerprints include the mapped payload. Upload and restart recovery previously had different field maps; merely enriching the old payload can turn a legitimate interrupted-import replay into an idempotency mismatch.
 
 **How to apply:** Share field mapping between uploads and recovery. Before preserving an existing mapped observation, verify its original raw-row fingerprint, format and source coordinate. Reject conflicting or unprovable evidence rather than overwriting it. Add raw evidence under a versioned identity, keeping vendor validation labels observational rather than authoritative.
+
+Recovery must retain the original acquisition fingerprint after verifying the
+retained row's semantic contents. Never regenerate the original fingerprint from
+JSON serialization after storage.
+
+**Why:** PostgreSQL JSONB reorders object keys. A recovered row can contain
+identical values but produce a different JSON.stringify hash, falsely rejecting
+an immutable original observation.
+
+**How to apply:** Compare recovered values with the retained raw representation
+using canonical structural equality, then reuse the original acquisition hash.
+
+Only a retained JSON object counts as an original import row; SQL non-nullness
+alone is insufficient when choosing recovery evidence.
+
+**Why:** JSONB `null` passes `IS NOT NULL` and takes precedence in `COALESCE`.
+That can misreport an unavailable original or hide a usable fallback, even though
+JavaScript later receives null.
+
+**How to apply:** Check the JSON type at recovery and availability-reporting
+boundaries, then choose the retained object. Keep absent originals explicit and
+never reconstruct them from mapped observations.
+If exact retained contents are unavailable or disagree, hold recovery explicitly.

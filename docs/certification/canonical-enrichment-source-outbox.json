@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-04T19:40:36.272Z",
+  "checks": 13,
+  "scope": "Disposable source qualification accounting only; not canonical entity projection or whole-task acceptance",
+  "retainedOccurrences": 3,
+  "decisions": 3,
+  "historicalReplay": true,
+  "networkAttempts": 0,
+  "effectsBefore": {
+    "providers": "0",
+    "validations": "0",
+    "enrollments": "0",
+    "messages": "0",
+    "cohorts": "0"
+  },
+  "effectsAfter": {
+    "providers": "0",
+    "validations": "0",
+    "enrollments": "0",
+    "messages": "0",
+    "cohorts": "0"
+  },
+  "productionExecution": false,
+  "taskComplete": false
+}

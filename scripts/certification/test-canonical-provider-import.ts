@@ -1,0 +1,245 @@
+import assert from "node:assert/strict";
+import {randomUUID,createHash} from "node:crypto";
+import {assertDisposableTestInfrastructure} from "../test-infrastructure-guard";
+import {applyCertificationProviderDenyBoundary,getBlockedCertificationNetworkAttemptCount} from "../certification-provider-deny";
+await assertDisposableTestInfrastructure({operation:"canonical provider import certification"});
+process.env.VG_PROVIDER_DENY_MODE="1";
+applyCertificationProviderDenyBoundary({fatal:true});
+const {pool}=await import("../../server/db");
+const {claimCsvExecution,recordImportRowDisposition,completeImportExecution}=await import("../../server/services/import-execution");
+const {materializeCanonicalProviderImportRow,providerImportEmails,providerImportRecipient}=await import("../../server/services/canonical-provider-import");
+const {initializeImportedLinkedContactClass}=await import("../../server/services/commercial-classification-authority");
+let checks=0;
+const check=(value:unknown,message:string)=>{assert(value,message);checks++;};
+const actorId=`cert_import_${randomUUID()}`;
+const label=randomUUID().replaceAll("-","");
+const raw={name:`Canonical Import ${label}`,place_id:`cert_place_${label}`,category:"Automotive",
+  city:"Miami",state:"FL",email_1:`owner.${label}@gmail.com`,email_2:`office.${label}@gmail.com`,
+  additional_emails:`owner.${label}@GMAIL.com; second.${label}@example.com`,
+  unrecognized_provider_column:"preserve unchanged"};
+const newClaim=()=>claimCsvExecution({fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
+  totalRows:1,actorType:"import",actorId,sourcePayload:[raw]});
+try {
+  const before=(await pool.query(`SELECT
+    (SELECT count(*) FROM provider_operations)::int operations,
+    (SELECT count(*) FROM communication_events)::int communications,
+    (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0];
+  const claim=await newClaim();
+  const args={executionId:claim.execution.id,claimToken:claim.claimToken!,sourceRowNumber:1,
+    sourceFormat:"google_maps_outscraper",actorId,rawRow:raw};
+  const result=await materializeCanonicalProviderImportRow(args);
+  check(result.contactIds.length===3,"Every distinct retained address becomes a contact, not only the first email");
+  const contacts=(await pool.query("SELECT id,business_id,record_class,email_status FROM contacts WHERE id=ANY($1::integer[])",
+    [result.contactIds])).rows;
+  check(contacts.every(c=>c.business_id===result.businessId),"Real native independent Maps affiliation is applied");
+  check(contacts.every(c=>c.record_class==="production"),"Original source plus verified canonical root establishes initial class");
+  check(contacts.every(c=>c.email_status==="unvalidated"),"A CSV does not manufacture hygiene receipts");
+  check((await pool.query("SELECT count(*)::int n FROM business_locations WHERE business_id=$1 AND google_place_id=$2",
+    [result.businessId,raw.place_id])).rows[0].n===1,"Retained structured location/place evidence projects to the canonical location");
+  check((await pool.query("SELECT count(*)::int n FROM validation_intents")).rows[0].n===0,
+    "Importing addresses alone does not populate a paid-validation queue");
+  const programId=randomUUID();
+  await pool.query(`INSERT INTO sfp_programs
+    (id,name,county_fips,vertical_ids,taxonomy_version,is_active,created_by)
+    VALUES($1,$2,ARRAY['12086'],ARRAY['Automotive'],2,TRUE,$3)`,[programId,label,actorId]);
+  const sequenceId=(await pool.query(`INSERT INTO follow_up_sequences(name,status,trigger_config)
+    VALUES($1,'paused',$2::jsonb) RETURNING id`,[label,
+      JSON.stringify({canonicalProgramId:programId,canonicalVerticals:["Automotive"]})])).rows[0].id;
+  const {prepareCanonicalRecipient}=await import("../../server/services/canonical-recipient-preparation");
+  const prepared=await prepareCanonicalRecipient({contactId:result.contactIds[0],programId,sequenceId,
+    actor:{role:"admin",actorId,email:null},source:"canonical_import_certification"});
+  check(prepared.preparationState==="pending_validation" && prepared.enrollmentId!=null,
+    "Original import flows through real canonical classification, affiliation and paused preparation with no cohort");
+  check((await pool.query("SELECT count(*)::int n FROM validation_intents")).rows[0].n===1,
+    "Only the actual selected prepared recipient admits a validation intent");
+  check((await pool.query("SELECT count(*)::int n FROM import_row_dispositions WHERE execution_id=$1",
+    [claim.execution.id])).rows[0].n===1,"Multi-person/multi-address rows count exactly once");
+  const retained=(await pool.query(`SELECT o.payload FROM cro03_enrichment_batches b
+    JOIN cro03_batch_memberships m ON m.batch_id=b.id JOIN cro03_source_observations o ON o.id=m.source_observation_id
+    WHERE b.idempotency_key=$1`,[`csv-source-raw-v2:${claim.execution.id}:1`])).rows[0].payload;
+  assert.deepEqual(retained.rawSourceRow,raw);checks++;
+  const replay=await materializeCanonicalProviderImportRow(args);
+  assert.deepEqual(replay.contactIds.sort((a,b)=>a-b),result.contactIds.sort((a,b)=>a-b));checks++;
+  check(replay.disposition===result.disposition,"Replay preserves original row disposition");
+  check(replay.businessId===result.businessId,"Replay retains the same independently verified business");
+  check((await pool.query("SELECT count(*)::int n FROM business_locations WHERE business_id=$1",
+    [result.businessId])).rows[0].n===1,"Location replay cannot duplicate canonical locations");
+  const changed={...raw,unrecognized_provider_column:"changed"};
+  await assert.rejects(materializeCanonicalProviderImportRow({...args,rawRow:changed}),
+    /EVIDENCE_MISMATCH|FINGERPRINT_MISMATCH|IDEMPOTENCY_PAYLOAD_MISMATCH/);checks++;
+  const badClaim=await newClaim();
+  const rejected=await materializeCanonicalProviderImportRow({...args,executionId:badClaim.execution.id,
+    claimToken:badClaim.claimToken!,rawRow:{...raw,name:`Flagged ${label}`,place_id:`flagged_${label}`,
+      unsubscribed:"yes"}});
+  check(rejected.contactIds.length===3,"Restrictive source rows retain their real contacts rather than losing their identities");
+  check((await pool.query("SELECT count(*)::int n FROM contacts WHERE id=ANY($1::integer[]) AND opted_out_email=TRUE",
+    [rejected.contactIds])).rows[0].n===3,"Negative email facts reach canonical consent for every supplied address");
+  await pool.query("UPDATE contacts SET record_class='test' WHERE id=$1",[result.contactIds[0]]);
+  check(!(await initializeImportedLinkedContactClass(result.contactIds[0])).applied,
+    "Source evidence never upgrades an existing explicit non-production class");
+  const missingClaim=await newClaim();
+  const businessOnly=await materializeCanonicalProviderImportRow({...args,executionId:missingClaim.execution.id,
+    claimToken:missingClaim.claimToken!,rawRow:{name:`No Email ${label}`,place_id:`none_${label}`,city:"Miami",state:"FL"}});
+  check(businessOnly.businessId!=null && !businessOnly.contactIds.length,"Business-only rows do not invent placeholder contacts");
+  await pool.query("UPDATE import_executions SET claim_token=$2 WHERE id=$1",[claim.execution.id,randomUUID()]);
+  await assert.rejects(materializeCanonicalProviderImportRow(args),/AUTHORITY_FENCE_LOST|LEASE_LOST/);checks++;
+  check(providerImportEmails({email:"ONE@example.com; one@EXAMPLE.com",email_status:"valid"}).length===1,
+    "Address normalization ignores vendor status labels");
+  assert.deepEqual(providerImportRecipient({email_1:"owner@example.com",email_1_full_name:"Jane Smith",
+    email_1_title:"Owner",email_2:"office@example.com"},"owner@example.com"),
+    {firstName:"Jane",lastName:"Smith",title:"Owner"});checks++;
+  check(providerImportRecipient({email_1:"owner@example.com",email_1_full_name:"Jane Smith",
+    email_2:"office@example.com"},"office@example.com")===null,
+    "Numbered recipient semantics never borrow a different address's person");
+  const legacyRaw={...raw,name:`Legacy ${label}`,place_id:`legacy_${label}`,
+    email_1:`legacy.${label}@gmail.com`,email_2:"",additional_emails:""};
+  const legacyClaim=await claimCsvExecution({fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
+    totalRows:1,actorType:"import",actorId,sourcePayload:[legacyRaw]});
+  const {retainProviderImportRow}=await import("../../server/services/provider-import-evidence");
+  const {computeFileHash}=await import("../../server/services/import-normalizer");
+  await retainProviderImportRow({executionId:legacyClaim.execution.id,sourceRowNumber:1,
+    sourceFormat:"google_maps_outscraper",actorId,rawRow:legacyRaw});
+  await recordImportRowDisposition({executionId:legacyClaim.execution.id,claimToken:legacyClaim.claimToken!,
+    sourceRowNumber:1,rowFingerprint:computeFileHash(Buffer.from(JSON.stringify(legacyRaw))),
+    disposition:"deferred",reasonCode:"cro03_staging_review_required"});
+  await completeImportExecution({executionId:legacyClaim.execution.id,claimToken:legacyClaim.claimToken!,expectedRows:1});
+  const originalAccounting=(await pool.query("SELECT * FROM import_row_dispositions WHERE execution_id=$1",
+    [legacyClaim.execution.id])).rows;
+  const originalObservations=(await pool.query(`SELECT observation.id,observation.payload,observation.observed_at
+    FROM cro03_source_observations observation JOIN cro03_batch_memberships member ON member.source_observation_id=observation.id
+    JOIN cro03_enrichment_batches batch ON batch.id=member.batch_id WHERE batch.idempotency_key=$1`,
+    [`csv-source:${legacyClaim.execution.id}:1`])).rows;
+  process.env.NODE_ENV="production";
+  process.env.REPLIT_DEPLOYMENT="1";
+  process.env.RELEASE_SHA="e".repeat(40);
+  process.env.SFP_PUBLISH_ARTIFACT_SHA=process.env.RELEASE_SHA;
+  process.env.SFP_PUBLISH_BUILD_ID=randomUUID();
+  process.env.SFP_PUBLISH_BUILT_AT=new Date().toISOString();
+  const {processCanonicalImportRecoveryTick}=await import("../../server/services/canonical-import-recovery-worker");
+   // The retained raw representation remains sufficient after the transient
+   // execution payload is cleared; do not silently skip this historical row.
+   await pool.query("UPDATE import_executions SET source_payload=NULL WHERE id=$1",[legacyClaim.execution.id]);
+  const recovered=await processCanonicalImportRecoveryTick();
+  check(recovered.fulfilled===1,"Completed historical staged imports are fulfilled by the real automatic existing source-item worker");
+  const recoveredContact=(await pool.query("SELECT id,business_id,record_class FROM contacts WHERE email=$1",
+    [legacyRaw.email_1])).rows[0];
+  check(recoveredContact?.business_id && recoveredContact.record_class==="production",
+    "Historical staged rows become genuinely linked, initially classified canonical contacts");
+  assert.deepEqual((await pool.query("SELECT * FROM import_row_dispositions WHERE execution_id=$1",
+    [legacyClaim.execution.id])).rows,originalAccounting);checks++;
+  assert.deepEqual((await pool.query(`SELECT observation.id,observation.payload,observation.observed_at
+    FROM cro03_source_observations observation JOIN cro03_batch_memberships member ON member.source_observation_id=observation.id
+    JOIN cro03_enrichment_batches batch ON batch.id=member.batch_id WHERE batch.idempotency_key=$1`,
+    [`csv-source:${legacyClaim.execution.id}:1`])).rows,originalObservations);checks++;
+  const again=await processCanonicalImportRecoveryTick();
+  check(again.fulfilled===0,"Completed source work is not re-materialized on the next automatic cycle");
+  check((await pool.query("SELECT count(*)::int n FROM contacts WHERE email=$1",
+    [legacyRaw.email_1])).rows[0].n===1,"Backlog fulfillment never duplicates contacts");
+   const {createCro03SourceBatch}=await import("../../server/services/cro03/source-staging");
+   const {providerCsvSourceSubject}=await import("../../server/services/cro03a/adapters");
+    const {mapProviderCsvRow,importedSourceRestrictions}=await import("../../server/services/provider-import-columns");
+    for(const key of ["opted_out_email","optedOutEmail","Opted Out Email"]) {
+      assert.deepEqual(importedSourceRestrictions({[key]:"true",email_status:"valid"}).restrictions,["opt_out"]);checks++;
+    }
+   for (const sourceFormat of ["google_maps_outscraper","apollo_lead_list"]) {
+     // Reproduce genuine pre-raw-v2 acquisition: mapped evidence exists, but
+     // no original workbook row was retained. Never delete immutable evidence
+     // to manufacture the missing-original branch.
+     const missingRaw={name:`Missing original ${label} ${sourceFormat}`,email:`missing.${sourceFormat}.${label}@example.com`};
+     const missingClaim=await claimCsvExecution({fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
+       totalRows:1,actorType:"import",actorId,sourcePayload:[missingRaw]});
+     const fingerprint=computeFileHash(Buffer.from(JSON.stringify(missingRaw)));
+     const draft=providerCsvSourceSubject({importExecutionId:missingClaim.execution.id,sourceRowNumber:1,
+       sourceSystem:sourceFormat==="google_maps_outscraper" ? "outscraper" : "apollo",
+       row:mapProviderCsvRow(missingRaw,sourceFormat)});
+     await createCro03SourceBatch({idempotencyKey:`csv-source:${missingClaim.execution.id}:1`,
+       actorType:"import",actorId,purpose:"staging_review",subjects:[{
+         ...draft,payload:{...draft.payload,sourceFormat,rowFingerprint:fingerprint,sourceRowNumber:1},
+       }]});
+     await recordImportRowDisposition({executionId:missingClaim.execution.id,claimToken:missingClaim.claimToken!,
+       sourceRowNumber:1,rowFingerprint:fingerprint,disposition:"deferred",reasonCode:"cro03_staging_review_required"});
+     await completeImportExecution({executionId:missingClaim.execution.id,claimToken:missingClaim.claimToken!,expectedRows:1});
+     await pool.query("UPDATE import_executions SET source_payload=$2::jsonb WHERE id=$1",
+       [missingClaim.execution.id,sourceFormat==="apollo_lead_list" ? "[null]" : null]);
+     const accounting=(await pool.query("SELECT * FROM import_row_dispositions WHERE execution_id=$1",[missingClaim.execution.id])).rows;
+     const missingRecovery=await processCanonicalImportRecoveryTick();
+     check(missingRecovery.held===1 && missingRecovery.fulfilled===0,`${sourceFormat}: missing originals are explicitly accounted as held`);
+     const missingItem=(await pool.query(`SELECT item.state,item.terminal_code FROM cro03_enrichment_items item
+       JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id WHERE batch.idempotency_key=$1`,
+       [`csv-source:${missingClaim.execution.id}:1`])).rows[0];
+     check(missingItem.state==="blocked" && missingItem.terminal_code==="CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE",
+       `${sourceFormat}: mapped evidence is never represented as an original row`);
+     assert.deepEqual((await pool.query("SELECT * FROM import_row_dispositions WHERE execution_id=$1",[missingClaim.execution.id])).rows,accounting);checks++;
+   }
+  const {readCanonicalEnrichmentStatus}=await import("../../server/services/canonical-enrichment-status");
+  const status=await readCanonicalEnrichmentStatus();
+   check(status.automaticProgress.validation.pending===1,"Live operating-view metrics read preparation-linked validation intents");
+    check(status.importExceptions.filter(row=>row.fulfillmentState==="CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE"
+      && !row.originalAvailable).length===2,"Operating exceptions expose both genuinely missing-original source rows");
+    check(!status.importExceptions.some(row=>row.executionId===legacyClaim.execution.id),
+      "Later fulfillment does not leave the immutable original deferred row falsely listed as an active exception");
+    check(status.recentImportOutcomes.some(row=>row.executionId===legacyClaim.execution.id
+      && row.disposition==="deferred" && row.fulfillmentState==="CANONICAL_LOCAL_IMPORT_FULFILLED"
+      && row.originalAvailable),"Operating import drill-down separates original accounting, retained evidence and later fulfillment");
+  const after=(await pool.query(`SELECT
+    (SELECT count(*) FROM provider_operations)::int operations,
+    (SELECT count(*) FROM communication_events)::int communications,
+    (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0];
+  assert.deepEqual(after,before);checks++;
+  check(getBlockedCertificationNetworkAttemptCount()===0,"Intake, linking and classification are entirely local");
+   const {resolveOrganization,peekOrganizationResolution}=await import("../../server/services/organization-resolver");
+   const firstIdentity={canonicalName:`Identity ${label}`,googlePlaceId:`identity_${label}`,
+     websiteDomain:`identity-${label}.example.com`,city:"Miami",state:"FL"};
+   const firstResolution=await resolveOrganization(firstIdentity);
+   check(firstResolution.kind==="created","Independent organization fixture exists");
+   const conflictingIdentity={...firstIdentity,googlePlaceId:`different_${label}`};
+   check((await peekOrganizationResolution(conflictingIdentity)).kind==="deferred",
+     "Read-only matching observes real camelCase identity fields and refuses conflicting place IDs");
+   check((await resolveOrganization(conflictingIdentity)).kind==="deferred",
+     "Writing resolver does not falsely merge different places sharing a website");
+   const allFlagsClaim=await newClaim();
+   const restrictiveRow={name:`All flags ${label}`,place_id:`all_flags_${label}`,city:"Miami",state:"FL",
+     email:`all-flags.${label}@example.com`,do_not_contact:"yes",do_not_auto_contact:"yes",
+      opted_out_email:"yes",existing_merchant_customer:"yes"};
+   const allFlags=await materializeCanonicalProviderImportRow({...args,executionId:allFlagsClaim.execution.id,
+     claimToken:allFlagsClaim.claimToken!,rawRow:restrictiveRow});
+   check(allFlags.contactIds.length===1,"All restrictive flags still retain the genuine supplied address");
+   const flags=(await pool.query(`SELECT do_not_contact,do_not_auto_contact,opted_out_email,existing_merchant_customer
+     FROM contacts WHERE id=$1`,[allFlags.contactIds[0]])).rows[0];
+   check(flags.do_not_contact && flags.do_not_auto_contact && flags.opted_out_email && flags.existing_merchant_customer,
+     "Independent negative/customer dimensions are all applied, not collapsed into one flag");
+   const {storage}=await import("../../server/storage");
+   const {processPersistedCsvImport}=await import("../../server/services/csv-import-processor");
+   const genericRows=[
+     {companyName:`Manual business ${label}`,city:"Miami",state:"FL"},
+      {"First Name":"Genuine person","Phone":`305${String(Date.now()%10000000).padStart(7,"0")}`,
+        "Do Not Contact":"yes",do_not_auto_contact:"true",optedOutEmail:"yes",
+        existing_merchant_customer:"yes",email_status:"valid"},
+     {firstName:"Insufficient identity"},
+   ];
+   const genericClaim=await claimCsvExecution({fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
+     totalRows:genericRows.length,actorType:"user",actorId,sourcePayload:genericRows});
+   const genericRecord=await storage.createCsvImport({executionId:genericClaim.execution.id,
+     fileName:"manual.csv",sourceFormat:"generic_csv",importSource:"generic_csv",
+     totalRows:genericRows.length,status:"processing",importedBy:actorId});
+   await processPersistedCsvImport({records:genericRows as Array<Record<string,string>>,
+     executionClaim:genericClaim,importRecord:genericRecord,sourceFormat:"generic_csv",
+     actor:{actorType:"user",actorId},filename:"manual.csv"});
+   check((await pool.query(`SELECT count(*)::int n FROM contacts WHERE import_batch_id=$1`,
+     [genericClaim.execution.id])).rows[0].n===1,"Generic company-only and identifier-poor rows never create placeholder contacts");
+    const manualContact=(await pool.query(`SELECT email,first_name,do_not_contact,do_not_auto_contact,
+      opted_out_email,existing_merchant_customer,email_status FROM contacts WHERE import_batch_id=$1`,
+     [genericClaim.execution.id])).rows[0];
+   check(!manualContact.email && manualContact.first_name==="Genuine person","Phone-only people retain their real identity without an invented email");
+    check(manualContact.do_not_contact && manualContact.do_not_auto_contact && manualContact.opted_out_email
+      && manualContact.existing_merchant_customer && manualContact.email_status!=="valid",
+      "Generic raw-header imports preserve all independent restrictions/customer facts without accepting vendor validity");
+   check((await pool.query(`SELECT count(*)::int n FROM import_row_dispositions WHERE execution_id=$1`,
+     [genericClaim.execution.id])).rows[0].n===3,"Generic business/person/exception rows all receive immutable accounting");
+    assert.deepEqual((await pool.query(`SELECT
+      (SELECT count(*) FROM provider_operations)::int operations,
+      (SELECT count(*) FROM communication_events)::int communications,
+      (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0],before);checks++;
+    check(getBlockedCertificationNetworkAttemptCount()===0,"The complete generic/provider/recovery fixture remains zero-egress");
+  console.log(`PASS: ${checks} canonical provider intake/native/replay checks; no I/O, validation purchases, cohorts or messages`);
+} finally {await pool.end();}

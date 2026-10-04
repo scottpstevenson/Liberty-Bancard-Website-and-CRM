@@ -14,7 +14,7 @@ import {
 await assertDisposableTestInfrastructure({ operation: "crm automatic relationship certification" });
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
-const { pool } = await import("../../server/db");
+const { pool,db } = await import("../../server/db");
 const {
   processContactLinkAutomationTick,
   getContactLinkAutomationStatus,
@@ -25,7 +25,13 @@ const KEY = "contact_link_automation_v1";
 const actorId = `${prefix}_admin`;
 let checks = 0;
 const check = (value: unknown, label: string) => { assert(value, label); checks++; };
-const verify = fs.readFileSync("docs/certification/canonical-enrichment-native-verify.sql", "utf8");
+const {ORIGINAL_ADDRESS_RECEIPT_CLAUSE,CANONICAL_ADDRESS_RECEIPT_CLAUSE}=await import("../../server/services/canonical-address-receipt-contract");
+const {assertSystemLinkDatabaseGuard}=await import("../../server/services/commercial-link-authority");
+// Verify the complete approved upstream bodies using the exact inverse address
+// transform, then ALSO require the current runtime guard. Never bless a live hash.
+const quote=(value:string)=>`'${value.replaceAll("'","''")}'`;
+const verify = fs.readFileSync("docs/certification/canonical-enrichment-native-verify.sql", "utf8")
+  .replaceAll("md5(p.prosrc)",`md5(replace(p.prosrc,${quote(CANONICAL_ADDRESS_RECEIPT_CLAUSE)},${quote(ORIGINAL_ADDRESS_RECEIPT_CLAUSE)}))`);
 const originalEnv = {
   NODE_ENV: process.env.NODE_ENV, REPLIT_DEPLOYMENT: process.env.REPLIT_DEPLOYMENT,
   RELEASE_SHA: process.env.RELEASE_SHA, SFP_PUBLISH_ARTIFACT_SHA: process.env.SFP_PUBLISH_ARTIFACT_SHA,
@@ -78,6 +84,7 @@ async function decisionCount(contactId: number) {
 try {
   const guard = (await pool.query(verify)).rows[0];
   check(Object.values(guard).every(v => v === true), "Real migrated native guards required");
+  await assertSystemLinkDatabaseGuard(db);
   check(await getContactLinkAutomationStatus() === null, "Fresh database has no operator program");
   const baseline = await counts();
   check(baseline.cohort_runs === "0" && baseline.cohort_members === "0", "No historical/frozen cohort fixture");

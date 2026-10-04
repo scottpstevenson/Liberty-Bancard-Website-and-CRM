@@ -233,6 +233,42 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "source-backed authority boundary checks; no providers",
   },
   {
+    name: "Canonical address ownership and receipt/native contracts",
+    script: "scripts/certification/test-canonical-address-validation.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL only; no provider transport or network calls",
+  },
+  {
+    name: "Canonical cohort-free recipient preparation",
+    script: "scripts/certification/test-canonical-recipient-preparation.ts",
+    capability: "deterministic-integration",
+    providerDenial: "disposable PostgreSQL with fatal external-network denial; no send or provider operations",
+  },
+  {
+    name:"Canonical provider intake and recovery",
+    script:"scripts/certification/test-canonical-provider-import.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL with fatal network denial; canonical local intake only",
+  },
+  {
+    name:"Canonical full-population projection coverage",
+    script:"scripts/certification/test-canonical-projection-coverage.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL with fatal network denial; no paid queues, cohorts or messages",
+  },
+  {
+    name:"Canonical source outbox accounting",
+    script:"scripts/certification/test-canonical-source-outbox.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL with fatal network denial; no purchases, cohorts or messages",
+  },
+  {
+    name:"Canonical contact linking automation",
+    script:"scripts/certification/test-crm-contact-link-automation.ts",
+    capability:"deterministic-integration",
+    providerDenial:"disposable PostgreSQL and private runtime fixtures; no provider I/O",
+  },
+  {
     name: "CSV Import Reconciliation",
     script: "scripts/test-import-reconciliation.ts",
     capability: "server-required",

@@ -400,13 +400,13 @@ export async function authorizeUse(params: {
  */
 async function applyClassificationWithPolicy(
   command: ClassificationCommand,
-  authorizationPolicy: "independent_reviewer" | "verified_sunbiz_bootstrap" = "independent_reviewer",
+  authorizationPolicy: "independent_reviewer" | "verified_sunbiz_bootstrap" | "verified_import_link" = "independent_reviewer",
 ): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
   assertSubjectType(command.subjectType);
   assertCommercialClass(command.targetClass);
   assertNoPii(command.evidenceFields);
   if (
-    authorizationPolicy !== "verified_sunbiz_bootstrap" &&
+    authorizationPolicy === "independent_reviewer" &&
     command.targetClass === "production" &&
     (!command.actorId || !command.approverId || command.approverId === command.actorId)
   ) {
@@ -536,6 +536,68 @@ export async function applyClassification(
   command: ClassificationCommand
 ): Promise<{ eventId: number; applied: boolean; duplicate: boolean }> {
   return applyClassificationWithPolicy(command, "independent_reviewer");
+}
+
+/** Internal automatic initial classification, not a general promotion API.
+ * Both original provider-row provenance and an independently verified current
+ * canonical affiliation are required. Existing test/demo/synthetic classes are
+ * never promoted; a CSV email/provider validity claim alone proves nothing. */
+export async function initializeImportedLinkedContactClass(contactId:number,authorityCheck?:(tx:any)=>Promise<boolean>) {
+  return db.transaction(async tx=>{
+    if (authorityCheck && !await authorityCheck(tx)) throw new Error("CANONICAL_IMPORTED_CLASS_AUTHORITY_FENCE_LOST");
+    const hint=rows(await tx.execute(sql`SELECT business_id FROM contacts WHERE id=${contactId}`))[0];
+    if (!hint?.business_id) return {applied:false,reason:"INDEPENDENT_BUSINESS_LINK_REQUIRED"};
+    await lockCommercialGraphNodes(tx,[
+      {type:"contact",id:contactId},{type:"business",id:Number(hint.business_id)},
+    ]);
+    const proof=rows(await tx.execute(sql`SELECT c.email,c.record_class,c.business_id,e.id event_id,
+      e.import_execution_id,e.source_row_number,e.row_fingerprint,o.payload->'rawSourceRow' raw_row
+      FROM contacts c JOIN businesses b ON b.id=c.business_id AND b.record_class='canonical'
+      JOIN contact_business_link_decisions d ON d.contact_id=c.id AND d.business_id=c.business_id
+        AND d.decision='verified' AND d.superseded_at IS NULL
+      JOIN contact_source_events e ON e.contact_id=c.id AND e.source_category='csv_import'
+        AND e.source_type IN ('outscraper','apollo')
+      JOIN import_row_dispositions accounting ON accounting.execution_id=e.import_execution_id
+        AND accounting.source_row_number=e.source_row_number
+        AND accounting.row_fingerprint=e.row_fingerprint
+         AND (accounting.disposition IN ('created','matched_noop') OR (
+           accounting.disposition='deferred' AND EXISTS(
+             SELECT 1 FROM cro03_enrichment_items recovered
+             JOIN cro03_enrichment_batches recovered_batch ON recovered_batch.id=recovered.batch_id
+             WHERE recovered.id::text=e.metadata->>'canonicalRecoveryItemId'
+               AND recovered_batch.idempotency_key=
+                 'csv-source:'||e.import_execution_id::text||':'||e.source_row_number::text
+               AND ((recovered.state='running' AND recovered.current_provider='canonical_local_import'
+                 AND recovered.lease_expires_at>clock_timestamp())
+                 OR (recovered.state='completed' AND recovered.terminal_code='CANONICAL_LOCAL_IMPORT_FULFILLED'))
+           )))
+      JOIN cro03_enrichment_batches batch ON batch.idempotency_key=
+        'csv-source-raw-v2:'||e.import_execution_id::text||':'||e.source_row_number::text
+      JOIN cro03_batch_memberships member ON member.batch_id=batch.id
+      JOIN cro03_source_observations o ON o.id=member.source_observation_id
+        AND o.payload->>'rowFingerprint'=e.row_fingerprint
+      WHERE c.id=${contactId} AND c.business_id=${Number(hint.business_id)}
+        AND c.archived_at IS NULL ORDER BY e.id LIMIT 1`))[0];
+    if (!proof || proof.record_class!=="unknown") return {applied:false,reason:"INITIAL_CLASS_OR_SOURCE_PROOF_REQUIRED"};
+    const {providerImportEmails}=await import("./canonical-provider-import");
+    if (!providerImportEmails(proof.raw_row ?? {}).includes(String(proof.email).trim().toLowerCase())) {
+      return {applied:false,reason:"RETAINED_SOURCE_EMAIL_PROOF_REQUIRED"};
+    }
+    return applyClassificationWithPolicy({
+      subjectType:"contact",subjectId:contactId,targetClass:"production",
+      eventNamespace:"canonical_verified_import_link",
+      eventKey:`${proof.import_execution_id}:${proof.source_row_number}:${contactId}:${proof.row_fingerprint}`,
+      actorId:"system:canonical-verified-import-link",
+      evidenceFields:{
+        review_source:"verified_provider_import_link",
+        evidence_reference:`contact-source-event:${proof.event_id}`,
+        external_reference:`${proof.import_execution_id}:${proof.source_row_number}:${proof.row_fingerprint}`,
+        source_system:"canonical_provider_import",
+        approval_basis:"original_source_email_and_independently_verified_canonical_business",
+        classification_reason:"initial_production_class_of_verified_imported_contact",
+      },transaction:tx,
+    },"verified_import_link");
+  });
 }
 
 export interface SunbizBootstrapClassificationParams {

@@ -52,3 +52,15 @@ pipeline certification fail intermittently or fail to exercise real pin drift.
 **How to apply:** Derive bridge-contact assertions and source lookups from the
 winning intent's business. For address-drift tests, mint a distinct candidate
 and prove its identity differs before making the mutation.
+
+Raw-SQL certification fixtures must honor the actual migrated constraints;
+do not assume they receive the canonical writer's normalization or defaults.
+
+**Why:** Direct inserts bypass application-derived identity fields and blank
+identifier normalization. A setup constraint failure can otherwise be mistaken
+for a failure of the feature under test.
+
+**How to apply:** Prefer existing canonical fixture writers when their behavior
+is not the subject of the test. For intentional raw native-contract fixtures,
+inspect the migrated required fields and identity constraints before insertion,
+and distinguish setup failures from assertions on the feature.

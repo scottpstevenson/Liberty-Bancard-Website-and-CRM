@@ -2331,6 +2331,20 @@
       "when": 1800000015300,
       "tag": "0329_crm_native_contract_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 333,
+      "version": "7",
+      "when": 1800000015400,
+      "tag": "0330_canonical_address_validation",
+      "breakpoints": true
+    },
+    {
+      "idx": 334,
+      "version": "7",
+      "when": 1800000015500,
+      "tag": "0331_canonical_recipient_preparation",
+      "breakpoints": true
     }
   ]
 }

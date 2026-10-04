@@ -376,12 +376,23 @@ export interface SfpContinuousValidationTickResult {
   elapsedMs?: number;
 }
 
-/** Bounded-time DRAIN of ZeroBounce validation across every frozen cohort
- * with candidates ready to validate. Staging (ready_held) is already fully
- * automated by sfp-campaign-staging-worker.ts once rows reach
- * validated_outreach_eligible — this tick only needs to feed that queue,
- * as fast as provider health and the bounded tick allow. */
+/** Recover the existing shared queue for current canonically prepared targets.
+ * Queued work is not a completed validation or a provider request. */
 export async function processSfpContinuousValidationTick(): Promise<SfpContinuousValidationTickResult> {
+  if (!(await isSfpValidationPromotionEnabled())) {
+    return {ran:false,reason:"validation_promotion_disabled"};
+  }
+  // Only durable, currently prepared recipients enter the shared queue. Frozen
+  // cohorts are historical provenance, never automatic validation admission.
+  const {recoverValidationIntents}=await import("../provider-readiness-control");
+  const queued=await recoverValidationIntents(100);
+  await auditTick("sfp_continuous_validation_tick","canonical_selected_queue_recovered",{queued});
+  return {ran:queued>0,calls:0,addressesValidated:0,providerRequests:0,validCount:0,
+    cohortRunIds:[],stopReason:queued ? "canonical_selected_validation_queued" : "no_current_selected_validation"};
+}
+
+/** Historical implementation retained for protocol reference, not scheduling. */
+async function processLegacyCohortValidationTick(): Promise<SfpContinuousValidationTickResult> {
   const program = await getProgramReadOnly();
   if (!program || !program.isActive) return { ran: false, reason: "program_inactive" };
   if (!(await isSfpValidationPromotionEnabled())) {

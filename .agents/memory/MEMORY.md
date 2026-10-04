@@ -58,7 +58,6 @@
 - [Save Cases auto-open](save-cases-auto-open.md) — openSaveCaseIfNeeded() fires after High/Critical nightly churn score; partial unique index prevents duplicate open cases per contact.
 - [Queue-manager env overrides](queue-manager-env-overrides.md) — GHL_SYNC_REPEAT_EVERY_MS / SLA_CHECKS_REPEAT_EVERY_MS with floor guards; dev short-circuits preserved.
 - [Test contact isolation](test-contact-prefixes.md) — Prefix families and FK cleanup order; [GHL cleanup](ghl-test-contact-cleanup.md).
-- [Contact Census ownership model](census-ownership-model.md) — DB partial index single-run enforcement; lease owner CAS; frozen watermark.
 - [Processor boarding authority pattern](processor-boarding-authority.md) — activation snapshot is the single gate for all provider I/O; MIDs masked in every response.
 - [Equipment Shipments Device Fields](equipment-shipments-device-fields.md) — device_type/serial_number; POST/PATCH/GET /api/boarding/equipment CRUD; merchant_mids IS the master MID registry.
 - [Pre-deploy gate quirks](appointment-statement-polling-fix.md) — GHL fix: pollUntil(12s); see [predeploy-port-5000-conflict.md](predeploy-port-5000-conflict.md): dev owns port 5000.

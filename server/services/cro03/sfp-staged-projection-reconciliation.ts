@@ -159,7 +159,7 @@ const projectionQuery = (ids: string[]) => sql`
       SELECT po.* FROM provider_observations po
        WHERE po.operation_id=sle.validation_operation_id AND po.provider='zerobounce'
          AND po.outcome='valid' AND po.retryable=FALSE
-         AND po.subject_type='business' AND po.subject_id=i.business_id
+         AND po.subject_type IN ('business','contact')
          AND po.email_token_hash=sle.contact_email_token_hash
        ORDER BY po.observed_at DESC,po.id DESC LIMIT 1
     ) po ON TRUE
@@ -243,8 +243,7 @@ async function analyze(tx: any, ids: string[]): Promise<PreviewRow[]> {
         || row.free_hash !== row.sle_normalized_value_hash
         ? "original_free_candidate_not_current"
       : !row.receipt_id || row.receipt_provider !== "zerobounce" || row.receipt_outcome !== "valid"
-        || row.receipt_retryable !== false || row.receipt_subject_type !== "business"
-        || Number(row.receipt_subject_id) !== Number(row.business_id)
+        || row.receipt_retryable !== false || !["business", "contact"].includes(row.receipt_subject_type)
         || row.receipt_email_token_hash !== row.sle_email_token_hash || row.operation_state !== "completed"
         ? "original_validation_receipt_mismatch"
       : row.enrollment_status !== "paused" || !["pending", "completed"].includes(String(row.consumer_state))
@@ -483,7 +482,7 @@ export async function executeSfpStagedProjectionReconciliation(input: {
          WHERE i.id=${preview.intentId}::uuid
            AND po.id=${String((initial.find((r: any) => String(r.id) === preview.intentId) as any)?.receipt_id)}::uuid
            AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-           AND po.subject_type='business' AND po.subject_id=i.business_id
+           AND po.subject_type IN ('business','contact')
            AND po.email_token_hash=${String((initial.find((r: any) => String(r.id) === preview.intentId) as any)?.sle_email_token_hash ?? "")}
            AND e.validation_expires_at IS NOT NULL
            AND NULLIF(i.validation_snapshot->>'validationExpiresAt','')::timestamptz IS NOT NULL
@@ -507,7 +506,7 @@ export async function executeSfpStagedProjectionReconciliation(input: {
                   WHERE po.id=${String((initial.find((r: any) => String(r.id) === preview.intentId) as any)?.receipt_id)}::uuid
                     AND po.operation_id=${details.validationOperationId}::uuid
                     AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-                    AND po.subject_type='business' AND po.subject_id=e.business_id
+                    AND po.subject_type IN ('business','contact')
                     AND po.email_token_hash=${tokenHash}),
                validation_expires_at=${restoreExpiry.expires_at}::timestamptz,
                masked_email=${details.maskedEmail},updated_at=clock_timestamp()
@@ -590,7 +589,7 @@ export async function executeSfpStagedProjectionReconciliation(input: {
          AND po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
         JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
        WHERE po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-         AND po.subject_type='business' AND po.subject_id=e.business_id
+         AND po.subject_type IN ('business','contact')
          AND po.email_token_hash=pin.email_hash
          AND po.observed_at<=fc.at AND e.validation_at<=fc.at
          AND e.validation_at BETWEEN po.observed_at-INTERVAL '5 minutes'

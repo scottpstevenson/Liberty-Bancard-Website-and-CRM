@@ -590,10 +590,28 @@ export const providerObservations = pgTable("provider_observations", {
 }, (table) => [
   index("provider_observations_subject_schema_idx").on(table.subjectType, table.subjectId, table.observedAt),
   index("provider_observations_email_schema_idx").on(table.subjectId, table.emailTokenHash, table.subjectGeneration, table.observedAt),
+  index("canonical_address_receipt_lookup_idx").on(table.emailTokenHash,table.observedAt.desc())
+    .where(sql`provider='zerobounce' AND retryable=FALSE AND outcome IN ('valid','invalid')`),
 ]);
 
 // ---------------------------------------------------------------------------
 // CRO-03 durable enrichment factory. Membership/evidence rows are immutable;
+export const canonicalAddressValidationClaims = pgTable("canonical_address_validation_claims", {
+  emailTokenHash: text("email_token_hash").primaryKey(),
+  normalizationVersion: integer("normalization_version").notNull().default(1),
+  claimToken: uuid("claim_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  operationId: uuid("operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
+  dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  check("canonical_address_validation_claims_hash_check", sql`${table.emailTokenHash} ~ '^[a-f0-9]{64}$'`),
+  check("canonical_address_validation_claims_version_check", sql`${table.normalizationVersion}=1`),
+  check("canonical_address_validation_claims_lease_check",
+    sql`(${table.claimToken} IS NULL)=(${table.leaseExpiresAt} IS NULL)`),
+  check("canonical_address_validation_claims_dispatch_check",
+    sql`${table.dispatchedAt} IS NULL OR ${table.operationId} IS NOT NULL`),
+]);
 // execution rows are mutable and recoverable through claim leases.
 // Candidate values are encrypted envelopes, never raw provider payloads.
 // ---------------------------------------------------------------------------
@@ -3055,9 +3073,31 @@ export const cr04EnrollmentIntents = pgTable("cr04_enrollment_intents", {
   status: text("status").notNull().default("approved"),
   reasonCode: text("reason_code"),
   enrollmentId: integer("enrollment_id").references(() => sequenceEnrollments.id),
+  programId: uuid("program_id").references(() => sfpPrograms.id),
+  businessId: integer("business_id").references(() => businesses.id),
+  normalizedEmailHash: text("normalized_email_hash"),
+  preparationState: text("preparation_state"),
+  preparationSnapshot: jsonb("preparation_snapshot"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => [
+  index("canonical_preparation_business_program_idx").on(table.businessId,table.programId,table.preparationState),
+  uniqueIndex("canonical_preparation_sequence_address_idx")
+    .on(table.businessId,table.programId,table.normalizedEmailHash,table.sequenceId)
+    .where(sql`program_id IS NOT NULL`),
+  check("canonical_preparation_scope_chk", sql`(
+    program_id IS NULL AND business_id IS NULL AND normalized_email_hash IS NULL
+      AND preparation_state IS NULL AND preparation_snapshot IS NULL
+  ) OR (
+    program_id IS NOT NULL AND business_id IS NOT NULL
+      AND normalized_email_hash IS NOT NULL AND preparation_state IS NOT NULL
+      AND preparation_snapshot IS NOT NULL
+      AND normalized_email_hash ~ '^[a-f0-9]{64}$'
+      AND preparation_state IN ('pending_validation','ready_held','exception','rejected','suppressed')
+      AND jsonb_typeof(preparation_snapshot)='object'
+      AND channel='email' AND status='blocked'
+  )`),
+]);
 
 export type Cr04ChannelDecision = typeof cr04ChannelDecisions.$inferSelect;
 export type Cr04CohortRun = typeof cr04CohortRuns.$inferSelect;

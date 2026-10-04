@@ -434,12 +434,15 @@ async function writeCompatibilityProjection(
  * Apply one consent command. A duplicate canonical event returns the existing
  * event without replaying a projection transition.
  */
-export async function applyConsentCommand(command: ConsentCommand): Promise<ConsentCommandResult> {
+export async function applyConsentCommand(command: ConsentCommand,context?:{
+  transaction:any;beforeWrite:(tx:any)=>Promise<void>;
+}): Promise<ConsentCommandResult> {
   const receiptAt = new Date();
   assertCommandShape(command, receiptAt);
   const effectiveAt = command.effectiveAt ?? receiptAt;
 
-  return db.transaction(async (tx) => {
+  const applyInTransaction=async (tx:any):Promise<ConsentCommandResult> => {
+    if (context) await context.beforeWrite(tx);
     await lockConsentSubjectAddress(tx, command.subject);
     const subject = await resolveSubject(tx, command.subject);
     // Occurrence identity spans both accepted facts and rejected decision
@@ -563,7 +566,8 @@ export async function applyConsentCommand(command: ConsentCommand): Promise<Cons
 
     await writeCompatibilityProjection(tx, subject, command, effectiveAt);
     return { subjectId: subject.id, eventId: event.id, applied: true, duplicate: false, recordKind };
-  });
+  };
+  return context ? applyInTransaction(context.transaction) : db.transaction(applyInTransaction);
 }
 
 /**

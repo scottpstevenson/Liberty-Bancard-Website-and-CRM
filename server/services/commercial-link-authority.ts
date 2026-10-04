@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import { canonicalAddressReceiptNativeFingerprint } from "./canonical-address-receipt-contract";
 import {
   lockCommercialGraphMembershipSets,
   lockCommercialGraphNodes,
@@ -22,7 +23,6 @@ export class CommercialRevisionConflict extends Error {
 // exact body hashes intentionally fail closed even for formatting-only rewrites;
 // update them only from a reviewed, freshly migrated schema.
 const SYSTEM_LINK_EVIDENCE_TRIGGER_BODY_MD5 = "0851a20c34b3ce424364b5c3fc6e556b";
-const SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5 = "46f89326f7c158ac739814ce343c2559";
 
 // Fingerprints of PostgreSQL's canonical pg_get_expr(conbin, conrelid, true)
 // output for the 0309 typed-contact source contracts. Whitespace is folded and
@@ -49,7 +49,7 @@ export async function assertSystemLinkDatabaseGuard(executor: any) {
         AND t.tgtype=23
         AND p.proname='enforce_reviewed_contact_business_link'
         AND p.pronamespace='public'::regnamespace
-        AND md5(p.prosrc)=${SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5}
+        AND ${canonicalAddressReceiptNativeFingerprint(sql`p.prosrc`)}
     ) AS installed,
     EXISTS (
       SELECT 1 FROM pg_trigger t
@@ -198,7 +198,7 @@ export async function assertSfpLinkDatabaseGuard(executor: any) {
           AND t.tgname='contact_business_link_review_contract'
           AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal AND t.tgqual IS NULL
           AND t.tgtype=23 AND p.proname='enforce_reviewed_contact_business_link'
-          AND md5(p.prosrc)=${SYSTEM_LINK_REVIEW_TRIGGER_BODY_MD5}
+          AND ${canonicalAddressReceiptNativeFingerprint(sql`p.prosrc`)}
       ) AS combined_decision_trigger
   `) as any).rows?.[0];
   if (!result?.evidence_table || !result?.evidence_column || !result?.immutable_evidence_trigger
@@ -579,7 +579,7 @@ export async function decideSfpContactBusinessLink(input: {
     JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
      WHERE po.operation_id=${String(source.validation_operation_id)}::uuid
        AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-       AND po.subject_type='business' AND po.subject_id=${input.businessId}
+       AND po.subject_type IN ('business','contact')
        AND po.email_token_hash=${input.contactEmailTokenHash}
         AND po.observed_at<=NOW()
         AND LEAST(

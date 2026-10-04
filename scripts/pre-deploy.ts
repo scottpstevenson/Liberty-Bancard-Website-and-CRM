@@ -98,7 +98,28 @@ export interface Suite {
 // That file classifies each suite as: deterministic-static, deterministic-integration,
 // server-required, or server-optional. CI jobs must run only the deterministic classes.
 // To verify the manifest: npx tsx scripts/ci-suite-manifest.ts --check
+// Private uploaded workbooks are not checked into CI/deployment artifacts.
+// Explicit local certification uses the SAME isolated launcher, without making
+// missing private fixtures a new mandatory release failure.
+export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
+  {name:"Full actual canonical workbook intake",script:"scripts/certification/test-canonical-workbook-intake.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
+];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"Canonical source outbox accounting",script:"scripts/certification/test-canonical-source-outbox.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Canonical full-population projection coverage",script:"scripts/certification/test-canonical-projection-coverage.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Canonical contact linking automation",script:"scripts/certification/test-crm-contact-link-automation.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Canonical provider intake and recovery",script:"scripts/certification/test-canonical-provider-import.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  { name: "Canonical cohort-free recipient preparation",
+    script: "scripts/certification/test-canonical-recipient-preparation.ts",
+    timeoutSecs: 180, requiresDisposableTestDatabase: true },
+  { name: "Canonical address ownership and receipt/native contracts",
+    script: "scripts/certification/test-canonical-address-validation.ts",
+    timeoutSecs: 120, requiresDisposableTestDatabase: true },
   { name: "Stage 3 A Registered Session Authority and Metrics", script: "scripts/test-stage3-a-authority.ts", timeoutSecs: 180 },
   { name: "GHL Inbound Pagination Parser", script: "scripts/test-ghl-inbound-pagination.ts", timeoutSecs: 60 },
   { name: "GHL Inbound Focused Sanitizer and Source Checks", script: "scripts/test-ghl-inbound-sync.ts", timeoutSecs: 60 },
@@ -946,7 +967,8 @@ export function selectMandatorySuites(args: readonly string[], roster: readonly 
         ? "full-auth-concurrency"
         : "default-full");
   const suites = requestedScripts.map((script) => {
-    const matches = roster.filter((suite) => suite.script === script);
+    const matches = [...roster,...(roster===MANDATORY_SUITES ? CERTIFICATION_FIXTURE_SUITES : [])]
+      .filter((suite) => suite.script === script);
     if (matches.length === 0) {
       throw new Error(`Unknown pre-deploy suite script path: ${script}`);
     }

@@ -1761,23 +1761,18 @@ Guidelines:
         }
         const isProviderExport = sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list";
         if (isProviderExport) {
-          const { retainProviderImportRow } = await import("../services/provider-import-evidence");
-          await retainProviderImportRow({
+          const { materializeCanonicalProviderImportRow } = await import("../services/canonical-provider-import");
+          const transition=await materializeCanonicalProviderImportRow({
             executionId: importExecution.id, sourceRowNumber, sourceFormat,
+            claimToken:executionClaim.claimToken!,
             actorId: actor.actorId, rawRow: record,
             sourceCoordinate: (executionClaim.execution.metadata as any)?.sourceCoordinates?.[sourceRowNumber - 1],
             fileName: (executionClaim.execution.metadata as any)?.fileName,
           });
-          deferredToStaging++;
-          await recordImportRowDisposition({
-            executionId: importExecution.id,
-            claimToken: executionClaim.claimToken!,
-            sourceRowNumber,
-            rowFingerprint,
-            disposition: "deferred",
-            reasonCode: "cro03_staging_review_required",
-            diagnostic: { sourceFormat, promotion: "not_performed", providerTransport: "disabled" },
-          });
+          if (transition.disposition==="created") inserted++;
+          else if (transition.disposition==="matched_noop") duplicatesSkipped++;
+          else if (transition.disposition==="deferred") deferredToStaging++;
+          insertedContactIds.push(...transition.contactIds);
           continue;
         }
 

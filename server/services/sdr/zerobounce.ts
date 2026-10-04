@@ -10,6 +10,19 @@ export interface ZeroBounceResult {
 }
 
 export type ZeroBounceFetch = (input: string, init?: RequestInit) => Promise<Response>;
+export interface CanonicalZeroBounceDispatch {
+  addressClaim: {emailTokenHash:string;claimToken:string};
+  operationId: string;
+}
+async function assertPhysicalDispatch(email: string, context?: CanonicalZeroBounceDispatch) {
+  if (!context) throw new Error("CANONICAL_ADDRESS_DISPATCH_CONTEXT_REQUIRED");
+  const {createHash}=await import("node:crypto");
+  if (createHash("sha256").update(email.trim().toLowerCase()).digest("hex")!==context.addressClaim.emailTokenHash) {
+    throw new Error("CANONICAL_ADDRESS_DISPATCH_EMAIL_CHANGED");
+  }
+  const {assertCanonicalAddressDispatchClaim}=await import("../canonical-address-validation");
+  await assertCanonicalAddressDispatchClaim(context.addressClaim,context.operationId);
+}
 
 /** Raw validation response used by the business-validation adapter. */
 export interface ZeroBounceRawResponse {
@@ -27,7 +40,11 @@ export async function validateEmailRaw(
   email: string,
   apiKey: string,
   fetchImpl: ZeroBounceFetch = fetch,
+  context?: CanonicalZeroBounceDispatch,
 ): Promise<ZeroBounceRawResponse> {
+  // Injected protocol tests do not perform physical I/O. Production defaults
+  // must prove the shared durable address owner before reaching the provider.
+  if (fetchImpl===fetch) await assertPhysicalDispatch(email,context);
   const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}&ip_address=`;
   const res = await fetchImpl(url, { signal: AbortSignal.timeout(20_000) });
   const { recordPaidProviderCreditSignal } = await import("../provider-credit-alert");
@@ -46,9 +63,9 @@ export async function validateEmailRaw(
 
 export async function verifyEmail(
   email: string,
-  opts: { fetchImpl?: ZeroBounceFetch; timeoutMs?: number } = {},
+  opts: { fetchImpl?: ZeroBounceFetch; timeoutMs?: number; dispatch?: CanonicalZeroBounceDispatch } = {},
 ): Promise<ZeroBounceResult> {
-  const apiKey = process.env.ZEROBOUNCE_API_KEY;
+  const apiKey = process.env.ZEROBOUNCE_API_KEY ?? process.env.ZEROBOUNCE_APi_KEY;
   if (!apiKey) {
     return {
       status: "unknown",
@@ -61,6 +78,7 @@ export async function verifyEmail(
   }
 
   try {
+    if (!opts.fetchImpl || opts.fetchImpl===fetch) await assertPhysicalDispatch(email,opts.dispatch);
     const url = `https://api.zerobounce.net/v2/validate?api_key=${encodeURIComponent(apiKey)}&email=${encodeURIComponent(email)}`;
     const fetchImpl = opts.fetchImpl ?? fetch;
     const res = await fetchImpl(url, { signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000) });

@@ -289,7 +289,7 @@ export async function executeBoundedValidation(
     zbTransport = opts.zbTransport;
   } else {
     // Real ZeroBounce transport: decrypt the real address, never send masked_value
-    const { verifyEmail } = await import("../sdr/zerobounce");
+    const { delegateSelectedAddressValidation } = await import("../provider-readiness-control");
     zbTransport = async (candidateId, _masked) => {
       const candRow = rows(await db.execute(sql`
         SELECT id, business_id, field, envelope_ciphertext, envelope_nonce,
@@ -311,15 +311,11 @@ export async function executeBoundedValidation(
         return "failed";
       }
 
-      const result = await verifyEmail(realEmail);
-      if (result.skipped) return "failed";
-      switch (result.status) {
-        case "valid":   return "valid";
-        case "invalid": return "invalid";
-        case "unsafe":  return "do_not_mail";
-        case "unknown": return "unknown";
-        default:        return "unknown";
-      }
+      const result=await delegateSelectedAddressValidation({
+        businessId:Number(candRow.business_id),email:realEmail,
+      });
+      return result.receipt?.outcome==="valid" ? "valid"
+        : result.receipt?.outcome==="invalid" ? "invalid" : "failed";
     };
   }
 

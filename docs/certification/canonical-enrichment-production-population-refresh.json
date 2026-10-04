@@ -1,0 +1,9 @@
+{
+  "scope": "Read-only same-statement production population refresh; inventory only, not convergence or acceptance",
+  "result": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,contacts_all,contacts_production,production_contacts_without_business,businesses_all,businesses_canonical,import_original_dispositions,import_executions_all,original_csv_source_items_blocked\n2026-10-04 18:39:19.624627+00,154418,154016,153984,92831,85808,\"{\"\"failed\"\": 1, \"\"deferred\"\": 1471}\",1,1472\n",
+    "success": true
+  }
+}

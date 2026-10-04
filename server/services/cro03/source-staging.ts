@@ -102,6 +102,7 @@ const rows = (result: any): any[] => result?.rows ?? result ?? [];
 
 export interface CreateCro03SourceBatchInput {
   idempotencyKey: string;
+  authorityCheck?: (tx: any) => Promise<boolean>;
   actorType: "user" | "system" | "import";
   actorId?: string | null;
   purpose?: "staging_review" | "provider_pre_spend";
@@ -159,6 +160,7 @@ export async function createCro03SourceBatch(input: CreateCro03SourceBatchInput)
     hashAlgorithmVersion: CRO03_HASH_ALGORITHM_VERSION, purpose, recipeHash, selectionHash,
   });
   return db.transaction(async (tx) => {
+    if (input.authorityCheck && !await input.authorityCheck(tx)) throw new Error("CRO03_SOURCE_WRITE_AUTHORITY_FENCE_LOST");
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${"cro03-source:" + input.idempotencyKey}, 0))`);
     const existing = rows(await tx.execute(sql`
       SELECT id,selection_hash,command_fingerprint,total_count,blocked_count

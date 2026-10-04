@@ -15,12 +15,13 @@ import {
   FileInput,
   GitBranch,
   HeartPulse,
+  PauseCircle,
   RefreshCw,
   ShieldCheck,
   Users,
   XCircle,
 } from "lucide-react";
-import type { CanonicalEnrichmentStatus } from "@shared/canonical-enrichment-status";
+import type { CanonicalEnrichmentStatus, CanonicalImportOutcome } from "@shared/canonical-enrichment-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +57,10 @@ function formatDate(value: string) {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(date);
+}
+
+function formatOptionalDate(value: string | null) {
+  return value ? formatDate(value) : "Not yet observed";
 }
 
 function sumStates(states: Record<string, number>) {
@@ -171,6 +176,28 @@ function StateList({
   );
 }
 
+function ImportOutcomeList({rows}: {rows: CanonicalImportOutcome[]}) {
+  return <div className="my-5 space-y-3">
+    <p className="text-sm text-muted-foreground">Up to 25 recorded rows. Original accounting and later fulfillment are separate facts; this is not a complete population count.</p>
+    {!rows.length && <p className="rounded-xl border p-4 text-sm text-muted-foreground">No rows in this bounded result.</p>}
+    {rows.map(row=><details key={`${row.executionId}:${row.sourceRowNumber}`} className="rounded-xl border border-border/70 bg-card p-4">
+      <summary className="cursor-pointer text-sm font-medium">
+        Row {row.sourceRowNumber} · {stateLabel(row.disposition)} · {stateLabel(row.fulfillmentState ?? row.reasonCode)}
+      </summary>
+      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+        <div><dt className="text-muted-foreground">Import execution</dt><dd className="break-all font-mono">{row.executionId}</dd></div>
+        <div><dt className="text-muted-foreground">Original reason</dt><dd className="break-words">{row.reasonCode}</dd></div>
+        <div><dt className="text-muted-foreground">Retained original row</dt><dd>{row.originalAvailable ? "Available" : "Unavailable"}</dd></div>
+        <div><dt className="text-muted-foreground">Accounting recorded</dt><dd>{formatDate(row.completedAt)}</dd></div>
+        <div><dt className="text-muted-foreground">Later source fulfillment</dt><dd>{row.fulfillmentState ?? "Not recorded"}</dd></div>
+        <div><dt className="text-muted-foreground">Source next-attempt timestamp</dt><dd>{formatOptionalDate(row.nextAttemptAt)} · not a promise of retry</dd></div>
+        <div><dt className="text-muted-foreground">Committed identifiers in original accounting</dt>
+          <dd>Business {row.businessId ?? "not recorded"} · contact {row.contactId ?? "not recorded"}</dd></div>
+      </dl>
+    </details>)}
+  </div>;
+}
+
 function SectionHeading({
   kicker,
   title,
@@ -189,6 +216,24 @@ function SectionHeading({
   );
 }
 
+function CurrentSignal({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-background/65 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p className="mt-2 font-mono text-xl font-semibold tracking-tight text-foreground">{value}</p>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</p>
+    </div>
+  );
+}
+
 export default function CanonicalEnrichment() {
   const [activeView, setActiveView] = useState<ViewKey>("pipeline");
   const { user } = useAuth();
@@ -202,6 +247,46 @@ export default function CanonicalEnrichment() {
     <>
       {activeView === "pipeline" && (
         <div className="space-y-8">
+          <section>
+            <SectionHeading
+              kicker="Automatic progress · current signals"
+              title="Preparation cursor and validation queue"
+              description="These are the status service's current automatic-progress observations. Preparation values are cumulative pass transitions, not distinct recipients; validation figures describe pending intents linked to persisted preparation, not a fresh eligibility decision."
+            />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <CurrentSignal
+                label="Preparation observation"
+                value={data.automaticProgress.preparation.observed ? "Observed" : "Not yet observed"}
+                detail={data.automaticProgress.preparation.observed
+                  ? "A preparation cursor record was present in this status read."
+                  : "No preparation cursor record was present. This is not evidence of success or failure."}
+              />
+              <CurrentSignal
+                label="Cursor · last cycle"
+                value={data.automaticProgress.preparation.lastCycleAt
+                  ? formatDate(data.automaticProgress.preparation.lastCycleAt)
+                  : "Not yet observed"}
+                detail={`Cycle ${formatCount(data.automaticProgress.preparation.cycles)} · after contact ID ${formatCount(data.automaticProgress.preparation.afterContactId)}`}
+              />
+              <CurrentSignal
+                label="Preparation counters"
+                value={`${formatCount(data.automaticProgress.preparation.scanned)} scanned`}
+                detail={`${formatCount(data.automaticProgress.preparation.prepared)} prepared · ${formatCount(data.automaticProgress.preparation.held)} held. Cumulative pass transitions, not unique recipients.`}
+              />
+              <CurrentSignal
+                label="Preparation-linked validation queue"
+                value={`${formatCount(data.automaticProgress.validation.pending)} pending`}
+                detail={`${formatCount(data.automaticProgress.validation.processing)} processing · oldest pending ${formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}`}
+              />
+            </div>
+            <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50/70 p-4 dark:border-amber-900/70 dark:bg-amber-950/20">
+              <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+              <p className="text-sm leading-6 text-muted-foreground">
+                Outbound remains paused. These observations do not establish deployed scheduled progression, qualification, enrollment, or send authorization. Native verification is not deployed-flow acceptance.
+              </p>
+            </div>
+          </section>
+
           <section>
             <SectionHeading
               kicker="Production record inventory"
@@ -310,6 +395,7 @@ export default function CanonicalEnrichment() {
             title="Imports and source history"
             description="Use the existing import, lead operations, and integration surfaces for batch details and provider history. No source records are created or edited here."
           />
+          <ImportOutcomeList rows={data.recentImportOutcomes} />
           <div className="mb-5 grid gap-3 sm:grid-cols-3">
             <StatTile label="Import history" value={formatCount(data.imports.total)} note={`${formatCount(sumStates(data.imports.byState))} represented across reported states.`} icon={FileClock} />
             <StatTile label="Provider history" value={formatCount(data.providers.total)} note="Historical provider state total, not a live delivery result." icon={Activity} />
@@ -342,8 +428,46 @@ export default function CanonicalEnrichment() {
           <SectionHeading
             kicker="Resolve with evidence"
             title="Exceptions stay visible"
-            description="Blocked and unresolved totals point toward focused existing review tools. This page does not resolve, suppress, approve, or advance records."
+            description="Current held reasons and observed inventory exceptions point toward focused existing review tools. This page does not resolve, suppress, approve, or advance records."
           />
+          <ImportOutcomeList rows={data.importExceptions} />
+          <section className="mb-5 rounded-xl border border-border/70 bg-card p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Current automatic preparation</p>
+                <h3 className="mt-1 font-semibold text-foreground">Held reasons reported by the cursor</h3>
+                <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                  {data.automaticProgress.preparation.observed
+                    ? `Cumulative held pass transitions: ${formatCount(data.automaticProgress.preparation.held)}. Counts are not unique recipients.`
+                    : "Preparation cursor not yet observed; no held-reason result can be inferred."}
+                </p>
+              </div>
+              <Badge variant={data.automaticProgress.preparation.observed ? "outline" : "secondary"}>
+                {data.automaticProgress.preparation.observed ? "Observed" : "Not yet observed"}
+              </Badge>
+            </div>
+            {data.automaticProgress.preparation.observed && Object.keys(data.automaticProgress.preparation.reasons).length > 0 ? (
+              <div className="mt-4 divide-y divide-border/70 rounded-lg border border-border/70">
+                {Object.entries(data.automaticProgress.preparation.reasons)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([reason, count]) => (
+                    <div key={reason} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <span className="text-sm text-foreground">{stateLabel(reason)}</span>
+                      <span className="font-mono text-sm text-muted-foreground">{formatCount(count)}</span>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-lg border border-dashed border-border bg-muted/35 px-4 py-3 text-sm leading-5 text-muted-foreground">
+                {data.automaticProgress.preparation.observed
+                  ? "No held reasons were reported in the current cursor observation."
+                  : "Reason counts are unavailable until a preparation cursor is observed."}
+              </p>
+            )}
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              Last cycle: {formatOptionalDate(data.automaticProgress.preparation.lastCycleAt)} · Preparation-linked validation queue: {formatCount(data.automaticProgress.validation.pending)} pending, {formatCount(data.automaticProgress.validation.processing)} processing · oldest pending {formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}.
+            </p>
+          </section>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile label="Blocked contacts" value={formatCount(data.contacts.blocked)} note="Observed blocked contact count." icon={XCircle} />
             <StatTile label="Unvalidated contacts" value={formatCount(data.contacts.unvalidated)} note="Validation state is not a send decision." icon={Clock3} />
@@ -382,6 +506,19 @@ export default function CanonicalEnrichment() {
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Verified is limited to the expected database safeguards being observed. It does not establish runtime operation, record qualification, enrollment, or sending.
             </p>
+          </div>
+          <div className="mb-5 rounded-xl border border-border/70 bg-card p-5">
+            <h3 className="font-semibold">Local vertical-projection coverage</h3>
+            {data.automaticProgress.projection.observed ? (
+              <div className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+                <p>Current frozen ID-range pass: {formatCount(data.automaticProgress.projection.businessesScanned)} businesses and {formatCount(data.automaticProgress.projection.contactsScanned)} contacts scanned. Captured populations: {formatCount(data.automaticProgress.projection.populationBusinesses)} businesses and {formatCount(data.automaticProgress.projection.populationContacts)} contacts.</p>
+                <p>Verified local coverage cycles: {formatCount(data.automaticProgress.projection.verifiedCycles)}.</p>
+                {data.automaticProgress.projection.lastCompletedCoverage && (
+                  <p>Last completed pass: {formatCount(data.automaticProgress.projection.lastCompletedCoverage.businessesScanned)} businesses and {formatCount(data.automaticProgress.projection.lastCompletedCoverage.contactsScanned)} contacts, completed {formatDate(data.automaticProgress.projection.lastCompletedCoverage.completedAt)}.</p>
+                )}
+                <p>This projection covers all record classes. It does not establish business affiliation, qualification, validation, preparation or deployed acceptance.</p>
+              </div>
+            ) : <p className="mt-3 text-sm text-muted-foreground">No frozen-range coverage pass has been observed. Older cursor or cycle counters are not treated as verified coverage.</p>}
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <NavCard href="/dashboard/system-health" title="System Health" description="Review the current system and operational health surface." label="Health checks" icon={HeartPulse} />

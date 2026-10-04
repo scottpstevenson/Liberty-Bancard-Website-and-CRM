@@ -525,11 +525,9 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     jobName: "tick",
   },
   {
-    // Continuous ZeroBounce validation feed for whichever frozen cohort has
-    // free/paid-discovered candidates awaiting validation. No-op unless
-    // FREE_DISCOVERY_VALIDATION_PROMOTION_ENABLED is set. Staging to
-    // ready_held is handled entirely by the existing SFP_CAMPAIGN_STAGING
-    // worker once rows reach validated_outreach_eligible.
+    // Continuous recovery of the shared queue for canonical selected recipients.
+    // The genuine validation-promotion kill switch remains; frozen cohorts do
+    // not admit or schedule ordinary address purchases.
     name: QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
     concurrency: 1,
     attempts: 1,
@@ -2663,21 +2661,43 @@ class QueueManager {
           try {
             const coverage = await processContactLinkCoverageServerTick();
             if (coverage.ran) console.log(`[ContactLinkCoverage] ${JSON.stringify(coverage)}`);
-            const { processContactBusinessReconciliationServerTick } = await import("./contact-business-reconciliation");
-            const reconciliation = await processContactBusinessReconciliationServerTick();
-            if (reconciliation.ran) console.log(`[ContactBusinessReconciliation] ${JSON.stringify(reconciliation)}`);
           } catch (error: any) {
             console.error("[ContactLinkCoverage] bounded page deferred", { code: error?.code ?? error?.message });
           }
           try {
-            const { processContactLinkAutomationTick } = await import("./contact-link-automation");
+            const { processContactBusinessReconciliationServerTick } = await import("./contact-business-reconciliation");
+            const reconciliation = await processContactBusinessReconciliationServerTick();
+            if (reconciliation.ran) console.log(`[ContactBusinessReconciliation] ${JSON.stringify(reconciliation)}`);
+          } catch (error: any) {
+            console.error("[ContactBusinessReconciliation] bounded page deferred", { code: error?.code ?? error?.message });
+          }
+          try {
             const { processEffectiveVerticalProjectionTick } = await import("./crm-effective-vertical-projection");
             const verticals = await processEffectiveVerticalProjectionTick();
             if (verticals.ran) console.log(`[CrmEffectiveVerticalProjection] ${JSON.stringify(verticals)}`);
+          } catch (error: any) {
+            console.error("[CrmEffectiveVerticalProjection] held", { code: error?.code ?? error?.message });
+          }
+          try {
+            const { processContactLinkAutomationTick } = await import("./contact-link-automation");
             const links = await processContactLinkAutomationTick();
             if (links.ran) console.log(`[ContactLinkAutomation] ${JSON.stringify(links)}`);
           } catch (error: any) {
             console.error("[ContactLinkAutomation] held", { code: error?.code ?? error?.message });
+          }
+          try {
+            const {processCanonicalImportRecoveryTick}=await import("./canonical-import-recovery-worker");
+            const recovered=await processCanonicalImportRecoveryTick();
+            if (recovered.ran) console.log(`[CanonicalImportRecovery] ${JSON.stringify(recovered)}`);
+          } catch(error:any) {
+            console.error("[CanonicalImportRecovery] held",{code:error?.code ?? error?.message});
+          }
+          try {
+            const {processCanonicalRecipientPreparationTick}=await import("./canonical-recipient-preparation-worker");
+            const preparations=await processCanonicalRecipientPreparationTick();
+            if (preparations.ran) console.log(`[CanonicalRecipientPreparation] ${JSON.stringify(preparations)}`);
+          } catch(error:any) {
+            console.error("[CanonicalRecipientPreparation] held",{code:error?.code ?? error?.message});
           }
           const { processSfpContinuousDiscoveryTick } = await import("./cro03/sfp-continuous-discovery");
           const result = await processSfpContinuousDiscoveryTick();

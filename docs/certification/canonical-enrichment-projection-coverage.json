@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-10-04T19:29:28.351Z",
+  "checks": 13,
+  "scope": "Disposable full-population local projection only; not deployed scheduled cycles or whole-task acceptance",
+  "completedLocalPasses": 2,
+  "lastCompletedCoverage": {
+    "scope": "all_record_classes",
+    "startedAt": "2026-10-04 19:29:27.863606+00",
+    "completedAt": "2026-10-04T19:29:27.975Z",
+    "businessHighWater": 3,
+    "contactHighWater": 3,
+    "populationBusinesses": 3,
+    "populationContacts": 3,
+    "businessesScanned": 3,
+    "contactsScanned": 3,
+    "businessesChanged": 1,
+    "contactsChanged": 1
+  },
+  "networkAttempts": 0,
+  "effectsBefore": {
+    "operations": "0",
+    "validation": "0",
+    "communications": "0",
+    "enrollments": "0",
+    "cohorts": "0"
+  },
+  "effectsAfter": {
+    "operations": "0",
+    "validation": "0",
+    "communications": "0",
+    "enrollments": "0",
+    "cohorts": "0"
+  }
+}

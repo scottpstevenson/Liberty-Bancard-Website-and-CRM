@@ -63,18 +63,14 @@ export async function resolveOrganization(input: {
     // PostgreSQL cannot infer a parameter's type when a nullable value appears
     // only in an IS NULL / IS NOT NULL predicate. Cast every evidence parameter
     // explicitly so partially populated organization inputs remain valid.
-    const candidateRows = await tx.execute(sql`
-      SELECT *
-      FROM businesses
-      WHERE (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
+    const candidates = await tx.select().from(businesses).where(sql`
+      (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
          OR (${domain}::text IS NOT NULL AND lower(website_domain) = ${domain}::text)
          OR (${phone}::text IS NOT NULL AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${phone}::text)
          OR (${placeId}::text IS NULL AND ${domain}::text IS NULL AND ${phone}::text IS NULL
              AND normalized_name = ${name} AND lower(coalesce(city, '')) = ${city ?? ""}
              AND lower(coalesce(state, '')) = ${state ?? ""})
-      FOR UPDATE
-    `);
-    const candidates = ((candidateRows as any).rows ?? []) as Array<typeof businesses.$inferSelect>;
+    `).for("update");
     if (candidates.length === 1) {
       const candidate = candidates[0];
       // A candidate found by one identifier cannot silently absorb a different
@@ -140,18 +136,14 @@ export async function peekOrganizationResolution(input: {
     return { kind: "deferred", reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE", candidateIds: [] };
   }
 
-  const candidateRows = await db.execute(sql`
-    SELECT *
-    FROM businesses
-    WHERE (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
+  const candidates = await db.select().from(businesses).where(sql`
+    (${placeId}::text IS NOT NULL AND google_place_id = ${placeId}::text)
        OR (${domain}::text IS NOT NULL AND lower(website_domain) = ${domain}::text)
        OR (${phone}::text IS NOT NULL AND regexp_replace(coalesce(main_phone, ''), '[^0-9]', '', 'g') = ${phone}::text)
        OR (${placeId}::text IS NULL AND ${domain}::text IS NULL AND ${phone}::text IS NULL
            AND normalized_name = ${name} AND lower(coalesce(city, '')) = ${city ?? ""}
            AND lower(coalesce(state, '')) = ${state ?? ""})
   `);
-  const candidates = ((candidateRows as any).rows ?? []) as Array<typeof businesses.$inferSelect>;
-
   if (candidates.length === 1) {
     const candidate = candidates[0];
     const conflicts =

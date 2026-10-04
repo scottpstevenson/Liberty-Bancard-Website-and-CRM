@@ -1,26 +1,12 @@
 /**
- * MI-06: Business email validation service.
+ * Business-intent compatibility projection.
  *
- * Handles the business path for ZeroBounce validation:
- *  - processBusinessValidationIntent: claim + run ZeroBounce for a business email candidate
- *  - writeBusinessValidationResult: write ZeroBounce result to businesses table
- *  - reconcileExistingBusinessEmails: startup reconciliation for pre-MI-06 mainEmail values
- *
- * Kill lines:
- *  - No raw email plaintext written to businesses before provider_valid result.
- *  - No write to validation_intents (contact-bound) from business candidate path.
- *  - No raw email in cro03c_receipts.redacted_metadata or audit_logs.
- *  - No ZeroBounce I/O without authorizeCro03cBusinessValidation completing successfully.
- *  - email_discovery_status NOT mutated during GET handlers.
- *
- * Operation sequence (fix for state mismatch):
- *   1. Check intent is eligible (state='pending', approval_required=FALSE) — read-only.
- *   2. Decrypt email and verify hash — still pending.
- *   3. Call authorizeCro03cBusinessValidation() — requires state='pending', writes auth row.
- *   4. Atomically claim the intent (CAS: UPDATE WHERE state='pending' AND claim_token IS NULL).
- *      If 0 rows: another worker claimed first — return early (auth row is idempotent).
- *   5. Call ZeroBounce HTTP.
- *   6. Write result to businesses + update intent state.
+ * The public executor delegates to the current canonical selected-recipient
+ * address owner. Historical generation/winner/hash references remain provenance;
+ * neither an old authorization nor a second unused reservation purchases I/O.
+ * Original validation operation/timestamp are projected without copying or
+ * extending the receipt. Pending/ambiguous shared work remains visibly deferred.
+ * No GET mutations, raw email in audit metadata, or outbound authorization.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -84,16 +70,70 @@ export type BusinessValidationWorkerDeps = {
 // ── processBusinessValidationIntent ───────────────────────────────────────────
 
 /**
- * Execute one business_validation_intents record.
- *
- * Correct ordering (see module-level comment):
- *   check pending → decrypt → verify hash → authorize (requires pending) →
- *   claim (CAS) → ZeroBounce → commit result.
- *
- * Kill line: authorizeCro03cBusinessValidation MUST write a committed auth row
- * before any ZeroBounce I/O.
+ * Execute one compatibility intent through the common address owner, then
+ * CAS-project an original receipt. Legacy command approval is not selection.
  */
 export async function processBusinessValidationIntent(
+  intentId: string,
+  _ctx: BusinessValidationContext,
+  operationId?: string,
+  deps: BusinessValidationWorkerDeps = {},
+): Promise<"completed" | "deferred" | "ambiguous" | "superseded" | "failed" | "not_found"> {
+  const intent=rows(await db.execute(sql`SELECT * FROM business_validation_intents
+    WHERE id=${intentId}::uuid AND state='pending'
+      AND (claim_token IS NULL OR lease_expires_at<NOW())`))[0];
+  if (!intent) return "not_found";
+  const evidence=rows(await db.execute(sql`SELECT * FROM cro03c_candidate_evidence
+    WHERE id=${String(intent.candidate_evidence_id)}::uuid`))[0];
+  if (!evidence) return "failed";
+  let email:string;
+  try {
+    email=unsealCandidateEvidence(String(evidence.field),{
+      ciphertext:String(evidence.envelope_ciphertext),nonce:String(evidence.envelope_nonce),
+      tag:String(evidence.envelope_tag),keyVersion:Number(evidence.envelope_key_version),
+    });
+  } catch { return "failed"; }
+  const historicalHash=createHash("sha256").update(`email\0${email.trim().toLowerCase()}`).digest("hex");
+  if (historicalHash!==String(intent.normalized_email_token_hash)) return "superseded";
+  const {delegateSelectedAddressValidation}=await import("../provider-readiness-control");
+  const result=await delegateSelectedAddressValidation({
+    businessId:Number(intent.business_id),email,
+    deps:deps.validateEmail ? {verifyEmail:async normalizedEmail=>{
+      const response=await deps.validateEmail!(normalizedEmail,"disposable-injected-transport");
+      if (response.error) return {provider:"zerobounce" as const,verifiedAt:new Date().toISOString(),
+        status:"unknown" as const,reason:"parse_error" as const,outcome:"unavailable" as const};
+      return {provider:"zerobounce" as const,verifiedAt:new Date().toISOString(),
+        status:response.status==="valid" ? "valid" as const : response.status==="invalid"
+          ? "invalid" as const : response.status==="unknown" ? "unknown" as const : "unsafe" as const,
+        outcome:"completed" as const};
+    }} : undefined,
+  });
+  if (!result.receipt) {
+    await db.execute(sql`UPDATE business_validation_intents SET
+      terminal_code='canonical_selection_or_validation_pending',next_attempt_at=NOW()+INTERVAL '5 minutes',
+      updated_at=NOW() WHERE id=${intentId}::uuid AND state='pending'`);
+    return "deferred";
+  }
+  const claimToken=randomUUID();
+  const claimed=rows(await db.execute(sql`UPDATE business_validation_intents SET
+    state='claimed',claim_token=${claimToken}::uuid,lease_expires_at=NOW()+INTERVAL '5 minutes',
+    updated_at=NOW() WHERE id=${intentId}::uuid AND state='pending'
+      AND (claim_token IS NULL OR lease_expires_at<NOW()) RETURNING id`));
+  if (!claimed.length) return "deferred";
+  const valid=result.receipt.outcome==="valid";
+  await writeBusinessValidationResult({
+    intentId,claimToken,businessId:Number(intent.business_id),email:valid ? email : null,
+    discoveryStatus:valid ? "provider_valid" : "provider_invalid",zbStatus:valid ? "valid" : "invalid",
+    normalizedEmailHash:historicalHash,originalObservedAt:result.receipt.observedAt,
+    originalOperationId:result.receipt.operationId,
+  });
+  // Release the old dispatcher's UNUSED reservation. The shared owner recorded
+  // the only physical operation; this is not a second billable legacy dispatch.
+  return operationId ? "deferred" : "completed";
+}
+
+/** Historical protocol implementation; not an execution entry point. */
+async function processLegacyBusinessValidationIntent(
   intentId: string,
   ctx: BusinessValidationContext,
   /** operationId from reserveCro03cBusinessValidationOperation — used to write dispatch checkpoints. */
@@ -396,6 +436,8 @@ export async function processBusinessValidationIntent(
 // ── writeBusinessValidationResult ─────────────────────────────────────────────
 
 interface WriteResultInput {
+  originalObservedAt?: string;
+  originalOperationId?: string;
   intentId: string;
   claimToken: string;
   businessId: number;
@@ -449,7 +491,7 @@ async function writeBusinessValidationResult(input: WriteResultInput): Promise<v
       await tx.execute(sql`
         UPDATE businesses
            SET email_discovery_status = ${discoveryStatus},
-               email_validation_updated_at = NOW(),
+               email_validation_updated_at = ${input.originalObservedAt ?? new Date().toISOString()}::timestamptz,
                main_email = ${email},
                updated_at = NOW()
          WHERE id = ${businessId}
@@ -458,7 +500,7 @@ async function writeBusinessValidationResult(input: WriteResultInput): Promise<v
       await tx.execute(sql`
         UPDATE businesses
            SET email_discovery_status = ${discoveryStatus},
-               email_validation_updated_at = NOW(),
+               email_validation_updated_at = ${input.originalObservedAt ?? new Date().toISOString()}::timestamptz,
                main_email = NULL,
                updated_at = NOW()
          WHERE id = ${businessId}
@@ -474,6 +516,7 @@ async function writeBusinessValidationResult(input: WriteResultInput): Promise<v
                 businessId,
                 discoveryStatus,
                 zbStatus,
+                originalOperationId:input.originalOperationId ?? null,
                 // No email field — kill line.
               }))}::jsonb,
               'system', 'cro03c_business_validation')

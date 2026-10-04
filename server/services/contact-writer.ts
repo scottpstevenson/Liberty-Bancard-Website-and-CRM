@@ -166,7 +166,10 @@ export async function writeContact(args: {
    * must be deferred, because they cannot run before the caller commits. */
   transaction?: any;
   /** CSV receipt written in the same local transaction as the contact. */
-  rowDisposition?: { createdReasonCode: string; matchedReasonCode: string };
+  rowDisposition?: { createdReasonCode: string; matchedReasonCode: string; additionalContact?: boolean };
+  /** Local fulfillment of an immutable deferred import, owned by its existing
+   * source work item. Never accepted from route payloads or provider adapters. */
+  retainedSourceRecovery?: import("./canonical-import-recovery-contract").CanonicalImportRecoveryClaim;
 }): Promise<Contact & {
   _ghlSyncPending: boolean;
   _intakeOutcome: "created" | "matched_existing";
@@ -225,7 +228,18 @@ export async function writeContact(args: {
       throw new Error("CONTACT_WRITE_AUTHORITY_FENCE_LOST");
     }
     const importOwned = Boolean(provenance.importExecutionId || provenance.importClaimToken || rowDisposition);
-    if (importOwned) {
+    if (args.retainedSourceRecovery) {
+      if (!args.transaction || mode!=="local_only" || hookPolicy?.source!=="cro03" ||
+          !hookPolicy.authorityCheck || !provenance.importExecutionId || provenance.importClaimToken ||
+          !provenance.sourceRowNumber || !provenance.rowFingerprint || !rowDisposition) {
+        throw new Error("CANONICAL_IMPORT_RECOVERY_PROTOCOL_REQUIRED");
+      }
+      const {hasCanonicalImportRecoveryClaim}=await import("./canonical-import-recovery-contract");
+      if (!await hasCanonicalImportRecoveryClaim(tx,{
+        executionId:provenance.importExecutionId,sourceRowNumber:provenance.sourceRowNumber,
+        rowFingerprint:provenance.rowFingerprint,recoveryClaim:args.retainedSourceRecovery,
+      })) throw new Error("CANONICAL_IMPORT_RECOVERY_CLAIM_LOST");
+    } else if (importOwned) {
       if (
         !provenance.importExecutionId || !provenance.importClaimToken ||
         !provenance.sourceRowNumber || !provenance.rowFingerprint || !rowDisposition
@@ -244,6 +258,22 @@ export async function writeContact(args: {
     }
     const recordLedger = async (contactId: number, disposition: "created" | "matched_noop", reasonCode: string) => {
       if (!importOwned) return;
+      // The original deferred disposition describes the original import. Its
+      // later local fulfillment is receipted by the claimed source work item.
+      if (args.retainedSourceRecovery) return;
+      if (rowDisposition?.additionalContact) {
+        // Multiple distinct addresses from ONE retained source row share its
+        // row accounting, not its contact identity. Require the primary receipt
+        // in this owned transaction; every additional contact still has its own
+        // immutable source event and exact source-row provenance.
+        const primary=(await tx.execute(sql`SELECT id FROM import_row_dispositions
+          WHERE execution_id=${provenance.importExecutionId!}::uuid
+            AND source_row_number=${provenance.sourceRowNumber!}
+            AND row_fingerprint=${provenance.rowFingerprint!}
+            AND disposition IN ('created','matched_noop')`) as any).rows?.[0];
+        if (!primary) throw new Error("IMPORT_ADDITIONAL_CONTACT_PRIMARY_RECEIPT_REQUIRED");
+        return;
+      }
       const inserted = await tx.insert(importRowDispositions).values({
         executionId: provenance.importExecutionId!,
         sourceRowNumber: provenance.sourceRowNumber!,

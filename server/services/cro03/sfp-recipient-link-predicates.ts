@@ -157,7 +157,7 @@ export async function checkCurrentSfpEligibilityAndPackage(
              JOIN provider_operations op ON op.id=po.operation_id
               WHERE po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
                 AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-                AND po.subject_type='business' AND po.subject_id=e.business_id
+                AND po.subject_type IN ('business','contact')
                 AND (po.email_token_hash IS NULL OR ${input.emailTokenHash ?? null}::text IS NULL
                      OR po.email_token_hash=${input.emailTokenHash ?? null}::text)
                 AND op.state='completed'
@@ -208,7 +208,7 @@ export async function checkCurrentSfpEligibilityAndPackage(
              SELECT 1 FROM provider_observations po
               WHERE po.operation_id=rv.validation_operation_id
                 AND po.provider='zerobounce' AND po.outcome='valid'
-                AND po.subject_type='business' AND po.subject_id=e.business_id
+                AND po.subject_type IN ('business','contact')
            )
          LIMIT 1
       ) review ON TRUE
@@ -411,7 +411,7 @@ export async function checkCurrentSfpEligibilityAndPackage(
        JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
        WHERE po.operation_id=COALESCE(${row.validation_operation_id ?? null}::uuid,${row.reused_from_operation_id ?? null}::uuid)
          AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-         AND po.subject_type='business' AND po.subject_id=${input.businessId}
+         AND po.subject_type IN ('business','contact')
          AND po.email_token_hash=${input.emailTokenHash}
            AND po.observed_at<=clock_timestamp()
           AND LEAST(
@@ -455,7 +455,7 @@ export async function isCurrentSfpValidationReceiptFresh(
         ON po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
       JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
      WHERE po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-       AND po.subject_type='business' AND po.subject_id=e.business_id
+       AND po.subject_type IN ('business','contact')
        AND po.email_token_hash=${input.emailTokenHash}
        AND po.observed_at<=fc.at
        AND e.validation_at<=fc.at

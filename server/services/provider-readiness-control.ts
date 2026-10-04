@@ -11,6 +11,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contacts, eligibilitySnapshots, providerObservations, validationIntents } from "@shared/schema";
 import { CRO03C_CURRENT_MIGRATION_HEAD } from "./cro03/contracts";
+import { currentCanonicalValidationSelection } from "./canonical-recipient-preparation";
+import {
+  claimCanonicalAddressValidation,bindCanonicalAddressOperation,
+  markCanonicalAddressDispatch,releaseCanonicalAddressValidation,
+} from "./canonical-address-validation";
+import { findFreshProviderObservation,getActiveSfpOutreachPolicy } from "./cro03/sfp-outreach-policy";
 
 export {
   decideMarketingEmailValidation,
@@ -47,6 +53,7 @@ export async function createValidationIntent(
 ): Promise<boolean> {
   const tokenHash = hashEmailToken(input.email);
   if (!tokenHash || input.generation < 1) return false;
+  if (!await currentCanonicalValidationSelection(input.contactId,tokenHash,tx)) return false;
   const purpose = input.purpose ?? "marketing_outreach";
   await tx.insert(validationIntents).values({
     contactId: input.contactId,
@@ -63,7 +70,15 @@ export async function createValidationIntent(
       validationIntents.subjectGeneration,
       validationIntents.purpose,
     ],
-    set: { updatedAt: new Date() },
+    set: {
+      updatedAt: new Date(),
+      state: sql`CASE WHEN validation_intents.state='completed' OR
+        validation_intents.state='blocked' AND validation_intents.terminal_code IN
+          ('canonical_target_selection_required','canonical_target_selection_stale','cro03c_authority_invalid')
+        THEN 'pending' ELSE validation_intents.state END`,
+      nextAttemptAt: sql`CASE WHEN validation_intents.state='completed' THEN NOW()
+        ELSE validation_intents.next_attempt_at END`,
+    },
   });
   return true;
 }
@@ -77,6 +92,7 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
   try {
     const [contact] = await db.select({
       id: contacts.id,
+      businessId: contacts.businessId,
       email: contacts.email,
       emailStatus: contacts.emailStatus,
       emailTokenHash: contacts.emailTokenHash,
@@ -95,30 +111,23 @@ export async function evaluateMarketingEmailEligibility(contactId: number): Prom
       effect: "provider_pre_spend",
     });
     const tokenHash = hashEmailToken(contact.email);
-    const [observation] = tokenHash
-      ? await db.select({
-          outcome: providerObservations.outcome,
-          emailTokenHash: providerObservations.emailTokenHash,
-          subjectGeneration: providerObservations.subjectGeneration,
-          observedAt: providerObservations.observedAt,
-        }).from(providerObservations).where(and(
-          eq(providerObservations.subjectType, "contact"),
-          eq(providerObservations.subjectId, contactId),
-          eq(providerObservations.emailTokenHash, tokenHash),
-          eq(providerObservations.subjectGeneration, contact.emailMutationGeneration),
-        )).orderBy(desc(providerObservations.observedAt)).limit(1)
-      : [];
+    const observation = tokenHash ? await findFreshProviderObservation({
+      businessId:Number(contact.businessId ?? 0),emailTokenHash:tokenHash,
+      ttlDays:EMAIL_VALIDATION_MAX_AGE_MS / 86_400_000,
+    }) : null;
     return {
       ...decideMarketingEmailValidation(contact.email, {
       emailStatus: contact.emailStatus,
-      emailTokenHash: observation?.emailTokenHash ?? null,
+      emailTokenHash: observation ? tokenHash : null,
       subjectGeneration: contact.emailMutationGeneration,
       // A provider observation is the sole positive marketing authority.
       // Contacts.emailStatus remains a backwards-compatible delivery projection
       // and cannot authorize current marketing by itself.
-      evidenceGeneration: observation?.subjectGeneration,
       verifiedAt: observation?.observedAt,
       providerOutcome: observation?.outcome,
+      addressReceipt: observation && tokenHash ? {
+        operationId:observation.operationId,emailTokenHash:tokenHash,expiresAt:observation.expiresAt,
+      } : null,
       }),
       ...(commercial.shadowDecision.snapshotId
         ? { commercialResolutionSnapshotId: commercial.shadowDecision.snapshotId }
@@ -159,15 +168,12 @@ export async function persistMarketingEligibilitySnapshot(
 
 /** Explicit queue ownership: a missing producer means a recoverable deferred intent. */
 export async function enqueueValidationIntent(intentId: string): Promise<boolean> {
+  const candidate = (await db.execute(sql`SELECT contact_id,normalized_email_token_hash
+    FROM validation_intents WHERE id=${intentId}::uuid AND state='pending'`) as any).rows?.[0];
+  if (!candidate || !await currentCanonicalValidationSelection(
+    Number(candidate.contact_id),String(candidate.normalized_email_token_hash),
+  )) return false;
   try {
-    const denied = await db.execute(sql`
-      UPDATE validation_intents
-         SET enqueue_state='deferred',terminal_code='cro03b_provider_denied',updated_at=NOW()
-       WHERE id=${intentId}::uuid AND purpose='cro03_winning_email'
-         AND (execution_authorized_at IS NULL OR execution_authority<>'cro03c_activation')
-      RETURNING id
-    `);
-    if (((denied as any).rows ?? []).length > 0) return false;
     const { getQueueManagerProducers, QUEUE_NAMES } = await import("./queue-manager");
     const manager = getQueueManagerProducers();
     // Task #1956 step 6: re-homed from QUEUE_NAMES.ENRICHMENT to
@@ -204,9 +210,6 @@ export async function enqueueCurrentValidationIntent(contactId: number): Promise
     .where(and(
       eq(validationIntents.contactId, contactId),
       eq(validationIntents.state, "pending"),
-      sql`(${validationIntents.purpose}<>'cro03_winning_email'
-        OR (${validationIntents.executionAuthorizedAt} IS NOT NULL
-          AND ${validationIntents.executionAuthority}='cro03c_activation'))`,
     ))
     .orderBy(desc(validationIntents.createdAt))
     .limit(1);
@@ -220,8 +223,13 @@ export async function recoverValidationIntents(limit = 100): Promise<number> {
     SELECT id FROM validation_intents
      WHERE state = 'pending'
        AND next_attempt_at <= NOW()
-       AND (purpose <> 'cro03_winning_email'
-         OR (execution_authorized_at IS NOT NULL AND execution_authority='cro03c_activation'))
+       AND EXISTS (SELECT 1 FROM cr04_enrollment_intents prepared
+         JOIN sfp_programs p ON p.id=prepared.program_id
+         JOIN contacts c ON c.id=prepared.contact_id AND c.business_id=prepared.business_id
+         WHERE prepared.contact_id=validation_intents.contact_id
+           AND prepared.normalized_email_hash=validation_intents.normalized_email_token_hash
+           AND prepared.preparation_state IN ('pending_validation','ready_held')
+           AND p.is_active AND c.archived_at IS NULL)
      ORDER BY created_at
      LIMIT ${limit}
   `);
@@ -331,16 +339,14 @@ export async function processValidationIntent(
            attempt_count = attempt_count + 1, updated_at = NOW()
      WHERE id = ${intentId}::uuid
        AND state IN ('pending', 'processing')
-        AND (purpose <> 'cro03_winning_email'
-          OR (execution_authorized_at IS NOT NULL AND execution_authority='cro03c_activation'))
        AND (state = 'pending' OR lease_expires_at IS NULL OR lease_expires_at < NOW())
      RETURNING *
   `);
   const intent = (claim as any).rows?.[0];
   if (!intent) return "not_found";
-  if (!await hasCurrentCro03cValidationAuthority(intent)) {
+  if (!await currentCanonicalValidationSelection(Number(intent.contact_id),String(intent.normalized_email_token_hash))) {
     await db.execute(sql`
-      UPDATE validation_intents SET state='blocked',terminal_code='cro03c_authority_invalid',
+      UPDATE validation_intents SET state='blocked',terminal_code='canonical_target_selection_required',
              lease_expires_at=NULL,claim_token=NULL,completed_at=NOW(),updated_at=NOW()
        WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid
     `);
@@ -390,35 +396,74 @@ export async function processValidationIntent(
     return "superseded";
   }
 
-  // A control row is operator-owned. Do not create an enabled row from a
-  // secret or from a queue job; enablement and circuit state are explicit controls.
-  const control = await db.execute(sql`
-    SELECT provider, enabled, circuit_state, reserved_units, consumed_units, version
-      FROM provider_controls WHERE provider = 'zerobounce' LIMIT 1
-  `);
-  const c = (control as any).rows?.[0];
-  if (!c?.enabled || c.circuit_state !== "closed") {
+  if (!await currentCanonicalValidationSelection(Number(contact.id),tokenHash!)) {
     await db.execute(sql`
-      UPDATE validation_intents
-         SET state = 'pending', enqueue_state = 'deferred',
-             terminal_code = 'provider_control_unavailable',
-             lease_expires_at = NULL, claim_token = NULL, updated_at = NOW()
-       WHERE id = ${intentId}::uuid AND claim_token = ${claimToken}::uuid
-    `);
-    return "deferred";
-  }
-  if (!await hasCurrentCro03cValidationAuthority(
-    intent, tokenHash, Number(intent.subject_generation), "pre_reservation",
-  )) {
-    await db.execute(sql`
-      UPDATE validation_intents SET state='blocked',terminal_code='cro03c_authority_invalid',
+      UPDATE validation_intents SET state='blocked',terminal_code='canonical_target_selection_stale',
              lease_expires_at=NULL,claim_token=NULL,completed_at=NOW(),updated_at=NOW()
        WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid
     `);
     return "failed";
   }
 
-  const operationKey = `validation-intent:${intentId}`;
+  const policy = await getActiveSfpOutreachPolicy({bypassCache:true});
+  const admission = await db.transaction(async tx => {
+    const owner = await claimCanonicalAddressValidation(tokenHash!,tx);
+    if (!owner) return {owner:null,receipt:null};
+    const receipt = await findFreshProviderObservation({
+      businessId:Number(contact.business_id),emailTokenHash:tokenHash!,ttlDays:policy.validationTtlDays,
+    },tx);
+    if (receipt) await releaseCanonicalAddressValidation(owner,tx);
+    return {owner:receipt ? null : owner,receipt};
+  });
+  if (admission.receipt) {
+    const projected = await db.transaction(async tx => {
+      if (!await currentCanonicalValidationSelection(Number(contact.id),tokenHash!,tx)) {
+        await tx.execute(sql`UPDATE validation_intents SET state='blocked',
+          terminal_code='canonical_target_selection_stale',claim_token=NULL,lease_expires_at=NULL
+          WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid`);
+        return false;
+      }
+      await tx.execute(sql`UPDATE contacts SET
+        email_status=${admission.receipt!.outcome === "valid" ? "valid" : "invalid"},
+        email_token_hash=${tokenHash},email_validation_updated_at=${admission.receipt!.observedAt}::timestamptz
+        WHERE id=${contact.id} AND email_mutation_generation=${intent.subject_generation}
+          AND encode(sha256(convert_to(lower(trim(email)),'UTF8')),'hex')=${tokenHash}`);
+      await tx.execute(sql`UPDATE validation_intents SET state='completed',operation_id=${admission.receipt!.operationId}::uuid,
+        terminal_code=${admission.receipt!.outcome === "valid" ? "fresh_address_receipt_reused" : "fresh_address_rejected"},
+        claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+        WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid`);
+      return true;
+    });
+    return projected ? "completed" : "failed";
+  }
+  const addressOwner = admission.owner;
+  if (!addressOwner) {
+    await db.execute(sql`UPDATE validation_intents SET state='pending',enqueue_state='deferred',
+      terminal_code='shared_address_validation_in_flight',claim_token=NULL,lease_expires_at=NULL,
+      next_attempt_at=NOW()+INTERVAL '5 minutes',updated_at=NOW()
+      WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid`);
+    return "deferred";
+  }
+  try {
+  if (!deps.verifyEmail && !(process.env.ZEROBOUNCE_API_KEY ?? process.env.ZEROBOUNCE_APi_KEY)) {
+    await db.execute(sql`UPDATE validation_intents SET state='pending',enqueue_state='deferred',
+      terminal_code='provider_not_configured',claim_token=NULL,lease_expires_at=NULL,
+      next_attempt_at=NOW()+INTERVAL '5 minutes',updated_at=NOW()
+      WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid`);
+    return "deferred";
+  }
+  const operationKey = `validation-intent:${intentId}:attempt:${Number(intent.attempt_count)}`;
+  const recentAttempts = (await db.execute(sql`SELECT count(*)::int n FROM provider_operations op
+    JOIN provider_attempts attempt ON attempt.operation_id=op.id
+    WHERE op.provider='zerobounce' AND op.target_fingerprint=${tokenHash}
+      AND attempt.dispatch_marked_at>NOW()-INTERVAL '24 hours'`) as any).rows?.[0];
+  if (Number(recentAttempts?.n)>=5) {
+    await releaseCanonicalAddressValidation(addressOwner);
+    await db.execute(sql`UPDATE validation_intents SET state='blocked',terminal_code='bounded_retry_exhausted',
+      claim_token=NULL,lease_expires_at=NULL,completed_at=NOW(),updated_at=NOW()
+      WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid`);
+    return "failed";
+  }
   // Once provider I/O was authorized for this idempotency key, never replay it
   // blindly. A prior process may have reached the provider but failed before
   // local commit; that is an ambiguous charge/result and requires reconciliation.
@@ -428,6 +473,7 @@ export async function processValidationIntent(
      LIMIT 1
   `);
   if ((existingOperation as any).rows?.[0]) {
+    await releaseCanonicalAddressValidation(addressOwner);
     await db.execute(sql`
       UPDATE validation_intents
          SET state = 'blocked', terminal_code = 'ambiguous_billing',
@@ -456,6 +502,7 @@ export async function processValidationIntent(
   `);
   const operationId = (allocation as any).rows?.[0]?.id;
   if (!operationId) {
+    await releaseCanonicalAddressValidation(addressOwner);
     await db.execute(sql`
       UPDATE validation_intents
          SET state = 'pending', enqueue_state = 'deferred',
@@ -465,6 +512,7 @@ export async function processValidationIntent(
     `);
     return "deferred";
   }
+  await bindCanonicalAddressOperation(addressOwner,String(operationId));
   const attempt = await db.execute(sql`
     INSERT INTO provider_attempts (operation_id, attempt_number, outcome, started_at)
     VALUES (${operationId}::uuid, 1, 'pending', NOW())
@@ -472,9 +520,32 @@ export async function processValidationIntent(
     RETURNING id
   `);
   const attemptId = (attempt as any).rows?.[0]?.id;
-  if (!await hasCurrentCro03cValidationAuthority(
-    intent, tokenHash, Number(intent.subject_generation), "pre_io",
-  )) {
+  let dispatchFailureReason="canonical_target_selection_stale";
+  const dispatchReady = await db.transaction(async tx => {
+    if (!deps.verifyEmail) {
+      const {lockCurrentSfpRuntimeOwner}=await import("./cro03/sfp-provider-operations");
+      const runtime=await lockCurrentSfpRuntimeOwner(tx);
+      await tx.execute(sql`UPDATE provider_operations SET
+        runtime_owner_epoch=${runtime.ownerEpoch},runtime_owner_token=${runtime.ownerToken}::uuid
+        WHERE id=${operationId}::uuid AND state='running'`);
+    }
+    const selected = await currentCanonicalValidationSelection(Number(contact.id),tokenHash!,tx);
+    if (!selected) return false;
+    const state = (await tx.execute(sql`SELECT enabled,circuit_state FROM provider_controls
+      WHERE provider='zerobounce' FOR SHARE`) as any).rows?.[0];
+    if (!state?.enabled || state.circuit_state !== "closed") {
+      dispatchFailureReason="provider_control_unavailable";
+      return false;
+    }
+    await markCanonicalAddressDispatch(addressOwner,String(operationId),tx);
+    await tx.execute(sql`UPDATE provider_attempts SET dispatch_marked_at=clock_timestamp()
+      WHERE id=${attemptId}::uuid AND dispatch_marked_at IS NULL`);
+    return true;
+  }).catch(()=>{
+    dispatchFailureReason="predispatch_authority_unavailable";
+    return false;
+  });
+  if (!dispatchReady) {
     await db.execute(sql`
       UPDATE provider_operations SET state='cancelled',billing_state='released',completed_at=NOW(),updated_at=NOW()
        WHERE id=${operationId}::uuid AND state='running'
@@ -484,22 +555,31 @@ export async function processValidationIntent(
        WHERE provider='zerobounce'
     `);
     await db.execute(sql`
-      UPDATE validation_intents SET state='blocked',terminal_code='cro03c_authority_invalid',
-             lease_expires_at=NULL,claim_token=NULL,completed_at=NOW(),updated_at=NOW()
+      UPDATE validation_intents SET
+             state=${dispatchFailureReason==="canonical_target_selection_stale" ? "blocked" : "pending"},
+             terminal_code=${dispatchFailureReason},
+             lease_expires_at=NULL,claim_token=NULL,
+             completed_at=${dispatchFailureReason==="canonical_target_selection_stale" ? sql`NOW()` : sql`NULL`},
+             next_attempt_at=NOW()+INTERVAL '5 minutes',updated_at=NOW()
        WHERE id=${intentId}::uuid AND claim_token=${claimToken}::uuid
     `);
+    await releaseCanonicalAddressValidation(addressOwner);
     return "failed";
   }
-  const verifyEmail = deps.verifyEmail ?? (await import("./sdr/zerobounce")).verifyEmail;
   let result;
   try {
-    result = await verifyEmail(contact.email);
+    result = deps.verifyEmail ? await deps.verifyEmail(contact.email)
+      : await (await import("./sdr/zerobounce")).verifyEmail(contact.email,{
+        dispatch:{addressClaim:addressOwner,operationId:String(operationId)},
+      });
   } catch {
     result = { status: "unknown", reason: "transport", outcome: "unavailable" };
   }
   const positive = result.status === "valid" && !result.reason && result.outcome === "completed";
   const providerCompleted = result.outcome === "completed" && !result.reason;
-  const observationOutcome = (() => {
+  const negative = providerCompleted && ["invalid","unsafe"].includes(result.status);
+  const definitiveResponse = providerCompleted || ["http_4xx","http_5xx"].includes(result.reason ?? "");
+  const observationOutcome = positive ? "valid" : negative ? "invalid" : (() => {
     const candidate = result.reason ?? result.status ?? "unknown";
     // Provider vocabulary is intentionally narrower than the durable evidence
     // vocabulary. These are completed, non-positive results, not transport
@@ -519,7 +599,7 @@ export async function processValidationIntent(
        email_token_hash, subject_generation, outcome, retryable, observed_at)
     VALUES ('zerobounce', ${operationId}::uuid, ${attemptId}::uuid, 'contact',
             ${contact.id}, ${tokenHash}, ${intent.subject_generation},
-            ${positive ? "valid" : observationOutcome}, ${!positive}, NOW())
+            ${observationOutcome}, ${!positive && !negative}, NOW())
   `);
   await db.execute(sql`
     UPDATE provider_attempts
@@ -532,36 +612,86 @@ export async function processValidationIntent(
     UPDATE provider_operations
         SET state = ${providerCompleted ? "completed" : "failed"},
             billing_state = ${providerCompleted ? "committed" : "ambiguous"},
+            settled_units=${definitiveResponse ? 1 : 0},
+            provider_usage_quantity=${definitiveResponse ? "1" : null}::numeric,
+            provider_usage_unit=${definitiveResponse ? "request" : null},
+            provider_usage_status=${definitiveResponse ? "known" : "unknown"},
            completed_at = NOW(), updated_at = NOW()
      WHERE id = ${operationId}::uuid
   `);
-  if (positive) {
+  if (positive || negative) {
     await db.execute(sql`
       UPDATE contacts
-         SET email_status = 'valid', email_token_hash = ${tokenHash},
+         SET email_status = ${positive ? "valid" : "invalid"}, email_token_hash = ${tokenHash},
              email_validation_updated_at = NOW()
        WHERE id = ${contact.id}
          AND email_mutation_generation = ${intent.subject_generation}
-         AND email_token_hash = ${tokenHash}
+         AND encode(sha256(convert_to(lower(trim(email)),'UTF8')),'hex')=${tokenHash}
     `);
   }
   await db.execute(sql`
     UPDATE provider_controls
-        SET reserved_units = ${providerCompleted ? sql`GREATEST(0, reserved_units - 1)` : sql`reserved_units`},
-            consumed_units = ${providerCompleted ? sql`consumed_units + 1` : sql`consumed_units`},
-            last_completed_at = ${providerCompleted ? sql`NOW()` : sql`last_completed_at`},
-            last_outcome = ${providerCompleted ? (positive ? "valid" : "non_positive") : "ambiguous_billing"},
+        SET reserved_units = ${definitiveResponse ? sql`GREATEST(0, reserved_units - 1)` : sql`reserved_units`},
+            consumed_units = ${definitiveResponse ? sql`consumed_units + 1` : sql`consumed_units`},
+            last_completed_at = ${definitiveResponse ? sql`NOW()` : sql`last_completed_at`},
+            last_outcome = ${definitiveResponse ? (positive ? "valid" : "non_positive") : "ambiguous_billing"},
            observed_at = NOW(), version = version + 1, updated_at = NOW()
      WHERE provider = 'zerobounce'
   `);
   await db.execute(sql`
     UPDATE validation_intents
-        SET state = ${positive ? "completed" : "blocked"},
+        SET state = ${positive || negative ? "completed" : definitiveResponse ? "pending" : "blocked"},
+           enqueue_state=${positive || negative ? "enqueued" : "deferred"},
+           next_attempt_at=NOW()+INTERVAL '5 minutes',
            operation_id = ${operationId}::uuid,
             terminal_code = ${positive ? null : (providerCompleted ? (result.reason ?? "non_positive") : "ambiguous_billing")},
            completed_at = NOW(), lease_expires_at = NULL, claim_token = NULL,
            updated_at = NOW()
      WHERE id = ${intentId}::uuid AND claim_token = ${claimToken}::uuid
   `);
-  return positive ? "completed" : (providerCompleted ? "failed" : "deferred");
+  return positive || negative ? "completed" : "deferred";
+  } finally {
+    // Token-fenced release is safe on every exit; ambiguous dispatched I/O
+    // deliberately remains owned for reconciliation.
+    await releaseCanonicalAddressValidation(addressOwner);
+  }
+}
+
+/** Compatibility producers delegate to the same contact/address spend owner. */
+export async function delegateSelectedAddressValidation(input: {
+  businessId: number; email: string; deps?: ValidationIntentWorkerDeps;
+}) {
+  const tokenHash=hashEmailToken(input.email);
+  if (!tokenHash) return {state:"deferred" as const,receipt:null,dispatched:false};
+  const recipient=(await db.execute(sql`SELECT c.id,c.email,c.email_mutation_generation
+    FROM cr04_enrollment_intents i JOIN contacts c ON c.id=i.contact_id AND c.business_id=i.business_id
+    WHERE i.business_id=${input.businessId} AND i.normalized_email_hash=${tokenHash}
+      AND i.preparation_state IN ('pending_validation','ready_held')
+    ORDER BY i.created_at,i.id LIMIT 1`) as any).rows?.[0];
+  if (!recipient || !await currentCanonicalValidationSelection(Number(recipient.id),tokenHash)) {
+    return {state:"deferred" as const,receipt:null,dispatched:false};
+  }
+  await db.transaction(tx=>createValidationIntent(tx,{
+    contactId:Number(recipient.id),email:recipient.email,generation:Number(recipient.email_mutation_generation),
+  }));
+  const intent=(await db.execute(sql`SELECT id,operation_id FROM validation_intents
+    WHERE contact_id=${Number(recipient.id)} AND normalized_email_token_hash=${tokenHash}
+      AND subject_generation=${Number(recipient.email_mutation_generation)} AND purpose='marketing_outreach'
+    ORDER BY created_at DESC LIMIT 1`) as any).rows?.[0];
+  if (!intent) return {state:"deferred" as const,receipt:null,dispatched:false};
+  const start=(await db.execute(sql`SELECT count(*)::int n FROM provider_operations op
+    JOIN provider_attempts a ON a.operation_id=op.id
+    WHERE op.idempotency_key LIKE ${`validation-intent:${intent.id}:attempt:%`}
+      AND a.dispatch_marked_at IS NOT NULL`) as any).rows?.[0];
+  await processValidationIntent(String(intent.id),input.deps);
+  const policy=await getActiveSfpOutreachPolicy({bypassCache:true});
+  const receipt=await findFreshProviderObservation({
+    businessId:input.businessId,emailTokenHash:tokenHash,ttlDays:policy.validationTtlDays,
+  });
+  const end=(await db.execute(sql`SELECT count(*)::int n FROM provider_operations op
+    JOIN provider_attempts a ON a.operation_id=op.id
+    WHERE op.idempotency_key LIKE ${`validation-intent:${intent.id}:attempt:%`}
+      AND a.dispatch_marked_at IS NOT NULL`) as any).rows?.[0];
+  return {state:receipt ? "completed" as const : "deferred" as const,receipt,
+    dispatched:Number(end?.n)>Number(start?.n),intentId:String(intent.id)};
 }

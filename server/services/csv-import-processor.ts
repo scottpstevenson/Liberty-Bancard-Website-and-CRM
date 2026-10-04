@@ -8,7 +8,12 @@ import {
 } from "./import-execution";
 import { computeFileHash } from "./import-normalizer";
 import { importDispositionCompatibility } from "@shared/import-disposition-summary";
-import { retainProviderImportRow } from "./provider-import-evidence";
+import { materializeCanonicalProviderImportRow } from "./canonical-provider-import";
+import {sql} from "drizzle-orm";
+import {resolveOrganization} from "./organization-resolver";
+import {normalizeDomain,normalizePhoneE164} from "./sdr/dedupe";
+import {db} from "../db";
+import {importedSourceRestrictions,mapProviderCsvRow} from "./provider-import-columns";
 
 let registeredProcessor: PersistedCsvProcessor | null = null;
 
@@ -26,8 +31,8 @@ export async function processPersistedCsvImport(args: Parameters<PersistedCsvPro
 }
 
 /**
- * Provider-format source formats that route through createCro03SourceBatch()
- * in the interactive import path. Recovery must use the same path.
+ * Provider formats use the same retained-evidence/canonical intake boundary in
+ * interactive imports and recovery.
  */
 const PROVIDER_CSV_SOURCE_FORMATS = new Set(["google_maps_outscraper", "apollo_lead_list"]);
 
@@ -38,8 +43,8 @@ const PROVIDER_CSV_SOURCE_FORMATS = new Set(["google_maps_outscraper", "apollo_l
  * writer and immutable ledger rather than requiring the customer to upload
  * the file a second time.
  *
- * For provider-format CSVs (Apollo, Outscraper) the rows must go through
- * createCro03SourceBatch() — not writeContact() — to match the interactive path.
+ * Provider rows retain raw source observations and use canonical materialization
+ * with selective downstream admission, rather than manufacturing hygiene.
  */
 async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>[0]) {
   const { records, executionClaim, importRecord, sourceFormat, actor, filename } = args;
@@ -47,7 +52,7 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
   const claimToken = executionClaim.claimToken;
   if (!claimToken) throw new Error("CSV_IMPORT_RECOVERY_MISSING_CLAIM");
 
-  // Route provider-format CSVs through createCro03SourceBatch, not writeContact.
+  // Reuse the provider-specific canonical writer, not the generic CSV parser.
   if (PROVIDER_CSV_SOURCE_FORMATS.has(sourceFormat)) {
     await recoverProviderCsvImport(args);
     return;
@@ -59,11 +64,15 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
     }
     const sourceRowNumber = index + 1;
     const rowFingerprint = computeFileHash(Buffer.from(JSON.stringify(row)));
-    const companyName = String(row.companyName ?? row.company ?? row.name ?? row.business_name ?? "").trim();
-    const firstName = String(row.firstName ?? row.first_name ?? row["first name"] ?? "").trim();
-    const lastName = String(row.lastName ?? row.last_name ?? row["last name"] ?? "").trim();
-    const email = String(row.email ?? row.email_address ?? "").trim().toLowerCase();
-    const phone = String(row.phone ?? row.telephone ?? row.mobile_phone ?? row["mobile phone"] ?? "").trim();
+    const mapped=mapProviderCsvRow(row,sourceFormat);
+    const companyName = String(mapped.companyName ?? row.companyName ?? row.company ?? row.name ?? row.business_name ?? "").trim();
+    const firstName = String(mapped.firstName ?? row.firstName ?? row.first_name ?? row["first name"] ?? "").trim();
+    const lastName = String(mapped.lastName ?? row.lastName ?? row.last_name ?? row["last name"] ?? "").trim();
+    const email = String(mapped.email ?? row.email ?? row.email_address ?? "").trim().toLowerCase();
+    const phone = String(mapped.phone ?? row.phone ?? row.telephone ?? row.mobile_phone ?? row["mobile phone"] ?? "").trim();
+    const authorityCheck=async(tx:any)=>(await tx.execute(sql`SELECT id FROM import_executions
+      WHERE id=${executionId}::uuid AND claim_token=${claimToken}::uuid AND status='running'
+        AND lease_expires_at>=clock_timestamp() FOR UPDATE`) as any).rows.length===1;
 
     if (!companyName && !firstName && !email && !phone) {
       await recordImportRowDisposition({
@@ -74,14 +83,39 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
     }
 
     try {
-      await writeContact({
-        mode: "local_only",
+      if (companyName && !email && !firstName && !lastName) {
+        const resolution=await resolveOrganization({
+          canonicalName:companyName,websiteDomain:normalizeDomain(String(mapped.website ?? row.website ?? "")),
+          mainPhone:normalizePhoneE164(phone),city:String(mapped.city ?? row.city ?? ""),state:String(mapped.state ?? row.state ?? ""),
+          create:{recordClass:"canonical",lastSourceType:sourceFormat},
+          authorityCheck,
+        });
+        await recordImportRowDisposition({executionId,claimToken,sourceRowNumber,rowFingerprint,
+          disposition:resolution.kind==="deferred" ? "deferred" : resolution.kind==="created" ? "created" : "matched_noop",
+          reasonCode:resolution.kind==="deferred" ? resolution.reasonCode : "CANONICAL_MANUAL_BUSINESS_ONLY",
+          diagnostic:resolution.kind==="deferred" ? {candidateIds:resolution.candidateIds}
+            : {businessId:resolution.business.id,contactIds:[]},
+        });
+        continue;
+      }
+      if (!email && !normalizePhoneE164(phone)) {
+        await recordImportRowDisposition({executionId,claimToken,sourceRowNumber,rowFingerprint,
+          disposition:"deferred",reasonCode:"INSUFFICIENT_PERSON_IDENTIFIERS"});
+        continue;
+      }
+      const {customer,consentFlags,restrictions}=importedSourceRestrictions(row);
+      await db.transaction(async tx=>{
+      const contact=await writeContact({
+        mode: "local_only",transaction:tx,
+        hookPolicy:{source:"cro03",deferValidation:true,deferReadiness:true,
+          deferLeadScoring:true,suppressProviderProjection:true,authorityCheck},
         mutation: {
-          firstName: firstName || companyName,
+          firstName,
           lastName,
-          email: email || `no-email-${executionId}-${sourceRowNumber}@no-email.libertybancard.internal`,
+          email,
           phone,
           companyName,
+          ...(customer ? {existingMerchantCustomer:true} : {}),
           leadSource: sourceFormat,
           sourceCategory: "csv_import",
           primarySourceCategory: "csv_import",
@@ -104,6 +138,21 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
           createdReasonCode: "LOCAL_CONTACT_CREATED",
           matchedReasonCode: "EXACT_ELIGIBLE_IDENTITY_MATCH",
         },
+      });
+      if (customer) await tx.execute(sql`UPDATE contacts SET existing_merchant_customer=TRUE,updated_at=clock_timestamp()
+        WHERE id=${contact.id} AND existing_merchant_customer IS DISTINCT FROM TRUE`);
+      const {applyConsentCommand}=await import("./consent-authority");
+      for (const kind of restrictions) await applyConsentCommand({
+        subject:{type:"contact",id:contact.id},kind,
+        ...(kind==="global_dnc" ? {} : {channel:"email" as const}),
+        eventNamespace:"canonical_csv_import_restriction",
+        eventKey:`${executionId}:${sourceRowNumber}:${contact.id}:${rowFingerprint}:${kind}`,
+        source:"canonical_csv_import",actorId:actor.actorId,
+        evidence:{sourceEventId:contact._sourceEventId,sourceRowNumber,rowFingerprint,
+          negativeFields:consentFlags.map(([key])=>key)},
+      },{transaction:tx,beforeWrite:async transaction=>{
+        if (!await authorityCheck(transaction)) throw new Error("CSV_IMPORT_RESTRICTION_AUTHORITY_LOST");
+      }});
       });
     } catch (error: any) {
       await recordImportRowDisposition({
@@ -158,17 +207,9 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
 }
 
 /**
- * Recovery path for provider-format CSVs (Apollo, Outscraper).
- *
- * Matches the interactive import path in imports.ts exactly:
- *   1. Applies the same column map to normalize field names.
- *   2. Uses providerCsvSourceSubject() to build canonical subject drafts with
- *      candidate values (business_name, email, phone, city, state, category, etc.)
- *      for CRO-03B arbitration.
- *   3. Calls createCro03SourceBatch() per row with idempotency key
- *      `csv-source:${executionId}:${sourceRowNumber}` — matching the interactive key.
- *   4. Records each row as 'deferred' / 'cro03_staging_review_required' so ledger
- *      counts remain truthful (no contacts created, staging review pending).
+ * Provider recovery uses the same retained-evidence/canonical local writer as
+ * interactive CSV/XLSX intake. Original row dispositions remain immutable;
+ * genuine identity/negative-authority conflicts are explicitly held.
  */
 async function recoverProviderCsvImport(args: Parameters<PersistedCsvProcessor>[0]): Promise<{
   import: any; created: number; updated: number; matched_noop: number; rejected: number;
@@ -188,17 +229,12 @@ async function recoverProviderCsvImport(args: Parameters<PersistedCsvProcessor>[
     const sourceRowNumber = index + 1;
     const rowFingerprint = computeFileHash(Buffer.from(JSON.stringify(rawRow)));
     try {
-      await retainProviderImportRow({
+      await materializeCanonicalProviderImportRow({
         executionId, sourceRowNumber, sourceFormat,
+        claimToken,
         actorId: actor.actorId ?? executionId, rawRow,
         sourceCoordinate: (executionClaim.execution.metadata as any)?.sourceCoordinates?.[index],
         fileName: (executionClaim.execution.metadata as any)?.fileName,
-      });
-      await recordImportRowDisposition({
-        executionId, claimToken, sourceRowNumber, rowFingerprint,
-        disposition: "deferred",
-        reasonCode: "cro03_staging_review_required",
-        diagnostic: { sourceFormat, promotion: "not_performed", providerTransport: "disabled" },
       });
     } catch (error: any) {
       await recordImportRowDisposition({
@@ -221,11 +257,11 @@ async function recoverProviderCsvImport(args: Parameters<PersistedCsvProcessor>[
   const outcomes = importDispositionCompatibility(completion.counts);
 
   await storage.updateCsvImport(importRecord.id, {
-    newRecords: outcomes.created,         // 0 — no contacts created by staging
+    newRecords: outcomes.created,
     updatedRecords: outcomes.updated,
     duplicatesSkipped: outcomes.matched_noop,
     invalidRows: outcomes.rejected,
-    skippedRows: outcomes.deferred,       // count of rows sent to staging review
+    skippedRows: outcomes.deferred,
     errorsCount: outcomes.failed,
     processedRows: outcomes.total,
     status: "completed",
@@ -242,7 +278,7 @@ async function recoverProviderCsvImport(args: Parameters<PersistedCsvProcessor>[
     details: {
       executionId, filename, totalRows: records.length,
       sourceFormat, csvSourceSystem: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
-      stagedForReview: outcomes.deferred,
+      canonicalHeldRows: outcomes.deferred,
       failedRows: outcomes.failed,
     },
   } as any);

@@ -324,19 +324,22 @@ export async function findFreshProviderObservation(input: {
   emailTokenHash: string;
   ttlDays: number;
 }, executor: { execute: (q: any) => Promise<any> } = db): Promise<{ operationId: string; outcome: string; observedAt: string; expiresAt: string | null } | null> {
+  const { assertCanonicalAddressReceiptContract } = await import("../canonical-address-receipt-contract");
+  await assertCanonicalAddressReceiptContract(executor);
   const row = rows(await executor.execute(sql`
     WITH fence_clock AS MATERIALIZED (SELECT clock_timestamp() AS at)
-    SELECT po.operation_id, po.outcome, po.observed_at, po.expires_at
+    SELECT po.operation_id, po.outcome, po.observed_at::text AS observed_at,
+           po.expires_at::text AS expires_at
       FROM provider_observations po
       JOIN fence_clock fc ON TRUE
       JOIN provider_operations op ON op.id=po.operation_id
-     WHERE po.subject_type = 'business'
-       AND po.subject_id = ${input.businessId}
+     WHERE po.subject_type IN ('business','contact')
        AND po.email_token_hash = ${input.emailTokenHash}
        AND po.provider = 'zerobounce'
        AND po.retryable = FALSE
        AND po.outcome IN ('valid', 'invalid')
        AND op.state='completed'
+        AND op.provider='zerobounce'
        AND po.observed_at > fc.at - (${input.ttlDays}::text || ' days')::interval
         AND po.observed_at <= fc.at
         AND LEAST(
@@ -344,7 +347,7 @@ export async function findFreshProviderObservation(input: {
                    po.observed_at + (${input.ttlDays}::text || ' days')::interval),
           po.observed_at + (${input.ttlDays}::text || ' days')::interval
         ) > fc.at
-     ORDER BY po.observed_at DESC
+      ORDER BY po.observed_at DESC,(po.outcome='invalid') DESC,po.id DESC
      LIMIT 1
       FOR SHARE OF po,op
   `))[0];

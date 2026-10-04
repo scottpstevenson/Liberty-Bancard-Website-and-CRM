@@ -129,7 +129,7 @@ export async function processContactLinkAutomationTick() {
       const current = await getContactLinkAutomationStatus();
       if (!current?.enabled || current.leaseToken !== token) break;
       let outcome: any = null;
-      if (candidate.eligible) outcome = await applyContactBusinessSystemLink(candidate as any, async tx => {
+      const authorityCheck = async (tx:any) => {
         const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
         if (currentOwner.ownerEpoch !== owner.ownerEpoch || currentOwner.ownerToken !== owner.ownerToken) {
           throw new Error("CONTACT_LINK_AUTOMATION_RUNTIME_OWNER_CHANGED");
@@ -143,13 +143,19 @@ export async function processContactLinkAutomationTick() {
         }
         if (pinned.value.enabled !== true) throw new Error("CONTACT_LINK_AUTOMATION_DISABLED");
         return true;
-      });
+      };
+      if (candidate.eligible) outcome = await applyContactBusinessSystemLink(candidate as any, authorityCheck);
       // Authority/lease loss is retryable, not an identity-conflict disposition.
       // Keep this contact ahead of the cursor so restoration needs no manual
       // rewind, source-row update, or fresh cohort.
       if (outcome?.status === "rejected" && /(?:AUTHORITY_FENCE_LOST|DATABASE_GUARD_MISSING|RUNTIME_OWNER|LEASE_LOST|AUTOMATION_DISABLED)/.test(outcome.code ?? "")) {
         throw new Error(outcome.code);
       }
+      // Also covers a link committed before an interrupted import's class hook.
+      // The initializer independently proves original retained provenance and
+      // current verified affiliation; it cannot promote explicit test classes.
+      const {initializeImportedLinkedContactClass}=await import("./commercial-classification-authority");
+      await initializeImportedLinkedContactClass(candidate.contactId,authorityCheck);
       state.scanned++;
       if (outcome?.status === "applied") state.committed++;
       else if (outcome?.status === "replayed") state.replayed++;

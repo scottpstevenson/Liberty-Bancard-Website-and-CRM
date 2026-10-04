@@ -1,0 +1,9 @@
+{
+  "scope": "Read-only production preflight for additional address/preparation contracts; not deployment or task acceptance",
+  "result": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,address_claims_table,preparation_state_column,preparation_capacity_function,canonical_address_receipt_contract\n2026-10-04 19:45:39.144973+00,f,f,f,f\n",
+    "success": true
+  }
+}

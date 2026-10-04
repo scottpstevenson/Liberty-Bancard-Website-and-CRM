@@ -64,3 +64,21 @@ export function mapProviderCsvRow(row: Record<string, unknown>, sourceFormat: st
   }
   return mapped;
 }
+
+/** Imported positive validity/consent claims never grant permission. Only
+ * independently asserted restrictive dimensions and a monotonic customer flag
+ * are projected; retain the original columns as evidence. */
+export function importedSourceRestrictions(row: Record<string, unknown>) {
+  const normalizedKey=(key:string)=>key.toLowerCase().replace(/[^a-z0-9]/g,"");
+  const negativeFlags=Object.entries(row).filter(([key,value])=>
+    /opt(?:ed)?out|unsubscrib|donot(?:auto)?contact|existingcustomer|existingmerchant|complaint|bounce|^dnc$|emailstatus/.test(normalizedKey(key))
+      && /^(true|yes|1|opted.?out|unsubscribed|blocked|bounced|hard|hard.?bounce|reported)$/i.test(String(value).trim()));
+  const customer=negativeFlags.some(([key])=>/existingcustomer|existingmerchant/.test(normalizedKey(key)));
+  const consentFlags=negativeFlags.filter(([key])=>!/existingcustomer|existingmerchant/.test(normalizedKey(key)));
+  const restrictions=([
+    consentFlags.some(([key])=>/donotcontact|^dnc$|complaint|bounce/.test(normalizedKey(key))) ? "global_dnc" : null,
+    consentFlags.some(([key])=>/donotautocontact/.test(normalizedKey(key))) ? "block_auto_contact" : null,
+    consentFlags.some(([key])=>/opt(?:ed)?out|unsubscrib|emailstatus/.test(normalizedKey(key))) ? "opt_out" : null,
+  ] as const).filter((kind):kind is "global_dnc"|"block_auto_contact"|"opt_out"=>kind!==null);
+  return {customer,consentFlags,restrictions};
+}

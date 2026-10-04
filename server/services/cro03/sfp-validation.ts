@@ -57,7 +57,6 @@ import {
   lockCurrentSfpOutreachPolicy,
   findFreshProviderObservation,
   isSfpProviderObservationFreshAt,
-  effectiveSfpProviderObservationExpiry,
   evaluateSfpEmailTypePolicy,
   type SfpActivePolicy,
 } from "./sfp-outreach-policy";
@@ -65,6 +64,10 @@ import { lockSfpContactAddress } from "./sfp-contact-address-lock";
 import { isSfpReceiptProjectionRepairCandidate } from "./sfp-eligibility-receipt-repair";
 import { classifySfpRecipientFacts } from "./sfp-recipient-classification";
 import { lockSfpRecipientAssociationGraph,sfpRecipientAssociationCurrent } from "./sfp-recipient-association";
+import {
+  claimCanonicalAddressValidation, bindCanonicalAddressOperation,
+  markCanonicalAddressDispatch, releaseCanonicalAddressValidation,
+} from "../canonical-address-validation";
 import {
   lockSfpBusinessSafetySentinel,
   lockSfpEligibilityProjectionKey,
@@ -711,7 +714,7 @@ export async function selectWinnersPerBusiness(
                JOIN provider_operations op ON op.id=po.operation_id AND op.state='completed'
                 WHERE po.operation_id=COALESCE(e.validation_operation_id,e.reused_from_operation_id)
                   AND po.provider='zerobounce' AND po.outcome='valid' AND po.retryable=FALSE
-                  AND po.subject_type='business' AND po.subject_id=e.business_id
+                  AND po.subject_type IN ('business','contact')
                   AND po.observed_at<=clock_timestamp()
                   AND LEAST(COALESCE(po.expires_at,po.observed_at+(${validationTtlDays}::text||' days')::interval),
                             po.observed_at+(${validationTtlDays}::text||' days')::interval)>clock_timestamp()
@@ -1411,9 +1414,48 @@ export async function executeSfpValidation(
           }
 
           // ── Freshness reuse ──────────────────────────────────────────────────
-          const fresh = await findFreshProviderObservation({
-            businessId: bizId, emailTokenHash: contactEmailTokenHash, ttlDays: policy.validationTtlDays,
-          }, tx);
+          const canonicalContacts=rows(await tx.execute(sql`SELECT c.id FROM contacts c
+            WHERE c.business_id=${bizId} AND c.archived_at IS NULL
+              AND encode(sha256(convert_to(lower(trim(c.email)),'UTF8')),'hex')=${contactEmailTokenHash}
+            ORDER BY c.id`));
+          const {currentCanonicalValidationSelection}=await import("../canonical-recipient-preparation");
+          let currentRecipientId:number|null=null;
+          for (const contact of canonicalContacts) {
+            if (await currentCanonicalValidationSelection(Number(contact.id),contactEmailTokenHash,tx)) {
+              currentRecipientId=Number(contact.id);break;
+            }
+          }
+          if (currentRecipientId===null) {
+            await writeEligibilityRow({
+              cohortRunId,bizId,cand,policyVersion:policy.version,
+              policyDocumentId:policy.id,policyDocumentHash:policy.documentHash,
+              status:"validated_policy_ineligible",decisionReason:"canonical_target_selection_required",
+              reasonCodes:["canonical_target_selection_required"],normalizedValueHash:candidateIdentityHash,
+            },tx);
+            eligibilityRowsCreated++;
+            return true;
+          }
+          const admission = await db.transaction(async (addressTx) => {
+            const addressClaim = await claimCanonicalAddressValidation(contactEmailTokenHash, addressTx);
+            if (!addressClaim) return { fresh: null, addressClaim: null };
+            const fresh = await findFreshProviderObservation({
+              businessId: bizId, emailTokenHash: contactEmailTokenHash, ttlDays: policy.validationTtlDays,
+            }, addressTx);
+            if (fresh) await releaseCanonicalAddressValidation(addressClaim, addressTx);
+            return { fresh, addressClaim: fresh ? null : addressClaim };
+          });
+          const { fresh, addressClaim } = admission;
+          if (!fresh && !addressClaim) {
+            await writeEligibilityRow({
+              cohortRunId, bizId, cand, policyVersion: policy.version,
+              policyDocumentId: policy.id, policyDocumentHash: policy.documentHash,
+              status: "validation_pending", decisionReason: "shared_address_validation_in_flight",
+              reasonCodes: ["shared_address_validation_in_flight"],
+              normalizedValueHash: candidateIdentityHash,
+            }, tx);
+            eligibilityRowsCreated++;
+            return true;
+          }
 
           let zbOutcome: SfpZbOutcome = "failed";
           let reservation: Awaited<ReturnType<typeof reserveSfpProviderOperation>> | null = null;
@@ -1444,6 +1486,7 @@ export async function executeSfpValidation(
                 workUnit: "request",
               });
               providerFailurePhase = "reservation_assertion";
+              await bindCanonicalAddressOperation(addressClaim!, reservation.operationId);
               await assertCurrentSfpProviderReservation(reservation);
               providerFailurePhase = "stage_lease_renewal";
               await db.execute(sql`
@@ -1458,7 +1501,9 @@ export async function executeSfpValidation(
                 ? async () => opts.zbTransport!(String(cand.evidenceId), realEmail)
                 : async () => {
                     const { verifyEmail } = await import("../sdr/zerobounce");
-                    return verifyEmail(realEmail);
+                    return verifyEmail(realEmail,{
+                      dispatch:{addressClaim:addressClaim!,operationId:reservation!.operationId},
+                    });
                   };
               providerFailurePhase = "source_pin_recheck_before_dispatch";
               const beforeDispatch: SfpProviderBeforeDispatch = async (markerTx) => {
@@ -1473,6 +1518,10 @@ export async function executeSfpValidation(
                   emailTokenHash: contactEmailTokenHash,
                 }, markerTx);
                 if (!decision.current) throw new Error(decision.reasonCode ?? "SFP_VALIDATION_DISPATCH_PINS_STALE");
+                if (!await currentCanonicalValidationSelection(currentRecipientId!,contactEmailTokenHash,markerTx)) {
+                  throw new Error("CANONICAL_TARGET_SELECTION_STALE");
+                }
+                await markCanonicalAddressDispatch(addressClaim!, reservation!.operationId, markerTx);
                 await notifySfpValidationConcurrencyHook(
                   "onDispatchPinsLocked",
                   opts.concurrencyTestHooks?.onDispatchPinsLocked,
@@ -1576,6 +1625,7 @@ export async function executeSfpValidation(
             }
           }
 
+          if (addressClaim) await releaseCanonicalAddressValidation(addressClaim);
           // Final eligibility uses a short transaction after provider
           // settlement. Re-read the owner/stage claim, source, cohort, policy,
           // suppression, consent and mutable safety gates; a changed source
@@ -1789,23 +1839,20 @@ export async function executeSfpValidation(
             // later projection/transport time that could extend its TTL.
             const observedAtForEligibility = receiptAfterWait?.observedAt ??
               fresh?.observedAt ?? observationAt ?? databaseClockIso;
-            const receiptExpiry = receiptAfterWait
-              ? effectiveSfpProviderObservationExpiry(
-                  receiptAfterWait.observedAt, receiptAfterWait.expiresAt, policy.validationTtlDays,
-                )
-              : null;
-            const validationExpiry = effectiveSfpProviderObservationExpiry(
-              observedAtForEligibility,
-              fresh?.expiresAt ?? receiptAfterWait?.expiresAt ?? null,
-              policy.validationTtlDays,
-            );
-            const expiryMillis = [
-              receiptExpiry?.getTime(),
-              validationExpiry?.getTime(),
-            ].filter((value): value is number => value !== undefined && Number.isFinite(value));
-            const expiresAt = expiryMillis.length
-              ? new Date(Math.min(...expiryMillis)).toISOString()
-              : observedAtForEligibility;
+            // Keep PostgreSQL's original microseconds, rather than round-tripping
+            // receipt expiry through JavaScript Date. Policy may shorten validity;
+            // projection time and another business may never extend it.
+            const expiryRow = rows(await tx.execute(sql`
+              SELECT LEAST(
+                ${observedAtForEligibility}::timestamptz
+                  + (${policy.validationTtlDays}::text || ' days')::interval,
+                ${receiptAfterWait?.expiresAt ?? fresh?.expiresAt ?? null}::timestamptz,
+                ${receiptAfterWait?.observedAt ?? observedAtForEligibility}::timestamptz
+                  + (${policy.validationTtlDays}::text || ' days')::interval
+              )::text AS expires_at
+            `))[0];
+            if (!expiryRow?.expires_at) throw new Error("SFP_VALIDATION_RECEIPT_EXPIRY_UNAVAILABLE");
+            const expiresAt = String(expiryRow.expires_at);
             const receiptMatches = Boolean(
               expectedReceiptOperationId &&
               receiptAfterWait?.operationId === expectedReceiptOperationId &&

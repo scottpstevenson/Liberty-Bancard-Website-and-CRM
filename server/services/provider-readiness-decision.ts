@@ -26,6 +26,8 @@ export type ValidationEvidence = {
   evidenceGeneration?: number | null;
   verifiedAt?: Date | string | null;
   providerOutcome?: string | null;
+  /** Original globally normalized-address receipt, not a new contact receipt. */
+  addressReceipt?: { operationId: string; emailTokenHash: string; expiresAt: string | null } | null;
 };
 
 export function normalizeEmailToken(email: string | null | undefined): string | null {
@@ -52,8 +54,14 @@ export function decideMarketingEmailValidation(
   const status = (evidence.providerOutcome ?? evidence.emailStatus ?? "").toLowerCase();
   if (!tokenHash) return { allowed: false, decision: "blocked", reason: "missing_email", emailTokenHash: null, subjectGeneration: generation, evidenceAt: null };
   if (evidence.emailTokenHash !== tokenHash) return { allowed: false, decision: "deferred", reason: "mismatched_email_token", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
-  if (generation === null || evidence.evidenceGeneration !== generation) return { allowed: false, decision: "deferred", reason: "mismatched_generation", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
-  if (!verifiedAt || Number.isNaN(verifiedAt.getTime()) || now.getTime() - verifiedAt.getTime() > maxAgeMs) return { allowed: false, decision: "deferred", reason: "stale_evidence", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
+  const addressReceipt = evidence.addressReceipt;
+  const originalAddressFact = Boolean(addressReceipt &&
+    /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(addressReceipt.operationId) && addressReceipt.emailTokenHash===tokenHash);
+  if (!originalAddressFact && (generation === null || evidence.evidenceGeneration !== generation)) return { allowed: false, decision: "deferred", reason: "mismatched_generation", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
+  const explicitExpiry = addressReceipt?.expiresAt ? new Date(addressReceipt.expiresAt).getTime() : null;
+  if (!verifiedAt || Number.isNaN(verifiedAt.getTime()) || verifiedAt.getTime()>now.getTime()
+      || now.getTime() - verifiedAt.getTime() > maxAgeMs
+      || explicitExpiry!==null && (!Number.isFinite(explicitExpiry) || explicitExpiry<=now.getTime())) return { allowed: false, decision: "deferred", reason: "stale_evidence", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
   if (status === "valid") return { allowed: true, decision: "eligible", reason: "positive_current_evidence", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
   if (["invalid", "unsafe", "bounced", "do_not_mail", "spam_trap", "abuse"].includes(status)) return { allowed: false, decision: "blocked", reason: "invalid", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };
   if (["unverified", "catch_all", "risky"].includes(status)) return { allowed: false, decision: "blocked", reason: "risky_or_catch_all", emailTokenHash: tokenHash, subjectGeneration: generation, evidenceAt: verifiedAt };

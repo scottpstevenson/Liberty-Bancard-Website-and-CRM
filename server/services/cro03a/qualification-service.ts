@@ -1391,6 +1391,16 @@ export async function processOutboxCro03aQualificationCommands(): Promise<{ proc
   // Bounded retries: after 3 failures (tracked in error_text) we leave the row
   // as 'failed' so it no longer blocks the watchdog's stale-occurrence alert.
   try {
+    // Historical geography-filtered commands never received row outcomes.
+    // Reuse their genuine occurrence IDs; do not fabricate another import.
+    await db.execute(sql`
+      UPDATE cro03a_qualification_commands
+         SET state='pending',claimed_at=NULL,processed_at=NULL,
+             error_text='CANONICAL_OUTBOX_REPLAY:' || error_text
+       WHERE id IN(SELECT id FROM cro03a_qualification_commands
+         WHERE state='completed' AND error_text LIKE 'geography_pre_filter:%'
+         ORDER BY created_at LIMIT 10 FOR UPDATE SKIP LOCKED)
+    `);
     await db.execute(sql`
       UPDATE cro03a_qualification_commands
          SET state = CASE
@@ -1425,79 +1435,67 @@ export async function processOutboxCro03aQualificationCommands(): Promise<{ proc
 
   for (const row of pending) {
     const cmdId = String(row.id);
+    let claimStamp: string | null = null;
     try {
       // Claim: transition pending → processing, stamping claimed_at for stale-recovery.
       const claimed = resultRows(await db.execute(sql`
         UPDATE cro03a_qualification_commands
            SET state = 'processing', claimed_at = NOW()
          WHERE id = ${cmdId}::uuid AND state = 'pending'
-         RETURNING id
+         RETURNING id,claimed_at::text AS claim_stamp
       `))[0];
       if (!claimed) continue; // race — another processor claimed it first
+      claimStamp=String(claimed.claim_stamp);
 
       const occurrenceIds: string[] = (typeof row.occurrence_ids === "string"
         ? JSON.parse(row.occurrence_ids)
         : row.occurrence_ids) as string[];
 
       if (!occurrenceIds.length) {
-        await db.execute(sql`
+        const completed=resultRows(await db.execute(sql`
           UPDATE cro03a_qualification_commands
              SET state = 'completed', processed_at = NOW()
-           WHERE id = ${cmdId}::uuid
-        `);
-        processed++;
+           WHERE id = ${cmdId}::uuid AND state='processing' AND claimed_at::text=${claimStamp}
+           RETURNING id
+        `));
+        processed+=completed.length;
         continue;
       }
 
-      // Pre-filter to South Florida-eligible occurrences only.
-      // This ensures that auto-wired runs from source-registry imports contain
-      // only in-territory candidates, matching the south_florida_candidate_qualification
-      // policy intent.  Non-FL or unknown-geography occurrences are excluded here
-      // rather than evaluated and dispositioned as 'outside_geography' in the run.
-      const eligibleIds = await filterOutboxOccurrencesByGeography(occurrenceIds);
-      if (!eligibleIds.length) {
-        // All occurrences in this chunk are outside South Florida — mark completed,
-        // no run needed.
-        await db.execute(sql`
-          UPDATE cro03a_qualification_commands
-             SET state = 'completed', processed_at = NOW(),
-                 error_text = 'geography_pre_filter:0_eligible_of_' || ${occurrenceIds.length}
-           WHERE id = ${cmdId}::uuid
-        `);
-        processed++;
-        continue;
-      }
-
-      // Embed the filtered count in the idempotency key so that a command whose eligible
-      // subset changes across retries (because backfill updated payloads) gets a fresh run.
-      const runIdempotencyKey = `cro03a-autowire:${String(row.source_import_run_id)}:chunk:${Number(row.chunk_number)}:${String(row.selection_hash).slice(0, 16)}:geo${eligibleIds.length}`;
+      // Geography remains qualification policy, not source membership. Every
+      // retained occurrence receives its own decision, including outside and
+      // unknown geography. Version the key so old subset runs remain immutable.
+      const runIdempotencyKey = `cro03a-autowire:${String(row.source_import_run_id)}:chunk:${Number(row.chunk_number)}:${String(row.selection_hash).slice(0, 16)}:all-v1`;
       await createCro03aQualificationRun({
         idempotencyKey: runIdempotencyKey,
-        occurrenceIds: eligibleIds,
+        occurrenceIds,
         actorId: CRO03A_AUTOWIRE_ACTOR_ID,
         actorRole: "admin",
       });
 
-      await db.execute(sql`
+      const completed=resultRows(await db.execute(sql`
         UPDATE cro03a_qualification_commands
            SET state = 'completed', processed_at = NOW()
-         WHERE id = ${cmdId}::uuid
-      `);
-      processed++;
+         WHERE id = ${cmdId}::uuid AND state='processing' AND claimed_at::text=${claimStamp}
+         RETURNING id
+      `));
+      processed+=completed.length;
     } catch (err: any) {
       console.error(`[CRO03A Outbox] Failed to process command ${cmdId}:`, err?.message);
       try {
-        await db.execute(sql`
+        if (claimStamp===null) continue;
+        const rejected=resultRows(await db.execute(sql`
           UPDATE cro03a_qualification_commands
              SET state = 'failed',
                  error_text = ${String(err?.message ?? "unknown").slice(0, 1000)},
                  processed_at = NOW()
-           WHERE id = ${cmdId}::uuid
-        `);
+           WHERE id = ${cmdId}::uuid AND state='processing' AND claimed_at::text=${claimStamp}
+           RETURNING id
+        `));
+        failed+=rejected.length;
       } catch {
         // Non-fatal: swallow secondary failure
       }
-      failed++;
     }
   }
 

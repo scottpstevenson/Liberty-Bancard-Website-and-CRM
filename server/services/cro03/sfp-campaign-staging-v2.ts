@@ -276,7 +276,7 @@ export async function previewStagingV2(opts: {
          AND EXISTS (
            SELECT 1 FROM provider_observations po
             WHERE po.operation_id=r.validation_operation_id
-              AND po.subject_type='business' AND po.subject_id=soe.business_id
+                AND po.subject_type IN ('business','contact')
               AND po.provider='zerobounce' AND po.outcome='valid'
          )
        ORDER BY r.created_at DESC LIMIT 1
@@ -962,7 +962,7 @@ async function stageOneRowTransactional(opts: {
            AND EXISTS (
              SELECT 1 FROM provider_observations po
               WHERE po.operation_id=r.validation_operation_id
-                AND po.subject_type='business' AND po.subject_id=soe.business_id
+                AND po.subject_type IN ('business','contact')
                 AND po.provider='zerobounce' AND po.outcome='valid'
            )
          LIMIT 1
