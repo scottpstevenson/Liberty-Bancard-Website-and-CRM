@@ -1,0 +1,8 @@
+{
+  "observedAt": "2026-10-04T06:51:30.899Z",
+  "checks": 53,
+  "fixtures": 7,
+  "scope": "Actual legacy storage readers: alias projection, detail, counts, audience count/filter/list parity",
+  "productionExecution": false,
+  "completeTaskCertification": false
+}

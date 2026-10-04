@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { runInNewContext } from "node:vm";
 import http from "node:http";
 import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
@@ -46,13 +45,8 @@ async function main() {
   const { pool } = await import("../../server/db");
   try {
     const source = fs.readFileSync("server/routes/imports.ts", "utf8");
-    // Use the current route's actual maps, not a stale second mapping implementation.
-    const literals = ["googleMapsColumnMap", "apolloColumnMap", "genericColumnMap"].map(name => {
-      const match = source.match(new RegExp(`const ${name}: Record<string, string> = (\\{[\\s\\S]*?\\n      \\});`));
-      assert(match, `Current route map ${name} not found; refresh certification`);
-      return `const ${name} = ${match[1]};`;
-    });
-    const columnMap = runInNewContext(literals.join("\n") + "\ngenericColumnMap;", {}, { timeout: 1000 }) as Record<string, string>;
+    const { getImportColumnMap } = await import("../../server/services/provider-import-columns");
+    const columnMap = getImportColumnMap("google_maps_outscraper");
     const safetyTables = ["contacts", "businesses", "provider_operations", "provider_observations",
       "sequence_enrollments", "communication_events", "sfp_campaign_staging_intents"];
     const safetyCounts = async () => {
@@ -145,7 +139,7 @@ async function main() {
       noExternalHttpAttempts: true, crmProviderPreparationEnrollmentCountsUnchanged: true,
       knownCurrentRouteGaps: {
         xlsxRejected: source.includes('message: "Only CSV files are supported."'),
-        originalRowNotPassedToStaging: true,
+        originalRowNotPassedToStaging: !source.includes("retainProviderImportRow"),
         unmappedNonblankCells: droppedNonblankCells,
         dottedVendorStatusRowsNotRetainedByCurrentMapping: dottedVendorStatusRows,
       },

@@ -101,6 +101,9 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gt, gte, lte, inArray, or, ilike, count, getTableColumns } from "drizzle-orm";
 import { effectiveContactVerticalSql,effectiveContactVerticalStatusSql } from "@shared/effective-vertical";
+import { resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
+const effectiveVertical = sql<string | null>`${sql.raw(effectiveContactVerticalSql("contacts"))}`;
+const effectiveVerticalStatus = sql<string>`${sql.raw(effectiveContactVerticalStatusSql("contacts"))}`;
 import { coerceDateFields } from "../utils/date-coerce";
 import { assertNoProtectedContactFields, stripContactAuthorityFields } from "../services/contact-field-authority";
 import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../services/provider-readiness-control";
@@ -496,36 +499,24 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
   }
 
   async getContactVerticalCounts(): Promise<Array<{ vertical: string; count: number }>> {
-    const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
     const rows = await db
-      .select({ vertical: contacts.vertical, cnt: count() })
+      .select({ vertical: sql<string>`COALESCE(${effectiveVertical}, ${effectiveVerticalStatus})`, cnt: count() })
       .from(contacts)
-      .where(and(isNull(contacts.archivedAt), sql`${contacts.vertical} IS NOT NULL AND trim(${contacts.vertical}) != ''`))
-      .groupBy(contacts.vertical);
-
-    const tally = new Map<string, number>();
-    for (const row of rows) {
-      const canonical = normalizeDiscoveryVertical({ rawCategory: row.vertical }).canonicalVertical;
-      tally.set(canonical, (tally.get(canonical) ?? 0) + row.cnt);
-    }
-    return Array.from(tally.entries())
-      .map(([vertical, cnt]) => ({ vertical, count: cnt }))
+      .where(isNull(contacts.archivedAt))
+      .groupBy(sql`COALESCE(${effectiveVertical}, ${effectiveVerticalStatus})`);
+    return rows.map(row => ({ vertical: row.vertical, count: Number(row.cnt) }))
       .sort((a, b) => b.count - a.count);
   }
 
   async getContactsByVertical(vertical: string, limit?: number): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string; vertical: string | null }>> {
-    const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
-    const rows = await db
-      .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, phone: contacts.phone, vertical: contacts.vertical })
+    const target = resolveContactTargetVertical(vertical);
+    if (!target) return [];
+    const query = db
+      .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, phone: contacts.phone, vertical: effectiveVertical })
       .from(contacts)
-      .where(and(isNull(contacts.archivedAt), sql`${contacts.vertical} IS NOT NULL AND trim(${contacts.vertical}) != ''`))
+      .where(and(isNull(contacts.archivedAt), eq(effectiveVertical, target)))
       .orderBy(desc(contacts.createdAt));
-
-    const matching = rows.filter(r => {
-      const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
-      return canonical === vertical;
-    });
-    return limit ? matching.slice(0, limit) : matching;
+    return limit ? query.limit(limit) : query;
   }
 
   async getContactsForCampaignAudience(opts: {
@@ -553,8 +544,6 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
      emailMutationGeneration: number;
      updatedAt: Date | null;
   }>> {
-    const { normalizeDiscoveryVertical } = await import("../services/sdr/lead-finder");
-
     // True SQL OFFSET/LIMIT pagination — no JS-level multiplier trick.
     // offset is applied at the SQL layer so callers can page through the full
     // contactable pool without JS-level offset skew.
@@ -569,7 +558,7 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
         lastName: contacts.lastName,
         email: contacts.email,
         phone: contacts.phone,
-        vertical: contacts.vertical,
+        vertical: effectiveVertical,
         companyName: contacts.companyName,
         city: contacts.city,
         state: contacts.state,
@@ -595,11 +584,9 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
             : undefined,
-          // SQL-level vertical pre-filter: `vertical = ANY(ARRAY[...])` equivalent.
-          // Contacts with non-canonical raw vertical strings are caught by the JS
-          // normalization pass below; SQL filter reduces the scanned rows significantly.
+           // Filtering and projection use the same current effective authority.
           opts.verticals && opts.verticals.length > 0
-            ? inArray(contacts.vertical, opts.verticals)
+             ? inArray(effectiveVertical, opts.verticals.map(value => resolveContactTargetVertical(value) ?? value))
             : undefined,
           // Phase 2 readiness filter — all checks expressed in SQL so no per-contact
           // JS lookups are needed downstream. Applied only when a threshold is set.
@@ -623,23 +610,7 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
       .offset(usesKeyset ? 0 : sqlOffset)
       .limit(sqlLimit);
 
-    if (!opts.verticals || opts.verticals.length === 0) {
-      return rows;
-    }
-
-    // Secondary JS-level normalization filter — catches raw non-canonical vertical
-    // values that weren't matched by the SQL-level `inArray` clause above.
-    // SQL-level filtering already ran via the WHERE clause built in the calling query;
-    // this pass handles contacts imported with non-canonical strings (e.g. "Restaurants").
-    const targetSet = new Set(opts.verticals);
-    return rows.filter((r) => {
-      if (!r.vertical) return false;
-      // Fast path: canonical value matches directly (SQL clause already selected these).
-      if (targetSet.has(r.vertical)) return true;
-      // Slow path: normalize raw value and check.
-      const canonical = normalizeDiscoveryVertical({ rawCategory: r.vertical }).canonicalVertical;
-      return targetSet.has(canonical);
-    });
+    return rows;
   }
 
   // DB-level count of contactable rows scoped to the specified vertical(s).
@@ -666,10 +637,9 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
           opts.minCompletenessScore != null
             ? gte(contacts.dataCompletenessScore, opts.minCompletenessScore)
             : undefined,
-          // SQL-level vertical filter: exact match on canonical names.
-          // Non-canonical raw values are not counted here (they're rare post-enrichment).
+           // Identical canonical predicate to the audience reader.
           opts.verticals && opts.verticals.length > 0
-            ? inArray(contacts.vertical, opts.verticals)
+             ? inArray(effectiveVertical, opts.verticals.map(value => resolveContactTargetVertical(value) ?? value))
             : undefined,
         )
       );

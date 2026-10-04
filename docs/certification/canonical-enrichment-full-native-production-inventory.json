@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-10-04T06:18:25.793Z",
+  "scope": "All three exact current compiled commercial native guard queries; production read-only",
+  "guards": [
+    {
+      "guard": "assertSystemLinkDatabaseGuard",
+      "result": {
+        "exitCode": 0,
+        "exitReason": null,
+        "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nt,t,t,t,t,t,t\n",
+        "success": true
+      }
+    },
+    {
+      "guard": "assertSfpLinkDatabaseGuard",
+      "result": {
+        "exitCode": 0,
+        "exitReason": null,
+        "output": "evidence_table,evidence_column,immutable_evidence_trigger,evidence_foreign_keys,combined_decision_trigger\nt,t,t,t,t\n",
+        "success": true
+      }
+    },
+    {
+      "guard": "assertSfpPipelineDatabaseGuard",
+      "result": {
+        "exitCode": 0,
+        "exitReason": null,
+        "output": "commitments_table,aliases_table,holds_table,staging_intent_commitment_column,recipient_columns,ledger_columns,recipient_unique_index,aliases_unique_index,ledger_commitment_unique_index,recipient_constraints,recipient_foreign_keys,commitment_transition_trigger,alias_append_only_trigger,hold_append_only_trigger,contact_address_serialization_trigger\nt,t,t,t,t,t,t,t,t,t,t,t,t,t,t\n",
+        "success": true
+      }
+    }
+  ],
+  "taskComplete": false
+}

@@ -27,6 +27,7 @@ import {
   recordImportRowDisposition,
 } from "../services/import-execution";
 import { parse } from "csv-parse/sync";
+import { readTabularImportWithCoordinates, type ImportSourceCoordinate } from "../services/tabular-import-reader";
 import { sanitizeAuditPayload } from "../services/audit-sanitizer";
 import bcrypt from "bcryptjs";
 import path from "path";
@@ -1558,37 +1559,29 @@ Guidelines:
 
       const filePath = req.file.path;
       const fileName = req.file.originalname || "upload.csv";
-      if (path.extname(fileName).toLowerCase() !== ".csv") {
-        try { fs.unlinkSync(filePath); } catch {}
-        return res.status(400).json({ message: "Only CSV files are supported." });
-      }
-      let csvContent: string;
+      let sourceBytes: Buffer;
+      let records: Record<string, string>[];
+      let sourceCoordinates: ImportSourceCoordinate[];
       try {
-        csvContent = fs.readFileSync(filePath, "utf-8");
+        sourceBytes = fs.readFileSync(filePath);
+        const parsed = await readTabularImportWithCoordinates(sourceBytes, fileName);
+        records = parsed.rows;
+        sourceCoordinates = parsed.coordinates;
       } catch (err: any) {
-        try { fs.unlinkSync(filePath); } catch {}
         return res.status(400).json({ message: `Could not read uploaded file: ${err.message}` });
       } finally {
         try { fs.unlinkSync(filePath); } catch {}
       }
 
-      const records = parse(csvContent, {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true,
-        relax_column_count: true,
-        relax_quotes: true,
-      }) as Record<string, string>[];
-
       if (records.length === 0) {
-        return res.status(400).json({ message: "CSV file is empty or could not be parsed" });
+        return res.status(400).json({ message: "Import file is empty or could not be parsed" });
       }
 
       const sourceFormat = classifyCsvSourceFormat(Object.keys(records[0]));
 
       // Permanent execution identity is claimed before a UI projection is
       // created. A repeated or concurrent request never gets a second worker.
-      const csvHash = computeFileHash(Buffer.from(csvContent, "utf-8"));
+       const csvHash = computeFileHash(sourceBytes);
       const principal = req.user as any;
       const executionClaim = await claimCsvExecution({
         fileHash: csvHash,
@@ -1596,8 +1589,8 @@ Guidelines:
         actorType: "user",
         actorId: String(principal?.id ?? ""),
         // Keep recovery-only presentation metadata alongside the persisted
-        // normalized records.  The execution identity remains the content hash.
-        metadata: { sourceFormat, fileName },
+        // original records. The execution identity remains the content hash.
+        metadata: { sourceFormat, fileName, sourceCoordinates },
         sourcePayload: records,
       });
       if (!executionClaim.claimed) {
@@ -1636,9 +1629,7 @@ Guidelines:
         filename: string;
       }) => {
       const { records, executionClaim, importRecord, sourceFormat, actor, filename: fileName } = args;
-      // Compute file hash for replay-protection. The file has already been read
-      // into csvContent, so we hash the canonical CSV string rather than the
-      // raw upload bytes.
+      // The permanent execution already pins the original CSV/XLSX upload bytes.
       const csvSourceType = sourceFormat === "google_maps_outscraper" ? "outscraper"
         : sourceFormat === "apollo_lead_list" ? "apollo"
         : "csv_contact";
@@ -1658,59 +1649,8 @@ Guidelines:
       const companySet = new Set<string>();
       for (const row of existingCompanies) { if (row.name) companySet.add(row.name); }
 
-      const googleMapsColumnMap: Record<string, string> = {
-        "name": "companyName", "telephone": "phone", "phone": "phone",
-        "category": "industry", "rating": "rating", "review_count": "reviewCount",
-        "reviews": "reviewCount", "keyword": "keyword", "address": "address",
-        "website": "website", "city": "city", "state": "state",
-      };
-
-      const apolloColumnMap: Record<string, string> = {
-        "first_name": "firstName", "first name": "firstName", "firstname": "firstName",
-        "last_name": "lastName", "last name": "lastName", "lastname": "lastName",
-        "email": "email", "email_address": "email",
-        "mobile_phone": "phone", "mobile phone": "phone", "corporate_phone": "phone", "corporate phone": "phone", "phone": "phone",
-        "company": "companyName", "company_name": "companyName", "company name": "companyName",
-        "title": "title", "industry": "industry", "keywords": "keywords",
-        "#_employees": "employeeCount", "# employees": "employeeCount", "employees": "employeeCount",
-        "annual_revenue": "annualRevenue", "annual revenue": "annualRevenue",
-        "company_address": "address", "company address": "address", "address": "address",
-        "city": "city", "company_city": "city", "company city": "city",
-        "state": "state", "company_state": "state", "company state": "state",
-        "website": "website",
-        "person_linkedin_url": "linkedinUrl", "person linkedin url": "linkedinUrl",
-        "facebook_url": "facebookUrl", "facebook url": "facebookUrl",
-      };
-
-      const genericColumnMap: Record<string, string> = {
-        ...apolloColumnMap, ...googleMapsColumnMap,
-        "business_name": "companyName", "business name": "companyName", "business": "companyName",
-        "dba": "dba", "doing_business_as": "dba",
-        "owner_first_name": "firstName", "owner_first": "firstName", "contact_first_name": "firstName",
-        "owner_last_name": "lastName", "owner_last": "lastName", "contact_last_name": "lastName",
-        "owner_email": "ownerEmail", "contact_email": "email",
-        "owner_phone": "ownerPhone", "contact_phone": "phone",
-        "street": "address", "street_address": "address",
-        "zip": "zip", "zipcode": "zip", "zip_code": "zip", "postal": "zip", "postal_code": "zip",
-        "vertical": "vertical", "type": "vertical",
-        "volume": "monthlyVolume", "estimated_volume": "monthlyVolume", "monthly_volume": "monthlyVolume",
-        "processor": "currentProvider", "current_processor": "currentProvider",
-        "employee_count": "employeeCount", "year_established": "yearEstablished", "established": "yearEstablished",
-        "google_rating": "rating", "google_reviews": "reviewCount",
-        "lead_source": "leadSource", "source": "leadSource",
-        "notes": "notes", "tags": "tags",
-        // Consent / opt-out fields — protected by monotonic merge on upsert
-        "email_status": "emailStatus", "emailstatus": "emailStatus",
-        "consent_tier": "consentTier", "consenttier": "consentTier",
-        "opted_out_email": "optedOutEmail", "optedoutemail": "optedOutEmail", "opted_out": "optedOutEmail",
-        "do_not_contact": "doNotContact", "donotcontact": "doNotContact", "dnc": "doNotContact",
-        "do_not_auto_contact": "doNotAutoContact", "donotautocontact": "doNotAutoContact",
-        "unsubscribed": "emailStatus",
-      };
-
-      const columnMap = sourceFormat === "google_maps_outscraper" ? { ...genericColumnMap, ...googleMapsColumnMap }
-        : sourceFormat === "apollo_lead_list" ? { ...genericColumnMap, ...apolloColumnMap }
-        : genericColumnMap;
+      const { getImportColumnMap } = await import("../services/provider-import-columns");
+      const columnMap = getImportColumnMap(sourceFormat);
 
       // For known-provider formats (google_maps_outscraper, apollo_lead_list)
       // the system sourceFormat IS the canonical lead_source enum value.
@@ -1814,49 +1754,19 @@ Guidelines:
         const mapped: Record<string, string> = {};
         for (const [csvCol, value] of Object.entries(record)) {
           const normCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
-          const field = columnMap[normCol] || columnMap[csvCol.toLowerCase().trim()];
+          const original = csvCol.toLowerCase().trim();
+          const field = Object.hasOwn(columnMap, normCol) ? columnMap[normCol]
+            : Object.hasOwn(columnMap, original) ? columnMap[original] : undefined;
           if (field && value) mapped[field] = value.trim();
         }
         const isProviderExport = sourceFormat === "google_maps_outscraper" || sourceFormat === "apollo_lead_list";
         if (isProviderExport) {
-          const { createCro03SourceBatch } = await import("../services/cro03/source-staging");
-          const { providerCsvSourceSubject } = await import("../services/cro03a/adapters");
-          const csvSourceSystem = sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo";
-          // Build the subject draft via the canonical adapter. `mapped` uses
-          // internal field names (companyName, city, state, vertical, etc.)
-          // that align with the adapter's row accessors so category/entity_status
-          // candidateValues are populated for CRO-03B arbitration.
-          const draft = providerCsvSourceSubject({
-            importExecutionId: importExecution.id,
-            sourceRowNumber,
-            sourceSystem: csvSourceSystem,
-            row: {
-              ...mapped,
-              // `mapped.companyName` is already present; the adapter also reads
-              // `row.company` and `row.businessName` as fallbacks — no extra copy needed.
-              // `mapped.vertical` is the normalized internal name; expose it under
-              // `industry` as well so the adapter's industry→category mapping fires.
-              ...(mapped.vertical ? { industry: mapped.vertical } : {}),
-              // Expose `status` so the adapter's entity_status mapping fires for
-              // any status column the CSV column map captured.
-              ...(mapped.status ? { status: mapped.status } : {}),
-            },
-          });
-          await createCro03SourceBatch({
-            idempotencyKey: `csv-source:${importExecution.id}:${sourceRowNumber}`,
-            actorType: "import", actorId: actor.actorId, purpose: "staging_review",
-            subjects: [{
-              ...draft,
-              // Merge audit-only fields that the adapter does not produce.
-              payload: {
-                ...draft.payload,
-                sourceRowNumber, rowFingerprint, sourceFormat,
-              },
-              provenance: {
-                ...draft.provenance,
-                rowFingerprint, sourceFormat,
-              },
-            }],
+          const { retainProviderImportRow } = await import("../services/provider-import-evidence");
+          await retainProviderImportRow({
+            executionId: importExecution.id, sourceRowNumber, sourceFormat,
+            actorId: actor.actorId, rawRow: record,
+            sourceCoordinate: (executionClaim.execution.metadata as any)?.sourceCoordinates?.[sourceRowNumber - 1],
+            fileName: (executionClaim.execution.metadata as any)?.fileName,
           });
           deferredToStaging++;
           await recordImportRowDisposition({

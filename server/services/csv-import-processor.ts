@@ -1,7 +1,6 @@
 import type { PersistedCsvProcessor } from "./csv-import-recovery";
 import { storage } from "../storage";
 import { writeContact } from "./contact-writer";
-import { createCro03SourceBatch } from "./cro03/source-staging";
 import {
   completeImportExecution,
   heartbeatImportExecution,
@@ -9,6 +8,7 @@ import {
 } from "./import-execution";
 import { computeFileHash } from "./import-normalizer";
 import { importDispositionCompatibility } from "@shared/import-disposition-summary";
+import { retainProviderImportRow } from "./provider-import-evidence";
 
 let registeredProcessor: PersistedCsvProcessor | null = null;
 
@@ -157,58 +157,6 @@ async function recoverPersistedCsvImport(args: Parameters<PersistedCsvProcessor>
   };
 }
 
-// ── Column maps mirror imports.ts interactive path exactly ───────────────────
-// These are intentionally duplicated (not imported from the route file) so that
-// recovery remains independent of Express route loading order.
-const GOOGLE_MAPS_COLUMN_MAP: Record<string, string> = {
-  "name": "companyName", "telephone": "phone", "phone": "phone",
-  "category": "industry", "rating": "rating", "review_count": "reviewCount",
-  "reviews": "reviewCount", "keyword": "keyword", "address": "address",
-  "website": "website", "city": "city", "state": "state",
-};
-const APOLLO_COLUMN_MAP: Record<string, string> = {
-  "first_name": "firstName", "first name": "firstName", "firstname": "firstName",
-  "last_name": "lastName", "last name": "lastName", "lastname": "lastName",
-  "email": "email", "email_address": "email",
-  "mobile_phone": "phone", "mobile phone": "phone", "corporate_phone": "phone",
-  "corporate phone": "phone", "phone": "phone",
-  "company": "companyName", "company_name": "companyName", "company name": "companyName",
-  "title": "title", "industry": "industry", "keywords": "keywords",
-  "#_employees": "employeeCount", "# employees": "employeeCount", "employees": "employeeCount",
-  "annual_revenue": "annualRevenue", "annual revenue": "annualRevenue",
-  "company_address": "address", "company address": "address", "address": "address",
-  "city": "city", "company_city": "city", "company city": "city",
-  "state": "state", "company_state": "state", "company state": "state",
-  "website": "website",
-  "person_linkedin_url": "linkedinUrl", "person linkedin url": "linkedinUrl",
-  "facebook_url": "facebookUrl", "facebook url": "facebookUrl",
-};
-const GENERIC_COLUMN_MAP: Record<string, string> = {
-  ...APOLLO_COLUMN_MAP, ...GOOGLE_MAPS_COLUMN_MAP,
-  "business_name": "companyName", "business name": "companyName", "business": "companyName",
-  "zip": "zip", "zipcode": "zip", "zip_code": "zip", "postal": "zip", "postal_code": "zip",
-  "vertical": "vertical", "type": "vertical",
-};
-
-function mapProviderCsvRow(
-  row: Record<string, unknown>,
-  sourceFormat: string
-): Record<string, string> {
-  const colMap = sourceFormat === "google_maps_outscraper"
-    ? { ...GENERIC_COLUMN_MAP, ...GOOGLE_MAPS_COLUMN_MAP }
-    : sourceFormat === "apollo_lead_list"
-      ? { ...GENERIC_COLUMN_MAP, ...APOLLO_COLUMN_MAP }
-      : GENERIC_COLUMN_MAP;
-  const mapped: Record<string, string> = {};
-  for (const [csvCol, value] of Object.entries(row)) {
-    if (!value || typeof value !== "string") continue;
-    const normCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
-    const field = colMap[normCol] || colMap[csvCol.toLowerCase().trim()];
-    if (field) mapped[field] = value.trim();
-  }
-  return mapped;
-}
-
 /**
  * Recovery path for provider-format CSVs (Apollo, Outscraper).
  *
@@ -233,52 +181,19 @@ async function recoverProviderCsvImport(args: Parameters<PersistedCsvProcessor>[
   const claimToken = executionClaim.claimToken;
   if (!claimToken) throw new Error("CSV_IMPORT_RECOVERY_MISSING_CLAIM");
 
-  const { providerCsvSourceSubject } = await import("../services/cro03a/adapters");
-  const csvSourceSystem: "outscraper" | "apollo" =
-    sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo";
-
   for (const [index, rawRow] of records.entries()) {
     if (!await heartbeatImportExecution(executionId, claimToken)) {
       throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${executionId}`);
     }
     const sourceRowNumber = index + 1;
     const rowFingerprint = computeFileHash(Buffer.from(JSON.stringify(rawRow)));
-    // Apply the canonical column map so field names match what providerCsvSourceSubject() reads.
-    const mapped = mapProviderCsvRow(rawRow, sourceFormat);
-
     try {
-      const draft = providerCsvSourceSubject({
-        importExecutionId: executionId,
-        sourceRowNumber,
-        sourceSystem: csvSourceSystem,
-        row: {
-          ...mapped,
-          // Mirror the interactive path's extra field aliases.
-          ...(mapped.vertical ? { industry: mapped.vertical } : {}),
-          ...(mapped.status  ? { status: mapped.status }     : {}),
-        },
+      await retainProviderImportRow({
+        executionId, sourceRowNumber, sourceFormat,
+        actorId: actor.actorId ?? executionId, rawRow,
+        sourceCoordinate: (executionClaim.execution.metadata as any)?.sourceCoordinates?.[index],
+        fileName: (executionClaim.execution.metadata as any)?.fileName,
       });
-
-      await createCro03SourceBatch({
-        // Idempotency key matches the interactive import path exactly.
-        idempotencyKey: `csv-source:${executionId}:${sourceRowNumber}`,
-        actorType: "import",
-        actorId: actor.actorId ?? executionId,
-        purpose: "staging_review",
-        subjects: [{
-          ...draft,
-          payload: {
-            ...draft.payload,
-            sourceRowNumber, rowFingerprint, sourceFormat,
-          },
-          provenance: {
-            ...draft.provenance,
-            rowFingerprint, sourceFormat,
-          },
-        }],
-      });
-
-      // Record as deferred (not created) — no contact was created, staging pending.
       await recordImportRowDisposition({
         executionId, claimToken, sourceRowNumber, rowFingerprint,
         disposition: "deferred",
@@ -326,7 +241,7 @@ async function recoverProviderCsvImport(args: Parameters<PersistedCsvProcessor>[
     actorId: actor.actorId,
     details: {
       executionId, filename, totalRows: records.length,
-      sourceFormat, csvSourceSystem,
+      sourceFormat, csvSourceSystem: sourceFormat === "google_maps_outscraper" ? "outscraper" : "apollo",
       stagedForReview: outcomes.deferred,
       failedRows: outcomes.failed,
     },

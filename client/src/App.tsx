@@ -243,6 +243,7 @@ const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
 const SequenceReport = lazy(() => import("@/pages/dashboard/SequenceReport"));
 const AcquisitionHub = lazy(() => import("@/pages/dashboard/AcquisitionHub"));
 const IdentityCrosswalk = lazy(() => import("@/pages/dashboard/IdentityCrosswalk"));
+const CanonicalEnrichment = lazy(() => import("@/pages/dashboard/CanonicalEnrichment"));
 
 const Executive = lazy(() => import("@/pages/dashboard/Executive"));
 function AgentRoute({ component: Component }: { component: React.ComponentType }) {
@@ -627,6 +628,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/outbound-center">
           <ProtectedRoute component={OutboundCenter} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/canonical-enrichment">
+          <ProtectedRoute component={CanonicalEnrichment} allowedRoles={["admin", "manager"]} />
         </Route>
         {/* Legacy routes redirect to unified views with correct tab */}
         <Route path="/dashboard/prospects">

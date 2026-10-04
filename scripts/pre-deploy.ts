@@ -221,6 +221,7 @@ export const MANDATORY_SUITES: Suite[] = [
     name: "CSV Import Reconciliation (durable execution replay and ledger totals)",
     script: "scripts/test-import-reconciliation.ts",
     timeoutSecs: 180,
+    requiresServer: true,
   },
   {
     name: "Canonical Merge Manifest Guard (complete relationship disposition)",

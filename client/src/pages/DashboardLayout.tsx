@@ -174,6 +174,7 @@ const merchantOpsItems: MenuItem[] = [
 // Command / Campaigns / Sequences / Prospects / Analytics all live under OutboundCenter tabs.
 // Sunbiz Lead Gen and Outreach Command are accessible within OutboundCenter's Command tab.
 const outboundItems: MenuItem[] = [
+  { icon: GitBranch, label: "Canonical Enrichment", href: "/dashboard/canonical-enrichment", roles: ["admin", "manager"] },
   { icon: Database, label: "Lead Ops Center",    href: "/dashboard/lead-ops",        roles: ["admin", "manager"] },
   { icon: Rocket,   label: "Ready for Outreach", href: "/dashboard/outreach-queue",  roles: ["admin", "manager"], badgeKey: "outreachQueueCount" },
   { icon: Zap,      label: "Outreach",            href: "/dashboard/outbound-center", roles: ["admin", "manager"] },

@@ -1,0 +1,9 @@
+{
+  "observedAt": "2026-10-04T07:31:18.341Z",
+  "checks": 52,
+  "files": 5,
+  "rows": 2914,
+  "scope": "Actual application CSV/XLSX reader: exact raw-cell parity and malformed-input rejection",
+  "productionExecution": false,
+  "taskComplete": false
+}

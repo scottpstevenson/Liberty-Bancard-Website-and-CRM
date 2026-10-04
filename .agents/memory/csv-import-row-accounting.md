@@ -28,6 +28,15 @@ clean up afterward — `contacts` is referenced by `lead_sources`,
 `DELETE FROM contacts WHERE ...` fails. Either delete dependents first in FK
 order or just leave harmless test rows in dev.
 
+**Parser accounting:** Keep explicit delimiter-only/all-empty data records until
+the importer records a rejected disposition. Do not filter them out because no
+cell is nonblank; blank physical lines are different from explicit CSV records.
+
+**Why:** Filtering explicit empty records hid invalid rows before the immutable
+ledger could count them. Exact source hashing and cell preservation for the
+remaining rows did not catch the missing rejection; the live upload/replay
+reconciliation test did.
+
 **Related trap — NOT NULL + unique-indexed columns fed by `field || ""`:**
 if a column is `NOT NULL` with a (possibly partial) unique index, and the
 insert path falls back to `""` for a missing value (e.g. `email: email ||

@@ -11,9 +11,7 @@ export class SfpRecipientCapacityError extends Error {
  * sources share this reservation boundary. Existing aliases consume no new slot.
  * Commitment rows are retained, so restarting or refreezing cannot reset capacity.
  */
-export async function lockSfpRecipientCapacity(
-  tx: any, programId: string, objectiveKey: string, businessId: number, addressHash: string,
-): Promise<{ slot: number; role: "primary" | "alternate"; replay: boolean; globalSlotId: string }> {
+export async function assertSfpRecipientCapacityDatabaseGuard(tx: any): Promise<void> {
   const guard = rows(await tx.execute(sql`SELECT EXISTS (
     SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
     WHERE t.tgrelid=to_regclass('public.sfp_recipient_address_commitments')
@@ -32,6 +30,12 @@ export async function lockSfpRecipientCapacity(
   if (!guard?.installed || !guard?.matching_subject_fk) {
     throw new SfpRecipientCapacityError("SFP_GLOBAL_RECIPIENT_DATABASE_GUARD_MISSING");
   }
+}
+
+export async function lockSfpRecipientCapacity(
+  tx: any, programId: string, objectiveKey: string, businessId: number, addressHash: string,
+): Promise<{ slot: number; role: "primary" | "alternate"; replay: boolean; globalSlotId: string }> {
+  await assertSfpRecipientCapacityDatabaseGuard(tx);
   await tx.execute(sql`SELECT pg_advisory_xact_lock(
     hashtextextended(${`sfp-business-recipient-capacity:${businessId}`},0))`);
   // Separate businesses must not concurrently claim the same mailbox through

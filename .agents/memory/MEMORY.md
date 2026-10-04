@@ -25,6 +25,7 @@
 - [CSRF for manual API testing](csrf-manual-api-testing.md) — Manual curl POST needs session + CSRF token; PEWC also needs disclosureVersion and consentedPhone.
 - [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — gpt-5 needs `max_completion_tokens`, and a big enough budget or reasoning tokens silently eat all output.
 - [CSV import row accounting](csv-import-row-accounting.md) — onConflictDoNothing() silently drops rows without throwing; diff batch vs result length to count it.
+- [Immutable provider imports](immutable-provider-imports.md) — preserve original observations on recovery; add versioned raw evidence to the same source subject without duplicating candidates.
 - [Secret rotation restart](secret-rotation-restart.md) — new/changed secrets need a workflow restart; stale in-process secrets cause false live-HTTP failures right after a merge.
 - [AI Command Center run tracking](ai-command-center-run-tracking.md) — run-count/last-run reads audit_logs by action string; every branch (incl. no-op) must write a row.
 - [Raw fetch CSRF gap](csrf-raw-fetch-gap.md) — raw `fetch` POST/PATCH/DELETE (not `apiRequest`) skips X-CSRF-Token and gets 403'd; always attach `getCsrfToken()`.

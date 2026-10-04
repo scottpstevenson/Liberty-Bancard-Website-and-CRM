@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { DateValidationError } from "../utils/date-coerce";
 import { pool, db } from "../db";
+import { effectiveContactVerticalSql, effectiveContactVerticalStatusSql } from "@shared/effective-vertical";
 import { sdrLeadState, insertCompanySchema, insertContactSchema, contacts as contactsTable } from "@shared/schema";
 import { eq, inArray, isNull, and, gte, count as drizzleCount, asc, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -517,7 +518,9 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
           c.lead_source   AS "leadSource",
           c.utm_source    AS "utmSource",
           c.referral_source AS "referralSource",
-          c.vertical,
+          c.vertical AS "rawVertical",
+          ${effectiveContactVerticalSql("c")} AS vertical,
+          ${effectiveContactVerticalStatusSql("c")} AS "effectiveVerticalStatus",
           c.status,
           c.tags,
           c.ghl_contact_id AS "ghlContactId",
@@ -752,7 +755,7 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
       const whereClause = contactReadPredicate(req.user as any, parsed.filters!, params);
       const result = await pool.query(
         `SELECT id, first_name, last_name, email, phone,
-                company_name, vertical, status,
+                company_name, ${effectiveContactVerticalSql("c")} AS vertical, status,
                 email_status, sms_status, do_not_contact,
                 monthly_volume, current_provider, assigned_to,
                 created_at, last_contacted_at

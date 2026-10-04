@@ -860,13 +860,9 @@ export default function LeadImports() {
 
   const handleFileSelect = (file: File | null) => {
     if (!file) return;
-    const isValid =
-      /\.csv$/i.test(file.name) ||
-      file.type === "text/csv" ||
-      file.type === "text/plain" ||
-      file.type === "application/csv";
+    const isValid = /\.(csv|xlsx)$/i.test(file.name);
     if (!isValid) {
-      toast({ title: "Invalid file type", description: "Please upload a CSV file.", variant: "destructive" });
+      toast({ title: "Invalid file type", description: "Please upload a CSV or XLSX file.", variant: "destructive" });
       return;
     }
     setSelectedFile(file);
@@ -909,7 +905,7 @@ export default function LeadImports() {
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-page-title">Lead Imports</h1>
         <p className="text-muted-foreground mt-1" data-testid="text-page-description">
-          Import leads from Outscraper, Apollo, or any CSV file. Auto-detects format, deduplicates, classifies verticals, scores leads, and creates deals for hot prospects.
+          Import CSV or XLSX files from Outscraper, Apollo, or other sources. Original rows are retained for recovery. Provider evidence is not email validation, enrollment, or outreach.
         </p>
       </div>
 
@@ -1047,7 +1043,7 @@ export default function LeadImports() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="hidden"
               onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
               data-testid="input-csv-file"
@@ -1067,7 +1063,7 @@ export default function LeadImports() {
                 <>
                   <Upload className="h-12 w-12 text-muted-foreground" />
                   <div>
-                    <p className="font-medium">Drag and drop a CSV file here, or click to browse</p>
+                    <p className="font-medium">Drag and drop a CSV or XLSX file here, or click to browse</p>
                     <p className="text-sm text-muted-foreground mt-1">
                       Supports Outscraper (Google Maps), Apollo, and custom CSV formats up to 300MB
                     </p>
@@ -1320,7 +1316,7 @@ export default function LeadImports() {
               ) : imports.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={13} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
-                    No imports yet. Upload a CSV file above to get started.
+                    No imports yet. Upload a CSV or XLSX file above to get started.
                   </TableCell>
                 </TableRow>
               ) : (
