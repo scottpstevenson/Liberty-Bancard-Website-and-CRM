@@ -58,8 +58,79 @@ END $trigger$;`;
   ].join("\n\n");
 }
 
+/** Read-only postcondition shared by the console footer and its result row. */
+export function canonicalAddressPreparationVerificationSql() {
+  return `WITH checks AS (SELECT
+  to_regclass('public.canonical_address_validation_claims') IS NOT NULL AS address_claims_present,
+  (SELECT count(*)=5 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='cr04_enrollment_intents'
+      AND (column_name,data_type) IN (('program_id','uuid'),('business_id','integer'),
+        ('normalized_email_hash','text'),('preparation_state','text'),
+        ('preparation_snapshot','jsonb'))) AS preparation_fields_present,
+  EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+    WHERE t.tgrelid=to_regclass('public.cr04_enrollment_intents')
+      AND t.tgname='canonical_preparation_capacity' AND t.tgenabled IN ('O','A')
+      AND NOT t.tgisinternal AND t.tgqual IS NULL AND t.tgtype=23
+      AND p.pronamespace='public'::regnamespace
+      AND p.proname='crm_enforce_canonical_preparation_capacity'
+      AND md5(p.prosrc)='6e8864b97bd634386a156bca78c2dc5b') AS preparation_capacity_exact,
+  EXISTS(SELECT 1 FROM pg_proc p
+    WHERE p.oid=to_regprocedure('public.enforce_reviewed_contact_business_link()')
+      AND strpos(p.prosrc,'AND po.subject_type IN (''business'',''contact'') /* canonical_address_receipt_v1 */')>0
+      AND strpos(p.prosrc,'AND po.subject_type=''business'' AND po.subject_id=NEW.business_id')=0
+      AND md5(replace(p.prosrc,
+        'AND po.subject_type IN (''business'',''contact'') /* canonical_address_receipt_v1 */',
+        'AND po.subject_type=''business'' AND po.subject_id=NEW.business_id'))
+        ='46f89326f7c158ac739814ce343c2559') AS address_receipt_exact,
+  EXISTS(SELECT 1 FROM pg_constraint
+    WHERE conrelid=to_regclass('public.cr04_enrollment_intents')
+      AND conname='canonical_preparation_scope_chk' AND contype='c'
+      AND convalidated AND conislocal AND coninhcount=0) AS preparation_scope_constraint_present,
+  to_regclass('public.canonical_address_receipt_lookup_idx') IS NOT NULL AS address_receipt_index_present,
+  to_regclass('public.canonical_preparation_business_program_idx') IS NOT NULL AS preparation_index_present,
+  to_regclass('public.canonical_preparation_sequence_address_idx') IS NOT NULL AS preparation_unique_index_present
+)
+SELECT checks.*,
+  (address_claims_present AND preparation_fields_present AND preparation_capacity_exact
+    AND address_receipt_exact AND preparation_scope_constraint_present
+    AND address_receipt_index_present AND preparation_index_present
+    AND preparation_unique_index_present) AS repair_verified
+FROM checks`;
+}
+
+/** Same canonical installation bytes, with only the outer client transaction
+ * removed and a rejecting postcondition added. SQL Console owns its batch tx. */
+export function canonicalAddressPreparationConsoleSql() {
+  const ownerSql=canonicalAddressPreparationOwnerSql();
+  const start=ownerSql.indexOf("\n\nBEGIN;\n\n");
+  assert(start>=0,"Canonical owner transaction boundary changed");
+  const interior=ownerSql.slice(start+"\n\nBEGIN;\n\n".length)
+    .replace(/\n\nCOMMIT;\s*$/,"");
+  assert(!/^(?:BEGIN|COMMIT);$/m.test(interior),"Outer client transaction survived");
+  const verification=canonicalAddressPreparationVerificationSql();
+  return [
+    "-- Production SQL Console: replace editor contents with this COMPLETE file.",
+    "-- Select ALL text and run ONCE as a batch; the console supplies the transaction.",
+    "-- Inner function/DO BEGIN/END blocks must remain unchanged.",
+    "-- Completion requires the final repair_verified result to be true.",
+    "-- Owner execution only; Agent production access stays read-only.",
+    interior,
+    `DO $verify_complete$
+BEGIN
+  IF (SELECT repair_verified FROM (${verification}) verified) IS DISTINCT FROM TRUE THEN
+    RAISE EXCEPTION 'CANONICAL_ADDRESS_PREPARATION_REPAIR_INCOMPLETE';
+  END IF;
+END $verify_complete$;`,
+    verification+";","",
+  ].join("\n\n");
+}
+
 if(process.argv[1]?.endsWith("generate-canonical-address-preparation-repair.ts")) {
-  const target="docs/certification/canonical-enrichment-address-preparation-native-repair-v1.sql";
-  fs.writeFileSync(target,canonicalAddressPreparationOwnerSql());
+  const consoleBatch=process.argv.includes("--console");
+  const target=consoleBatch
+    ? "docs/certification/canonical-enrichment-address-preparation-console-batch-v1.sql"
+    : "docs/certification/canonical-enrichment-address-preparation-native-repair-v1.sql";
+  fs.writeFileSync(target,consoleBatch
+    ? canonicalAddressPreparationConsoleSql() : canonicalAddressPreparationOwnerSql());
   console.log(`Generated ${target}; no database connection or execution.`);
 }

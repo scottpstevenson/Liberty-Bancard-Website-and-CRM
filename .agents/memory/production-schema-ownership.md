@@ -23,6 +23,18 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 
 **How to apply:** Distinguish standard psql file execution from SQL Console batch selection. A suggested selection is not verified production installation; independently check persisted native guards after owner execution.
 
+Do not accept a SQL Console success message or an exact function body alone as
+full-batch installation proof. Require a computed completion check covering the
+referenced schema as well as the routines, then independently verify production.
+
+**Why:** The owner confirmed Production and reported success, yet production held
+the capacity function/trigger without its referenced columns or the other required
+objects. The specific console selection/execution cause was not established.
+
+**How to apply:** Preserve canonical routine bytes and guards. Keep console
+transaction adaptation separate from native semantics, and make partial
+installation fail the completion check rather than appearing ready.
+
 **Migration-only triggers also need separate verification:** Publish can create a new table and its declarative constraints without executing a migration's `CREATE FUNCTION`/`CREATE TRIGGER`; the table's existence does not prove its append-only audit guard exists.
 
 **Why:** Published tables can have their columns and CHECKs while migration-defined guards remain absent and the Publish diff reports no outstanding changes. An existing trigger can also survive publication with its older function body, so trigger-name presence alone is insufficient.

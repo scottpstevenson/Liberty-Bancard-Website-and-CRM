@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {assertDisposableTestInfrastructure} from "../test-infrastructure-guard";
 import {applyCertificationProviderDenyBoundary,getBlockedCertificationNetworkAttemptCount} from "../certification-provider-deny";
-import {canonicalAddressPreparationOwnerSql} from "../generate-canonical-address-preparation-repair";
+import {canonicalAddressPreparationOwnerSql,canonicalAddressPreparationConsoleSql,
+  canonicalAddressPreparationVerificationSql} from "../generate-canonical-address-preparation-repair";
 await assertDisposableTestInfrastructure({operation:"owner-console address/preparation prerequisite delivery"});
 applyCertificationProviderDenyBoundary({fatal:true});
 const {pool,db}=await import("../../server/db");
@@ -12,6 +13,7 @@ const {assertCanonicalPreparationDatabaseGuard}
   =await import("../../server/services/canonical-recipient-preparation");
 const {readCanonicalEnrichmentStatus}=await import("../../server/services/canonical-enrichment-status");
 const ownerSql=canonicalAddressPreparationOwnerSql();
+const consoleSql=canonicalAddressPreparationConsoleSql();
 let checks=0;
 const check=(value:unknown,label:string)=>{assert(value,label);checks++;};
 const constraintSnapshot=async()=>(await pool.query(`SELECT conname,pg_get_constraintdef(oid) definition
@@ -48,7 +50,18 @@ try {
     && missingStatus.automaticProgress.validation.processing===null,
     "Unavailable queue counts stay explicitly unknown, never fabricated zeroes");
   check(!/\bDROP\s+(?:TABLE|COLUMN|TRIGGER|CONSTRAINT)\b/i.test(ownerSql),"Owner delivery never removes existing guards or data");
-  await pool.query(ownerSql);
+  check(!/^(?:BEGIN|COMMIT);$/m.test(consoleSql),
+    "Console copy contains no standalone client transaction commands");
+  check(consoleSql.includes(ownerSql.slice(ownerSql.indexOf("\n\nBEGIN;\n\n")+"\n\nBEGIN;\n\n".length)
+    .replace(/\n\nCOMMIT;\s*$/,"")),
+    "Console copy preserves the complete canonical installation body");
+  check((await pool.query(canonicalAddressPreparationVerificationSql())).rows[0].repair_verified===false,
+    "Read-only footer refuses to report missing installation as verified");
+  await assert.rejects(pool.query(consoleSql.slice(consoleSql.indexOf("DO $verify_complete$"))),
+    /CANONICAL_ADDRESS_PREPARATION_REPAIR_INCOMPLETE/);checks++;
+  const consoleResults=await pool.query(consoleSql);
+  check((consoleResults as unknown as Array<{rows:any[]}>).at(-1)?.rows[0]?.repair_verified===true,
+    "Complete implicit-transaction console batch ends with actual verified result");
   await assertCanonicalPreparationDatabaseGuard(db);checks++;
   await assertCanonicalAddressReceiptContract(db);checks++;
   check((await pool.query(`SELECT md5(replace(prosrc,$1,$2)) hash FROM pg_proc
@@ -65,6 +78,9 @@ try {
   assert.deepEqual(await constraintSnapshot(),originalConstraints);checks++;
   await pool.query(ownerSql);
   await assertCanonicalPreparationDatabaseGuard(db);await assertCanonicalAddressReceiptContract(db);checks++;
+  const replayConsoleResults=await pool.query(consoleSql);
+  check((replayConsoleResults as unknown as Array<{rows:any[]}>).at(-1)?.rows[0]?.repair_verified===true,
+    "Complete console batch safely replays against already installed contracts");
   assert.deepEqual(await constraintSnapshot(),originalConstraints);checks++;
   // Reproduce a function/trigger-only installation: PL/pgSQL permits creating
   // the routine before its referenced record fields exist. Its hash alone must
@@ -76,6 +92,8 @@ try {
     WHERE oid='public.crm_enforce_canonical_preparation_capacity()'::regprocedure`)).rows[0].hash
     ==="6e8864b97bd634386a156bca78c2dc5b","Partial-install fixture retains the exact capacity body");
   await assert.rejects(assertCanonicalPreparationDatabaseGuard(db),/CONTRACT_REQUIRED/);checks++;
+  await assert.rejects(pool.query(consoleSql.slice(consoleSql.indexOf("DO $verify_complete$"))),
+    /CANONICAL_ADDRESS_PREPARATION_REPAIR_INCOMPLETE/);checks++;
   const partialStatus=await readCanonicalEnrichmentStatus();
   check(partialStatus.nativeContracts.state==="blocked" && !partialStatus.preparations.currentAvailable,
     "Function-only installation is blocked and preparation counts are unavailable");
@@ -106,7 +124,7 @@ try {
   check(getBlockedCertificationNetworkAttemptCount()===0,"Owner schema delivery has zero provider/network effects");
   fs.writeFileSync("docs/certification/canonical-enrichment-address-preparation-native-repair-v1.json",
     JSON.stringify({observedAt:new Date().toISOString(),checks,
-      scope:"Disposable complete owner SQL; installation, reapply, original constraint preservation and drift denial",
+      scope:"Disposable psql and implicit-transaction console SQL batches; installation, replay, partial-install rejection, unchanged canonical bytes and drift denial; not live SQL Console compatibility",
       productionExecution:false,ownerConsoleExecution:false,taskComplete:false,
       effectsBefore:before,effectsAfter:await effects(),networkAttempts:0},null,2)+"\n");
   console.log(`PASS: ${checks} owner address/preparation contract delivery checks`);
