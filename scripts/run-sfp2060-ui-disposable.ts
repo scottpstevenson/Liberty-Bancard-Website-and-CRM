@@ -50,6 +50,8 @@ const backendNodeCodes = new Set<string>();
 const backendStackFrames = new Set<string>();
 let proxyPort: number | undefined;
 let authenticatedCookie: string | undefined;
+const canonicalCertification = process.env.CANONICAL_PRIVATE_UI_CERTIFICATION === "1";
+const authenticatedRoleCookies = new Map<string, string>();
 let stopping = false;
 let cleanupPromise: Promise<void> | undefined;
 const activeSockets = new Set<Socket>();
@@ -97,16 +99,23 @@ async function runChild(
   args: string[],
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  syntheticFixtureOutput = false,
 ): Promise<void> {
   throwIfStopping();
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: process.cwd(),
       env,
-      stdio: "ignore",
+      stdio: syntheticFixtureOutput ? ["ignore","pipe","pipe"] : "ignore",
       detached: process.platform !== "win32",
     });
     migrationChild = child;
+    // Opt-in synthetic seeder only; real application/migration logs remain
+    // suppressed because they can contain credentials or non-fixture data.
+    if (syntheticFixtureOutput) {
+      child.stdout?.on("data", chunk=>process.stdout.write(chunk));
+      child.stderr?.on("data", chunk=>process.stderr.write(chunk));
+    }
     let settled = false;
     const finish = (error?: Error) => {
       if (settled) return;
@@ -229,7 +238,9 @@ function cookiePair(setCookie: string[] | string | undefined, name: string): str
     .find((value) => value.startsWith(`${name}=`));
 }
 
-async function normalAdminLogin(port: number, email: string, password: string): Promise<string> {
+async function normalAdminLogin(
+  port: number, email: string, password: string, expectedRole: "admin" | "manager" | "agent" = "admin",
+): Promise<string> {
   const csrf = await responseBody(port, "/api/csrf-token");
   if (csrf.status !== 200) throw new Error("CSRF_BOOTSTRAP_FAILED");
   let token: unknown;
@@ -256,7 +267,7 @@ async function normalAdminLogin(port: number, email: string, password: string): 
   let loginUser: { role?: unknown; mfa_required?: unknown };
   try { loginUser = JSON.parse(login.body.toString("utf8")) as typeof loginUser; }
   catch { throw new Error("NORMAL_PASSWORD_LOGIN_INVALID_RESPONSE"); }
-  if (loginUser.role !== "admin" || loginUser.mfa_required === true) {
+  if (loginUser.role !== expectedRole || loginUser.mfa_required === true) {
     throw new Error("NORMAL_ADMIN_SESSION_UNAVAILABLE");
   }
   const session = cookiePair(login.headers["set-cookie"], "connect.sid");
@@ -267,7 +278,7 @@ async function normalAdminLogin(port: number, email: string, password: string): 
   if (sessionCheck.status !== 200) throw new Error("NORMAL_LOGIN_SESSION_NOT_RESTORED");
   try {
     const restoredUser = JSON.parse(sessionCheck.body.toString("utf8")) as { role?: unknown };
-    if (restoredUser.role !== "admin") throw new Error("NORMAL_LOGIN_SESSION_NOT_ADMIN");
+    if (restoredUser.role !== expectedRole) throw new Error("NORMAL_LOGIN_SESSION_NOT_ADMIN");
   } catch (error) {
     if (error instanceof Error && error.message === "NORMAL_LOGIN_SESSION_NOT_ADMIN") throw error;
     throw new Error("NORMAL_LOGIN_SESSION_INVALID_RESPONSE");
@@ -300,7 +311,13 @@ function filteredRequestHeaders(req: IncomingMessage, proxyPortNumber: number): 
     headers.referer = `${upstreamOrigin}${referer.slice(proxyOrigin.length)}`;
   }
   const cookies = requestCookies(req.headers.cookie);
-  if (authenticatedCookie) cookies.push(authenticatedCookie);
+  // These are real, separately authenticated private-fixture accounts.
+  // Never forward this fixture selector or expose their session cookies.
+  const selectedRole = canonicalCertification ? req.headers["x-canonical-fixture-role"] : undefined;
+  delete headers["x-canonical-fixture-role"];
+  const roleCookie = typeof selectedRole === "string" ? authenticatedRoleCookies.get(selectedRole) : undefined;
+  const sessionCookie = roleCookie ?? authenticatedCookie;
+  if (sessionCookie) cookies.push(sessionCookie);
   if (cookies.length) headers.cookie = cookies.join("; ");
   else delete headers.cookie;
   return headers;
@@ -532,18 +549,28 @@ async function run(): Promise<void> {
     cluster = await launchLocalPostgres16();
     throwIfStopping();
     startupStage = "private-databases";
-    const databases = await createLocalRehearsalDatabases(cluster);
+    const databases = await createLocalRehearsalDatabases(cluster, {
+      namePrefix: canonicalCertification ? "test_" : undefined,
+    });
     targetDatabase = databases.restored;
 
     const migrationEnv = buildLocalRehearsalEnvironment();
     migrationEnv.HOME = privateHome;
     migrationEnv.DATABASE_URL = localDatabaseUrl(targetDatabase);
+    if (canonicalCertification) {
+      migrationEnv.TEST_DATABASE_URL = migrationEnv.DATABASE_URL;
+      migrationEnv.MERCHANT_DATA_ENCRYPTION_KEY = "canonical-ui-disposable-only";
+      migrationEnv.CREDENTIAL_ENCRYPTION_KEY = "canonical-ui-disposable-only";
+    }
     migrationEnv.PGUSER = process.env.USER || process.env.LOGNAME || os.userInfo().username;
     const tsx = path.resolve(process.cwd(), "node_modules", ".bin", "tsx");
     startupStage = "offline-migrations";
     await runChild(tsx, ["server/db-migrate.ts"], migrationEnv, STARTUP_TIMEOUT_MS);
     startupStage = "fixture-seed";
     await seedPausedProgram(targetDatabase);
+    if (canonicalCertification) {
+      await runChild(tsx, ["scripts/certification/seed-canonical-operating-ui.ts"], migrationEnv, STARTUP_TIMEOUT_MS, true);
+    }
 
     const user = process.env.USER || process.env.LOGNAME || os.userInfo().username;
     const databaseUrl = localDatabaseUrl(targetDatabase);
@@ -636,6 +663,18 @@ async function run(): Promise<void> {
     const adminEmail = env.ADMIN_SEED_EMAIL!;
     const adminPassword = env.ADMIN_SEED_PASSWORD!;
     authenticatedCookie = await normalAdminLogin(backendPort, adminEmail, adminPassword);
+    if (canonicalCertification) {
+      authenticatedRoleCookies.set("admin", authenticatedCookie);
+      for (const role of ["manager", "agent"] as const) {
+        const email = `${role}@canonical-ui.test`;
+        await withLocalClient(targetDatabase, async client => {
+          await client.query(`INSERT INTO users(id,email,first_name,last_name,role,password_hash)
+            SELECT $1,$2,'Private Fixture',$3,$3,password_hash FROM users WHERE email=$4`,
+          [`canonical-ui-${role}`, email, role, adminEmail]);
+        });
+        authenticatedRoleCookies.set(role, await normalAdminLogin(backendPort, email, adminPassword, role));
+      }
+    }
     throwIfStopping();
 
     startupStage = "private-proxy";

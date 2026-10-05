@@ -192,7 +192,14 @@ function ImportOutcomeList({rows}: {rows: CanonicalImportOutcome[]}) {
         <div><dt className="text-muted-foreground">Later source fulfillment</dt><dd>{row.fulfillmentState ?? "Not recorded"}</dd></div>
         <div><dt className="text-muted-foreground">Source next-attempt timestamp</dt><dd>{formatOptionalDate(row.nextAttemptAt)} · not a promise of retry</dd></div>
         <div><dt className="text-muted-foreground">Committed identifiers in original accounting</dt>
-          <dd>Business {row.businessId ?? "not recorded"} · contact {row.contactId ?? "not recorded"}</dd></div>
+          <dd>
+            {row.businessId ? <Link href={`/dashboard/lead-ops/business/${row.businessId}`} className="text-primary underline">Business #{row.businessId}</Link> : "Business not recorded"}
+            {" · contact "}{row.contactId ?? "not recorded"}
+          </dd></div>
+        <div><dt className="text-muted-foreground">Current CRM business association</dt>
+          <dd>{row.currentBusinessId ? <Link href={`/dashboard/lead-ops/business/${row.currentBusinessId}`} className="text-primary underline">Business #{row.currentBusinessId}</Link> : "No current association recorded"}</dd>
+          <dd className="text-xs text-muted-foreground">Current affiliation is separate from the original import accounting.</dd>
+        </div>
       </dl>
     </details>)}
   </div>;

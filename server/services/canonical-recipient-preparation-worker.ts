@@ -48,16 +48,45 @@ export async function processCanonicalRecipientPreparationTick() {
   let examined=0,prepared=0;
   const deadline=Date.now()+90_000;
   try {
-    const contacts=rows(await db.execute(sql`SELECT c.id FROM contacts c
+    const contacts=rows(await db.execute(sql`SELECT c.id,EXISTS (
+        SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
+          AND owned.preparation_state IN ('pending_validation','ready_held')) AS has_preparation
+      FROM contacts c
       WHERE c.id>${state.afterContactId} AND (c.record_class='production' OR EXISTS (
         SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
           AND owned.preparation_state IN ('pending_validation','ready_held')))
       ORDER BY c.id LIMIT 250`));
+    // This is candidate retrieval, never write authority. Unbound contacts need
+    // no per-row owner-locked transaction; genuine prepared slots still retire
+    // under the existing guard, and every actual preparation rechecks its
+    // binding and native/runtime authority before writing.
+    const bindings=contacts.length ? rows(await db.execute(sql`
+      SELECT DISTINCT c.id AS contact_id,p.id AS program_id,seq.id AS sequence_id
+      FROM contacts c JOIN businesses b ON b.id=c.business_id
+      JOIN sfp_programs p ON p.is_active AND p.taxonomy_version=2
+        AND ${sql.raw(effectiveBusinessVerticalSql("b"))}=ANY(p.vertical_ids)
+      JOIN follow_up_sequences seq ON seq.trigger_config->>'canonicalProgramId'=p.id::text
+        AND seq.trigger_config->'canonicalVerticals' ? ${sql.raw(effectiveBusinessVerticalSql("b"))}
+        OR EXISTS(SELECT 1 FROM sfp_campaign_package_versions pkg
+          WHERE pkg.sequence_id=seq.id AND pkg.lifecycle_state='current'
+            AND ${sql.raw(contactTargetVerticalSql("pkg.vertical"))}=${sql.raw(effectiveBusinessVerticalSql("b"))})
+      WHERE c.id IN (${sql.join(contacts.map(contact=>sql`${Number(contact.id)}`),sql`,`)})
+        AND c.archived_at IS NULL AND c.do_not_contact IS NOT TRUE
+        AND b.record_class='canonical' AND c.email IS NOT NULL
+      ORDER BY c.id,p.id,seq.id
+    `)) : [];
+    const bindingsByContact=new Map<number,Map<string,number[]>>();
+    for (const binding of bindings) {
+      const contactId=Number(binding.contact_id),programId=String(binding.program_id);
+      const programs=bindingsByContact.get(contactId) ?? new Map<string,number[]>();
+      programs.set(programId,[...(programs.get(programId) ?? []),Number(binding.sequence_id)]);
+      bindingsByContact.set(contactId,programs);
+    }
     for (const contact of contacts) {
       if (Date.now()>=deadline) break;
       // Include unavailable/changed recipients: stale paused slots must retire,
       // so suppressions and affiliation changes cannot strand the allowance.
-      await db.transaction(async tx=>{
+      if (contact.has_preparation===true) await db.transaction(async tx=>{
         await guard(tx);
         const obsolete=rows(await tx.execute(sql`SELECT i.id,i.enrollment_id
           FROM cr04_enrollment_intents i LEFT JOIN contacts c ON c.id=i.contact_id
@@ -85,23 +114,7 @@ export async function processCanonicalRecipientPreparationTick() {
             enrollment_id=NULL,reason_code='CURRENT_RECIPIENT_FACTS_CHANGED' WHERE id=${String(intent.id)}::uuid`);
         }
       });
-      const bindings=rows(await db.execute(sql`SELECT DISTINCT p.id AS program_id,seq.id AS sequence_id
-        FROM contacts c JOIN businesses b ON b.id=c.business_id
-        JOIN sfp_programs p ON p.is_active AND p.taxonomy_version=2
-          AND ${sql.raw(effectiveBusinessVerticalSql("b"))}=ANY(p.vertical_ids)
-        JOIN follow_up_sequences seq ON seq.trigger_config->>'canonicalProgramId'=p.id::text
-          AND seq.trigger_config->'canonicalVerticals' ? ${sql.raw(effectiveBusinessVerticalSql("b"))}
-          OR EXISTS(SELECT 1 FROM sfp_campaign_package_versions pkg
-            WHERE pkg.sequence_id=seq.id AND pkg.lifecycle_state='current'
-              AND ${sql.raw(contactTargetVerticalSql("pkg.vertical"))}=${sql.raw(effectiveBusinessVerticalSql("b"))})
-        WHERE c.id=${Number(contact.id)} AND c.archived_at IS NULL AND c.do_not_contact IS NOT TRUE
-          AND b.record_class='canonical' AND c.email IS NOT NULL
-        ORDER BY p.id,seq.id`));
-      const programs=new Map<string,number[]>();
-      for (const binding of bindings) {
-        const key=String(binding.program_id);
-        programs.set(key,[...(programs.get(key) ?? []),Number(binding.sequence_id)]);
-      }
+      const programs=bindingsByContact.get(Number(contact.id)) ?? new Map<string,number[]>();
       let advanced=false,reason="NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL";
       for (const [programId,sequences] of programs) {
         if (sequences.length!==1) {reason="PROGRAM_BINDING_AMBIGUOUS";continue;}

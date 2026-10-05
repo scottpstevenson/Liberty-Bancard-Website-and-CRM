@@ -194,9 +194,12 @@ export async function launchLocalPostgres16(): Promise<LocalCluster> {
   }
 }
 
-export async function createLocalRehearsalDatabases(cluster: LocalCluster): Promise<{ reference: LocalDatabase; restored: LocalDatabase }> {
+export async function createLocalRehearsalDatabases(
+  cluster: LocalCluster, options: { namePrefix?: "test_" } = {},
+): Promise<{ reference: LocalDatabase; restored: LocalDatabase }> {
   const suffix = randomBytes(10).toString("hex");
-  const reference = `reference_${suffix}`, restored = `restored_${suffix}`;
+  const prefix = options.namePrefix ?? "";
+  const reference = `${prefix}reference_${suffix}`, restored = `${prefix}restored_${suffix}`;
   await withLocalClient(cluster.admin, async client => {
     await client.query(`CREATE DATABASE "${reference}"`);
     await client.query(`CREATE DATABASE "${restored}"`);

@@ -50,28 +50,67 @@ const views=[
 ];
 const receipts:any[]=[];
 try {
-  await command("Page.enable");await command("Runtime.enable");
-  await command("Emulation.setDeviceMetricsOverride",{width:1440,height:1040,deviceScaleFactor:1,mobile:false});
-  await command("Page.navigate",{url:"http://127.0.0.1:5443/dashboard/canonical-enrichment"});
-  await waitFor("document.body?.innerText.includes('Read-only status view') && document.body.innerText.includes('Preparation cursor and validation queue')");
-  assert.equal(await evaluate("fetch('/api/auth/user').then(r=>r.json()).then(u=>u.role)"),"admin");
-  for(const view of views) {
-    const clicked=await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>
-      b.textContent.replace(/\\s+/g,' ').trim().startsWith(${JSON.stringify(view.label)}));
-      if(!b)return false;b.click();return true;})()`);
-    assert(clicked,`View button must exist: ${view.label}`);
-    await waitFor(`[...document.querySelectorAll('h2')].some(h=>h.textContent===${JSON.stringify(view.expected)})`);
-    assert(!await evaluate("document.body.innerText.includes('Unable to load')"),"View must not mask a failed status endpoint");
-    const image=await command("Page.captureScreenshot",{format:"png"});
-    fs.writeFileSync(`docs/certification/canonical-enrichment-private-${view.slug}.png`,Buffer.from(image.data,"base64"));
-    receipts.push({view:view.label,rendered:true,signedInRole:"admin"});
+  await command("Page.enable");await command("Runtime.enable");await command("Network.enable");
+  for (const role of ["admin","manager"]) {
+    await command("Network.setExtraHTTPHeaders",{headers:{"x-canonical-fixture-role":role}});
+    for (const width of [1440,390]) {
+      await command("Emulation.setDeviceMetricsOverride",{width,height:1040,deviceScaleFactor:1,mobile:width<500});
+      await command("Page.navigate",{url:"http://127.0.0.1:5443/dashboard/canonical-enrichment"});
+      if(width<500) {
+        await waitFor("document.body?.innerText.includes('Read-only status view') || document.querySelector('[data-testid=\"button-switch-to-desktop\"]')!=null");
+        if(await evaluate("location.pathname.startsWith('/mobile')")) {
+          await waitFor("document.querySelector('[data-testid=\"button-switch-to-desktop\"]')!=null");
+          assert(await evaluate("(()=>{const button=document.querySelector('[data-testid=\"button-switch-to-desktop\"]');if(!button)return false;button.click();return true;})()"),
+            "Use the existing phone shell's supported desktop-view action");
+          await waitFor("location.pathname.startsWith('/dashboard')");
+          await command("Page.navigate",{url:"http://127.0.0.1:5443/dashboard/canonical-enrichment"});
+        }
+      }
+      await waitFor("document.body?.innerText.includes('Read-only status view') && document.body.innerText.includes('Preparation cursor and validation queue')");
+      assert.equal(await evaluate("fetch('/api/auth/user').then(r=>r.json()).then(u=>u.role)"),role);
+      const status=await evaluate("fetch('/api/canonical-enrichment/status').then(r=>r.json())");
+      assert(status.recentImportOutcomes.some((row:any)=>row.businessId!=null || row.currentBusinessId!=null),"Actual populated import outcome required");
+      assert(status.importExceptions.some((row:any)=>row.disposition==="deferred"),"Actual retained deferred exception required");
+      for(const view of views) {
+        const clicked=await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>
+          b.textContent.replace(/\\s+/g,' ').trim().startsWith(${JSON.stringify(view.label)}));
+          if(!b)return false;b.click();return true;})()`);
+        assert(clicked,`View button must exist: ${view.label}`);
+        await waitFor(`[...document.querySelectorAll('h2')].some(h=>h.textContent===${JSON.stringify(view.expected)})`);
+        assert(!await evaluate("document.body.innerText.includes('Unable to load')"),"View must not mask a failed status endpoint");
+        assert(await evaluate("document.documentElement.scrollWidth<=window.innerWidth+1"),`${role}/${width}/${view.label}: no whole-page horizontal overflow`);
+        if(view.slug==="imports" || view.slug==="pipeline") {
+          const image=await command("Page.captureScreenshot",{format:"png"});
+          fs.writeFileSync(`docs/certification/canonical-enrichment-private-${role}-${width}-${view.slug}.png`,Buffer.from(image.data,"base64"));
+        }
+        if(view.slug==="imports") {
+          const expanded=await evaluate("(()=>{const summary=document.querySelector('details>summary');if(!summary)return false;summary.click();return true;})()");
+          assert(expanded,"Populated import evidence control is present");
+          await waitFor("document.body.innerText.includes('Import execution')");
+          assert(await evaluate("document.body.innerText.includes('Original')"),"Evidence describes retained originals");
+        }
+        receipts.push({view:view.label,rendered:true,signedInRole:role,viewportWidth:width,populated:true,
+          shell:width<500 ? "responsive_desktop_view" : "desktop"});
+      }
+      await evaluate("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim().startsWith('Imports & Sources'));b.click();})()");
+      await waitFor("document.querySelector('a[href^=\"/dashboard/lead-ops/business/\"]')!=null");
+      await evaluate("document.querySelector('a[href^=\"/dashboard/lead-ops/business/\"]').click()");
+      await waitFor("location.pathname.startsWith('/dashboard/lead-ops/business/') && document.body.innerText.includes('Harbor Auto Services')");
+      assert(!await evaluate("document.body.innerText.includes('Unable to load')"),"Actual populated business drill-down loads");
+    }
   }
+  await command("Network.setExtraHTTPHeaders",{headers:{"x-canonical-fixture-role":"agent"}});
+  await command("Page.navigate",{url:"http://127.0.0.1:5443/dashboard/canonical-enrichment"});
+  await waitFor("location.pathname!='/dashboard/canonical-enrichment'");
+  assert.equal(await evaluate("fetch('/api/auth/user').then(r=>r.json()).then(u=>u.role)"),"agent");
+  assert.equal(await evaluate("fetch('/api/canonical-enrichment/status').then(r=>r.status)"),403);
   assert.deepEqual(exceptions,[],"No uncaught browser exceptions in the five-view interaction");
   fs.writeFileSync("docs/certification/canonical-enrichment-private-operating-ui.json",JSON.stringify({
-    observedAt:new Date().toISOString(),scope:"Actual signed-in five-view desktop UI against existing disposable fixture",
-    views:receipts,viewport:{width:1440,height:1040},uncaughtExceptions:exceptions,
-    productionExecution:false,scheduledProgression:false,managerAgentRoleCertification:false,
+    observedAt:new Date().toISOString(),scope:"Actual signed-in populated five-view desktop/phone UI in disposable fixture",
+    views:receipts,viewportWidths:[1440,390],uncaughtExceptions:exceptions,
+    productionExecution:false,scheduledProgression:false,managerAgentRoleCertification:true,
+    populatedEvidenceAndBusinessDrilldown:true,responsivePhoneCertification:true,agentStatusApi:403,agentPageRedirected:true,
     nativeMobileCertification:false,taskComplete:false,
   },null,2)+"\n");
-  console.log("PASS: all five signed-in canonical operating views; no uncaught browser exceptions");
+  console.log("PASS: populated five views, admin/manager desktop/phone, evidence/business drill-downs, agent UI/API denial");
 } finally {socket.close();}

@@ -1,41 +1,180 @@
 {
-  "observedAt": "2026-10-04T22:34:30.236Z",
-  "scope": "Actual signed-in five-view desktop UI against existing disposable fixture",
+  "observedAt": "2026-10-05T11:30:01.265Z",
+  "scope": "Actual signed-in populated five-view desktop/phone UI in disposable fixture",
   "views": [
     {
       "view": "Pipeline",
       "rendered": true,
-      "signedInRole": "admin"
+      "signedInRole": "admin",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
     },
     {
       "view": "Records",
       "rendered": true,
-      "signedInRole": "admin"
+      "signedInRole": "admin",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
     },
     {
       "view": "Imports & Sources",
       "rendered": true,
-      "signedInRole": "admin"
+      "signedInRole": "admin",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
     },
     {
       "view": "Exceptions",
       "rendered": true,
-      "signedInRole": "admin"
+      "signedInRole": "admin",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
     },
     {
       "view": "Settings & Health",
       "rendered": true,
-      "signedInRole": "admin"
+      "signedInRole": "admin",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
+    },
+    {
+      "view": "Pipeline",
+      "rendered": true,
+      "signedInRole": "admin",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Records",
+      "rendered": true,
+      "signedInRole": "admin",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Imports & Sources",
+      "rendered": true,
+      "signedInRole": "admin",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Exceptions",
+      "rendered": true,
+      "signedInRole": "admin",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Settings & Health",
+      "rendered": true,
+      "signedInRole": "admin",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Pipeline",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
+    },
+    {
+      "view": "Records",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
+    },
+    {
+      "view": "Imports & Sources",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
+    },
+    {
+      "view": "Exceptions",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
+    },
+    {
+      "view": "Settings & Health",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 1440,
+      "populated": true,
+      "shell": "desktop"
+    },
+    {
+      "view": "Pipeline",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Records",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Imports & Sources",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Exceptions",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
+    },
+    {
+      "view": "Settings & Health",
+      "rendered": true,
+      "signedInRole": "manager",
+      "viewportWidth": 390,
+      "populated": true,
+      "shell": "responsive_desktop_view"
     }
   ],
-  "viewport": {
-    "width": 1440,
-    "height": 1040
-  },
+  "viewportWidths": [
+    1440,
+    390
+  ],
   "uncaughtExceptions": [],
   "productionExecution": false,
   "scheduledProgression": false,
-  "managerAgentRoleCertification": false,
+  "managerAgentRoleCertification": true,
+  "populatedEvidenceAndBusinessDrilldown": true,
+  "responsivePhoneCertification": true,
+  "agentStatusApi": 403,
+  "agentPageRedirected": true,
   "nativeMobileCertification": false,
   "taskComplete": false
 }

@@ -20,6 +20,7 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
       accounting.reason_code,accounting.contact_id,
       CASE WHEN accounting.diagnostic->>'businessId' ~ '^[0-9]+$'
         THEN (accounting.diagnostic->>'businessId')::integer END business_id,
+      current_contact.business_id current_business_id,
       source_item.terminal_code fulfillment_state,source_item.next_attempt_at::text next_attempt_at,
       (COALESCE(jsonb_typeof(execution.source_payload->(accounting.source_row_number-1))='object',FALSE)
         OR EXISTS(SELECT 1 FROM cro03_enrichment_batches raw_batch
@@ -29,6 +30,7 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
             AND jsonb_typeof(original.payload->'rawSourceRow')='object')) original_available,
       accounting.completed_at::text completed_at
     FROM import_row_dispositions accounting JOIN import_executions execution ON execution.id=accounting.execution_id
+    LEFT JOIN contacts current_contact ON current_contact.id=accounting.contact_id
     LEFT JOIN LATERAL(
       SELECT item.terminal_code,item.next_attempt_at,item.state
       FROM cro03_enrichment_batches batch JOIN cro03_enrichment_items item ON item.batch_id=batch.id
@@ -121,6 +123,7 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
     disposition:String(row.disposition),reasonCode:String(row.reason_code),
     contactId:row.contact_id == null ? null : Number(row.contact_id),
     businessId:row.business_id == null ? null : Number(row.business_id),
+    currentBusinessId:row.current_business_id == null ? null : Number(row.current_business_id),
     fulfillmentState:row.fulfillment_state ?? null,nextAttemptAt:row.next_attempt_at ?? null,
     originalAvailable:row.original_available === true,completedAt:String(row.completed_at),
   }));

@@ -30,3 +30,15 @@ JavaScript later receives null.
 boundaries, then choose the retained object. Keep absent originals explicit and
 never reconstruct them from mapped observations.
 If exact retained contents are unavailable or disagree, hold recovery explicitly.
+
+Keep current CRM affiliation separate from identifiers recorded in immutable
+original import accounting. Provide a current-business drill-down without
+filling in missing historical business IDs from today's contact association.
+
+**Why:** A legitimate contact import can record its contact before its canonical
+business affiliation is established. Later affiliation is useful evidence for
+navigation, but cannot prove what the original accounting recorded.
+
+**How to apply:** Label original identifiers and current affiliation separately
+in operator history and evidence views. Never rewrite an original disposition
+or disguise a current relationship as original import evidence.

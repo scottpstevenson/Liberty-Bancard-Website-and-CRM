@@ -1,0 +1,32 @@
+{
+  "observedAt": "2026-10-05T11:22:57.245Z",
+  "checks": 32,
+  "scope": "Disposable real promotional pipeline, not production acceptance",
+  "nativeRelationshipCommitted": true,
+  "personalEmailWithoutWebsite": true,
+  "retainedSelectedAddressValidated": true,
+  "originalReceipt": {
+    "operation_id": "7f76d22a-6b7f-43e5-a024-265bd6123d98",
+    "outcome": "valid",
+    "observed_at": "2026-10-05 11:22:55.317175+00"
+  },
+  "pausedEnrollment": true,
+  "workerCycles": 2,
+  "fakeDispatches": 2,
+  "physicalNetworkAttempts": 0,
+  "unboundPage": {
+    "examined": 250,
+    "bulkBindingQueries": 1,
+    "elapsedMs": 139
+  },
+  "importFlow": {
+    "existingContactReused": true,
+    "newContactCommitted": true,
+    "bothReadyHeld": true,
+    "replayedWithoutDuplicates": true
+  },
+  "cohortsCreated": 0,
+  "communicationsCreated": 0,
+  "productionExecution": false,
+  "taskComplete": false
+}

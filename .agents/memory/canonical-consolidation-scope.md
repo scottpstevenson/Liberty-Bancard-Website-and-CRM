@@ -13,6 +13,16 @@ keeps stopping. Production prerequisites do not block genuinely independent loca
 repeated approval prompts. Keep production-only dependencies explicitly blocked,
 outbound paused and the original task open until its acceptance requirements are met.
 
+A successful owner publish is a continuation signal, not a stopping point.
+Immediately resume the unresolved original implementation and certification.
+
+**Why:** The user again corrected, “And you stopped... why?” after the agent
+ended with a post-publish status report while independent work remained.
+
+**How to apply:** Do not end at a milestone report or promise to continue later.
+Keep working through independent gaps; only request the specific owner action
+when it actually blocks the next required work.
+
 Report completion at the exact scope proved: disposable workbook ingestion is
 not production import, and cohort-free validation is not cohort-free discovery.
 

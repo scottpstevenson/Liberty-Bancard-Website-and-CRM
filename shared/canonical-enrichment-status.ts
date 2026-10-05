@@ -5,6 +5,8 @@ export interface CanonicalImportOutcome {
   reasonCode: string;
   contactId: number | null;
   businessId: number | null;
+  /** Current CRM affiliation, distinct from immutable original row accounting. */
+  currentBusinessId?: number | null;
   fulfillmentState: string | null;
   nextAttemptAt: string | null;
   originalAvailable: boolean;
