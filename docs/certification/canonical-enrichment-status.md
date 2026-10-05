@@ -2,7 +2,13 @@
 
 ## Status
 
-**Current:** production owner-console repair was independently verified at
+**Current:** the indexed contact-link lookup is published and independently
+verified. Linking has scanned 25 records without the old preview failure;
+all 25 were held and none committed. Preparation has scanned 785 records,
+all held, with no program-scoped preparation intents. This is bounded scan
+progress, not full-population convergence or downstream acceptance.
+
+Production owner-console repair was independently verified at
 2026-10-05 00:57:22 UTC. All eight additional address/preparation predicates
 and all seven general-link predicates pass. Receipt:
 `canonical-enrichment-console-batch-production-verification.json`.
@@ -53,7 +59,7 @@ not a completed coverage certificate. No workbook imports were performed.
 The original task remains open. Receipt:
 `canonical-enrichment-post-publish-verification.json`.
 
-### Contact-link timeout correction — not yet published
+### Contact-link timeout correction — local verification before republish
 
 Candidate retrieval now separates legal-name, domain, registry-name/DBA and
 retained stable-key matches before running the unchanged relationship evaluator.
@@ -91,6 +97,31 @@ paused. The unauthenticated dashboard capture renders the sign-in page; the
 signed-in UI was not verified in this pass. Production logs still show database
 connection timeouts across multiple workers, so the candidate-query correction
 must not be described as proof that every production bottleneck is resolved.
+
+### Indexed lookup republish independently verified — 2026-10-05
+
+Production health returns HTTP 200 for revision
+`2e3655a5c32a8670bc6d362d10ac4907d5840475`, build
+`1abdef16-c785-473e-a95f-11d6bc4c1481`. The release selector and unrevoked
+leased owner match that build. All three new lookup indexes are installed.
+Outbound remains paused at epoch 1; Agent checks were read-only.
+
+The final full candidate/evaluator query for contact IDs 1–25 completed in
+2,847 ms with 1,321 ms planning, returning one evidence alternative. The
+production optimizer used the new registry-name lookup; this is a bounded
+query measurement, not proof for all pages. The scheduled linking worker
+completed its first 25-record page with no last error, holding all records
+and committing zero links.
+
+Preparation advanced from 760 to 785 examined records during this observation
+window, still with zero prepared recipients and no program-scoped intents.
+This is not sufficient downstream progress to satisfy acceptance. Production
+logs still show connection timeouts across other workers, including a runtime
+heartbeat; campaign staging reported five failures. Full-population coverage,
+representative useful-recipient/paused-enrollment traces, two successful
+downstream cycles and owner-only workbook import/replay remain outstanding
+within this original task. No production imports or manual worker triggers
+were performed. Receipt: `canonical-enrichment-indexed-publish-verification.json`.
 
 ### Historical native-delivery investigation (superseded by current status)
 
