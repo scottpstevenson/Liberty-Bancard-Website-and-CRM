@@ -544,9 +544,11 @@ export async function applyClassification(
  * never promoted; a CSV email/provider validity claim alone proves nothing. */
 export async function initializeImportedLinkedContactClass(contactId:number,authorityCheck?:(tx:any)=>Promise<boolean>) {
   return db.transaction(async tx=>{
-    if (authorityCheck && !await authorityCheck(tx)) throw new Error("CANONICAL_IMPORTED_CLASS_AUTHORITY_FENCE_LOST");
     const hint=rows(await tx.execute(sql`SELECT business_id FROM contacts WHERE id=${contactId}`))[0];
     if (!hint?.business_id) return {applied:false,reason:"INDEPENDENT_BUSINESS_LINK_REQUIRED"};
+    // An unlinked row has nothing to promote; don't take the singleton owner
+    // lock for this read-only hold. Every possible mutation still pins it first.
+    if (authorityCheck && !await authorityCheck(tx)) throw new Error("CANONICAL_IMPORTED_CLASS_AUTHORITY_FENCE_LOST");
     await lockCommercialGraphNodes(tx,[
       {type:"contact",id:contactId},{type:"business",id:Number(hint.business_id)},
     ]);

@@ -1,8 +1,9 @@
-export type CanonicalTransactionPhase =
-  | "preparation_owner_claim"
-  | "preparation_commit"
-  | "preparation_cursor_claim"
-  | "preparation_retirement";
+export const CANONICAL_TRANSACTION_PHASES = [
+  "preparation_owner_claim","preparation_commit","preparation_cursor_claim","preparation_retirement",
+  "link_owner_claim","link_bootstrap","link_cursor_claim","link_commit",
+  "import_owner_claim","import_cursor_claim","import_finalize","import_failure",
+] as const;
+export type CanonicalTransactionPhase = typeof CANONICAL_TRANSACTION_PHASES[number];
 
 /** Retry only a PostgreSQL-aborted transaction, never an uncertain connection
  * failure or an authority denial. Callers must start a new transaction and

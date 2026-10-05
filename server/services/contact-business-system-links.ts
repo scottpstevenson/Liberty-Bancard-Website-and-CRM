@@ -328,6 +328,9 @@ export async function applyContactBusinessSystemLink(
       ruleVersion: CONTACT_BUSINESS_SYSTEM_LINK_RULE,
       factsHash: item.snapshotHash,
       facts: minimizedEvidenceFacts(facts) as unknown as Record<string, unknown>,
+      beforeGraphLock: programAuthorityCheck ? async (tx:any) => {
+        if (!await programAuthorityCheck(tx)) throw new Error("SYSTEM_LINK_SNAPSHOT_STALE");
+      } : undefined,
       authorityCheck: async (tx: any) => {
         const freshPage = await loadPage(tx, 0, 1, item.contactId);
         const freshPreview = freshPage.previews[0];

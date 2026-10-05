@@ -4,6 +4,7 @@ import {db} from "../db";
 import {materializeCanonicalProviderImportRow} from "./canonical-provider-import";
 import {assertSystemLinkDatabaseGuard} from "./commercial-link-authority";
 import {claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner} from "./cro03/sfp-provider-operations";
+import {runCanonicalTransaction} from "./canonical-transaction-retry";
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const MAX_ITEMS_PER_TICK=250;
 const MAX_TICK_DURATION_MS=30_000;
@@ -22,7 +23,7 @@ export async function processCanonicalImportRecoveryTick(
     throw new Error("CANONICAL_IMPORT_RECOVERY_INVALID_TICK_BUDGET");
   }
   const deadline=Date.now()+maxDurationMs;
-  const owner=await claimSfpRuntimeDeploymentOwner();
+  const owner=await runCanonicalTransaction("import_owner_claim",claimSfpRuntimeDeploymentOwner);
   const ownerAuthorityCheck=async(tx:any)=>{
     const live=await lockCurrentSfpRuntimeOwner(tx);
     if (live.ownerEpoch!==owner.ownerEpoch || live.ownerToken!==owner.ownerToken)
@@ -35,7 +36,7 @@ export async function processCanonicalImportRecoveryTick(
   // Mapped observations still cannot substitute for an original raw row.
   for (let index=0;index<maxItems && Date.now()<deadline;index++) {
     const token=randomUUID();
-    const candidate=await db.transaction(async tx=>{
+    const candidate=await runCanonicalTransaction("import_cursor_claim",()=>db.transaction(async tx=>{
       await ownerAuthorityCheck(tx);
       const selected=rows(await tx.execute(sql`SELECT item.id,execution.id execution_id,
         accounting.source_row_number,observation.payload->>'sourceFormat' source_format,
@@ -81,7 +82,7 @@ export async function processCanonicalImportRecoveryTick(
         attempt_count=attempt_count+1,next_attempt_at=clock_timestamp()+INTERVAL '5 minutes',
         updated_at=clock_timestamp() WHERE id=${String(selected.id)}::uuid`);
       return selected;
-    });
+    }));
     if (!candidate) break;
     if (candidate.originalUnavailable) {held++;continue;}
     try {
@@ -94,7 +95,7 @@ export async function processCanonicalImportRecoveryTick(
         fileName:candidate.metadata?.fileName,
       });
       if ("fulfillmentState" in result && result.fulfillmentState==="held") {held++;continue;}
-      await db.transaction(async tx=>{
+      await runCanonicalTransaction("import_finalize",()=>db.transaction(async tx=>{
         await ownerAuthorityCheck(tx);
         const receipt=rows(await tx.execute(sql`UPDATE cro03_enrichment_items
           SET state='completed',terminal_code='CANONICAL_LOCAL_IMPORT_FULFILLED',
@@ -108,16 +109,16 @@ export async function processCanonicalImportRecoveryTick(
             ${JSON.stringify({executionId:candidate.execution_id,sourceRowNumber:candidate.source_row_number,
               originalDisposition:result.disposition,businessId:result.businessId,contactIds:result.contactIds,
               paidProviderCalls:0,outboundChanges:0})}::jsonb,'system','system:canonical-import-recovery')`);
-      });
+      }));
       fulfilled++;
     } catch (error) {
-      await db.transaction(async tx=>{
+      await runCanonicalTransaction("import_failure",()=>db.transaction(async tx=>{
         await ownerAuthorityCheck(tx);
         await tx.execute(sql`UPDATE cro03_enrichment_items SET state='blocked',
           terminal_code='CANONICAL_IMPORT_RECOVERY_RETRY_REQUIRED',claim_token=NULL,lease_expires_at=NULL,
           current_provider=NULL,updated_at=clock_timestamp()
           WHERE id=${String(candidate.id)}::uuid AND state='running' AND claim_token=${token}::uuid`);
-      });
+      }));
       throw error;
     }
   }

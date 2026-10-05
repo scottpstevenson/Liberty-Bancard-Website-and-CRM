@@ -37,7 +37,9 @@ export function safeCanonicalEnrichmentFailureDiagnostics(error: unknown) {
   let transactionPhase: string | null = null;
   let current: any = error;
   for (let depth=0; current && depth<4; depth++,current=current.cause) {
-    if (["preparation_owner_claim","preparation_commit","preparation_cursor_claim","preparation_retirement"]
+    if (["preparation_owner_claim","preparation_commit","preparation_cursor_claim","preparation_retirement",
+      "link_owner_claim","link_bootstrap","link_cursor_claim","link_commit",
+      "import_owner_claim","import_cursor_claim","import_finalize","import_failure"]
         .includes(current.canonicalTransactionPhase)) transactionPhase=current.canonicalTransactionPhase;
     const message=String(current.message ?? "");
     const domainCode=message.match(/^(CANONICAL_[A-Z0-9_]+|COMMERCIAL_[A-Z0-9_]+|CONTACT_LINK_[A-Z0-9_]+)(?=[:\s]|$)/)?.[1];

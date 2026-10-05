@@ -133,6 +133,79 @@ try {
     jsonb_build_object('leaseUntil',(NOW()-INTERVAL '1 second')::text) WHERE key=$1`, [KEY]);
   check((await processContactLinkAutomationTick()).ran === true, "Expired local claim recovers automatically");
   check((await getContactLinkAutomationStatus())?.leaseToken === null, "Recovery releases only current claim");
+  const unbound=(await pool.query(`INSERT INTO contacts
+    (first_name,last_name,email,phone,company_name,record_class)
+    SELECT 'Unresolved','Batch',$1||n::text||'@example.invalid','','','production'
+      FROM generate_series(1,51) n RETURNING id`,[`${prefix}.batch.`])).rows;
+  const beforeBatch=(await getContactLinkAutomationStatus())!;
+  await assert.rejects(processContactLinkAutomationTick({maxPages:201}),
+    /CONTACT_LINK_AUTOMATION_INVALID_TICK_BUDGET/);checks++;
+  const bounded=await processContactLinkAutomationTick({maxPages:1});
+  const firstPage=(await getContactLinkAutomationStatus())!;
+  check(bounded.ran && firstPage.scanned-beforeBatch.scanned===25 && !firstPage.complete,
+    "A reduced execution budget preserves the exact unprocessed keyset tail");
+  await processContactLinkAutomationTick();
+  const drained=(await getContactLinkAutomationStatus())!;
+  check(drained.scanned-firstPage.scanned===26 && drained.complete,
+    "Default tick processes multiple real pages without waiting for another schedule");
+  check(drained.cursor===Number(unbound.at(-1).id),"Multi-page linking records the real final contact, not a fabricated cursor");
+  check(drained.committed===1,"Read-only unresolved coverage does not fabricate relationships");
+
+  // Real graph contention and queued owner renewal. The automatic writer must
+  // pin owner authority BEFORE waiting for the commercial graph, then retain
+  // its fresh snapshot recheck after acquiring that graph.
+  const ordered=await fixture("owner_order");
+  const {previewContactBusinessSystemLinks,applyContactBusinessSystemLink}=
+    await import("../../server/services/contact-business-system-links");
+  const {lockCurrentSfpRuntimeOwner,renewSfpRuntimeDeploymentOwner}=
+    await import("../../server/services/cro03/sfp-provider-operations");
+  const orderedPreview=await previewContactBusinessSystemLinks({afterContactId:ordered.contactId-1,limit:1});
+  const orderedCandidate=orderedPreview.rows.find(row=>row.contactId===ordered.contactId)!;
+  check(orderedCandidate?.eligible,"Concurrent lock-order fixture has genuine independent source evidence");
+  const peer=await pool.connect();
+  let signalOwner!:()=>void;
+  const ownerPinned=new Promise<void>(resolve=>{signalOwner=resolve;});
+  let applying:ReturnType<typeof applyContactBusinessSystemLink>|undefined;
+  let renewing:ReturnType<typeof renewSfpRuntimeDeploymentOwner>|undefined;
+  let guardCalls=0;
+  try {
+    await peer.query("BEGIN");
+    await peer.query("SELECT pg_advisory_xact_lock(hashtextextended($1,1700))",
+      [`cro02:v1:node:contact:${ordered.contactId}`]);
+    applying=applyContactBusinessSystemLink({
+      ...orderedCandidate,actorId,role:"admin",
+    },async tx=>{
+      await lockCurrentSfpRuntimeOwner(tx);
+      guardCalls++;signalOwner();return true;
+    });
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    try {
+      await Promise.race([ownerPinned,new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error("OWNER_NOT_PINNED_BEFORE_GRAPH_WAIT")),3000);
+      })]);
+    } finally {if (timer) clearTimeout(timer);}
+    renewing=renewSfpRuntimeDeploymentOwner();
+    let renewalQueued=false;
+    for (let attempt=0;attempt<100;attempt++) {
+      // Use a fresh autocommit stats snapshot, not the graph-holder's cached
+      // transaction snapshot taken before renewal entered the wait queue.
+      const waiting=(await pool.query(`SELECT count(*)::int n FROM pg_stat_activity
+        WHERE datname=current_database() AND wait_event_type='Lock'
+          AND query LIKE '%UPDATE sfp_runtime_owner_authority%'`)).rows[0].n;
+      if (waiting>0) {renewalQueued=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    check(renewalQueued,"Actual renewal is waiting on the owner pinned by the graph-blocked native writer");
+    await peer.query("COMMIT");
+    const [linked]=await Promise.all([applying,renewing]);
+    check(linked.status==="applied" && guardCalls>=2,
+      "Owner-before-graph ordering completes with a queued renewal and preserves the final authority recheck");
+    check(await decisionCount(ordered.contactId)===1,"Concurrent owner/graph test commits exactly one native relationship");
+  } finally {
+    await peer.query("ROLLBACK").catch(()=>undefined);
+    peer.release();
+    await Promise.allSettled([applying,renewing].filter(Boolean));
+  }
   deploy(second);
   check((await processContactLinkAutomationTick()).ran === true, "Published successor takes over existing program");
   const afterTransfer = await getContactLinkAutomationStatus();
@@ -151,6 +224,8 @@ try {
     cohortIndependent: true, automaticNativeRepairRecovery: true, noWebsiteIdentityCommitted: true,
     explicitOffPreserved: true, ruleUpgradePreservesOff: true, claimAndReplaySafe: true,
     currentPublishedOwnerRequired: true, retiredBuildDenied: true, revokedOwnerDenied: true,
+    boundedMultiPageTraversal: true, exactUnprocessedTailPreserved: true,
+    ownerBeforeGraphWithQueuedRenewal: true,
     providerEnrollmentCommunicationAndCohortCountsUnchanged: true, externalNetworkAttempts: 0,
     nativeFingerprintsUnchanged: true, productionExecution: false, taskComplete: false,
   };

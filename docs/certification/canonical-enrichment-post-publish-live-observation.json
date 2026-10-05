@@ -237,5 +237,38 @@
     "Agent issued SELECT queries and a public health GET only; no production write, import, provider call, or outbound release."
   ],
   "productionAcceptance": false,
-  "taskComplete": false
+  "taskComplete": false,
+  "latestOriginalReceiptTrace": {
+    "observed_at": "2026-10-05 14:04:23.89756+00",
+    "preparations": 21,
+    "fresh_original_address_receipts": 21,
+    "projected_valid_contacts": 0,
+    "unvalidated_contacts": 21,
+    "actual_paused_memberships": 21,
+    "current_affiliations_and_addresses": 21,
+    "qualified_snapshots": 0,
+    "selectedArtifact": "fdb1d8bd00d5d0c7b2586fa4d597ed09febf4744",
+    "readOnly": true,
+    "productionAcceptance": false,
+    "correction": "The previous target_fingerprint comparison was not the canonical mailbox predicate; this trace uses provider_observations.email_token_hash and the actual canonical freshness/expiry conditions."
+  },
+  "latestLocalBundle": {
+    "productionExecution": false,
+    "taskComplete": false,
+    "flowChecks": 44,
+    "linkAutomationChecks": 40,
+    "providerIntakeChecks": 66,
+    "recipientPreparationChecks": 83,
+    "addressValidationChecks": 30,
+    "sourceOutboxChecks": 13,
+    "totalFocusedDatabaseChecks": 276,
+    "actualWorkbookRows": 2914,
+    "actualWorkbookCount": 5,
+    "physicalProviderRequests": 0,
+    "typecheck": "passed",
+    "build": "passed",
+    "preview": "protected route renders sign-in; signed-in UI not reverified",
+    "fullCI": "not certified; no unrelated baseline repairs",
+    "remaining": "Owner publish, deployed convergence and representative traces/two scheduled downstream advancement cycles, then owner-only workbook production import/replay"
+  }
 }

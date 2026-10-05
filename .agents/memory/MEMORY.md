@@ -151,4 +151,4 @@
 - [Partial patch results](partial-patch-results.md) — A failed multi-file patch may retain successful edits; inspect per-file results before retrying.
 - [Dev startup mutation scope](dev-startup-mutation-scope.md) — Background profile off disables jobs, not all startup reconciliations; no-mutation verification needs separate care.
 - [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
-- [SFP owner lock ordering](sfp-owner-lock-order.md) — Lock release selector before owner explicitly; joined FOR SHARE is not a lock-order guarantee.
+- [SFP owner lock ordering](sfp-owner-lock-order.md) — Pin selector → owner before graph locks; queued renewal and joined FOR SHARE make inconsistent ordering dangerous.

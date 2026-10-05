@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { runCanonicalTransaction } from "../server/services/canonical-transaction-retry";
+import { CANONICAL_TRANSACTION_PHASES,runCanonicalTransaction } from "../server/services/canonical-transaction-retry";
 import { safeCanonicalEnrichmentFailureDiagnostics } from "../server/services/cro03/sfp-failure-diagnostics";
 
 let calls=0;
@@ -30,4 +30,15 @@ await assert.rejects(runCanonicalTransaction("preparation_cursor_claim",async()=
   calls++;throw wrapped;
 }),error=>error===wrapped);
 assert.equal(calls,3);
+for (const phase of CANONICAL_TRANSACTION_PHASES) {
+  calls=0;
+  const failure=Object.assign(new Error("private native statement"),{code:"40P01"});
+  assert.equal(await runCanonicalTransaction(phase,async()=>{
+    if (++calls===1) throw failure;
+    return "committed";
+  }),"committed");
+  assert.equal(calls,2);
+  assert.equal(safeCanonicalEnrichmentFailureDiagnostics(failure).transactionPhase,phase);
+  assert(!JSON.stringify(safeCanonicalEnrichmentFailureDiagnostics(failure)).includes("private native"));
+}
 console.log("Canonical transaction retry: bounded deadlock recovery, safe phases and fail-closed denials PASS");

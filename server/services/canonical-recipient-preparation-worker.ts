@@ -16,7 +16,13 @@ type Cursor={afterContactId:number;cycles:number;scanned:number;prepared:number;
 
 /** Local selection only. Uses the existing published owner, enrollment ledger
  * and queue tick. Provider pauses never gate this pass; it cannot send or spend. */
-export async function processCanonicalRecipientPreparationTick() {
+export async function processCanonicalRecipientPreparationTick(
+  budget:{maxPopulationPages?:number}={},
+) {
+  const maxPopulationPages=budget.maxPopulationPages ?? 20;
+  if (!Number.isInteger(maxPopulationPages) || maxPopulationPages<1 || maxPopulationPages>20) {
+    throw new Error("CANONICAL_PREPARATION_INVALID_TICK_BUDGET");
+  }
   const actorId="system:canonical-recipient-preparation";
   const owner=await runCanonicalTransaction("preparation_owner_claim",claimSfpRuntimeDeploymentOwner);
   const token=randomUUID();
@@ -137,7 +143,7 @@ export async function processCanonicalRecipientPreparationTick() {
     return {examined,prepared};
   };
   try {
-    const contacts=rows(await db.execute(sql`SELECT c.id,EXISTS (
+    const populationPage=async()=>rows(await db.execute(sql`SELECT c.id,EXISTS (
         SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
           AND owned.preparation_state IN ('pending_validation','ready_held')) AS has_preparation
       FROM contacts c
@@ -145,10 +151,14 @@ export async function processCanonicalRecipientPreparationTick() {
         SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
           AND owned.preparation_state IN ('pending_validation','ready_held')))
       ORDER BY c.id LIMIT 250`));
+    const contacts=await populationPage();
     // Keep the population pass first so priority work cannot starve coverage.
     const population=await processPage(contacts,state,Math.min(deadline,Date.now()+45_000));
+    let populationPages=1;
+    let populationComplete=false;
     if (population.examined===contacts.length && contacts.length<250) {
       state.afterContactId=0;state.cycles++;state.lastCycleAt=new Date().toISOString();
+      populationComplete=true;
     }
     let priority={examined:0,prepared:0};
     if (Date.now()<deadline) {
@@ -178,7 +188,23 @@ export async function processCanonicalRecipientPreparationTick() {
         state.priority.lastCycleAt=new Date().toISOString();
       }
     }
-    return {ran:true,...population,cycles:state.cycles,priority};
+    // Spend the remaining local budget on more keyset pages, not a ten-minute
+    // idle wait after every 250 unbound records. Priority always runs before
+    // these extra pages; all pages share the same lease and write guards.
+    if (!populationComplete && population.examined===contacts.length) {
+      while (populationPages<maxPopulationPages && Date.now()<deadline) {
+        const next=await populationPage();
+        const result=await processPage(next,state);
+        populationPages++;
+        population.examined+=result.examined;population.prepared+=result.prepared;
+        if (result.examined!==next.length) break;
+        if (next.length<250) {
+          state.afterContactId=0;state.cycles++;state.lastCycleAt=new Date().toISOString();
+          break;
+        }
+      }
+    }
+    return {ran:true,...population,populationPages,cycles:state.cycles,priority};
   } finally {
     // CAS cannot overwrite a newer pass after crash/expiry.
     state.leaseToken=null;state.leaseUntil=null;

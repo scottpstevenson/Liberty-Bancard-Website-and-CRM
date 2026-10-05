@@ -70,6 +70,18 @@ function recipientPrioritySql(alias:string) {
  * blocked intent status and paused membership NEVER convey send approval.
  */
 export async function prepareCanonicalRecipient(input: CanonicalPreparationInput) {
+  const first=await prepareCanonicalRecipientPass(input);
+  // Qualification reads outside the write transaction. When retained evidence
+  // repairs compatibility hygiene, refresh it after commit with all the same
+  // authority/binding checks; don't leave a permanently stale readiness snapshot.
+  // This is at most one extra local pass, never provider execution or recursion.
+  if ("receiptProjectionChanged" in first && first.receiptProjectionChanged) {
+    return prepareCanonicalRecipientPass(input);
+  }
+  return first;
+}
+
+async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
   const held = (reasonCode: string) => ({
     replayed: false, blocked: true, reasonCode, enrollmentId: null,
     preparationState: "exception" as PreparationState,
@@ -100,7 +112,7 @@ export async function prepareCanonicalRecipient(input: CanonicalPreparationInput
       { type: "business", id: Number(peek.business_id) }, { type: "contact", id: input.contactId },
     ], ["contact_business","relationship"]);
     const contact = rows(await tx.execute(sql`
-      SELECT id,business_id,email,assigned_to,archived_at,email_mutation_generation
+      SELECT id,business_id,email,assigned_to,archived_at,email_mutation_generation,email_status
         FROM contacts WHERE id=${input.contactId} FOR UPDATE
     `))[0];
     if (!contact || contact.archived_at) return held("CURRENT_CONTACT_REQUIRED");
@@ -306,6 +318,20 @@ export async function prepareCanonicalRecipient(input: CanonicalPreparationInput
       ${JSON.stringify({preparationState,outboundAuthorized:false})}::jsonb
       WHERE id=${enrollmentId} AND status='paused'
         AND metadata->>'canonicalPreparationId'=${String(intentId)}`);
+    let receiptProjectionChanged=false;
+    if (enrollmentId && preparationState==="ready_held" && receipt?.outcome==="valid") {
+      // Reusing a business/address receipt does not create a validation intent.
+      // Project that original receipt locally for this genuinely selected,
+      // generation-pinned recipient, rather than leaving compatibility hygiene
+      // permanently unvalidated. Never mint/extend provider evidence or spend.
+      if (await currentCanonicalValidationSelection(input.contactId,emailHash,tx)) {
+        await tx.execute(sql`UPDATE contacts SET email_status='valid',
+          email_token_hash=${emailHash},email_validation_updated_at=${receipt.observedAt}::timestamptz
+          WHERE id=${input.contactId} AND email_mutation_generation=${Number(contact.email_mutation_generation)}
+            AND encode(sha256(convert_to(lower(trim(email)),'UTF8')),'hex')=${emailHash}`);
+        receiptProjectionChanged=contact.email_status!=="valid";
+      }
+    }
     if (preparationState === "pending_validation" && enrollmentId) {
       const { createValidationIntent } = await import("./provider-readiness-control");
       await createValidationIntent(tx,{
@@ -313,7 +339,7 @@ export async function prepareCanonicalRecipient(input: CanonicalPreparationInput
       });
     }
     return { replayed: Boolean(existing), blocked: enrollmentId === null, intentId: String(intentId), enrollmentId,
-      preparationState, reasonCode, decision, outboundAuthorized: false };
+      preparationState, reasonCode, decision, outboundAuthorized: false,receiptProjectionChanged };
   }));
 }
 

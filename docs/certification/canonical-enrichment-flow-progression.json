@@ -1,23 +1,23 @@
 {
-  "observedAt": "2026-10-05T12:50:08.099Z",
-  "checks": 39,
+  "observedAt": "2026-10-05T13:58:24.175Z",
+  "checks": 44,
   "scope": "Disposable real promotional pipeline, not production acceptance",
   "nativeRelationshipCommitted": true,
   "personalEmailWithoutWebsite": true,
   "retainedSelectedAddressValidated": true,
   "originalReceipt": {
-    "operation_id": "95531813-fe0f-48cb-9caf-33041900d67b",
+    "operation_id": "9715d9c1-4f6e-4eee-bb99-ac8e1e1deeda",
     "outcome": "valid",
-    "observed_at": "2026-10-05 12:50:04.518305+00"
+    "observed_at": "2026-10-05 13:58:17.628219+00"
   },
   "pausedEnrollment": true,
   "workerCycles": 2,
   "fakeDispatches": 2,
   "physicalNetworkAttempts": 0,
   "unboundPage": {
-    "examined": 250,
-    "bulkBindingQueries": 2,
-    "elapsedMs": 277
+    "examined": 5000,
+    "bulkBindingQueries": 21,
+    "elapsedMs": 492
   },
   "priorityPass": {
     "lateIdReachedBeforePopulationCursor": true,

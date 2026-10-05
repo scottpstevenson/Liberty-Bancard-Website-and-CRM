@@ -7,6 +7,7 @@ import {
   claimSfpRuntimeDeploymentOwner,
   lockCurrentSfpRuntimeOwner,
 } from "./cro03/sfp-provider-operations";
+import { runCanonicalTransaction } from "./canonical-transaction-retry";
 
 const KEY = "contact_link_automation_v1";
 const RULE = "independent_guarded_system_links_v2";
@@ -60,7 +61,15 @@ export async function setContactLinkAutomation(enabled: boolean, actorId: string
  * Never impersonates a reviewer. The canonical writer rechecks the immutable
  * evidence/snapshot and actual database guard for every automatic decision.
  */
-export async function processContactLinkAutomationTick() {
+export async function processContactLinkAutomationTick(
+  budget:{maxPages?:number;maxDurationMs?:number}={},
+) {
+  const maxPages=budget.maxPages ?? 200,maxDurationMs=budget.maxDurationMs ?? 30_000;
+  if (!Number.isInteger(maxPages) || maxPages<1 || maxPages>200
+    || !Number.isInteger(maxDurationMs) || maxDurationMs<1 || maxDurationMs>30_000) {
+    throw new Error("CONTACT_LINK_AUTOMATION_INVALID_TICK_BUDGET");
+  }
+  const deadline=Date.now()+maxDurationMs;
   // A policy repair must revisit earlier held records even when their source
   // rows did not change. Preserve authorization/off state and live leases.
   await pool.query(`UPDATE system_settings SET value=value ||
@@ -76,13 +85,13 @@ export async function processContactLinkAutomationTick() {
   // Local identity linking has no cohort or paid-provider admission dependency.
   // Reuse the selected deployment owner; old builds and explicit revocation
   // remain fenced even after a program was initialized by an earlier build.
-  const owner = await claimSfpRuntimeDeploymentOwner();
+  const owner = await runCanonicalTransaction("link_owner_claim",claimSfpRuntimeDeploymentOwner);
   if (!exists.rowCount) {
     const initial: Program = {version:1,rule:RULE,runId:crypto.randomUUID(),enabled:true,
       authorizedBy:`system:canonical_contact_links_owner_epoch_${owner.ownerEpoch}`,cursor:0,scanned:0,
       committed:0,replayed:0,held:0,reasons:{},leaseToken:null,leaseUntil:null,
       updatedAt:new Date().toISOString(),lastError:null,complete:false};
-    await db.transaction(async tx => {
+    await runCanonicalTransaction("link_bootstrap",()=>db.transaction(async tx => {
       const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
       if (currentOwner.ownerEpoch !== owner.ownerEpoch || currentOwner.ownerToken !== owner.ownerToken) {
         throw new Error("CONTACT_LINK_AUTOMATION_RUNTIME_OWNER_CHANGED");
@@ -91,10 +100,10 @@ export async function processContactLinkAutomationTick() {
       // A concurrent explicit off decision always wins over automatic bootstrap.
       await tx.execute(sql`INSERT INTO system_settings(key,value,updated_at)
         VALUES(${KEY},${JSON.stringify(initial)}::jsonb,NOW()) ON CONFLICT(key) DO NOTHING`);
-    });
+    }));
   }
   const token = crypto.randomUUID();
-  const claim = await db.transaction(async tx => {
+  const claim = await runCanonicalTransaction("link_cursor_claim",()=>db.transaction(async tx => {
     const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
     if (currentOwner.ownerEpoch !== owner.ownerEpoch || currentOwner.ownerToken !== owner.ownerToken) {
       throw new Error("CONTACT_LINK_AUTOMATION_RUNTIME_OWNER_CHANGED");
@@ -107,7 +116,7 @@ export async function processContactLinkAutomationTick() {
         AND (value->>'leaseUntil' IS NULL OR (value->>'leaseUntil')::timestamptz <= clock_timestamp())
       RETURNING value,clock_timestamp()::text AS scan_time`);
     return (result as any).rows as any[];
-  });
+  }));
   const state = claim[0]?.value as Program | undefined;
   if (!state) return { ran: false };
   try {
@@ -121,11 +130,15 @@ export async function processContactLinkAutomationTick() {
       state.scanStartedAt = claim[0].scan_time;
       await checkpoint(state, token);
     }
+    let pages=0;
+    while (pages<maxPages && Date.now()<deadline) {
     const preview = await previewContactBusinessSystemLinks({
       afterContactId: state.cursor, limit: 25, changedSince: state.changedSince,
     });
+    pages++;
     if (!preview.schemaReady) throw new Error("COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING");
     for (const candidate of preview.rows) {
+      if (Date.now()>=deadline) break;
       const current = await getContactLinkAutomationStatus();
       if (!current?.enabled || current.leaseToken !== token) break;
       let outcome: any = null;
@@ -172,6 +185,10 @@ export async function processContactLinkAutomationTick() {
     if (state.scanned > 0 && preview.nextCursor === null &&
         state.cursor === preview.rows.at(-1)?.contactId) state.complete = true;
     if (!preview.rows.length) state.complete = true;
+    // Do not skip the unprocessed tail after deadline/hold, nor start another
+    // incremental cycle inside this lease after reaching the real end.
+    if (state.complete || state.cursor!==preview.rows.at(-1)?.contactId) break;
+    }
     state.lastError = null;
     return { ran: true, scanned: state.scanned, committed: state.committed, held: state.held, complete: state.complete };
   } catch (error: any) {

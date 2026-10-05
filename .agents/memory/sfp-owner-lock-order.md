@@ -16,6 +16,18 @@ did not exclude this timing-dependent failure.
 When adding owner/selector locks or changing publish/claim flows, check the order
 across all participating transactions, not only each individual SQL statement.
 
+Automatic writers must also acquire deployment-owner authority before commercial
+graph/domain locks, retaining the final evidence/authority recheck afterward.
+
+**Why:** A native concurrent test proved a graph-blocked writer can hold owner
+authority while actual renewal queues. A graph-first writer that requests owner
+authority afterward introduces the opposite order relative to preparation and
+renewal. Local ordering proof is not identification of an earlier production cycle.
+
+**How to apply:** Check the complete owner → graph ordering when composing
+automatic writers with an authority callback; a final-only callback is not enough.
+Keep read-only holds cheap, and do not remove the final snapshot recheck to fix ordering.
+
 A passing isolated registry concurrency test does not establish that the full
 published heartbeat, preparation and provider lock graph is deadlock-free.
 

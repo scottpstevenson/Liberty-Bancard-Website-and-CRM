@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import {runCanonicalTransaction} from "./canonical-transaction-retry";
 import { canonicalAddressReceiptNativeFingerprint } from "./canonical-address-receipt-contract";
 import {
   lockCommercialGraphMembershipSets,
@@ -651,13 +652,17 @@ export async function decideSystemContactBusinessLink(input: {
   ruleVersion: string;
   factsHash: string;
   facts: Record<string, unknown>;
+  beforeGraphLock?: (tx:any) => Promise<void>;
   authorityCheck: (tx: any) => Promise<boolean>;
 }) {
-  return db.transaction(async (tx) => {
+  return runCanonicalTransaction("link_commit",()=>db.transaction(async (tx) => {
     // Publish schema-diff can add tables/columns but does not reliably install
     // PL/pgSQL trigger functions. Never let automatic system authority silently
     // proceed without the database-enforced system/admin decision split.
     await assertSystemLinkDatabaseGuard(tx);
+    // Automatic callers pin deployment ownership before graph/domain locks.
+    // Retain the fresh snapshot/authority recheck below at the actual write.
+    if (input.beforeGraphLock) await input.beforeGraphLock(tx);
     const contactNode: CommercialGraphNode = { type: "contact", id: input.contactId };
     const businessNode: CommercialGraphNode = { type: "business", id: input.businessId };
     await lockCommercialGraphNodes(tx, [contactNode, businessNode]);
@@ -696,7 +701,7 @@ export async function decideSystemContactBusinessLink(input: {
         ${evidence.id},NULL,NULL) RETURNING *`) as any).rows?.[0];
     await tx.execute(sql`UPDATE contacts SET business_id=${input.businessId},updated_at=now() WHERE id=${input.contactId}`);
     return decision;
-  });
+  }));
 }
 
 /**

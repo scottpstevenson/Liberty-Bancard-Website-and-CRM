@@ -106,6 +106,20 @@ try {
     FROM provider_observations WHERE subject_type='contact' AND subject_id=$1 ORDER BY observed_at DESC LIMIT 1`,
   [contactId])).rows[0];
   check(receipt?.outcome === "valid", "Immutable original receipt exists");
+  await pool.query("UPDATE contacts SET email_status='unvalidated',email_validation_updated_at=NULL WHERE id=$1",[contactId]);
+  const reused=await prepare();
+  check(reused.preparationState==="ready_held",
+    "A retained fresh receipt remains locally preparable when compatibility hygiene is unvalidated");
+  assert.deepEqual("decision" in reused ? reused.decision.reasonCodes : null,
+    "decision" in ready ? ready.decision.reasonCodes : null);checks++;
+  const projected=(await pool.query(`SELECT email_status,email_validation_updated_at::text validated_at
+    FROM contacts WHERE id=$1`,[contactId])).rows[0];
+  check(projected.email_status==="valid" && projected.validated_at===receipt.observed_at,
+    "Fresh selected receipt projects actual contact hygiene with its original observation time");
+  check((await evaluateMarketingEmailEligibility(contactId)).allowed,
+    "Receipt reuse restores shared readiness rather than leaving the contact permanently unvalidated");
+  check(await count("provider_operations")===baseline.operations+1 && fakeDispatches===1,
+    "Projection of retained evidence neither enqueues replacement validation nor dispatches again");
   // A real PostgreSQL cycle, not a thrown fake error: the main transaction
   // holds A and waits for B; the peer holds B and waits for A. Only the main
   // connection detects the cycle first, so PostgreSQL aborts that transaction.
@@ -165,7 +179,7 @@ try {
   // without opening 250 owner-locked retirement transactions or buying hygiene.
   await pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class)
     SELECT 'Unbound','Retained',$1||n::text||'@gmail.com','','production'
-    FROM generate_series(1,250) n`, [`${prefix}.unbound.`]);
+    FROM generate_series(1,5000) n`, [`${prefix}.unbound.`]);
   const { PgDialect } = await import("drizzle-orm/pg-core");
   const dialect=new PgDialect(),originalExecute=db.execute.bind(db);
   let bulkBindingQueries=0;
@@ -179,8 +193,9 @@ try {
   try { bulkPage=await processCanonicalRecipientPreparationTick(); }
   finally { (db as any).execute=originalExecute; }
   const bulkElapsedMs=Date.now()-bulkStarted;
-  check(bulkPage.ran && bulkPage.examined===250,"Bounded page accounts for retained unbound contacts");
-   check(bulkBindingQueries===2,"One binding retrieval per population/priority page, not per contact");
+  check(bulkPage.ran && bulkPage.examined===5000 && bulkPage.populationPages===20,
+    "A real tick advances twenty bounded pages instead of idling after the first 250 contacts");
+   check(bulkBindingQueries===21,"One binding retrieval per population/priority page, not per contact");
   const lastPage=await processCanonicalRecipientPreparationTick();
   check(lastPage.ran && lastPage.examined===1 && lastPage.cycles>=3,"Keyset tail is retained and the full scan completes");
   check(await count("provider_operations")===baseline.operations+1 && fakeDispatches===1,
@@ -211,7 +226,7 @@ try {
   const newContactId=outcomes[1].contactIds[0];
   const prepareImported=()=>prepareCanonicalRecipient({contactId:newContactId,sequenceId,programId,
     actor,source:"canonical_import_flow_certification"});
-   const prioritized=await processCanonicalRecipientPreparationTick();
+   const prioritized=await processCanonicalRecipientPreparationTick({maxPopulationPages:1});
    const newPendingRow=(await pool.query(`SELECT preparation_state,enrollment_id FROM cr04_enrollment_intents
      WHERE contact_id=$1 AND program_id=$2`,[newContactId,programId])).rows[0];
    const newPending={preparationState:newPendingRow?.preparation_state,enrollmentId:newPendingRow?.enrollment_id};
