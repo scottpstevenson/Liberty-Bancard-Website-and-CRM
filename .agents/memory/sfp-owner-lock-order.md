@@ -75,3 +75,16 @@ and compare the exact acquired epoch/token. A transfer between acquisition and
 pinning must fail closed. Retain the final effect fences and owner row pins:
 legitimate renewal can still wait on those pins, so removal of the acquisition
 convoy is not proof that every production latency or lease-expiry cause is fixed.
+
+Never acquire a second global pooled connection from a helper invoked inside
+an authority-pinned, caller-owned transaction. Thread the existing transaction
+through live admission reads; persist denial receipts after rollback/release.
+
+**Why:** A native one-connection certification exposed the nested-checkout
+self-wait in contact admission. This explains a concrete local contention
+mechanism, not the sole cause or exact caller of every production timeout.
+
+**How to apply:** Audit transitive helpers, not just the outer transaction body.
+Keep contact/provenance/consent writes atomic at a bounded mailbox-sized unit,
+retain final live authority/lease checks, and prove recovery reuses records
+committed before a crash.

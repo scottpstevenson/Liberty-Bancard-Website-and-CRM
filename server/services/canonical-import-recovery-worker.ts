@@ -4,7 +4,7 @@ import {db} from "../db";
 import {materializeCanonicalProviderImportRow} from "./canonical-provider-import";
 import {assertSystemLinkDatabaseGuard} from "./commercial-link-authority";
 import {claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner} from "./cro03/sfp-provider-operations";
-import {runCanonicalTransaction} from "./canonical-transaction-retry";
+import {runCanonicalTransaction,boundCanonicalWriteTransaction} from "./canonical-transaction-retry";
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const MAX_ITEMS_PER_TICK=250;
 const MAX_TICK_DURATION_MS=30_000;
@@ -73,6 +73,7 @@ export async function processCanonicalImportRecoveryTick(
   const deadline=Date.now()+maxDurationMs;
   const owner=await runCanonicalTransaction("import_owner_claim",claimSfpRuntimeDeploymentOwner);
   const ownerAuthorityCheck=async(tx:any)=>{
+    await boundCanonicalWriteTransaction(tx);
     const live=await lockCurrentSfpRuntimeOwner(tx);
     if (live.ownerEpoch!==owner.ownerEpoch || live.ownerToken!==owner.ownerToken)
       throw new Error("CANONICAL_IMPORT_RECOVERY_RUNTIME_OWNER_CHANGED");
@@ -117,12 +118,16 @@ export async function processCanonicalImportRecoveryTick(
       if ("fulfillmentState" in result && result.fulfillmentState==="held") {held++;continue;}
       await runCanonicalTransaction("import_finalize",()=>db.transaction(async tx=>{
         await ownerAuthorityCheck(tx);
-        const receipt=rows(await tx.execute(sql`UPDATE cro03_enrichment_items
+        const receipt=rows(await tx.execute(sql`WITH pinned AS MATERIALIZED (
+          SELECT id,lease_expires_at FROM cro03_enrichment_items
+          WHERE id=${String(candidate.id)}::uuid AND state='running'
+            AND claim_token=${token}::uuid FOR UPDATE
+        ) UPDATE cro03_enrichment_items item
           SET state='completed',terminal_code='CANONICAL_LOCAL_IMPORT_FULFILLED',
             claim_token=NULL,lease_expires_at=NULL,current_provider=NULL,completed_at=clock_timestamp(),
             updated_at=clock_timestamp()
-          WHERE id=${String(candidate.id)}::uuid AND state='running'
-            AND claim_token=${token}::uuid AND lease_expires_at>clock_timestamp() RETURNING id`));
+          FROM pinned WHERE item.id=pinned.id AND item.state='running'
+            AND item.claim_token=${token}::uuid AND pinned.lease_expires_at>clock_timestamp() RETURNING item.id`));
         if (!receipt.length) throw new Error("CANONICAL_IMPORT_RECOVERY_FINALIZATION_LEASE_LOST");
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('canonical_import_row_fulfilled','cro03_enrichment_item',${String(candidate.id)},

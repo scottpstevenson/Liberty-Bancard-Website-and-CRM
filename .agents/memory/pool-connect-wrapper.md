@@ -1,27 +1,34 @@
 ---
-name: pool.connect() wrapper danger
-description: Why wrapping pool.connect() to intercept client.release() is unsafe in pg-pool, and what to do instead.
+name: Checkout-safe PostgreSQL observability
+description: Preserve pg-pool checkout/release ownership when adding explicit-transaction tracing.
 ---
 
-# pool.connect() wrapper — why it breaks and what to do instead
+Never intercept or replace `client.release()` for checkout instrumentation.
+Use the pool's public release event. Acquisition may be observed through
+callback/promise wrappers that return the original physical client and pass
+the current release callback through unchanged.
 
-## The rule
-**Never wrap `pool.connect()` to intercept `client.release()`.** Only wrap `pool.query()` for observability.
+**Why:** pg-pool owns a fresh release function for each checkout. Capturing or
+reusing an earlier checkout's release can double-release or leak a recycled
+connection. A previous observability implementation hung startup this way.
+The blanket prohibition on observing acquisition was too broad: native tests
+proved event-based release tracking preserves callback/promise behavior and
+repeated physical-client reuse.
 
-## Why
-pg-pool recycles physical `PoolClient` objects. On every checkout, pg-pool sets `client.release` to a **fresh, checkout-scoped function** that knows the exact state of that checkout (idleListener, etc.).
+**How to apply:** Keep checkout records separate from physical connections.
+Install a query observer once per physical connection, not once per checkout.
+Test actual pg-pool reuse, callback release identity, query overloads,
+acquisition failure and error-release disposal with a one-connection pool.
+Do not derive pure SQL time from pool.query's combined acquire/execute duration.
 
-If you do `const _origRelease = client.release.bind(client); client.release = observedRelease` and the same physical client is returned to the pool and re-checked out, then on the next checkout `client.release` is still your old `observedRelease` wrapper. `_origRelease` from that checkout captures `observedRelease` (not the fresh pg-pool release), creating a chain that eventually calls the real pool release multiple times (double-release) — or calls the stale release from a prior checkout, which pg-pool detects and throws `"Release called on client which has already been released to the pool."`.
+Checked-out connections can emit an error while application code is idle in a
+transaction. Handle that event without exposing error text, literals or
+parameters, and prove that native idle-transaction termination leaves the pool
+usable rather than crashing the process.
 
-## What happened in practice
-Task agent #1809 added a `pool.connect()` wrapper that set up per-checkout `client.release` and `client.query` wrappers. On recycled connections (the second or third checkout of the same physical client), the double-release caused a permanent connection leak. The connection was counted as checked-out by the pool but was actually idle, so subsequent `pool.connect()` calls would wait forever for a free slot, hanging the server startup indefinitely.
+**Why:** Server-enforced idle bounds are not safe if the corresponding client
+error is unhandled.
 
-**How:** `db:long_transaction` warnings fired at startup (Phase 3 check, then seedKnowledgeBase), server never opened port 5000.
-
-## The fix
-- Removed the `pool.connect()` wrapper entirely from `server/db.ts`.
-- Kept the `pool.query()` wrapper (safe — doesn't mutate client internals).
-- Added 60-second deadline in `scripts/migrate.ts` and `server/index.ts` around `runDrizzleMigrations()` as defense against future post-migration helpers that hang.
-
-## How to apply
-Any time someone proposes a `pool.connect()` wrapper that touches `client.release` or `client.query`, refuse it. The `pool.query()` wrapper is the safe alternative; it covers the vast majority of Drizzle ORM calls.
+**How to apply:** Report bounded identifiers, phases and SQLSTATE only. Preserve
+query rejection and transaction rollback semantics; never treat an uncertain
+connection failure as a known-aborted retryable transaction.

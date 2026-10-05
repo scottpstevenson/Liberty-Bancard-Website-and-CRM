@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import {sql} from "drizzle-orm";
 import { assertDisposableTestInfrastructure } from "../test-infrastructure-guard";
 import { applyCertificationProviderDenyBoundary,
   getBlockedCertificationNetworkAttemptCount } from "../certification-provider-deny";
 await assertDisposableTestInfrastructure({ operation: "cohort-free recipient preparation certification" });
 process.env.VG_PROVIDER_DENY_MODE = "1";
 applyCertificationProviderDenyBoundary({ fatal: true });
-const { pool } = await import("../../server/db");
+const { db,pool } = await import("../../server/db");
 const { prepareCanonicalRecipient,currentCanonicalValidationSelection } =
   await import("../../server/services/canonical-recipient-preparation");
 const {processValidationIntent,evaluateMarketingEmailEligibility,delegateSelectedAddressValidation} =
@@ -73,6 +74,43 @@ try {
     [prepared.enrollmentId])).rows[0];
   check(member.status === "paused" && member.next_action_at == null, "No active dispatch or scheduled send");
   check(member.metadata.outboundAuthorized === false, "Preparation explicitly carries no send authority");
+  const {assertCanonicalPreparationLease,checkpointCanonicalPreparationLease}=
+    await import("../../server/services/canonical-preparation-lease");
+  const leaseKey=`preparation_expiry_${randomUUID()}`,leaseToken=randomUUID();
+  const leaseState={leaseToken,leaseUntil:new Date(Date.now()+120000).toISOString(),scanned:0};
+  await pool.query("INSERT INTO system_settings(key,value) VALUES($1,$2::jsonb)",[leaseKey,JSON.stringify(leaseState)]);
+  const expiring=await fixture();
+  let checkpoints=0;
+  await assert.rejects(prepareCanonicalRecipient({
+    contactId:expiring.contactId,sequenceId,programId,actor,source:prefix,
+    checkpoint:async()=>{
+      if (++checkpoints===2) await pool.query(`UPDATE system_settings SET value=jsonb_set(value,
+        '{leaseUntil}',to_jsonb((clock_timestamp()-INTERVAL '1 second')::text)) WHERE key=$1`,[leaseKey]);
+      await db.transaction(tx=>checkpointCanonicalPreparationLease(tx,leaseKey,leaseToken,leaseState));
+    },
+    beforeWrite:tx=>assertCanonicalPreparationLease(tx,leaseKey,leaseToken),
+  }),/LEASE_LOST/);checks++;
+  check(checkpoints===2,"Lease expiry after actual qualification is caught before the write transaction");
+  check((await pool.query("SELECT count(*)::int n FROM cr04_enrollment_intents WHERE contact_id=$1",
+    [expiring.contactId])).rows[0].n===0,"Qualification expiry creates no intent or membership");
+  await pool.query("UPDATE system_settings SET value=$2::jsonb WHERE key=$1",[leaseKey,JSON.stringify(leaseState)]);
+  let guards=0;
+  await assert.rejects(prepareCanonicalRecipient({
+    contactId:expiring.contactId,sequenceId,programId,actor,source:prefix,
+    beforeWrite:async tx=>{
+      await assertCanonicalPreparationLease(tx,leaseKey,leaseToken);
+      if (++guards===1) await tx.execute(sql`UPDATE system_settings SET value=jsonb_set(value,'{leaseUntil}',
+        to_jsonb((clock_timestamp()+INTERVAL '2 seconds')::text)) WHERE key=${leaseKey}`);
+      else {
+        await new Promise(resolve=>setTimeout(resolve,2100));
+        await assertCanonicalPreparationLease(tx,leaseKey,leaseToken);
+      }
+    },
+  }),/LEASE_LOST/);checks++;
+  check(guards===2,"Final guard rechecks wall-clock expiry after intent/member writes");
+  check((await pool.query("SELECT count(*)::int n FROM cr04_enrollment_intents WHERE contact_id=$1",
+    [expiring.contactId])).rows[0].n===0,"Expiry during the write transaction rolls back intents and enrollments atomically");
+  await pool.query("DELETE FROM system_settings WHERE key=$1",[leaseKey]);
   const replay = await call(first.contactId);
   check(replay.replayed && replay.enrollmentId === prepared.enrollmentId, "Replay reuses the same intent and membership");
   const intent = (await pool.query("SELECT * FROM cr04_enrollment_intents WHERE id=$1",[prepared.intentId])).rows[0];
@@ -188,6 +226,15 @@ try {
   check(cycle.cycles===1 && cycle.afterContactId===0,"Completed local scan has a durable cycle receipt, not a heartbeat");
   const secondCycle=await processCanonicalRecipientPreparationTick();
   check(secondCycle.ran && secondCycle.cycles===2,"A second scheduled pass replays safely");
+  const concurrent=await fixture();
+  const passes=await Promise.all([processCanonicalRecipientPreparationTick(),processCanonicalRecipientPreparationTick()]);
+  check(passes.some(pass=>pass.ran),"Competing workers still advance the shared preparation cursor");
+  check((await pool.query(`SELECT count(*)::int n FROM cr04_enrollment_intents
+    WHERE contact_id=$1 AND program_id=$2`,[concurrent.contactId,programId])).rows[0].n===1,
+    "Competing preparation workers reuse one committed intent");
+  check((await pool.query(`SELECT count(*)::int n FROM sequence_enrollments
+    WHERE contact_id=$1 AND sequence_id=$2 AND status='paused'`,[concurrent.contactId,sequenceId])).rows[0].n===1,
+    "Competing preparation workers create exactly one paused enrollment");
   check(Number((await pool.query("SELECT count(*) n FROM provider_operations")).rows[0].n)===before.operations+1,
     "Automatic selection remains local while the provider is disabled");
   check(Number((await pool.query("SELECT count(*) n FROM sfp_cohort_runs")).rows[0].n)===before.cohorts,

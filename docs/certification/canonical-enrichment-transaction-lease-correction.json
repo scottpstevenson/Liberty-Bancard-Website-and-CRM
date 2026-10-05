@@ -1,0 +1,93 @@
+{
+  "task": "2063",
+  "status": "local_certified_production_acceptance_open",
+  "productionAcceptancePassed": false,
+  "localCertification": {
+    "infrastructure": "Migrated disposable socket PostgreSQL and private Redis; provider-deny boundary",
+    "transactionAndLeaseChecks": 103,
+    "preparationAndSharedValidationChecks": 96,
+    "providerIntakeAndReplayChecks": 79,
+    "programDiscoveryAndAuthorityChecks": 45,
+    "ownerAddressPreparationContractChecks": 34,
+    "deadlockOnlyRetryAndSafePhaseChecks": "passed",
+    "typecheck": "passed",
+    "build": "passed",
+    "legacyBacklog": {
+      "originalDeferredRows": 1472,
+      "committedFulfilledRows": 1472,
+      "serialContinuationBatches": 13,
+      "elapsedMilliseconds": 386270,
+      "firstBatchFulfilled": 104,
+      "applicationPoolMax": 1,
+      "parallelRecoveryPathAdded": false,
+      "originalAccountingAndEvidencePreserved": true,
+      "subsequentReplayIsNoOp": true,
+      "providerNetworkRequests": 0,
+      "outboundMessages": 0,
+      "cohortsCreated": 0
+    },
+    "adversarialCoverage": [
+      "Actual pg callback/promise/query-object behavior and recycled physical clients",
+      "Current callback release identity; no mutation of client.release",
+      "Acquisition failure, discard-on-error and native idle-transaction termination",
+      "Independent PostgreSQL lock holders and a one-connection application pool",
+      "Preparation assertion/checkpoint expiry after row-lock waits",
+      "Preparation expiry after real qualification and after intent/enrollment writes",
+      "Competing preparation workers commit one intent and one paused enrollment",
+      "Import renewal cannot revive expired or replaced claim tokens",
+      "Fault after first atomic mailbox/provenance commit leaves source item incomplete",
+      "Existing worker reclaims expired crashed actor and reuses committed contact",
+      "Stale import actor cannot write after successor completion",
+      "Retired-owner rejection and existing native authority contracts"
+    ]
+  },
+  "productionObservation": {
+    "observedAt": "2026-10-05T18:33:40.958272Z",
+    "access": "Read-only production replica; not primary blocker-graph evidence",
+    "liveHealth": {
+      "httpStatus": 200,
+      "releaseSha": "19995f4feabfcd640a16401ab61aece44095c00c",
+      "publishBuildId": "93d9237b-5b59-4989-a9c3-28e7eca6cded",
+      "builtAt": "2026-10-05T17:05:47.400Z",
+      "correctionPublished": false
+    },
+    "legacyRows": {
+      "total": 1472,
+      "completed": 51,
+      "blockedStagingDisabled": 1409,
+      "retryRequired": 9,
+      "running": 2,
+      "ambiguousOrganizationMatchHeld": 1
+    },
+    "outboundPause": {
+      "state": "paused",
+      "epoch": 1
+    },
+    "zeroBounce": {
+      "enabled": true,
+      "circuitState": "closed",
+      "selectiveAdmissionChanged": false
+    },
+    "primaryBlockingCallerAttributed": false,
+    "throughputAfterCorrectionVerified": false,
+    "allRowsReconciled": false,
+    "subsequentScheduledProgressAfterCorrectionVerified": false
+  },
+  "previewVerification": {
+    "workflow": "Start application",
+    "backgroundJobProfile": "off",
+    "startup": "serving on port 5000; workers disabled; pause loaded",
+    "signedInUIVerified": false,
+    "publicScreenshot": "screenshots/canonical-lease-correction-home.jpg",
+    "publicStyling": "Screenshot shows a public-page styling problem; no client, CSS, package or frontend configuration changes belong to this patch. Not certified as a working public UI."
+  },
+  "remainingAcceptance": [
+    "Owner merges this isolated patch into the actual publish workspace and publishes it",
+    "Capture instrumented primary backend/checkout/phase evidence for the real blocking caller",
+    "Verify sustained corrected production throughput across multiple scheduled cycles",
+    "Reconcile every one of the 1472 original rows to committed completion or explicit terminal reasons",
+    "Verify subsequent scheduled preparation/import progress, idempotency and stale-owner rejection",
+    "Keep outbound paused, ZeroBounce selective and owner-only workbook import/replay unchanged",
+    "Keep task 2063 and original consolidation acceptance open until these checks pass"
+  ]
+}

@@ -55,7 +55,8 @@ async function main(): Promise<void> {
       { name: "canonical-contact-link-automation", script: "scripts/certification/test-crm-contact-link-automation.ts", database: true },
       { name: "canonical-flow-progression", script: "scripts/certification/test-canonical-flow-progression.ts", database: true },
       { name: "canonical-upload-recovery", script: "scripts/certification/test-provider-import-recovery.ts", database: true },
-      { name: "canonical-provider-intake", script: "scripts/certification/test-canonical-provider-import.ts", database: true },
+      { name: "canonical-provider-intake", script: "scripts/certification/test-canonical-provider-import.ts", database: true, poolMax:1 },
+      { name: "canonical-transaction-leases", script: "scripts/certification/test-canonical-transaction-leases.ts", database: true, poolMax:1 },
       { name: "canonical-workbook-evidence", script: "scripts/certification/test-enrichment-workbooks.ts", database: true },
       { name: "canonical-workbook-intake", script: "scripts/certification/test-canonical-workbook-intake.ts", database: true },
       { name: "canonical-recipient-preparation", script: "scripts/certification/test-canonical-recipient-preparation.ts", database: true },
@@ -112,6 +113,7 @@ async function main(): Promise<void> {
     }
     for (const certification of selectedCertifications) {
       const env: NodeJS.ProcessEnv = { ...baseEnv };
+      if ("poolMax" in certification) env.DB_POOL_MAX=String(certification.poolMax);
       if (certification.database) {
         const dbName = `test_sfp2060_${certification.name.replace(/[^a-z0-9]/gi, "_")}_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
         const admin = new pg.Client({

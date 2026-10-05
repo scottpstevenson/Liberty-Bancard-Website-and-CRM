@@ -1,4 +1,24 @@
-# Canonical enrichment: dependency gate and early workbook tests
+# Canonical enrichment: latest transaction/lease certification
+
+**Current — 2026-10-05:** local transaction/lease correction is certified;
+production acceptance remains open. Final certificates pass 103 connection/lease,
+96 preparation, 79 intake/replay, 45 discovery/authority and 34 owner-contract
+checks. The final disposable one-connection serial worker committed all 1,472
+deferred rows in 13 batches (386,270 ms), then replayed without new work.
+
+At 18:33:40 UTC the older live build reports 51 completed, 1,409 staged,
+nine retry-required, two running and one ambiguous-match hold. No production
+write or publish occurred. Primary blocking-caller attribution, sustained
+corrected throughput and subsequent scheduled convergence remain unverified.
+Owner must merge this isolated patch into the actual publish workspace and
+publish before those checks can proceed. Keep task 2063 open, outbound paused
+and validation selective.
+
+See `canonical-enrichment-transaction-lease-correction.json` and its companion
+`.md` for the exact proof, limitations and owner handoff. The public preview
+styling problem is outside this backend patch; signed-in UI was not verified.
+
+## Historical dependency gate and early workbook tests
 
 ## Status
 

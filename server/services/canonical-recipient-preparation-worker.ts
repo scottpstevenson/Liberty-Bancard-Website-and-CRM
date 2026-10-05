@@ -5,7 +5,8 @@ import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
 import { contactTargetVerticalSql } from "@shared/contact-vertical-taxonomy";
 import { assertCanonicalPreparationDatabaseGuard,prepareCanonicalRecipient } from "./canonical-recipient-preparation";
 import { claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner } from "./cro03/sfp-provider-operations";
-import { runCanonicalTransaction } from "./canonical-transaction-retry";
+import { runCanonicalTransaction,boundCanonicalWriteTransaction } from "./canonical-transaction-retry";
+import {assertCanonicalPreparationLease,checkpointCanonicalPreparationLease} from "./canonical-preparation-lease";
 
 const KEY="canonical_recipient_preparation_cursor";
 const rows=(result:any):any[]=>result?.rows ?? result ?? [];
@@ -27,6 +28,7 @@ export async function processCanonicalRecipientPreparationTick(
   const owner=await runCanonicalTransaction("preparation_owner_claim",claimSfpRuntimeDeploymentOwner);
   const token=randomUUID();
   const fence=async(tx:any)=>{
+    await boundCanonicalWriteTransaction(tx);
     const live=await lockCurrentSfpRuntimeOwner(tx);
     if (live.ownerEpoch!==owner.ownerEpoch || live.ownerToken!==owner.ownerToken) {
       throw new Error("CANONICAL_PREPARATION_RUNTIME_OWNER_CHANGED");
@@ -50,10 +52,15 @@ export async function processCanonicalRecipientPreparationTick(
   state.priority ??= {afterContactId:0,cycles:0,scanned:0,prepared:0,held:0,reasons:{},lastCycleAt:null};
   const guard=async(tx:any)=>{
     await fence(tx);
-    const held=rows(await tx.execute(sql`SELECT 1 FROM system_settings
-      WHERE key=${KEY} AND value->>'leaseToken'=${token}
-        AND (value->>'leaseUntil')::timestamptz>clock_timestamp() FOR SHARE`));
-    if (!held.length) throw new Error("CANONICAL_PREPARATION_CURSOR_LEASE_LOST");
+    await assertCanonicalPreparationLease(tx,KEY,token);
+  };
+  let lastCheckpointAt=Date.now();
+  const checkpoint=async(release=false)=>{
+    await runCanonicalTransaction(release ? "preparation_release" : "preparation_checkpoint",()=>db.transaction(async tx=>{
+      await fence(tx);
+      await checkpointCanonicalPreparationLease(tx,KEY,token,state,release);
+    }));
+    lastCheckpointAt=Date.now();
   };
   const deadline=Date.now()+90_000;
   const bindingJoins=sql`JOIN businesses b ON b.id=c.business_id
@@ -89,6 +96,10 @@ export async function processCanonicalRecipientPreparationTick(
     }
     for (const contact of contacts) {
       if (Date.now()>=pageDeadline) break;
+      // Unbound population rows do not regain a per-row authority transaction.
+      // Renew between bounded pages/time slices; actual effects checkpoint
+      // independently before/after qualification and after their commits.
+      if (Date.now()-lastCheckpointAt>=30_000) await checkpoint();
       // Include unavailable/changed recipients: stale paused slots must retire,
       // so suppressions and affiliation changes cannot strand the allowance.
       if (contact.has_preparation===true) await runCanonicalTransaction("preparation_retirement",()=>db.transaction(async tx=>{
@@ -118,15 +129,18 @@ export async function processCanonicalRecipientPreparationTick(
           await tx.execute(sql`UPDATE cr04_enrollment_intents SET preparation_state='exception',
             enrollment_id=NULL,reason_code='CURRENT_RECIPIENT_FACTS_CHANGED' WHERE id=${String(intent.id)}::uuid`);
         }
+        await guard(tx);
       }));
       const programs=bindingsByContact.get(Number(contact.id)) ?? new Map<string,number[]>();
       let advanced=false,reason="NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL";
       for (const [programId,sequences] of programs) {
+        if (Date.now()>=pageDeadline) break;
         if (sequences.length!==1) {reason="PROGRAM_BINDING_AMBIGUOUS";continue;}
         try {
           const result=await prepareCanonicalRecipient({
             contactId:Number(contact.id),programId,sequenceId:sequences[0],
             actor:{role:"admin",actorId,email:null},source:"canonical_automatic_selection",beforeWrite:guard,
+            checkpoint,
           });
           if (result.enrollmentId) {advanced=true;prepared++;}
           else reason=result.reasonCode;
@@ -139,9 +153,12 @@ export async function processCanonicalRecipientPreparationTick(
       progress.afterContactId=Number(contact.id);progress.scanned++;examined++;
       if (advanced) progress.prepared++;
       else {progress.held++;progress.reasons[reason]=(progress.reasons[reason] ?? 0)+1;}
+      if (advanced || contact.has_preparation===true || Date.now()-lastCheckpointAt>=30_000) await checkpoint();
     }
+    await checkpoint();
     return {examined,prepared};
   };
+  let failed=false;
   try {
     const populationPage=async()=>rows(await db.execute(sql`SELECT c.id,EXISTS (
         SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
@@ -205,10 +222,12 @@ export async function processCanonicalRecipientPreparationTick(
       }
     }
     return {ran:true,...population,populationPages,cycles:state.cycles,priority};
+  } catch (error) {
+    failed=true;
+    throw error;
   } finally {
-    // CAS cannot overwrite a newer pass after crash/expiry.
-    state.leaseToken=null;state.leaseUntil=null;
-    await db.execute(sql`UPDATE system_settings SET value=${JSON.stringify(state)}::jsonb,updated_at=NOW()
-      WHERE key=${KEY} AND value->>'leaseToken'=${token}`);
+    // Neither expiry nor an owner transfer can persist stale cursor progress.
+    // Preserve the original error when a failed pass also cannot release.
+    try {await checkpoint(true);} catch(error) {if (!failed) throw error;}
   }
 }

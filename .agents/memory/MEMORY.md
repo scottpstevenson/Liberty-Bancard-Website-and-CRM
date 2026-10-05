@@ -91,7 +91,7 @@
 - [Publish vs dev environment drift](publish-vs-dev-environment-drift.md) — Publish may advance past deployed HEAD; dev/prod DBs differ and can share Redis/BullMQ keys.
 - [Production seed convergence](production-seed-convergence.md) — Missing seeds/hashes; [insert-only seed gap](cro02-production-seed-gap.md).
 - [DB pool/worker contention](db-pool-worker-contention.md) — system-wide 500s/timeouts can be pool exhaustion from shared BullMQ workers, not a regression; isolated pg.Pool ping fast = contention.
-- [pool.connect() wrapper danger](pool-connect-wrapper.md) — wrapping pool.connect() to intercept client.release() is unsafe (pg-pool recycles clients); use pool.query() wrapper only.
+- [Checkout-safe pool tracing](pool-connect-wrapper.md) — never intercept client.release; observe release events and install query tracing once per physical connection.
 - [Standalone contact classification](contact-record-class-gap.md) — Standalone tests miss startup classification; new versus reused bridge contacts can change candidate coverage.
 - [CRO03 safeError opaque redaction](cro03-safeerror-redaction.md) — routes/cro03.ts strips non-CRO03(A|B|C)?_-prefixed errors to a generic 400 with no server log; trace source, not logs.
 - [uuid cursor empty-string sentinel](uuid-cursor-empty-sentinel.md) — never compare a uuid column against '' on an empty table; Postgres throws invalid-uuid-syntax.

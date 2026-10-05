@@ -198,7 +198,7 @@ export async function writeContact(args: {
       subjectType: provenance.sourceType,
       subjectKey: provenance.sourceExternalId,
       writerKey: `contact-writer:${provenance.sourceCategory}:${provenance.sourceType}`,
-    });
+    }, args.transaction ?? db);
   }
 
   // Normalize ghlContactId in mutation before any DB write — blank strings become null.

@@ -9,7 +9,7 @@ import { relationshipReasonsSql } from "@shared/relationship-evidence-sql";
 import { assertSystemLinkDatabaseGuard } from "./commercial-link-authority";
 import { findFreshProviderObservation, lockCurrentSfpOutreachPolicy,isCanonicallySuppressed } from "./cro03/sfp-outreach-policy";
 import { lockCommercialGraph } from "./commercial-graph-locks";
-import { runCanonicalTransaction } from "./canonical-transaction-retry";
+import { runCanonicalTransaction,boundCanonicalWriteTransaction } from "./canonical-transaction-retry";
 import type { Cr04ActorScope } from "./cr04-cohort-ready-authority";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
@@ -23,6 +23,9 @@ export interface CanonicalPreparationInput {
   historicalCohortRunId?: string | null;
   dealId?: number | null;
   beforeWrite?: (tx: any) => Promise<void>;
+  /** Outside the write transaction: renew only a still-live worker claim and
+   * checkpoint around potentially slow qualification. Never send authority. */
+  checkpoint?: () => Promise<unknown>;
 }
 
 export async function assertCanonicalPreparationDatabaseGuard(tx: any) {
@@ -96,18 +99,23 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
   // This evaluates channel readiness but does NOT require a cohort or provider
   // request. Pending validation may persist a local preparation and membership.
   const { evaluateCr04ChannelQualification } = await import("./cr04-cohort-ready-authority");
+  if (input.checkpoint) await input.checkpoint();
   const decision = await evaluateCr04ChannelQualification(input.contactId, {
     channel: "email", sequenceId: input.sequenceId, scope: input.actor, persist: true,
   });
+  if (input.checkpoint) await input.checkpoint();
   if (!decision.id) return held("CHANNEL_QUALIFICATION_SNAPSHOT_UNAVAILABLE");
+  // A read-only candidate peek must not hold the singleton runtime pins.
+  // The contact is locked and its affiliation rechecked inside the write unit.
+  const peek = rows(await db.execute(sql`SELECT business_id FROM contacts WHERE id=${input.contactId}`))[0];
+  if (!peek?.business_id) return held("INDEPENDENT_BUSINESS_AFFILIATION_REQUIRED");
 
   return runCanonicalTransaction("preparation_commit", () => db.transaction(async tx => {
+    await boundCanonicalWriteTransaction(tx);
     if (input.beforeWrite) await input.beforeWrite(tx);
     await assertSystemLinkDatabaseGuard(tx);
     await assertCanonicalPreparationDatabaseGuard(tx);
     const policy = await lockCurrentSfpOutreachPolicy(tx);
-    const peek = rows(await tx.execute(sql`SELECT business_id FROM contacts WHERE id=${input.contactId}`))[0];
-    if (!peek?.business_id) return held("INDEPENDENT_BUSINESS_AFFILIATION_REQUIRED");
     await lockCommercialGraph(tx, [
       { type: "business", id: Number(peek.business_id) }, { type: "contact", id: input.contactId },
     ], ["contact_business","relationship"]);
@@ -338,6 +346,9 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
         contactId:input.contactId,email,generation:Number(contact.email_mutation_generation),
       });
     }
+    // Revalidate AFTER qualification/locks/writes. A transaction that outlives
+    // its cursor or deployment lease rolls back all intent/member mutations.
+    if (input.beforeWrite) await input.beforeWrite(tx);
     return { replayed: Boolean(existing), blocked: enrollmentId === null, intentId: String(intentId), enrollmentId,
       preparationState, reasonCode, decision, outboundAuthorized: false,receiptProjectionChanged };
   }));

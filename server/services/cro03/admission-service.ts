@@ -218,8 +218,8 @@ export async function recordCro03bLegacyWriterDisposition(input: {
 
 export async function assertCro03bLegacySourceWriteAllowed(input: {
   subjectType: string; subjectKey: string; writerKey: string;
-}) {
-  const active = rows(await db.execute(sql`
+}, executor: {execute: typeof db.execute} = db) {
+  const active = rows(await executor.execute(sql`
     SELECT i.id
       FROM cro03b_recipe_items i
       JOIN cro03a_handoffs h ON h.id=i.handoff_id
@@ -228,11 +228,19 @@ export async function assertCro03bLegacySourceWriteAllowed(input: {
      ORDER BY i.created_at,i.id LIMIT 1
   `))[0];
   if (!active) return;
-  await recordCro03bLegacyWriterDisposition({
+  const disposition={
     itemId: active.id, subjectType: input.subjectType, subjectKey: input.subjectKey,
-    writerKey: input.writerKey, disposition: "skipped", reasonCode: "active_cro03b_recipe",
-  });
-  throw new Error("CRO03B_ACTIVE_RECIPE_WRITE_FENCED");
+    writerKey: input.writerKey, disposition: "skipped" as const, reasonCode: "active_cro03b_recipe",
+  };
+  const error=new Error("CRO03B_ACTIVE_RECIPE_WRITE_FENCED");
+  if (executor === db) await recordCro03bLegacyWriterDisposition(disposition);
+  else {
+    // The outer caller persists the denial AFTER rollback/release, not on a
+    // second connection while holding authority. Do not expose source keys in
+    // generic error-object logging or HTTP serialization.
+    Object.defineProperty(error,"cro03bLegacyWriterDisposition",{value:disposition});
+  }
+  throw error;
 }
 
 export async function assertCro03bLegacyContactWriteAllowed(contactId: number, writerKey: string) {

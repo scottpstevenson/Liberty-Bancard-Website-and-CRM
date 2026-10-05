@@ -1,7 +1,9 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import {createHash} from "node:crypto";
 import * as schema from "@shared/schema";
 import { getDbContext } from "./lib/db-context";
+import { observeTransactionConnections } from "./lib/transaction-observability";
 
 const { Pool } = pg;
 
@@ -72,26 +74,25 @@ const _SLOW_QUERY_MS   = parseInt(process.env.DB_SLOW_QUERY_MS   ?? "2000",  10)
 const _SLOW_ACQUIRE_MS = parseInt(process.env.DB_SLOW_ACQUIRE_MS ?? "500", 10);
 
 function _fingerprint(sql: string): string {
-  return sql.replace(/\s+/g, " ").trim().slice(0, 120);
+  // Raw SQL may contain literals even when most callers bind parameters.
+  return `sha256:${createHash("sha256").update(sql.replace(/\s+/g, " ").trim()).digest("hex").slice(0,16)}`;
 }
 
 function _poolSnapshot() {
   return { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
 }
 
-// NOTE: pool.connect() is intentionally NOT wrapped.  Wrapping it requires
-// intercepting client.release(), which is tricky to do safely because pg-pool
-// recycles physical PoolClient objects.  Client-level observability is
-// provided by db-context.ts (AsyncLocalStorage) and the pool.query() wrapper
-// below, which covers the vast majority of callers (Drizzle ORM uses
-// pool.query() for non-transactional reads/writes).
+// Observe acquisition and pool release EVENTS; never wrap client.release().
+// Query instrumentation is physical-connection scoped, not checkout scoped.
+observeTransactionConnections(pool, {slowMs: _SLOW_QUERY_MS});
 
 // Wrap pool.query() for callers that use the shorthand (no explicit
 // connect/release).  These cannot separate acquire from query time, but they
 // do get correlationId / normalizedRoute.
 const _origQuery = pool.query.bind(pool) as typeof pool.query;
 
-pool.query = function observedPoolQuery(textOrConfig: any, values?: any): any {
+pool.query = function observedPoolQuery(...args: any[]): any {
+  const textOrConfig=args[0];
   const acquireStart  = Date.now();
   const poolAtAcquire = _poolSnapshot();
   const ctx           = getDbContext();
@@ -99,14 +100,9 @@ pool.query = function observedPoolQuery(textOrConfig: any, values?: any): any {
     ? _fingerprint(textOrConfig)
     : (typeof textOrConfig?.text === "string" ? _fingerprint(textOrConfig.text) : "<config>");
 
-  const resultPromise: Promise<any> = values !== undefined
-    ? _origQuery(textOrConfig, values)
-    : _origQuery(textOrConfig);
-
-  return resultPromise.then(
-    (result) => {
+  const observe=(err?:any)=>{
       const totalMs = Date.now() - acquireStart;
-      if (totalMs >= _SLOW_QUERY_MS || poolAtAcquire.waiting >= 5) {
+      if (!err && (totalMs >= _SLOW_QUERY_MS || poolAtAcquire.waiting >= 5)) {
         console.warn(JSON.stringify({
           event:            "db:slow_query",
           correlationId:    ctx?.correlationId  ?? null,
@@ -121,11 +117,7 @@ pool.query = function observedPoolQuery(textOrConfig: any, values?: any): any {
           ts: new Date().toISOString(),
         }));
       }
-      return result;
-    },
-    (err) => {
-      const totalMs = Date.now() - acquireStart;
-      if (totalMs >= _SLOW_ACQUIRE_MS || poolAtAcquire.waiting >= 5) {
+      if (err && (totalMs >= _SLOW_ACQUIRE_MS || poolAtAcquire.waiting >= 5)) {
         console.warn(JSON.stringify({
           event:           "db:query_error",
           correlationId:   ctx?.correlationId  ?? null,
@@ -138,9 +130,17 @@ pool.query = function observedPoolQuery(textOrConfig: any, values?: any): any {
           ts: new Date().toISOString(),
         }));
       }
-      throw err;
-    },
-  );
+  };
+  const callbackIndex=typeof args[args.length-1]==="function" ? args.length-1 : -1;
+  if (callbackIndex>=0) {
+    const callback=args[callbackIndex];
+    args[callbackIndex]=function(this:any,err:any,...results:any[]) {
+      observe(err);return callback.call(this,err,...results);
+    };
+  }
+  const result=(_origQuery as any)(...args);
+  if (!result?.then) return result;
+  return result.then((value:any)=>{observe();return value;},(err:any)=>{observe(err);throw err;});
 };
 
 export const db = drizzle(pool, { schema });

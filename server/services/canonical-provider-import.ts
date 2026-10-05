@@ -9,6 +9,8 @@ import { writeContact } from "./contact-writer";
 import { recordImportRowDisposition } from "./import-execution";
 import type { ImportSourceCoordinate } from "./tabular-import-reader";
 import {hasCanonicalImportRecoveryClaim,type CanonicalImportRecoveryClaim} from "./canonical-import-recovery-contract";
+import {runCanonicalTransaction,boundCanonicalWriteTransaction} from "./canonical-transaction-retry";
+import {recordCro03bLegacyWriterDisposition} from "./cro03/admission-service";
 
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const sourceValue=(raw:Record<string,string>,...keys:string[])=>{
@@ -73,10 +75,11 @@ export async function materializeCanonicalProviderImportRow(input:{
   const mapped=mapProviderCsvRow(input.rawRow,input.sourceFormat);
   const fingerprint=await providerImportRowFingerprint(input);
   const authorityCheck=async(tx:any)=>{
+    await boundCanonicalWriteTransaction(tx);
     if (input.ownerAuthorityCheck) await input.ownerAuthorityCheck(tx);
     return input.recoveryClaim ? hasCanonicalImportRecoveryClaim(tx,{
     executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,rowFingerprint:fingerprint,
-    recoveryClaim:input.recoveryClaim,
+    recoveryClaim:input.recoveryClaim,renew:true,
   }) : rows(await tx.execute(sql`SELECT id FROM import_executions
     WHERE id=${input.executionId}::uuid AND claim_token=${input.claimToken}::uuid
        AND status='running' AND lease_expires_at>=clock_timestamp() FOR UPDATE`)).length===1;
@@ -123,12 +126,19 @@ export async function materializeCanonicalProviderImportRow(input:{
     return hold("CANONICAL_IMPORT_BUSINESS_IDENTITY_MISSING");
   }
   const place=sourceValue(input.rawRow,"place_id","google_place_id","placeid");
-  const resolution=await resolveOrganization({
+  const commit=async<T>(fn:(tx:any)=>Promise<T>):Promise<T> =>
+    runCanonicalTransaction("import_materialize",()=>db.transaction(async tx=>{
+      if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
+      const result=await fn(tx);
+      if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
+      return result;
+    }));
+  const resolution=await commit(tx=>resolveOrganization({
     canonicalName:name,websiteDomain:normalizeDomain(mapped.website),googlePlaceId:place,
-    mainPhone:normalizePhoneE164(mapped.phone),city:mapped.city,state:mapped.state,authorityCheck,
+    mainPhone:normalizePhoneE164(mapped.phone),city:mapped.city,state:mapped.state,authorityCheck,transaction:tx,
     create:{recordClass:"canonical",streetAddress:mapped.address,postalCode:mapped.zip,
       vertical:mapped.vertical ?? mapped.industry,lastSourceType:input.sourceFormat},
-  });
+  }));
   if (resolution.kind==="deferred") {
     return hold(`CANONICAL_IMPORT_${resolution.reasonCode}`,{candidateIds:resolution.candidateIds});
   }
@@ -137,13 +147,16 @@ export async function materializeCanonicalProviderImportRow(input:{
   // are applied through canonical consent in the SAME fenced local transaction.
   const {importedSourceRestrictions}=await import("./provider-import-columns");
   const {customer,consentFlags,restrictions}=importedSourceRestrictions(input.rawRow);
+  // Parsing and module loading are outside authority-pinned write transactions.
+  const emails=providerImportEmails(input.rawRow);
+  const recipients=emails.map(email=>providerImportRecipient(input.rawRow,email));
+  const {applyConsentCommand}=await import("./consent-authority");
   const sourceSystem=input.sourceFormat==="google_maps_outscraper" ? "outscraper" : "apollo";
   const stableKey=place ?? sourceValue(input.rawRow,"organization_id","company_id","apollo_organization_id")
     ?? `import:${input.executionId}:row:${input.sourceRowNumber}`;
   let result;
   try {
-  result=await db.transaction(async tx=>{
-    if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
+  const source=await commit(async tx=>{
     const source=rows(await tx.execute(sql`INSERT INTO canonical_source_links
       (business_id,source_system,source_type,stable_key,raw_evidence)
       VALUES(${businessId},${sourceSystem},${place ? "place" : "provider_import"},${stableKey},
@@ -171,12 +184,17 @@ export async function materializeCanonicalProviderImportRow(input:{
             NOT EXISTS(SELECT 1 FROM business_locations WHERE business_id=${businessId}))`);
       }
     }
-    const emails=providerImportEmails(input.rawRow);
+    return source;
+  });
     const contactIds:number[]=[];
     for (const [index,email] of emails.entries()) {
-      const person=providerImportRecipient(input.rawRow,email);
+      const person=recipients[index];
       // Flat Apollo rows represent a person; numbered Maps mailboxes do not.
       const flatPerson=input.sourceFormat==="apollo_lead_list" && emails.length===1;
+      // One mailbox + provenance + source restrictions is the atomic unit.
+      // A crash after another mailbox commits is replayed by its stable source
+      // event key, not by fabricating a completed row or duplicate contact.
+      const contact=await commit(async tx=>{
       const contact=await writeContact({
         mode:"local_only",transaction:tx,
         retainedSourceRecovery:input.recoveryClaim,
@@ -199,11 +217,9 @@ export async function materializeCanonicalProviderImportRow(input:{
         rowDisposition:{createdReasonCode:"CANONICAL_PROVIDER_CONTACT_CREATED",
           matchedReasonCode:"CANONICAL_PROVIDER_CONTACT_MATCHED",additionalContact:index>0},
       });
-      contactIds.push(contact.id);
       if (customer) await tx.execute(sql`UPDATE contacts SET existing_merchant_customer=TRUE,updated_at=clock_timestamp()
         WHERE id=${contact.id} AND existing_merchant_customer IS DISTINCT FROM TRUE`);
       if (restrictions.length) {
-        const {applyConsentCommand}=await import("./consent-authority");
         for (const kind of restrictions) {
         await applyConsentCommand({
           subject:{type:"contact",id:contact.id},
@@ -219,7 +235,11 @@ export async function materializeCanonicalProviderImportRow(input:{
         }});
         }
       }
+      return contact;
+      });
+      contactIds.push(contact.id);
     }
+    result=await commit(async tx=>{
     if (!emails.length) {
       // Business-only is a real committed transition, not a fake placeholder
       // contact, inbound request, validation or outreach approval.
@@ -235,6 +255,10 @@ export async function materializeCanonicalProviderImportRow(input:{
     return {disposition:String(receipt.disposition),fulfillmentState:"completed",businessId,contactIds};
   });
   } catch (error) {
+    if (error && typeof error==="object" && "cro03bLegacyWriterDisposition" in error) {
+      // commit() has rolled back and released its connection before this catch.
+      await recordCro03bLegacyWriterDisposition((error as any).cro03bLegacyWriterDisposition);
+    }
     if (error instanceof Error && error.message==="CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT")
       return hold("CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT",{businessId,stableKey,sourceSystem});
     throw error;
