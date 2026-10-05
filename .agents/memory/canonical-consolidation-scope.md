@@ -23,6 +23,16 @@ ended with a post-publish status report while independent work remained.
 Keep working through independent gaps; only request the specific owner action
 when it actually blocks the next required work.
 
+Do not use repeated owner publishes to validate isolated incremental fixes.
+Resolve the known independent failures together before requesting another release.
+
+**Why:** The user reported more than twenty publish requests without meaningful
+end-to-end progress and rejected treating local checks as sufficient progress.
+
+**How to apply:** Investigate scheduling throughput as well as failed transactions.
+Use representative local recovery/concurrency evidence before the owner handoff;
+keep production acceptance separate and continue the original scope.
+
 Report completion at the exact scope proved: disposable workbook ingestion is
 not production import, and cohort-free validation is not cohort-free discovery.
 

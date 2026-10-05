@@ -241,5 +241,68 @@ try {
       (SELECT count(*) FROM communication_events)::int communications,
       (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0],before);checks++;
     check(getBlockedCertificationNetworkAttemptCount()===0,"The complete generic/provider/recovery fixture remains zero-egress");
+  // More missing originals than one tick may inspect: bounded accounting must
+  // make forward progress without changing original dispositions or evidence.
+  const boundedRows=Array.from({length:12},(_,index)=>({
+    name:`Bounded missing ${label} ${index}`,place_id:`bounded_${label}_${index}`,
+    city:"Miami",state:"FL",email:`bounded.${index}.${label}@example.com`,
+  }));
+  const boundedClaim=await claimCsvExecution({
+    fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
+    totalRows:boundedRows.length,actorType:"import",actorId,sourcePayload:boundedRows,
+  });
+  for (const [index,boundedRaw] of boundedRows.entries()) {
+    const draft=providerCsvSourceSubject({importExecutionId:boundedClaim.execution.id,
+      sourceRowNumber:index+1,sourceSystem:"outscraper",
+      row:mapProviderCsvRow(boundedRaw,"google_maps_outscraper")});
+    const rowFingerprint=computeFileHash(Buffer.from(JSON.stringify(boundedRaw)));
+    await createCro03SourceBatch({
+      idempotencyKey:`csv-source:${boundedClaim.execution.id}:${index+1}`,
+      actorType:"import",actorId,purpose:"staging_review",
+      subjects:[{...draft,payload:{...draft.payload,sourceFormat:"google_maps_outscraper",
+        rowFingerprint,sourceRowNumber:index+1}}],
+    });
+    await recordImportRowDisposition({
+      executionId:boundedClaim.execution.id,claimToken:boundedClaim.claimToken!,
+      sourceRowNumber:index+1,rowFingerprint,disposition:"deferred",
+      reasonCode:"cro03_staging_review_required",
+    });
+  }
+  await completeImportExecution({executionId:boundedClaim.execution.id,
+    claimToken:boundedClaim.claimToken!,expectedRows:boundedRows.length});
+  await pool.query("UPDATE import_executions SET source_payload=NULL WHERE id=$1",[boundedClaim.execution.id]);
+  const boundedAccounting=(await pool.query(
+    "SELECT * FROM import_row_dispositions WHERE execution_id=$1 ORDER BY source_row_number",
+    [boundedClaim.execution.id])).rows;
+  await assert.rejects(processCanonicalImportRecoveryTick({maxItems:251}),
+    /CANONICAL_IMPORT_RECOVERY_INVALID_TICK_BUDGET/);checks++;
+  await assert.rejects(processCanonicalImportRecoveryTick({maxDurationMs:30_001}),
+    /CANONICAL_IMPORT_RECOVERY_INVALID_TICK_BUDGET/);checks++;
+  const boundedFirst=await processCanonicalImportRecoveryTick({maxItems:5});
+  check(boundedFirst.held===5 && boundedFirst.fulfilled===0,
+    "Missing-original accounting cannot exceed a reduced per-tick execution budget");
+  const boundedSecond=await processCanonicalImportRecoveryTick();
+  check(boundedSecond.held===7 && boundedSecond.fulfilled===0,
+    "Default recovery advances beyond the old five-row ceiling without revisiting already-accounted exceptions");
+  const boundedThird=await processCanonicalImportRecoveryTick();
+  check(!boundedThird.ran,"Missing-original exception replay performs no additional work");
+  await pool.query("UPDATE import_executions SET source_payload=$2::jsonb WHERE id=$1",
+    [boundedClaim.execution.id,JSON.stringify([boundedRows[0]])]);
+  const restored=await processCanonicalImportRecoveryTick();
+  check(restored.fulfilled===1 && restored.held===0,
+    "A genuinely restored original can recover through its existing source item");
+  assert.deepEqual((await pool.query(
+    "SELECT * FROM import_row_dispositions WHERE execution_id=$1 ORDER BY source_row_number",
+    [boundedClaim.execution.id])).rows,boundedAccounting);checks++;
+  check((await pool.query("SELECT id FROM contacts WHERE email=$1",
+    [boundedRows[0].email])).rows.length===1,"Restored original creates one genuine contact");
+  check(!(await processCanonicalImportRecoveryTick()).ran,
+    "Restored-original replay neither duplicates the contact nor repeats missing-original accounting");
+  assert.deepEqual((await pool.query(`SELECT
+    (SELECT count(*) FROM provider_operations)::int operations,
+    (SELECT count(*) FROM communication_events)::int communications,
+    (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0],before);checks++;
+  check(getBlockedCertificationNetworkAttemptCount()===0,
+    "Bounded recovery and genuine-original restoration remain zero-egress");
   console.log(`PASS: ${checks} canonical provider intake/native/replay checks; no I/O, validation purchases, cohorts or messages`);
 } finally {await pool.end();}

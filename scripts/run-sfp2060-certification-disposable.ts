@@ -55,6 +55,7 @@ async function main(): Promise<void> {
       { name: "canonical-contact-link-automation", script: "scripts/certification/test-crm-contact-link-automation.ts", database: true },
       { name: "canonical-flow-progression", script: "scripts/certification/test-canonical-flow-progression.ts", database: true },
       { name: "canonical-upload-recovery", script: "scripts/certification/test-provider-import-recovery.ts", database: true },
+      { name: "canonical-provider-intake", script: "scripts/certification/test-canonical-provider-import.ts", database: true },
       { name: "canonical-workbook-evidence", script: "scripts/certification/test-enrichment-workbooks.ts", database: true },
       { name: "canonical-owner-repair", script: "scripts/certification/test-canonical-address-preparation-owner-repair.ts", database: true },
       { name: "canonical-program-discovery", script: "scripts/certification/test-canonical-program-discovery.ts", database: true, seedMi09Pricing:true },

@@ -8,6 +8,22 @@
     "sha": "fdb1d8bd00d5d0c7b2586fa4d597ed09febf4744",
     "status": "ok"
   },
+  "latestReadOnlyProgress": {
+    "observedAt": "2026-10-05T13:20:54.402184Z",
+    "selectedArtifactSha": "fdb1d8bd00d5d0c7b2586fa4d597ed09febf4744",
+    "readyHeld": 12,
+    "pendingValidation": 0,
+    "populationScanned": 2644,
+    "populationHeld": 2644,
+    "populationCursor": 2737,
+    "populationCompletedCycles": 0,
+    "priorityScanned": 12,
+    "priorityPrepared": 12,
+    "priorityCursor": 159456,
+    "priorityCompletedCycles": 0,
+    "additionalTenReceiptAndChannelTracesVerified": false,
+    "productionAcceptance": false
+  },
   "observations": {
     "observed_at": "2026-10-05 12:51:59.301975+00",
     "linking": {
@@ -186,6 +202,20 @@
     "additionalValidationPurchases": 0,
     "physicalProviderRequests": 0
   },
+  "localImportRecovery": {
+    "published": false,
+    "intakeNativeRecoveryReplayChecks": 66,
+    "backlogWideMissingOriginalUpdateRemoved": true,
+    "defaultMaxItemsPerTick": 250,
+    "stopStartingNewRowsAfterMs": 30000,
+    "runningTransactionsCancelledByBudget": false,
+    "existingQueueRepeatEveryMs": 600000,
+    "genuineOriginalRestorationCertified": true,
+    "immutableAccountingPreserved": true,
+    "physicalProviderRequests": 0,
+    "productionThroughputProved": false,
+    "productionTimeoutCauseProved": false
+  },
   "localVerification": {
     "pipelineChecks": 39,
     "transactionRetryTests": "passed",
@@ -203,6 +233,7 @@
     "Priority preparation and safe driver diagnostics are published; the bounded transaction retry is local only.",
     "Ready-held reuses original address facts; it is not completed channel qualification, compatibility-status repair, a new validation purchase or send permission.",
     "Legacy import recovery still has 1471 due blocked rows with retained originals; its scheduled timeout is not missing-original evidence.",
+    "Local import recovery removes an unbounded owner-fenced UPDATE and raises local execution capacity; this is not a proved production timeout fix or backlog convergence.",
     "Agent issued SELECT queries and a public health GET only; no production write, import, provider call, or outbound release."
   ],
   "productionAcceptance": false,
