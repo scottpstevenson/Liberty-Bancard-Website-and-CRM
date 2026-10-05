@@ -1,18 +1,21 @@
 # Canonical enrichment: latest transaction/lease certification
 
 **Current — 2026-10-05:** local transaction/lease correction is certified;
-production acceptance remains open. Final certificates pass 103 connection/lease,
+production acceptance remains open. Final certificates pass 135 connection/lease,
 96 preparation, 79 intake/replay, 45 discovery/authority and 34 owner-contract
 checks. The final disposable one-connection serial worker committed all 1,472
-deferred rows in 13 batches (386,270 ms), then replayed without new work.
+deferred rows in 14 batches (422,244 ms), then replayed without new work.
+Ordinary new-upload restart now separately certifies created and existing-contact
+primary receipts; partial mailbox commits cannot report the execution completed.
 
 At 18:33:40 UTC the older live build reports 51 completed, 1,409 staged,
 nine retry-required, two running and one ambiguous-match hold. No production
 write or publish occurred. Primary blocking-caller attribution, sustained
 corrected throughput and subsequent scheduled convergence remain unverified.
 Owner must merge this isolated patch into the actual publish workspace and
-publish before those checks can proceed. Keep task 2063 open, outbound paused
-and validation selective.
+publish before those checks can proceed. The user approved submitting the tested
+implementation for review to unblock that merge. Original production acceptance
+stays unfinished; keep outbound paused and validation selective.
 
 See `canonical-enrichment-transaction-lease-correction.json` and its companion
 `.md` for the exact proof, limitations and owner handoff. The public preview

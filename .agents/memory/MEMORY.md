@@ -1,4 +1,5 @@
 - [Canonical consolidation completion](canonical-consolidation-scope.md) — Finish the original scope; production blockers do not justify stopping independent local work.
+- [Multi-mailbox restart proof](multi-mailbox-restart-proof.md) — Certify ordinary upload restart separately from deferred-item recovery; immutable row accounting is not fulfillment.
 - [Original-row claim planning](original-row-claim-planning.md) — Verify the full payload-extraction plan; limit scalar work before opening workbook JSON.
 - [Legacy role-conditional redirects](legacy-role-conditional-redirects.md) — Non-admin/manager roles may still see retired pages; inspect every redirect branch before deletion.
 - [Canonical Lifecycle State Machine](lifecycle-state-machine.md) — lifecycle_state on contacts (27 states); LifecycleService side-effect wiring; backfill not yet run on prod.

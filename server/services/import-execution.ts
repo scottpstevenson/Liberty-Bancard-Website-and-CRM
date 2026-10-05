@@ -86,11 +86,17 @@ export async function claimCsvExecution(args: {
 }
 
 export async function heartbeatImportExecution(executionId: string, claimToken: string): Promise<boolean> {
-  const changed = await db.update(importExecutions)
-    .set({ heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + LEASE_MS) })
-    .where(and(eq(importExecutions.id, executionId), eq(importExecutions.claimToken, claimToken), eq(importExecutions.status, "running")))
-    .returning({ id: importExecutions.id });
-  return changed.length === 1;
+  return db.transaction(async tx=>{
+    const changed=await tx.execute(sql`WITH pinned AS MATERIALIZED (
+      SELECT id,lease_expires_at FROM import_executions WHERE id=${executionId}::uuid
+        AND claim_token=${claimToken}::uuid AND status='running' FOR UPDATE
+    ) UPDATE import_executions current SET heartbeat_at=clock_timestamp(),
+      lease_expires_at=clock_timestamp()+${LEASE_MS}::integer*INTERVAL '1 millisecond'
+      FROM pinned WHERE current.id=pinned.id AND current.claim_token=${claimToken}::uuid
+        AND current.status='running' AND pinned.lease_expires_at>clock_timestamp()
+      RETURNING current.id`);
+    return ((changed as any).rows ?? []).length===1;
+  });
 }
 
 /**
@@ -176,9 +182,10 @@ export async function completeImportExecution(args: {
   expectedRows: number;
 }): Promise<{ completed: boolean; counts: Record<ImportDisposition, number>; total: number }> {
   return db.transaction(async (tx) => {
-  const execution = (await tx.execute(sql`SELECT id, total_rows FROM import_executions WHERE id = ${args.executionId}::uuid
+   const execution = (await tx.execute(sql`WITH pinned AS MATERIALIZED (
+    SELECT id,total_rows,metadata,lease_expires_at FROM import_executions WHERE id = ${args.executionId}::uuid
     AND claim_token = ${args.claimToken}::uuid AND status = 'running'
-    AND lease_expires_at >= now() FOR UPDATE`) as any).rows?.[0];
+    FOR UPDATE) SELECT id,total_rows,metadata FROM pinned WHERE lease_expires_at>clock_timestamp()`) as any).rows?.[0];
   if (!execution) throw new Error(`IMPORT_EXECUTION_LEASE_LOST:${args.executionId}`);
   const result = await tx.execute(sql`SELECT disposition, count(*)::int AS count FROM import_row_dispositions WHERE execution_id = ${args.executionId}::uuid GROUP BY disposition`);
    const counts: Record<string, number> = {};
@@ -188,7 +195,12 @@ export async function completeImportExecution(args: {
    const rawTotal = Object.values(counts).reduce((total, value) => total + value, 0);
    const onlyTerminalDispositions = Object.keys(counts)
      .every((disposition) => (IMPORT_DISPOSITIONS as readonly string[]).includes(disposition));
+    const pending=execution.metadata?.canonicalProviderPendingRows;
+    const incompleteProviderFulfillment=pending!=null && (
+      typeof pending!=="object" || Array.isArray(pending) || Object.keys(pending).length>0
+    );
    if (
+      incompleteProviderFulfillment ||
      expectedRows !== args.expectedRows ||
      !onlyTerminalDispositions ||
      rawTotal !== expectedRows ||

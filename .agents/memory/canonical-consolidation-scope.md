@@ -1,69 +1,38 @@
 ---
-name: Canonical consolidation completion
-description: User's standing scope and continuation requirements for canonical enrichment consolidation.
+name: Canonical consolidation acceptance
+description: Finish the original scope and distinguish implementation handoff from actual production acceptance.
 ---
 
-Finish all requested canonical consolidation work; do not stop at partial local
-certification or move unfinished requirements into follow-up tasks.
+Finish independent implementation and verification before requesting another
+owner action. Do not redefine unfinished original requirements as new features
+or equate disposable certification with production execution.
 
-**Why:** The user repeatedly said to finish all the work and asked why the agent
-keeps stopping. Production prerequisites do not block genuinely independent local work.
+**Why:** The user repeatedly rejected stopping at intermediate local milestones
+and requesting incremental publishes without end-to-end progress.
 
-**How to apply:** Continue independent implementation and verification without
-repeated approval prompts. Keep production-only dependencies explicitly blocked,
-outbound paused and the original task open until its acceptance requirements are met.
+**How to apply:** Keep scope-specific proof separate: ingestion, discovery,
+qualification, validation and scheduled production convergence are not
+interchangeable. An owner publish is a continuation signal; resume unresolved
+acceptance rather than ending at a deployment status report.
 
-A successful owner publish is a continuation signal, not a stopping point.
-Immediately resume the unresolved original implementation and certification.
+An isolated implementation may be submitted for review, with the user's
+approval, while production acceptance remains explicitly unfinished.
 
-**Why:** The user again corrected, “And you stopped... why?” after the agent
-ended with a post-publish status report while independent work remained.
+**Why:** Active tasks cannot expose the normal apply-to-main action. Requiring
+production acceptance before the isolated changes are available to merge
+prevents publishing the implementation that needs certification.
 
-**How to apply:** Do not end at a milestone report or promise to continue later.
-Keep working through independent gaps; only request the specific owner action
-when it actually blocks the next required work.
+**How to apply:** Never call review readiness production acceptance. Preserve
+the original acceptance requirements as pending work and resume them after
+owner merge/publish; do not claim a task branch is the served production build.
 
-Do not use repeated owner publishes to validate isolated incremental fixes.
-Resolve the known independent failures together before requesting another release.
+Useful bound recipients and full-population accounting need separate progress.
+Maintain retirement of preparation when eligibility is lost.
 
-**Why:** The user reported more than twenty publish requests without meaningful
-end-to-end progress and rejected treating local checks as sufficient progress.
+**Why:** Newly useful recipients can sort late in the population cursor.
+Successful unbound scan ticks did not demonstrate downstream progress, and
+excluding suppressed recipients delayed retirement of occupied useful slots.
 
-**How to apply:** Investigate scheduling throughput as well as failed transactions.
-Use representative local recovery/concurrency evidence before the owner handoff;
-keep production acceptance separate and continue the original scope.
-
-Report completion at the exact scope proved: disposable workbook ingestion is
-not production import, and cohort-free validation is not cohort-free discovery.
-
-**Why:** Earlier completion reporting conflated these scopes, causing contradictory
-status updates and misleading the user about what remained.
-
-**How to apply:** Separate implementation, disposable certification and production
-execution in status reports. Correct an overstated claim directly rather than
-presenting the unfinished original requirement as new work.
-
-Full-population accounting must not delay already-bound target recipients.
-Prioritized evaluation and population coverage need separate truthful progress;
-neither creates blanket validation permission. Retiring an existing preparation
-must remain possible after the recipient loses eligibility.
-
-**Why:** Production's useful newly linked recipients were at the end of the ID
-range while the population cursor was near its beginning; successful unbound
-scan ticks produced no downstream progress. Excluding suppressed recipients
-from all priority work would also delay retirement of their useful-recipient slots.
-
-**How to apply:** Preserve bounded fairness and all write-boundary checks.
-Certify a real late-ID recipient advancing before population traversal reaches
-it, and certify cancellation after suppression; do not call priority cycles
-full-population completion.
-
-Native production repairs use the owner's database console; do not ask for
-credentials or suggest a different execution mechanism after this is established.
-
-**Why:** The user said, “I've always used the console to do these repairs.”
-
-**How to apply:** Deliver the authorized, inspectable SQL and independently verify
-the result read-only. Ordinary publishing and production imports still require
-the supported owner action; console repair verification is not permission for
-Agent production writes.
+**How to apply:** Certify advancement of a late-ID bound recipient, cancellation
+after suppression and bounded fairness without blanket validation permission.
+Priority-cycle completion is not full-population convergence.

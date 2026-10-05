@@ -80,21 +80,43 @@ export async function materializeCanonicalProviderImportRow(input:{
     return input.recoveryClaim ? hasCanonicalImportRecoveryClaim(tx,{
     executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,rowFingerprint:fingerprint,
     recoveryClaim:input.recoveryClaim,renew:true,
-  }) : rows(await tx.execute(sql`SELECT id FROM import_executions
+  }) : rows(await tx.execute(sql`WITH pinned AS MATERIALIZED (SELECT id,lease_expires_at FROM import_executions
     WHERE id=${input.executionId}::uuid AND claim_token=${input.claimToken}::uuid
-       AND status='running' AND lease_expires_at>=clock_timestamp() FOR UPDATE`)).length===1;
+       AND status='running' FOR UPDATE)
+    SELECT id FROM pinned WHERE lease_expires_at>clock_timestamp()`)).length===1;
+  };
+  const commit=async<T>(fn:(tx:any)=>Promise<T>):Promise<T> =>
+    runCanonicalTransaction("import_materialize",()=>db.transaction(async tx=>{
+      if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
+      const result=await fn(tx);
+      if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
+      return result;
+    }));
+  // Original accounting is immutable and may precede later mailbox commits.
+  // Mutable, claim-fenced pending work is separate: execution completion must
+  // not mistake the first contact receipt for fulfillment of the whole row.
+  const pendingRow=async(tx:any,pending:boolean)=>{
+    if (input.recoveryClaim) return;
+    const key=String(input.sourceRowNumber);
+    const next=pending
+      ? sql`COALESCE(metadata->'canonicalProviderPendingRows','{}'::jsonb)
+          ||jsonb_build_object(${key}::text,${fingerprint}::text)`
+      : sql`COALESCE(metadata->'canonicalProviderPendingRows','{}'::jsonb)-${key}::text`;
+    await tx.execute(sql`UPDATE import_executions SET metadata=jsonb_set(
+      COALESCE(metadata,'{}'::jsonb),'{canonicalProviderPendingRows}',${next},TRUE)
+      WHERE id=${input.executionId}::uuid`);
   };
   await retainProviderImportRow({...input,authorityCheck});
-  const original=await db.transaction(async tx=>{
-    if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
+  const original=await commit(async tx=>{
     const receipt=rows(await tx.execute(sql`SELECT * FROM import_row_dispositions
       WHERE execution_id=${input.executionId}::uuid AND source_row_number=${input.sourceRowNumber}`))[0];
     if (receipt && receipt.row_fingerprint!==fingerprint) throw new Error("IMPORT_ROW_FINGERPRINT_MISMATCH");
+    if (!receipt || ["created","matched_noop"].includes(receipt.disposition)) await pendingRow(tx,true);
     return receipt;
   });
-  if (original && !input.recoveryClaim) {
-    // Original row accounting is immutable, even when enrichment remains held.
-    // Recovery confirms evidence rather than rewriting a previous disposition.
+  if (original && !input.recoveryClaim && !["created","matched_noop"].includes(original.disposition)) {
+    // Explicit original terminal/held outcomes remain immutable. A created or
+    // matched receipt is NOT a shortcut: reconcile every retained mailbox below.
     const contacts=rows(await db.execute(sql`SELECT DISTINCT contact_id FROM contact_source_events
       WHERE import_execution_id=${input.executionId}::uuid AND source_row_number=${input.sourceRowNumber}
         AND row_fingerprint=${fingerprint}`));
@@ -102,6 +124,7 @@ export async function materializeCanonicalProviderImportRow(input:{
     await resumeImportedAffiliations(contactIds,authorityCheck);
     const linked=contactIds.length ? rows(await db.execute(sql`SELECT DISTINCT business_id FROM contacts
       WHERE id IN (${sql.join(contactIds.map(id=>sql`${id}`),sql`,`)}) AND business_id IS NOT NULL`)) : [];
+    await commit(tx=>pendingRow(tx,false));
     return {disposition:String(original.disposition),contactIds,
       businessId:original.diagnostic?.businessId ?? (linked.length===1 ? Number(linked[0].business_id) : null)};
   }
@@ -118,6 +141,7 @@ export async function materializeCanonicalProviderImportRow(input:{
       if (!input.claimToken) throw new Error("IMPORT_EXECUTION_CLAIM_REQUIRED");
       await recordImportRowDisposition({...input,claimToken:input.claimToken,rowFingerprint:fingerprint,
         disposition:"deferred",reasonCode,diagnostic});
+      await commit(tx=>pendingRow(tx,false));
     }
     return {disposition:"deferred",fulfillmentState:"held",contactIds:[] as number[],
       businessId:typeof diagnostic?.businessId==="number" ? diagnostic.businessId : null};
@@ -126,13 +150,6 @@ export async function materializeCanonicalProviderImportRow(input:{
     return hold("CANONICAL_IMPORT_BUSINESS_IDENTITY_MISSING");
   }
   const place=sourceValue(input.rawRow,"place_id","google_place_id","placeid");
-  const commit=async<T>(fn:(tx:any)=>Promise<T>):Promise<T> =>
-    runCanonicalTransaction("import_materialize",()=>db.transaction(async tx=>{
-      if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
-      const result=await fn(tx);
-      if (!await authorityCheck(tx)) throw new Error("IMPORT_EXECUTION_LEASE_LOST");
-      return result;
-    }));
   const resolution=await commit(tx=>resolveOrganization({
     canonicalName:name,websiteDomain:normalizeDomain(mapped.website),googlePlaceId:place,
     mainPhone:normalizePhoneE164(mapped.phone),city:mapped.city,state:mapped.state,authorityCheck,transaction:tx,
@@ -215,7 +232,7 @@ export async function materializeCanonicalProviderImportRow(input:{
         hookPolicy:{source:"cro03",deferValidation:true,deferReadiness:true,
           deferLeadScoring:true,suppressProviderProjection:true,authorityCheck},
         rowDisposition:{createdReasonCode:"CANONICAL_PROVIDER_CONTACT_CREATED",
-          matchedReasonCode:"CANONICAL_PROVIDER_CONTACT_MATCHED",additionalContact:index>0},
+          matchedReasonCode:"CANONICAL_PROVIDER_CONTACT_MATCHED",additionalContact:index>0 || Boolean(original)},
       });
       if (customer) await tx.execute(sql`UPDATE contacts SET existing_merchant_customer=TRUE,updated_at=clock_timestamp()
         WHERE id=${contact.id} AND existing_merchant_customer IS DISTINCT FROM TRUE`);
@@ -264,5 +281,16 @@ export async function materializeCanonicalProviderImportRow(input:{
     throw error;
   }
   await resumeImportedAffiliations(result.contactIds,authorityCheck);
+  await commit(async tx=>{
+    if (result.contactIds.length) {
+      const keys=providerImportEmails(input.rawRow).map(email=>
+        `canonical-provider:${input.executionId}:${input.sourceRowNumber}:${createHash("sha256").update(email).digest("hex")}`);
+      const evidence=rows(await tx.execute(sql`SELECT count(DISTINCT event_key)::int n FROM contact_source_events
+        WHERE import_execution_id=${input.executionId}::uuid AND source_row_number=${input.sourceRowNumber}
+          AND row_fingerprint=${fingerprint} AND event_key IN (${sql.join(keys.map(key=>sql`${key}`),sql`,`)})`))[0];
+      if (Number(evidence?.n)!==keys.length) throw new Error("CANONICAL_IMPORT_MAILBOX_FULFILLMENT_INCOMPLETE");
+    }
+    await pendingRow(tx,false);
+  });
   return result;
 }

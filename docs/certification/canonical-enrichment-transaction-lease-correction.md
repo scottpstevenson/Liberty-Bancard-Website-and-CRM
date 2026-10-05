@@ -16,6 +16,10 @@
 - Import uses short atomic organization, source/location and mailbox units.
   Each mailbox unit includes its contact, provenance and restrictive consent
   facts. Pure parsing/module preparation is outside authority-pinned units.
+  Ordinary uploads persist claim-fenced pending fulfillment separately from
+  immutable original row accounting. A first-mailbox receipt cannot complete
+  the execution: restart reconciles all retained mailboxes by stable source
+  events, including rows originally matched to an existing contact.
   Preparation performs qualification and its candidate read outside the write
   transaction, then locks and rechecks affiliation/current facts inside it.
 - Preparation checkpoints around qualification and real effects. Import renews
@@ -23,6 +27,8 @@
   lock wait; expired/transferred tokens cannot renew or overwrite progress.
   Final preparation guards roll back effects if expiry occurs before commit.
   Import finalization locks the row before evaluating wall-clock expiry.
+  Ordinary execution heartbeats and completion also check wall-clock expiry
+  after acquiring the row lock; an expired or replaced actor cannot revive it.
 - Authority-pinned write units use 1-second lock, 5-second idle-transaction and
   10-second statement bounds. No authorization is cached. Only PostgreSQL-known
   aborted deadlocks are retried; uncertain connection/commit failures are not.
@@ -38,7 +44,7 @@ boundary, never the shared or production database:
 
 | Certificate | Result |
 | --- | --- |
-| `canonical-transaction-leases` | 103 checks passed |
+| `canonical-transaction-leases` | 135 checks passed |
 | `canonical-recipient-preparation` | 96 checks passed |
 | `canonical-provider-intake` | 79 checks passed |
 | `canonical-program-discovery` | 45 checks passed |
@@ -51,8 +57,8 @@ npx tsx scripts/run-sfp2060-certification-disposable.ts --only <certificate>
 ```
 
 The final full backlog test fulfilled **1,472 genuine deferred source rows in
-13 serial continuation batches, 386,270 ms**, using **one pooled application
-connection**. The first batch fulfilled 104 rows. It verifies immutable original
+14 serial continuation batches, 422,244 ms**, using **one pooled application
+connection**. The first batch fulfilled 89 rows. It verifies immutable original
 accounting/evidence, committed outcomes, no duplicate contacts on replay and no
 further work after completion. No real provider calls, validation purchases,
 cohorts or outbound messages occurred.
@@ -62,6 +68,14 @@ competing preparation workers, expiry after qualification/after writes, native
 connection termination, and a fault after the first mailbox commits. Recovery
 reclaims the crashed actor's expired running item, reuses its first contact,
 adds exactly the missing mailbox, and rejects the stale actor afterward.
+Both ordinary first-mailbox outcomes (`created` and `matched_noop`) are also
+interrupted and resumed through the actual persisted CSV processor. With one
+row already accounted, execution completion still returns false while another
+mailbox is pending. After reclaim, both mailboxes have exactly one source event,
+their restrictive consent is preserved, original accounting/metadata remains
+unchanged except claim-fenced pending progress, and the user-facing import only
+reports completion once the whole row is fulfilled. Completed-file replay is a
+no-op. Ordinary heartbeat expiry is tested across a real row-lock wait.
 
 `npm run check`, `npm run build`, the focused deadlock/phase test and
 `git diff --check` pass. Build has existing bundle/import-meta warnings.
@@ -115,5 +129,9 @@ the unpublished correction solved production contention.
 5. Verify subsequent scheduled progress and replay idempotency while outbound
    remains paused and validation remains selective.
 
-**Task 2063 and the original consolidation acceptance remain open.** Production
-acceptance is not moved into a follow-up task and is not replaced by local proof.
+**User-authorized handoff:** the user approved submitting this locally certified
+implementation for review so “Apply changes to main version” becomes available.
+This explicitly changes the earlier requirement to keep the implementation task
+Active until production acceptance, which prevented the normal merge/publish flow.
+Remaining production verification is tracked as unfinished linked work; original
+consolidation acceptance remains open and is not replaced by local proof.

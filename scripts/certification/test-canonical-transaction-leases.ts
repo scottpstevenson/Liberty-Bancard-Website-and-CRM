@@ -219,6 +219,89 @@ try {
     (SELECT count(*) FROM provider_operations)::int operations,
     (SELECT count(*) FROM communication_events)::int communications,
     (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0],counters);checks++;
+  const {heartbeatImportExecution}=await import("../../server/services/import-execution");
+  const {processPersistedCsvImport}=await import("../../server/services/csv-import-processor");
+  const {storage}=await import("../../server/storage");
+  for (const matched of [false,true]) {
+    const ordinarySuffix=randomUUID().replaceAll("-","");
+    const ordinaryRaw={name:`Ordinary restart ${ordinarySuffix}`,place_id:`ordinary_${ordinarySuffix}`,
+      category:"Automotive",city:"Miami",state:"FL",email_1:`ordinary.first.${ordinarySuffix}@gmail.com`,
+      email_2:`ordinary.second.${ordinarySuffix}@gmail.com`,opted_out_email:"yes"};
+    const fileHash=createHash("sha256").update(randomUUID()).digest("hex");
+    const originalMetadata={fileName:"ordinary.csv",originalMarker:randomUUID()};
+    const ordinaryInput={fileHash,totalRows:1,actorType:"import",actorId,metadata:originalMetadata,sourcePayload:[ordinaryRaw]};
+    const ordinary=await claimCsvExecution(ordinaryInput);
+    const csvImport=await storage.createCsvImport({executionId:ordinary.execution.id,fileName:"ordinary.csv",
+      sourceFormat:"google_maps_outscraper",importSource:"google_maps_outscraper",totalRows:1,
+      status:"processing",importedBy:actorId});
+    const preexisting=matched ? (await pool.query(`INSERT INTO contacts(first_name,last_name,email,phone,record_class)
+      VALUES('Existing','',$1,'','production') RETURNING id`,[ordinaryRaw.email_1])).rows[0] : null;
+    await assert.rejects(materializeCanonicalProviderImportRow({
+      executionId:ordinary.execution.id,claimToken:ordinary.claimToken!,
+      sourceRowNumber:1,sourceFormat:"google_maps_outscraper",rawRow:ordinaryRaw,actorId,fileName:"ordinary.csv",
+      ownerAuthorityCheck:async tx=>{
+        await lockCurrentSfpRuntimeOwner(tx);
+        const committed=(await blocker.query(`SELECT id FROM contact_source_events
+          WHERE import_execution_id=$1 AND source_row_number=1`,[ordinary.execution.id])).rows[0];
+        if (committed) throw new Error("CERT_ORDINARY_CRASH_AFTER_MAILBOX_COMMIT");
+      },
+    }),/CERT_ORDINARY_CRASH_AFTER_MAILBOX_COMMIT/);checks++;
+    const first=(await pool.query("SELECT id,opted_out_email FROM contacts WHERE email=$1",[ordinaryRaw.email_1])).rows[0];
+    check(Boolean(first) && first.opted_out_email,"Ordinary partial commit includes contact, provenance and restrictive consent");
+    if (preexisting) check(first.id===preexisting.id,"Ordinary matched-row crash retains the existing contact");
+    check((await pool.query("SELECT count(*)::int n FROM contacts WHERE email=$1",[ordinaryRaw.email_2])).rows[0].n===0,
+      "Ordinary crash occurs before the remaining mailbox commits");
+    const accounting=(await pool.query("SELECT * FROM import_row_dispositions WHERE execution_id=$1",
+      [ordinary.execution.id])).rows;
+    check(accounting.length===1 && accounting[0].disposition===(matched ? "matched_noop" : "created"),
+      "Original first-mailbox accounting remains truthful but is not whole-row fulfillment");
+    const prematurelyCompleted=await completeImportExecution({
+      executionId:ordinary.execution.id,claimToken:ordinary.claimToken!,expectedRows:1});
+    check(!prematurelyCompleted.completed && prematurelyCompleted.total===1,
+      "Complete execution refuses partial mailbox fulfillment even when original accounting totals one row");
+    const pending=(await pool.query("SELECT status,metadata FROM import_executions WHERE id=$1",
+      [ordinary.execution.id])).rows[0];
+    check(pending.status==="running" && Boolean(pending.metadata.canonicalProviderPendingRows["1"]),
+      "Crash leaves durable claim-fenced pending work for the existing persisted-upload recovery path");
+    await pool.query(`UPDATE import_executions SET lease_expires_at=clock_timestamp()+INTERVAL '150 milliseconds'
+      WHERE id=$1`,[ordinary.execution.id]);
+    await blocker.query("BEGIN");
+    await blocker.query("SELECT id FROM import_executions WHERE id=$1 FOR UPDATE",[ordinary.execution.id]);
+    const ordinaryRenewal=heartbeatImportExecution(ordinary.execution.id,ordinary.claimToken!);
+    await sleep(250);await blocker.query("ROLLBACK");
+    check(!await ordinaryRenewal,"Ordinary heartbeat cannot revive a lease expired during a row-lock wait");
+    const successor=await claimCsvExecution(ordinaryInput);
+    check(successor.claimed && successor.claimToken!==ordinary.claimToken,
+      "Existing CSV execution is reclaimed under a fresh token, not a parallel recovery job");
+    check(!await heartbeatImportExecution(ordinary.execution.id,ordinary.claimToken!),
+      "Crashed ordinary actor cannot renew the successor's execution");
+    await processPersistedCsvImport({records:[ordinaryRaw],executionClaim:successor,importRecord:csvImport,
+      sourceFormat:"google_maps_outscraper",actor:{actorType:"import",actorId},filename:"ordinary.csv"});
+    const resumed=(await pool.query("SELECT id,opted_out_email FROM contacts WHERE email=ANY($1::text[])",
+      [[ordinaryRaw.email_1,ordinaryRaw.email_2]])).rows;
+    check(resumed.length===2 && resumed.some(contact=>contact.id===first.id) && resumed.every(contact=>contact.opted_out_email),
+      "Actual persisted ordinary-upload recovery resumes missing mailboxes once with original consent facts");
+    check((await pool.query("SELECT count(*)::int n FROM contact_source_events WHERE import_execution_id=$1",
+      [ordinary.execution.id])).rows[0].n===2,"Restart commits exactly one source event for each retained mailbox");
+    assert.deepEqual((await pool.query("SELECT * FROM import_row_dispositions WHERE execution_id=$1",
+      [ordinary.execution.id])).rows,accounting);checks++;
+    const finished=(await pool.query("SELECT status,metadata FROM import_executions WHERE id=$1",
+      [ordinary.execution.id])).rows[0];
+    check(finished.status==="completed" && Object.keys(finished.metadata.canonicalProviderPendingRows).length===0
+      && finished.metadata.originalMarker===originalMetadata.originalMarker,
+      "Execution completes only after mailbox fulfillment; original metadata is preserved");
+    const csvFinished=(await pool.query("SELECT status,processed_rows FROM csv_imports WHERE id=$1",
+      [csvImport.id])).rows[0];
+    check(csvFinished.status==="completed" && csvFinished.processed_rows===1,
+      "User-facing import reports completion only after the full original row is committed");
+    const ordinaryReplay=await claimCsvExecution(ordinaryInput);
+    check(ordinaryReplay.replay && !ordinaryReplay.claimed && !ordinaryReplay.claimToken,
+      "Completed ordinary upload is an idempotent replay without another processor");
+  }
+  assert.deepEqual((await pool.query(`SELECT
+    (SELECT count(*) FROM provider_operations)::int operations,
+    (SELECT count(*) FROM communication_events)::int communications,
+    (SELECT count(*) FROM sfp_cohort_runs)::int cohorts`)).rows[0],counters);checks++;
   check(pool.options.max===1,"Application transaction certification uses one pooled connection");
   console.log(`Canonical transaction/lease certification PASS (${checks} checks; real pg callbacks/reuse, contention, expiry and fencing).`);
 } finally {

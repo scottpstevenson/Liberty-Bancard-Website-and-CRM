@@ -1,5 +1,5 @@
 {
-  "observedAt": "2026-10-05T18:29:25.732Z",
+  "observedAt": "2026-10-05T19:09:42.558Z",
   "checks": 34,
   "scope": "Disposable psql and implicit-transaction console SQL batches; installation, replay, partial-install rejection, unchanged canonical bytes and drift denial; not live SQL Console compatibility",
   "productionExecution": false,

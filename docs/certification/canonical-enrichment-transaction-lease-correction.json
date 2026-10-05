@@ -1,10 +1,11 @@
 {
   "task": "2063",
-  "status": "local_certified_production_acceptance_open",
+  "status": "local_certified_review_handoff_authorized_production_acceptance_open",
+  "reviewHandoffAuthorizedByUser": true,
   "productionAcceptancePassed": false,
   "localCertification": {
     "infrastructure": "Migrated disposable socket PostgreSQL and private Redis; provider-deny boundary",
-    "transactionAndLeaseChecks": 103,
+    "transactionAndLeaseChecks": 135,
     "preparationAndSharedValidationChecks": 96,
     "providerIntakeAndReplayChecks": 79,
     "programDiscoveryAndAuthorityChecks": 45,
@@ -15,9 +16,9 @@
     "legacyBacklog": {
       "originalDeferredRows": 1472,
       "committedFulfilledRows": 1472,
-      "serialContinuationBatches": 13,
-      "elapsedMilliseconds": 386270,
-      "firstBatchFulfilled": 104,
+      "serialContinuationBatches": 14,
+      "elapsedMilliseconds": 422244,
+      "firstBatchFulfilled": 89,
       "applicationPoolMax": 1,
       "parallelRecoveryPathAdded": false,
       "originalAccountingAndEvidencePreserved": true,
@@ -38,6 +39,10 @@
       "Fault after first atomic mailbox/provenance commit leaves source item incomplete",
       "Existing worker reclaims expired crashed actor and reuses committed contact",
       "Stale import actor cannot write after successor completion",
+      "Ordinary upload crash/restart covers both created and matched_noop primary receipts",
+      "Original row totals cannot complete an execution with a pending retained mailbox",
+      "Real persisted CSV recovery reclaims the ordinary execution and commits each mailbox/source event exactly once",
+      "Ordinary heartbeat rejects expiry during a native row-lock wait and rejects a replaced token",
       "Retired-owner rejection and existing native authority contracts"
     ]
   },
@@ -88,6 +93,6 @@
     "Reconcile every one of the 1472 original rows to committed completion or explicit terminal reasons",
     "Verify subsequent scheduled preparation/import progress, idempotency and stale-owner rejection",
     "Keep outbound paused, ZeroBounce selective and owner-only workbook import/replay unchanged",
-    "Keep task 2063 and original consolidation acceptance open until these checks pass"
+    "User authorized submitting task 2063 for review to unblock main-workspace merge; original production acceptance stays explicitly unfinished until these checks pass"
   ]
 }
