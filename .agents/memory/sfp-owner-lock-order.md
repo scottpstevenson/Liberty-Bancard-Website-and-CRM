@@ -101,3 +101,17 @@ lock attribution was needed; the same renewal SQL also has multiple callers.
 prepared SQL, and keep observation independent of authority-pinned transactions.
 Parse deadlock details into numeric edges only: full details can include source
 SQL/PII. Log the original and cleanup errors separately before diagnosing recovery.
+
+Native activity-query fingerprints can differ from the complete application
+fingerprint when PostgreSQL truncates tracked SQL; trace comments consume part
+of that limit. Correlate checkout identity first, not hash equality alone.
+
+**Why:** Primary diagnostics showed a shared-pin query truncated to 1,023 bytes;
+rendering the complete template with its trace prefix reproduced the differing
+native hash exactly. PostgreSQL deadlock details independently confirmed the
+classification/recovery PID cycle.
+
+**How to apply:** Compare native activity text against the same trace-prefixed
+template at the tracking limit before declaring a different statement or caller.
+Do not treat an observer's later failure as invalidating previously captured
+primary edges, or as proof that the entire observation window completed.
