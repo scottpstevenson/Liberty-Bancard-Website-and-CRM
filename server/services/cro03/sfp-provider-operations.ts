@@ -615,22 +615,10 @@ async function renewSfpRuntimeJobLease(
       selectedOwner.ownerToken !== reservation.runtimeOwnerToken) {
     throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
   }
-  const owner = rows(await executor.execute(sql`
-    UPDATE sfp_runtime_owner_authority
-       SET lease_expires_at=clock_timestamp()+(${SFP_RUNTIME_OWNER_LEASE_MS}::bigint * INTERVAL '1 millisecond'),
-           updated_at=clock_timestamp()
-     WHERE authority_key='routine_sfp'
-       AND deployment_identity=${fence.deploymentIdentity}
-       AND environment_identity=${fence.environmentIdentity}
-       AND artifact_sha=${fence.artifactSha}
-       AND queue_topology_hash=${fence.queueTopologyHash}
-       AND owner_epoch=${reservation.runtimeOwnerEpoch}
-       AND owner_token=${reservation.runtimeOwnerToken}::uuid
-        AND lease_expires_at>clock_timestamp()
-       AND revoked_at IS NULL
-     RETURNING owner_epoch
-  `))[0];
-  if (!owner) throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
+  // Operational owner renewal already committed before dispatch. Keep this
+  // transaction's live SHARE pin, not another owner UPDATE held across job,
+  // budget and parent checks. Exact epoch/token and wall-clock expiry still
+  // fence both this check and the final durable dispatch marker.
   const jobRow = rows(await executor.execute(sql`
     SELECT operation_id FROM sfp_runtime_job_leases
      WHERE operation_id=${reservation.operationId}::uuid
@@ -2301,8 +2289,17 @@ async function markSfpProviderOperationDispatchBoundary(
   }
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_PROVIDER_DISPATCH_BOUNDARY_LOST");
+  // Lease upkeep is operational authority, not permission to dispatch. Commit
+  // its exclusive owner lock before the larger effect transaction, then pin
+  // the exact acquired owner again. An intervening transfer/revocation/expiry
+  // fails closed; budget, claim and dispatch writes remain atomic below.
+  await db.transaction(tx => renewSfpRuntimeOwnerLease(tx, reservation, fence));
   await db.transaction(async (tx) => {
-    await renewSfpRuntimeOwnerLease(tx, reservation, fence);
+    const selectedOwner = await lockCurrentSfpRuntimeOwner(tx);
+    if (selectedOwner.ownerEpoch !== reservation.runtimeOwnerEpoch ||
+        selectedOwner.ownerToken !== reservation.runtimeOwnerToken) {
+      throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
+    }
     if ("stageRunId" in reservation && beforeDispatch) {
       await beforeDispatch(tx, reservation);
     }

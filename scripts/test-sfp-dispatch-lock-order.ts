@@ -19,7 +19,7 @@ const ast=ts.createSourceFile("sfp-provider-operations.ts",source,ts.ScriptTarge
 const names=[
   "rowMatchesSfpRuntimeRelease","lockSelectedSfpRuntimeRelease","lockCurrentSfpRuntimeOwner",
   "renewSfpRuntimeOwnerLease","renewSfpRuntimeJobLease","advanceSfpPublishedRelease",
-  "claimOrRenewSfpRuntimeOwner","claimSfpRuntimeDeploymentOwner",
+  "claimOrRenewSfpRuntimeOwner","claimSfpRuntimeDeploymentOwner","markSfpProviderOperationDispatchBoundary",
 ];
 const functions=new Map(ast.statements.filter(ts.isFunctionDeclaration)
   .filter(node=>node.name && names.includes(node.name.text))
@@ -30,7 +30,11 @@ const selectorPin=/\s*const selected = await lockSelectedSfpRuntimeRelease\(exec
 assert(selectorPin.test(renewal),"Dispatch must pin the selected release before its exclusive owner update");
 const marker=ast.statements.filter(ts.isFunctionDeclaration)
   .find(node=>node.name?.text==="markSfpProviderOperationDispatchBoundary")!.getText(ast);
-assert(marker.indexOf("await renewSfpRuntimeOwnerLease")<marker.indexOf("await renewSfpRuntimeJobLease"));
+const independentRenewal="await db.transaction(tx => renewSfpRuntimeOwnerLease(tx, reservation, fence));";
+assert(marker.includes(independentRenewal));
+assert(marker.indexOf(independentRenewal)<marker.indexOf("await renewSfpRuntimeJobLease"));
+assert(!functions.get("renewSfpRuntimeJobLease")!.includes("UPDATE sfp_runtime_owner_authority"),
+  "Job renewal must not take a second exclusive owner lock in the effect transaction");
 assert(marker.indexOf("await renewSfpRuntimeJobLease")<marker.indexOf("UPDATE provider_attempts"));
 
 const fence={
@@ -46,18 +50,36 @@ const dialect=new PgDialect();
 const executor=(client:pg.Client)=>({
   execute(query:any){const rendered=dialect.sqlToQuery(query);return client.query(rendered.sql,rendered.params);},
 });
-function helpers(client:pg.Client,legacy=false) {
-  const texts=names.map(name=>name==="renewSfpRuntimeOwnerLease" && legacy
-    ? renewal.replace(selectorPin,"") : functions.get(name)!);
+function helpers(client:pg.Client,legacy=false,options:{
+  managedTransactions?:boolean;
+  afterRenewal?:()=>Promise<void>;
+  budgetLock?:(tx:ReturnType<typeof executor>)=>Promise<void>;
+}={}) {
+  const texts=names.map(name=>{
+    if(name==="renewSfpRuntimeOwnerLease" && legacy)return renewal.replace(selectorPin,"");
+    if(name==="markSfpProviderOperationDispatchBoundary" && legacy)return functions.get(name)!
+      .replace(independentRenewal,"")
+      .replace("await db.transaction(async (tx) => {",
+        "await db.transaction(async (tx) => { await renewSfpRuntimeOwnerLease(tx, reservation, fence);");
+    return functions.get(name)!;
+  });
   const compiled=ts.transpileModule(texts.join("\n"),{
     compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None},
   }).outputText;
   return new Function("sql","rows","getCurrentRoutineSfpRuntimeFence","sameSfpRuntimeRelease",
-    "SFP_RUNTIME_OWNER_LEASE_MS","readSfpAutomaticPublish","db",
-    `${compiled}\nreturn {renewSfpRuntimeOwnerLease,renewSfpRuntimeJobLease,lockCurrentSfpRuntimeOwner,claimSfpRuntimeDeploymentOwner};`
+    "SFP_RUNTIME_OWNER_LEASE_MS","readSfpAutomaticPublish","db","acquireLadderBudgetLock",
+    `${compiled}\nreturn {renewSfpRuntimeOwnerLease,renewSfpRuntimeJobLease,lockCurrentSfpRuntimeOwner,claimSfpRuntimeDeploymentOwner,markSfpProviderOperationDispatchBoundary};`
   )(sql,(value:any)=>value.rows ?? value,async()=>fence,sameSfpRuntimeRelease,SFP_RUNTIME_OWNER_LEASE_MS,
     ()=>({...fence,buildId:"fixture-publish",builtAt:"2026-10-05T21:29:38.363Z"}),
-    {transaction:(callback:any)=>callback(executor(client))});
+    {transaction:async(callback:any)=>{
+      if(!options.managedTransactions)return callback(executor(client));
+      await client.query("BEGIN");
+      let result:any;
+      try {result=await callback(executor(client));await client.query("COMMIT");}
+      catch(error){await client.query("ROLLBACK");throw error;}
+      if(options.afterRenewal){const hook=options.afterRenewal;options.afterRenewal=undefined;await hook();}
+      return result;
+    }},options.budgetLock ?? (async()=>{throw new Error("FIXTURE_STOP_BEFORE_PROVIDER");}));
 }
 
 const root=mkdtempSync(join(tmpdir(),"test-sfp-dispatch-lock-"));
@@ -214,7 +236,7 @@ try {
   await assert.rejects(()=>fixed.renewSfpRuntimeJobLease(executor(classification),
     {...reservation,claimToken:selectionId},fence),/SFP_RUNTIME_JOB_LEASE_FENCE_LOST/);
   await classification.query("ROLLBACK");
-  check(true,"Job claim-token fencing is retained and failed dispatch rolls back renewal");
+  check(true,"Job claim-token fencing is retained and the failed effect transaction rolls back");
   for(const change of [
     "UPDATE provider_operations SET cancel_requested_at=clock_timestamp()",
     "UPDATE provider_operations SET lease_expires_at=clock_timestamp()-interval '1 second'",
@@ -229,6 +251,64 @@ try {
   }
   check(marker.includes("lease_expires_at>clock_timestamp()") && marker.includes("dispatch_marked_at"),
     "Final live-lease checks and durable dispatch marker remain in the production boundary");
+
+  // Execute the real dispatch boundary up to a deliberately blocked budget
+  // lock. The injected stop prevents any parent/provider marker or transport
+  // from running; native owner contention and transaction commits are real.
+  const budgetKey="fixture-dispatch-budget-hold";
+  for(const legacy of [true,false]){
+    await reset();await second.query("BEGIN");
+    await second.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[budgetKey]);
+    let reachedBudget=false;
+    const dispatch=helpers(classification,legacy,{managedTransactions:true,budgetLock:async(tx)=>{
+      reachedBudget=true;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${budgetKey},0))`);
+      throw new Error("FIXTURE_STOP_BEFORE_PROVIDER");
+    }}).markSfpProviderOperationDispatchBoundary(reservation).then(()=>null,(error:any)=>error);
+    await blockedBy(classification,second);
+    check(reachedBudget,legacy?"Historical dispatch reached the held budget lock":"Corrected dispatch reached the same held budget lock");
+    await recovery.query("BEGIN");
+    const reader=helpers(recovery).lockCurrentSfpRuntimeOwner(executor(recovery))
+      .then((value:any)=>({value}),(error:any)=>({error}));
+    if(legacy){
+      await blockedBy(recovery,classification);
+      check(true,"Historical long dispatch transaction demonstrably blocks recovery's shared owner pin");
+    }else{
+      const result=await reader;
+      check(!result.error && result.value.ownerToken===token,
+        "Corrected dispatch waiting on budget allows recovery's shared owner pin to complete");
+      await recovery.query("COMMIT");
+    }
+    await second.query("COMMIT");
+    check((await dispatch)?.message==="FIXTURE_STOP_BEFORE_PROVIDER",
+      "Budget control stops before provider dispatch and rolls back effect writes");
+    const result=await reader;
+    if(legacy){check(!result.error,"Historical blocked reader resumes after dispatch rollback");await recovery.query("COMMIT");}
+  }
+  // Renewal may commit, but no subsequent authority drift is permission to
+  // enter budget checks or dispatch. The actual boundary must re-pin first.
+  for(const [label,change] of [
+    ["revocation","UPDATE sfp_runtime_owner_authority SET revoked_at=clock_timestamp()"],
+    ["expiry","UPDATE sfp_runtime_owner_authority SET lease_expires_at=clock_timestamp()-interval '1 second'"],
+    ["owner epoch","UPDATE sfp_runtime_owner_authority SET owner_epoch=owner_epoch+1"],
+    ["owner token",`UPDATE sfp_runtime_owner_authority SET owner_token='${selectionId}'`],
+    ["release selection",`UPDATE sfp_runtime_release_selectors SET artifact_sha='${"c".repeat(40)}'`],
+  ]){
+    await reset();let budgetCalls=0;
+    const guarded=helpers(classification,false,{managedTransactions:true,
+      afterRenewal:async()=>{await admin.query(change);},
+      budgetLock:async()=>{budgetCalls++;throw new Error("FIXTURE_UNEXPECTED_BUDGET");}});
+    await assert.rejects(()=>guarded.markSfpProviderOperationDispatchBoundary(reservation),
+      /SFP_RUNTIME_OWNER_FENCE_LOST/);
+    check(budgetCalls===0,`Post-renewal ${label} is rejected before budget or dispatch effects`);
+  }
+  await reset();
+  await admin.query("UPDATE sfp_runtime_owner_authority SET lease_expires_at=clock_timestamp()+interval '20 seconds'");
+  const upkeep=helpers(classification,false,{managedTransactions:true});
+  await assert.rejects(()=>upkeep.markSfpProviderOperationDispatchBoundary(reservation),/FIXTURE_STOP_BEFORE_PROVIDER/);
+  const lease=(await admin.query(`SELECT lease_expires_at>clock_timestamp()+interval '100 seconds' AS renewed
+    FROM sfp_runtime_owner_authority`)).rows[0];
+  check(lease.renewed,"Operational renewal remains committed after effect rollback, without granting dispatch");
   console.log(`SFP dispatch lock ordering: ${checks} regression checks passed; native PostgreSQL, zero app-DB or provider calls`);
 } finally {
   for(const client of clients){try{await client.query("ROLLBACK");await client.end();}catch{}}

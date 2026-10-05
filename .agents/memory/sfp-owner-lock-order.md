@@ -91,6 +91,21 @@ pinning must fail closed. Retain the final effect fences and owner row pins:
 legitimate renewal can still wait on those pins, so removal of the acquisition
 convoy is not proof that every production latency or lease-expiry cause is fixed.
 
+Dispatch follows this same split: renew the owner in a short transaction, then
+SHARE-pin it before policy/graph/budget work in the separate effect transaction.
+Job-lease renewal must not update the owner again.
+
+**Why:** After repairing the lock-order cycle, primary evidence still showed
+recovery waiting behind dispatch's exclusive owner lock across job/operation
+checks and commit. A native held-budget test reproduces that convoy; separating
+upkeep lets recovery pin the same owner while dispatch waits.
+
+**How to apply:** Recheck epoch/token, selected release, revocation and wall-clock
+expiry between the committed upkeep and effect transaction. Test drift in that
+gap, no budget/dispatch effect after denial, and committed operational upkeep
+after effect rollback. Do not claim this removes waits behind every shared pin
+or fixes database/network latency.
+
 Never acquire a second global pooled connection from a helper invoked inside
 an authority-pinned, caller-owned transaction. Thread the existing transaction
 through live admission reads; persist denial receipts after rollback/release.

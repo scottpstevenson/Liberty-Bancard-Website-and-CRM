@@ -145,3 +145,61 @@ failure (`development` reported where `test` is required). The older standalone
 runtime-fence source check also still expects an obsolete all-exclusive
 `FOR UPDATE` clause; that literal is absent in unchanged HEAD as well as this
 correction. Neither failure is claimed fixed or counted as a passing gate.
+
+## Verification after publishing the lock-order correction
+
+Production health returned HTTP 200 / `status=ok`, SHA
+`eb06495c37339fb7d958285bd99ec68c8fec5b18`, built
+`2026-10-05T22:50:23.068Z`, publish build
+`ee2475a7-057c-47e4-8b4f-c8a4f18fb2e9`.
+
+The automatic capture contained 22 primary blocked snapshots and no observed
+two-way cycle. It ended with observation failure after 52 samples; this is not
+proof of absence outside the captured window. Recovery still logged original
+and cleanup `55P03` failures, plus acquisition failures with no SQLSTATE.
+
+New primary evidence:
+
+- At 22:51:44.914 and 22:51:45.514 UTC, classification PID 27288 was the root
+  blocker while working through job/operation guards; recovery PID 27284 waited
+  for its owner-authority pin.
+- At 22:51:56.467 UTC, classification PID 27283 held the dispatch transaction
+  while recovery PID 27285 waited for its owner-authority pin.
+- At 22:51:57.615 UTC, classification PID 27283 was committing with `SyncRep`
+  wait and still blocked recovery. Its transaction age exceeded four seconds.
+- Owner-update fingerprint `b2a5232ffa1f6fd4` maps to both dispatch owner renewal
+  and the redundant owner renewal inside the job helper. Job-lease update
+  fingerprint `3f8b57aec7d54529` and operation checks are downstream in that
+  same owner-write-pinned transaction.
+
+At 22:59:56 UTC, committed fulfillment is **96/1,472**, up four from the earlier
+92. The other states are 1,110 staging-disabled, 160 retry-required, 17 ambiguous,
+and 89 running (88 expired claims). Last fulfillment is 22:51:43.592 UTC.
+All 96 completed rows have a fulfillment audit receipt, an existing referenced
+business, and provenance events for every contact ID recorded in that receipt.
+This does not assert that every retained mailbox or downstream qualification
+requirement is satisfied.
+
+Outbound remains `paused` at epoch 1. ZeroBounce remains enabled/circuit closed;
+no provider controls or selective-admission policy were changed.
+
+### Further implemented correction
+
+Dispatch owner upkeep now commits in a short selector-first transaction before
+the larger dispatch effect transaction. That effect transaction immediately
+SHARE-pins and checks the exact owner, before policy/graph/budget work; job renewal
+does not perform a second owner update. Claim, cancellation, provider/program,
+parent, budget, expiry and final durable dispatch guards remain intact.
+
+The expanded native regression suite passes 26 checks. Executing the actual
+dispatch boundary against a deliberately held budget lock reproduces the
+historical blocked recovery reader; with independent upkeep, recovery's shared
+pin completes while dispatch waits. Revocation, expiry, epoch/token and release
+drift between upkeep and effect execution fail before budget or dispatch.
+Operational upkeep remains committed after effect rollback, without permitting
+provider execution. The test deliberately stops before parent/provider marker
+execution and makes no app-database or provider calls.
+
+This further correction is workspace code, not the served production build.
+It still requires publishing and ordinary production-cycle verification. No
+pool size, application timeout, lease duration or safety control was increased.
