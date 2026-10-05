@@ -23,6 +23,17 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 
 **How to apply:** Distinguish standard psql file execution from SQL Console batch selection. A suggested selection is not verified production installation; independently check persisted native guards after owner execution.
 
+Owner execution of the complete console batch without standalone outer
+transaction commands has now been independently verified to persist the full
+address/preparation contract while preserving existing native guards.
+
+**Why:** A subsequent owner execution resolved the partial installation; all
+prerequisite and existing guard predicates then passed production verification.
+This confirms a working delivery route, not the cause of the earlier partial run.
+
+**How to apply:** Use whole-batch console selection with its computed postcondition,
+retain exact native definitions, and keep Agent production access read-only.
+
 Do not accept a SQL Console success message or an exact function body alone as
 full-batch installation proof. Require a computed completion check covering the
 referenced schema as well as the routines, then independently verify production.

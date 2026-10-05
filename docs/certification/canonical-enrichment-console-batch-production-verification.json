@@ -1,0 +1,25 @@
+{
+  "scope": "Independent read-only production verification after owner console batch; native repair milestone only",
+  "environment": "production",
+  "observed": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at\n2026-10-05 00:57:22.211468+00\n",
+    "success": true
+  },
+  "repair": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "address_claims_present,preparation_fields_present,preparation_capacity_exact,address_receipt_exact,preparation_scope_constraint_present,address_receipt_index_present,preparation_index_present,preparation_unique_index_present,repair_verified\nt,t,t,t,t,t,t,t,t\n",
+    "success": true
+  },
+  "existingGuard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nt,t,t,t,t,t,t\n",
+    "success": true
+  },
+  "agentProductionWrites": false,
+  "productionImportsPerformedByAgent": false,
+  "taskComplete": false
+}
