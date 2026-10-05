@@ -3535,6 +3535,13 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   index("sunbiz_entities_created_at_idx").on(table.createdAt),
   index("sunbiz_entities_contact_identity_name_key_idx").on(table.contactIdentityNameKey).where(sql`filing_number IS NOT NULL`),
   index("sunbiz_entities_contact_identity_dba_key_idx").on(table.contactIdentityDbaKey).where(sql`filing_number IS NOT NULL AND dba IS NOT NULL`),
+  // Simple immutable-function expressions round-trip through Publish without
+  // serializing nested regexp bodies. Queries retain the equivalent inline SQL,
+  // so read availability never depends on native write authority.
+  index("canonical_link_registry_name_lookup_idx").on(sql`crm_identity_name(${table.entityName})`)
+    .where(sql`filing_number IS NOT NULL AND source IN ('sunbiz','cordata','corevt')`),
+  index("canonical_link_registry_dba_lookup_idx").on(sql`crm_identity_name(${table.dba})`)
+    .where(sql`filing_number IS NOT NULL AND dba IS NOT NULL AND source IN ('sunbiz','cordata','corevt')`),
 ]);
 
 export const insertSunbizEntitySchema = createInsertSchema(sunbizEntities).omit({
@@ -4943,6 +4950,8 @@ export const businesses = pgTable("businesses", {
   index("businesses_website_domain_idx").on(table.websiteDomain),
   index("businesses_main_phone_idx").on(table.mainPhone),
   index("businesses_google_place_id_idx").on(table.googlePlaceId),
+  index("canonical_link_business_name_lookup_idx").on(sql`crm_identity_name(${table.canonicalName})`)
+    .where(sql`record_class='canonical'`),
   // Matches migration 0240. Declared here (not just in the migration file)
   // so Publish's schema diff can actually apply it to production — Publish
   // diffs shared/schema.ts against live production, it does not execute

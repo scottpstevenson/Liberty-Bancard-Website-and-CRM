@@ -1,0 +1,46 @@
+{
+  "observedAt": "2026-10-05T03:29:34.589Z",
+  "scope": "Development applied lookup indexes, real inline evaluator, contact IDs 1 through 25; not deployed performance proof",
+  "executionMs": 974.535,
+  "planningMs": 5221.603,
+  "rows": 0,
+  "registryNodes": [
+    {
+      "node": "Index Scan",
+      "alias": "se_1",
+      "index": "canonical_link_registry_name_lookup_idx",
+      "rows": 0,
+      "loops": 21
+    },
+    {
+      "node": "Index Scan",
+      "alias": "se_2",
+      "index": "canonical_link_registry_dba_lookup_idx",
+      "rows": 0,
+      "loops": 21
+    },
+    {
+      "node": "Index Scan",
+      "alias": "se",
+      "index": "idx_sunbiz_filing_number",
+      "rows": 0,
+      "loops": 0
+    },
+    {
+      "node": "Index Scan",
+      "alias": "e",
+      "index": "sunbiz_entities_pkey",
+      "rows": 0,
+      "loops": 0
+    },
+    {
+      "node": "Index Scan",
+      "alias": "oe",
+      "index": "idx_sunbiz_filing_number",
+      "rows": 0,
+      "loops": 0
+    }
+  ],
+  "productionExecution": false,
+  "taskComplete": false
+}

@@ -51,6 +51,8 @@ async function main(): Promise<void> {
     baseEnv.CREDENTIAL_ENCRYPTION_KEY = "task-2060-disposable-only";
 
     const certifications = [
+      { name: "canonical-evidence-candidates", script: "scripts/certification/test-contact-business-evidence-candidates.ts", database: true },
+      { name: "canonical-contact-link-automation", script: "scripts/certification/test-crm-contact-link-automation.ts", database: true },
       { name: "canonical-upload-recovery", script: "scripts/certification/test-provider-import-recovery.ts", database: true },
       { name: "canonical-workbook-evidence", script: "scripts/certification/test-enrichment-workbooks.ts", database: true },
       { name: "canonical-owner-repair", script: "scripts/certification/test-canonical-address-preparation-owner-repair.ts", database: true },

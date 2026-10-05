@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { SystemLinkFacts } from "./contact-business-system-link-policy";
 import { identityNameSql, identityDomainSql, relationshipReasonsSql } from "../../shared/relationship-evidence-sql";
+import { evidenceRelationshipCandidateCte } from "./contact-business-evidence-candidates";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
 const hash = (value: unknown) => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -31,6 +32,7 @@ export async function loadEvidenceRelationshipPage(
   const page = contacts.slice(0, limit);
   const ids = page.map((c: any) => Number(c.contact_id));
   const matches = ids.length ? rows(await executor.execute(sql`
+    ${evidenceRelationshipCandidateCte(ids)}
     SELECT c.id contact_id,b.id business_id,b.canonical_name,b.website_domain business_domain,
       b.record_class business_record_class,b.do_not_visit,b.updated_at::text business_revision,
       sl.id source_link_id,sl.source_system,sl.source_type,sl.stable_key source_stable_key,
@@ -39,7 +41,9 @@ export async function loadEvidenceRelationshipPage(
       to_jsonb(se)->>'updated_at' entity_revision,
       se.website sunbiz_website,se.source sunbiz_entity_source,se.filing_number,
       ${sql.raw(relationshipReasonsSql("c.id","b.id","sl.id","se.id"))} relationship_reasons
-    FROM contacts c JOIN businesses b ON b.record_class='canonical'
+    FROM candidate_business_keys candidate
+    JOIN contacts c ON c.id=candidate.contact_id
+    JOIN businesses b ON b.id=candidate.business_id AND b.record_class='canonical'
     JOIN canonical_source_links sl ON sl.business_id=b.id
     LEFT JOIN sunbiz_entities se ON sl.source_system='sunbiz' AND sl.source_type='sunbiz_entity'
       AND se.filing_number=sl.stable_key AND se.source IN ('sunbiz','cordata','corevt')

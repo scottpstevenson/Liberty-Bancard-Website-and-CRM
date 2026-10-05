@@ -22,9 +22,75 @@ actual workbook imports/replay, full-population convergence, representative
 receipt-to-paused-enrollment traces and two deployed scheduled cycles remain
 required before closure of the original task. They are not follow-up tasks.
 No Agent production writes, provider release, outbound release or production
-workbook imports occurred. New discovery schema must be delivered by owner
-Publish before its production execution; the existing console repair is not
-proof that these newly added fields are already deployed.
+workbook imports occurred.
+
+### Owner publish independently verified — 2026-10-05
+
+Read-only verification confirms the published health endpoint serves revision
+`e024f02a550e5a4733c0eecef20798a6a1f1098f`, build
+`c6923213-d037-4d83-bbfb-3ef46009d6f2`, with HTTP 200. The production release
+selector and leased runtime owner match that release. Outbound remains paused.
+All seven relationship predicates and all eight address/preparation predicates
+pass. Program discovery columns, nullable historical cohort fields and the
+validated exclusive-parent CHECK are present. The exact migration 0332 hash
+is absent from the custom ledger; catalog materialization is independently
+verified, not proof that Publish replayed the migration file.
+
+Scheduled discovery has run three audited cycles without creating cohorts.
+These are **not passing operational acceptance cycles**: validation recovery
+reports zero queued work; no program-scoped preparation intents exist in the
+observed snapshot. Preparation scanned 65 contacts, all held with
+`NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL`. The linking cursor remains
+at zero, with no committed links; production logs show repeated query timeouts
+at the contact-link preview boundary and connection errors in other workers.
+Discovery audits also exceed their nominal drain budget. These observations
+require diagnosis; they do not establish full-population convergence or
+receipt-to-paused-enrollment progression.
+
+Observed denominators are 154,418 contacts (154,016 production-class) and
+92,831 businesses (85,808 canonical-class). They are a point-in-time inventory,
+not a completed coverage certificate. No workbook imports were performed.
+The original task remains open. Receipt:
+`canonical-enrichment-post-publish-verification.json`.
+
+### Contact-link timeout correction — not yet published
+
+Candidate retrieval now separates legal-name, domain, registry-name/DBA and
+retained stable-key matches before running the unchanged relationship evaluator.
+All competing alternatives remain visible; the final per-source predicate,
+native write guard, provenance and eligibility rules remain unchanged.
+Forward migration 0333 adds three lookup indexes over the already reviewed
+immutable normalization function. No native bodies or old generated keys change.
+
+The initial unindexed and broad registry-lookup experiments remained too slow
+on production read-only EXPLAIN (19–29 seconds) and are not the final solution.
+The final candidate query uses selective parameterized name/DBA lookups.
+Sixteen disposable checks prove candidate parity and all three normalization
+index paths with 50,001 unrelated businesses plus 50,001 registry entities
+(144 ms observed). The real migrated automatic-linking certificate passes 31
+checks, including native commitment, replay, explicit holds and retired/revoked
+owner denial; no provider/enrollment/communication/cohort effects occurred.
+TypeScript and build pass. The final real development page uses both registry
+indexes (975 ms execution; cold planning 5,222 ms). These timings are not a
+deployed production performance certificate.
+
+Development indexes are installed. The actual managed Publish diff emits
+exactly three syntactically intact CREATE INDEX statements, with no structural
+data loss or removed objects. Production remains on the prior published build
+and has not received this correction. Owner republishing is required; index
+construction can lengthen Publish and temporarily hold writes on the affected
+tables. Workbook imports and successful downstream scheduled-cycle acceptance
+remain unproved. Receipts:
+`canonical-enrichment-candidate-retrieval.json`,
+`canonical-enrichment-contact-link-automation-test.json`,
+`canonical-enrichment-lookup-publish-diff.json`,
+`canonical-enrichment-indexed-query-development-plan.json`.
+
+Development restarted successfully with background workers disabled and outbound
+paused. The unauthenticated dashboard capture renders the sign-in page; the
+signed-in UI was not verified in this pass. Production logs still show database
+connection timeouts across multiple workers, so the candidate-query correction
+must not be described as proof that every production bottleneck is resolved.
 
 ### Historical native-delivery investigation (superseded by current status)
 

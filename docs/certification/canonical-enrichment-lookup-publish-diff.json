@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-10-05T03:25:53.804Z",
+  "scope": "Read-only proposed Publish DDL and development installed indexes",
+  "lookupDiff": {
+    "columnsToRemove": [],
+    "hasDiff": true,
+    "hasStructuralDataLoss": false,
+    "matViewsToRemove": [],
+    "maybeNonBackwardsCompatible": false,
+    "schemasToRemove": [],
+    "statementsToExecute": [
+      "CREATE INDEX \"canonical_link_registry_dba_lookup_idx\" ON \"sunbiz_entities\" USING btree (crm_identity_name(dba)) WHERE ((filing_number IS NOT NULL) AND (dba IS NOT NULL) AND (source = ANY (ARRAY['sunbiz'::text, 'cordata'::text, 'corevt'::text])));",
+      "CREATE INDEX \"canonical_link_registry_name_lookup_idx\" ON \"sunbiz_entities\" USING btree (crm_identity_name(entity_name)) WHERE ((filing_number IS NOT NULL) AND (source = ANY (ARRAY['sunbiz'::text, 'cordata'::text, 'corevt'::text])));",
+      "CREATE INDEX \"canonical_link_business_name_lookup_idx\" ON \"businesses\" USING btree (crm_identity_name(canonical_name)) WHERE (record_class = 'canonical'::text);"
+    ],
+    "success": true,
+    "tablesToRemove": [],
+    "tablesToTruncate": [],
+    "warnings": []
+  },
+  "devLookupIndexes": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "indexname,indexdef\ncanonical_link_business_name_lookup_idx,CREATE INDEX canonical_link_business_name_lookup_idx ON public.businesses USING btree (crm_identity_name(canonical_name)) WHERE (record_class = 'canonical'::text)\ncanonical_link_registry_dba_lookup_idx,\"CREATE INDEX canonical_link_registry_dba_lookup_idx ON public.sunbiz_entities USING btree (crm_identity_name(dba)) WHERE ((filing_number IS NOT NULL) AND (dba IS NOT NULL) AND (source = ANY (ARRAY['sunbiz'::text, 'cordata'::text, 'corevt'::text])))\"\ncanonical_link_registry_name_lookup_idx,\"CREATE INDEX canonical_link_registry_name_lookup_idx ON public.sunbiz_entities USING btree (crm_identity_name(entity_name)) WHERE ((filing_number IS NOT NULL) AND (source = ANY (ARRAY['sunbiz'::text, 'cordata'::text, 'corevt'::text])))\"\n",
+    "success": true
+  },
+  "productionApplied": false,
+  "taskComplete": false
+}

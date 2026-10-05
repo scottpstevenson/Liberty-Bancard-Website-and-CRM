@@ -1,0 +1,82 @@
+{
+  "observedAt": "2026-10-05T03:10:31.441Z",
+  "scope": "Read-only production post-publish verification; not operational acceptance",
+  "deployment": {
+    "additionalUrls": [
+      "https://libertybancard.com",
+      "https://liberty-bancard-system.replit.app"
+    ],
+    "deploymentType": "autoscale",
+    "hasSuccessfulBuild": true,
+    "isDeployed": true,
+    "primaryUrl": "https://dev.libertybancard.com",
+    "success": true,
+    "visibility": "public"
+  },
+  "health": {
+    "body": {
+      "builtAt": "2026-10-05T02:25:51.735Z",
+      "env": "production",
+      "ghlTransportFailFast": false,
+      "publishBuildId": "c6923213-d037-4d83-bbfb-3ef46009d6f2",
+      "sha": "e024f02a550e5a4733c0eecef20798a6a1f1098f",
+      "status": "ok"
+    },
+    "httpStatus": 200
+  },
+  "discoverySchema": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,read_only,table_name,column_name,data_type,is_nullable\n2026-10-05 03:07:58.991358+00,on,sfp_provider_retrieval_tasks,cohort_run_id,uuid,YES\n2026-10-05 03:07:58.991358+00,on,sfp_stage_runs,cohort_run_id,uuid,YES\n2026-10-05 03:07:58.991358+00,on,sfp_stage_runs,program_id,uuid,YES\n2026-10-05 03:07:58.991358+00,on,sfp_stage_runs,selection_snapshot,jsonb,YES\n",
+    "success": true
+  },
+  "discoveryConstraint": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "conname,convalidated,definition\nsfp_stage_runs_parent_scope_chk,t,CHECK ((((cohort_run_id IS NOT NULL) AND (program_id IS NULL) AND (selection_snapshot IS NULL)) OR ((cohort_run_id IS NULL) AND (program_id IS NOT NULL) AND (selection_snapshot IS NOT NULL) AND (jsonb_typeof(selection_snapshot) = 'object'::text) AND (selection_snapshot ? 'programHash'::text) AND (selection_snapshot ? 'businessPins'::text))))\n",
+    "success": true
+  },
+  "nativeGuard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nt,t,t,t,t,t,t\n",
+    "success": true
+  },
+  "addressPreparationGuard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "address_claims_present,preparation_fields_present,preparation_capacity_exact,address_receipt_exact,preparation_scope_constraint_present,address_receipt_index_present,preparation_index_present,preparation_unique_index_present,repair_verified\nt,t,t,t,t,t,t,t,t\n",
+    "success": true
+  },
+  "runtimePauseAndScheduledAudits": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "state,epoch,committed_at\npaused,1,2026-08-15 19:06:13.073+00\nartifact_sha,deployment_identity,environment_identity,selection_version,updated_at\ne024f02a550e5a4733c0eecef20798a6a1f1098f,publish-build:c6923213-d037-4d83-bbfb-3ef46009d6f2,production,11,2026-10-05 02:26:03.359599+00\nartifact_sha,deployment_identity,environment_identity,owner_epoch,lease_expires_at,revoked_at\ne024f02a550e5a4733c0eecef20798a6a1f1098f,publish-build:c6923213-d037-4d83-bbfb-3ef46009d6f2,production,15,2026-10-05 03:10:21.459233+00,\naction,created_at,details\nsfp_continuous_discovery_tick,2026-10-05 03:07:31.460472,\"{\"\"ran\"\": true, \"\"calls\"\": 2, \"\"failed\"\": 2, \"\"outcome\"\": \"\"program_drain_completed\"\", \"\"noResult\"\": 18, \"\"elapsedMs\"\": 572199, \"\"processed\"\": 20, \"\"programId\"\": \"\"f19cd9e4-9978-46f1-9973-df8df22df10a\"\", \"\"succeeded\"\": 0, \"\"stopReason\"\": \"\"drain_complete\"\", \"\"cohortRunIds\"\": [], \"\"waterfallFailed\"\": 0, \"\"newlyFrozenCount\"\": 0, \"\"providerRequests\"\": 33, \"\"waterfallProcessed\"\": 0, \"\"waterfallSucceeded\"\": 0, \"\"waterfallStopReason\"\": \"\"time_budget_exhausted\"\"}\"\nsfp_continuous_validation_tick,2026-10-05 03:00:08.059976,\"{\"\"queued\"\": 0, \"\"outcome\"\": \"\"canonical_selected_queue_recovered\"\"}\"\nsfp_continuous_discovery_tick,2026-10-05 02:53:56.360657,\"{\"\"ran\"\": true, \"\"calls\"\": 2, \"\"failed\"\": 3, \"\"outcome\"\": \"\"program_drain_completed\"\", \"\"noResult\"\": 7, \"\"elapsedMs\"\": 493900, \"\"processed\"\": 10, \"\"programId\"\": \"\"f19cd9e4-9978-46f1-9973-df8df22df10a\"\", \"\"succeeded\"\": 0, \"\"stopReason\"\": \"\"drain_complete\"\", \"\"cohortRunIds\"\": [], \"\"waterfallFailed\"\": 0, \"\"newlyFrozenCount\"\": 0, \"\"providerRequests\"\": 15, \"\"waterfallProcessed\"\": 10, \"\"waterfallSucceeded\"\": 0, \"\"waterfallStopReason\"\": \"\"time_budget_exhausted\"\"}\"\nsfp_continuous_discovery_tick,2026-10-05 02:40:04.059904,\"{\"\"ran\"\": true, \"\"calls\"\": 1, \"\"failed\"\": 1, \"\"outcome\"\": \"\"program_drain_completed\"\", \"\"noResult\"\": 8, \"\"elapsedMs\"\": 590799, \"\"processed\"\": 10, \"\"programId\"\": \"\"f19cd9e4-9978-46f1-9973-df8df22df10a\"\", \"\"succeeded\"\": 1, \"\"stopReason\"\": \"\"drain_complete\"\", \"\"cohortRunIds\"\": [], \"\"waterfallFailed\"\": 0, \"\"newlyFrozenCount\"\": 0, \"\"providerRequests\"\": 14, \"\"waterfallProcessed\"\": 0, \"\"waterfallSucceeded\"\": 0, \"\"waterfallStopReason\"\": \"\"time_budget_exhausted\"\"}\"\nsfp_continuous_validation_tick,2026-10-05 02:26:06.96025,\"{\"\"queued\"\": 0, \"\"outcome\"\": \"\"canonical_selected_queue_recovered\"\"}\"\n",
+    "success": true
+  },
+  "pipelineEvidence": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "stage,provider,state,outcome_code,items\npaid_waterfall,apollo,claimed,,1\npaid_waterfall,gap_vector,completed,gap_vector_recorded,10\npaid_waterfall,serper,claimed,candidate_found,8\npaid_waterfall,serper,claimed,,26\npaid_waterfall,serper,failed,Connection terminated due to connection timeout,1\nprovider,purpose,state,failure_code,operations\napollo,sfp_named_decision_maker_discovery,failed,,1\nopenai,sfp_precohort_vertical_classification,completed,,89\nopenai,sfp_precohort_vertical_classification,failed,,3\nopenai,sfp_precohort_vertical_classification,running,,1\nserper,sfp_official_domain_discovery,completed,,34\nserper,sfp_official_domain_discovery,failed,,1\npreparation_state,reason_code,intents\naction,created_at,details\nhash,created_at\n",
+    "success": true
+  },
+  "cursorEvidence": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "key,value,updated_at\ncanonical_recipient_preparation_cursor,\"{\"\"held\"\": 65, \"\"cycles\"\": 0, \"\"reasons\"\": {\"\"NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL\"\": 65}, \"\"scanned\"\": 65, \"\"prepared\"\": 0, \"\"leaseToken\"\": null, \"\"leaseUntil\"\": null, \"\"lastCycleAt\"\": null, \"\"afterContactId\"\": 126}\",2026-10-05 02:57:58.959017\npreparation_state,count\n",
+    "success": true
+  },
+  "convergenceState": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "key,cursor,scanned,committed,held,complete,last_error,updated_at\ncanonical_recipient_preparation_cursor,,65,,65,,,2026-10-05 02:57:58.959017\ncontact_link_automation_v1,0,0,0,0,false,\"Failed query: \n    SELECT c.id contact_id,b.id business_id,b.canonical_name,b.website_domain business_domain,\n      b.record_class business_record_class,b.do_not_visit,b.updated_at\",2026-10-05 03:08:18.26191\ncontacts,production_contacts\n154418,154016\nbusinesses,canonical_businesses\n92831,85808\n",
+    "success": true
+  },
+  "migrationHash": "cddce01292b6381c5cd935996dc3477252078df9c91f8f8f4f8300295961f6ac",
+  "migrationLedgerHashFound": false,
+  "schemaMaterialized": true,
+  "agentProductionWrites": false,
+  "agentWorkbookImports": false,
+  "taskComplete": false,
+  "operationalAcceptance": false
+}

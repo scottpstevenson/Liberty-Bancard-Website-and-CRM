@@ -1,0 +1,41 @@
+{
+  "scope": "Read-only production EXPLAIN ANALYZE of unshipped candidate query on contact IDs 1 through 25",
+  "observedAt": "2026-10-05T03:19:01.302Z",
+  "unparameterizedRegistryScanMs": 19048.824,
+  "candidateQueryMs": 29447.311,
+  "candidateOutputRows": 1,
+  "registryNodes": [
+    {
+      "node": "Index Scan",
+      "alias": "registry",
+      "index": "idx_sunbiz_filing_number",
+      "rows": 1,
+      "loops": 78978
+    },
+    {
+      "node": "Index Scan",
+      "alias": "se",
+      "index": "idx_sunbiz_filing_number",
+      "rows": 1,
+      "loops": 1
+    },
+    {
+      "node": "Index Scan",
+      "alias": "e",
+      "index": "sunbiz_entities_pkey",
+      "rows": 1,
+      "loops": 1
+    },
+    {
+      "node": "Index Scan",
+      "alias": "oe",
+      "index": "idx_sunbiz_filing_number",
+      "rows": 0,
+      "loops": 0
+    }
+  ],
+  "noProductionWrites": true,
+  "deployedQueryUnchanged": true,
+  "cacheConditionsDiffer": true,
+  "taskComplete": false
+}
