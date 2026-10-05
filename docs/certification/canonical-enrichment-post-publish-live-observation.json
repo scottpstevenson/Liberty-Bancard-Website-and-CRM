@@ -1,0 +1,107 @@
+{
+  "scope": "Production read-only published-build observations; not original-task completion",
+  "deployedHealth": {
+    "builtAt": "2026-10-05T11:45:31.996Z",
+    "env": "production",
+    "ghlTransportFailFast": false,
+    "publishBuildId": "cd4ac53a-dbaa-4a68-82c1-8bb34d3b6e3b",
+    "sha": "08d72068fbc1ef0b84c61dfa8c3899809cc9dd2a",
+    "status": "ok"
+  },
+  "observations": {
+    "observed_at": "2026-10-05 12:08:00.974036+00",
+    "linking": {
+      "held": 204,
+      "rule": "independent_guarded_system_links_v2",
+      "cursor": 310,
+      "enabled": true,
+      "reasons": {
+        "location_state_conflict": 7,
+        "current_link_decision_exists": 1,
+        "company_or_trade_name_conflict": 4,
+        "independent_corroboration_required": 11,
+        "independent_business_identity_not_found": 188
+      },
+      "scanned": 217,
+      "version": 1,
+      "complete": false,
+      "replayed": 0,
+      "committed": 13,
+      "lastError": null,
+      "updatedAt": "2026-10-05T11:59:26.282Z",
+      "leaseUntil": null,
+      "scanStartedAt": "2026-10-03 13:06:25.56618+00"
+    },
+    "preparation": {
+      "held": 1394,
+      "cycles": 0,
+      "reasons": {
+        "NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL": 1394
+      },
+      "scanned": 1394,
+      "prepared": 0,
+      "leaseUntil": null,
+      "lastCycleAt": null,
+      "afterContactId": 1487
+    },
+    "projection": {
+      "scope": "all_record_classes",
+      "cycles": 0,
+      "lastTickAt": "2026-10-05T11:58:34.481Z",
+      "contactCursor": 125093,
+      "providerCalls": 0,
+      "scanStartedAt": "2026-10-05 02:26:07.405046+00",
+      "businessCursor": 95092,
+      "contactChanged": 2500,
+      "verifiedCycles": 0,
+      "businessChanged": 0,
+      "contactsChanged": 62500,
+      "contactsScanned": 125000,
+      "coverageVersion": 2,
+      "lastCompletedAt": null,
+      "outboundChanges": 0,
+      "contactHighWater": 159476,
+      "businessHighWater": 95092,
+      "businessesChanged": 30331,
+      "businessesScanned": 92831,
+      "populationContacts": 154418,
+      "populationBusinesses": 92831
+    },
+    "pending_validation": 0,
+    "ready_held": 0,
+    "outbound_state": "paused"
+  },
+  "nativeChecks": {
+    "address_claims_present": "t",
+    "preparation_fields_present": "t",
+    "preparation_capacity_exact": "t",
+    "address_receipt_exact": "t",
+    "preparation_scope_constraint_present": "t",
+    "address_receipt_index_present": "t",
+    "preparation_index_present": "t",
+    "preparation_unique_index_present": "t",
+    "repair_verified": "t"
+  },
+  "priorityDiagnosis": {
+    "observed_at": "2026-10-05 12:08:12.298438+00",
+    "currently_bound_contacts": "31",
+    "first_bound_contact_id": "159445",
+    "last_bound_contact_id": "159476"
+  },
+  "earlierPreparation": {
+    "observedAt": "2026-10-05T11:52:32Z",
+    "scanned": 1144,
+    "prepared": 0,
+    "afterContactId": 1237,
+    "cycles": 0
+  },
+  "limitations": [
+    "Bound current recipients are candidates, not proof of final geography/suppression/recipient-capacity eligibility.",
+    "Observed preparation ticks do not prove two downstream advancement cycles or full-population completion.",
+    "Primary owner-lock cause remains unproved; replica lock statistics cannot establish it.",
+    "Locally verified priority preparation and safe driver diagnostics are not in the observed published build.",
+    "Agent issued SELECT queries and a public health GET only; no production write, import, provider call, or outbound release."
+  ],
+  "productionAcceptance": false,
+  "taskComplete": false
+}

@@ -286,6 +286,15 @@ export default function CanonicalEnrichment() {
                 detail={data.automaticProgress.validation.available ? `${formatCount(data.automaticProgress.validation.processing)} processing · oldest pending ${formatOptionalDate(data.automaticProgress.validation.oldestPendingAt)}` : "Programme preparation fields are not installed. Missing queue observations are not zero work."}
               />
             </div>
+            {data.automaticProgress.preparation.priority ? (
+              <div className="mt-3">
+                <CurrentSignal
+                  label="Bound-recipient priority pass"
+                  value={`${formatCount(data.automaticProgress.preparation.priority.scanned)} scanned`}
+                  detail={`${formatCount(data.automaticProgress.preparation.priority.prepared)} prepared · ${formatCount(data.automaticProgress.preparation.priority.held)} held · cycle ${formatCount(data.automaticProgress.preparation.priority.cycles)} · after contact ID ${formatCount(data.automaticProgress.preparation.priority.afterContactId)}. Separate from population coverage; cumulative transitions, not unique recipients.`}
+                />
+              </div>
+            ) : null}
             <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-300/70 bg-amber-50/70 p-4 dark:border-amber-900/70 dark:bg-amber-950/20">
               <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
               <p className="text-sm leading-6 text-muted-foreground">

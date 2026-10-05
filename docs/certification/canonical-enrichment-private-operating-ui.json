@@ -1,5 +1,5 @@
 {
-  "observedAt": "2026-10-05T11:30:01.265Z",
+  "observedAt": "2026-10-05T12:12:09.602Z",
   "scope": "Actual signed-in populated five-view desktop/phone UI in disposable fixture",
   "views": [
     {
@@ -176,5 +176,6 @@
   "agentStatusApi": 403,
   "agentPageRedirected": true,
   "nativeMobileCertification": false,
-  "taskComplete": false
+  "taskComplete": false,
+  "priorityCountersFromActualWorker": true
 }

@@ -127,7 +127,7 @@ try {
   let bulkBindingQueries=0;
   (db as any).execute=(query:any)=>{
     const text=dialect.sqlToQuery(query).sql;
-    if (text.includes("FROM contacts c JOIN businesses b") && text.includes("AS contact_id")) bulkBindingQueries++;
+     if (/FROM contacts c\s+JOIN businesses b/.test(text) && text.includes("AS contact_id")) bulkBindingQueries++;
     return originalExecute(query);
   };
   let bulkPage;
@@ -136,7 +136,7 @@ try {
   finally { (db as any).execute=originalExecute; }
   const bulkElapsedMs=Date.now()-bulkStarted;
   check(bulkPage.ran && bulkPage.examined===250,"Bounded page accounts for retained unbound contacts");
-  check(bulkBindingQueries===1,"One real binding retrieval per page, not 250 per-contact queries");
+   check(bulkBindingQueries===2,"One binding retrieval per population/priority page, not per contact");
   const lastPage=await processCanonicalRecipientPreparationTick();
   check(lastPage.ran && lastPage.examined===1 && lastPage.cycles>=3,"Keyset tail is retained and the full scan completes");
   check(await count("provider_operations")===baseline.operations+1 && fakeDispatches===1,
@@ -167,9 +167,18 @@ try {
   const newContactId=outcomes[1].contactIds[0];
   const prepareImported=()=>prepareCanonicalRecipient({contactId:newContactId,sequenceId,programId,
     actor,source:"canonical_import_flow_certification"});
-  const newPending=await prepareImported();
-  check(newPending.preparationState==="pending_validation" && newPending.enrollmentId!=null,
-    "Imported new identity enters actual selected pending/paused preparation");
+   const prioritized=await processCanonicalRecipientPreparationTick();
+   const newPendingRow=(await pool.query(`SELECT preparation_state,enrollment_id FROM cr04_enrollment_intents
+     WHERE contact_id=$1 AND program_id=$2`,[newContactId,programId])).rows[0];
+   const newPending={preparationState:newPendingRow?.preparation_state,enrollmentId:newPendingRow?.enrollment_id};
+   const workerCursor=(await pool.query(`SELECT value FROM system_settings
+     WHERE key='canonical_recipient_preparation_cursor'`)).rows[0].value;
+   check(newContactId>workerCursor.afterContactId && workerCursor.afterContactId>0,
+     "New bound recipient lies beyond the current full-population page");
+   check(prioritized.ran && prioritized.priority?.prepared!>=1,
+     "Existing worker's bounded priority pass reaches the late-ID recipient now");
+   check(newPending.preparationState==="pending_validation" && newPending.enrollmentId!=null,
+     "Automatic high-ID selection commits actual pending/paused preparation without manual prepare");
   const newIntent=(await pool.query("SELECT id FROM validation_intents WHERE contact_id=$1",[newContactId])).rows[0];
   check(await processValidationIntent(newIntent.id,{verifyEmail:async()=>{
     fakeDispatches++;
@@ -196,6 +205,8 @@ try {
     row.executionId===imported.execution.id && row.sourceRowNumber===2);
   check(importedCurrent?.businessId===null && importedCurrent.currentBusinessId===outcomes[1].businessId,
     "Operating status separates original row accounting from current verified CRM affiliation");
+   check(operatingStatus.automaticProgress.preparation.priority?.scanned!>0,
+     "Operating status exposes separate priority transitions without fabricating population coverage");
   await pool.query("UPDATE contacts SET do_not_contact=TRUE WHERE id=$1",[contactId]);
   await processCanonicalRecipientPreparationTick();
   check((await pool.query("SELECT status FROM sequence_enrollments WHERE id=$1",[pending.enrollmentId])).rows[0].status==="cancelled",
@@ -206,7 +217,9 @@ try {
     nativeRelationshipCommitted: true, personalEmailWithoutWebsite: true,
     retainedSelectedAddressValidated: true, originalReceipt: receipt, pausedEnrollment: true,
     workerCycles: secondCycle.cycles, fakeDispatches, physicalNetworkAttempts: 0,
-    unboundPage:{examined:bulkPage.examined,bulkBindingQueries,elapsedMs:bulkElapsedMs},
+     unboundPage:{examined:bulkPage.examined,bulkBindingQueries,elapsedMs:bulkElapsedMs},
+     priorityPass:{lateIdReachedBeforePopulationCursor:true,automaticPendingPausedMembership:true,
+       examined:prioritized.priority?.examined,prepared:prioritized.priority?.prepared},
     importFlow:{existingContactReused:true,newContactCommitted:true,bothReadyHeld:true,replayedWithoutDuplicates:true},
     cohortsCreated: 0, communicationsCreated: 0, productionExecution: false, taskComplete: false,
   }, null, 2) + "\n");

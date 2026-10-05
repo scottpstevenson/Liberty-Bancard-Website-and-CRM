@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { safeSfpFailureDiagnostics } from "../services/cro03/sfp-failure-diagnostics";
+import { safeSfpFailureDiagnostics, safeCanonicalEnrichmentFailureDiagnostics } from "../services/cro03/sfp-failure-diagnostics";
 
 const diagnostics = safeSfpFailureDiagnostics({
   message: "Failed query: confidential SQL and parameters",
@@ -28,4 +28,17 @@ assert.deepEqual(safeSfpFailureDiagnostics({
 const cycle: any = { message: "unknown" };
 cycle.cause = cycle;
 assert.equal(safeSfpFailureDiagnostics(cycle).sqlState, null);
+const canonical = safeCanonicalEnrichmentFailureDiagnostics({
+  message: "Failed query: private@example.com confidential SQL params",
+  cause: { code:"55P03", message:"could not obtain lock on confidential table" },
+});
+assert.equal(canonical.sqlState,"55P03");
+assert.doesNotMatch(JSON.stringify(canonical),/confidential|private@|params|query/);
+assert.equal(safeCanonicalEnrichmentFailureDiagnostics({
+  message:"Failed query: confidential params",cause:{message:"Connection terminated due to connection timeout"},
+}).failureKind,"connection_timeout");
+assert.equal(safeCanonicalEnrichmentFailureDiagnostics({
+  message:"CANONICAL_PREPARATION_CURSOR_LEASE_LOST",
+}).domainCode,"CANONICAL_PREPARATION_CURSOR_LEASE_LOST");
+assert.equal(safeCanonicalEnrichmentFailureDiagnostics(cycle).failureKind,null);
 console.log("SFP bounded driver diagnostics preserve causes without query/value leakage");

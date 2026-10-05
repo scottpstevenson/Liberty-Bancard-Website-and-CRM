@@ -42,7 +42,9 @@ export interface CanonicalEnrichmentStatus {
       } | null;
     };
     preparation: { observed: boolean; cycles: number; afterContactId: number; scanned: number;
-      prepared: number; held: number; lastCycleAt: string | null; reasons: Record<string,number> };
+      prepared: number; held: number; lastCycleAt: string | null; reasons: Record<string,number>;
+      priority?: {afterContactId:number;cycles:number;scanned:number;prepared:number;held:number;
+        reasons:Record<string,number>;lastCycleAt:string|null} | null };
     validation: { available:boolean;pending: number|null; processing: number|null; oldestPendingAt: string | null };
   };
   limitations: string[];

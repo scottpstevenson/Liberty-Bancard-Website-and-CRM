@@ -6,7 +6,8 @@ import WebSocket from "ws";
 // fixture first. Never point an automatically authenticated fixture at prod/dev.
 assert.equal(process.env.CANONICAL_PRIVATE_UI_CERTIFICATION,"1","Explicit private UI fixture opt-in required");
 const targets=await (await fetch("http://127.0.0.1:5444/json/list")).json() as any[];
-const target=targets.find(target=>target.type==="page" && target.url==="about:blank");
+const target=targets.find(target=>target.type==="page"
+  && (target.url==="about:blank" || target.url.startsWith("http://127.0.0.1:5443/")));
 assert(target?.webSocketDebuggerUrl?.startsWith("ws://127.0.0.1:5444/"),"Dedicated loopback page target required");
 const socket=new WebSocket(target.webSocketDebuggerUrl);
 await new Promise<void>((resolve,reject)=>{socket.once("open",resolve);socket.once("error",reject);});
@@ -71,6 +72,7 @@ try {
       const status=await evaluate("fetch('/api/canonical-enrichment/status').then(r=>r.json())");
       assert(status.recentImportOutcomes.some((row:any)=>row.businessId!=null || row.currentBusinessId!=null),"Actual populated import outcome required");
       assert(status.importExceptions.some((row:any)=>row.disposition==="deferred"),"Actual retained deferred exception required");
+      assert(status.automaticProgress.preparation.priority,"Actual worker priority observation required");
       for(const view of views) {
         const clicked=await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>
           b.textContent.replace(/\\s+/g,' ').trim().startsWith(${JSON.stringify(view.label)}));
@@ -79,6 +81,10 @@ try {
         await waitFor(`[...document.querySelectorAll('h2')].some(h=>h.textContent===${JSON.stringify(view.expected)})`);
         assert(!await evaluate("document.body.innerText.includes('Unable to load')"),"View must not mask a failed status endpoint");
         assert(await evaluate("document.documentElement.scrollWidth<=window.innerWidth+1"),`${role}/${width}/${view.label}: no whole-page horizontal overflow`);
+        if(view.slug==="pipeline") {
+          assert(await evaluate("document.body.textContent.includes('Bound-recipient priority pass') && document.body.textContent.includes('Separate from population coverage')"),
+            "Priority transitions render separately from population coverage");
+        }
         if(view.slug==="imports" || view.slug==="pipeline") {
           const image=await command("Page.captureScreenshot",{format:"png"});
           fs.writeFileSync(`docs/certification/canonical-enrichment-private-${role}-${width}-${view.slug}.png`,Buffer.from(image.data,"base64"));
@@ -111,6 +117,7 @@ try {
     productionExecution:false,scheduledProgression:false,managerAgentRoleCertification:true,
     populatedEvidenceAndBusinessDrilldown:true,responsivePhoneCertification:true,agentStatusApi:403,agentPageRedirected:true,
     nativeMobileCertification:false,taskComplete:false,
+    priorityCountersFromActualWorker:true,
   },null,2)+"\n");
   console.log("PASS: populated five views, admin/manager desktop/phone, evidence/business drill-downs, agent UI/API denial");
 } finally {socket.close();}

@@ -9,7 +9,9 @@ import { claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner } from "./cro
 const KEY="canonical_recipient_preparation_cursor";
 const rows=(result:any):any[]=>result?.rows ?? result ?? [];
 type Cursor={afterContactId:number;cycles:number;scanned:number;prepared:number;held:number;
-  reasons:Record<string,number>;leaseToken:string|null;leaseUntil:string|null;lastCycleAt:string|null};
+  reasons:Record<string,number>;leaseToken:string|null;leaseUntil:string|null;lastCycleAt:string|null;
+  priority?:{afterContactId:number;cycles:number;scanned:number;prepared:number;held:number;
+    reasons:Record<string,number>;lastCycleAt:string|null}};
 
 /** Local selection only. Uses the existing published owner, enrollment ledger
  * and queue tick. Provider pauses never gate this pass; it cannot send or spend. */
@@ -38,6 +40,7 @@ export async function processCanonicalRecipientPreparationTick() {
   });
   if (!claimed) return {ran:false,reason:"current_preparation_pass_owned"};
   const state=claimed;
+  state.priority ??= {afterContactId:0,cycles:0,scanned:0,prepared:0,held:0,reasons:{},lastCycleAt:null};
   const guard=async(tx:any)=>{
     await fence(tx);
     const held=rows(await tx.execute(sql`SELECT 1 FROM system_settings
@@ -45,31 +48,26 @@ export async function processCanonicalRecipientPreparationTick() {
         AND (value->>'leaseUntil')::timestamptz>clock_timestamp() FOR SHARE`));
     if (!held.length) throw new Error("CANONICAL_PREPARATION_CURSOR_LEASE_LOST");
   };
-  let examined=0,prepared=0;
   const deadline=Date.now()+90_000;
-  try {
-    const contacts=rows(await db.execute(sql`SELECT c.id,EXISTS (
-        SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
-          AND owned.preparation_state IN ('pending_validation','ready_held')) AS has_preparation
-      FROM contacts c
-      WHERE c.id>${state.afterContactId} AND (c.record_class='production' OR EXISTS (
-        SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
-          AND owned.preparation_state IN ('pending_validation','ready_held')))
-      ORDER BY c.id LIMIT 250`));
+  const bindingJoins=sql`JOIN businesses b ON b.id=c.business_id
+    JOIN sfp_programs p ON p.is_active AND p.taxonomy_version=2
+      AND ${sql.raw(effectiveBusinessVerticalSql("b"))}=ANY(p.vertical_ids)
+    JOIN follow_up_sequences seq ON (
+      seq.trigger_config->>'canonicalProgramId'=p.id::text
+      AND seq.trigger_config->'canonicalVerticals' ? ${sql.raw(effectiveBusinessVerticalSql("b"))}
+      OR EXISTS(SELECT 1 FROM sfp_campaign_package_versions pkg
+        WHERE pkg.sequence_id=seq.id AND pkg.lifecycle_state='current'
+          AND ${sql.raw(contactTargetVerticalSql("pkg.vertical"))}=${sql.raw(effectiveBusinessVerticalSql("b"))})
+    )`;
+  const processPage=async(contacts:any[],progress:NonNullable<Cursor["priority"]>,pageDeadline=deadline)=>{
+    let examined=0,prepared=0;
     // This is candidate retrieval, never write authority. Unbound contacts need
     // no per-row owner-locked transaction; genuine prepared slots still retire
     // under the existing guard, and every actual preparation rechecks its
     // binding and native/runtime authority before writing.
     const bindings=contacts.length ? rows(await db.execute(sql`
       SELECT DISTINCT c.id AS contact_id,p.id AS program_id,seq.id AS sequence_id
-      FROM contacts c JOIN businesses b ON b.id=c.business_id
-      JOIN sfp_programs p ON p.is_active AND p.taxonomy_version=2
-        AND ${sql.raw(effectiveBusinessVerticalSql("b"))}=ANY(p.vertical_ids)
-      JOIN follow_up_sequences seq ON seq.trigger_config->>'canonicalProgramId'=p.id::text
-        AND seq.trigger_config->'canonicalVerticals' ? ${sql.raw(effectiveBusinessVerticalSql("b"))}
-        OR EXISTS(SELECT 1 FROM sfp_campaign_package_versions pkg
-          WHERE pkg.sequence_id=seq.id AND pkg.lifecycle_state='current'
-            AND ${sql.raw(contactTargetVerticalSql("pkg.vertical"))}=${sql.raw(effectiveBusinessVerticalSql("b"))})
+      FROM contacts c ${bindingJoins}
       WHERE c.id IN (${sql.join(contacts.map(contact=>sql`${Number(contact.id)}`),sql`,`)})
         AND c.archived_at IS NULL AND c.do_not_contact IS NOT TRUE
         AND b.record_class='canonical' AND c.email IS NOT NULL
@@ -83,7 +81,7 @@ export async function processCanonicalRecipientPreparationTick() {
       bindingsByContact.set(contactId,programs);
     }
     for (const contact of contacts) {
-      if (Date.now()>=deadline) break;
+      if (Date.now()>=pageDeadline) break;
       // Include unavailable/changed recipients: stale paused slots must retire,
       // so suppressions and affiliation changes cannot strand the allowance.
       if (contact.has_preparation===true) await db.transaction(async tx=>{
@@ -131,14 +129,55 @@ export async function processCanonicalRecipientPreparationTick() {
           reason="USEFUL_RECIPIENT_ALLOWANCE_FILLED";
         }
       }
-      state.afterContactId=Number(contact.id);state.scanned++;examined++;
-      if (advanced) state.prepared++;
-      else {state.held++;state.reasons[reason]=(state.reasons[reason] ?? 0)+1;}
+      progress.afterContactId=Number(contact.id);progress.scanned++;examined++;
+      if (advanced) progress.prepared++;
+      else {progress.held++;progress.reasons[reason]=(progress.reasons[reason] ?? 0)+1;}
     }
-    if (examined===contacts.length && contacts.length<250) {
+    return {examined,prepared};
+  };
+  try {
+    const contacts=rows(await db.execute(sql`SELECT c.id,EXISTS (
+        SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
+          AND owned.preparation_state IN ('pending_validation','ready_held')) AS has_preparation
+      FROM contacts c
+      WHERE c.id>${state.afterContactId} AND (c.record_class='production' OR EXISTS (
+        SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
+          AND owned.preparation_state IN ('pending_validation','ready_held')))
+      ORDER BY c.id LIMIT 250`));
+    // Keep the population pass first so priority work cannot starve coverage.
+    const population=await processPage(contacts,state,Math.min(deadline,Date.now()+45_000));
+    if (population.examined===contacts.length && contacts.length<250) {
       state.afterContactId=0;state.cycles++;state.lastCycleAt=new Date().toISOString();
     }
-    return {ran:true,examined,prepared,cycles:state.cycles};
+    let priority={examined:0,prepared:0};
+    if (Date.now()<deadline) {
+      // Candidate retrieval only: this does not admit all stored addresses.
+      // A separate keyset revisits current bindings without waiting days for
+      // the population cursor to reach newly linked, high-ID recipients.
+      const selected=rows(await db.execute(sql`WITH priority_candidates AS (
+        SELECT c.id FROM contacts c WHERE c.id>${state.priority.afterContactId}
+          AND EXISTS(SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
+            AND owned.preparation_state IN ('pending_validation','ready_held'))
+        UNION
+        SELECT c.id FROM contacts c ${bindingJoins}
+        WHERE c.id>${state.priority.afterContactId} AND c.record_class='production'
+          AND c.archived_at IS NULL AND c.do_not_contact IS NOT TRUE
+          AND b.record_class='canonical' AND c.email IS NOT NULL
+          AND EXISTS(SELECT 1 FROM contact_business_link_decisions independent
+            WHERE independent.contact_id=c.id AND independent.business_id=b.id
+              AND independent.decision='verified' AND independent.superseded_at IS NULL)
+      ) SELECT c.id,EXISTS (
+          SELECT 1 FROM cr04_enrollment_intents owned WHERE owned.contact_id=c.id
+            AND owned.preparation_state IN ('pending_validation','ready_held')) AS has_preparation
+        FROM priority_candidates c
+        ORDER BY c.id LIMIT 25`));
+      priority=await processPage(selected,state.priority);
+      if (priority.examined===selected.length && selected.length<25) {
+        state.priority.afterContactId=0;state.priority.cycles++;
+        state.priority.lastCycleAt=new Date().toISOString();
+      }
+    }
+    return {ran:true,...population,cycles:state.cycles,priority};
   } finally {
     // CAS cannot overwrite a newer pass after crash/expiry.
     state.leaseToken=null;state.leaseUntil=null;

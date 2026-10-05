@@ -25,6 +25,7 @@ import { sanitizeAuditPayload, sanitizeDeadLetterEvent } from "./audit-sanitizer
 import { QUEUE_NAMES, type QueueName } from "./queue-names";
 export { QUEUE_NAMES, type QueueName } from "./queue-names";
 import { setDbContext } from "../lib/db-context";
+import { safeCanonicalEnrichmentFailureDiagnostics } from "./cro03/sfp-failure-diagnostics";
 let seqNoOpAlertCooldown = 0;
 
 interface QueueConfig {
@@ -2662,49 +2663,49 @@ class QueueManager {
             const coverage = await processContactLinkCoverageServerTick();
             if (coverage.ran) console.log(`[ContactLinkCoverage] ${JSON.stringify(coverage)}`);
           } catch (error: any) {
-            console.error("[ContactLinkCoverage] bounded page deferred", { code: error?.code ?? error?.message });
+            console.error("[ContactLinkCoverage] bounded page deferred", safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const { processContactBusinessReconciliationServerTick } = await import("./contact-business-reconciliation");
             const reconciliation = await processContactBusinessReconciliationServerTick();
             if (reconciliation.ran) console.log(`[ContactBusinessReconciliation] ${JSON.stringify(reconciliation)}`);
           } catch (error: any) {
-            console.error("[ContactBusinessReconciliation] bounded page deferred", { code: error?.code ?? error?.message });
+            console.error("[ContactBusinessReconciliation] bounded page deferred", safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const { processEffectiveVerticalProjectionTick } = await import("./crm-effective-vertical-projection");
             const verticals = await processEffectiveVerticalProjectionTick();
             if (verticals.ran) console.log(`[CrmEffectiveVerticalProjection] ${JSON.stringify(verticals)}`);
           } catch (error: any) {
-            console.error("[CrmEffectiveVerticalProjection] held", { code: error?.code ?? error?.message });
+            console.error("[CrmEffectiveVerticalProjection] held", safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const { processContactLinkAutomationTick } = await import("./contact-link-automation");
             const links = await processContactLinkAutomationTick();
             if (links.ran) console.log(`[ContactLinkAutomation] ${JSON.stringify(links)}`);
           } catch (error: any) {
-            console.error("[ContactLinkAutomation] held", { code: error?.code ?? error?.message });
+            console.error("[ContactLinkAutomation] held", safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const {processCanonicalImportRecoveryTick}=await import("./canonical-import-recovery-worker");
             const recovered=await processCanonicalImportRecoveryTick();
             if (recovered.ran) console.log(`[CanonicalImportRecovery] ${JSON.stringify(recovered)}`);
           } catch(error:any) {
-            console.error("[CanonicalImportRecovery] held",{code:error?.code ?? error?.message});
+            console.error("[CanonicalImportRecovery] held",safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const {processCanonicalRegistryProjectionTick}=await import("./canonical-registry-projection-worker");
             const registry=await processCanonicalRegistryProjectionTick();
             if (registry.ran) console.log(`[CanonicalRegistryProjection] ${JSON.stringify(registry)}`);
           } catch(error:any) {
-            console.error("[CanonicalRegistryProjection] held",{code:error?.code ?? error?.message});
+            console.error("[CanonicalRegistryProjection] held",safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const {processCanonicalRecipientPreparationTick}=await import("./canonical-recipient-preparation-worker");
             const preparations=await processCanonicalRecipientPreparationTick();
             if (preparations.ran) console.log(`[CanonicalRecipientPreparation] ${JSON.stringify(preparations)}`);
           } catch(error:any) {
-            console.error("[CanonicalRecipientPreparation] held",{code:error?.code ?? error?.message});
+            console.error("[CanonicalRecipientPreparation] held",safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           const { processSfpContinuousDiscoveryTick } = await import("./cro03/sfp-continuous-discovery");
           const result = await processSfpContinuousDiscoveryTick();

@@ -33,6 +33,21 @@ status updates and misleading the user about what remained.
 execution in status reports. Correct an overstated claim directly rather than
 presenting the unfinished original requirement as new work.
 
+Full-population accounting must not delay already-bound target recipients.
+Prioritized evaluation and population coverage need separate truthful progress;
+neither creates blanket validation permission. Retiring an existing preparation
+must remain possible after the recipient loses eligibility.
+
+**Why:** Production's useful newly linked recipients were at the end of the ID
+range while the population cursor was near its beginning; successful unbound
+scan ticks produced no downstream progress. Excluding suppressed recipients
+from all priority work would also delay retirement of their useful-recipient slots.
+
+**How to apply:** Preserve bounded fairness and all write-boundary checks.
+Certify a real late-ID recipient advancing before population traversal reaches
+it, and certify cancellation after suppression; do not call priority cycles
+full-population completion.
+
 Native production repairs use the owner's database console; do not ask for
 credentials or suggest a different execution mechanism after this is established.
 

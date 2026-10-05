@@ -165,6 +165,7 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
         held:Number(preparationCursor.rows[0]?.value?.held ?? 0),
         lastCycleAt:preparationCursor.rows[0]?.value?.lastCycleAt ?? null,
         reasons:preparationCursor.rows[0]?.value?.reasons ?? {},
+        priority:preparationCursor.rows[0]?.value?.priority ?? null,
       },
       validation:{available:preparationSchemaAvailable,
         pending:preparationSchemaAvailable ? Number(validationQueue.rows[0].pending) : null,
@@ -180,6 +181,7 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
       "Automatic preparation counters are cumulative pass transitions, not distinct qualified contacts; local cycle receipts do not certify deployed scheduled progression.",
       "Projection coverage includes all record classes in a frozen ID range; it does not prove identity linking, qualification or paid queue admission.",
       "Preparation-linked validation intent counts do not prove fresh dispatch eligibility; current canonical selection is rechecked before provider I/O.",
+      "Priority preparation has a separate bounded cursor for currently bound recipients; its cycles and transitions are not full-population coverage or distinct recipients.",
     ],
   };
 }

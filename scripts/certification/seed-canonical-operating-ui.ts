@@ -35,6 +35,20 @@ try {
   assert.equal(accounted.length, 2);
   assert(committed.some(row => row.businessId != null));
   assert(accounted.some(row => row.disposition === "deferred"));
+  // Persist real, separately counted cursor observations through the actual
+  // worker. This identity is confined to this explicitly disposable process.
+  process.env.NODE_ENV = "production";
+  process.env.REPLIT_DEPLOYMENT = "1";
+  process.env.RELEASE_SHA = "f".repeat(40);
+  process.env.SFP_PUBLISH_ARTIFACT_SHA = process.env.RELEASE_SHA;
+  process.env.SFP_PUBLISH_BUILD_ID = randomUUID();
+  process.env.SFP_PUBLISH_BUILT_AT = new Date().toISOString();
+  const { processCanonicalRecipientPreparationTick } =
+    await import("../../server/services/canonical-recipient-preparation-worker");
+  assert((await processCanonicalRecipientPreparationTick()).ran);
+  const cursor=(await pool.query(`SELECT value FROM system_settings
+    WHERE key='canonical_recipient_preparation_cursor'`)).rows[0].value;
+  assert(cursor.priority && typeof cursor.priority.scanned==="number");
   assert.equal(Number((await pool.query("SELECT count(*) n FROM provider_operations")).rows[0].n), 0);
   assert.equal(Number((await pool.query("SELECT count(*) n FROM communication_events")).rows[0].n), 0);
   console.log("POPULATED_CANONICAL_FIXTURE_READY committed=1 deferred=1 providers=0 messages=0");
