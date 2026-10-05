@@ -9,6 +9,54 @@ const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const MAX_ITEMS_PER_TICK=250;
 const MAX_TICK_DURATION_MS=30_000;
 
+/** Fence observation retrieval to the actual membership's indexed ID. Do not
+ * let a fingerprint join turn into a scan/de-TOAST of every source observation.
+ * Open the execution's original raw JSON only AFTER the ordered one-row claim;
+ * it may contain the entire workbook, not just the chosen row. */
+export function canonicalImportRecoveryClaimSql() {
+  return sql`WITH selected_import AS MATERIALIZED (
+    SELECT item.id,execution.id execution_id,accounting.source_row_number,
+      observation.payload->>'sourceFormat' source_format,
+      raw_observation.id raw_observation_id
+    FROM cro03_enrichment_items item
+    JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id AND batch.purpose='staging_review'
+    JOIN cro03_batch_memberships member ON member.id=item.membership_id
+    JOIN LATERAL (
+      SELECT original.payload FROM cro03_source_observations original
+       WHERE original.id=member.source_observation_id OFFSET 0
+    ) observation ON TRUE
+    JOIN import_row_dispositions accounting ON
+      batch.idempotency_key='csv-source:'||accounting.execution_id::text||':'||accounting.source_row_number::text
+      AND accounting.disposition='deferred'
+      AND observation.payload->>'rowFingerprint'=accounting.row_fingerprint
+    JOIN import_executions execution ON execution.id=accounting.execution_id AND execution.status='completed'
+    LEFT JOIN cro03_enrichment_batches raw_batch ON
+      raw_batch.idempotency_key='csv-source-raw-v2:'||execution.id::text||':'||accounting.source_row_number::text
+    LEFT JOIN cro03_batch_memberships raw_member ON raw_member.batch_id=raw_batch.id
+    LEFT JOIN cro03_source_observations raw_observation ON raw_observation.id=raw_member.source_observation_id
+    WHERE observation.payload->>'sourceFormat' IN ('google_maps_outscraper','apollo_lead_list')
+      AND (item.terminal_code IS DISTINCT FROM 'CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE'
+        OR jsonb_typeof(raw_observation.payload->'rawSourceRow')='object'
+        OR jsonb_typeof(execution.source_payload->(accounting.source_row_number-1))='object')
+      AND ((item.state='blocked' AND (
+        item.terminal_code='STAGING_RECIPE_DISABLED' OR item.terminal_code LIKE 'CANONICAL_IMPORT_%'))
+        OR (item.state='running' AND item.current_provider='canonical_local_import'
+          AND item.lease_expires_at<=clock_timestamp()))
+      AND item.next_attempt_at<=clock_timestamp()
+    ORDER BY item.next_attempt_at,item.id LIMIT 1 FOR UPDATE OF item SKIP LOCKED
+  )
+  SELECT selected_import.id,selected_import.execution_id,selected_import.source_row_number,
+    selected_import.source_format,
+    COALESCE(CASE WHEN jsonb_typeof(raw_observation.payload->'rawSourceRow')='object'
+      THEN raw_observation.payload->'rawSourceRow' END,
+      CASE WHEN jsonb_typeof(execution.source_payload->(selected_import.source_row_number-1))='object'
+      THEN execution.source_payload->(selected_import.source_row_number-1) END) raw_row,
+    execution.metadata
+  FROM selected_import
+  JOIN import_executions execution ON execution.id=selected_import.execution_id
+  LEFT JOIN cro03_source_observations raw_observation ON raw_observation.id=selected_import.raw_observation_id`;
+}
+
 /** Local fulfillment of retained, completed imports through their ORIGINAL
  * source work items. No fabricated import, cohort, approval or provider run. */
 export async function processCanonicalImportRecoveryTick(
@@ -38,35 +86,7 @@ export async function processCanonicalImportRecoveryTick(
     const token=randomUUID();
     const candidate=await runCanonicalTransaction("import_cursor_claim",()=>db.transaction(async tx=>{
       await ownerAuthorityCheck(tx);
-      const selected=rows(await tx.execute(sql`SELECT item.id,execution.id execution_id,
-        accounting.source_row_number,observation.payload->>'sourceFormat' source_format,
-        COALESCE(CASE WHEN jsonb_typeof(raw_observation.payload->'rawSourceRow')='object'
-          THEN raw_observation.payload->'rawSourceRow' END,
-          CASE WHEN jsonb_typeof(execution.source_payload->(accounting.source_row_number-1))='object'
-          THEN execution.source_payload->(accounting.source_row_number-1) END) raw_row,execution.metadata
-        FROM cro03_enrichment_items item
-        JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id AND batch.purpose='staging_review'
-        JOIN cro03_batch_memberships member ON member.id=item.membership_id
-        JOIN cro03_source_observations observation ON observation.id=member.source_observation_id
-        JOIN import_row_dispositions accounting ON
-          batch.idempotency_key='csv-source:'||accounting.execution_id::text||':'||accounting.source_row_number::text
-          AND accounting.disposition='deferred'
-          AND observation.payload->>'rowFingerprint'=accounting.row_fingerprint
-        JOIN import_executions execution ON execution.id=accounting.execution_id AND execution.status='completed'
-        LEFT JOIN cro03_enrichment_batches raw_batch ON
-          raw_batch.idempotency_key='csv-source-raw-v2:'||execution.id::text||':'||accounting.source_row_number::text
-        LEFT JOIN cro03_batch_memberships raw_member ON raw_member.batch_id=raw_batch.id
-        LEFT JOIN cro03_source_observations raw_observation ON raw_observation.id=raw_member.source_observation_id
-        WHERE observation.payload->>'sourceFormat' IN ('google_maps_outscraper','apollo_lead_list')
-          AND (item.terminal_code IS DISTINCT FROM 'CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE'
-            OR jsonb_typeof(raw_observation.payload->'rawSourceRow')='object'
-            OR jsonb_typeof(execution.source_payload->(accounting.source_row_number-1))='object')
-          AND ((item.state='blocked' AND (
-            item.terminal_code='STAGING_RECIPE_DISABLED' OR item.terminal_code LIKE 'CANONICAL_IMPORT_%'))
-            OR (item.state='running' AND item.current_provider='canonical_local_import'
-              AND item.lease_expires_at<=clock_timestamp()))
-          AND item.next_attempt_at<=clock_timestamp()
-        ORDER BY item.next_attempt_at,item.id LIMIT 1 FOR UPDATE OF item SKIP LOCKED`))[0];
+       const selected=rows(await tx.execute(canonicalImportRecoveryClaimSql()))[0];
       if (!selected) return null;
       if (selected.raw_row == null) {
         await tx.execute(sql`UPDATE cro03_enrichment_items

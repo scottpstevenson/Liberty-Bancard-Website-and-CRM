@@ -1,0 +1,78 @@
+Read-only production replica EXPLAIN ANALYZE of the exact revised claim, with FOR UPDATE OF item SKIP LOCKED removed for the replica. No production claim, write or provider call. Local native locking/recovery/replay: 70 checks passed.
+
+QUERY PLAN
+Nested Loop Left Join  (cost=7307.02..7316.11 rows=1 width=218) (actual time=683.919..684.842 rows=1 loops=1)
+  Buffers: shared hit=18893 read=2054 dirtied=1194
+  CTE selected_import
+    ->  Limit  (cost=7306.73..7306.74 rows=1 width=92) (actual time=535.512..535.522 rows=1 loops=1)
+          Buffers: shared hit=18266 read=1446 dirtied=1191
+          ->  Sort  (cost=7306.73..7306.74 rows=1 width=92) (actual time=535.510..535.519 rows=1 loops=1)
+"                Sort Key: item.next_attempt_at, item.id"
+                Sort Method: top-N heapsort  Memory: 25kB
+                Buffers: shared hit=18266 read=1446 dirtied=1191
+                ->  Nested Loop Left Join  (cost=803.98..7306.72 rows=1 width=92) (actual time=128.384..534.553 rows=1471 loops=1)
+                      Filter: ((item.terminal_code IS DISTINCT FROM 'CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE'::text) OR (jsonb_typeof((raw_observation_1.payload -> 'rawSourceRow'::text)) = 'object'::text) OR (jsonb_typeof((execution_1.source_payload -> (accounting.source_row_number - 1))) = 'object'::text))
+                      Buffers: shared hit=18260 read=1446 dirtied=1191
+                      ->  Nested Loop Left Join  (cost=803.69..7306.03 rows=1 width=388) (actual time=128.373..533.308 rows=1471 loops=1)
+                            Buffers: shared hit=18260 read=1446 dirtied=1191
+                            ->  Nested Loop Left Join  (cost=803.41..7305.14 rows=1 width=388) (actual time=128.356..532.447 rows=1471 loops=1)
+                                  Buffers: shared hit=18260 read=1446 dirtied=1191
+                                  ->  Nested Loop  (cost=802.98..7296.69 rows=1 width=372) (actual time=125.520..522.526 rows=1471 loops=1)
+                                        Join Filter: (accounting.execution_id = execution_1.id)
+                                        Buffers: shared hit=13850 read=1443 dirtied=1191
+                                        ->  Nested Loop  (cost=802.98..7295.67 rows=1 width=354) (actual time=124.921..518.922 rows=1471 loops=1)
+                                              Join Filter: ((observation.payload ->> 'rowFingerprint'::text) = accounting.row_fingerprint)
+                                              Buffers: shared hit=12380 read=1442 dirtied=1190
+                                              ->  Nested Loop  (cost=802.69..2671.13 rows=555 width=149) (actual time=124.132..358.935 rows=1471 loops=1)
+                                                    Buffers: shared hit=8314 read=1095 dirtied=914
+                                                    ->  Nested Loop  (cost=802.41..1675.57 rows=555 width=149) (actual time=123.494..195.073 rows=1471 loops=1)
+                                                          Buffers: shared hit=4286 read=710 dirtied=639
+                                                          ->  Hash Join  (cost=802.12..880.67 rows=1471 width=101) (actual time=122.677..151.761 rows=1471 loops=1)
+                                                                Hash Cond: (((('csv-source:'::text || (accounting.execution_id)::text) || ':'::text) || (accounting.source_row_number)::text) = batch.idempotency_key)
+                                                                Buffers: shared read=583 dirtied=583
+                                                                ->  Seq Scan on import_row_dispositions accounting  (cost=0.00..73.40 rows=1471 width=85) (actual time=0.657..27.400 rows=1471 loops=1)
+                                                                      Filter: (disposition = 'deferred'::text)
+                                                                      Rows Removed by Filter: 1
+                                                                      Buffers: shared read=55 dirtied=55
+                                                                ->  Hash  (cost=665.06..665.06 rows=10965 width=66) (actual time=121.964..121.965 rows=10962 loops=1)
+                                                                      Buckets: 16384  Batches: 1  Memory Usage: 1181kB
+                                                                      Buffers: shared read=528 dirtied=528
+                                                                      ->  Seq Scan on cro03_enrichment_batches batch  (cost=0.00..665.06 rows=10965 width=66) (actual time=0.544..117.318 rows=10962 loops=1)
+                                                                            Filter: (purpose = 'staging_review'::text)
+                                                                            Buffers: shared read=528 dirtied=528
+                                                          ->  Index Scan using cro03_items_batch_state_idx on cro03_enrichment_items item  (cost=0.29..0.53 rows=1 width=80) (actual time=0.029..0.029 rows=1 loops=1471)
+                                                                Index Cond: (batch_id = batch.id)
+                                                                Filter: ((next_attempt_at <= clock_timestamp()) AND (((state = 'blocked'::text) AND ((terminal_code = 'STAGING_RECIPE_DISABLED'::text) OR (terminal_code ~~ 'CANONICAL_IMPORT_%'::text))) OR ((state = 'running'::text) AND (current_provider = 'canonical_local_import'::text) AND (lease_expires_at <= clock_timestamp()))))
+                                                                Buffers: shared hit=4286 read=127 dirtied=56
+                                                    ->  Index Scan using cro03_batch_memberships_pkey on cro03_batch_memberships member  (cost=0.29..1.79 rows=1 width=32) (actual time=0.111..0.111 rows=1 loops=1471)
+                                                          Index Cond: (id = item.membership_id)
+                                                          Buffers: shared hit=4028 read=385 dirtied=275
+                                              ->  Subquery Scan on observation  (cost=0.29..8.32 rows=1 width=286) (actual time=0.107..0.108 rows=1 loops=1471)
+"                                                    Filter: ((observation.payload ->> 'sourceFormat'::text) = ANY ('{google_maps_outscraper,apollo_lead_list}'::text[]))"
+                                                    Buffers: shared hit=4066 read=347 dirtied=276
+                                                    ->  Index Scan using cro03_source_observations_pkey on cro03_source_observations original  (cost=0.29..8.30 rows=1 width=286) (actual time=0.106..0.107 rows=1 loops=1471)
+                                                          Index Cond: (id = member.source_observation_id)
+                                                          Buffers: shared hit=4066 read=347 dirtied=276
+                                        ->  Seq Scan on import_executions execution_1  (cost=0.00..1.01 rows=1 width=34) (actual time=0.001..0.001 rows=1 loops=1471)
+                                              Filter: (status = 'completed'::text)
+                                              Buffers: shared hit=1470 read=1 dirtied=1
+                                  ->  Index Scan using cro03_batches_idempotency_command_uidx on cro03_enrichment_batches raw_batch  (cost=0.43..8.45 rows=1 width=66) (actual time=0.005..0.005 rows=0 loops=1471)
+                                        Index Cond: (idempotency_key = ((('csv-source-raw-v2:'::text || (execution_1.id)::text) || ':'::text) || (accounting.source_row_number)::text))
+                                        Buffers: shared hit=4410 read=3
+                            ->  Index Scan using cro03_membership_batch_ordinal_uidx on cro03_batch_memberships raw_member  (cost=0.29..0.88 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=1471)
+                                  Index Cond: (batch_id = raw_batch.id)
+                      ->  Index Scan using cro03_source_observations_pkey on cro03_source_observations raw_observation_1  (cost=0.29..0.66 rows=1 width=302) (actual time=0.000..0.000 rows=0 loops=1471)
+                            Index Cond: (id = raw_member.source_observation_id)
+  ->  Nested Loop  (cost=0.00..1.04 rows=1 width=220) (actual time=535.519..535.522 rows=1 loops=1)
+        Join Filter: (selected_import.execution_id = execution.id)
+        Buffers: shared hit=18267 read=1446 dirtied=1191
+        ->  CTE Scan on selected_import  (cost=0.00..0.02 rows=1 width=84) (actual time=535.515..535.517 rows=1 loops=1)
+              Buffers: shared hit=18266 read=1446 dirtied=1191
+        ->  Seq Scan on import_executions execution  (cost=0.00..1.01 rows=1 width=152) (actual time=0.002..0.002 rows=1 loops=1)
+              Buffers: shared hit=1
+  ->  Index Scan using cro03_source_observations_pkey on cro03_source_observations raw_observation  (cost=0.29..8.30 rows=1 width=302) (actual time=0.010..0.010 rows=0 loops=1)
+        Index Cond: (id = selected_import.raw_observation_id)
+Planning:
+  Buffers: shared hit=680 read=145 dirtied=47
+Planning Time: 117.256 ms
+Execution Time: 685.255 ms

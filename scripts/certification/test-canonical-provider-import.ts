@@ -9,6 +9,8 @@ const {pool}=await import("../../server/db");
 const {claimCsvExecution,recordImportRowDisposition,completeImportExecution}=await import("../../server/services/import-execution");
 const {materializeCanonicalProviderImportRow,providerImportEmails,providerImportRecipient}=await import("../../server/services/canonical-provider-import");
 const {initializeImportedLinkedContactClass}=await import("../../server/services/commercial-classification-authority");
+const {canonicalImportRecoveryClaimSql}=await import("../../server/services/canonical-import-recovery-worker");
+const {PgDialect}=await import("drizzle-orm/pg-core");
 let checks=0;
 const check=(value:unknown,message:string)=>{assert(value,message);checks++;};
 const actorId=`cert_import_${randomUUID()}`;
@@ -20,6 +22,20 @@ const raw={name:`Canonical Import ${label}`,place_id:`cert_place_${label}`,categ
 const newClaim=()=>claimCsvExecution({fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
   totalRows:1,actorType:"import",actorId,sourcePayload:[raw]});
 try {
+  const nativeClaim=new PgDialect().sqlToQuery(canonicalImportRecoveryClaimSql());
+  const claimPlan=(await pool.query(`EXPLAIN (VERBOSE, FORMAT JSON) ${nativeClaim.sql}`,nativeClaim.params))
+    .rows[0]["QUERY PLAN"][0].Plan;
+  const planNodes=(node:any):any[]=>[node,...(node.Plans ?? []).flatMap(planNodes)];
+  const nodes=planNodes(claimPlan);
+  const selectedScope=nodes.find(node=>node["Subplan Name"]==="CTE selected_import");
+  check(selectedScope?.["Node Type"]==="Limit" && nodes.some(node=>node["Node Type"]==="LockRows"),
+    "Native recovery limits and locks one eligible original source item inside a materialized scope");
+  check(selectedScope.Output.every((field:string)=>!field.includes("source_payload")&&!field.includes("COALESCE")),
+    "Workbook original raw JSON is not projected for every sortable backlog row");
+  check(nodes.some(node=>node["Node Type"]==="Subquery Scan" && node.Alias==="observation"),
+    "Native observation lookup remains membership-ID-correlated instead of a global fingerprint payload scan");
+  check(claimPlan.Output.some((field:string)=>field.includes("COALESCE")&&field.includes("source_payload")),
+    "The actual chosen original raw payload still opens after selection; original availability is not bypassed");
   const before=(await pool.query(`SELECT
     (SELECT count(*) FROM provider_operations)::int operations,
     (SELECT count(*) FROM communication_events)::int communications,
