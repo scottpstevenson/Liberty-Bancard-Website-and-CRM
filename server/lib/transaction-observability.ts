@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { getDbContext } from "./db-context";
+import {fingerprintQuery, tagLockTrace, safeDatabaseFailure} from "./lock-trace";
 
 const phases = new AsyncLocalStorage<string>();
 export function withTransactionPhase<T>(phase: string, fn: () => T): T {
@@ -14,6 +15,7 @@ export function observeTransactionConnections(pool: any, options: {
   emit?: (event: Record<string, unknown>) => void;
   slowMs?: number;
   sampleMs?: number;
+  tagSql?: boolean;
 } = {}) {
   const emit = options.emit ?? (event => console.warn(JSON.stringify(event)));
   const slowMs = options.slowMs ?? 2000;
@@ -24,6 +26,7 @@ export function observeTransactionConnections(pool: any, options: {
   const report = (event: string, state: any, extra: Record<string, unknown> = {}) => {
     // Observation must never change successful query/release behavior.
     try { emit({event, connectionId: state.connectionId, backendId: state.backendId,
+      backendIdSource: "protocol", protocolBackendId: state.backendId,
       checkoutId: state.checkoutId, correlationId: state.context?.correlationId ?? null,
       normalizedRoute: state.context?.normalizedRoute ?? null, phase: state.phase,
       ...extra, pool: snapshot(), ts: new Date().toISOString()}); } catch { /* telemetry only */ }
@@ -69,11 +72,21 @@ export function observeTransactionConnections(pool: any, options: {
       if (!state) return originalQuery.apply(this, args);
       const text = typeof args[0] === "string" ? args[0] : args[0]?.text ?? "";
       // Hash only; no SQL body, literals, parameters, contact data or errors.
-      const queryHash = createHash("sha256").update(text.replace(/\s+/g, " ").trim()).digest("hex").slice(0, 16);
+      const queryHash = fingerprintQuery(text);
       const command = /^\s*(begin|commit|rollback|savepoint|release)\b/i.exec(text)?.[1]?.toLowerCase() ?? "query";
       const queryKind = text.includes("pg_advisory") ? "advisory_lock"
         : text.includes("sfp_runtime_") ? "runtime_authority" : command;
       const started = performance.now(), phase = phases.getStore() ?? state.phase;
+      // SQL comments require no extra round trips or session setting changes.
+      // The primary observer extracts this tag and supplies the REAL backend PID.
+      // Do not mutate caller configs or pg Query objects, or named prepared SQL.
+      if (options.tagSql && (state.transaction || command === "begin") && text) {
+        if (typeof args[0] === "string") {
+          args[0] = tagLockTrace(text, state.checkoutId, state.context?.normalizedRoute, phase);
+        } else if (!args[0]?.name && typeof args[0]?.submit !== "function") {
+          args[0] = {...args[0], text: tagLockTrace(text, state.checkoutId, state.context?.normalizedRoute, phase)};
+        }
+      }
       state.inFlight++; state.lastQuery = {queryHash, queryKind, phase};
       let finished = false;
       const finish = (error?: any) => {
@@ -85,7 +98,8 @@ export function observeTransactionConnections(pool: any, options: {
           state.transaction = false;
         if (error || executionMs >= slowMs) {
           report("db:transaction_query", state, {phase, queryHash, queryKind,
-            executionMs, sqlState: error?.code ?? null, transactionOpen: state.transaction});
+            executionMs, sqlState: error?.code ?? null, transactionOpen: state.transaction,
+            ...(error ? {failure: safeDatabaseFailure(error)} : {})});
         }
       };
       // All pg overloads: query(text, callback), query(text, values, callback),

@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import {withTransactionPhase} from "./lib/transaction-observability";
 import cookieParser from "cookie-parser";
 import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
@@ -133,7 +134,7 @@ async function startSfpRuntimeOwnerHeartbeat(): Promise<void> {
   try {
     // Published artifacts advance the audited release selector atomically;
     // development and legacy identities still need explicit selection.
-    await claimSfpRuntimeDeploymentOwner();
+    await withTransactionPhase("sfp_runtime_startup_claim",claimSfpRuntimeDeploymentOwner);
     lastSfpRuntimeHeartbeatReason = null;
     log("[SFP Runtime] Current selected release owner established");
   } catch (error: any) {
@@ -148,8 +149,9 @@ async function startSfpRuntimeOwnerHeartbeat(): Promise<void> {
     try {
       // Retry failed startup/expired ownership through the same fenced claim.
       // A retired build cannot advance the selector or steal the new lease.
-      if (lastSfpRuntimeHeartbeatReason) await claimSfpRuntimeDeploymentOwner();
-      else await renewSfpRuntimeDeploymentOwner();
+      if (lastSfpRuntimeHeartbeatReason)
+        await withTransactionPhase("sfp_runtime_heartbeat_claim",claimSfpRuntimeDeploymentOwner);
+      else await withTransactionPhase("sfp_runtime_heartbeat_renewal",renewSfpRuntimeDeploymentOwner);
       if (lastSfpRuntimeHeartbeatReason) {
         log("[SFP Runtime] Selected live owner heartbeat resumed");
       }

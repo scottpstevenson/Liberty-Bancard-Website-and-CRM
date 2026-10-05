@@ -1,5 +1,6 @@
 import { Queue, Worker, DelayedError, type ConnectionOptions, type Job } from "bullmq";
 import { sql } from "drizzle-orm";
+import {withTransactionPhase} from "../lib/transaction-observability";
 import {
   getBackgroundProfile,
   getSelectiveGroups,
@@ -1383,7 +1384,8 @@ class QueueManager {
           }
         }
 
-        if (status.ownerLive) await renewSfpRuntimeDeploymentOwner();
+        if (status.ownerLive)
+          await withTransactionPhase("sfp_runtime_selection_watch_renewal",renewSfpRuntimeDeploymentOwner);
       } catch (error: any) {
         console.warn(`[QueueManager] Routine-SFP runtime owner unavailable: ${String(error?.message ?? error)}`);
       }

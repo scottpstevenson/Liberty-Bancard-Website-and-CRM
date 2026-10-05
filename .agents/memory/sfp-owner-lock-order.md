@@ -88,3 +88,16 @@ mechanism, not the sole cause or exact caller of every production timeout.
 Keep contact/provenance/consent writes atomic at a bounded mailbox-sized unit,
 retain final live authority/lease checks, and prove recovery reuses records
 committed before a crash.
+
+Protocol connection IDs are not necessarily native PostgreSQL backend PIDs.
+Obtain real PIDs and blocker relationships from the primary, and correlate them
+with non-sensitive transaction trace identities. Do not use replica lock views
+or concurrent worker activity as proof of the blocking caller.
+
+**Why:** Published connection logs contained negative protocol IDs while primary
+lock attribution was needed; the same renewal SQL also has multiple callers.
+
+**How to apply:** Distinguish heartbeat from queue-watch phases, preserve named
+prepared SQL, and keep observation independent of authority-pinned transactions.
+Parse deadlock details into numeric edges only: full details can include source
+SQL/PII. Log the original and cleanup errors separately before diagnosing recovery.

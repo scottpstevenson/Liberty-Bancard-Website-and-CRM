@@ -21,9 +21,11 @@ import { authorizeDealAccess, denyCrmObject } from "../services/crm-object-acces
 
 import { getPilotRepIdsAsync, invalidatePilotCache } from "./field-territories";
 import { registerContactLinkCoverageRoutes } from "./contact-link-coverage";
+import {registerImportLockDiagnosticRoutes} from "./import-lock-diagnostics";
 
 export function registerAdminRoutes(app: Express) {
   registerContactLinkCoverageRoutes(app);
+  registerImportLockDiagnosticRoutes(app);
 
   app.get("/api/admin/contact-business-matches/preview", isDashboardUser, requireRole("admin"), async (req, res) => {
     const parsed = z.object({

@@ -84,7 +84,8 @@ function _poolSnapshot() {
 
 // Observe acquisition and pool release EVENTS; never wrap client.release().
 // Query instrumentation is physical-connection scoped, not checkout scoped.
-observeTransactionConnections(pool, {slowMs: _SLOW_QUERY_MS});
+observeTransactionConnections(pool, {slowMs: _SLOW_QUERY_MS,
+  tagSql: process.env.NODE_ENV === "production" && process.env.REPLIT_DEPLOYMENT === "1"});
 
 // Wrap pool.query() for callers that use the shorthand (no explicit
 // connect/release).  These cannot separate acquire from query time, but they

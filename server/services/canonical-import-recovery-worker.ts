@@ -5,6 +5,8 @@ import {materializeCanonicalProviderImportRow} from "./canonical-provider-import
 import {assertSystemLinkDatabaseGuard} from "./commercial-link-authority";
 import {claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner} from "./cro03/sfp-provider-operations";
 import {runCanonicalTransaction,boundCanonicalWriteTransaction} from "./canonical-transaction-retry";
+import {observeRecoveryFailure} from "../lib/lock-trace";
+import {startAutomaticImportLockCapture} from "./primary-lock-capture";
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const MAX_ITEMS_PER_TICK=250;
 const MAX_TICK_DURATION_MS=30_000;
@@ -71,6 +73,8 @@ export async function processCanonicalImportRecoveryTick(
     throw new Error("CANONICAL_IMPORT_RECOVERY_INVALID_TICK_BUDGET");
   }
   const deadline=Date.now()+maxDurationMs;
+  // Observation is independent, read-only and never awaited by recovery.
+  startAutomaticImportLockCapture();
   const owner=await runCanonicalTransaction("import_owner_claim",claimSfpRuntimeDeploymentOwner);
   const ownerAuthorityCheck=async(tx:any)=>{
     await boundCanonicalWriteTransaction(tx);
@@ -137,14 +141,14 @@ export async function processCanonicalImportRecoveryTick(
       }));
       fulfilled++;
     } catch (error) {
-      await runCanonicalTransaction("import_failure",()=>db.transaction(async tx=>{
+      await observeRecoveryFailure(error,()=>runCanonicalTransaction("import_failure",()=>db.transaction(async tx=>{
         await ownerAuthorityCheck(tx);
         await tx.execute(sql`UPDATE cro03_enrichment_items SET state='blocked',
           terminal_code='CANONICAL_IMPORT_RECOVERY_RETRY_REQUIRED',claim_token=NULL,lease_expires_at=NULL,
           current_provider=NULL,updated_at=clock_timestamp()
           WHERE id=${String(candidate.id)}::uuid AND state='running' AND claim_token=${token}::uuid`);
-      }));
-      throw error;
+      })),{executionId:String(candidate.execution_id),itemId:String(candidate.id),
+        sourceRowNumber:Number(candidate.source_row_number)});
     }
   }
   return {ran:fulfilled+held>0,fulfilled,held,
