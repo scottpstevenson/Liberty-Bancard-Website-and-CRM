@@ -17,6 +17,12 @@ Replit Publish is the sole owner of production schema reconciliation. Applicatio
 
 **Human-console operational history, not agent migration authority:** the user executed the complete canonical repair through the production SQL console, with independently verified persisted guards. Earlier syntax failures do not establish a general ban on explicit transactions or dollar-quoted function bodies; their cause remains unproved. Clear the editor and verify persisted results instead of treating a result panel or speculative parser diagnosis as proof. Agent production access remains read-only, and owner execution does not authorize a custom production migration executor.
 
+**SQL Console transaction-wrapper diagnostic:** When the console reports “To run statements in a transaction - select multiple statements and run”, omit the standalone outer `BEGIN;`/`COMMIT;` and select the whole interior batch. Keep PL/pgSQL `BEGIN`/`END` blocks and function bodies unchanged.
+
+**Why:** The user encountered this explicit console diagnostic; official documentation confirms selected multi-statement batches receive automatic transaction wrapping. It does not establish the cause of older quoting errors.
+
+**How to apply:** Distinguish standard psql file execution from SQL Console batch selection. A suggested selection is not verified production installation; independently check persisted native guards after owner execution.
+
 **Migration-only triggers also need separate verification:** Publish can create a new table and its declarative constraints without executing a migration's `CREATE FUNCTION`/`CREATE TRIGGER`; the table's existence does not prove its append-only audit guard exists.
 
 **Why:** Published tables can have their columns and CHECKs while migration-defined guards remain absent and the Publish diff reports no outstanding changes. An existing trigger can also survive publication with its older function body, so trigger-name presence alone is insufficient.
