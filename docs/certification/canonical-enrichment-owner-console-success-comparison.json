@@ -1,0 +1,25 @@
+{
+  "scope": "Read-only database comparison after owner reported console success; no inference of console selection or target",
+  "comparisons": [
+    {
+      "environment": "production",
+      "result": {
+        "exitCode": 0,
+        "exitReason": null,
+        "output": "observed_at,address_claims_present,preparation_fields_present,preparation_capacity_exact,address_receipt_exact,preparation_scope_constraint_present,address_receipt_index_present,preparation_index_present,preparation_unique_index_present\n2026-10-05 00:48:03.523968+00,f,f,t,f,f,f,f,f\n",
+        "success": true
+      }
+    },
+    {
+      "environment": "development",
+      "result": {
+        "exitCode": 0,
+        "exitReason": null,
+        "output": "observed_at,address_claims_present,preparation_fields_present,preparation_capacity_exact,address_receipt_exact,preparation_scope_constraint_present,address_receipt_index_present,preparation_index_present,preparation_unique_index_present\n2026-10-05 00:48:07.855737+00,t,t,t,t,t,t,t,t\n",
+        "success": true
+      }
+    }
+  ],
+  "agentProductionWrites": false,
+  "taskComplete": false
+}
