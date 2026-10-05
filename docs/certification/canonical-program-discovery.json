@@ -1,5 +1,5 @@
 {
-  "checks": 32,
+  "checks": 42,
   "scope": "Disposable program selection, scope drift, native reservation/dispatch/settlement and paid entry point",
   "productionExecution": false,
   "taskComplete": false,

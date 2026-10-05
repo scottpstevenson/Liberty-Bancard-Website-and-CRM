@@ -1456,6 +1456,99 @@
       "deadlockProved": false,
       "leaseExpiryCauseProved": false,
       "actionTaken": "No session termination, lease increase, production write or pause change."
+    },
+    "ownerTransactionAgeSample": {
+      "source": "attached_assets/drizzle-data-2026-10-05T15_24_01.006Z_1791213860315.csv",
+      "exportTimestamp": "2026-10-05T15:24:01.006Z",
+      "rows": [
+        {
+          "pid": 14876,
+          "state": "idle in transaction",
+          "waitEvent": "ClientRead",
+          "transactionAgeMs": 21765.97,
+          "queryAgeMs": 263.431,
+          "blockers": [],
+          "heldTables": [
+            "sfp_identity_quarantines",
+            "sfp_runtime_owner_authority",
+            "sfp_runtime_release_selectors"
+          ]
+        },
+        {
+          "pid": 15073,
+          "state": "active",
+          "waitEvent": "advisory",
+          "transactionAgeMs": 12964.758,
+          "queryAgeMs": 12865.534,
+          "blockers": [
+            14876
+          ],
+          "heldTables": []
+        },
+        {
+          "pid": 14495,
+          "state": "active",
+          "waitEvent": "advisory",
+          "transactionAgeMs": 10362.583,
+          "queryAgeMs": 9765.783,
+          "blockers": [
+            14876,
+            15073
+          ],
+          "heldTables": []
+        },
+        {
+          "pid": 14497,
+          "state": "idle in transaction",
+          "waitEvent": "ClientRead",
+          "transactionAgeMs": 264.056,
+          "queryAgeMs": 264.056,
+          "blockers": [],
+          "heldTables": []
+        }
+      ],
+      "interpretation": "Advisory wait queue, including a queued-waiter dependency; no observed deadlock cycle. Exact advisory key and writer call site not supplied."
     }
+  },
+  "pendingLocalOwnerReservationCorrection": {
+    "published": false,
+    "programStageAndPreCohort": true,
+    "shortAcquisitionSeparatedFromWork": true,
+    "orderedLiveOwnerPinsAndExactEpochTokenRetained": true,
+    "finalDispatchSettlementAndPauseGuardsRetained": true,
+    "leaseDurationChanged": false,
+    "independentLeaseRenewalOnEffectRollbackIntentional": true,
+    "nativeCertificate": {
+      "path": "docs/certification/canonical-program-discovery.json",
+      "checks": 42,
+      "programStageQuarantineWait": true,
+      "preCohortQuarantineWait": true,
+      "parallelOwnerReaders": true,
+      "ownerRowPinsRetained": true,
+      "legacyAcquisitionLockNegativeControl": true,
+      "externalProviderNetworkAttempts": 0
+    },
+    "publishHandoffCertification": "passed",
+    "typecheck": "passed",
+    "build": "passed",
+    "integratedPipeline": {
+      "status": "failed",
+      "assertion": "all four source candidates traverse the fake ZeroBounce network callback",
+      "actual": 0,
+      "expected": 4,
+      "baselineWithPrePatchProviderModule": "same failure",
+      "unrelatedTestsRepaired": false
+    },
+    "productionWrites": 0,
+    "productionPauseChanges": 0,
+    "soleProductionLatencyCauseProved": false,
+    "signedInUiVerified": false
+  },
+  "qualificationTransactionTrace": {
+    "qualificationOutsidePreparationWriteTransaction": true,
+    "passiveCommercialResolutionPersistFalseStillSerializableAndGraphRowLocking": true,
+    "passiveCommercialResolutionPersistsSnapshot": false,
+    "guardsRemoved": false,
+    "authorizationCachingIntroduced": false
   }
 }

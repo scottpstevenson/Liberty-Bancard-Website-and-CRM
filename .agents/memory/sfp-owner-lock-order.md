@@ -38,3 +38,19 @@ which locks formed the cycle.
 **How to apply:** Keep the exact conflicting lock graph unproved until traced.
 Distinguish bounded retries of known-aborted transactions from a lock-order
 repair; never retry an uncertain connection failure as though rollback were proved.
+
+Operational owner acquisition/renewal can commit independently of a subsequent
+provider reservation that rolls back. Keep this separation; do not move acquisition
+back inside the larger effect transaction merely to make its lease renewal atomic
+with the effect.
+
+**Why:** Holding the singleton acquisition advisory lock across quarantine/work
+checks creates a reproducible convoy. Lease renewal is operational authority,
+not provider budget reservation, spend approval or outbound permission; the
+heartbeat already renews that authority independently.
+
+**How to apply:** The effect transaction must still pin selector then live owner
+and compare the exact acquired epoch/token. A transfer between acquisition and
+pinning must fail closed. Retain the final effect fences and owner row pins:
+legitimate renewal can still wait on those pins, so removal of the acquisition
+convoy is not proof that every production latency or lease-expiry cause is fixed.

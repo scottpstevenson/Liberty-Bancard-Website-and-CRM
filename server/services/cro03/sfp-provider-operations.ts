@@ -1733,7 +1733,10 @@ export async function reserveSfpProviderOperation(input: {
   const controlProvider = CONTROL_KEY[input.provider];
 
   return db.transaction(async (tx) => {
-    const currentOwner = await claimOrRenewSfpRuntimeOwner(tx, authority);
+    // assertSfpRuntimeAuthority already acquired/renewed this owner in its
+    // short transaction. Pin it in the established selector -> owner order;
+    // do not retain the global acquisition advisory lock across work checks.
+    const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
     if (currentOwner.ownerEpoch !== authority.ownerEpoch || currentOwner.ownerToken !== authority.ownerToken) {
       throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
     }
@@ -1924,8 +1927,15 @@ export async function reservePreCohortSfpProviderOperation(input: {
   // pre-dispatch reservation can be returned to precisely that run ledger.
   const idempotencyKey = `${input.idempotencyKey}:run:${input.runId}`;
 
+  // Acquisition/handoff is atomic in its own short transaction. The work
+  // transaction still pins and rechecks this exact live epoch/token, so a
+  // change between acquisition and reservation fails closed.
+  const authority = await claimSfpRuntimeDeploymentOwner();
   return db.transaction(async (tx) => {
-    const authority = await claimOrRenewSfpRuntimeOwner(tx, runtimeFence);
+    const currentOwner = await lockCurrentSfpRuntimeOwner(tx);
+    if (currentOwner.ownerEpoch !== authority.ownerEpoch || currentOwner.ownerToken !== authority.ownerToken) {
+      throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
+    }
     const quarantine = rows(await tx.execute(sql`
       SELECT 1 FROM sfp_identity_quarantines
        WHERE business_id=${input.businessId} AND cleared_at IS NULL LIMIT 1

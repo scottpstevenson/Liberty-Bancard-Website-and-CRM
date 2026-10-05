@@ -9,17 +9,66 @@ applyCertificationProviderDenyBoundary({fatal:true});
 process.env.OUTSCRAPER_API_KEY="canonical-program-disposable-only";
 process.env.APOLLO_API_KEY="canonical-program-disposable-only";
 process.env.SERPER_API_KEY="canonical-program-disposable-only";
+process.env.AI_INTEGRATIONS_OPENAI_API_KEY="canonical-program-disposable-only";
 const {db,pool}=await import("../../server/db");
 const {programDiscoverySelection,sfpStageScopeSql,lockSfpStageScope}=
   await import("../../server/services/cro03/sfp-discovery-scope");
 const {reserveSfpProviderOperation,invokeSfpProviderTransport,finishSfpProviderOperation,
-  assertCurrentSfpProviderReservation}=await import("../../server/services/cro03/sfp-provider-operations");
+  assertCurrentSfpProviderReservation,reservePreCohortSfpProviderOperation,
+  lockCurrentSfpRuntimeOwner}=await import("../../server/services/cro03/sfp-provider-operations");
 const {executeSfpPaidPersonAndIdentityDiscovery,executeSfpSerperDiscovery,processSfpOutscraperRetrievalTask}=
   await import("../../server/services/cro03/sfp-paid-waterfall");
 const id=randomUUID(),actor=`canonical-program-${id}`;
 const rows=(r:any):any[]=>r?.rows??r??[];
 let checks=0,dispatches=0;
 const check=(v:unknown,message:string)=>{assert(v,message);checks++;};
+// Block the actual quarantine read after owner acquisition. This proves which
+// locks remain held, not just what the source code happens to contain.
+async function probeReservationLocks<T>(reserve:()=>Promise<T>,label:string,expectFree=true):Promise<T> {
+  const blocker=await pool.connect(),probe=await pool.connect();
+  let pending:Promise<{value:T}|{error:unknown}>|undefined;
+  let earlyResult:{value:T}|{error:unknown}|undefined;
+  try {
+    const blockerPid=(await blocker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+    await blocker.query("BEGIN");
+    await blocker.query("LOCK TABLE sfp_identity_quarantines IN ACCESS EXCLUSIVE MODE");
+    pending=reserve().then(value=>(earlyResult={value}),error=>(earlyResult={error}));
+    let blockedPid:number|null=null;
+    const deadline=Date.now()+10_000;
+    while(Date.now()<deadline) {
+      const waiting=(await probe.query(`SELECT a.pid FROM pg_stat_activity a
+        WHERE a.datname=current_database() AND a.wait_event_type='Lock'
+          AND $1::integer=ANY(pg_blocking_pids(a.pid)) LIMIT 1`,
+        [blockerPid])).rows[0];
+      if(waiting){blockedPid=Number(waiting.pid);break;}
+      if(earlyResult && "error" in earlyResult) throw earlyResult.error;
+      await new Promise(resolve=>setTimeout(resolve,20));
+    }
+    check(blockedPid!==null,`${label}: reached native quarantine lock wait`);
+    await probe.query("BEGIN");
+    const acquired=(await probe.query(`SELECT pg_try_advisory_xact_lock(
+      hashtextextended('routine-sfp-runtime-owner',0)) acquired`)).rows[0].acquired;
+    check(acquired===expectFree,`${label}: acquisition advisory lock ${expectFree?"released":"detected"}`);
+    if(expectFree) {
+      const ownerPin=(await probe.query(`SELECT 1 FROM pg_locks
+        WHERE pid=$1 AND relation='sfp_runtime_owner_authority'::regclass
+          AND mode='RowShareLock' AND granted`,[blockedPid])).rows;
+      check(ownerPin.length>0,`${label}: live owner remains row-pinned`);
+      await db.transaction(async tx=>{
+        await tx.execute(sql`SET LOCAL statement_timeout='2s'`);
+        await lockCurrentSfpRuntimeOwner(tx);
+      });
+      checks++;
+    }
+  } finally {
+    await Promise.all([blocker.query("ROLLBACK"),probe.query("ROLLBACK")]);
+    blocker.release();probe.release();
+    if(pending) await pending;
+  }
+  const result=await pending!;
+  if("error" in result) throw result.error;
+  return result.value;
+}
 try {
   await pool.query(`INSERT INTO users(id,email,role) VALUES($1,$2,'admin')`,[actor,`${id}@fixture.invalid`]);
   await (await import("../helpers/sfp-runtime-test-identity")).selectSfpRuntimeTestRelease(actor);
@@ -71,7 +120,7 @@ try {
   const reserve=()=>reserveSfpProviderOperation({stageRunId:stage,programId:p,businessId:b,
     provider:"outscraper",purpose:"sfp_business_identity_discovery",idempotencyKey:`${actor}:operation`,
     actorId:actor,workUnit:"result",units:1});
-  const reservation=await reserve();
+  const reservation=await probeReservationLocks(reserve,"program-stage reservation");
   check(reservation.programId===p && !reservation.cohortRunId,"Reservation retains native program scope");
   check(typeof reservation.selectionHash==="string","Reservation pins the exact immutable selected scope");
   await assertCurrentSfpProviderReservation(reservation);checks++;
@@ -178,6 +227,20 @@ try {
   await pool.query(`UPDATE sfp_cohort_runs SET voided_at=NOW() WHERE id=$1`,[cohort]);
   await assert.rejects(()=>invokeSfpProviderTransport(legacy,async()=>{dispatches++;return 1;}));checks++;
   check(dispatches===1,"Historical void/cancellation fencing remains unchanged");
+  const classification=(await pool.query(`INSERT INTO sfp_classification_runs
+    (program_id,idempotency_key,actor_id,state,max_businesses,policy_version,
+     classifier_version,config_hash,lease_expires_at)
+    VALUES($1,$2,$3,'running',1,1,2,$2,NOW()+INTERVAL '10 minutes') RETURNING id`,
+    [p,`${actor}:classification-lock-probe`,actor])).rows[0].id;
+  await pool.query(`UPDATE provider_controls SET enabled=TRUE,circuit_state='closed' WHERE provider='openai'`);
+  await probeReservationLocks(()=>reservePreCohortSfpProviderOperation({
+    runId:classification,businessId:b,provider:"openai_classification",purpose:"sfp_classify_batch",
+    idempotencyKey:`${actor}:classification-lock-probe`,actorId:actor,workUnit:"token",
+  }),"pre-cohort reservation");
+  await probeReservationLocks(()=>db.transaction(async tx=>{
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('routine-sfp-runtime-owner',0))`);
+    await tx.execute(sql`SELECT 1 FROM sfp_identity_quarantines LIMIT 1`);
+  }),"legacy acquisition-lock negative control",false);
   check(getBlockedCertificationNetworkAttemptCount()===0,"All transport injected; no external network attempted");
   fs.writeFileSync("docs/certification/canonical-program-discovery.json",JSON.stringify({
     checks,scope:"Disposable program selection, scope drift, native reservation/dispatch/settlement and paid entry point",
