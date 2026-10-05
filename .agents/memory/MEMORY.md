@@ -76,6 +76,7 @@
 - [Durable command lease cleanup](durable-command-lease-cleanup.md) — every claimed-command exit must release only its own token-fenced lease.
 - [Provider-readiness deferral audits](provider-readiness-deferral-audits.md) — when readiness defers pre-legacy-gate, persist the actual deferral reason.
 - [Disposable certification](local-predeploy-database.md) — Isolate DB/Redis/processes; [pause fixtures](pause-cycle-test-db.md).
+- [Disposable database names](disposable-database-names.md) — Keep generated identifiers within 63 bytes; silent PostgreSQL truncation invalidates verified targets.
 - [Sequence dispatch linearization](sequence-dispatch-linearization.md) — serialize inbound writes and final dispatch; only expired pre-dispatch leases are retryable.
 - [Commercial/channel authority axes](commercial-resolution-authority.md) — Keep resolution, channel evidence, and identity/provenance separate; shadow never replaces legacy pre-cutover.
 - [Multi-source cursor buffering](multi-source-cursor-buffering.md) — merged pagination must retain fetched-but-not-emitted items or cursors silently drop them.

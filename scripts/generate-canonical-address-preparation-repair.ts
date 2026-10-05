@@ -46,7 +46,11 @@ BEGIN
   END IF;
 END $trigger$;`;
   return [
-    "-- Explicit versioned owner-console repair. Submit the COMPLETE file.",
+    "-- Explicit versioned owner repair. Standard psql: submit the COMPLETE file.\n"+
+    "-- SQL Console: select ALL statements between the standalone BEGIN; and COMMIT;\n"+
+    "-- below, from SET LOCAL lock_timeout through END $trigger$;, and run ONCE as a\n"+
+    "-- selected batch. The console supplies the transaction; do not run the outer\n"+
+    "-- BEGIN; / COMMIT;. Keep every inner DO/function BEGIN/END block unchanged.",
     "-- Agent production access remains read-only. No startup/build DDL or publishing.",
     "-- Installs only canonical address/preparation prerequisites; not discovery or whole-task acceptance.",
     "BEGIN;","SET LOCAL lock_timeout='5s';","SET LOCAL statement_timeout='120s';",

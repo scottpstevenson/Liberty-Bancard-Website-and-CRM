@@ -66,6 +66,25 @@ try {
   await pool.query(ownerSql);
   await assertCanonicalPreparationDatabaseGuard(db);await assertCanonicalAddressReceiptContract(db);checks++;
   assert.deepEqual(await constraintSnapshot(),originalConstraints);checks++;
+  // Reproduce a function/trigger-only installation: PL/pgSQL permits creating
+  // the routine before its referenced record fields exist. Its hash alone must
+  // never certify that this schema is ready.
+  await pool.query(`ALTER TABLE cr04_enrollment_intents DROP COLUMN program_id,
+    DROP COLUMN business_id,DROP COLUMN normalized_email_hash,
+    DROP COLUMN preparation_state,DROP COLUMN preparation_snapshot`);
+  check((await pool.query(`SELECT md5(prosrc) hash FROM pg_proc
+    WHERE oid='public.crm_enforce_canonical_preparation_capacity()'::regprocedure`)).rows[0].hash
+    ==="6e8864b97bd634386a156bca78c2dc5b","Partial-install fixture retains the exact capacity body");
+  await assert.rejects(assertCanonicalPreparationDatabaseGuard(db),/CONTRACT_REQUIRED/);checks++;
+  const partialStatus=await readCanonicalEnrichmentStatus();
+  check(partialStatus.nativeContracts.state==="blocked" && !partialStatus.preparations.currentAvailable,
+    "Function-only installation is blocked and preparation counts are unavailable");
+  await pool.query(ownerSql);
+  await assertCanonicalPreparationDatabaseGuard(db);checks++;
+  await pool.query(`ALTER TABLE cr04_enrollment_intents DROP CONSTRAINT canonical_preparation_scope_chk`);
+  await assert.rejects(assertCanonicalPreparationDatabaseGuard(db),/CONTRACT_REQUIRED/);checks++;
+  await pool.query(ownerSql);
+  await assertCanonicalPreparationDatabaseGuard(db);checks++;
   await assert.rejects(pool.query(`INSERT INTO canonical_address_validation_claims(email_token_hash)
     VALUES('not-a-normalized-address-hash')`));checks++;
   await assert.rejects(pool.query(`INSERT INTO canonical_address_validation_claims(email_token_hash,claim_token)

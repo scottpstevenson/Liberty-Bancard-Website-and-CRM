@@ -1,0 +1,26 @@
+{
+  "scope": "Read-only native verification after owner-reported console batch execution; partial installation, not repair acceptance",
+  "environment": "production",
+  "guard": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "installed,immutable_evidence_trigger,evidence_table,evidence_column,evidence_foreign_keys,sfp_contact_checks,relationship_evaluator\nf,t,t,t,t,t,t\n",
+    "success": true
+  },
+  "additional": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,address_claims_present,all_preparation_fields_present,preparation_capacity_exact,address_receipt_exact,preparation_scope_constraint_present\n2026-10-05 00:32:49.433707+00,f,f,t,f,f\n",
+    "success": true
+  },
+  "detail": {
+    "exitCode": 0,
+    "exitReason": null,
+    "output": "observed_at,preparation_columns_present,reviewed_link_body_md5,address_receipt_index_present,preparation_index_present,preparation_unique_index_present\n2026-10-05 00:33:53.48719+00,,46f89326f7c158ac739814ce343c2559,f,f,f\n",
+    "success": true
+  },
+  "repairComplete": false,
+  "agentProductionWrites": false,
+  "productionImportsPerformedByAgent": false,
+  "taskComplete": false
+}

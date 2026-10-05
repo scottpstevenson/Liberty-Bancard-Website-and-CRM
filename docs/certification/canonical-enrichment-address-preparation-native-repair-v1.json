@@ -1,6 +1,6 @@
 {
-  "observedAt": "2026-10-04T21:53:15.519Z",
-  "checks": 21,
+  "observedAt": "2026-10-05T00:39:47.964Z",
+  "checks": 27,
   "scope": "Disposable complete owner SQL; installation, reapply, original constraint preservation and drift denial",
   "productionExecution": false,
   "ownerConsoleExecution": false,

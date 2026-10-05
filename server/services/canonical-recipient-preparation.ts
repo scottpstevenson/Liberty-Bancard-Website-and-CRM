@@ -25,7 +25,7 @@ export interface CanonicalPreparationInput {
 }
 
 export async function assertCanonicalPreparationDatabaseGuard(tx: any) {
-  const guard = rows(await tx.execute(sql`SELECT EXISTS (
+  const guard = rows(await tx.execute(sql`SELECT (EXISTS (
     SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
      WHERE t.tgrelid='public.cr04_enrollment_intents'::regclass
        AND t.tgname='canonical_preparation_capacity' AND t.tgenabled IN ('O','A')
@@ -33,6 +33,17 @@ export async function assertCanonicalPreparationDatabaseGuard(tx: any) {
        AND p.pronamespace='public'::regnamespace
        AND p.proname='crm_enforce_canonical_preparation_capacity'
        AND md5(p.prosrc)='6e8864b97bd634386a156bca78c2dc5b'
+  ) AND (SELECT count(*)=5 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='cr04_enrollment_intents'
+       AND (column_name,data_type) IN (
+         ('program_id','uuid'),('business_id','integer'),
+         ('normalized_email_hash','text'),('preparation_state','text'),
+         ('preparation_snapshot','jsonb')
+       ))
+    AND EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid=to_regclass('public.cr04_enrollment_intents')
+        AND conname='canonical_preparation_scope_chk' AND contype='c'
+        AND convalidated AND conislocal AND coninhcount=0)
   ) AS installed`))[0];
   if (guard?.installed !== true) throw new Error("CANONICAL_PREPARATION_NATIVE_CONTRACT_REQUIRED");
 }
