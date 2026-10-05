@@ -150,7 +150,12 @@ export function ssrHtmlShell({
   <script src="https://widgets.leadconnectorhq.com/loader.js" data-resources-url="https://widgets.leadconnectorhq.com/chat-widget/loader.js" data-widget-id="6a652f1fc4dda61f3fbae5f8" data-source="WEB_USER"></script>
 
   ${schemaBlocks}
-  <style>
+   <style data-ssr-fallback-styles>
+     /* Fallback CSS remains in the document after React replaces #root.
+        Keep it below the app's layers: unlayered resets override Tailwind v4
+        utilities regardless of selector specificity or stylesheet order. */
+     @layer ssr-fallback, theme, base, components, utilities;
+     @layer ssr-fallback {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { font-size: 16px; }
     body { font-family: 'DM Sans', system-ui, sans-serif; background: #ffffff; color: #0f172a; line-height: 1.6; }
@@ -298,7 +303,8 @@ export function ssrHtmlShell({
     .ssr-savings-value { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.625rem; font-weight: 700; color: #0f172a; }
     .ssr-savings-value.liberty { color: #1e3a5f; }
     .ssr-savings-value.winner { font-size: 2rem; color: #059669; }
-    .ssr-savings-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 0.375rem; }
+     .ssr-savings-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 0.375rem; }
+     }
   </style>
 </head>
 <body>
