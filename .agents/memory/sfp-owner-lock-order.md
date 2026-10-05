@@ -15,3 +15,14 @@ did not exclude this timing-dependent failure.
 **How to apply:** Reuse the ordered owner-fence helper for worker transactions.
 When adding owner/selector locks or changing publish/claim flows, check the order
 across all participating transactions, not only each individual SQL statement.
+
+A passing isolated registry concurrency test does not establish that the full
+published heartbeat, preparation and provider lock graph is deadlock-free.
+
+**Why:** A published selector-first build still produced a native PostgreSQL
+deadlock during preparation. The SQLSTATE confirmed the failure class, not
+which locks formed the cycle.
+
+**How to apply:** Keep the exact conflicting lock graph unproved until traced.
+Distinguish bounded retries of known-aborted transactions from a lock-order
+repair; never retry an uncertain connection failure as though rollback were proved.

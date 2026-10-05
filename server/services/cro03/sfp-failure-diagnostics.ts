@@ -34,13 +34,16 @@ export function safeSfpFailureDiagnostics(error: unknown): {
 export function safeCanonicalEnrichmentFailureDiagnostics(error: unknown) {
   const diagnostic = safeSfpFailureDiagnostics(error);
   let failureKind: string | null = null;
+  let transactionPhase: string | null = null;
   let current: any = error;
   for (let depth=0; current && depth<4; depth++,current=current.cause) {
+    if (["preparation_owner_claim","preparation_commit","preparation_cursor_claim","preparation_retirement"]
+        .includes(current.canonicalTransactionPhase)) transactionPhase=current.canonicalTransactionPhase;
     const message=String(current.message ?? "");
     const domainCode=message.match(/^(CANONICAL_[A-Z0-9_]+|COMMERCIAL_[A-Z0-9_]+|CONTACT_LINK_[A-Z0-9_]+)(?=[:\s]|$)/)?.[1];
     if (!diagnostic.domainCode && domainCode && domainCode.length<=120) diagnostic.domainCode=domainCode;
     if (/timeout exceeded when trying to connect|connection timeout/i.test(message)) failureKind="connection_timeout";
     else if (/connection terminated|connection closed/i.test(message)) failureKind="connection_terminated";
   }
-  return {...diagnostic,failureKind};
+  return {...diagnostic,failureKind,transactionPhase};
 }

@@ -9,6 +9,7 @@ import { relationshipReasonsSql } from "@shared/relationship-evidence-sql";
 import { assertSystemLinkDatabaseGuard } from "./commercial-link-authority";
 import { findFreshProviderObservation, lockCurrentSfpOutreachPolicy,isCanonicallySuppressed } from "./cro03/sfp-outreach-policy";
 import { lockCommercialGraph } from "./commercial-graph-locks";
+import { runCanonicalTransaction } from "./canonical-transaction-retry";
 import type { Cr04ActorScope } from "./cr04-cohort-ready-authority";
 
 const rows = (result: any): any[] => result?.rows ?? result ?? [];
@@ -88,7 +89,7 @@ export async function prepareCanonicalRecipient(input: CanonicalPreparationInput
   });
   if (!decision.id) return held("CHANNEL_QUALIFICATION_SNAPSHOT_UNAVAILABLE");
 
-  return db.transaction(async tx => {
+  return runCanonicalTransaction("preparation_commit", () => db.transaction(async tx => {
     if (input.beforeWrite) await input.beforeWrite(tx);
     await assertSystemLinkDatabaseGuard(tx);
     await assertCanonicalPreparationDatabaseGuard(tx);
@@ -313,7 +314,7 @@ export async function prepareCanonicalRecipient(input: CanonicalPreparationInput
     }
     return { replayed: Boolean(existing), blocked: enrollmentId === null, intentId: String(intentId), enrollmentId,
       preparationState, reasonCode, decision, outboundAuthorized: false };
-  });
+  }));
 }
 
 /** Only current, actually prepared recipients can enter paid hygiene work. */

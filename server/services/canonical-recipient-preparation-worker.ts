@@ -5,6 +5,7 @@ import { effectiveBusinessVerticalSql } from "@shared/effective-vertical";
 import { contactTargetVerticalSql } from "@shared/contact-vertical-taxonomy";
 import { assertCanonicalPreparationDatabaseGuard,prepareCanonicalRecipient } from "./canonical-recipient-preparation";
 import { claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner } from "./cro03/sfp-provider-operations";
+import { runCanonicalTransaction } from "./canonical-transaction-retry";
 
 const KEY="canonical_recipient_preparation_cursor";
 const rows=(result:any):any[]=>result?.rows ?? result ?? [];
@@ -17,7 +18,7 @@ type Cursor={afterContactId:number;cycles:number;scanned:number;prepared:number;
  * and queue tick. Provider pauses never gate this pass; it cannot send or spend. */
 export async function processCanonicalRecipientPreparationTick() {
   const actorId="system:canonical-recipient-preparation";
-  const owner=await claimSfpRuntimeDeploymentOwner();
+  const owner=await runCanonicalTransaction("preparation_owner_claim",claimSfpRuntimeDeploymentOwner);
   const token=randomUUID();
   const fence=async(tx:any)=>{
     const live=await lockCurrentSfpRuntimeOwner(tx);
@@ -26,7 +27,7 @@ export async function processCanonicalRecipientPreparationTick() {
     }
     await assertCanonicalPreparationDatabaseGuard(tx);
   };
-  const claimed=await db.transaction(async tx=>{
+  const claimed=await runCanonicalTransaction("preparation_cursor_claim",()=>db.transaction(async tx=>{
     await fence(tx);
     const initial:Cursor={afterContactId:0,cycles:0,scanned:0,prepared:0,held:0,reasons:{},
       leaseToken:null,leaseUntil:null,lastCycleAt:null};
@@ -37,7 +38,7 @@ export async function processCanonicalRecipientPreparationTick() {
         '{leaseUntil}',to_jsonb((clock_timestamp()+INTERVAL '2 minutes')::text)),updated_at=NOW()
       WHERE key=${KEY} AND (value->>'leaseUntil' IS NULL
         OR (value->>'leaseUntil')::timestamptz<=clock_timestamp()) RETURNING value`))[0]?.value as Cursor|undefined;
-  });
+  }));
   if (!claimed) return {ran:false,reason:"current_preparation_pass_owned"};
   const state=claimed;
   state.priority ??= {afterContactId:0,cycles:0,scanned:0,prepared:0,held:0,reasons:{},lastCycleAt:null};
@@ -84,7 +85,7 @@ export async function processCanonicalRecipientPreparationTick() {
       if (Date.now()>=pageDeadline) break;
       // Include unavailable/changed recipients: stale paused slots must retire,
       // so suppressions and affiliation changes cannot strand the allowance.
-      if (contact.has_preparation===true) await db.transaction(async tx=>{
+      if (contact.has_preparation===true) await runCanonicalTransaction("preparation_retirement",()=>db.transaction(async tx=>{
         await guard(tx);
         const obsolete=rows(await tx.execute(sql`SELECT i.id,i.enrollment_id
           FROM cr04_enrollment_intents i LEFT JOIN contacts c ON c.id=i.contact_id
@@ -111,7 +112,7 @@ export async function processCanonicalRecipientPreparationTick() {
           await tx.execute(sql`UPDATE cr04_enrollment_intents SET preparation_state='exception',
             enrollment_id=NULL,reason_code='CURRENT_RECIPIENT_FACTS_CHANGED' WHERE id=${String(intent.id)}::uuid`);
         }
-      });
+      }));
       const programs=bindingsByContact.get(Number(contact.id)) ?? new Map<string,number[]>();
       let advanced=false,reason="NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL";
       for (const [programId,sequences] of programs) {

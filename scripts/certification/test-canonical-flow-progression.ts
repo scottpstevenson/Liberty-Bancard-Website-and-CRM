@@ -21,6 +21,9 @@ const { processCanonicalRecipientPreparationTick } =
   await import("../../server/services/canonical-recipient-preparation-worker");
 const { claimSfpRuntimeDeploymentOwner } =
   await import("../../server/services/cro03/sfp-provider-operations");
+const { lockCurrentSfpRuntimeOwner } =
+  await import("../../server/services/cro03/sfp-provider-operations");
+const { sql } = await import("drizzle-orm");
 const prefix = `flow_${randomUUID().replaceAll("-", "")}`;
 const programId = randomUUID();
 const actor = { role: "admin" as const, actorId: `system:${prefix}`, email: null };
@@ -103,6 +106,47 @@ try {
     FROM provider_observations WHERE subject_type='contact' AND subject_id=$1 ORDER BY observed_at DESC LIMIT 1`,
   [contactId])).rows[0];
   check(receipt?.outcome === "valid", "Immutable original receipt exists");
+  // A real PostgreSQL cycle, not a thrown fake error: the main transaction
+  // holds A and waits for B; the peer holds B and waits for A. Only the main
+  // connection detects the cycle first, so PostgreSQL aborts that transaction.
+  const peer=await pool.connect();
+  const lockA=`${prefix}:deadlock:a`,lockB=`${prefix}:deadlock:b`;
+  let attempts=0,peerCompletion:Promise<unknown>=Promise.resolve();
+  try {
+    await peer.query("BEGIN");
+    await peer.query("SET LOCAL deadlock_timeout='10s'");
+    await peer.query("SET LOCAL statement_timeout='15s'");
+    await peer.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[lockB]);
+    const recovered=await prepareCanonicalRecipient({
+      contactId,sequenceId,programId,actor,source:"canonical_native_deadlock_recovery",
+      beforeWrite:async tx=>{
+        attempts++;
+        await lockCurrentSfpRuntimeOwner(tx);
+        if (attempts!==1) return;
+        await tx.execute(sql`SET LOCAL deadlock_timeout='100ms'`);
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockA},0))`);
+        await tx.execute(sql`UPDATE sequence_enrollments SET metadata=metadata||
+          '{"deadlockFixtureMarker":true}'::jsonb WHERE id=${pending.enrollmentId}`);
+        peerCompletion=peer.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[lockA])
+          .then(()=>peer.query("COMMIT"));
+        void peerCompletion.catch(()=>{});
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockB},0))`);
+      },
+    });
+    await peerCompletion;
+    check(attempts===2,"Real native PostgreSQL deadlock retries exactly once with fresh owner guards");
+    check(recovered.preparationState==="ready_held" && recovered.enrollmentId===pending.enrollmentId,
+      "Recovered native preparation reuses the same actual paused membership");
+    check(!(await pool.query("SELECT metadata FROM sequence_enrollments WHERE id=$1",
+      [pending.enrollmentId])).rows[0].metadata.deadlockFixtureMarker,
+      "The aborted transaction's membership write was rolled back, not partly committed");
+    check(await count("provider_operations")===baseline.operations+1 && fakeDispatches===1,
+      "Native deadlock recovery neither buys validation nor repeats a dispatch");
+  } finally {
+    await peerCompletion;
+    await peer.query("ROLLBACK");
+    peer.release();
+  }
   const firstCycle = await processCanonicalRecipientPreparationTick();
   const secondCycle = await processCanonicalRecipientPreparationTick();
   check(firstCycle.ran && secondCycle.ran && secondCycle.cycles >= 2,

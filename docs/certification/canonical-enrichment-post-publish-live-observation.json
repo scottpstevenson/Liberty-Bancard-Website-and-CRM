@@ -1,62 +1,71 @@
 {
   "scope": "Production read-only published-build observations; not original-task completion",
   "deployedHealth": {
-    "builtAt": "2026-10-05T11:45:31.996Z",
+    "builtAt": "2026-10-05T12:26:16.307Z",
     "env": "production",
     "ghlTransportFailFast": false,
-    "publishBuildId": "cd4ac53a-dbaa-4a68-82c1-8bb34d3b6e3b",
-    "sha": "08d72068fbc1ef0b84c61dfa8c3899809cc9dd2a",
+    "publishBuildId": "dd51191a-c59f-4b26-9cb8-5716bcf6ef29",
+    "sha": "fdb1d8bd00d5d0c7b2586fa4d597ed09febf4744",
     "status": "ok"
   },
   "observations": {
-    "observed_at": "2026-10-05 12:08:00.974036+00",
+    "observed_at": "2026-10-05 12:51:59.301975+00",
     "linking": {
-      "held": 204,
+      "held": 304,
       "rule": "independent_guarded_system_links_v2",
-      "cursor": 310,
+      "cursor": 410,
       "enabled": true,
       "reasons": {
         "location_state_conflict": 7,
         "current_link_decision_exists": 1,
-        "company_or_trade_name_conflict": 4,
-        "independent_corroboration_required": 11,
-        "independent_business_identity_not_found": 188
+        "company_or_trade_name_conflict": 5,
+        "independent_corroboration_required": 16,
+        "independent_business_identity_not_found": 283
       },
-      "scanned": 217,
+      "scanned": 317,
       "version": 1,
       "complete": false,
       "replayed": 0,
       "committed": 13,
       "lastError": null,
-      "updatedAt": "2026-10-05T11:59:26.282Z",
+      "updatedAt": "2026-10-05T12:39:33.035Z",
       "leaseUntil": null,
       "scanStartedAt": "2026-10-03 13:06:25.56618+00"
     },
     "preparation": {
-      "held": 1394,
+      "held": 2144,
       "cycles": 0,
       "reasons": {
-        "NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL": 1394
+        "NO_CURRENT_PROGRAM_BINDING_OR_AVAILABLE_EMAIL": 2144
       },
-      "scanned": 1394,
+      "scanned": 2144,
       "prepared": 0,
       "leaseUntil": null,
       "lastCycleAt": null,
-      "afterContactId": 1487
+      "afterContactId": 2237,
+      "priority": {
+        "held": 0,
+        "cycles": 0,
+        "reasons": {},
+        "scanned": 2,
+        "prepared": 2,
+        "lastCycleAt": null,
+        "afterContactId": 159446
+      }
     },
     "projection": {
       "scope": "all_record_classes",
       "cycles": 0,
-      "lastTickAt": "2026-10-05T11:58:34.481Z",
-      "contactCursor": 125093,
+      "lastTickAt": "2026-10-05T12:38:15.036Z",
+      "contactCursor": 135093,
       "providerCalls": 0,
       "scanStartedAt": "2026-10-05 02:26:07.405046+00",
       "businessCursor": 95092,
       "contactChanged": 2500,
       "verifiedCycles": 0,
       "businessChanged": 0,
-      "contactsChanged": 62500,
-      "contactsScanned": 125000,
+      "contactsChanged": 72500,
+      "contactsScanned": 135000,
       "coverageVersion": 2,
       "lastCompletedAt": null,
       "outboundChanges": 0,
@@ -68,7 +77,7 @@
       "populationBusinesses": 92831
     },
     "pending_validation": 0,
-    "ready_held": 0,
+    "ready_held": 2,
     "outbound_state": "paused"
   },
   "nativeChecks": {
@@ -95,11 +104,105 @@
     "afterContactId": 1237,
     "cycles": 0
   },
+  "originalReceiptTrace": [
+    {
+      "contactId": 159445,
+      "businessId": 12827,
+      "enrollmentId": 30864,
+      "operationId": "4453121c-81df-45e6-a203-3c66c33e0539",
+      "observedAt": "2026-10-02 01:14:28.781862+00",
+      "originalExpiresAt": null,
+      "provider": "zerobounce",
+      "operationState": "completed",
+      "outcome": "valid",
+      "currentlyFresh": true,
+      "activeValidationTtlDays": 30,
+      "compatibilityEmailStatus": "unvalidated",
+      "channelQualified": false,
+      "addressHashMatches": true,
+      "cohortFree": true,
+      "membershipStatus": "paused",
+      "nextActionAt": null,
+      "outboundAuthorized": false
+    },
+    {
+      "contactId": 159446,
+      "businessId": 12569,
+      "enrollmentId": 30865,
+      "operationId": "c7db1ec8-2f0d-422e-9389-9a07cba53ee2",
+      "observedAt": "2026-10-02 01:14:16.213119+00",
+      "originalExpiresAt": null,
+      "provider": "zerobounce",
+      "operationState": "completed",
+      "outcome": "valid",
+      "currentlyFresh": true,
+      "activeValidationTtlDays": 30,
+      "compatibilityEmailStatus": "unvalidated",
+      "channelQualified": false,
+      "addressHashMatches": true,
+      "cohortFree": true,
+      "membershipStatus": "paused",
+      "nextActionAt": null,
+      "outboundAuthorized": false
+    }
+  ],
+  "priorityAccounting": {
+    "observedAt": "2026-10-05T12:42:07.85581Z",
+    "boundCandidates": 31,
+    "readyHeld": 2,
+    "notPrepared": 29,
+    "completedPriorityCycles": 0,
+    "completedPopulationCycles": 0
+  },
+  "scheduledFailures": [
+    {
+      "observedAt": "2026-10-05T12:28:06.136Z",
+      "step": "CanonicalImportRecovery",
+      "sqlState": "57014"
+    },
+    {
+      "observedAt": "2026-10-05T12:40:51.736Z",
+      "step": "CanonicalRecipientPreparation",
+      "sqlState": "40P01",
+      "exactConflictingLockGraphProved": false
+    }
+  ],
+  "legacyImportAccounting": {
+    "observedAt": "2026-10-05T12:43:47.476098Z",
+    "completedExecutions": 1,
+    "accountedRows": 1472,
+    "blockedRows": 1471,
+    "blockedReason": "STAGING_RECIPE_DISABLED",
+    "originalAvailable": 1471,
+    "due": 1471,
+    "fiveWorkbookProductionExecution": false
+  },
+  "localDeadlockRecovery": {
+    "published": false,
+    "realPostgresDeadlockCertified": true,
+    "pipelineChecks": 39,
+    "failedTransactionRolledBack": true,
+    "samePausedMembershipReused": true,
+    "additionalValidationPurchases": 0,
+    "physicalProviderRequests": 0
+  },
+  "localVerification": {
+    "pipelineChecks": 39,
+    "transactionRetryTests": "passed",
+    "typeCheck": "passed",
+    "productionBuild": "passed",
+    "developmentRestart": "running",
+    "protectedPreview": "sign_in_rendered",
+    "signedInUiRechecked": false,
+    "receiptFreshnessObservedAt": "2026-10-05T12:54:29.951334Z"
+  },
   "limitations": [
     "Bound current recipients are candidates, not proof of final geography/suppression/recipient-capacity eligibility.",
     "Observed preparation ticks do not prove two downstream advancement cycles or full-population completion.",
-    "Primary owner-lock cause remains unproved; replica lock statistics cannot establish it.",
-    "Locally verified priority preparation and safe driver diagnostics are not in the observed published build.",
+    "Production deadlock is confirmed by SQLSTATE, but its exact conflicting lock graph remains unproved; replica lock statistics cannot establish it.",
+    "Priority preparation and safe driver diagnostics are published; the bounded transaction retry is local only.",
+    "Ready-held reuses original address facts; it is not completed channel qualification, compatibility-status repair, a new validation purchase or send permission.",
+    "Legacy import recovery still has 1471 due blocked rows with retained originals; its scheduled timeout is not missing-original evidence.",
     "Agent issued SELECT queries and a public health GET only; no production write, import, provider call, or outbound release."
   ],
   "productionAcceptance": false,
