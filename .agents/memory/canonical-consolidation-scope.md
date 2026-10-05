@@ -22,3 +22,13 @@ status updates and misleading the user about what remained.
 **How to apply:** Separate implementation, disposable certification and production
 execution in status reports. Correct an overstated claim directly rather than
 presenting the unfinished original requirement as new work.
+
+Native production repairs use the owner's database console; do not ask for
+credentials or suggest a different execution mechanism after this is established.
+
+**Why:** The user said, “I've always used the console to do these repairs.”
+
+**How to apply:** Deliver the authorized, inspectable SQL and independently verify
+the result read-only. Ordinary publishing and production imports still require
+the supported owner action; console repair verification is not permission for
+Agent production writes.

@@ -2,15 +2,29 @@
 
 ## Status
 
-**Current:** the general-link owner repair was independently verified, and the
-recipient-capacity owner repair is now independently verified in production at
-2026-10-04 06:11:32 UTC. Both recipient tables, the exact required function
-fingerprint, enabled BEFORE INSERT row trigger, and exact validated subject FK
-pass. Receipt: `canonical-enrichment-recipient-capacity-production-after.json`.
-This clears that native prerequisite only; the complete consolidation,
-additional typed-SFP contract inventory and deployed operational acceptance
-remain unfinished. No Agent production writes, outbound release or workbook
-imports occurred.
+**Current:** production owner-console repair was independently verified at
+2026-10-05 00:57:22 UTC. All eight additional address/preparation predicates
+and all seven general-link predicates pass. Receipt:
+`canonical-enrichment-console-batch-production-verification.json`.
+
+Ordinary discovery now selects current canonical program/business scope in the
+existing stage/provider ledgers, without freezing cohorts or requiring a manual
+preview. Immutable selection pins fence reservation, dispatch and promotion;
+dispatched facts still settle after authority drift. Asynchronous Outscraper
+polling and Apollo child requests retain the original scope. Historical cohort
+void/cancellation controls remain enforced. The unused cohort-freezing discovery
+tick was removed rather than retained as a second implementation.
+
+The focused disposable certificate currently passes 32 checks
+(`canonical-program-discovery.json`). Development has migration 0332 installed.
+The 34-check native owner-delivery certificate passes. Production execution,
+actual workbook imports/replay, full-population convergence, representative
+receipt-to-paused-enrollment traces and two deployed scheduled cycles remain
+required before closure of the original task. They are not follow-up tasks.
+No Agent production writes, provider release, outbound release or production
+workbook imports occurred. New discovery schema must be delivered by owner
+Publish before its production execution; the existing console repair is not
+proof that these newly added fields are already deployed.
 
 ### Historical native-delivery investigation (superseded by current status)
 

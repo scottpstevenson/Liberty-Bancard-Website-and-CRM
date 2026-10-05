@@ -1,5 +1,6 @@
 /** Bounded, ROI-ordered paid escalation for the South Florida program. */
 import { sql } from "drizzle-orm";
+import { programDiscoverySelection } from "./sfp-discovery-scope";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "../../db";
 import { getPaidProviderControls } from "../paid-provider-control";
@@ -194,7 +195,7 @@ async function persistOutscraperTaskSubmission(input: {
   city: string | null;
   state: string | null;
   stageRunId: string;
-  cohortRunId: string;
+  cohortRunId?: string;
   reservation: SfpProviderReservation;
 }): Promise<void> {
   await db.transaction(async (tx) => {
@@ -219,7 +220,7 @@ async function persistOutscraperTaskSubmission(input: {
          city_snapshot,state_snapshot,state,request_fingerprint,submitted_at,next_poll_at,
          completion_time_lower_bound_at,completion_time_bound_kind,results_expires_at,expires_at)
       VALUES ('outscraper','maps_search',${input.task.requestId},${input.task.requestId},
-              ${input.reservation.operationId}::uuid,${input.stageRunId}::uuid,${input.cohortRunId}::uuid,
+              ${input.reservation.operationId}::uuid,${input.stageRunId}::uuid,${input.cohortRunId ?? null}::uuid,
               ${input.businessId},${input.businessName},${input.domain},${input.city},${input.state},
               'submitted',${input.requestFingerprint},${submittedAt}::timestamptz,NOW()+INTERVAL '30 seconds',
               ${completionLowerBound}::timestamptz,${completionBoundKind},
@@ -304,7 +305,8 @@ async function renewStageRunClaim(stageRunId: string, claimToken: string): Promi
 }
 
 async function buildCurrentGapVector(input: {
-  cohortRunId: string;
+  cohortRunId?: string;
+  geography?: any;
   businessId: number;
   reuse: {
     hasVerifiedContact: boolean; hasVerifiedNamedDecisionMaker: boolean;
@@ -317,7 +319,7 @@ async function buildCurrentGapVector(input: {
     SELECT classifier_outcome,geography_outcome,geography_location_id,suppression_subjects,
            suppression_business_wide_rule_applied,classification_evidence_id
       FROM sfp_cohort_decisions
-     WHERE cohort_run_id=${input.cohortRunId}::uuid AND business_id=${input.businessId}
+     WHERE cohort_run_id=${input.cohortRunId ?? null}::uuid AND business_id=${input.businessId}
      LIMIT 1
   `))[0];
   const business = rows(await db.execute(sql`
@@ -377,8 +379,10 @@ async function buildCurrentGapVector(input: {
     businessId: input.businessId,
     // Cohort membership itself is the persisted proof that the same resolver
     // accepted geography at freeze time; retain its actual outcome evidence.
-    geographyResolved: isResolvedSouthFloridaGeographyOutcome(decision?.geography_outcome),
-    targetVerticalResolved: ["resolved_high", "resolved_medium"].includes(String(decision?.classifier_outcome)),
+    geographyResolved: input.geography ? input.geography.eligible && input.geography.outcome==="resolved"
+      : isResolvedSouthFloridaGeographyOutcome(decision?.geography_outcome),
+    targetVerticalResolved: input.geography ? true
+      : ["resolved_high", "resolved_medium"].includes(String(decision?.classifier_outcome)),
     officialDomainKnown: Boolean(business?.website_domain),
     businessIdentityResolved: hasResolvedBusinessIdentity({
       mainPhone: business?.main_phone,
@@ -484,7 +488,8 @@ export async function previewSfpPaidWaterfall(cohortRunId: string) {
  */
 export async function executeSfpPaidPersonAndIdentityDiscovery(
   input: {
-    cohortRunId: string;
+    cohortRunId?: string;
+    programId?: string;
     idempotencyKey: string;
     actorId: string;
     maxBusinesses?: number;
@@ -497,13 +502,20 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   deps: { fetchImpl?: typeof fetch } = {},
 ) {
   const maxBusinesses = Math.max(1, Math.min(25, Number(input.maxBusinesses ?? 10)));
-  if (!input.previewSnapshotHash) throw new Error("SFP_PREVIEW_REQUIRED");
-  const currentPreview = await getSfpCohortGapSnapshot(input.cohortRunId);
-  if (currentPreview.snapshotHash !== input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
-  const cohortHashRow = rows(await db.execute(sql`
-    SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${input.cohortRunId}::uuid
-  `))[0];
-  if (!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  if(Boolean(input.programId)===Boolean(input.cohortRunId)) throw new Error("SFP_DISCOVERY_SCOPE_REQUIRED");
+  const programSelection=input.programId
+    ? await programDiscoverySelection(input.programId,input.idempotencyKey,maxBusinesses,"paid"):null;
+  let scopeHash:string;
+  if(programSelection) scopeHash=sha256(programSelection.snapshot);
+  else {
+    if(!input.previewSnapshotHash) throw new Error("SFP_PREVIEW_REQUIRED");
+    const currentPreview=await getSfpCohortGapSnapshot(input.cohortRunId!);
+    if(currentPreview.snapshotHash!==input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
+    const cohortHashRow=rows(await db.execute(sql`SELECT cohort_hash FROM sfp_cohort_runs
+      WHERE id=${input.cohortRunId!}::uuid`))[0];
+    if(!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+    scopeHash=cohortHashRow.cohort_hash;
+  }
   const includeSerperDiscovery = input.includeSerperDiscovery !== false;
   const enabledProviders = new Set(input.enabledProviders ?? ["outscraper", "apollo"]);
   let apolloUnavailableReason: string | null = null;
@@ -516,7 +528,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     ? ["serper", "free_first_party_recrawl", ...providers.slice(1)]
     : [...providers];
   const payloadHash = sha256({
-    cohortRunId: input.cohortRunId, cohortHash: cohortHashRow.cohort_hash, maxBusinesses,
+    cohortRunId: input.cohortRunId, programId:input.programId, cohortHash: scopeHash, maxBusinesses,
     providers,
     order,
     previewSnapshotHash: input.previewSnapshotHash ?? null,
@@ -531,8 +543,10 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     return { stageRunId: String(existing.id), replayed: true, processed: Number(existing.processed_count), succeeded: Number(existing.succeeded_count), failed: Number(existing.failed_count), providerRequests: 0 };
   }
   const stage = existing ?? rows(await db.execute(sql`
-    INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
-    VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},${JSON.stringify(providers)}::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
+    INSERT INTO sfp_stage_runs(cohort_run_id,program_id,selection_snapshot,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
+    VALUES(${input.cohortRunId ?? null}::uuid,${input.programId ?? null}::uuid,
+      ${programSelection?JSON.stringify(programSelection.snapshot):null}::jsonb,
+      'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},${JSON.stringify(providers)}::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
   const stageClaimToken = await claimStageRun(String(stage.id));
@@ -542,6 +556,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   if (includeSerperDiscovery) {
     const serperResult = await executeSfpSerperDiscovery({
       cohortRunId: input.cohortRunId,
+      programId: input.programId,
       idempotencyKey: `${input.idempotencyKey}:serper`,
       actorId: input.actorId,
       maxBusinesses,
@@ -570,10 +585,10 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
       completedTaskRuns.push(taskRun);
     }
   }
-  const targets = rows(await db.execute(sql`
+  const targets = programSelection?.targets ?? rows(await db.execute(sql`
     SELECT b.id,b.canonical_name,b.city,b.state,b.postal_code,b.street_address,b.website_domain,b.main_phone,m.roi_score
       FROM sfp_cohort_members m JOIN businesses b ON b.id=m.business_id
-     WHERE m.cohort_run_id=${input.cohortRunId}::uuid
+     WHERE m.cohort_run_id=${input.cohortRunId ?? null}::uuid
        AND b.record_class='canonical'
        AND NOT EXISTS (SELECT 1 FROM sfp_identity_quarantines q WHERE q.business_id=b.id AND q.cleared_at IS NULL)
        AND NOT EXISTS (SELECT 1 FROM sfp_cohort_decisions d WHERE d.cohort_run_id=m.cohort_run_id
@@ -683,7 +698,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     const businessId = Number(target.id);
     const linkReuse = reuse.get(businessId) ?? { hasVerifiedContact: false, hasVerifiedNamedDecisionMaker: false, verifiedLinks: [], skipReason: null };
     const beforeVector = await buildCurrentGapVector({
-      cohortRunId: input.cohortRunId, businessId, reuse: linkReuse,
+      cohortRunId: input.cohortRunId, geography:target.geography, businessId, reuse: linkReuse,
     });
     const gapOpen = (dimension: string) => beforeVector.before.some((entry) => entry.dimension === dimension && entry.open);
     let apolloSkipReason: string | null = !enabledProviders.has("apollo")
@@ -701,7 +716,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
       try {
         const activeTask = rows(await db.execute(sql`
           SELECT id FROM sfp_provider_retrieval_tasks
-           WHERE provider='outscraper' AND cohort_run_id=${input.cohortRunId}::uuid
+           WHERE provider='outscraper' AND cohort_run_id IS NOT DISTINCT FROM ${input.cohortRunId ?? null}::uuid
              AND business_id=${businessId} AND task_kind='maps_search'
              AND state IN ('submitted','polling') AND expires_at>NOW()
            LIMIT 1
@@ -712,13 +727,14 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
         } else {
         const priorExpired = Number(rows(await db.execute(sql`
           SELECT COUNT(*)::int AS count FROM sfp_provider_retrieval_tasks
-           WHERE provider='outscraper' AND cohort_run_id=${input.cohortRunId}::uuid
+           WHERE provider='outscraper' AND cohort_run_id IS NOT DISTINCT FROM ${input.cohortRunId ?? null}::uuid
              AND business_id=${businessId} AND task_kind='maps_search'
              AND state IN ('expired','failed')
         `))[0]?.count ?? 0);
         const retrySuffix = priorExpired ? `:retry:${priorExpired}` : "";
         reservation = await reserveSfpProviderOperation({
           stageRunId: String(stage.id), cohortRunId: input.cohortRunId, businessId,
+          programId:input.programId,
           provider: "outscraper", purpose: "sfp_business_identity_discovery",
           idempotencyKey: `${input.idempotencyKey}:outscraper:${businessId}${retrySuffix}`,
           actorId: input.actorId, workUnit: "result", units: 2,
@@ -900,6 +916,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
           const requestStage = await beginSfpApolloRequestStageRun({
             parentStageRunId: String(stage.id),
             cohortRunId: input.cohortRunId,
+            programId: input.programId,
             businessId,
             actorId: input.actorId,
             idempotencyKey: requestIdempotencyKey,
@@ -917,6 +934,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
             requestReservation = await reserveSfpProviderOperation({
               stageRunId: requestStage.id,
               cohortRunId: input.cohortRunId,
+              programId: input.programId,
               businessId,
               provider: "apollo",
               purpose: "sfp_named_decision_maker_discovery",
@@ -1193,7 +1211,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
     }
 
     const afterVector = await buildCurrentGapVector({
-      cohortRunId: input.cohortRunId, businessId, reuse: linkReuse,
+      cohortRunId: input.cohortRunId, geography:target.geography, businessId, reuse: linkReuse,
       apolloSkipReason, outscraperSkipReason,
     });
     const completeVector = { ...afterVector, before: beforeVector.before };
@@ -1210,7 +1228,7 @@ export async function executeSfpPaidPersonAndIdentityDiscovery(
   pendingTasks = Number(rows(await db.execute(sql`
     SELECT COUNT(*)::int AS count
       FROM sfp_provider_retrieval_tasks
-     WHERE cohort_run_id=${input.cohortRunId}::uuid AND state IN ('submitted','polling')
+     WHERE cohort_run_id IS NOT DISTINCT FROM ${input.cohortRunId ?? null}::uuid AND state IN ('submitted','polling')
   `))[0]?.count ?? 0);
   await db.execute(sql`
     UPDATE sfp_stage_runs SET state=${failed || pendingTasks ? "partial" : "completed"},claim_token=NULL,lease_expires_at=NULL,processed_count=${targets.length},
@@ -1236,7 +1254,7 @@ async function beginOutscraperTaskStageRun(
   actorId: string,
 ): Promise<{ id: string; claimToken: string }> {
   const originalStage = rows(await db.execute(sql`
-    SELECT preview_snapshot_hash FROM sfp_stage_runs WHERE id=${String(task.stage_run_id)}::uuid
+    SELECT preview_snapshot_hash,program_id,selection_snapshot FROM sfp_stage_runs WHERE id=${String(task.stage_run_id)}::uuid
   `))[0];
   const payloadHash = sha256({
     taskId: String(task.id),
@@ -1246,9 +1264,11 @@ async function beginOutscraperTaskStageRun(
   });
   const stage = rows(await db.execute(sql`
     INSERT INTO sfp_stage_runs
-      (cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,
+      (cohort_run_id,program_id,selection_snapshot,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,
        preview_snapshot_hash,started_at,last_heartbeat_at)
-    VALUES (${String(task.cohort_run_id)}::uuid,'paid_waterfall',${idempotencyKey},${actorId},
+    VALUES (${task.cohort_run_id ?? null}::uuid,${originalStage?.program_id ?? null}::uuid,
+      ${originalStage?.selection_snapshot?JSON.stringify(originalStage.selection_snapshot):null}::jsonb,
+      'paid_waterfall',${idempotencyKey},${actorId},
             'authorized',1,'["outscraper"]'::jsonb,${payloadHash},
             ${originalStage?.preview_snapshot_hash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW()
@@ -1280,14 +1300,15 @@ async function finishOutscraperTaskStageRun(
 
 async function beginSfpApolloRequestStageRun(input: {
   parentStageRunId: string;
-  cohortRunId: string;
+  cohortRunId?: string;
+  programId?: string;
   businessId: number;
   actorId: string;
   idempotencyKey: string;
   requestFingerprint: string;
 }): Promise<{ id: string; claimToken: string | null; replayed: boolean }> {
   const parent = rows(await db.execute(sql`
-    SELECT preview_snapshot_hash FROM sfp_stage_runs WHERE id=${input.parentStageRunId}::uuid
+    SELECT preview_snapshot_hash,program_id,selection_snapshot FROM sfp_stage_runs WHERE id=${input.parentStageRunId}::uuid
   `))[0];
   const payloadHash = sha256({
     businessId: input.businessId,
@@ -1296,9 +1317,11 @@ async function beginSfpApolloRequestStageRun(input: {
   });
   const stage = rows(await db.execute(sql`
     INSERT INTO sfp_stage_runs
-      (cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,
+      (cohort_run_id,program_id,selection_snapshot,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,
        preview_snapshot_hash,started_at,last_heartbeat_at)
-    VALUES (${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},
+    VALUES (${input.cohortRunId ?? null}::uuid,${parent?.program_id ?? null}::uuid,
+      ${parent?.selection_snapshot?JSON.stringify(parent.selection_snapshot):null}::jsonb,
+      'paid_waterfall',${input.idempotencyKey},${input.actorId},
             'authorized',1,'["apollo"]'::jsonb,${payloadHash},
             ${parent?.preview_snapshot_hash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW()
@@ -1351,6 +1374,10 @@ function originalOutscraperReservation(row: any): SfpProviderReservation {
     workUnit: String(row.sfp_result_data?.reservedWorkUnit ?? "result"),
     units: Number(row.reserved_units),
     stageRunId: String(row.submission_stage_run_id),
+    businessId:Number(row.business_id),
+    cohortRunId:row.cohort_run_id ? String(row.cohort_run_id):undefined,
+    programId:row.program_id ?? undefined,
+    selectionHash:row.sfp_result_data?.reservedSelectionHash ?? undefined,
     runtimeOwnerEpoch: Number(row.runtime_owner_epoch ?? 0),
     runtimeOwnerToken: String(row.runtime_owner_token ?? ""),
   };
@@ -1426,7 +1453,7 @@ export async function processSfpOutscraperRetrievalTask(input: {
 }> {
   if (!/^[0-9a-f-]{36}$/i.test(input.taskId)) throw new Error("SFP_OUTSCRAPER_TASK_ID_INVALID");
   let task = rows(await db.execute(sql`
-    SELECT task.*,submission.state AS submission_state,submission.billing_state,
+    SELECT task.*,original_stage.program_id,submission.state AS submission_state,submission.billing_state,
            submission.claim_token,submission.reserved_units,submission.unit_price_micros,
            submission.unit_price_unit,submission.runtime_owner_epoch,submission.runtime_owner_token,
            submission.provider AS control_provider,submission.id AS operation_id,
@@ -1436,6 +1463,7 @@ export async function processSfpOutscraperRetrievalTask(input: {
                 THEN (submission.sfp_result_data->>'noResultBillable')::boolean ELSE NULL END AS no_result_billable
       FROM sfp_provider_retrieval_tasks task
       JOIN provider_operations submission ON submission.id=task.submission_operation_id
+      JOIN sfp_stage_runs original_stage ON original_stage.id=task.stage_run_id
      WHERE task.id=${input.taskId}::uuid
   `))[0];
   if (!task) throw new Error("SFP_OUTSCRAPER_TASK_NOT_FOUND");
@@ -1504,7 +1532,8 @@ export async function processSfpOutscraperRetrievalTask(input: {
   try {
     pollReservation = await reserveSfpProviderOperation({
       stageRunId: pollRun.id,
-      cohortRunId: String(task.cohort_run_id),
+      cohortRunId: task.cohort_run_id ? String(task.cohort_run_id):undefined,
+      programId:task.program_id ?? undefined,
       businessId: Number(task.business_id),
       provider: "outscraper",
       purpose: "sfp_outscraper_task_poll",
@@ -1725,7 +1754,8 @@ export async function processSfpOutscraperRetrievalTask(input: {
         );
         contactReservation = await reserveSfpProviderOperation({
           stageRunId: contactRun.id,
-          cohortRunId: String(task.cohort_run_id),
+          cohortRunId: task.cohort_run_id ? String(task.cohort_run_id):undefined,
+          programId:task.program_id ?? undefined,
           businessId: Number(task.business_id),
           provider: "outscraper",
           purpose: "sfp_outscraper_leads_and_contacts",
@@ -1989,7 +2019,8 @@ export async function selectSfpSerperTargets(cohortRunId: string, maxBusinesses:
 }
 
 export async function executeSfpSerperDiscovery(input: {
-  cohortRunId:string;
+  cohortRunId?:string;
+  programId?:string;
   idempotencyKey:string;
   actorId:string;
   maxBusinesses?:number;
@@ -1997,14 +2028,18 @@ export async function executeSfpSerperDiscovery(input: {
   internalSkipPreviewCheck?:boolean;
 }) {
   const maxBusinesses=Math.max(1,Math.min(25,Number(input.maxBusinesses ?? 10)));
-  if (!input.internalSkipPreviewCheck) {
+  if(Boolean(input.programId)===Boolean(input.cohortRunId)) throw new Error("SFP_DISCOVERY_SCOPE_REQUIRED");
+  const programSelection=input.programId
+    ? await programDiscoverySelection(input.programId,input.idempotencyKey,maxBusinesses,"serper"):null;
+  if (!programSelection && !input.internalSkipPreviewCheck) {
     if (!input.previewSnapshotHash) throw new Error("SFP_PREVIEW_REQUIRED");
-    const currentPreview=await getSfpCohortGapSnapshot(input.cohortRunId);
+    const currentPreview=await getSfpCohortGapSnapshot(input.cohortRunId!);
     if(currentPreview.snapshotHash!==input.previewSnapshotHash) throw new Error("SFP_STALE_PREVIEW");
   }
-  const cohortHashRow=rows(await db.execute(sql`SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${input.cohortRunId}::uuid`))[0];
-  if(!cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
-  const payloadHash=sha256({cohortRunId:input.cohortRunId,cohortHash:cohortHashRow.cohort_hash,maxBusinesses,
+  const cohortHashRow=programSelection?null:rows(await db.execute(sql`SELECT cohort_hash FROM sfp_cohort_runs WHERE id=${input.cohortRunId!}::uuid`))[0];
+  if(!programSelection && !cohortHashRow) throw new Error("SFP_COHORT_RUN_NOT_FOUND");
+  const payloadHash=sha256({cohortRunId:input.cohortRunId,programId:input.programId,
+    cohortHash:programSelection?sha256(programSelection.snapshot):cohortHashRow.cohort_hash,maxBusinesses,
     providers:["serper"],order:["serper","free_first_party_recrawl"],previewSnapshotHash:input.previewSnapshotHash ?? null});
   const existing=rows(await db.execute(sql`
     SELECT * FROM sfp_stage_runs WHERE stage='paid_waterfall' AND idempotency_key=${input.idempotencyKey} LIMIT 1
@@ -2012,12 +2047,14 @@ export async function executeSfpSerperDiscovery(input: {
   if(existing?.payload_hash && String(existing.payload_hash)!==payloadHash) throw new Error("SFP_IDEMPOTENCY_PAYLOAD_MISMATCH");
   if(existing?.state==='completed') return {stageRunId:String(existing.id),replayed:true,processed:Number(existing.processed_count),succeeded:Number(existing.succeeded_count),failed:Number(existing.failed_count),providerRequests:0};
   const stage=existing ?? rows(await db.execute(sql`
-     INSERT INTO sfp_stage_runs(cohort_run_id,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
-     VALUES(${input.cohortRunId}::uuid,'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper"]'::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
+     INSERT INTO sfp_stage_runs(cohort_run_id,program_id,selection_snapshot,stage,idempotency_key,actor_id,state,max_items,provider_keys,payload_hash,preview_snapshot_hash,started_at,last_heartbeat_at)
+     VALUES(${input.cohortRunId ?? null}::uuid,${input.programId ?? null}::uuid,
+       ${programSelection?JSON.stringify(programSelection.snapshot):null}::jsonb,
+       'paid_waterfall',${input.idempotencyKey},${input.actorId},'authorized',${maxBusinesses},'["serper"]'::jsonb,${payloadHash},${input.previewSnapshotHash ?? null},NOW(),NOW())
     ON CONFLICT(stage,idempotency_key) DO UPDATE SET updated_at=NOW() RETURNING *
   `))[0];
    const stageClaimToken=await claimStageRun(String(stage.id));
-  const targets=await selectSfpSerperTargets(input.cohortRunId,maxBusinesses);
+  const targets=programSelection?.targets ?? await selectSfpSerperTargets(input.cohortRunId!,maxBusinesses);
   await db.execute(sql`UPDATE sfp_stage_runs SET selected_count=${targets.length},updated_at=NOW() WHERE id=${String(stage.id)}::uuid`);
   let succeeded=0,failed=0,noResult=0,freeRecrawlFailed=0,providerRequests=0;
   for(const target of targets){
@@ -2026,6 +2063,7 @@ export async function executeSfpSerperDiscovery(input: {
     try{
       reservation=await reserveSfpProviderOperation({
         stageRunId:String(stage.id),cohortRunId:input.cohortRunId,businessId:Number(target.id),provider:"serper",
+        programId:input.programId,
         purpose:"sfp_official_domain_discovery",idempotencyKey:`${input.idempotencyKey}:serper:${target.id}`,
         actorId:input.actorId,workUnit:"request",units:4,
       });

@@ -1,0 +1,12 @@
+{
+  "checks": 32,
+  "scope": "Disposable program selection, scope drift, native reservation/dispatch/settlement and paid entry point",
+  "productionExecution": false,
+  "taskComplete": false,
+  "dispatches": 1,
+  "effects": {
+    "cohorts": 0,
+    "enrollments": 0,
+    "messages": 0
+  }
+}

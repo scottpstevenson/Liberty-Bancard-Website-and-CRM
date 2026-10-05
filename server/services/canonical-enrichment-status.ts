@@ -5,6 +5,7 @@ import { effectiveBusinessVerticalStatusSql } from "@shared/effective-vertical";
 import type { CanonicalEnrichmentStatus } from "@shared/canonical-enrichment-status";
 import {assertCanonicalPreparationDatabaseGuard} from "./canonical-recipient-preparation";
 import {assertCanonicalAddressReceiptContract} from "./canonical-address-receipt-contract";
+import {assertSfpProgramDiscoveryContract} from "./cro03/sfp-discovery-scope";
 
 /** Observational projection only. Counts are not enrollment, transport,
  * qualification or completion authority. Failed reads never become zeroes. */
@@ -64,11 +65,12 @@ export async function readCanonicalEnrichmentStatus(): Promise<CanonicalEnrichme
       assertSystemLinkDatabaseGuard(db), assertSfpLinkDatabaseGuard(db),
       assertSfpPipelineDatabaseGuard(db), assertSfpRecipientCapacityDatabaseGuard(db),
       assertCanonicalPreparationDatabaseGuard(db),assertCanonicalAddressReceiptContract(db),
+      assertSfpProgramDiscoveryContract(db),
     ]).then(() => ({
       state: "verified" as const, reason: null,
     })).catch(error => ({
       state: "blocked" as const,
-      reason: /DATABASE_GUARD_MISSING|^CANONICAL_(?:ADDRESS|PREPARATION)_NATIVE_CONTRACT_REQUIRED$/.test(String(error?.message))
+      reason: /DATABASE_GUARD_MISSING|^CANONICAL_(?:ADDRESS|PREPARATION|DISCOVERY)_NATIVE_CONTRACT_REQUIRED$/.test(String(error?.message))
         ? String(error.message).slice(0, 250) : "Native contract verification unavailable",
     })),
     pool.query("SELECT value FROM system_settings WHERE key='canonical_recipient_preparation_cursor'"),

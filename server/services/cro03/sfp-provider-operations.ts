@@ -10,6 +10,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { sfpStageScopeSql, lockSfpStageScope } from "./sfp-discovery-scope";
 import { readSfpAutomaticPublish, assertSfpPublishMayAdvance } from "../../../shared/sfp-publish-handoff";
 import { db } from "../../db";
 import {
@@ -99,6 +100,8 @@ export interface SfpProviderReservation {
   noResultBillable?: boolean | null;
   businessId?: number;
   cohortRunId?: string;
+  programId?: string;
+  selectionHash?: string;
   /** Declared work-unit semantics shared by the reservation and workCompleted receipt. */
   workUnit: string;
   /** Reserved provider-specific work units (results, contacts, tokens, or calls), never provider credits. */
@@ -766,36 +769,37 @@ async function lockSfpProviderReservationForFinish(
   if (!liveJob) throw new Error("SFP_RUNTIME_JOB_LEASE_FENCE_LOST");
 
   if ("stageRunId" in reservation) {
+    await lockSfpStageScope(executor,reservation.stageRunId);
     const parentRows = rows(await executor.execute(sql`
       SELECT i.id
         FROM sfp_stage_items i
         JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-        JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-         JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
-        JOIN sfp_programs p ON p.id=cr.program_id
+         LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+          LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+         JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
          JOIN provider_controls pc ON pc.provider=${reservation.controlProvider}
        WHERE i.provider_operation_id=${reservation.operationId}::uuid
          AND i.claim_token=${reservation.claimToken}::uuid AND i.state='claimed'
          AND sr.id=${reservation.stageRunId}::uuid AND sr.state='running'
-         AND cr.cohort_state='frozen' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+          AND ${sfpStageScopeSql(reservation)}
           AND p.is_active=TRUE AND pc.enabled=TRUE AND pc.circuit_state='closed'
-        FOR UPDATE OF i,sr,cr,m,p,pc
+         FOR UPDATE OF i,sr,p,pc
     `))[0];
     if (!parentRows) throw new Error("SFP_PROVIDER_STAGE_LEASE_FENCE_LOST");
     const liveParent = rows(await executor.execute(sql`
       SELECT 1
         FROM sfp_stage_items i
         JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-        JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-         JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
-        JOIN sfp_programs p ON p.id=cr.program_id
+         LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+          LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+         JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
          JOIN provider_controls pc ON pc.provider=${reservation.controlProvider}
        WHERE i.provider_operation_id=${reservation.operationId}::uuid
          AND i.claim_token=${reservation.claimToken}::uuid AND i.state='claimed'
          AND i.lease_expires_at>clock_timestamp()
          AND sr.id=${reservation.stageRunId}::uuid AND sr.state='running'
          AND sr.lease_expires_at>clock_timestamp()
-         AND cr.cohort_state='frozen' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+          AND ${sfpStageScopeSql(reservation)}
           AND p.is_active=TRUE AND pc.enabled=TRUE AND pc.circuit_state='closed'
     `))[0];
     if (!liveParent) throw new Error("SFP_PROVIDER_STAGE_LEASE_FENCE_LOST");
@@ -901,21 +905,22 @@ async function currentSfpProviderPromotionPermission(
     // Retain only the eligibility/run authority before acquiring billing,
     // operation, attempt, or dispatch-receipt locks.
     if ("stageRunId" in reservation) {
+      await lockSfpStageScope(executor,reservation.stageRunId);
       const parent = rows(await executor.execute(sql`
         SELECT sr.id
           FROM sfp_stage_items i
           JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-          JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-          JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
-          JOIN sfp_programs p ON p.id=cr.program_id
+          LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+          LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+          JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
          WHERE i.provider_operation_id=${reservation.operationId}::uuid
            AND i.claim_token=${reservation.claimToken}::uuid AND i.state='claimed'
            AND i.lease_expires_at>clock_timestamp()
            AND sr.id=${reservation.stageRunId}::uuid AND sr.state='running'
            AND sr.lease_expires_at>clock_timestamp()
-           AND cr.cohort_state='frozen' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+           AND ${sfpStageScopeSql(reservation)}
            AND p.is_active=TRUE
-         FOR SHARE OF i,sr,cr,m,p
+         FOR SHARE OF i,sr,p
       `))[0];
       if (!parent) return false;
     } else {
@@ -976,15 +981,15 @@ function sfpProviderFinishLeasePredicate(
         AND EXISTS (
           SELECT 1 FROM sfp_stage_items i
           JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-          JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-          JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
-          JOIN sfp_programs p ON p.id=cr.program_id
+          LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+          LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+          JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
           WHERE i.provider_operation_id=provider_operations.id
             AND i.claim_token=${reservation.claimToken}::uuid AND i.state='claimed'
             AND i.lease_expires_at>clock_timestamp()
             AND sr.id=${reservation.stageRunId}::uuid AND sr.state='running'
             AND sr.lease_expires_at>clock_timestamp()
-            AND cr.cohort_state='frozen' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+            AND ${sfpStageScopeSql(reservation)}
             AND p.is_active=TRUE
         )
       `
@@ -1414,7 +1419,14 @@ async function advanceSfpPublishedRelease(tx: SqlExecutor, fence: SfpRuntimeFenc
   }, published.builtAt);
 }
 
-export async function assertSfpRuntimeAuthority(cohortRunId: string): Promise<SfpRuntimeAuthority> {
+export async function assertSfpRuntimeAuthority(cohortRunId: string | null, programId?: string | null): Promise<SfpRuntimeAuthority> {
+  if (programId) {
+    if (cohortRunId) throw new Error("SFP_DISCOVERY_SCOPE_AMBIGUOUS");
+    const program=rows(await db.execute(sql`SELECT id FROM sfp_programs
+      WHERE id=${programId}::uuid AND is_active AND taxonomy_version=2`))[0];
+    if (!program) throw new Error("SFP_PAID_BLOCKED:PROGRAM_INACTIVE");
+    return claimSfpRuntimeDeploymentOwner();
+  }
   const authority = rows(await db.execute(sql`
     SELECT r.id
       FROM sfp_cohort_runs r
@@ -1687,7 +1699,8 @@ export async function releaseExpiredPreDispatchSfpReservations(): Promise<number
 
 export async function reserveSfpProviderOperation(input: {
   stageRunId: string;
-  cohortRunId: string;
+  cohortRunId?: string | null;
+  programId?: string | null;
   businessId: number;
   candidateId?: string | null;
   provider: SfpPaidProvider;
@@ -1706,7 +1719,7 @@ export async function reserveSfpProviderOperation(input: {
   const sourceId = input.provider as ProviderSourceId;
   assertProviderActivation({ sourceId, caller: CALLER, explicitPaidApproval: true });
   await releaseExpiredPreDispatchSfpReservations();
-  const authority = await assertSfpRuntimeAuthority(input.cohortRunId);
+  const authority = await assertSfpRuntimeAuthority(input.cohortRunId ?? null,input.programId);
   const requestedUnits = Number(input.units ?? 1);
   if (!Number.isSafeInteger(requestedUnits) || requestedUnits < 1) throw new Error("SFP_PROVIDER_WORK_UNITS_INVALID");
   const maximumUnits = MAX_UNITS_PER_RESERVATION[input.provider] ?? 100;
@@ -1724,6 +1737,20 @@ export async function reserveSfpProviderOperation(input: {
     if (currentOwner.ownerEpoch !== authority.ownerEpoch || currentOwner.ownerToken !== authority.ownerToken) {
       throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
     }
+    await lockSfpStageScope(tx,input.stageRunId);
+    const scope=rows(await tx.execute(sql`
+      WITH i AS (SELECT ${input.businessId}::integer business_id)
+      SELECT sr.id,md5(sr.selection_snapshot::text) selection_hash FROM sfp_stage_runs sr CROSS JOIN i
+        LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+        LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+        JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
+      WHERE sr.id=${input.stageRunId}::uuid AND sr.state='running'
+        AND sr.lease_expires_at>clock_timestamp() AND p.is_active
+        AND sr.program_id IS NOT DISTINCT FROM ${input.programId ?? null}::uuid
+        AND sr.cohort_run_id IS NOT DISTINCT FROM ${input.cohortRunId ?? null}::uuid
+        AND ${sfpStageScopeSql()}
+    `))[0];
+    if(!scope) throw new Error("SFP_PROVIDER_STAGE_LEASE_FENCE_LOST");
     const quarantine = rows(await tx.execute(sql`
       SELECT 1 FROM sfp_identity_quarantines
        WHERE business_id=${input.businessId} AND cleared_at IS NULL LIMIT 1
@@ -1748,6 +1775,9 @@ export async function reserveSfpProviderOperation(input: {
          reviewedUnitType:existing.unit_price_unit == null ? null : String(existing.unit_price_unit),
         noResultBillable:reservationNoResultBillable(existing.sfp_result_data),
         units:Number(existing.reserved_units),stageRunId:input.stageRunId,
+        businessId:input.businessId,cohortRunId:input.cohortRunId ?? undefined,
+        programId:input.programId ?? undefined,
+        selectionHash:input.programId ? String((existing.sfp_result_data as any)?.reservedSelectionHash ?? scope.selection_hash):undefined,
          runtimeOwnerEpoch:Number(existing.runtime_owner_epoch ?? authority.ownerEpoch),
          runtimeOwnerToken:String(existing.runtime_owner_token ?? authority.ownerToken),
          replayed:true,resultData:publicProviderResultData(existing.sfp_result_data),
@@ -1777,6 +1807,8 @@ export async function reserveSfpProviderOperation(input: {
                     reservedBusinessId: input.businessId,
                     reservedStageRunId: input.stageRunId,
                     reservedCohortRunId: input.cohortRunId,
+                     reservedProgramId: input.programId ?? null,
+                     reservedSelectionHash:scope.selection_hash ?? null,
                     reservedProvider: input.provider,
                 })}::jsonb) RETURNING id
     `))[0];
@@ -1818,7 +1850,9 @@ export async function reserveSfpProviderOperation(input: {
       amountMicros,reviewedUnitPriceMicros:unitPriceEstimateMicros,
       reviewedUnitType:reviewedPricing.unitType,
       noResultBillable:reviewedPricing.noResultBillable,workUnit,units,stageRunId:input.stageRunId,
-       businessId:input.businessId,cohortRunId:input.cohortRunId,
+       businessId:input.businessId,cohortRunId:input.cohortRunId ?? undefined,
+       programId:input.programId ?? undefined,
+       selectionHash:scope.selection_hash ?? undefined,
       runtimeOwnerEpoch:authority.ownerEpoch,runtimeOwnerToken:authority.ownerToken,
     };
   });
@@ -2269,6 +2303,7 @@ async function markSfpProviderOperationDispatchBoundary(
     await acquireLadderBudgetLock(tx);
     await renewSfpRuntimeJobLease(tx, reservation, fence);
     if ("stageRunId" in reservation) {
+      await lockSfpStageScope(tx,reservation.stageRunId);
       const allowed = rows(await tx.execute(sql`
         SELECT o.id
           FROM provider_operations o
@@ -2278,9 +2313,9 @@ async function markSfpProviderOperationDispatchBoundary(
           JOIN sfp_runtime_job_leases jl ON jl.operation_id=o.id
           JOIN sfp_stage_items i ON i.provider_operation_id=o.id
           JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-          JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-          JOIN sfp_programs p ON p.id=cr.program_id
-           JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+          LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+          JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
+           LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
          WHERE o.id=${reservation.operationId}::uuid
            AND o.claim_token=${reservation.claimToken}::uuid
            AND o.state='running' AND o.billing_state='reserved'
@@ -2307,10 +2342,10 @@ async function markSfpProviderOperationDispatchBoundary(
             AND i.lease_expires_at>clock_timestamp()
             AND sr.id=${reservation.stageRunId}::uuid
             AND sr.state='running' AND sr.lease_expires_at>clock_timestamp()
-           AND cr.cohort_state='frozen' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+           AND ${sfpStageScopeSql(reservation)}
            AND p.is_active=TRUE
            FOR UPDATE OF o,a,jl,i,sr
-           FOR SHARE OF pc,oa,cr,p,m
+           FOR SHARE OF pc,oa,p
       `))[0];
       if (!allowed) throw new Error("SFP_PROVIDER_DISPATCH_BOUNDARY_LOST");
       const stageItem = rows(await tx.execute(sql`
@@ -2394,9 +2429,9 @@ async function markSfpProviderOperationDispatchBoundary(
                  JOIN sfp_runtime_job_leases jl ON jl.operation_id=o.id
                  JOIN sfp_stage_items i ON i.provider_operation_id=o.id
                  JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-                 JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-                 JOIN sfp_programs p ON p.id=cr.program_id
-                 JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+                 LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+                 JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
+                 LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
                 WHERE o.id=provider_attempts.operation_id
                   AND o.id=${reservation.operationId}::uuid
                   AND o.claim_token=${reservation.claimToken}::uuid
@@ -2423,9 +2458,8 @@ async function markSfpProviderOperationDispatchBoundary(
                   AND i.lease_expires_at>clock_timestamp()
                    AND sr.id=${reservation.stageRunId}::uuid
                    AND sr.state='running' AND sr.lease_expires_at>clock_timestamp()
-                  AND cr.cohort_state='frozen' AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+                  AND ${sfpStageScopeSql(reservation)}
                   AND p.is_active=TRUE
-                  AND m.business_id=i.business_id
              )
           RETURNING id
         `))[0]
@@ -2500,15 +2534,15 @@ export async function assertCurrentSfpProviderReservation(reservation: SfpProvid
       JOIN sfp_runtime_job_leases j ON j.operation_id=o.id
       JOIN sfp_stage_items i ON i.provider_operation_id=o.id
       JOIN sfp_stage_runs sr ON sr.id=i.stage_run_id
-      JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
-      JOIN sfp_programs p ON p.id=cr.program_id
+      LEFT JOIN sfp_cohort_runs cr ON cr.id=sr.cohort_run_id
+      LEFT JOIN sfp_cohort_members m ON m.cohort_run_id=cr.id AND m.business_id=i.business_id
+      JOIN sfp_programs p ON p.id=COALESCE(sr.program_id,cr.program_id)
      WHERE o.id=${reservation.operationId}::uuid AND o.claim_token=${reservation.claimToken}::uuid
         AND o.state='running' AND o.lease_expires_at>clock_timestamp() AND o.cancel_requested_at IS NULL
        AND pc.enabled=TRUE AND pc.circuit_state='closed'
         AND i.state='claimed' AND i.lease_expires_at>clock_timestamp()
          AND sr.state='running' AND sr.lease_expires_at>clock_timestamp()
-        AND p.is_active=TRUE AND cr.cohort_state='frozen'
-        AND cr.voided_at IS NULL AND cr.superseded_at IS NULL
+        AND p.is_active=TRUE AND ${sfpStageScopeSql(reservation)}
         AND a.deployment_identity=${fence.deploymentIdentity}
         AND a.environment_identity=${fence.environmentIdentity}
         AND a.artifact_sha=${fence.artifactSha}
@@ -2659,11 +2693,15 @@ export async function settleSfpProviderOperation(input: {
     const originalBusinessId = Number(reservationData.reservedBusinessId ?? input.businessId);
     const originalStageRunId = String(reservationData.reservedStageRunId ?? input.reservation.stageRunId);
     const originalCohortRunId = String(reservationData.reservedCohortRunId ?? input.reservation.cohortRunId ?? "");
+    const originalProgramId = String(reservationData.reservedProgramId ?? input.reservation.programId ?? "");
+    const originalSelectionHash=String(reservationData.reservedSelectionHash ?? input.reservation.selectionHash ?? "");
     const originalProvider = reservationData.reservedProvider == null
       ? input.reservation.provider
       : String(reservationData.reservedProvider);
     if (originalBusinessId !== input.businessId || originalStageRunId !== input.reservation.stageRunId ||
         (input.reservation.cohortRunId && originalCohortRunId !== input.reservation.cohortRunId) ||
+        (input.reservation.programId && originalProgramId !== input.reservation.programId) ||
+        (input.reservation.selectionHash && originalSelectionHash!==input.reservation.selectionHash) ||
         originalProvider !== input.reservation.provider) {
       throw new Error("SFP_PROVIDER_SETTLEMENT_IDENTITY_MISMATCH");
     }
@@ -2672,6 +2710,8 @@ export async function settleSfpProviderOperation(input: {
       businessId: originalBusinessId,
       stageRunId: originalStageRunId,
       cohortRunId: originalCohortRunId || undefined,
+      programId: originalProgramId || undefined,
+      selectionHash:originalSelectionHash || undefined,
       units: Number(operationBefore.reserved_units),
       amountMicros: nullableReviewedMicros((operationBefore.sfp_result_data as any)?.reservedUnitAmountMicros),
       reviewedUnitPriceMicros: nullableReviewedMicros(operationBefore.unit_price_micros),

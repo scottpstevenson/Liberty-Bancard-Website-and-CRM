@@ -2345,6 +2345,13 @@
       "when": 1800000015500,
       "tag": "0331_canonical_recipient_preparation",
       "breakpoints": true
+    },
+    {
+      "idx": 335,
+      "version": "7",
+      "when": 1800000015600,
+      "tag": "0332_sfp_program_discovery_scope",
+      "breakpoints": true
     }
   ]
 }

@@ -9849,7 +9849,9 @@ export const sfpNamedEmailEligibilityReviews = pgTable("sfp_named_email_eligibil
 
 export const sfpStageRuns = pgTable("sfp_stage_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
-  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  cohortRunId: uuid("cohort_run_id").references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  programId: uuid("program_id").references(() => sfpPrograms.id, { onDelete: "restrict" }),
+  selectionSnapshot: jsonb("selection_snapshot"),
   stage: text("stage").notNull(), idempotencyKey: text("idempotency_key").notNull(), actorId: text("actor_id").notNull(),
   state: text("state").notNull().default("pending"), maxItems: integer("max_items").notNull(),
   providerKeys: jsonb("provider_keys").notNull().default([]),
@@ -9869,6 +9871,14 @@ export const sfpStageRuns = pgTable("sfp_stage_runs", {
 }, (table) => [
   uniqueIndex("sfp_stage_runs_stage_idempotency_uidx").on(table.stage, table.idempotencyKey),
   index("sfp_stage_runs_cohort_stage_idx").on(table.cohortRunId, table.stage, table.createdAt),
+  index("sfp_stage_runs_program_stage_idx").on(table.programId, table.stage, table.createdAt),
+  check("sfp_stage_runs_parent_scope_chk", sql`(
+    cohort_run_id IS NOT NULL AND program_id IS NULL AND selection_snapshot IS NULL
+  ) OR (
+    cohort_run_id IS NULL AND program_id IS NOT NULL
+    AND selection_snapshot IS NOT NULL AND jsonb_typeof(selection_snapshot)='object'
+    AND selection_snapshot ? 'programHash' AND selection_snapshot ? 'businessPins'
+  )`),
 ]);
 
 export const sfpStageItems = pgTable("sfp_stage_items", {
@@ -10378,7 +10388,7 @@ export const sfpProviderRetrievalTasks = pgTable("sfp_provider_retrieval_tasks",
   completionOperationId: uuid("completion_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
   contactOperationId: uuid("contact_operation_id").references(() => providerOperations.id, { onDelete: "restrict" }),
   stageRunId: uuid("stage_run_id").notNull().references(() => sfpStageRuns.id, { onDelete: "cascade" }),
-  cohortRunId: uuid("cohort_run_id").notNull().references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
+  cohortRunId: uuid("cohort_run_id").references(() => sfpCohortRuns.id, { onDelete: "cascade" }),
   businessId: integer("business_id").notNull().references(() => businesses.id, { onDelete: "restrict" }),
   businessNameSnapshot: text("business_name_snapshot").notNull(),
   domainSnapshot: text("domain_snapshot"),
