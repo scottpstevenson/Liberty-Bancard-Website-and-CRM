@@ -579,8 +579,13 @@ async function renewSfpRuntimeOwnerLease(
   reservation: SfpProviderReservation | SfpPreCohortProviderReservation,
   fence: SfpRuntimeFence,
 ): Promise<void> {
-  // The owner is the first exclusive authority lock in dispatch order.
-  // Updating directly avoids a SHARE-to-UPDATE lock upgrade under concurrency.
+  // Publish/acquisition locks selector -> owner. Dispatch must pin the selector
+  // BEFORE updating the owner, including the later job-lease authority recheck:
+  // owner UPDATE -> selector SHARE deadlocks with a selector-first claimant.
+  // Do not pin the owner FOR SHARE here: competing dispatchers would then both
+  // try to upgrade that share lock. The fenced UPDATE takes it exclusively.
+  const selected = await lockSelectedSfpRuntimeRelease(executor, fence);
+  if (!selected) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:CURRENT_RELEASE_NOT_SELECTED");
   const owner = rows(await executor.execute(sql`
     UPDATE sfp_runtime_owner_authority
        SET lease_expires_at=clock_timestamp()+(${SFP_RUNTIME_OWNER_LEASE_MS}::bigint * INTERVAL '1 millisecond'),

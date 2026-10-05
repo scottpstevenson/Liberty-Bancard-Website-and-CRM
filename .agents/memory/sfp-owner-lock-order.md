@@ -16,6 +16,21 @@ did not exclude this timing-dependent failure.
 When adding owner/selector locks or changing publish/claim flows, check the order
 across all participating transactions, not only each individual SQL statement.
 
+Dispatch renewal must pin the selected release before its direct owner UPDATE.
+A later selector-first job-lease recheck does not repair an earlier owner-first
+write. Do not take an owner SHARE lock before renewal: concurrent dispatchers
+would both need to upgrade it.
+
+**Why:** Primary evidence identified a recovery/classification deadlock; a native
+disposable reproduction confirmed dispatch's owner UPDATE followed by the
+job-lease selector pin forms that cycle. Selector-first dispatch committed under
+the identical schedule and allowed concurrent renewals without lock upgrades.
+
+**How to apply:** Follow selector SHARE → fenced owner UPDATE → job/effect locks.
+Retain exact owner epoch/token, release matching, revocation, wall-clock expiry,
+claim-token checks and final dispatch guards. Test both the historical cycle and
+the corrected transaction schedule with actual PostgreSQL locks.
+
 Reducing owner-fence round trips must preserve lock order and evaluate lease
 expiry after lock acquisition, never cache authority across write boundaries.
 

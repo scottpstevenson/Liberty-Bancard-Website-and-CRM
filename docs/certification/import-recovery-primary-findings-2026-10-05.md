@@ -111,3 +111,37 @@ fix. Do not increase application pool sizes, timeouts or leases, disable the
 blocking worker, bypass authority, or force ambiguous rows into completion.
 Production remains unaccepted until multiple normal automatic cycles commit
 new fulfillment and every original row has evidence-backed downstream accounting.
+
+## Implemented correction (not yet production acceptance)
+
+The transitive dispatch path is
+`markSfpProviderOperationDispatchBoundary()` →
+`renewSfpRuntimeOwnerLease()` →
+`renewSfpRuntimeJobLease()`.
+Renewal updated the owner before the job-lease helper requested the selector
+share pin. Dispatch now takes the matching selector share pin **before** its
+direct, epoch/token/lease-fenced owner update. It does not take an owner share
+lock before updating, avoiding competing dispatchers' lock-upgrade deadlock.
+
+`npx tsx scripts/test-sfp-dispatch-lock-order.ts` extracts and executes the actual
+production helpers against a test-owned native PostgreSQL cluster. Its control
+reproduces the historical `40P01`; the corrected dispatch and actual recovery
+claim path both commit under the same schedule. Concurrent dispatch renewals
+serialize safely. Unselected releases, revoked/expired owners, stale epochs and
+tokens, expiry during a selector wait, wrong job claim tokens, cancellation and
+expired operation claims remain rejected. No app database or provider is used.
+
+Application pool sizes, timeouts, leases, provider controls and outbound policy
+are unchanged. The correction needs publication before production convergence
+can be evaluated; the earlier 92/1,472 observation is not acceptance of this code.
+
+Verification: 13 focused regression checks, the 22-check primary-capture suite,
+and canonical transaction retry checks pass. Project type checking (including
+the new regression script), production client/server build, and the restarted
+public app preview pass.
+
+The full pre-deploy gate still has its pre-existing server test-environment
+failure (`development` reported where `test` is required). The older standalone
+runtime-fence source check also still expects an obsolete all-exclusive
+`FOR UPDATE` clause; that literal is absent in unchanged HEAD as well as this
+correction. Neither failure is claimed fixed or counted as a passing gate.

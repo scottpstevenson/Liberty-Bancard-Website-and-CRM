@@ -5,10 +5,13 @@ description: Finish the original scope and distinguish implementation handoff fr
 
 Finish independent implementation and verification before requesting another
 owner action. Do not redefine unfinished original requirements as new features
-or equate disposable certification with production execution.
+or equate disposable certification with production execution. When diagnosis
+proves the defect, continue with the correction and its tests rather than
+stopping at an evidence report.
 
 **Why:** The user repeatedly rejected stopping at intermediate local milestones
-and requesting incremental publishes without end-to-end progress.
+and requesting incremental publishes without end-to-end progress, and explicitly
+rejected stopping after identifying a confirmed production deadlock.
 
 **How to apply:** Keep scope-specific proof separate: ingestion, discovery,
 qualification, validation and scheduled production convergence are not
