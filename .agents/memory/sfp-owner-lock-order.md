@@ -16,6 +16,27 @@ did not exclude this timing-dependent failure.
 When adding owner/selector locks or changing publish/claim flows, check the order
 across all participating transactions, not only each individual SQL statement.
 
+Reducing owner-fence round trips must preserve lock order and evaluate lease
+expiry after lock acquisition, never cache authority across write boundaries.
+
+**Why:** A lease may expire while a statement waits for the selector or owner.
+An expiry predicate evaluated before that wait can admit stale authority.
+
+**How to apply:** When combining lock statements, use explicit materialized,
+correlated dependencies and check wall-clock expiry after the locked result.
+Prove both actual selector blocking and rejection after expiry in a native test.
+
+Preparing a repeated SQL contract query is not caching its authority result.
+Keep every live catalog and lease evaluation; only the execution plan may be reused.
+
+**Why:** Local profiling found repeated catalog-query planning cost greater than
+execution cost. Caching returned permission facts would hide revocation or schema
+drift, whereas a prepared query still evaluates the actual catalog on every call.
+
+**How to apply:** Prove that a warmed prepared guard rejects a contract disabled
+inside the same transaction, then accepts again after rollback. Never memoize
+the returned guard booleans or lease authority.
+
 Automatic writers must also acquire deployment-owner authority before commercial
 graph/domain locks, retaining the final evidence/authority recheck afterward.
 

@@ -36,8 +36,8 @@ const SFP_RECIPIENT_TRANSITION_TRIGGER_BODY_MD5 = "e5315a402bb4f800ae1240a547c16
 const SFP_RECIPIENT_ALIAS_TRIGGER_BODY_MD5 = "bcbaf3c57b9cc79abf0574e73c17cb9e";
 const SFP_BRIDGE_HOLD_TRIGGER_BODY_MD5 = "9e57bf5845f626fc2e58bfdc6849d3a4";
 
-export async function assertSystemLinkDatabaseGuard(executor: any) {
-  const triggerCheck = (await executor.execute(sql`
+export async function assertSystemLinkDatabaseGuard(executor: any,options:{prepared?:boolean}={}) {
+  const nativeContract = sql`
     SELECT EXISTS (
       SELECT 1 FROM pg_trigger t
       JOIN pg_class c ON c.oid=t.tgrelid
@@ -130,7 +130,17 @@ export async function assertSystemLinkDatabaseGuard(executor: any) {
       JOIN pg_proc p ON p.proname=expected.function_name
         AND p.pronamespace='public'::regnamespace
     ) AS relationship_evaluator
-  `) as any).rows?.[0];
+  `;
+  // Cache the SQL execution PLAN on this transaction's native connection,
+  // NEVER the result. Every invocation still reads the live catalog, checks
+  // exact trigger/function fingerprints and fails closed on schema drift.
+  // Import recovery calls this many times per row: replanning this unchanged
+  // catalog query was substantially more expensive than executing it.
+  const triggerCheck = options.prepared
+    ? (await executor.select({guard:sql`row_to_json(native_contract)`})
+      .from(sql`(${nativeContract}) native_contract`)
+      .prepare("canonical_system_link_guard_v1").execute())[0]?.guard
+    : ((await executor.execute(nativeContract)) as any).rows?.[0];
   if (!triggerCheck?.installed || !triggerCheck?.immutable_evidence_trigger
       || !triggerCheck?.evidence_table || !triggerCheck?.evidence_column
       || !triggerCheck?.evidence_foreign_keys || !triggerCheck?.sfp_contact_checks

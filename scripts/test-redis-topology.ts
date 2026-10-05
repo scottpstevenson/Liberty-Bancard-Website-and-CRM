@@ -45,7 +45,7 @@ async function testQueueConfigsBaseline() {
   console.log("\n1. QUEUE_CONFIGS baseline — exact certified roster");
 
   const CERTIFIED_ROSTER = [
-    "abandoned-statement", "activation-monitor", "chargeback-commands",
+    "abandoned-statement", "activation-monitor", "canonical-import-recovery", "chargeback-commands",
     "cro02-observation", "cro03a-qualification", "cro03c-live",
     "cro08a-processor", "cro08a-scheduler",
     "db-backup", "deal-stage-effects",
@@ -58,10 +58,10 @@ async function testQueueConfigsBaseline() {
     "statement-upload", "sunbiz-full-backfill", "system-audit", "voicemail-sync", "winback-outreach",
     "zerobounce-batch-validate",
   ] as const;
-  // Literal ownership snapshot: four SFP lanes and the Sunbiz full-backfill
-  // driver were added to the previously certified 35-queue roster. The retired
+  // Literal ownership snapshot includes independent local import recovery.
+  // The SFP lanes and Sunbiz full-backfill driver retain their ownership. The retired
   // attestation-refresh queue is intentionally not part of this topology.
-  const CERTIFIED_ROSTER_DIGEST = "83668c6d105a02eaa994d19713f4e76ad22a0a192c6a5d7156281e5e41b71a88";
+  const CERTIFIED_ROSTER_DIGEST = "256e4aede6c46f104b6c9c97cb3cc625c279dfde90291a0e24bfae13ee27a10b";
   const actualRoster = QUEUE_CONFIGS.map(({ name }) => name).sort();
   const actualDigest = createHash("sha256").update(actualRoster.join("\n")).digest("hex");
 

@@ -76,7 +76,7 @@ export async function processCanonicalImportRecoveryTick(
     const live=await lockCurrentSfpRuntimeOwner(tx);
     if (live.ownerEpoch!==owner.ownerEpoch || live.ownerToken!==owner.ownerToken)
       throw new Error("CANONICAL_IMPORT_RECOVERY_RUNTIME_OWNER_CHANGED");
-    await assertSystemLinkDatabaseGuard(tx);
+    await assertSystemLinkDatabaseGuard(tx,{prepared:true});
   };
   let fulfilled=0,held=0;
   // Missing-original accounting shares the bounded row claim below. Never run
@@ -142,5 +142,6 @@ export async function processCanonicalImportRecoveryTick(
       throw error;
     }
   }
-  return {ran:fulfilled+held>0,fulfilled,held};
+  return {ran:fulfilled+held>0,fulfilled,held,
+    budgetExhausted:fulfilled+held>=maxItems || Date.now()>=deadline};
 }

@@ -45,6 +45,8 @@ export const QUEUE_NAMES = {
   // env flag is on; neither ever enrolls or sends.
   SFP_CONTINUOUS_DISCOVERY: "sfp-continuous-discovery",
   SFP_CONTINUOUS_VALIDATION: "sfp-continuous-validation",
+  // Pure local retained-file recovery. Never waits behind provider discovery.
+  CANONICAL_IMPORT_RECOVERY: "canonical-import-recovery",
   // Task #2002 completion: recurring driver for the resumable Sunbiz
   // full-backlog microbatch processor. Registered unconditionally but the
   // handler is a no-op unless an admin has set the run status to 'running'

@@ -52,7 +52,7 @@
 - [tsx hot-reload stale route registration](tsx-stale-route.md) — new Express routes may 404 until a full server restart; probe with curl and restart to confirm.
 - [Drizzle-kit orphaned file deploy hang](drizzle-kit-orphaned-hang.md) — Unjournaled SQL in migrations/ root hangs drizzle-kit generate; journal it or move to migrations/guarded/.
 - [Test phone/EIN isolation](test-phone-isolation.md) — hardcoded phones/EINs collide across test runs; always generate uniquely (uniquePhone(), Date.now()%10000000) (see test-ein-uniqueness.md).
-- [BullMQ startup job deduplication](bullmq-startup-dedup.md) — static jobId on startup jobs silently deduped against stale Redis entries; omit jobId for one-off restart jobs.
+- [BullMQ job ID deduplication](bullmq-startup-dedup.md) — retained startup IDs and active continuation IDs silently suppress new work; verify more than two batches.
 - [Communication Events Model](communication-events-model.md) — migration 0119; recordOutboundSend/recordInboundEvent are the only write paths; wired sites documented.
 - [Arbitration fail-closed](arbitration-fail-closed.md) — arbitration catch block returns suppressed:true on error (was fail-open); ARBITRATION_ERROR audit log written.
 - [Migration statement timeout bypass](migration-statement-timeout.md) — Use dedicated pg.Client with statement_timeout=0, not drizzle(pool), to protect large indexes.

@@ -228,6 +228,7 @@ export const WORKER_CAPABILITY_GROUPS = {
   "sfp-continuous-discovery": [
     "sfp-continuous-discovery",
     "sfp-continuous-validation",
+    "canonical-import-recovery",
   ],
 } as const satisfies Record<string, readonly string[]>;
 

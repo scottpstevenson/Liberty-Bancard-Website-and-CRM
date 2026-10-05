@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import {randomUUID,createHash} from "node:crypto";
+import {sql} from "drizzle-orm";
 import {assertDisposableTestInfrastructure} from "../test-infrastructure-guard";
 import {applyCertificationProviderDenyBoundary,getBlockedCertificationNetworkAttemptCount} from "../certification-provider-deny";
 await assertDisposableTestInfrastructure({operation:"canonical provider import certification"});
 process.env.VG_PROVIDER_DENY_MODE="1";
 applyCertificationProviderDenyBoundary({fatal:true});
-const {pool}=await import("../../server/db");
+const {db,pool}=await import("../../server/db");
 const {claimCsvExecution,recordImportRowDisposition,completeImportExecution}=await import("../../server/services/import-execution");
 const {materializeCanonicalProviderImportRow,providerImportEmails,providerImportRecipient}=await import("../../server/services/canonical-provider-import");
 const {initializeImportedLinkedContactClass}=await import("../../server/services/commercial-classification-authority");
@@ -314,6 +315,97 @@ try {
     [boundedRows[0].email])).rows.length===1,"Restored original creates one genuine contact");
   check(!(await processCanonicalImportRecoveryTick()).ran,
     "Restored-original replay neither duplicates the contact nor repeats missing-original accounting");
+  const {assertSystemLinkDatabaseGuard}=await import("../../server/services/commercial-link-authority");
+  const guardRollback=new Error("PREPARED_NATIVE_GUARD_ROLLBACK");
+  await assert.rejects(db.transaction(async tx=>{
+    await assertSystemLinkDatabaseGuard(tx,{prepared:true});
+    await tx.execute(sql`ALTER TABLE contact_business_link_decisions
+      DISABLE TRIGGER contact_business_link_review_contract`);
+    await assert.rejects(assertSystemLinkDatabaseGuard(tx,{prepared:true}),
+      /COMMERCIAL_SYSTEM_LINK_DATABASE_GUARD_MISSING/);checks++;
+    throw guardRollback;
+  }),(error:unknown)=>error===guardRollback);checks++;
+  await db.transaction(tx=>assertSystemLinkDatabaseGuard(tx,{prepared:true}));checks++;
+  // A spreadsheet-sized genuine deferred backlog, not scalar cursor fixtures.
+  // Run the same bounded importer and BullMQ continuation policy used in prod.
+  const bulkRows=Array.from({length:1472},(_,index)=>({
+    name:`Bulk ${label} ${index}`,place_id:`bulk_${label}_${index}`,
+    city:"Miami",state:"FL",email:`bulk.${index}.${label}@example.com`,
+  }));
+  const bulkClaim=await claimCsvExecution({
+    fileHash:createHash("sha256").update(randomUUID()).digest("hex"),
+    totalRows:bulkRows.length,actorType:"import",actorId,sourcePayload:bulkRows,
+  });
+  for (const [index,bulkRaw] of bulkRows.entries()) {
+    const draft=providerCsvSourceSubject({importExecutionId:bulkClaim.execution.id,
+      sourceRowNumber:index+1,sourceSystem:"outscraper",
+      row:mapProviderCsvRow(bulkRaw,"google_maps_outscraper")});
+    const rowFingerprint=computeFileHash(Buffer.from(JSON.stringify(bulkRaw)));
+    await createCro03SourceBatch({
+      idempotencyKey:`csv-source:${bulkClaim.execution.id}:${index+1}`,
+      actorType:"import",actorId,purpose:"staging_review",
+      subjects:[{...draft,payload:{...draft.payload,sourceFormat:"google_maps_outscraper",
+        rowFingerprint,sourceRowNumber:index+1}}],
+    });
+    await recordImportRowDisposition({executionId:bulkClaim.execution.id,
+      claimToken:bulkClaim.claimToken!,sourceRowNumber:index+1,rowFingerprint,
+      disposition:"deferred",reasonCode:"cro03_staging_review_required"});
+  }
+  await completeImportExecution({executionId:bulkClaim.execution.id,
+    claimToken:bulkClaim.claimToken!,expectedRows:bulkRows.length});
+  console.log("BULK: 1472 genuine deferred rows staged; starting serial continuation worker");
+  const {Queue,Worker}=await import("bullmq");
+  const {getRedisConnection,getBullMqPrefixForQueue,getSharedRedisClient}=await import("../../server/services/queue-connection");
+  const {canonicalImportContinuationOptions}=await import("../../server/services/canonical-import-recovery-scheduling");
+  const {getQueuesForCapabilityGroups}=await import("../../server/services/background-profile");
+  check(getQueuesForCapabilityGroups(["sfp-continuous-discovery"]).includes("canonical-import-recovery"),
+    "The existing production selective profile starts independent local recovery");
+  const connection=await getRedisConnection();
+  const bulkQueue=new Queue("canonical-import-recovery",{connection,
+    prefix:getBullMqPrefixForQueue("canonical-import-recovery")});
+  let bulkFulfilled=0,bulkBatches=0,firstBatchSize=0;
+  const bulkStarted=Date.now();
+  let finish!:()=>void,fail!:(error:Error)=>void;
+  const completed=new Promise<void>((resolve,reject)=>{finish=resolve;fail=reject;});
+  const worker=new Worker("canonical-import-recovery",async job=>{
+    const result=await processCanonicalImportRecoveryTick();
+    bulkBatches++;
+    if (bulkBatches===1) firstBatchSize=result.fulfilled;
+    bulkFulfilled+=result.fulfilled;
+    console.log(`BULK batch ${bulkBatches}: ${result.fulfilled} fulfilled; ${bulkFulfilled}/1472 total`);
+    if (bulkFulfilled===bulkRows.length) {finish();return;}
+    if (!result.ran || !result.budgetExhausted)
+      throw new Error(`BULK_RECOVERY_STOPPED:${JSON.stringify(result)}:${bulkFulfilled}`);
+    await bulkQueue.add("continue",{},canonicalImportContinuationOptions(job.id));
+  },{connection,prefix:getBullMqPrefixForQueue("canonical-import-recovery"),concurrency:1});
+  worker.on("failed",(_job,error)=>fail(error));
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  try {
+    await bulkQueue.add("tick",{}, {removeOnComplete:true,removeOnFail:true});
+    await Promise.race([completed,new Promise<never>((_,reject)=>{
+      timer=setTimeout(()=>reject(new Error("BULK_RECOVERY_TIMEOUT")),600_000);
+    })]);
+    check(firstBatchSize>1,"A real bounded cycle processes multiple rows rather than one, even under concurrent certification load");
+    check(bulkBatches>=6,"Actual BullMQ continuations advance beyond two batches without active-ID deduplication");
+    check(bulkFulfilled===1472,"The real local worker fulfills the entire spreadsheet-sized backlog");
+    const bulkCounts=(await pool.query(`SELECT
+      (SELECT count(*)::int FROM contacts WHERE email LIKE $1) contacts,
+      (SELECT count(*)::int FROM cro03_enrichment_items i JOIN cro03_enrichment_batches b ON b.id=i.batch_id
+        WHERE b.idempotency_key LIKE $2 AND i.terminal_code='CANONICAL_LOCAL_IMPORT_FULFILLED') fulfilled,
+      (SELECT count(*)::int FROM import_row_dispositions
+        WHERE execution_id=$3 AND disposition='deferred') original_deferred`,
+      [`bulk.%.${label}@example.com`,`csv-source:${bulkClaim.execution.id}:%`,bulkClaim.execution.id])).rows[0];
+    assert.deepEqual(bulkCounts,{contacts:1472,fulfilled:1472,original_deferred:1472});checks++;
+    check(!(await processCanonicalImportRecoveryTick()).ran,
+      "A completed bulk recovery replays as a no-op without creating more contacts");
+    console.log(`BULK: ${bulkFulfilled} native rows / ${bulkBatches} serial batches / ${Date.now()-bulkStarted}ms; first batch ${firstBatchSize}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+    await worker.close();
+    await bulkQueue.obliterate({force:true});
+    await bulkQueue.close();
+    await getSharedRedisClient()?.quit();
+  }
   assert.deepEqual((await pool.query(`SELECT
     (SELECT count(*) FROM provider_operations)::int operations,
     (SELECT count(*) FROM communication_events)::int communications,

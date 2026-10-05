@@ -245,5 +245,45 @@ try {
   fs.writeFileSync("docs/certification/canonical-program-discovery.json",JSON.stringify({
     checks,scope:"Disposable program selection, scope drift, native reservation/dispatch/settlement and paid entry point",
     productionExecution:false,taskComplete:false,dispatches,effects:counts},null,2)+"\n");
+  await db.transaction(async tx=>{
+    let queries=0;
+    const authority=await lockCurrentSfpRuntimeOwner({execute:async(query:any)=>{
+      queries++;return tx.execute(query);
+    }});
+    check(queries===1 && authority.ownerEpoch>0 && Boolean(authority.ownerToken),
+      "Every live write fence retains exact authority in a single database round trip");
+  });
+  const expiryBlocker=await pool.connect();
+  const originalLease=(await pool.query(
+    "SELECT lease_expires_at::text expires FROM sfp_runtime_owner_authority WHERE authority_key='routine_sfp'")).rows[0].expires;
+  let waiting:Promise<unknown>|undefined;
+  try {
+    await pool.query(`UPDATE sfp_runtime_owner_authority SET lease_expires_at=clock_timestamp()+INTERVAL '1 second'
+      WHERE authority_key='routine_sfp'`);
+    await expiryBlocker.query("BEGIN");
+    await expiryBlocker.query("SELECT authority_key FROM sfp_runtime_release_selectors WHERE authority_key='routine_sfp' FOR UPDATE");
+    let waitingPid=0;
+    waiting=db.transaction(async tx=>{
+      waitingPid=Number(rows(await tx.execute(sql`SELECT pg_backend_pid() pid`))[0].pid);
+      return lockCurrentSfpRuntimeOwner(tx);
+    });
+    // Observe the actual lock wait, not merely a sleep that might precede query execution.
+    let sawWait=false;
+    for (let attempt=0;attempt<100&&!sawWait;attempt++) {
+      if (waitingPid) sawWait=Boolean((await pool.query(
+        "SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock'",[waitingPid])).rows.length);
+      if (!sawWait) await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    check(sawWait,"Ordered fence actually waits on the selector before accessing the owner");
+    await new Promise(resolve=>setTimeout(resolve,1100));
+    await expiryBlocker.query("ROLLBACK");
+    await assert.rejects(waiting,/SFP_RUNTIME_OWNER_FENCE_LOST/);checks++;
+  } finally {
+    await expiryBlocker.query("ROLLBACK");
+    await waiting?.catch(()=>{});
+    await pool.query("UPDATE sfp_runtime_owner_authority SET lease_expires_at=$1::timestamptz WHERE authority_key='routine_sfp'",
+      [originalLease]);
+    expiryBlocker.release();
+  }
   console.log(`PASS: ${checks} canonical program discovery checks`);
 } finally {await pool.end();}

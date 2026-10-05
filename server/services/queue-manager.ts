@@ -526,9 +526,18 @@ export const QUEUE_CONFIGS: QueueConfig[] = [
     jobName: "tick",
   },
   {
-    // Continuous recovery of the shared queue for canonical selected recipients.
-    // The genuine validation-promotion kill switch remains; frozen cohorts do
-    // not admit or schedule ordinary address purchases.
+    // Local file fulfillment has no paid provider work and must not wait for
+    // discovery. A periodic wakeup recovers crashes; successful full batches
+    // schedule their next page immediately on this same serial worker.
+    name: QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY,
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 30_000,
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 60_000,
+    jobName: "tick",
+  },
+  {
+    // Shared canonical address validation retains its own promotion kill switch.
     name: QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
     concurrency: 1,
     attempts: 1,
@@ -1342,6 +1351,7 @@ class QueueManager {
       QUEUE_NAMES.SFP_FREE_CLASSIFICATION,
       QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
       QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
+      QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY,
     ]);
     const activeSfpConfigs = this.activeConfigs().filter((config) => sfpQueueNames.has(config.name));
     if (!activeSfpConfigs.length) return;
@@ -2655,6 +2665,21 @@ class QueueManager {
           if (result.claimed) console.log(`[SfpFreeClassification] ${JSON.stringify(result)}`);
           break;
         }
+        case QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY: {
+          const { processCanonicalImportRecoveryTick } = await import("./canonical-import-recovery-worker");
+          const recovered = await processCanonicalImportRecoveryTick();
+          if (recovered.ran) console.log(`[CanonicalImportRecovery] ${JSON.stringify(recovered)}`);
+          if (recovered.ran && recovered.budgetExhausted) {
+            const { canonicalImportContinuationOptions } = await import("./canonical-import-recovery-scheduling");
+            // Serial continuation: no extra concurrency, no provider work and
+            // no ten-minute wait between batches. Deduplicate repeat-triggered
+            // and continuation-triggered wakeups while one is already queued.
+            const recoveryQueue=this.queues.get(QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY);
+            if (!recoveryQueue) throw new Error("CANONICAL_IMPORT_RECOVERY_QUEUE_UNAVAILABLE");
+            await recoveryQueue.add("continue", {},canonicalImportContinuationOptions(_job.id));
+          }
+          break;
+        }
         case QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY: {
           // Local-only reconciliation does not depend on discovery providers
           // being enabled. Its own durable program/pause checkpoint is authoritative.
@@ -2685,13 +2710,6 @@ class QueueManager {
             if (links.ran) console.log(`[ContactLinkAutomation] ${JSON.stringify(links)}`);
           } catch (error: any) {
             console.error("[ContactLinkAutomation] held", safeCanonicalEnrichmentFailureDiagnostics(error));
-          }
-          try {
-            const {processCanonicalImportRecoveryTick}=await import("./canonical-import-recovery-worker");
-            const recovered=await processCanonicalImportRecoveryTick();
-            if (recovered.ran) console.log(`[CanonicalImportRecovery] ${JSON.stringify(recovered)}`);
-          } catch(error:any) {
-            console.error("[CanonicalImportRecovery] held",safeCanonicalEnrichmentFailureDiagnostics(error));
           }
           try {
             const {processCanonicalRegistryProjectionTick}=await import("./canonical-registry-projection-worker");
@@ -3336,6 +3354,7 @@ class QueueManager {
       QUEUE_NAMES.SFP_FREE_CLASSIFICATION,
       QUEUE_NAMES.SFP_CONTINUOUS_DISCOVERY,
       QUEUE_NAMES.SFP_CONTINUOUS_VALIDATION,
+      QUEUE_NAMES.CANONICAL_IMPORT_RECOVERY,
     ];
     const observedForMs = Date.now() - this.observationStartedAt.getTime();
     for (const queueName of sfpRepeatableQueues) {

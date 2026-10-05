@@ -492,51 +492,42 @@ async function lockSelectedSfpRuntimeRelease(
 export async function lockCurrentSfpRuntimeOwner(executor: SqlExecutor): Promise<SfpRuntimeAuthority> {
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
-  // Match publish/claim lock order explicitly. A joined FOR SHARE can lock
-  // owner before selector depending on the plan, deadlocking a simultaneous
-  // claimant that holds selector and is waiting to update owner.
-  if (!await lockSelectedSfpRuntimeRelease(executor,fence)) {
-    throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
-  }
+  // One round trip, not three at every write boundary. Materialization plus
+  // the correlated lateral lookup forces selector -> owner lock ordering.
+  // Check wall-clock expiry OUTSIDE the locked CTE, after any lock wait.
+  // Nothing is cached: every invocation verifies the live release and lease.
   const current = rows(await executor.execute(sql`
-    SELECT oa.deployment_identity,oa.environment_identity,oa.artifact_sha,oa.queue_topology_hash,
-           oa.owner_epoch,oa.owner_token,oa.lease_expires_at,oa.revoked_at
-      FROM sfp_runtime_owner_authority oa
-      JOIN sfp_runtime_release_selectors rs
-        ON rs.authority_key=oa.authority_key
-       AND rs.deployment_identity=oa.deployment_identity
-       AND rs.environment_identity=oa.environment_identity
-       AND rs.artifact_sha=oa.artifact_sha
-       AND rs.queue_topology_hash=oa.queue_topology_hash
-     WHERE oa.authority_key='routine_sfp'
-       AND oa.deployment_identity=${fence.deploymentIdentity}
-       AND oa.environment_identity=${fence.environmentIdentity}
-       AND oa.artifact_sha=${fence.artifactSha}
-       AND oa.queue_topology_hash=${fence.queueTopologyHash}
-       AND oa.revoked_at IS NULL
-     FOR SHARE OF oa,rs
+    WITH selected_release AS MATERIALIZED (
+      SELECT rs.authority_key,rs.deployment_identity,rs.environment_identity,
+             rs.artifact_sha,rs.queue_topology_hash
+        FROM sfp_runtime_release_selectors rs
+       WHERE rs.authority_key='routine_sfp'
+         AND rs.deployment_identity=${fence.deploymentIdentity}
+         AND rs.environment_identity=${fence.environmentIdentity}
+         AND lower(rs.artifact_sha)=${fence.artifactSha.toLowerCase()}
+         AND lower(rs.queue_topology_hash)=${fence.queueTopologyHash.toLowerCase()}
+       FOR SHARE OF rs
+    ), pinned_owner AS MATERIALIZED (
+      SELECT oa.* FROM selected_release rs
+      CROSS JOIN LATERAL (
+        SELECT owner.deployment_identity,owner.environment_identity,
+               owner.artifact_sha,owner.queue_topology_hash,owner.owner_epoch,
+               owner.owner_token,owner.lease_expires_at,owner.revoked_at
+          FROM sfp_runtime_owner_authority owner
+         WHERE owner.authority_key=rs.authority_key
+           AND owner.deployment_identity=rs.deployment_identity
+           AND owner.environment_identity=rs.environment_identity
+           AND owner.artifact_sha=rs.artifact_sha
+           AND owner.queue_topology_hash=rs.queue_topology_hash
+           AND owner.artifact_sha=${fence.artifactSha}
+           AND owner.queue_topology_hash=${fence.queueTopologyHash}
+         FOR SHARE OF owner OFFSET 0
+      ) oa
+    )
+    SELECT * FROM pinned_owner
+     WHERE revoked_at IS NULL AND lease_expires_at>clock_timestamp()
   `))[0];
   if (!current) throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
-  const live = rows(await executor.execute(sql`
-    SELECT 1
-      FROM sfp_runtime_owner_authority oa
-      JOIN sfp_runtime_release_selectors rs
-        ON rs.authority_key=oa.authority_key
-       AND rs.deployment_identity=oa.deployment_identity
-       AND rs.environment_identity=oa.environment_identity
-       AND rs.artifact_sha=oa.artifact_sha
-       AND rs.queue_topology_hash=oa.queue_topology_hash
-     WHERE oa.authority_key='routine_sfp'
-       AND oa.deployment_identity=${fence.deploymentIdentity}
-       AND oa.environment_identity=${fence.environmentIdentity}
-       AND oa.artifact_sha=${fence.artifactSha}
-       AND oa.queue_topology_hash=${fence.queueTopologyHash}
-       AND oa.owner_epoch=${Number(current.owner_epoch)}
-       AND oa.owner_token=${String(current.owner_token)}::uuid
-       AND oa.lease_expires_at>clock_timestamp()
-       AND oa.revoked_at IS NULL
-  `))[0];
-  if (!live) throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
   return {
     ownerEpoch: Number(current.owner_epoch),
     ownerToken: String(current.owner_token),
