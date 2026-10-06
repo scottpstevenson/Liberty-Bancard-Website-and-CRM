@@ -39,3 +39,13 @@ excluding suppressed recipients delayed retirement of occupied useful slots.
 **How to apply:** Certify advancement of a late-ID bound recipient, cancellation
 after suppression and bounded fairness without blanket validation permission.
 Priority-cycle completion is not full-population convergence.
+
+Complete available read-only tracing, auditing and verification in Plan mode;
+do not defer those checks to Build or stop at an initial production snapshot.
+
+**Why:** The user explicitly rejected another incomplete recovery audit and
+required the full read-only investigation in Plan mode.
+
+**How to apply:** Separate evidence gathering from mutations. Exhaust the
+available read-only evidence, report failed and unverified checks precisely,
+and reserve code, control and replay changes for an authorized execution mode.

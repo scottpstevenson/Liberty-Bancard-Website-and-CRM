@@ -30,3 +30,15 @@ merely to make the qualification status consistent.
 provenance before certifying recovery. Reverify older completion claims when the
 qualification contract strengthens, preserve their historical receipts, and
 keep the mutable work outcome separate from immutable intake accounting.
+
+Retained-workload certification must preserve distinct original source
+observations, accounting identities and mutable recovery-item topology.
+
+**Why:** Rebuilding mapped observations from accounting fingerprints erased a
+real production identity mismatch, so a disposable recovery pass falsely
+suggested every original item was selectable.
+
+**How to apply:** Preserve independently captured upstream identities in the
+fixture rather than normalizing them into agreement. Prove reachability through
+selection, renewal and fingerprint retrieval, including inconsistent historical
+evidence, while keeping immutable observations and accounting unchanged.

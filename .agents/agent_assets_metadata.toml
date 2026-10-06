@@ -388,3 +388,31 @@ mtime_ms = 1791286384794
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/ef3d6d03-6ea9-4e9b-bdab-2a5766bb755e/e5db52f4-9cc0-4e5d-bcf0-eb31f5c02361"
 storage_version_token = "1791286417659228"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "WuJQ3qfjABBYYkLk3Vetu"
+uri = "file://.local/tasks/canonical-recovery-production-audit.md"
+type = "text"
+title = "Production recovery audit"
+description = "Findings, confirmed defects, safety checks and the existing-workstream correction plan."
+logical_id = "c2c3ab32-fed2-4903-be61-34d1195ca540"
+content_hash = "sha256:e3762cbe5cfff9b93cc0f7afb625497b0597b18ba009caa501a65f7cd4034c0c"
+size = 8878
+mtime_ms = 1791288110442
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/c2c3ab32-fed2-4903-be61-34d1195ca540/ec213c5d-f587-485d-98a0-db6fb678415c"
+storage_version_token = "1791288152113751"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "4cQ0Th5S9RPmcDhovYxxd"
+uri = "file://.local/tasks/canonical-recovery-production-row-audit.md"
+type = "text"
+title = "All 1,472 original-row verification results"
+description = "Complete row-by-row evidence snapshot, including mailbox, business-source, affiliation, provenance, hold and lease checks; raw PII excluded."
+logical_id = "95a3d958-5ac3-4bb4-b4e6-203a1e54bd11"
+content_hash = "sha256:5a35e2a3dc758531f36a87dfd74d452ca289aaa6b8dfb725ba2f8492ed7cf72b"
+size = 200635
+mtime_ms = 1791288111274
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/95a3d958-5ac3-4bb4-b4e6-203a1e54bd11/e01e419a-15cf-4027-abcc-bc75867e71a9"
+storage_version_token = "1791288152859254"
+content_type = "text/markdown"
