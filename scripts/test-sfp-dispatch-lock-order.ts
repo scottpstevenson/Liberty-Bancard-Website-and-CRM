@@ -10,6 +10,7 @@ import {PgDialect} from "drizzle-orm/pg-core";
 import {sql} from "drizzle-orm";
 import {assertDisposableTestInfrastructure} from "./test-infrastructure-guard";
 import {sameSfpRuntimeRelease,SFP_RUNTIME_OWNER_LEASE_MS} from "../server/services/cro03/sfp-runtime-fence";
+import {boundCanonicalWriteTransaction} from "../server/services/canonical-transaction-retry";
 
 // Execute the actual private production helpers, extracted by the TS parser.
 // Do not import the application DB, workers, credentials or provider adapters.
@@ -17,7 +18,7 @@ import {sameSfpRuntimeRelease,SFP_RUNTIME_OWNER_LEASE_MS} from "../server/servic
 const source=readFileSync("server/services/cro03/sfp-provider-operations.ts","utf8");
 const ast=ts.createSourceFile("sfp-provider-operations.ts",source,ts.ScriptTarget.Latest,true);
 const names=[
-  "rowMatchesSfpRuntimeRelease","lockSelectedSfpRuntimeRelease","lockCurrentSfpRuntimeOwner",
+  "rowMatchesSfpRuntimeRelease","lockSelectedSfpRuntimeRelease","lockCurrentSfpRuntimeOwner","lockMatchingLiveSfpRuntimeOwner",
   "renewSfpRuntimeOwnerLease","renewSfpRuntimeJobLease","advanceSfpPublishedRelease",
   "claimOrRenewSfpRuntimeOwner","claimSfpRuntimeDeploymentOwner","markSfpProviderOperationDispatchBoundary",
 ];
@@ -52,10 +53,20 @@ const executor=(client:pg.Client)=>({
 });
 function helpers(client:pg.Client,legacy=false,options:{
   managedTransactions?:boolean;
+  historicalClaim?:boolean;
   afterRenewal?:()=>Promise<void>;
   budgetLock?:(tx:ReturnType<typeof executor>)=>Promise<void>;
 }={}) {
   const texts=names.map(name=>{
+    if(name==="claimSfpRuntimeDeploymentOwner" && options.historicalClaim){
+      const declaration=ast.statements.filter(ts.isFunctionDeclaration)
+        .find(node=>node.name?.text===name)!;
+      const statements=declaration.body!.statements;
+      return `async function claimSfpRuntimeDeploymentOwner(options={}) {
+        ${statements[0].getText(ast)} ${statements[1].getText(ast)}
+        ${statements[statements.length-1].getText(ast)}
+      }`;
+    }
     if(name==="renewSfpRuntimeOwnerLease" && legacy)return renewal.replace(selectorPin,"");
     if(name==="markSfpProviderOperationDispatchBoundary" && legacy)return functions.get(name)!
       .replace(independentRenewal,"")
@@ -67,7 +78,7 @@ function helpers(client:pg.Client,legacy=false,options:{
     compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None},
   }).outputText;
   return new Function("sql","rows","getCurrentRoutineSfpRuntimeFence","sameSfpRuntimeRelease",
-    "SFP_RUNTIME_OWNER_LEASE_MS","readSfpAutomaticPublish","db","acquireLadderBudgetLock",
+    "SFP_RUNTIME_OWNER_LEASE_MS","readSfpAutomaticPublish","db","acquireLadderBudgetLock","boundCanonicalWriteTransaction",
     `${compiled}\nreturn {renewSfpRuntimeOwnerLease,renewSfpRuntimeJobLease,lockCurrentSfpRuntimeOwner,claimSfpRuntimeDeploymentOwner,markSfpProviderOperationDispatchBoundary};`
   )(sql,(value:any)=>value.rows ?? value,async()=>fence,sameSfpRuntimeRelease,SFP_RUNTIME_OWNER_LEASE_MS,
     ()=>({...fence,buildId:"fixture-publish",builtAt:"2026-10-05T21:29:38.363Z"}),
@@ -79,7 +90,7 @@ function helpers(client:pg.Client,legacy=false,options:{
       catch(error){await client.query("ROLLBACK");throw error;}
       if(options.afterRenewal){const hook=options.afterRenewal;options.afterRenewal=undefined;await hook();}
       return result;
-    }},options.budgetLock ?? (async()=>{throw new Error("FIXTURE_STOP_BEFORE_PROVIDER");}));
+    }},options.budgetLock ?? (async()=>{throw new Error("FIXTURE_STOP_BEFORE_PROVIDER");}),boundCanonicalWriteTransaction);
 }
 
 const root=mkdtempSync(join(tmpdir(),"test-sfp-dispatch-lock-"));
@@ -157,8 +168,9 @@ try {
   await reset();
   await classification.query("BEGIN");await recovery.query("BEGIN");
   const legacy=helpers(classification,true),claim=helpers(recovery);
+  const historicalClaim=helpers(recovery,false,{historicalClaim:true});
   await legacy.renewSfpRuntimeOwnerLease(executor(classification),reservation,fence);
-  const oldRecovery=claim.claimSfpRuntimeDeploymentOwner().then(()=>null,(error:any)=>error);
+  const oldRecovery=historicalClaim.claimSfpRuntimeDeploymentOwner().then(()=>null,(error:any)=>error);
   await blockedBy(recovery,classification);
   const oldClassification=legacy.renewSfpRuntimeJobLease(executor(classification),reservation,fence)
     .then(()=>null,(error:any)=>error);
@@ -178,7 +190,12 @@ try {
   const fixed=helpers(classification);
   await fixed.renewSfpRuntimeOwnerLease(executor(classification),reservation,fence);
   const newRecovery=claim.claimSfpRuntimeDeploymentOwner().then((value:any)=>({value}),(error:any)=>({error}));
-  await blockedBy(recovery,classification);
+  await blockedBy(recovery,classification).catch(async error=>{
+    const result=await newRecovery;
+    console.error("FIXTURE_RECOVERY_BLOCK_DIAGNOSTIC",result.error?.name,result.error?.code,
+      result.error?.message?.slice(0,180),result.value ? "completed_without_wait" : "no_value");
+    throw error;
+  });
   await fixed.renewSfpRuntimeJobLease(executor(classification),reservation,fence);
   await classification.query("COMMIT");
   const recovered=await newRecovery;await recovery.query("COMMIT");
@@ -267,23 +284,22 @@ try {
     }}).markSfpProviderOperationDispatchBoundary(reservation).then(()=>null,(error:any)=>error);
     await blockedBy(classification,second);
     check(reachedBudget,legacy?"Historical dispatch reached the held budget lock":"Corrected dispatch reached the same held budget lock");
-    await recovery.query("BEGIN");
-    const reader=helpers(recovery).lockCurrentSfpRuntimeOwner(executor(recovery))
+    const reader=helpers(recovery,false,{managedTransactions:true,historicalClaim:legacy})
+      .claimSfpRuntimeDeploymentOwner()
       .then((value:any)=>({value}),(error:any)=>({error}));
     if(legacy){
       await blockedBy(recovery,classification);
-      check(true,"Historical long dispatch transaction demonstrably blocks recovery's shared owner pin");
+      check(true,"Historical held-budget dispatch blocks recovery's actual initial claim");
     }else{
       const result=await reader;
       check(!result.error && result.value.ownerToken===token,
-        "Corrected dispatch waiting on budget allows recovery's shared owner pin to complete");
-      await recovery.query("COMMIT");
+        "Corrected held-budget dispatch allows recovery's actual initial claim to complete");
     }
     await second.query("COMMIT");
     check((await dispatch)?.message==="FIXTURE_STOP_BEFORE_PROVIDER",
       "Budget control stops before provider dispatch and rolls back effect writes");
     const result=await reader;
-    if(legacy){check(!result.error,"Historical blocked reader resumes after dispatch rollback");await recovery.query("COMMIT");}
+    if(legacy)check(!result.error,"Historical blocked claim resumes after dispatch rollback");
   }
   // Renewal may commit, but no subsequent authority drift is permission to
   // enter budget checks or dispatch. The actual boundary must re-pin first.

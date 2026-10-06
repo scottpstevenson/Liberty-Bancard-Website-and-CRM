@@ -20,17 +20,20 @@ const sourceValue=(raw:Record<string,string>,...keys:string[])=>{
   return null;
 };
 async function resumeImportedAffiliations(contactIds:number[],authorityCheck:(tx:any)=>Promise<boolean>) {
+  const outcomes:Record<string,unknown>[]=[];
   const {previewContactBusinessSystemLinks,applyContactBusinessSystemLink}=await import("./contact-business-system-links");
   const {initializeImportedLinkedContactClass}=await import("./commercial-classification-authority");
   for (const contactId of contactIds) {
     const preview=await previewContactBusinessSystemLinks({afterContactId:contactId-1,limit:1});
     const proposed=preview.rows.find(row=>row.contactId===contactId);
+    outcomes.push({contactId,proposed:proposed ?? null});
     if (proposed?.eligible && proposed.businessId && proposed.sourceLinkId) {
       await applyContactBusinessSystemLink({contactId,businessId:proposed.businessId,sourceLinkId:proposed.sourceLinkId,
         sourceEntityId:proposed.sourceEntityId,snapshotHash:proposed.snapshotHash},authorityCheck);
     }
     await initializeImportedLinkedContactClass(contactId,authorityCheck);
   }
+  return outcomes;
 }
 /** Preserve every supplied address as evidence; only syntactically usable,
  * distinct addresses materialize contacts. No email status from a CSV is a
@@ -136,6 +139,10 @@ export async function materializeCanonicalProviderImportRow(input:{
         await tx.execute(sql`UPDATE cro03_enrichment_items SET state='blocked',terminal_code=${reasonCode},
           claim_token=NULL,lease_expires_at=NULL,current_provider=NULL,updated_at=clock_timestamp()
           WHERE id=${input.recoveryClaim!.itemId}::uuid`);
+        await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
+          VALUES('canonical_import_row_held','cro03_enrichment_item',${input.recoveryClaim!.itemId},
+            ${JSON.stringify({executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
+              rowFingerprint:fingerprint,reasonCode,diagnostic})}::jsonb,'system',${input.actorId})`);
       });
     } else {
       if (!input.claimToken) throw new Error("IMPORT_EXECUTION_CLAIM_REQUIRED");
@@ -280,7 +287,21 @@ export async function materializeCanonicalProviderImportRow(input:{
       return hold("CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT",{businessId,stableKey,sourceSystem});
     throw error;
   }
-  await resumeImportedAffiliations(result.contactIds,authorityCheck);
+  const affiliationOutcomes=await resumeImportedAffiliations(result.contactIds,authorityCheck);
+  const incomplete=input.recoveryClaim ? await commit(async tx=>{
+    if (!result.contactIds.length) return [];
+    return rows(await tx.execute(sql`SELECT id,business_id,record_class FROM contacts
+      WHERE id IN (${sql.join(result.contactIds.map(id=>sql`${id}`),sql`,`)})
+        AND business_id IS DISTINCT FROM ${businessId}`));
+  }) : [];
+  if (incomplete.length) {
+    // Shared mailboxes can already belong to a different approved business;
+    // a created contact/provenance receipt is NOT authority to transfer it.
+    // Keep the native decision/preview in the hold evidence, never manufacture
+    // another person or silently certify a different business relationship.
+    return hold("CANONICAL_IMPORT_CONTACT_AFFILIATION_HELD",{
+      businessId,contactIds:result.contactIds,incomplete,affiliationOutcomes});
+  }
   await commit(async tx=>{
     if (result.contactIds.length) {
       const keys=providerImportEmails(input.rawRow).map(email=>

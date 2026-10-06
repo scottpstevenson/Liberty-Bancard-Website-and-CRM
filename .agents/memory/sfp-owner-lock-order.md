@@ -145,3 +145,17 @@ classification/recovery PID cycle.
 template at the tracking limit before declaring a different statement or caller.
 Do not treat an observer's later failure as invalidating previously captured
 primary edges, or as proof that the entire observation window completed.
+
+Matching live-owner acquisition must use compatible shared verification, not
+enter exclusive release selection before checking whether anything changed.
+
+**Why:** A held-budget regression originally tested a shared helper, while the
+actual initial recovery claim still attempted exclusive selector/owner locks.
+The helper passed without proving recovery could start under that schedule.
+
+**How to apply:** Exercise the actual initial claim and actual materialization
+tick while the native dispatch effect remains blocked. Keep genuine transition
+and near-expiry renewal separate, short, serialized and token/epoch-fenced.
+Pure-DB sustained recovery needs legitimate upkeep before its processing window
+outlasts the remaining owner lease; do not increase lease duration or renew on
+every ordinary matching-owner read.

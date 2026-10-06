@@ -13,6 +13,7 @@ import { sql } from "drizzle-orm";
 import { sfpStageScopeSql, lockSfpStageScope } from "./sfp-discovery-scope";
 import { readSfpAutomaticPublish, assertSfpPublishMayAdvance } from "../../../shared/sfp-publish-handoff";
 import { db } from "../../db";
+import { boundCanonicalWriteTransaction } from "../canonical-transaction-retry";
 import {
   sanitizeSfpProviderHttpDiagnostics, safeSfpHttpClass, type SfpProviderHttpDiagnostics,
 } from "./sfp-provider-http-diagnostics";
@@ -321,6 +322,8 @@ function publicPreCohortResultData(value: unknown): Record<string, unknown> {
 }
 
 export interface SfpRuntimeAuthority {
+  /** Post-lock database clock observation; absent on a fresh acquisition. */
+  leaseRemainingMs?: number;
   ownerEpoch: number;
   ownerToken: string;
   deploymentIdentity: string;
@@ -492,6 +495,17 @@ async function lockSelectedSfpRuntimeRelease(
 export async function lockCurrentSfpRuntimeOwner(executor: SqlExecutor): Promise<SfpRuntimeAuthority> {
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
+  const current = await lockMatchingLiveSfpRuntimeOwner(executor, fence);
+  if (!current) throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
+  return current;
+}
+
+/** Nullable observation is only for acquisition. SQL/connection errors are
+ * never converted into a missing owner or permission to enter handoff. */
+async function lockMatchingLiveSfpRuntimeOwner(
+  executor: SqlExecutor,
+  fence: SfpRuntimeFence,
+): Promise<SfpRuntimeAuthority | null> {
   // One round trip, not three at every write boundary. Materialization plus
   // the correlated lateral lookup forces selector -> owner lock ordering.
   // Check wall-clock expiry OUTSIDE the locked CTE, after any lock wait.
@@ -524,13 +538,15 @@ export async function lockCurrentSfpRuntimeOwner(executor: SqlExecutor): Promise
          FOR SHARE OF owner OFFSET 0
       ) oa
     )
-    SELECT * FROM pinned_owner
+    SELECT *,ceil(extract(epoch FROM (lease_expires_at-clock_timestamp()))*1000)::bigint remaining_lease_ms
+    FROM pinned_owner
      WHERE revoked_at IS NULL AND lease_expires_at>clock_timestamp()
   `))[0];
-  if (!current) throw new Error("SFP_RUNTIME_OWNER_FENCE_LOST");
+  if (!current) return null;
   return {
     ownerEpoch: Number(current.owner_epoch),
     ownerToken: String(current.owner_token),
+    leaseRemainingMs: Number(current.remaining_lease_ms),
     ...fence,
   };
 }
@@ -1023,20 +1039,49 @@ function sfpProviderFinishLeasePredicate(
   `;
 }
 
-export async function claimSfpRuntimeDeploymentOwner(): Promise<SfpRuntimeAuthority> {
+export async function claimSfpRuntimeDeploymentOwner(options: {
+  boundTransaction?: (tx: SqlExecutor) => Promise<void>;
+} = {}): Promise<SfpRuntimeAuthority> {
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_PAID_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
+  const published = readSfpAutomaticPublish({
+    nodeEnv: process.env.NODE_ENV,
+    replitDeployment: process.env.REPLIT_DEPLOYMENT,
+    releaseSha: process.env.RELEASE_SHA,
+    publishArtifactSha: process.env.SFP_PUBLISH_ARTIFACT_SHA,
+    publishBuildId: process.env.SFP_PUBLISH_BUILD_ID,
+    publishBuiltAt: process.env.SFP_PUBLISH_BUILT_AT,
+  });
+  if (published && (published.deploymentIdentity !== fence.deploymentIdentity ||
+      published.artifactSha !== fence.artifactSha)) {
+    throw new Error("SFP_PUBLISH_HANDOFF_ARTIFACT_MISMATCH");
+  }
+  // Routine verification is compatible with a dispatch's longer SHARE pins.
+  // It does not refresh a lease, create a token, or enter release selection.
+  const live = await db.transaction(async tx => {
+    await (options.boundTransaction ?? boundCanonicalWriteTransaction)(tx);
+    return lockMatchingLiveSfpRuntimeOwner(tx, fence);
+  });
+  if (live) return live;
+  // Release the observation transaction before exclusive transition locks:
+  // upgrading its SHARE pins would reintroduce competing-lock deadlocks.
+  // The serialized transition rechecks selection, revocation and expiry.
   return db.transaction(async (tx) => {
+    await (options.boundTransaction ?? boundCanonicalWriteTransaction)(tx);
     await advanceSfpPublishedRelease(tx, fence);
     return claimOrRenewSfpRuntimeOwner(tx, fence);
   });
 }
 
 /** Renew only a live owner for this process's explicitly selected release. */
-export async function renewSfpRuntimeDeploymentOwner(): Promise<SfpRuntimeAuthority> {
+export async function renewSfpRuntimeDeploymentOwner(options: {
+  expectedOwner?: Pick<SfpRuntimeAuthority,"ownerEpoch"|"ownerToken">;
+  boundTransaction?: (tx: SqlExecutor) => Promise<void>;
+} = {}): Promise<SfpRuntimeAuthority> {
   const fence = await getCurrentRoutineSfpRuntimeFence();
   if (!fence) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:DEPLOYMENT_IDENTITY_UNVERIFIED");
   return db.transaction(async (tx) => {
+    await (options.boundTransaction ?? boundCanonicalWriteTransaction)(tx);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('routine-sfp-runtime-owner',0))`);
     const selected = await lockSelectedSfpRuntimeRelease(tx, fence);
     if (!selected) throw new Error("SFP_RUNTIME_OWNER_BLOCKED:CURRENT_RELEASE_NOT_SELECTED");
@@ -1049,6 +1094,8 @@ export async function renewSfpRuntimeDeploymentOwner(): Promise<SfpRuntimeAuthor
          AND environment_identity=${fence.environmentIdentity}
          AND artifact_sha=${fence.artifactSha}
          AND queue_topology_hash=${fence.queueTopologyHash}
+         ${options.expectedOwner ? sql`AND owner_epoch=${options.expectedOwner.ownerEpoch}
+           AND owner_token=${options.expectedOwner.ownerToken}::uuid` : sql``}
          AND lease_expires_at>clock_timestamp()
          AND revoked_at IS NULL
          AND EXISTS (

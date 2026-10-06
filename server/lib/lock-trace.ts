@@ -49,6 +49,9 @@ export function safeDatabaseFailure(error: unknown) {
       waiterPid: Number(match[1]), blockerPid: Number(match[3]), mode: match[2],
     }));
     causes.push({
+      ...(typeof current.code==="string" &&
+        ["ECONNRESET","EPIPE","ETIMEDOUT","ECONNREFUSED","ECONNABORTED","ENETUNREACH","EHOSTUNREACH"]
+          .includes(current.code) ? {transportCode:current.code} : {}),
       sqlState: typeof current.code === "string" && /^[0-9A-Z]{5}$/.test(current.code) ? current.code : null,
       phase: typeof current.canonicalTransactionPhase === "string"
         && /^[a-z_]{1,64}$/.test(current.canonicalTransactionPhase) ? current.canonicalTransactionPhase : null,
@@ -61,24 +64,36 @@ export function safeDatabaseFailure(error: unknown) {
   return {causes};
 }
 
-/** Diagnostics only: retain existing throw/cleanup semantics while recording
- * both errors. Changing claim cleanup or exception precedence is separate work. */
-export async function observeRecoveryFailure(
+/** Capture both failures without imposing exception precedence on recovery. */
+export async function captureRecoveryFailure(
   originalError: unknown,
   cleanup: () => Promise<unknown>,
   coordinates: {executionId: string; itemId: string; sourceRowNumber: number},
   emit: (event: Record<string, unknown>) => void = event => console.warn(JSON.stringify(event)),
-): Promise<never> {
+): Promise<{failureId: string; originalError: unknown; cleanupError?: unknown; cleanupResult?: unknown}> {
   const failureId = randomUUID();
   const report = (event: string, error: unknown) => {
     try { emit({event, failureId, ...coordinates, failure: safeDatabaseFailure(error),
       ts: new Date().toISOString()}); } catch { /* Observation must not replace either error. */ }
   };
   report("canonical_import_recovery_original_error", originalError);
-  try { await cleanup(); }
+  try {
+    const cleanupResult = await cleanup();
+    return {failureId, originalError, cleanupResult};
+  }
   catch (cleanupError) {
     report("canonical_import_recovery_cleanup_error", cleanupError);
-    throw cleanupError;
+    return {failureId, originalError, cleanupError};
   }
-  throw originalError;
+}
+
+/** Existing diagnostic callers retain their explicit throw contract. */
+export async function observeRecoveryFailure(
+  originalError: unknown,
+  cleanup: () => Promise<unknown>,
+  coordinates: {executionId: string; itemId: string; sourceRowNumber: number},
+  emit?: (event: Record<string, unknown>) => void,
+): Promise<never> {
+  const failure = await captureRecoveryFailure(originalError, cleanup, coordinates, emit);
+  throw failure.cleanupError ?? failure.originalError;
 }

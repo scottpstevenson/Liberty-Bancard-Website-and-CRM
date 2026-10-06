@@ -1,12 +1,14 @@
 import {randomUUID} from "node:crypto";
 import {sql} from "drizzle-orm";
 import {db} from "../db";
-import {materializeCanonicalProviderImportRow} from "./canonical-provider-import";
+import {materializeCanonicalProviderImportRow,providerImportEmails} from "./canonical-provider-import";
 import {assertSystemLinkDatabaseGuard} from "./commercial-link-authority";
-import {claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner} from "./cro03/sfp-provider-operations";
+import {claimSfpRuntimeDeploymentOwner,lockCurrentSfpRuntimeOwner,renewSfpRuntimeDeploymentOwner} from "./cro03/sfp-provider-operations";
 import {runCanonicalTransaction,boundCanonicalWriteTransaction} from "./canonical-transaction-retry";
-import {observeRecoveryFailure} from "../lib/lock-trace";
+import {captureRecoveryFailure,safeDatabaseFailure} from "../lib/lock-trace";
+import {CanonicalImportRecoveryFailure,isRecoverableImportRowFailure} from "./canonical-import-recovery-outcomes";
 import {startAutomaticImportLockCapture} from "./primary-lock-capture";
+import {canonicalRecoverableImportAccountingSql,CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION} from "./canonical-import-recovery-contract";
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const MAX_ITEMS_PER_TICK=250;
 const MAX_TICK_DURATION_MS=30_000;
@@ -29,7 +31,7 @@ export function canonicalImportRecoveryClaimSql() {
     ) observation ON TRUE
     JOIN import_row_dispositions accounting ON
       batch.idempotency_key='csv-source:'||accounting.execution_id::text||':'||accounting.source_row_number::text
-      AND accounting.disposition='deferred'
+       AND ${canonicalRecoverableImportAccountingSql()}
       AND observation.payload->>'rowFingerprint'=accounting.row_fingerprint
     JOIN import_executions execution ON execution.id=accounting.execution_id AND execution.status='completed'
     LEFT JOIN cro03_enrichment_batches raw_batch ON
@@ -43,7 +45,12 @@ export function canonicalImportRecoveryClaimSql() {
       AND ((item.state='blocked' AND (
         item.terminal_code='STAGING_RECIPE_DISABLED' OR item.terminal_code LIKE 'CANONICAL_IMPORT_%'))
         OR (item.state='running' AND item.current_provider='canonical_local_import'
-          AND item.lease_expires_at<=clock_timestamp()))
+           AND item.lease_expires_at<=clock_timestamp())
+         OR (item.state='completed' AND item.terminal_code='CANONICAL_LOCAL_IMPORT_FULFILLED'
+           AND NOT EXISTS (SELECT 1 FROM audit_logs fulfillment
+             WHERE fulfillment.entity_type='cro03_enrichment_item' AND fulfillment.entity_key=item.id::text
+               AND fulfillment.action='canonical_import_row_fulfilled'
+               AND fulfillment.details->>'qualificationVersion'=${CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION})))
       AND item.next_attempt_at<=clock_timestamp()
     ORDER BY item.next_attempt_at,item.id LIMIT 1 FOR UPDATE OF item SKIP LOCKED
   )
@@ -72,10 +79,28 @@ export async function processCanonicalImportRecoveryTick(
     || !Number.isInteger(maxDurationMs) || maxDurationMs<1 || maxDurationMs>MAX_TICK_DURATION_MS) {
     throw new Error("CANONICAL_IMPORT_RECOVERY_INVALID_TICK_BUDGET");
   }
-  const deadline=Date.now()+maxDurationMs;
+   const tickStarted=Date.now();
+   let processingStarted:number|null=null;
+   let authorityAcquisitionMs=0;
+   let fulfilled=0,held=0,attempted=0,failed=0,cleanupFailed=0,abandoned=0;
+   let outcome="authority_acquisition_failed";
+   let fatalError:unknown;
+   try {
   // Observation is independent, read-only and never awaited by recovery.
   startAutomaticImportLockCapture();
-  const owner=await runCanonicalTransaction("import_owner_claim",claimSfpRuntimeDeploymentOwner);
+   let owner=await runCanonicalTransaction("import_owner_claim",()=>
+     claimSfpRuntimeDeploymentOwner({boundTransaction:boundCanonicalWriteTransaction}));
+   // A healthy matching lease is observed, not renewed. Only a lease too close
+   // to expiry for this processing window needs the separate short renewal.
+   // Renewal must still match the snapshot token/epoch and a LIVE lease.
+   if (owner.leaseRemainingMs!==undefined && owner.leaseRemainingMs<=maxDurationMs+10_000) {
+     owner=await runCanonicalTransaction("import_owner_claim",()=>renewSfpRuntimeDeploymentOwner({
+       expectedOwner:owner,boundTransaction:boundCanonicalWriteTransaction}));
+   }
+   authorityAcquisitionMs=Date.now()-tickStarted;
+   processingStarted=Date.now();
+   const deadline=processingStarted+maxDurationMs;
+   outcome="row_processing_failed";
   const ownerAuthorityCheck=async(tx:any)=>{
     await boundCanonicalWriteTransaction(tx);
     const live=await lockCurrentSfpRuntimeOwner(tx);
@@ -83,7 +108,6 @@ export async function processCanonicalImportRecoveryTick(
       throw new Error("CANONICAL_IMPORT_RECOVERY_RUNTIME_OWNER_CHANGED");
     await assertSystemLinkDatabaseGuard(tx,{prepared:true});
   };
-  let fulfilled=0,held=0;
   // Missing-original accounting shares the bounded row claim below. Never run
   // a backlog-wide UPDATE while holding the singleton runtime-owner fence.
   // Mapped observations still cannot substitute for an original raw row.
@@ -105,10 +129,11 @@ export async function processCanonicalImportRecoveryTick(
         current_provider='canonical_local_import',claim_token=${token}::uuid,
         lease_expires_at=clock_timestamp()+INTERVAL '2 minutes',execution_fence=execution_fence+1,
         attempt_count=attempt_count+1,next_attempt_at=clock_timestamp()+INTERVAL '5 minutes',
-        updated_at=clock_timestamp() WHERE id=${String(selected.id)}::uuid`);
+        completed_at=NULL,updated_at=clock_timestamp() WHERE id=${String(selected.id)}::uuid`);
       return selected;
     }));
     if (!candidate) break;
+     attempted++;
     if (candidate.originalUnavailable) {held++;continue;}
     try {
       const result=await materializeCanonicalProviderImportRow({
@@ -122,6 +147,26 @@ export async function processCanonicalImportRecoveryTick(
       if ("fulfillmentState" in result && result.fulfillmentState==="held") {held++;continue;}
       await runCanonicalTransaction("import_finalize",()=>db.transaction(async tx=>{
         await ownerAuthorityCheck(tx);
+         // Preserve the materializer's owner -> original item -> graph order.
+         // Evaluate claim expiry after this lock wait, before any graph pins.
+         const liveItem=rows(await tx.execute(sql`WITH pinned AS MATERIALIZED (
+           SELECT id,lease_expires_at FROM cro03_enrichment_items
+           WHERE id=${String(candidate.id)}::uuid AND state='running'
+             AND claim_token=${token}::uuid FOR UPDATE
+         ) SELECT id FROM pinned WHERE lease_expires_at>clock_timestamp()`));
+         if (!liveItem.length) throw new Error("CANONICAL_IMPORT_RECOVERY_FINALIZATION_LEASE_LOST");
+         const business=rows(await tx.execute(sql`SELECT id FROM businesses
+           WHERE id=${result.businessId} FOR SHARE`));
+         const contacts=result.contactIds.length ? rows(await tx.execute(sql`
+           SELECT id,email,business_id FROM contacts
+           WHERE id IN (${sql.join(result.contactIds.map(id=>sql`${id}`),sql`,`)}) FOR SHARE`)) : [];
+         const expectedEmails=providerImportEmails(candidate.raw_row);
+         const actualEmails=contacts.map(contact=>String(contact.email ?? "").trim().toLowerCase()).sort();
+         if (business.length!==1 || contacts.length!==expectedEmails.length ||
+             JSON.stringify(actualEmails)!==JSON.stringify(expectedEmails) ||
+             contacts.some(contact=>Number(contact.business_id)!==result.businessId)) {
+           throw new Error("CANONICAL_IMPORT_RECOVERY_FULFILLMENT_EVIDENCE_CHANGED");
+         }
         const receipt=rows(await tx.execute(sql`WITH pinned AS MATERIALIZED (
           SELECT id,lease_expires_at FROM cro03_enrichment_items
           WHERE id=${String(candidate.id)}::uuid AND state='running'
@@ -137,20 +182,58 @@ export async function processCanonicalImportRecoveryTick(
           VALUES('canonical_import_row_fulfilled','cro03_enrichment_item',${String(candidate.id)},
             ${JSON.stringify({executionId:candidate.execution_id,sourceRowNumber:candidate.source_row_number,
               originalDisposition:result.disposition,businessId:result.businessId,contactIds:result.contactIds,
+               qualificationVersion:CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION,
               paidProviderCalls:0,outboundChanges:0})}::jsonb,'system','system:canonical-import-recovery')`);
       }));
       fulfilled++;
     } catch (error) {
-      await observeRecoveryFailure(error,()=>runCanonicalTransaction("import_failure",()=>db.transaction(async tx=>{
+       const failure=await captureRecoveryFailure(error,()=>runCanonicalTransaction("import_failure",()=>db.transaction(async tx=>{
         await ownerAuthorityCheck(tx);
-        await tx.execute(sql`UPDATE cro03_enrichment_items SET state='blocked',
+         const released=rows(await tx.execute(sql`UPDATE cro03_enrichment_items SET state='blocked',
           terminal_code='CANONICAL_IMPORT_RECOVERY_RETRY_REQUIRED',claim_token=NULL,lease_expires_at=NULL,
           current_provider=NULL,updated_at=clock_timestamp()
-          WHERE id=${String(candidate.id)}::uuid AND state='running' AND claim_token=${token}::uuid`);
+           WHERE id=${String(candidate.id)}::uuid AND state='running' AND claim_token=${token}::uuid
+           RETURNING id`));
+         return {released:released.length===1};
       })),{executionId:String(candidate.execution_id),itemId:String(candidate.id),
         sourceRowNumber:Number(candidate.source_row_number)});
+       failed++;
+       if (failure.cleanupError) cleanupFailed++;
+       if (!isRecoverableImportRowFailure(error) ||
+           (failure.cleanupError && !isRecoverableImportRowFailure(failure.cleanupError))) {
+         throw new CanonicalImportRecoveryFailure(failure);
+       }
+       // A confirmed row-level abort can yield only after a fresh, bounded
+       // authority/database check. Failed cleanup leaves its token untouched:
+       // the ordinary expired-claim selector later reclaims it with a NEW token.
+       try {
+         await runCanonicalTransaction("import_failure",()=>db.transaction(ownerAuthorityCheck));
+       } catch (authorityError) {
+         const failureToThrow=new CanonicalImportRecoveryFailure(failure);
+         Object.assign(failureToThrow,{authorityError});
+         throw failureToThrow;
+       }
+       if (failure.cleanupError) abandoned++;
     }
   }
-  return {ran:fulfilled+held>0,fulfilled,held,
-    budgetExhausted:fulfilled+held>=maxItems || Date.now()>=deadline};
+   const budgetExhausted=attempted>=maxItems || Date.now()>=deadline;
+   outcome=fulfilled>0 ? "committed_progress" : failed>0 ? "row_failures_without_fulfillment"
+     : held>0 ? "held_without_fulfillment" : budgetExhausted ? "budget_exhausted_without_fulfillment"
+     : "no_eligible_rows";
+   return {ran:attempted>0,fulfilled,held,attempted,failed,cleanupFailed,abandoned,
+     budgetExhausted,outcome,zeroFulfillment:fulfilled===0,authorityAcquisitionMs,
+     rowProcessingMs:Date.now()-processingStarted};
+   } catch(error) {
+     fatalError=error;
+     throw error;
+   } finally {
+     if(processingStarted===null) authorityAcquisitionMs=Date.now()-tickStarted;
+     console.warn(JSON.stringify({event:"canonical_import_recovery_tick",outcome,
+       fulfilled,held,attempted,failed,cleanupFailed,abandoned,zeroFulfillment:fulfilled===0,
+       authorityAcquisitionMs,rowProcessingMs:processingStarted===null ? 0 : Date.now()-processingStarted,
+       totalMs:Date.now()-tickStarted,failure:fatalError ? safeDatabaseFailure(fatalError) : null,
+        authorityFailure:fatalError instanceof CanonicalImportRecoveryFailure && fatalError.authorityError
+          ? safeDatabaseFailure(fatalError.authorityError) : null,
+       ts:new Date().toISOString()}));
+   }
 }
