@@ -19,18 +19,18 @@ export interface IAuthStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<void>;
   markEmailVerified(userId: string): Promise<void>;
-  saveTotpSecret(userId: string, secret: string): Promise<void>;
-  enableTotp(userId: string, backupCodes: IBackupCode[]): Promise<void>;
-  disableTotp(userId: string): Promise<void>;
+  saveTotpSecret(userId: string, secret: string, epoch?: number, version?: number): Promise<void>;
+  enableTotp(userId: string, backupCodes: IBackupCode[], epoch?: number, version?: number): Promise<void>;
+  disableTotp(userId: string, epoch?: number, version?: number): Promise<void>;
   getTotpData(userId: string): Promise<{ secret: string | null; enabled: boolean; backupCodes: IBackupCode[] | null }>;
   markBackupCodeUsed(userId: string, index: number): Promise<void>;
   getTrustedDevices(userId: string): Promise<ITrustedDevice[]>;
-  addTrustedDevice(userId: string, device: ITrustedDevice): Promise<void>;
+  addTrustedDevice(userId: string, device: ITrustedDevice, expectedEpoch?: number): Promise<void>;
   removeTrustedDevice(userId: string, token: string): Promise<void>;
   clearExpiredTrustedDevices(userId: string): Promise<void>;
   adminResetTotp(userId: string): Promise<void>;
   // Session management
-  createUserSession(data: { userId: string; sessionId: string; ip?: string; userAgent?: string }): Promise<UserSession>;
+  createUserSession(data: { userId: string; sessionId: string; ip?: string; userAgent?: string; expectedEpoch?: number }): Promise<UserSession>;
   getUserSession(sessionId: string): Promise<UserSession | undefined>;
   touchUserSession(sessionId: string): Promise<void>;
   invalidateUserSession(sessionId: string): Promise<void>;
@@ -63,13 +63,25 @@ export function getSessionLimitForRole(role: string): number {
 export { IDLE_TIMEOUT_MS, ABSOLUTE_TTL_MS };
 
 class AuthStorage implements IAuthStorage {
+  private async updateActiveAuthUser(userId: string, epoch: number, version: number | undefined,
+    values: Partial<UpsertUser>, action: string, safeAfter: Record<string, unknown>): Promise<void> {
+    await db.transaction(async tx => {
+      const [before] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
+      if (!before || before.accountState !== "active" || before.authEpoch !== epoch ||
+        (version !== undefined && before.accountVersion !== version)) throw new Error("AUTH_CONTINUATION_STALE");
+      await tx.update(users).set({ ...values, accountVersion: before.accountVersion + 1, updatedAt: new Date() }).where(eq(users.id, userId));
+      const { auditChange } = await import("../../services/audit-change");
+      await auditChange({ actorType: "user", userId, action, entityType: "user", entityKey: userId,
+        before: { accountVersion: before.accountVersion }, after: { ...safeAfter, accountVersion: before.accountVersion + 1 } }, tx);
+    });
+  }
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
+    const [user] = await db.select().from(users).where(and(eq(users.id, id), eq(users.accountState, "active")));
     return user;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
+    const [user] = await db.select().from(users).where(and(eq(users.email, email.toLowerCase()), eq(users.accountState, "active")));
     return user;
   }
 
@@ -92,8 +104,9 @@ class AuthStorage implements IAuthStorage {
         })
         .returning();
       const { auditChange } = await import("../../services/audit-change");
-      const { passwordHash: _bph, ...safeBefore } = (existing ?? {}) as any;
-      const { passwordHash: _aph, ...safeAfter } = user as any;
+      const { publicUser } = await import("@shared/public-user");
+      const safeBefore = existing ? publicUser(existing) : null;
+      const safeAfter = publicUser(user);
       await auditChange({ actorType: "system", action: existing ? "user_updated" : "user_created",
         entityType: "user", entityKey: user.id, before: existing ? safeBefore : null, after: safeAfter });
       return user;
@@ -124,31 +137,19 @@ class AuthStorage implements IAuthStorage {
     await auditChange({ actorType: "user", userId, action: "user_email_verified", entityType: "user", entityKey: userId, before: { emailVerified: null }, after: { emailVerified: new Date().toISOString() } });
   }
 
-  async saveTotpSecret(userId: string, secret: string): Promise<void> {
-    await db
-      .update(users)
-      .set({ totpSecret: secret, updatedAt: new Date() })
-      .where(eq(users.id, userId));
-    const { auditChange } = await import("../../services/audit-change");
-    await auditChange({ actorType: "user", userId, action: "user_totp_secret_saved", entityType: "user", entityKey: userId, before: null, after: { totpSecretSet: true } });
+  async saveTotpSecret(userId: string, secret: string, epoch = 0, version?: number): Promise<void> {
+    await this.updateActiveAuthUser(userId, epoch, version, { totpSecret: secret },
+      "user_totp_secret_saved", { totpSecretSet: true });
   }
 
-  async enableTotp(userId: string, backupCodes: IBackupCode[]): Promise<void> {
-    await db
-      .update(users)
-      .set({ totpEnabled: true, totpBackupCodes: backupCodes as any, updatedAt: new Date() })
-      .where(eq(users.id, userId));
-    const { auditChange } = await import("../../services/audit-change");
-    await auditChange({ actorType: "user", userId, action: "user_totp_enabled", entityType: "user", entityKey: userId, before: { totpEnabled: false }, after: { totpEnabled: true } });
+  async enableTotp(userId: string, backupCodes: IBackupCode[], epoch = 0, version?: number): Promise<void> {
+    await this.updateActiveAuthUser(userId, epoch, version, { totpEnabled: true, totpBackupCodes: backupCodes as any },
+      "user_totp_enabled", { totpEnabled: true, backupCodeCount: backupCodes.length });
   }
 
-  async disableTotp(userId: string): Promise<void> {
-    await db
-      .update(users)
-      .set({ totpSecret: null, totpEnabled: false, totpBackupCodes: null, trustedDevices: null, updatedAt: new Date() })
-      .where(eq(users.id, userId));
-    const { auditChange } = await import("../../services/audit-change");
-    await auditChange({ actorType: "user", userId, action: "user_totp_disabled", entityType: "user", entityKey: userId, before: { totpEnabled: true }, after: { totpEnabled: false } });
+  async disableTotp(userId: string, epoch = 0, version?: number): Promise<void> {
+    await this.updateActiveAuthUser(userId, epoch, version, { totpSecret: null, totpEnabled: false, totpBackupCodes: null, trustedDevices: null },
+      "user_totp_disabled", { totpEnabled: false });
   }
 
   async getTotpData(userId: string): Promise<{ secret: string | null; enabled: boolean; backupCodes: IBackupCode[] | null }> {
@@ -165,12 +166,15 @@ class AuthStorage implements IAuthStorage {
     };
   }
 
-  async markBackupCodeUsed(userId: string, index: number): Promise<void> {
-    const data = await this.getTotpData(userId);
-    if (!data.backupCodes) return;
-    const updated = [...data.backupCodes];
-    updated[index] = { ...updated[index], used: true };
-    await db.update(users).set({ totpBackupCodes: updated as any, updatedAt: new Date() }).where(eq(users.id, userId));
+  async markBackupCodeUsed(userId: string, index: number, expectedEpoch = 0): Promise<void> {
+    await db.transaction(async tx => {
+      const [user] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
+      if (!user || user.accountState !== "active" || user.authEpoch !== expectedEpoch) throw new Error("AUTH_CONTINUATION_STALE");
+      const codes = (user.totpBackupCodes ?? []) as IBackupCode[];
+      if (!codes[index] || codes[index].used) throw new Error("AUTH_BACKUP_CODE_UNAVAILABLE");
+      const updated = codes.map((code, i) => i === index ? { ...code, used: true } : code);
+      await tx.update(users).set({ totpBackupCodes: updated as any, updatedAt: new Date() }).where(eq(users.id, userId));
+    });
     const { auditChange } = await import("../../services/audit-change");
     await auditChange({ actorType: "user", userId, action: "user_backup_code_used", entityType: "user", entityKey: userId,
       before: { backupCodeIndex: index, used: false }, after: { backupCodeIndex: index, used: true } });
@@ -182,16 +186,18 @@ class AuthStorage implements IAuthStorage {
     return user.trustedDevices as ITrustedDevice[];
   }
 
-  async addTrustedDevice(userId: string, device: ITrustedDevice): Promise<void> {
-    const devices = await this.getTrustedDevices(userId);
-    const now = new Date();
-    const valid = devices.filter(d => new Date(d.expiresAt) > now);
-    const before = { trustedDeviceCount: valid.length };
-    valid.push(device);
-    await db.update(users).set({ trustedDevices: valid as any, updatedAt: new Date() }).where(eq(users.id, userId));
-    const { auditChange } = await import("../../services/audit-change");
-    await auditChange({ actorType: "user", userId, action: "user_trusted_device_added", entityType: "user", entityKey: userId,
-      before, after: { trustedDeviceCount: valid.length, deviceUserAgent: (device as any).userAgent ?? null, expiresAt: device.expiresAt } });
+  async addTrustedDevice(userId: string, device: ITrustedDevice, expectedEpoch = 0): Promise<void> {
+    await db.transaction(async tx => {
+      const [user] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
+      if (!user || user.accountState !== "active" || user.authEpoch !== expectedEpoch) throw new Error("AUTH_CONTINUATION_STALE");
+      const valid = ((user.trustedDevices ?? []) as ITrustedDevice[]).filter(d => new Date(d.expiresAt) > new Date());
+      const before = { trustedDeviceCount: valid.length };
+      valid.push(device);
+      await tx.update(users).set({ trustedDevices: valid as any, updatedAt: new Date() }).where(eq(users.id, userId));
+      const { auditChange } = await import("../../services/audit-change");
+      await auditChange({ actorType: "user", userId, action: "user_trusted_device_added", entityType: "user", entityKey: userId,
+        before, after: { trustedDeviceCount: valid.length, expiresAt: device.expiresAt } }, tx);
+    });
   }
 
   async removeTrustedDevice(userId: string, token: string): Promise<void> {
@@ -204,10 +210,12 @@ class AuthStorage implements IAuthStorage {
   }
 
   async clearExpiredTrustedDevices(userId: string): Promise<void> {
-    const devices = await this.getTrustedDevices(userId);
-    const now = new Date();
-    const valid = devices.filter(d => new Date(d.expiresAt) > now);
-    await db.update(users).set({ trustedDevices: valid as any, updatedAt: new Date() }).where(eq(users.id, userId));
+    await db.transaction(async tx => {
+      const [user] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
+      if (!user || user.accountState !== "active") throw new Error("AUTH_SUBJECT_UNAVAILABLE");
+      const valid = ((user.trustedDevices ?? []) as ITrustedDevice[]).filter(d => new Date(d.expiresAt) > new Date());
+      await tx.update(users).set({ trustedDevices: valid as any, updatedAt: new Date() }).where(eq(users.id, userId));
+    });
   }
 
   async adminResetTotp(userId: string): Promise<void> {
@@ -224,8 +232,11 @@ class AuthStorage implements IAuthStorage {
 
   // === SESSION MANAGEMENT ===
 
-  async createUserSession(data: { userId: string; sessionId: string; ip?: string; userAgent?: string }): Promise<UserSession> {
-    const [record] = await db
+  async createUserSession(data: { userId: string; sessionId: string; ip?: string; userAgent?: string; expectedEpoch?: number }): Promise<UserSession> {
+    return db.transaction(async tx => {
+    const [user] = await tx.select().from(users).where(eq(users.id, data.userId)).for("share");
+    if (!user || user.accountState !== "active" || user.authEpoch !== (data.expectedEpoch ?? 0)) throw new Error("AUTH_CONTINUATION_STALE");
+    const [record] = await tx
       .insert(userSessions)
       .values({
         userId: data.userId,
@@ -238,6 +249,7 @@ class AuthStorage implements IAuthStorage {
       })
       .returning();
     return record;
+    });
   }
 
   async getUserSession(sessionId: string): Promise<UserSession | undefined> {

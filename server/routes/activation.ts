@@ -237,7 +237,9 @@ export async function evaluateChannelChecklist(channel: ChannelKey): Promise<Cha
   };
 }
 
-export function registerActivationRoutes(app: Express) {
+export function registerActivationRoutes(app: Express, dependencies: {
+  invitationMail?:Pick<typeof import("../services/smtp-email"),"isSmtpConfigured"|"sendSmtpEmail">;
+} = {}) {
   // === ACTIVATION DIAGNOSTICS ===
   app.get("/api/operator/activation-status", requireRole("admin", "manager"), async (_req, res) => {
     try {
@@ -1881,7 +1883,7 @@ export function registerActivationRoutes(app: Express) {
       let inviteDisposition: "sent" | "skipped_no_smtp" | "failed" = "skipped_no_smtp";
       let inviteDetail = "SMTP not configured — invitation not sent";
       try {
-        const { isSmtpConfigured, sendSmtpEmail } = await import("../services/smtp-email");
+        const { isSmtpConfigured, sendSmtpEmail } = dependencies.invitationMail ?? await import("../services/smtp-email");
         const { issueAuthAction, setAuthActionDelivery } = await import("../services/auth-actions");
         const { getCanonicalUrl } = await import("../lib/canonical-url");
 
@@ -1915,7 +1917,7 @@ export function registerActivationRoutes(app: Express) {
             category: "onboarding" as const,
           });
 
-          if ((result as any)?.error) {
+          if (result.success!==true) {
             await setAuthActionDelivery(action.id, "definite_failure");
             inviteDisposition = "failed";
             inviteDetail = "SMTP send failed";
@@ -1961,11 +1963,11 @@ export function registerActivationRoutes(app: Express) {
       // Verify user exists with role=agent (never re-issue for admin/manager/merchant)
       const { users: usersTable } = await import("@shared/models/auth");
       const [targetUser] = (await db.execute(sql`
-        SELECT id, email, first_name, role, password_hash
+        SELECT id, email, first_name, role, password_hash,account_state
         FROM users WHERE id = ${userId} LIMIT 1
       `)).rows as any[];
 
-      if (!targetUser) {
+      if (!targetUser || targetUser.account_state!=="active") {
         return res.status(404).json({ error: "User not found" });
       }
       if (targetUser.role !== "agent") {
@@ -1975,7 +1977,7 @@ export function registerActivationRoutes(app: Express) {
         return res.status(409).json({ error: "This rep has already activated their account (password is set). Use the login flow." });
       }
 
-      const { isSmtpConfigured, sendSmtpEmail } = await import("../services/smtp-email");
+      const { isSmtpConfigured, sendSmtpEmail } = dependencies.invitationMail ?? await import("../services/smtp-email");
       if (!isSmtpConfigured()) {
         return res.status(503).json({ error: "SMTP is not configured — cannot send invitation email." });
       }
@@ -2013,7 +2015,7 @@ export function registerActivationRoutes(app: Express) {
       });
 
       let inviteDisposition: "sent" | "failed" = "failed";
-      if ((result as any)?.error) {
+      if (result.success!==true) {
         await setAuthActionDelivery(action.id, "definite_failure");
       } else {
         await setAuthActionDelivery(action.id, "sent");
@@ -2290,7 +2292,9 @@ export function registerActivationRoutes(app: Express) {
       if (!consumed.ok || !consumed.value) {
         return res.status(400).json({ message: "This invitation link is invalid or has expired." });
       }
-      const user = consumed.value;
+      const { authStorage: activeAuthStorage } = await import("../replit_integrations/auth/storage");
+      const user = await activeAuthStorage.getUser(consumed.value.id);
+      if (!user) return res.status(409).json({ message: "Account changed during activation. Sign in again or ask an administrator to review its current state." });
 
       await db.insert(auditLogs).values({
         action: "pilot_rep_account_activated",
@@ -2314,9 +2318,11 @@ export function registerActivationRoutes(app: Express) {
           sessionId: req.sessionID,
           ip,
           userAgent: req.headers["user-agent"] || undefined,
+          expectedEpoch: user.authEpoch,
         });
       } catch (sessionErr: any) {
         logOperationalDiagnostic("agent_invite_activation", sessionErr, "session_record_failed", { userId: user.id });
+        return res.status(503).json({ message: "Account activated, but sign-in tracking is unavailable. Retry signing in; no second activation is required." });
       }
 
       return res.json({

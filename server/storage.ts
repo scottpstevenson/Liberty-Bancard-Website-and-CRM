@@ -204,7 +204,7 @@ export interface IStorage {
   getTaskById(id: number): Promise<typeof tasks.$inferSelect | null>;
   getTaskByGhlTaskId(ghlTaskId: string): Promise<typeof tasks.$inferSelect | undefined>;
   createTask(task: InternalTaskInsert): Promise<typeof tasks.$inferSelect>;
-  createAuthorityTask(task: InternalTaskInsert, authority?: { producer?: string; subjectType?: string; subjectId?: number; generation?: number; commandKey?: string; issueKey?: string }): Promise<typeof tasks.$inferSelect>;
+  createAuthorityTask(task: InternalTaskInsert, authority?: { producer?: string; subjectType?: string; subjectId?: number; generation?: number; commandKey?: string; issueKey?: string; context?: Record<string,unknown>; actorId?:string }, existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<typeof tasks.$inferSelect>;
   transitionAuthorityTask(id: number, input: { toState: import("./storage/tasks").TaskAuthorityState; expectedFence: number; producer: string; eventKey: string; commandKey?: string; terminalReason?: string | null; canonicalAssignee?: string | null }): Promise<typeof tasks.$inferSelect | null>;
   assertTaskLinkedObjectScope(input: Pick<InternalTaskInsert, "contactId" | "dealId" | "ticketId">): Promise<void>;
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;
@@ -238,7 +238,7 @@ export interface IStorage {
   getNotificationsPaginated(params: { limit: number; offset: number; category?: string; userId?: string }): Promise<{ data: typeof notifications.$inferSelect[]; total: number }>;
   getNotificationsUnreadCount(userId?: string): Promise<number>;
   createNotification(notification: InsertNotification): Promise<typeof notifications.$inferSelect>;
-  markNotificationRead(id: number): Promise<void>;
+  markNotificationRead(id: number,userId?:string): Promise<number>;
   deleteNotification(id: number, userId?: string): Promise<boolean>;
   clearOldReadNotifications(userId?: string): Promise<number>;
 
@@ -607,8 +607,8 @@ export interface IStorage {
   archiveDeal(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect | undefined>;
   restoreDeal(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect | undefined>;
 
-  markAllNotificationsRead(userId?: string): Promise<void>;
-  clearAllNotifications(userId?: string): Promise<void>;
+  markAllNotificationsRead(userId?: string): Promise<number>;
+  clearAllNotifications(userId?: string): Promise<number>;
   bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void>;
   deleteTask(id: number): Promise<void>;
 

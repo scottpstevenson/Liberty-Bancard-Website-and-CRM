@@ -14,6 +14,9 @@ import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
 import { LifecycleService } from "../services/lifecycle-service";
 import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
+import {noteCommandFields,noteEntityKind,commandNote,readContextNotes} from "../services/note-command";
+import {bindWorkActor,WorkCommandError} from "../services/work-item-command";
+import {strictRecordId} from "@shared/work-item-commands";
 
 export function registerActivityRoutes(app: Express) {
 
@@ -190,24 +193,22 @@ export function registerActivityRoutes(app: Express) {
   // === NOTES ===
   app.get("/api/notes", isDashboardUser, async (req, res) => {
     try {
-      const { entityType, entityId } = req.query;
-      if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
-      if (String(entityType) === "contact" && !await authorizeContactAccess(req, res, Number(entityId))) return;
-      const notesList = await storage.getNotes(String(entityType), Number(entityId));
-      res.json(notesList);
+      res.json(await readContextNotes(bindWorkActor(req.user),noteEntityKind.parse(req.query.entityType),strictRecordId.parse(req.query.entityId)));
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Supported note kind and positive entity ID required"});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.post("/api/notes", isDashboardUser, async (req, res) => {
     try {
-      const input = insertNoteSchema.parse(req.body);
-      if (input.entityType === "contact" && !await authorizeContactAccess(req, res, input.entityId)) return;
-      const note = await storage.createNote(input);
-      res.status(201).json(note);
+      const fields=noteCommandFields.omit({expectedVersion:true,pinned:true}).extend({entityType:noteEntityKind,entityId:z.number().int().positive().max(2147483647),content:z.string().trim().min(1).max(20000)}).parse(req.body);
+      const result=await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"create",fields);
+      res.status(result.replayed?200:201).json({...result.note,changed:result.changed,replayed:result.replayed});
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
@@ -215,29 +216,22 @@ export function registerActivityRoutes(app: Express) {
   // #243 — Inline note editing
   app.patch("/api/notes/:id", isDashboardUser, async (req, res) => {
     try {
-      const noteId = Number(req.params.id);
-      const note = await storage.getNote(noteId);
-      if (!note) return res.status(404).json({ message: "Not found" });
-      if (note.entityType === "contact" && !await authorizeContactAccess(req, res, note.entityId)) return;
-      const { content } = req.body;
-      if (!content || typeof content !== "string" || !content.trim()) {
-        return res.status(400).json({ message: "content required" });
-      }
-      await storage.updateNote(noteId, content.trim());
-      res.json({ success: true });
+      const fields=noteCommandFields.omit({entityType:true,entityId:true,pinned:true}).extend({expectedVersion:z.number().int().positive(),content:z.string().trim().min(1).max(20000)}).parse(req.body);
+      res.json(await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"edit",fields,strictRecordId.parse(req.params.id)));
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.delete("/api/notes/:id", isDashboardUser, async (req, res) => {
     try {
-      const note = await storage.getNote(Number(req.params.id));
-      if (!note) return res.status(404).json({ message: "Not found" });
-      if (note.entityType === "contact" && !await authorizeContactAccess(req, res, note.entityId)) return;
-      await storage.deleteNote(Number(req.params.id));
-      res.json({ success: true });
+      const fields=noteCommandFields.omit({entityType:true,entityId:true,pinned:true,content:true}).extend({expectedVersion:z.number().int().positive()}).parse(req.body);
+      res.json(await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"delete",fields,strictRecordId.parse(req.params.id)));
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

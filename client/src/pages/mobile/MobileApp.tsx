@@ -132,7 +132,7 @@ function AvatarOverlay() {
 function MobileShell() {
   const { user, isLoading } = useAuth();
   const online = useOnlineStatus();
-  const { queueCount } = useOfflineQueue();
+  const { queueCount,queueError,reviewCount,retryQueue } = useOfflineQueue();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -156,6 +156,12 @@ function MobileShell() {
       className="min-h-screen bg-gray-50 dark:bg-gray-950 max-w-md mx-auto relative"
       style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}
     >
+      {(queueError || reviewCount>0 || (online && (queueCount ?? 0)>0)) && <div
+        className="bg-amber-50 text-amber-950 text-sm px-3 py-2" role="status">
+        <p>{queueError || (reviewCount>0 ? `${reviewCount} local changes require review; they will not replay automatically. Open the current work before retrying.` :
+          `${queueCount} local changes still await server confirmation.`)}</p>
+        <button type="button" className="underline mt-1" onClick={()=>void retryQueue()}>Retry connection</button>
+      </div>}
       {!online && (
         <div
           className="bg-amber-500 text-white text-xs text-center py-1.5 px-3 flex items-center justify-center gap-1.5 sticky top-0 z-40"
@@ -163,7 +169,7 @@ function MobileShell() {
         >
           <WifiOff className="w-3 h-3" />
           Offline — showing cached data
-          {queueCount > 0 && (
+          {(queueCount ?? 0) > 0 && (
             <span className="bg-white/30 rounded-full px-1.5 py-0.5 font-bold ml-1">
               {queueCount} pending
             </span>

@@ -35,7 +35,7 @@ export async function seedDefaultData() {
         const existingActions = JSON.stringify(existing.actions);
         const newActions = JSON.stringify(updates.actions);
         if (existingActions !== newActions) {
-          await storage.updateWorkflow(existing.id, { actions: updates.actions });
+          if (!existing.retiredAt) await storage.updateWorkflow(existing.id, { actions: updates.actions }, { expectedVersion: existing.version });
           console.log(`[Seed] Updated workflow "${name}" with new actions`);
         }
       }

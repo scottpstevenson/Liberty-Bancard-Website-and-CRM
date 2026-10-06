@@ -5,6 +5,7 @@ import { useUpdateContact } from "@/hooks/use-contacts";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany, Document, Agent } from "@shared/schema";
 import { VERTICALS, OFFER_PATHS } from "@shared/schema";
 import RfiTab from "@/components/RfiTab";
@@ -1219,6 +1220,7 @@ export default function ContactDetail() {
   const queryClient = useQueryClient();
   const updateContact = useUpdateContact();
   const { user } = useAuth();
+  const noteIntents=useRetainedLocalIntent();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
 
   const { data: agentsList } = useQuery<Agent[]>({
@@ -1335,11 +1337,11 @@ export default function ContactDetail() {
     enabled: !!contactId,
   });
 
-  const { data: notesList } = useQuery<Note[]>({
+  const { data: notesList,isError:notesError,refetch:retryNotes } = useQuery<Note[]>({
     queryKey: ["/api/notes", "contact", contactId],
     queryFn: async () => {
       const res = await fetch(`/api/notes?entityType=contact&entityId=${contactId}`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Contact notes unavailable");
       return res.json();
     },
     enabled: !!contactId,
@@ -1349,7 +1351,7 @@ export default function ContactDetail() {
     queryKey: ["/api/contacts", contactId, "companies"],
     queryFn: async () => {
       const res = await fetch(`/api/contacts/${contactId}/companies`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Contact company associations unavailable");
       return res.json();
     },
     enabled: !!contactId,
@@ -1429,14 +1431,15 @@ export default function ContactDetail() {
       const res = await apiRequest("POST", `/api/contacts/${contactId}/companies`, body);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "companies"] });
       setShowCompanyDialog(false);
       setSelectedCompanyId("");
       setCompanyRole("");
       setCompanyIsPrimary(false);
       setNewCompanyForm({ legalName: "", dba: "", vertical: "", website: "" });
-      toast({ title: "Company linked" });
+      toast({ title: "Company linked",description:result.extractionState==="completed"?"Relationship reconciliation completed.":
+        "Membership is saved. Relationship reconciliation remains incomplete or requires management review." });
     },
     onError: () => {
       toast({ title: "Failed to link company", variant: "destructive" });
@@ -1713,11 +1716,12 @@ export default function ContactDetail() {
   const addNote = async () => {
     if (!noteContent.trim()) return;
     try {
-      await apiRequest("POST", "/api/notes", {
+      await apiRequest("POST", "/api/notes",noteIntents.payload(`create:${contactId}`,{
         entityType: "contact",
         entityId: contactId,
         content: noteContent.trim(),
-      });
+      }));
+      noteIntents.accepted(`create:${contactId}`);
       queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
       setNoteContent("");
@@ -2671,6 +2675,7 @@ export default function ContactDetail() {
         </TabsContent>
 
         <TabsContent value="notes" data-testid="tab-content-notes">
+          {notesError?<div role="alert">Notes unavailable. Your edit has not been saved. <Button onClick={()=>void retryNotes()}>Retry notes</Button></div>:
           <NotesTab
             sortedNotes={sortedNotes}
             noteContent={noteContent}
@@ -2678,18 +2683,31 @@ export default function ContactDetail() {
             addNote={addNote}
             onUpdateNote={async (noteId, content) => {
               // #243 — inline note editing via PATCH /api/notes/:id
-              const res = await apiRequest("PATCH", `/api/notes/${noteId}`, { content });
+              const note=notesList?.find(row=>row.id===noteId);
+              if(!note) throw new Error("Note version unavailable. Reload notes.");
+              const res = await apiRequest("PATCH", `/api/notes/${noteId}`,noteIntents.payload(`edit:${noteId}`,{content,expectedVersion:note.version}));
               if (!res.ok) throw new Error("Failed to update note");
+              noteIntents.accepted(`edit:${noteId}`);
               queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
               toast({ title: "Note updated" });
             }}
             onPinNote={async (noteId, pinned) => {
               // #1475 — pin/unpin note
-              const res = await apiRequest("PATCH", `/api/contacts/${contactId}/notes/${noteId}/pin`, { pinned });
+              const note=notesList?.find(row=>row.id===noteId);
+              if(!note) throw new Error("Note version unavailable. Reload notes.");
+              const res = await apiRequest("PATCH", `/api/contacts/${contactId}/notes/${noteId}/pin`,noteIntents.payload(`pin:${noteId}`,{pinned,expectedVersion:note.version}));
               if (!res.ok) throw new Error("Failed to update pin state");
+              noteIntents.accepted(`pin:${noteId}`);
               queryClient.invalidateQueries({ queryKey: ["/api/notes", "contact", contactId] });
             }}
-          />
+            onDeleteNote={async noteId=>{
+              const note=notesList?.find(row=>row.id===noteId);
+              if(!note) throw new Error("Note version unavailable. Reload notes.");
+              await apiRequest("DELETE",`/api/notes/${noteId}`,noteIntents.payload(`delete:${noteId}`,{expectedVersion:note.version}));
+              noteIntents.accepted(`delete:${noteId}`);
+              void queryClient.invalidateQueries({queryKey:["/api/notes","contact",contactId]});
+            }}
+          />}
         </TabsContent>
 
         <TabsContent value="documents" data-testid="tab-content-documents">

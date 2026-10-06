@@ -2,7 +2,8 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
-import { ghlSyncStatus, ACTIVE_DEAL_STAGES, systemSettings, contactProviderProjections, pipelineStages } from "@shared/schema";
+import { ghlSyncStatus, ACTIVE_DEAL_STAGES, systemSettings, contactProviderProjections, pipelineStages, tasks, contacts, taskAuthorityEvents } from "@shared/schema";
+import { commandProducedTask, WorkCommandError } from "./work-item-command";
 import {
   upsertGhlContact,
   isGhlConfigured,
@@ -21,7 +22,7 @@ import { getEmailSignatureHtml } from "./email-signatures";
 import { auditChange } from "./audit-change";
 import { writeContact, upsertContactSourceEvent, PROVENANCE_FIELDS } from "./contact-writer";
 import { enqueuePromotionalEnrollment } from "./promotional-enrollment-eligibility";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, isNull, desc } from "drizzle-orm";
 import { GO_LIVE_GATE_STAGES, checkGoLiveReadiness } from "./go-live-gate";
 import { canExecute } from "./outbound-queue-coordinator";
 
@@ -1555,37 +1556,41 @@ export async function syncTaskFromGhl(ghlTask: any, ghlContactId: string): Promi
     const contact = ghlContactId ? await storage.getContactByGhlContactId(ghlContactId) : undefined;
     if (!contact) return { success: false, error: "Contact not found for GHL contact" };
 
-    const allTasks = await storage.getTasks({ limit: 500 });
-    const existingTask = allTasks.find((t: any) =>
-      t.contactId === contact.id &&
-      t.title === ghlTask.title
-    );
-
-    if (existingTask) {
-      // When GHL marks a task as not-completed, map to an active status so
-      // normalizeTaskCompletionState can clear completedAt (reopening a task).
-      const newStatus = ghlTask.completed ? "completed" : "pending";
-      const { normalizeTaskCompletionState } = await import("./task-normalization");
-      const normalized = normalizeTaskCompletionState(
-        { status: newStatus, description: ghlTask.body || existingTask.description },
-        existingTask,
-      );
-      await storage.updateTask(existingTask.id, normalized);
-      await updateSyncStatusRecord("tasks", "inbound", 1, 0);
-      return { success: true, taskId: existingTask.id };
-    }
-
-    const newTask = await storage.createAuthorityTask({
-      title: ghlTask.title || "Task from GHL",
-      contactId: contact.id,
-      status: ghlTask.completed ? "completed" : "pending",
-      priority: "medium",
-      dueDate: ghlTask.dueDate ? new Date(ghlTask.dueDate) : undefined,
-      description: ghlTask.body || "",
-      assignedTo: "Unassigned",
-      ...(ghlTask.completed ? { completedAt: new Date() } : {}),
+    if (typeof ghlTask.id !== "string" || !ghlTask.id.trim()) return { success:false,error:"Native task identity unavailable; management review required" };
+    if (typeof ghlTask.completed !== "boolean") return { success:false,error:"Native task completion fact unavailable" };
+    if ((ghlTask.title !== undefined && typeof ghlTask.title !== "string") ||
+      (ghlTask.body !== undefined && typeof ghlTask.body !== "string")) return { success:false,error:"Native task text facts unavailable" };
+    const dueDate = ghlTask.dueDate ? new Date(ghlTask.dueDate) : null;
+    if (dueDate && Number.isNaN(dueDate.getTime())) return { success:false,error:"Native task due date unavailable" };
+    const snapshot = { id:ghlTask.id, ghlContactId, title:ghlTask.title || "Task from GHL",
+      body:ghlTask.body ?? "", completed:ghlTask.completed, dueDate:dueDate?.toISOString() ?? null,
+      occurrence:ghlTask.dateUpdated ?? ghlTask.updatedAt ?? null };
+    const fingerprint = crypto.createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+    const newTask = await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`ghl-task:${contact.id}:${ghlTask.id}`},0))`);
+      const [parent] = await tx.select().from(contacts).where(and(eq(contacts.id,contact.id),isNull(contacts.archivedAt))).for("share");
+      if (!parent || !["production","test","demo"].includes(parent.recordClass)) throw new WorkCommandError("Task contact unavailable",404);
+      const matches = await tx.select().from(tasks).where(and(eq(tasks.contactId,contact.id),eq(tasks.ghlTaskId,ghlTask.id))).limit(2);
+      if (matches.length > 1) throw new WorkCommandError("Native task identity ambiguous; management review required",409);
+      const existing = matches[0];
+      if (existing) {
+        const [last] = await tx.select({payload:taskAuthorityEvents.payload}).from(taskAuthorityEvents)
+          .where(and(eq(taskAuthorityEvents.taskId,existing.id),eq(taskAuthorityEvents.producer,"ghl_incoming")))
+          .orderBy(desc(taskAuthorityEvents.createdAt),desc(taskAuthorityEvents.id)).limit(1);
+        const context = (last?.payload as any)?.context ?? (last?.payload as any)?.commandSnapshot?.context;
+        if (context?.fingerprint === fingerprint) return existing;
+        const result = await commandProducedTask({ id:existing.id, producer:"ghl_incoming",
+          commandId:`ghl-incoming:${contact.id}:${ghlTask.id}:${fingerprint}`, recordClass:parent.recordClass as "production"|"test"|"demo",
+          updates:{ title:snapshot.title,description:snapshot.body,status:snapshot.completed?"completed":"pending",dueDate },
+          context:{...snapshot,fingerprint}, eligible:async (_tx,row) => row.contactId===parent.id && row.ghlTaskId===snapshot.id,
+        },tx);
+        return result.results[0].item;
+      }
+      return storage.createAuthorityTask({ title:snapshot.title,contactId:parent.id,ghlTaskId:ghlTask.id,
+        status:snapshot.completed?"completed":"pending",priority:"medium",dueDate,description:snapshot.body,assignedTo:null,source:"ghl_incoming",
+      },{producer:"ghl_incoming",issueKey:ghlTask.id,subjectType:"contact",subjectId:parent.id,
+        commandKey:`ghl-incoming-create:${parent.id}:${ghlTask.id}`,context:{...snapshot,fingerprint,assignmentReview:"provider_assignee_not_resolved"}},tx);
     });
-
     await updateSyncStatusRecord("tasks", "inbound", 1, 0);
     return { success: true, taskId: newTask.id };
   } catch (err: any) {

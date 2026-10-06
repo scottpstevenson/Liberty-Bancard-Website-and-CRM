@@ -26,12 +26,13 @@ function formatResolutionTime(hours: number | null | undefined): string {
 // ─── Daily Briefing Component ───────────────────────────────────────────────
 
 interface DailyBriefingData {
-  tasksDueToday: number;
-  overdueTaskCount: number;
-  overdueSlaCount: number;
-  unreadCount: number;
-  outreachReadyCount: number;
-  closedWonYesterday: number;
+  tasksDueToday: number | null;
+  overdueTaskCount: number | null;
+  overdueSlaCount: number | null;
+  unreadCount: number | null;
+  inboundEventCount: number | null;
+  outreachReadyCount: number | null;
+  closedWonYesterday: number | null;
   aiSummary: string | null;
   role: string;
   generatedAt: string;
@@ -113,20 +114,21 @@ function DailyBriefing({ userId }: { userId: string }) {
       </div>
       {Object.values(data.sectionStatus).some((status) => status === "degraded") && (
         <p className="mb-3 text-xs text-amber-700 dark:text-amber-300" data-testid="daily-briefing-degraded">
-          Some briefing sections are temporarily unavailable; displayed zeroes in those sections are not confirmed counts.
+          Some briefing sections are temporarily unavailable. No zero or all-clear conclusion is implied.
         </p>
       )}
+      <p className="mb-3 text-xs text-muted-foreground">Daily snapshot generated {new Date(data.generatedAt).toLocaleString()}; refresh for current facts. Due-today and overdue use different windows.</p>
 
       {/* Quick-stat chips */}
       <div className="flex flex-wrap gap-2 mb-3">
         <Link href="/dashboard/tasks">
-          <Badge className={`cursor-pointer gap-1 text-xs font-medium transition-colors ${data.tasksDueToday > 0 ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-200" : "bg-muted text-muted-foreground"}`}>
+          <Badge className={`cursor-pointer gap-1 text-xs font-medium transition-colors ${(data.tasksDueToday ?? 0) > 0 ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 hover:bg-amber-200" : "bg-muted text-muted-foreground"}`}>
             <Clock className="w-3 h-3" />
-            {data.tasksDueToday} task{data.tasksDueToday !== 1 ? "s" : ""} due today
+            {data.tasksDueToday === null ? "Due-today count unavailable" : `${data.tasksDueToday} task${data.tasksDueToday !== 1 ? "s" : ""} due today`}
           </Badge>
         </Link>
 
-        {data.overdueTaskCount > 0 && (
+        {data.overdueTaskCount !== null && data.overdueTaskCount > 0 && (
           <Link href="/dashboard/tasks">
             <Badge className="cursor-pointer gap-1 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 transition-colors">
               <AlertTriangle className="w-3 h-3" />
@@ -135,7 +137,7 @@ function DailyBriefing({ userId }: { userId: string }) {
           </Link>
         )}
 
-        {data.overdueSlaCount > 0 && (
+        {data.overdueSlaCount !== null && data.overdueSlaCount > 0 && (
           <Link href="/dashboard/comms-hub">
             <Badge className="cursor-pointer gap-1 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 transition-colors">
               <AlertTriangle className="w-3 h-3" />
@@ -144,16 +146,16 @@ function DailyBriefing({ userId }: { userId: string }) {
           </Link>
         )}
 
-        {data.unreadCount > 0 && (
+        {data.inboundEventCount !== null && data.inboundEventCount > 0 && (
           <Link href="/dashboard/comms-hub">
             <Badge className="cursor-pointer gap-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 transition-colors">
               <Inbox className="w-3 h-3" />
-              {data.unreadCount} unread
+              {data.inboundEventCount} scoped inbound event{data.inboundEventCount !== 1 ? "s" : ""} today
             </Badge>
           </Link>
         )}
 
-        {data.outreachReadyCount > 0 && (
+        {data.outreachReadyCount !== null && data.outreachReadyCount > 0 && (
           <Link href="/dashboard/outreach-queue">
             <Badge className="cursor-pointer gap-1 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 hover:bg-orange-200 transition-colors">
               <Star className="w-3 h-3" />
@@ -162,7 +164,7 @@ function DailyBriefing({ userId }: { userId: string }) {
           </Link>
         )}
 
-        {data.closedWonYesterday > 0 && (
+        {data.closedWonYesterday !== null && data.closedWonYesterday > 0 && (
           <Badge className="gap-1 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
             <Trophy className="w-3 h-3" />
             {data.closedWonYesterday} won yesterday
@@ -605,8 +607,8 @@ export default function Overview() {
                 <Clock className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <AnimatedStat value={kpi?.tasks.pending || 0} data-testid="text-pending-tasks" />
-                {(kpi?.tasks.overdue || 0) > 0 ? (
+                {kpi?.tasks.pending == null ? <p role="status">Tasks unavailable</p> : <AnimatedStat value={kpi.tasks.pending} data-testid="text-pending-tasks" />}
+                {kpi?.tasks.overdue == null ? <p className="text-xs text-muted-foreground mt-1">Overdue count unavailable</p> : kpi.tasks.overdue > 0 ? (
                   <p className="text-xs text-destructive mt-1" data-testid="text-overdue-tasks">{kpi?.tasks.overdue} overdue</p>
                 ) : (
                   <p className="text-xs text-muted-foreground mt-1" data-testid="text-tasks-ok">None overdue</p>

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast"
 import { apiRequest } from "@/lib/queryClient"
 import { useMutation } from "@tanstack/react-query"
 import { Sparkles, Copy, Send, Loader2, Mail, Tag } from "lucide-react"
+import { useMessageDraft } from "@/hooks/use-message-draft"
 
 const VERTICALS = [
   "Restaurant", "Retail", "Healthcare", "Dental", "Med Spa",
@@ -56,6 +57,11 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const { toast } = useToast()
+  const draft = useMessageDraft({
+    contextType: contactId ? "contact" : prospectId ? "prospect" : "global",
+    contextId: String(contactId || prospectId || "unaddressed"),
+    channel: "email",
+  }, open, saved => { setSubject(saved.subject); setBody(saved.body) })
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -108,11 +114,9 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
     toast({ title: "Copied to clipboard", description: "The email has been copied." })
   }
 
-  const hasGenerated = subject.length > 0 || body.length > 0
-
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
-      <DialogContent className="max-w-2xl max-sm:fixed max-sm:inset-0 max-sm:!max-w-none max-sm:rounded-none max-sm:h-dvh max-sm:overflow-y-auto" data-testid="dialog-email-composer">
+      <DialogContent className="max-w-2xl max-sm:fixed max-sm:inset-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:!max-w-none max-sm:rounded-none max-sm:h-dvh max-sm:overflow-y-auto" data-testid="dialog-email-composer">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
@@ -201,7 +205,7 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
             )}
           </div>
 
-          {hasGenerated && (
+          {(
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email-subject">Subject</Label>
@@ -225,6 +229,23 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  data-testid="button-save-email-draft"
+                  disabled={draft.loading || draft.save.isPending}
+                  onClick={() => draft.retrySave({ subject, body })}
+                >
+                  {draft.save.isPending ? "Saving…" : "Save draft"}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={draft.loading}
+                  onClick={() => { if (!body || window.confirm("Replace editor text with the saved draft? Copy unsaved text first.")) void draft.reopen() }}
+                >Reopen saved draft</Button>
+                <p role={draft.error ? "alert" : "status"} className="text-xs text-muted-foreground">
+                  {draft.error || (draft.loading ? "Loading saved draft…" : draft.savedAt ? `Draft saved (v${draft.version}). Not sent.` : "No saved draft. Saving never sends.")}
+                  {!contactId && !prospectId && " No recipient selected."}
+                </p>
                 <Button
                   data-testid="button-copy-email"
                   variant="outline"

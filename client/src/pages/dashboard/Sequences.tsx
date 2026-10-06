@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -143,6 +144,7 @@ export default function Sequences() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const sequenceIntents=useRetainedLocalIntent();
   const canAccessOutreachHub = user?.role === "admin" || user?.role === "manager";
   const [showCreate, setShowCreate] = useState(false);
   const [editingSeq, setEditingSeq] = useState<any | null>(null);
@@ -251,17 +253,34 @@ export default function Sequences() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/sequences/${id}`);
+      const sequence=sequencesRaw?.find((row:any)=>row.id===id);
+      if(!sequence?.version) throw new Error("Sequence snapshot unavailable. Reload before retiring.");
+      await apiRequest("DELETE", `/api/sequences/${id}`,sequenceIntents.payload(`retire:${id}`,{expectedVersion:sequence.version}));
+      sequenceIntents.accepted(`retire:${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
-      toast({ title: "Sequence deleted" });
+      toast({ title: "Sequence retired",description:"History and receipts retained. Restore returns it to paused, never active." });
     },
+    onError:(error:Error)=>toast({title:"Retirement not applied",description:error.message,variant:"destructive"}),
+  });
+  const restoreMutation=useMutation({
+    mutationFn:async(id:number)=>{
+      const sequence=sequencesRaw?.find((row:any)=>row.id===id);
+      if(!sequence?.version) throw new Error("Sequence snapshot unavailable. Reload before restoring.");
+      await apiRequest("POST",`/api/sequences/${id}/restore`,sequenceIntents.payload(`restore:${id}`,{expectedVersion:sequence.version}));
+      sequenceIntents.accepted(`restore:${id}`);
+    },
+    onSuccess:()=>{void queryClient.invalidateQueries({queryKey:["/api/sequences"]});toast({title:"Sequence restored to paused",description:"No enrollment or send was resumed."});},
+    onError:(error:Error)=>toast({title:"Restore not applied",description:error.message,variant:"destructive"}),
   });
 
   const toggleMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("PUT", `/api/sequences/${id}/toggle-status`, {});
+      const sequence=sequencesRaw?.find((row:any)=>row.id===id);
+      if(!sequence?.version) throw new Error("Sequence snapshot unavailable. Reload before changing its state.");
+      const res = await apiRequest("PUT", `/api/sequences/${id}/toggle-status`,sequenceIntents.payload(`toggle:${id}`,{expectedVersion:sequence.version}));
+      sequenceIntents.accepted(`toggle:${id}`);
       return res.json();
     },
     onSuccess: () => {
@@ -368,32 +387,22 @@ export default function Sequences() {
   const editMutation = useMutation({
     mutationFn: async () => {
       if (!editingSeq) return;
-      await apiRequest("PUT", `/api/sequences/${editingSeq.id}`, {
+      const editorSteps=steps.map((s,index)=>({
+        id:originalStepIds[index],stepOrder:index+1,actionType:s.actionType,delayDays:s.delayDays,delayHours:s.delayHours,
+        subject:s.subject || null,body:s.body || null,config:s.config || null,
+        variantBSubject:s.variantBEnabled?(s.variantBSubject || null):null,
+        variantBBody:s.variantBEnabled?(s.variantBBody || null):null,
+        abTestConfig:s.variantBEnabled?(s.abTestConfig || {splitRatio:50,minSampleSize:100,winnerCriteria:"open_rate"}):null,
+      }));
+      await apiRequest("PUT", `/api/sequences/${editingSeq.id}`,sequenceIntents.payload(`edit:${editingSeq.id}`,{
+        expectedVersion:editingSeq.version,
         name: form.name,
         description: form.description,
         triggerType: form.triggerType,
         totalSteps: steps.length,
-      });
-      for (const stepId of originalStepIds) {
-        await apiRequest("DELETE", `/api/sequence-steps/${stepId}`);
-      }
-      for (let i = 0; i < steps.length; i++) {
-        const s = steps[i];
-        await apiRequest("POST", `/api/sequences/${editingSeq.id}/steps`, {
-          stepOrder: i + 1,
-          actionType: s.actionType,
-          delayDays: s.delayDays,
-          delayHours: s.delayHours,
-          subject: s.subject || null,
-          body: s.body || null,
-          config: s.config || null,
-          variantBSubject: s.variantBEnabled ? (s.variantBSubject || null) : null,
-          variantBBody: s.variantBEnabled ? (s.variantBBody || null) : null,
-          abTestConfig: s.variantBEnabled
-            ? (s.abTestConfig || { splitRatio: 50, minSampleSize: 100, winnerCriteria: "open_rate" })
-            : null,
-        });
-      }
+        steps:editorSteps,
+      }));
+      sequenceIntents.accepted(`edit:${editingSeq.id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
@@ -702,7 +711,7 @@ export default function Sequences() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold truncate" data-testid={`text-seq-name-${seq.id}`}>{seq.name}</h3>
                         <Badge variant={seq.status === "active" ? "default" : "secondary"} data-testid={`badge-seq-status-${seq.id}`}>
-                          {seq.status}
+                          {seq.retiredAt?"retired (history retained)":seq.status}
                         </Badge>
                         {seq.status === "paused" && (
                           <Badge variant="outline" className="text-yellow-600 border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20" data-testid={`badge-paused-${seq.id}`}>
@@ -816,7 +825,7 @@ export default function Sequences() {
                         variant="ghost"
                         aria-label={seq.status === "active" ? "Pause sequence" : "Activate sequence"}
                         onClick={() => handleToggleClick(seq)}
-                        disabled={toggleMutation.isPending || (seq.status !== "active" && seq.status !== "paused" && seq.status !== "draft")}
+                        disabled={!!seq.retiredAt || toggleMutation.isPending || (seq.status !== "active" && seq.status !== "paused" && seq.status !== "draft")}
                         title={seq.status === "active" ? "Pause this sequence" : "Activate this sequence"}
                         data-testid={`button-toggle-${seq.id}`}
                       >
@@ -834,8 +843,8 @@ export default function Sequences() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        aria-label="Delete sequence"
-                        onClick={() => deleteMutation.mutate(seq.id)}
+                        aria-label={seq.retiredAt?"Restore sequence to paused":"Retire sequence while retaining history"}
+                        onClick={() => seq.retiredAt?restoreMutation.mutate(seq.id):deleteMutation.mutate(seq.id)}
                         data-testid={`button-delete-${seq.id}`}
                       >
                         <Trash2 className="w-4 h-4" />

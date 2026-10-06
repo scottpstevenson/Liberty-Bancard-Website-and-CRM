@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect,useRef } from "react";
+import {useAuth} from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Loader2, Inbox, RefreshCw, AlertTriangle, Mail, MessageSquare, Bot, ArrowLeft, CheckCircle2, Ban, UserCheck, Phone, Calendar, Upload, Zap, Users, ShieldAlert, ExternalLink, Clock, Flag, User } from "lucide-react";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
+import { useMessageDraft } from "@/hooks/use-message-draft";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -60,6 +62,7 @@ interface ClassifyResult {
 }
 
 interface InboxOwnership {
+  version:number;
   sourceItemId?: string;
   ownerId?: string | null;
   ownerName?: string | null;
@@ -174,6 +177,16 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
 }
 
 // ─── Ownership Panel ───────────────────────────────────────────────────────────
+type InboxIntentStore=Record<string,{key:string;payload:any}>;
+function retainedInboxIntent(store:InboxIntentStore,user:any,sourceKey:string,operation:string,version:number,fields:any) {
+  if(!user?.id || !Number.isSafeInteger(user.accountVersion) || !Number.isSafeInteger(version)) {
+    throw new Error("Current account or inbox version unavailable. Reload before saving.");
+  }
+  const key=JSON.stringify([sourceKey,user.id,user.accountVersion,fields]);
+  if(store[operation]?.key!==key) store[operation]={key,payload:{...fields,commandId:crypto.randomUUID(),
+    expectedVersion:version,expectedActorId:user.id,expectedAccountVersion:user.accountVersion}};
+  return store[operation].payload;
+}
 function OwnershipPanel({
   itemId,
   contactId,
@@ -189,8 +202,10 @@ function OwnershipPanel({
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const {user}=useAuth();
+  const intents=useRef<InboxIntentStore>({});
 
-  const { data: ownership, isLoading: ownershipLoading } = useQuery<InboxOwnership>({
+  const { data: ownership, isLoading: ownershipLoading,isError:ownershipError,refetch:reloadOwnership } = useQuery<InboxOwnership>({
     queryKey: ["/api/inbox/items", itemId, "ownership"],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/inbox/items/${itemId}/ownership`);
@@ -220,20 +235,17 @@ function OwnershipPanel({
 
   const assignMutation = useMutation({
     mutationFn: async () => {
-      const selectedStaff = staffList.find((s) => s.id === ownerId);
-      const res = await apiRequest("PATCH", `/api/inbox/items/${itemId}/ownership`, {
-        ownerId: ownerId || undefined,
-        ownerName: selectedStaff
-          ? `${selectedStaff.firstName || ""} ${selectedStaff.lastName || ""}`.trim() || selectedStaff.email || undefined
-          : undefined,
+      const res = await apiRequest("PATCH", `/api/inbox/items/${itemId}/ownership`, retainedInboxIntent(intents.current,user,itemId,"edit",ownership?.version!,{
+        ownerId: ownerId || null,
         department,
         status,
         priority,
         contactId: contactId || undefined,
-      });
+      }));
       return res.json();
     },
     onSuccess: () => {
+      delete intents.current.edit;
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/items", itemId, "ownership"] });
       toast({ title: "Assignment saved" });
     },
@@ -248,15 +260,17 @@ function OwnershipPanel({
       const res = await fetch(`/api/inbox/items/${itemId}/escalate`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) },
-        body: JSON.stringify({ contactId, intent, reason: "Manual escalation from inbox" }),
+        body: JSON.stringify(retainedInboxIntent(intents.current,user,itemId,"escalate",ownership?.version!,
+          {contactId:contactId||undefined,intent,reason:"Manual escalation from inbox"})),
         credentials: "include",
       });
       if (!res.ok) throw new Error((await res.json()).message || "Failed");
       return res.json();
     },
     onSuccess: () => {
+      delete intents.current.escalate;
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/items", itemId, "ownership"] });
-      toast({ title: "🚨 Escalated to Scott", description: "Priority set to urgent, task + notification sent" });
+      toast({ title: "Management review work saved", description: "Unassigned local review task retained. No message was sent." });
       onEscalated?.();
     },
     onError: (err: any) => {
@@ -270,13 +284,15 @@ function OwnershipPanel({
       const res = await fetch(`/api/inbox/items/${itemId}/no-show`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) },
-        body: JSON.stringify({ contactId }),
+        body: JSON.stringify(retainedInboxIntent(intents.current,user,itemId,"no_show",ownership?.version!,
+          {contactId:contactId||undefined})),
         credentials: "include",
       });
       if (!res.ok) throw new Error((await res.json()).message || "Failed");
       return res.json();
     },
     onSuccess: (data: any) => {
+      delete intents.current.no_show;
       queryClient.invalidateQueries({ queryKey: ["/api/inbox/items", itemId, "ownership"] });
       toast({ title: "No-show recorded", description: "Reschedule task created" });
     },
@@ -292,6 +308,9 @@ function OwnershipPanel({
       </div>
     );
   }
+  if(ownershipError || !ownership) return <div role="alert" className="text-sm">
+    Inbox ownership is unavailable. No assignment was inferred. <Button variant="outline" onClick={()=>void reloadOwnership()}>Retry ownership</Button>
+  </div>;
 
   const slaDue = ownership?.slaDueAt;
   const statusMeta = STATUS_META[ownership?.status || "new"] || STATUS_META.new;
@@ -404,7 +423,7 @@ function OwnershipPanel({
           data-testid="button-escalate-ownership"
         >
           {escalateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <ShieldAlert className="w-3 h-3 mr-1" />}
-          Escalate to Scott
+          Request management review
         </Button>
 
         {(intent === "meeting_intent" || intent === "call_me" || intent === "booked") && (
@@ -435,11 +454,17 @@ function OwnershipPanel({
 export default function AiInbox() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const {user}=useAuth();
+  const bookingIntents=useRef<InboxIntentStore>({});
   const [selected, setSelected] = useState<InboxItem | null>(null);
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [search, setSearch] = useState("");
   const [classifying, setClassifying] = useState(false);
+  const persistedReply = useMessageDraft({
+    contextType: "inbox", contextId: selected?.id || "unselected::none",
+    channel: selected?.channel === "sms" ? "sms" : selected?.channel === "ghl_chat" ? "ghl_chat" : "email",
+  }, !!selected, draft => setReplyDraft(draft.body));
 
   const { data, isLoading, isError, refetch } = useQuery<{
     items: InboxItem[];
@@ -499,16 +524,16 @@ export default function AiInbox() {
   const bookAppointmentMutation = useMutation({
     mutationFn: async () => {
       if (!selected) throw new Error("No item selected");
+      const ownershipResponse=await apiRequest("GET",`/api/inbox/items/${selected.id}/ownership`);
+      const currentOwnership=await ownershipResponse.json();
       const csrf = getCsrfToken();
       const res = await fetch(`/api/inbox/items/${selected.id}/book-appointment`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) },
-        body: JSON.stringify({
-          contactId: selected.contactId,
-          contactName: selected.contactName,
-          companyName: selected.companyName,
+        body: JSON.stringify(retainedInboxIntent(bookingIntents.current,user,selected.id,"book",currentOwnership.version,{
+          contactId: selected.contactId || undefined,
           intent: classifyResult?.classification.intent,
-        }),
+        })),
         credentials: "include",
       });
       const body = await res.json();
@@ -516,6 +541,8 @@ export default function AiInbox() {
       return body;
     },
     onSuccess: (data: any) => {
+      delete bookingIntents.current.book;
+      queryClient.invalidateQueries({queryKey:["/api/inbox/items"]});
       if (data.bookingUrl) {
         // Insert booking link into reply draft
         setReplyDraft((prev) => {
@@ -526,17 +553,24 @@ export default function AiInbox() {
           window.open(data.bookingUrl, "_blank");
         }
       }
-      toast({ title: data.taskCreated ? "Booking task created" : "Booking link generated", description: data.hasCalendar ? "Calendar link inserted into reply" : "Manual booking task created" });
+      toast({ title:"Appointment preparation saved — not booked",description:data.hasCalendar?
+        "Configured link added to the reply draft. No message was sent.":"Manual review task saved; calendar link is not configured." });
     },
     onError: (err: any) => {
       toast({ title: "Book Appointment failed", description: err.message, variant: "destructive" });
     },
   });
 
-  const handleSelectItem = useCallback(async (item: InboxItem) => {
+  const handleSelectItem = useCallback((item: InboxItem) => {
     setSelected(item);
     setClassifyResult(null);
     setReplyDraft("");
+  }, []);
+
+  // Selecting/reopening a draft must not generate content or call a provider.
+  const classifySelected = async () => {
+    const item = selected;
+    if (!item) return;
     setClassifying(true);
     try {
       const res = await apiRequest("POST", `/api/inbox/items/${item.id}/classify`, {
@@ -546,13 +580,13 @@ export default function AiInbox() {
       });
       const result: ClassifyResult = await res.json();
       setClassifyResult(result);
-      setReplyDraft(result.suggestedReply);
+      if (!replyDraft) setReplyDraft(result.suggestedReply);
     } catch (err: any) {
       toast({ title: "Classification failed", description: err.message, variant: "destructive" });
     } finally {
       setClassifying(false);
     }
-  }, [toast]);
+  };
 
   const handleInsertUploadInstructions = useCallback(() => {
     const bookingUrl = classifyResult?.bookingUrl || "https://api.leadconnectorhq.com/widget/booking/YFiIy7oIOUXN2qZZPnOr";
@@ -820,6 +854,16 @@ export default function AiInbox() {
                 {/* Reply draft */}
                 <div className="p-4 border-b">
                   <p className="text-xs font-medium text-muted-foreground mb-2">Reply Draft (editable)</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <Button size="sm" variant="outline" disabled={classifying} onClick={() => void classifySelected()}>Classify selected item</Button>
+                    <Button size="sm" variant="outline" disabled={persistedReply.loading || persistedReply.save.isPending}
+                      onClick={() => persistedReply.retrySave({ subject: "", body: replyDraft })}>Save reply draft</Button>
+                    <Button size="sm" variant="outline" disabled={persistedReply.loading}
+                      onClick={() => { if (!replyDraft || window.confirm("Replace editor text with the saved reply? Copy unsaved text first.")) void persistedReply.reopen() }}>Reopen saved reply</Button>
+                  </div>
+                  <p role={persistedReply.error ? "alert" : "status"} className="text-xs mb-2">
+                    {persistedReply.error || (persistedReply.loading ? "Loading saved reply…" : persistedReply.savedAt ? `Saved v${persistedReply.version}. Not delivered.` : "Draft only. Saving never sends or generates.")}
+                  </p>
                   <Textarea
                     value={replyDraft}
                     onChange={e => setReplyDraft(e.target.value)}

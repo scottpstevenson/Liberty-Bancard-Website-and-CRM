@@ -26,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { exportToCSV } from "@/lib/export-csv";
 import { getDealCardIdentity as dealCardIdentityFn } from "@/lib/deal-identity";
 import type { Deal, Contact, PipelineStage, Agent, AgentMerchant, CoBrandedProposal } from "@shared/schema";
@@ -1339,11 +1340,8 @@ export default function Pipeline() {
   const [detailOpen, setDetailOpen] = useState(false);
   const search = useSearch();
   const [, navigatePipeline] = useLocation();
-  const dealIdParam = (() => {
-    const v = new URLSearchParams(search).get("id");
-    const n = v ? Number(v) : NaN;
-    return Number.isFinite(n) ? n : null;
-  })();
+  const selectedRecord=useAuthorizedSelectedRecord<Deal>("/api/deals",search);
+  const dealIdParam=selectedRecord.id;
   const [configOpen, setConfigOpen] = useState(false);
   const [configPipeline, setConfigPipeline] = useState("sales");
   const [addStageName, setAddStageName] = useState("");
@@ -2149,8 +2147,8 @@ export default function Pipeline() {
   };
 
   useEffect(() => {
-    if (dealIdParam == null || !deals) return;
-    const deal = deals.find((d) => d.id === dealIdParam);
+    if (dealIdParam == null || !selectedRecord.data) return;
+    const deal = selectedRecord.data;
     if (deal && (!detailOpen || selectedDeal?.id !== dealIdParam)) {
       openDealDetail(deal);
       // #229 — Auto-scroll the kanban card into view
@@ -2159,7 +2157,9 @@ export default function Pipeline() {
         el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
       }, 300);
     }
-  }, [dealIdParam, deals]);
+  }, [dealIdParam, selectedRecord.data]);
+  useEffect(()=>{if(selectedRecord.isError || selectedRecord.invalid) {setDetailOpen(false);setSelectedDeal(null);}},
+    [selectedRecord.isError,selectedRecord.invalid]);
 
   const getDealsByStage = (stage: string) => {
     const filtered = (deals || []).filter((d) => {
@@ -2262,6 +2262,9 @@ export default function Pipeline() {
 
   return (
     <div className="space-y-6" data-testid="pipeline-page">
+      {(selectedRecord.isError || selectedRecord.invalid) && <div role="alert">Requested record unavailable.
+        {!selectedRecord.invalid && <Button onClick={()=>void selectedRecord.refetch()}>Retry selected record</Button>}
+      </div>}
       {/* #190 — Sticky header on scroll */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-2 px-2 pb-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

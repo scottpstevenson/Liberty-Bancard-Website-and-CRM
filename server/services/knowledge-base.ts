@@ -135,12 +135,10 @@ export async function listKnowledgeSources(opts?: {
   status?: string;
   audience?: string;
 }): Promise<KnowledgeSource[]> {
-  let q = `SELECT * FROM knowledge_sources WHERE 1=1`;
-  const params: unknown[] = [];
-  if (opts?.status) { q += ` AND status = $${params.length + 1}`; params.push(opts.status); }
-  if (opts?.audience) { q += ` AND audience = $${params.length + 1}`; params.push(opts.audience); }
-  q += ` ORDER BY updated_at DESC`;
-  const { rows } = await (db as any).execute({ sql: q, params });
+  const { rows } = await db.execute(sql`SELECT * FROM knowledge_sources WHERE TRUE
+    ${opts?.status ? sql`AND status = ${opts.status}` : sql``}
+    ${opts?.audience ? sql`AND audience = ${opts.audience}` : sql``}
+    ORDER BY updated_at DESC, id DESC`);
   return (rows as any[]).map(rowToSource);
 }
 
@@ -173,18 +171,13 @@ export async function updateKnowledgeSource(id: number, data: Partial<{
   content: string;
   metadata: Record<string, unknown>;
 }>): Promise<KnowledgeSource | null> {
-  const sets: string[] = ["updated_at = NOW()"];
-  const params: unknown[] = [];
-
-  if (data.title !== undefined) { sets.push(`title = $${params.length + 1}`); params.push(data.title); }
-  if (data.status !== undefined) { sets.push(`status = $${params.length + 1}`); params.push(data.status); }
-  if (data.audience !== undefined) { sets.push(`audience = $${params.length + 1}`); params.push(data.audience); }
-  if (data.content !== undefined) { sets.push(`content = $${params.length + 1}`); params.push(data.content); }
-  if (data.metadata !== undefined) { sets.push(`metadata = $${params.length + 1}::jsonb`); params.push(JSON.stringify(data.metadata)); }
-
-  params.push(id);
-  const q = `UPDATE knowledge_sources SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING *`;
-  const { rows } = await (db as any).execute({ sql: q, params });
+  const sets = [sql`updated_at = NOW()`];
+  if (data.title !== undefined) sets.push(sql`title = ${data.title}`);
+  if (data.status !== undefined) sets.push(sql`status = ${data.status}`);
+  if (data.audience !== undefined) sets.push(sql`audience = ${data.audience}`);
+  if (data.content !== undefined) sets.push(sql`content = ${data.content}`);
+  if (data.metadata !== undefined) sets.push(sql`metadata = ${JSON.stringify(data.metadata)}::jsonb`);
+  const { rows } = await db.execute(sql`UPDATE knowledge_sources SET ${sql.join(sets, sql`, `)} WHERE id = ${id} RETURNING *`);
   return rows.length ? rowToSource(rows[0]) : null;
 }
 
@@ -427,9 +420,7 @@ export async function retrieveChunks(opts: {
   }
 
   // Fetch chunks only from each source's currently published revision.
-  const placeholders = allowedAudiences.map((_, i) => `$${i + 1}`).join(", ");
-  const { rows } = await (db as any).execute({
-    sql: `SELECT kc.id, kc.source_id, kc.source_revision_id, kc.chunk_index, kc.content, kc.embedding,
+  const { rows } = await db.execute(sql`SELECT kc.id, kc.source_id, kc.source_revision_id, kc.chunk_index, kc.content, kc.embedding,
                  ks.title, ks.audience
           FROM knowledge_chunks kc
           JOIN knowledge_sources ks ON ks.id = kc.source_id
@@ -437,12 +428,10 @@ export async function retrieveChunks(opts: {
           WHERE ks.status = 'published'
             AND ks.current_published_revision_id IS NOT NULL
             AND kc.source_revision_id = ks.current_published_revision_id
-            AND ks.audience = ANY(ARRAY[${placeholders}]::text[])
+            AND ks.audience = ANY(ARRAY[${sql.join(allowedAudiences.map(v => sql`${v}`), sql`, `)}]::text[])
             AND kc.embedding IS NOT NULL
           ORDER BY kc.id
-          LIMIT ${MAX_CHUNKS}`,
-    params: allowedAudiences,
-  });
+          LIMIT ${MAX_CHUNKS}`);
 
   // Rank by cosine similarity
   const scored: Array<RetrievedChunk & { _score: number }> = [];
@@ -481,20 +470,16 @@ async function keywordFallback(
 
   const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = words.slice(0, 5).map(escapeRegex).join("|");
-  const placeholders = audiences.map((_, i) => `$${i + 2}`).join(", ");
-  const { rows } = await (db as any).execute({
-    sql: `SELECT kc.id, kc.source_id, kc.source_revision_id, kc.content, ks.title, ks.audience
+  const { rows } = await db.execute(sql`SELECT kc.id, kc.source_id, kc.source_revision_id, kc.content, ks.title, ks.audience
           FROM knowledge_chunks kc
           JOIN knowledge_sources ks ON ks.id = kc.source_id
           JOIN knowledge_source_revisions ksr ON ksr.id = ks.current_published_revision_id
           WHERE ks.status = 'published'
             AND ks.current_published_revision_id IS NOT NULL
             AND kc.source_revision_id = ks.current_published_revision_id
-            AND ks.audience = ANY(ARRAY[${placeholders}]::text[])
-            AND kc.content ~* $1
-          LIMIT ${topK}`,
-    params: [pattern, ...audiences],
-  });
+            AND ks.audience = ANY(ARRAY[${sql.join(audiences.map(v => sql`${v}`), sql`, `)}]::text[])
+            AND kc.content ~* ${pattern}
+          LIMIT ${topK}`);
 
   return (rows as any[]).map(row => ({
     sourceId: row.source_id,

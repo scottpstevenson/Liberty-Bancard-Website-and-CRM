@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
+import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { useToast } from "@/hooks/use-toast";
 
 const CACHE_KEY = "mobile_deals_cache";
@@ -352,6 +353,7 @@ function StageSection({ stage, deals, onDealTap }: {
 export default function MobilePipeline() {
   const cached = getCached();
   const { user } = useAuth();
+  const noteIntents=useRetainedLocalIntent();
   const [, setLocation] = useLocation();
   const [selectedDeal, setSelectedDeal] = useState<any>(null);
   const [noteText, setNoteText] = useState("");
@@ -442,7 +444,8 @@ export default function MobilePipeline() {
 
   const addNoteMutation = useMutation({
     mutationFn: async ({ dealId, content }: { dealId: number; content: string }) => {
-      const res = await apiRequest("POST", "/api/notes", { entityType: "deal", entityId: dealId, content });
+      const res = await apiRequest("POST", "/api/notes",noteIntents.payload(`create:${dealId}`,{entityType:"deal",entityId:dealId,content}));
+      noteIntents.accepted(`create:${dealId}`);
       return res.json();
     },
     onSuccess: () => {

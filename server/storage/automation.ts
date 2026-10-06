@@ -165,13 +165,14 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async updateFollowUpSequence(id: number, updates: Partial<InsertFollowUpSequence>) {
-    const [updated] = await db.update(followUpSequences).set({ ...updates, updatedAt: new Date() }).where(eq(followUpSequences.id, id)).returning();
+    const [updated] = await db.update(followUpSequences).set({ ...updates,version:sql`${followUpSequences.version}+1`, updatedAt: new Date() })
+      .where(and(eq(followUpSequences.id, id),sql`${followUpSequences.retiredAt} IS NULL`)).returning();
     return updated;
   }
 
 
   async deleteFollowUpSequence(id: number) {
-    await db.delete(followUpSequences).where(eq(followUpSequences.id, id));
+    throw new Error("Sequence history is retained. Use the authorized versioned retirement command.");
   }
 
 
@@ -181,14 +182,27 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async createSequenceStep(step: InsertSequenceStep) {
-    const [created] = await db.insert(sequenceSteps).values(step).returning();
-    return created;
+    return db.transaction(async tx=>{
+      const [parent]=await tx.select().from(followUpSequences).where(eq(followUpSequences.id,step.sequenceId!)).for("update");
+      if(!parent || parent.retiredAt || !["paused","draft"].includes(parent.status ?? "")) throw new Error("Sequence must be live and paused/draft before changing its steps");
+      const [created]=await tx.insert(sequenceSteps).values(step).returning();
+      await tx.update(followUpSequences).set({version:parent.version+1,updatedAt:new Date()}).where(eq(followUpSequences.id,parent.id));
+      return created;
+    });
   }
 
 
   async updateSequenceStep(id: number, updates: Partial<InsertSequenceStep>) {
-    const [updated] = await db.update(sequenceSteps).set(updates).where(eq(sequenceSteps.id, id)).returning();
-    return updated;
+    return db.transaction(async tx=>{
+      const [metadata]=await tx.select({sequenceId:sequenceSteps.sequenceId}).from(sequenceSteps).where(eq(sequenceSteps.id,id));
+      if(!metadata?.sequenceId) return undefined;
+      const [parent]=await tx.select().from(followUpSequences).where(eq(followUpSequences.id,metadata.sequenceId)).for("update");
+      if(!parent || parent.retiredAt || !["paused","draft"].includes(parent.status ?? "")) throw new Error("Sequence must be live and paused/draft before changing its steps");
+      if(updates.sequenceId!==undefined && updates.sequenceId!==metadata.sequenceId) throw new Error("Sequence steps cannot be reparented");
+      const [updated]=await tx.update(sequenceSteps).set(updates).where(and(eq(sequenceSteps.id,id),eq(sequenceSteps.sequenceId,parent.id))).returning();
+      await tx.update(followUpSequences).set({version:parent.version+1,updatedAt:new Date()}).where(eq(followUpSequences.id,parent.id));
+      return updated;
+    });
   }
 
 
@@ -202,7 +216,7 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async deleteSequenceStep(id: number) {
-    await db.delete(sequenceSteps).where(eq(sequenceSteps.id, id));
+    throw new Error("Step deletion unavailable until history/dependency retention is certified. Edit the step or retire the sequence; receipts are retained.");
   }
 
 
@@ -229,7 +243,7 @@ import { coerceDateFields } from "../utils/date-coerce";
         // SELECT FOR UPDATE prevents any concurrent UPDATE (e.g. pause) from
         // committing until our transaction finishes.
         const seqRows = await tx.execute(
-          sql`SELECT status FROM follow_up_sequences WHERE id = ${enrollment.sequenceId} FOR UPDATE`
+          sql`SELECT status FROM follow_up_sequences WHERE id = ${enrollment.sequenceId} AND retired_at IS NULL FOR UPDATE`
         );
         const seqStatus = (seqRows.rows[0] as any)?.status;
         if (!seqStatus) {

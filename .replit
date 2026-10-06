@@ -30,6 +30,10 @@ externalPort = 3002
 localPort = 23636
 externalPort = 3000
 
+[[ports]]
+localPort = 24678
+externalPort = 5000
+
 [env]
 PORT = "5000"
 
@@ -81,12 +85,12 @@ args = "npx tsx scripts/check-api-coverage.ts"
 name = "role-guards"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npx tsx scripts/smoke-role-guards.ts"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx scripts/run-sfp2060-predeploy-disposable.ts --only scripts/smoke-role-guards.ts"
 
 [[workflows.workflow]]
 name = "seo-audit"

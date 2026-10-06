@@ -13,6 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2, ShieldCheck, ShieldOff, RotateCcw, Monitor, Trash2, LogOut, Clock, MapPin } from "lucide-react";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
 
 interface AdminUser {
   id: string;
@@ -25,6 +26,8 @@ interface AdminUser {
   totpEnabled: boolean | null;
   permissions: string[] | null;
   createdAt: string | null;
+  accountState: "active" | "deactivated";
+  accountVersion: number;
 }
 
 interface MfaSettings {
@@ -207,8 +210,9 @@ export default function UserManagement() {
   const { user } = useAuth();
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [expandedSessionsUserId, setExpandedSessionsUserId] = useState<string | null>(null);
+  const [rep, setRep] = useState({ firstName: "", lastName: "", email: "" });
 
-  const { data: users, isLoading } = useQuery<AdminUser[]>({
+  const { data: users, isLoading, isError: usersError, refetch: retryUsers } = useQuery<AdminUser[]>({
     queryKey: ["/api/admin/users"],
   });
 
@@ -218,7 +222,9 @@ export default function UserManagement() {
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: string }) => {
-      const res = await apiRequest("PUT", `/api/admin/users/${id}/role`, { role });
+      const expectedVersion = users?.find(u => u.id === id)?.accountVersion;
+      if (!expectedVersion) throw new Error("Reload this account before changing it.");
+      const res = await apiRequest("PUT", `/api/admin/users/${id}/role`, { role, expectedVersion });
       return res.json();
     },
     onSuccess: () => {
@@ -230,6 +236,29 @@ export default function UserManagement() {
     },
   });
 
+  const lifecycleMutation = useMutation({
+    mutationFn: async (u: AdminUser) => apiRequest("POST", `/api/admin/users/${u.id}/lifecycle`, {
+      action: u.accountState === "active" ? "deactivate" : "reactivate", expectedVersion: u.accountVersion,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Account state saved", description: "Assignments and history remain. Sessions and prior recovery links were invalidated. No outreach was enabled." });
+    },
+    onError: (error: Error) => toast({ title: "Account change blocked", description: error.message, variant: "destructive" }),
+  });
+  const inviteMutation = useMutation({
+    mutationFn: async (userId?: string) => {
+      const response = await apiRequest("POST", userId ? "/api/activation/resend-rep-invite" : "/api/activation/provision-rep",
+        userId ? { userId } : rep);
+      return response.json();
+    },
+    onSuccess: data => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Provisioning result", description: data.message || (data.emailSent || data.inviteSent
+        ? "Invitation sent." : "Account retained. Check the returned invitation status; delivery is not confirmed.") });
+    },
+    onError: (error: Error) => toast({ title: "Invitation unavailable", description: error.message, variant: "destructive" }),
+  });
   const toggleMfaRequiredMutation = useMutation({
     mutationFn: async (required: boolean) => {
       const res = await apiRequest("PUT", "/api/admin/mfa-settings", { mfaRequired: required });
@@ -252,7 +281,9 @@ export default function UserManagement() {
 
   const resetMfaMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const res = await apiRequest("POST", `/api/admin/users/${userId}/reset-2fa`);
+      const expectedVersion = users?.find(u => u.id === userId)?.accountVersion;
+      if (!expectedVersion) throw new Error("Reload this account before recovery.");
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/reset-2fa`, { expectedVersion });
       return res.json();
     },
     onSuccess: () => {
@@ -322,7 +353,17 @@ export default function UserManagement() {
           <CardTitle data-testid="text-user-management-title">User Management</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          <details className="mb-4 space-y-3">
+            <summary className="cursor-pointer font-medium">Provision a rep using the existing invitation service</summary>
+            <p className="text-sm text-muted-foreground">Provisioning or resending may send an account invitation when SMTP is configured. This does not activate outreach.</p>
+            <form className="grid gap-3 sm:grid-cols-3" onSubmit={event => { event.preventDefault(); inviteMutation.mutate(undefined); }}>
+              <Input aria-label="Rep first name" required maxLength={100} value={rep.firstName} onChange={e => setRep({ ...rep, firstName: e.target.value })} placeholder="First name" />
+              <Input aria-label="Rep last name" required maxLength={100} value={rep.lastName} onChange={e => setRep({ ...rep, lastName: e.target.value })} placeholder="Last name" />
+              <Input aria-label="Rep email" required type="email" maxLength={190} value={rep.email} onChange={e => setRep({ ...rep, email: e.target.value })} placeholder="Email" />
+              <Button type="submit" disabled={inviteMutation.isPending}>Provision rep</Button>
+            </form>
+          </details>
+          {usersError ? <div role="alert"><p>Account list unavailable. No account state can be inferred.</p><Button onClick={() => void retryUsers()}>Retry accounts</Button></div> : isLoading ? (
             <div className="space-y-3" data-testid="skeleton-loading">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
@@ -357,6 +398,18 @@ export default function UserManagement() {
                         </TableCell>
                         <TableCell data-testid={`text-email-${u.id}`}>
                           {u.email || "-"}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Badge variant="outline">{u.accountState === "deactivated" ? "Login deactivated · history retained" : "Login active"}</Badge>
+                            <Button size="sm" variant="outline" disabled={u.id === user?.id || lifecycleMutation.isPending}
+                              onClick={() => {
+                                if (window.confirm(u.accountState === "active"
+                                  ? "Deactivate this login and invalidate its sessions? Attribution and open assignments will be retained."
+                                  : "Reactivate this login? It will not enable any sends or restore old sessions.")) lifecycleMutation.mutate(u);
+                              }}>{u.accountState === "active" ? "Deactivate login" : "Reactivate login"}</Button>
+                            {["agent", "manager"].includes(u.role || "") && <Button size="sm" variant="outline"
+                              disabled={u.accountState !== "active" || inviteMutation.isPending}
+                              onClick={() => { if (window.confirm("Resend this account invitation if the existing service permits it?")) inviteMutation.mutate(u.id); }}>Resend invitation</Button>}
+                          </div>
                         </TableCell>
                         <TableCell data-testid={`cell-role-${u.id}`}>
                           <Select

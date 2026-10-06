@@ -14,6 +14,7 @@
 import type { Contact } from "@shared/schema";
 import { getQueueManager } from "./queue-manager";
 import { resolveContactTargetVertical } from "@shared/contact-vertical-taxonomy";
+import { isPlaceholderEmail } from "./zerobounce-eligibility";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -82,6 +83,9 @@ const INVALID_PHONE_TYPES = new Set(["invalid", "landline_unverified"]);
 export function isValidEmail(email: string | null | undefined): boolean {
   if (!email || !email.trim()) return false;
   const e = email.trim().toLowerCase();
+  // Address completeness only: internal import placeholders are not an address.
+  // This does not classify the contact or grant/deny channel permission.
+  if (isPlaceholderEmail(e)) return false;
   if (EMAIL_PLACEHOLDERS.has(e)) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }

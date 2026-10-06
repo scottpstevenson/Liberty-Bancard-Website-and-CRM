@@ -12,6 +12,7 @@ import { registerDealsRoutes } from "./routes/deals";
 import { registerTicketsTasksRoutes } from "./routes/tickets-tasks";
 import { registerDocumentsRoutes } from "./routes/documents";
 import { registerNotificationsRoutes } from "./routes/notifications";
+import { registerMessageDraftRoutes } from "./routes/message-drafts";
 import { registerPublicRoutes } from "./routes/public";
 import { registerWorkflowsRoutes } from "./routes/workflows";
 import { registerAiRoutes } from "./routes/ai";
@@ -142,6 +143,7 @@ export async function registerRoutes(
   registerTicketsTasksRoutes(app);
   registerDocumentsRoutes(app);
   registerNotificationsRoutes(app);
+  registerMessageDraftRoutes(app);
   registerPublicRoutes(app);
   registerWorkflowsRoutes(app);
   registerAiRoutes(app);

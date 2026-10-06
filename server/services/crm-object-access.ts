@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { storage } from "../storage";
-import { getInboxItem } from "../storage/inbox";
+import { getInboxItem,getInboxAccessMetadata } from "../storage/inbox";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
@@ -12,7 +12,7 @@ function isPrivileged(user: DashboardUser | undefined): boolean {
   return user?.role === "admin" || user?.role === "manager";
 }
 
-function canAccessOwner(user: DashboardUser | undefined, owner: string | null | undefined, exact: boolean): boolean {
+export function canAccessOwner(user: DashboardUser | undefined, owner: string | null | undefined, exact: boolean): boolean {
   if (isPrivileged(user)) return true;
   if (user?.role !== "agent" || !user.email) return false;
   return exact ? owner === user.email : owner === null || owner === undefined || owner === user.email;
@@ -77,11 +77,13 @@ export async function authorizeInboxItemAccess(
   sourceItemId: string,
   options: { exactAssignment?: boolean } = {},
 ) {
-  const item = await getInboxItem(sourceItemId);
-  const contactId = item?.contactId;
+  const metadata=await getInboxAccessMetadata(sourceItemId);
+  const contactId = metadata?.contactId;
   if (!contactId) return denyCrmObject(res);
   const contact = await authorizeContactAccess(req, res, contactId, options);
   if (!contact) return false;
+  const item = await getInboxItem(sourceItemId);
+  if(!item || item.contactId!==contactId) return denyCrmObject(res);
   return {
     item,
     contact,

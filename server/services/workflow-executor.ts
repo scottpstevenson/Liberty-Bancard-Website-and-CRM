@@ -130,6 +130,16 @@ export async function executeWorkflowActions(
   runId?: number,
   startStep: number = 0
 ): Promise<{ status: string; log: any[]; runId: number }> {
+  const workflow = await storage.getWorkflow(workflowId);
+  if (!workflow || workflow.retiredAt || !workflow.enabled) {
+    return { status: "blocked", log: [{ action: "workflow_unavailable", status: "blocked" }], runId: runId ?? 0 };
+  }
+  if (runId) {
+    const existing = await storage.getWorkflowRun(runId);
+    if (!existing || existing.workflowId !== workflowId || ["completed", "failed", "cancelled"].includes(existing.status || "")) {
+      return { status: "blocked", log: [{ action: "run_unavailable", status: "blocked" }], runId };
+    }
+  }
   const { contactId, dealId } = await resolveContext(ctx);
   let logEntries: any[] = [];
 
@@ -463,7 +473,7 @@ export async function triggerWorkflowsByEvent(
 
   try {
     const matchingWorkflows = await storage.getWorkflowsByTrigger(event);
-    const activeWorkflows = matchingWorkflows.filter(w => w.enabled);
+    const activeWorkflows = matchingWorkflows.filter(w => w.enabled && !w.retiredAt);
 
     const eventClassification = ctx.data?.classification?.intent as string | undefined;
 

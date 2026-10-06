@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback,useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -38,6 +38,7 @@ type DigestAvailability = {
 };
 
 type NotificationRecord = {
+  target?:{state:string;url:string|null;label?:string;context?:string};
   id: number;
   title: string;
   message: string;
@@ -123,42 +124,7 @@ function asNumber(value: unknown): number | null {
 }
 
 function getNotificationLink(notification: NotificationRecord): string | null {
-  const m: NotificationLinkMetadata = (notification.metadata || {}) as NotificationLinkMetadata;
-
-  if (typeof m.link === "string" && m.link.startsWith("/")) return m.link;
-
-  const entityId = asNumber(m.entityId);
-  if (m.entityType && entityId != null) {
-    switch (m.entityType) {
-      case "contact": return `/dashboard/contacts/${entityId}`;
-      case "ticket": return `/dashboard/tickets?id=${entityId}`;
-      case "deal": return `/dashboard/pipeline?id=${entityId}`;
-      case "rfi": return `/dashboard/rfis?id=${entityId}`;
-      case "chat": return `/dashboard/live-chat?id=${entityId}`;
-      case "merchant":
-      case "lead": return `/dashboard/sdr?id=${entityId}`;
-    }
-  }
-
-  const contactId = asNumber(m.contactId);
-  const ticketId = asNumber(m.ticketId);
-  const rfiId = asNumber(m.rfiId);
-  const chatId = asNumber(m.chatId);
-  const dealId = asNumber(m.dealId);
-  const merchantId = asNumber(m.merchantId);
-  const leadId = asNumber(m.leadId);
-  const importId = asNumber(m.importId);
-
-  if (ticketId != null) return `/dashboard/tickets?id=${ticketId}`;
-  if (rfiId != null) return `/dashboard/rfis?id=${rfiId}`;
-  if (chatId != null) return `/dashboard/live-chat?id=${chatId}`;
-  if (dealId != null) return `/dashboard/pipeline?id=${dealId}`;
-  if (contactId != null) return `/dashboard/contacts/${contactId}`;
-  if (merchantId != null) return `/dashboard/sdr?id=${merchantId}`;
-  if (leadId != null) return `/dashboard/sdr?id=${leadId}`;
-  if (importId != null) return `/dashboard/residual-revenue`;
-  if (m.digestType === "daily" || m.digestType === "weekly") return `/dashboard`;
-  return null;
+  return notification.target?.state==="available" ? notification.target.url:null;
 }
 
 function formatEventType(eventType: string): string {
@@ -212,7 +178,8 @@ export default function Notifications() {
     enabled: prefsOpen,
   });
 
-  const queryKey = ["/api/notifications", category, offset];
+  const queryKey = ["/api/notifications",user?.id,user?.accountVersion,category,offset];
+  useEffect(()=>{setOffset(0);setAllLoaded([]);},[user?.id,user?.accountVersion]);
 
   const { data: page, isLoading, isError, refetch } = useQuery<PaginatedNotifications>({
     queryKey,
@@ -319,15 +286,17 @@ export default function Notifications() {
     },
   });
 
-  const handleNotificationClick = useCallback((notification: NotificationRecord) => {
-    const link = getNotificationLink(notification);
+  const handleNotificationClick = useCallback(async(notification: NotificationRecord) => {
     if (!notification.read) {
       markReadMutation.mutate(notification.id);
     }
-    if (link) {
-      navigate(link);
-    }
-  }, [navigate, markReadMutation]);
+    try {
+      const response=await apiRequest("GET",`/api/notifications/${notification.id}/target`);
+      const target=await response.json();
+      if(target.state==="available" && target.url) navigate(target.url);
+      else toast({title:"Record unavailable",description:"The destination is missing, archived, unsupported or no longer authorized."});
+    } catch(error) {toastError(error as Error,{title:"Destination unavailable — retry"});}
+  }, [navigate,markReadMutation,toast,toastError]);
 
   const updatePrefMutation = useMutation({
     mutationFn: async (params: { eventType: string; enabled?: boolean; emailEnabled?: boolean; digestDaily?: boolean; digestWeekly?: boolean }) => {
@@ -673,6 +642,9 @@ export default function Notifications() {
                           {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""}
                         </div>
                       </div>
+                      {notification.target?.context==="authorized_list_fallback" && <span className="text-xs text-muted-foreground">
+                        {notification.target.label}
+                      </span>}
                       <Button
                         variant="ghost"
                         size="icon"

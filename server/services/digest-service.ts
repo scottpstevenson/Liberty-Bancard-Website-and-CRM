@@ -3,6 +3,7 @@ import { pool } from "../db";
 import { sendGhlInternalNotification, isGhlConfigured } from "./ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import type { InsertNotification } from "@shared/schema";
+import { readTaskDigestFacts, readTaskMetrics } from "./task-read-authority";
 // CRO-02 observation moved to the CRO02_OBSERVATION BullMQ job — not called inline here.
 
 async function deliverDigestEmail(to: string, subject: string, html: string): Promise<void> {
@@ -58,9 +59,7 @@ export async function buildDailyDigest(): Promise<{
     dealsProgressedRow,
     closedWonRow,
     closedLostRow,
-    tasksCompletedRow,
-    tasksOverdueCountRow,
-    tasksOverdueRows,
+    taskFacts,
     newTicketsRow,
     resolvedTicketsRow,
   ] = await Promise.all([
@@ -84,18 +83,7 @@ export async function buildDailyDigest(): Promise<{
       SELECT COUNT(*)::text AS cnt FROM deals
       WHERE archived_at IS NULL AND stage = 'Closed Lost' AND closed_at >= $1
     `, [twentyFourHoursAgo]),
-    pool.query<{ cnt: string }>(`
-      SELECT COUNT(*)::text AS cnt FROM tasks
-      WHERE status = 'completed' AND completed_at >= $1
-    `, [twentyFourHoursAgo]),
-    pool.query<{ cnt: string }>(`
-      SELECT COUNT(*)::text AS cnt FROM tasks WHERE status != 'completed' AND due_date < $1
-    `, [now]),
-    pool.query<{ id: number; title: string; assigned_to: string | null; due_date: string | null }>(`
-      SELECT id, title, assigned_to, due_date FROM tasks
-      WHERE status != 'completed' AND due_date < $1
-      ORDER BY due_date ASC LIMIT 10
-    `, [now]),
+    readTaskDigestFacts({ actor: { role: "admin" }, recordClass: "production", asOf: now, timezone: "UTC" }, twentyFourHoursAgo),
     pool.query<{ cnt: string }>(`
       SELECT COUNT(*)::text AS cnt FROM tickets WHERE created_at >= $1
     `, [twentyFourHoursAgo]),
@@ -105,7 +93,7 @@ export async function buildDailyDigest(): Promise<{
   ]);
 
   const newLeads = newLeadsRows.rows;
-  const tasksOverdue = tasksOverdueRows.rows;
+  const tasksOverdue = taskFacts.overdue_rows;
 
   // --- Churn risk: High + Critical merchants ---
   let highRiskChurnMerchants: { name: string; score: number; tier: string }[] = [];
@@ -134,8 +122,9 @@ export async function buildDailyDigest(): Promise<{
     dealsProgressedCount: parseInt(dealsProgressedRow.rows[0]?.cnt ?? "0", 10),
     closedWonCount: parseInt(closedWonRow.rows[0]?.cnt ?? "0", 10),
     closedLostCount: parseInt(closedLostRow.rows[0]?.cnt ?? "0", 10),
-    tasksCompletedCount: parseInt(tasksCompletedRow.rows[0]?.cnt ?? "0", 10),
-    tasksOverdueCount: parseInt(tasksOverdueCountRow.rows[0]?.cnt ?? "0", 10),
+    tasksCompletedCount: taskFacts.completed,
+    tasksOverdueCount: taskFacts.overdue,
+    taskMetricContract: taskFacts.contract,
     newTicketsCount: parseInt(newTicketsRow.rows[0]?.cnt ?? "0", 10),
     resolvedTicketsCount: parseInt(resolvedTicketsRow.rows[0]?.cnt ?? "0", 10),
     churnAtRiskCount: highRiskChurnMerchants.length,
@@ -238,9 +227,7 @@ export async function buildWeeklyDigest(): Promise<{
     pool.query<{ cnt: string }>(`
       SELECT COUNT(*)::text AS cnt FROM tickets WHERE resolved_at >= $1
     `, [sevenDaysAgo]),
-    pool.query<{ cnt: string }>(`
-      SELECT COUNT(*)::text AS cnt FROM tasks WHERE status != 'completed' AND due_date < $1
-    `, [now]),
+    readTaskMetrics({ actor: { role: "admin" }, recordClass: "production", asOf: now, timezone: "UTC" }),
     pool.query<{ total_value: string }>(`
       SELECT COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL AND estimated_gross_profit_monthly != ''
         THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_value
@@ -286,7 +273,8 @@ export async function buildWeeklyDigest(): Promise<{
     avgCycleTimeDays: Math.round(parseFloat(avgCycleRow.rows[0]?.avg_days ?? "0")),
     newTickets: parseInt(newTicketsRow.rows[0]?.cnt ?? "0", 10),
     resolvedTickets: parseInt(resolvedTicketsRow.rows[0]?.cnt ?? "0", 10),
-    overdueTaskCount: parseInt(overdueTasksRow.rows[0]?.cnt ?? "0", 10),
+    overdueTaskCount: overdueTasksRow.rows[0].overdue,
+    taskMetricContract: overdueTasksRow.meta,
     topSources,
     leaderboard,
   };
@@ -334,12 +322,10 @@ export async function createPreferenceAwareNotification(
   notif: InsertNotification,
   eventType?: string
 ): Promise<void> {
-  if (eventType && notif.recipientId) {
-    const prefs = await storage.getNotificationPreferences(notif.recipientId);
-    const pref = prefs.find((p) => p.eventType === eventType);
-    if (pref && pref.enabled === false) return;
-  }
-  await storage.createNotification(notif);
+  // Retain the occurrence; each audience-scoped reader applies its actor's
+  // preference. Email digest preferences are a separate delivery contract.
+  await storage.createNotification({...notif,metadata:{...(notif.metadata as any ?? {}),
+    ...(eventType?{eventType}:{})}});
 }
 
 async function resolveOwnerEmail(ownerName?: string | null): Promise<string | null> {

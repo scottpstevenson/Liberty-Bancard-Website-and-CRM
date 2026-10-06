@@ -102,12 +102,12 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   export class NotesStorage {
     async getNotes(entityType: string, entityId: number) {
-    return await db.select().from(notes).where(and(eq(notes.entityType, entityType), eq(notes.entityId, entityId))).orderBy(desc(notes.createdAt));
+    return await db.select().from(notes).where(and(eq(notes.entityType, entityType), eq(notes.entityId, entityId),sql`${notes.deletedAt} IS NULL`)).orderBy(desc(notes.createdAt));
   }
 
 
   async getNote(id: number) {
-    const [note] = await db.select().from(notes).where(eq(notes.id, id));
+    const [note] = await db.select().from(notes).where(and(eq(notes.id, id),sql`${notes.deletedAt} IS NULL`));
     return note;
   }
 
@@ -120,11 +120,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   // #243 — Inline note editing
   async updateNote(id: number, content: string) {
-    await db.update(notes).set({ content }).where(eq(notes.id, id));
+    throw new Error("Human note edits require the actor/version/audit command");
   }
 
   async deleteNote(id: number) {
-    await db.delete(notes).where(eq(notes.id, id));
+    throw new Error("Human note removal requires the retained actor/version/audit command");
   }
 
 

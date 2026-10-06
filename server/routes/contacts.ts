@@ -1416,7 +1416,9 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
   // === COMPANIES ===
   app.get("/api/companies", isDashboardUser, async (req, res) => {
     try {
-      const companies = await storage.getCompanies();
+      const {readCompanies}=await import("../services/company-authority");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const companies = await readCompanies(bindWorkActor(req.user));
       res.json(companies);
     } catch (err: any) {
       serverError(res, err);
@@ -1426,7 +1428,9 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
   app.post("/api/companies", isDashboardUser, async (req, res) => {
     try {
       const input = insertCompanySchema.parse(req.body);
-      const company = await storage.createCompany(input);
+      const {createOwnedCompany}=await import("../services/company-authority");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const company = await createOwnedCompany(bindWorkActor(req.user),input);
       res.status(201).json(company);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -1573,61 +1577,58 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
 
   app.get("/api/companies/:id", isDashboardUser, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
-      const company = await storage.getCompany(companyId);
-      if (!company) return res.status(404).json({ message: "Not found" });
+      const {readCompanies}=await import("../services/company-authority");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const company = await readCompanies(bindWorkActor(req.user),strictRecordId.parse(req.params.id));
       res.json(company);
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid company ID"});
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.get("/api/companies/:id/contacts", isDashboardUser, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
-      const { db } = await import("../db");
-      const { contactCompanies, contacts: contactsTable } = await import("@shared/schema");
-      const { eq, isNull, and } = await import("drizzle-orm");
-      const rows = await db
-        .select({
-          id: contactsTable.id,
-          firstName: contactsTable.firstName,
-          lastName: contactsTable.lastName,
-          email: contactsTable.email,
-          emailStatus: contactsTable.emailStatus,
-          isDecisionMaker: contactsTable.isDecisionMaker,
-          decisionMakerConfidence: contactsTable.decisionMakerConfidence,
-          title: contactsTable.title,
-          companyName: contactsTable.companyName,
-          bouncedAt: contactsTable.bouncedAt,
-        })
-        .from(contactsTable)
-        .innerJoin(contactCompanies, eq(contactCompanies.contactId, contactsTable.id))
-        .where(and(eq(contactCompanies.companyId, companyId), isNull(contactsTable.archivedAt)));
+      const {readCompanyMembers}=await import("../services/company-authority");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const rows=await readCompanyMembers(bindWorkActor(req.user),strictRecordId.parse(req.params.id));
       res.json(rows);
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid company ID"});
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.put("/api/companies/:id", isDashboardUser, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const {updateOwnedCompany}=await import("../services/company-authority");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const companyId = strictRecordId.parse(req.params.id);
       const input = insertCompanySchema.partial().parse(req.body);
-      const company = await storage.updateCompany(companyId, input);
-      if (!company) return res.status(404).json({ message: "Not found" });
+      const company = await updateOwnedCompany(bindWorkActor(req.user),companyId,input);
       // Re-extract relationships for all contacts linked to this company.
       // Uses the batched extractor: 6 total queries regardless of N linked contacts,
       // instead of N*5 queries from calling extractRelationshipsForContact per contact.
-      const links = await storage.getContactCompaniesByCompany(companyId).catch(() => []);
-      const linkedContactIds = links.map(l => l.contactId).filter((id): id is number => id != null);
-      if (linkedContactIds.length > 0) {
-        extractRelationshipsForContactsBatch(linkedContactIds).catch((err) =>
-          console.warn("[Relationships] Batch re-extraction after company update failed:", err),
-        );
+      let extractionState="management_review_required";
+      if(["admin","manager"].includes((req.user as any).role)) {
+        try {
+          const links=await storage.getContactCompaniesByCompany(companyId);
+          const linkedContactIds=links.map(link=>link.contactId).filter((id):id is number=>id!==null);
+          if(linkedContactIds.length) await extractRelationshipsForContactsBatch(linkedContactIds);
+          extractionState="completed";
+        } catch {extractionState="failed";}
       }
-      res.json(company);
+      res.json({...company,extractionState});
     } catch (err: any) {
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
@@ -1736,13 +1737,16 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
 
   app.patch("/api/companies/:id/management-type", isDashboardUser, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const {updateOwnedCompany}=await import("../services/company-authority");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const companyId = strictRecordId.parse(req.params.id);
       const { managementType } = z.object({ managementType: z.enum(["unified", "per_location", "unknown"]) }).parse(req.body);
-      const company = await storage.getCompany(companyId);
-      if (!company) return res.status(404).json({ message: "Company not found" });
-      const updated = await storage.updateCompany(companyId, { managementType } as any);
+      const updated = await updateOwnedCompany(bindWorkActor(req.user),companyId,{managementType});
       res.json(updated);
     } catch (err: any) {
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
@@ -2730,48 +2734,16 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
   // and applies the same agent ownership guard as other contact sub-routes.
   app.patch("/api/contacts/:id/notes/:noteId/pin", isDashboardUser, async (req, res) => {
     try {
-      const contactId = Number(req.params.id);
-      const noteId = Number(req.params.noteId);
-      if (!Number.isFinite(contactId) || !Number.isFinite(noteId)) {
-        return res.status(400).json({ message: "Invalid contact or note ID" });
-      }
-
-      const { pinned } = req.body;
-      if (typeof pinned !== "boolean") return res.status(400).json({ message: "pinned (boolean) required" });
-
-      // Ownership guard: agents may only act on their own contacts
-      const contact = await storage.getContact(contactId);
-      if (!contact) return res.status(404).json({ message: "Contact not found" });
-
-      const _pinRole = (req.user as any)?.role;
-      const _pinEmail = (req.user as any)?.email;
-      const _pinAssignedTo = (contact as any).assignedTo as string | null | undefined;
-      if (_pinRole === "agent" && _pinAssignedTo && _pinAssignedTo !== _pinEmail) {
-        return res.status(403).json({ message: "Forbidden", code: "NOT_YOUR_CONTACT" });
-      }
-
-      const { notes: notesTable } = await import("@shared/schema");
-      const { eq: eqOp, and: andOp } = await import("drizzle-orm");
-
-      // Update only when both the note ID AND the contact scoping match
-      const result = await db
-        .update(notesTable)
-        .set({ pinned })
-        .where(
-          andOp(
-            eqOp(notesTable.id, noteId),
-            eqOp((notesTable as any).entityType, "contact"),
-            eqOp((notesTable as any).entityId, contactId)
-          )
-        )
-        .returning({ id: notesTable.id });
-
-      if (result.length === 0) {
-        return res.status(404).json({ message: "Note not found for this contact" });
-      }
-
-      res.json({ success: true });
+      const {noteCommandFields,commandNote}=await import("../services/note-command");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const fields=noteCommandFields.omit({entityType:true,entityId:true,content:true}).extend({expectedVersion:z.number().int().positive(),pinned:z.boolean()}).parse(req.body);
+      res.json(await commandNote(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"pin",fields,
+        strictRecordId.parse(req.params.noteId),strictRecordId.parse(req.params.id)));
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
@@ -2932,32 +2904,15 @@ export function registerContactsRoutes(app: Express, creationDependencies: Parti
   // Soft-archives each contact; agent accounts receive 403 from requireRole.
   app.delete("/api/contacts/bulk-delete", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { contactIds } = req.body as { contactIds?: unknown };
-      if (!Array.isArray(contactIds) || contactIds.length === 0) {
-        return res.status(400).json({ message: "contactIds must be a non-empty array" });
-      }
-      const ids = contactIds.map((id) => Number(id)).filter((id) => isFinite(id) && id > 0);
-      if (ids.length === 0) return res.status(400).json({ message: "No valid contact IDs provided" });
-      if (ids.length > 5000) return res.status(400).json({ message: "Cannot delete more than 5,000 contacts at once" });
-
-      let deleted = 0;
-      const errors: number[] = [];
-      for (const id of ids) {
-        try {
-          await storage.archiveContact(id);
-          deleted++;
-        } catch (_err) {
-          errors.push(id);
-        }
-      }
-      await storage.createAuditLog({
-        action: "contacts_bulk_deleted",
-        entityType: "contact",
-        userId: (req.user as any)?.id ?? null,
-        details: { requested: ids.length, deleted, errors },
-      });
-      res.json({ deleted, errors, total: ids.length });
+      const {contactLifecycleFields,commandContactLifecycle}=await import("../services/contact-lifecycle-command");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const fields=contactLifecycleFields.parse(req.body);
+      const result=await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"archive",fields);
+      res.json({...result,archived:result.changed,permanentlyDeleted:0});
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Reload the selected contacts and submit the versioned archive command. No records were deleted."});
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

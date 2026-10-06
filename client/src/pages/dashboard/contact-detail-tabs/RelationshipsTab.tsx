@@ -75,11 +75,11 @@ function ForceGraph({ contactId }: { contactId: number }) {
   const hoveredRef = useRef<GraphNode | null>(null);
   const [, setLocation] = useLocation();
 
-  const { data: graphData } = useQuery<{ nodes: Omit<GraphNode, "x" | "y" | "vx" | "vy">[]; edges: GraphEdge[] }>({
+  const { data: graphData, isLoading: graphLoading, isError: graphError, refetch: retryGraph } = useQuery<{ nodes: Omit<GraphNode, "x" | "y" | "vx" | "vy">[]; edges: GraphEdge[] }>({
     queryKey: ["/api/relationships/graph/contact", contactId],
     queryFn: async () => {
       const res = await fetch(`/api/relationships/graph/contact/${contactId}`, { credentials: "include" });
-      if (!res.ok) return { nodes: [], edges: [] };
+      if (!res.ok) throw new Error("Relationship graph unavailable");
       return res.json();
     },
   });
@@ -262,6 +262,11 @@ function ForceGraph({ contactId }: { contactId: number }) {
     };
   }, [contactId, setLocation]);
 
+  if (graphError) return <div role="alert" className="mb-4 space-y-2">
+    <p>Relationship graph unavailable.</p>
+    <Button variant="outline" onClick={() => void retryGraph()}>Retry graph</Button>
+  </div>;
+  if (graphLoading) return <p role="status">Loading relationship graph…</p>;
   if (!graphData || graphData.nodes.length <= 1) return null;
 
   return (
@@ -298,11 +303,11 @@ export function RelationshipsTab({ contactId }: { contactId: number }) {
   const [dismissId, setDismissId] = useState<number | null>(null);
   const [dismissNote, setDismissNote] = useState("");
 
-  const { data: relationships = [], isLoading, refetch } = useQuery<EnrichedRelationship[]>({
+  const { data: relationships = [], isLoading, isError: relationshipsError, refetch } = useQuery<EnrichedRelationship[]>({
     queryKey: ["/api/contacts", contactId, "relationships"],
     queryFn: async () => {
       const res = await fetch(`/api/contacts/${contactId}/relationships`, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Relationships unavailable");
       return res.json();
     },
     enabled: !!contactId,
@@ -436,7 +441,12 @@ export function RelationshipsTab({ contactId }: { contactId: number }) {
         )}
       </div>
 
-      {isLoading ? (
+      {relationshipsError ? (
+        <div role="alert" className="py-6 space-y-2">
+          <p>Relationships unavailable. This is not a successful empty result.</p>
+          <Button variant="outline" onClick={() => void refetch()}>Retry relationships</Button>
+        </div>
+      ) : isLoading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
         </div>

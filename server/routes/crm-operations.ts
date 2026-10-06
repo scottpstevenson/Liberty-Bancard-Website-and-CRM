@@ -1,4 +1,10 @@
 import type { Express } from "express";
+import { strictRecordId, workCommandEnvelope, workSelection } from "@shared/work-item-commands";
+import { commandWorkItems, WorkCommandError, bindWorkActor } from "../services/work-item-command";
+import {contactLifecycleFields,commandContactLifecycle} from "../services/contact-lifecycle-command";
+import {readContactCompanies,linkCompany,unlinkCompany} from "../services/company-authority";
+import { deleteTaskCommand, type NativeTaskDeleteTransport } from "../services/task-deletion-command";
+import { registerWorkBulkRoutes } from "./work-bulk-commands";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
@@ -17,7 +23,19 @@ import { db } from "../db";
 import { tickets, tasks } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
-export function registerCrmOperationsRoutes(app: Express) {
+export function registerCrmOperationsRoutes(app: Express, deps: { nativeTaskDeleteTransport?: NativeTaskDeleteTransport;
+  relationshipExtractor?:(contactId:number)=>Promise<unknown> } = {}) {
+  app.post("/api/contacts/bulk-archive",requireRole("admin","manager"),async(req,res)=>{
+    try {
+      const fields=contactLifecycleFields.parse(req.body);
+      res.json(await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"archive",fields));
+    } catch(error) {
+      if(error instanceof z.ZodError) return res.status(400).json({message:error.errors[0].message});
+      if(error instanceof WorkCommandError) return res.status(error.status).json({message:error.message});
+      serverError(res,error);
+    }
+  });
+  registerWorkBulkRoutes(app);
   // === CONTACT DETAIL AGGREGATE ===
   app.get("/api/contacts/:id/detail", isDashboardUser, async (req, res) => {
     try {
@@ -109,9 +127,11 @@ export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT-COMPANY ASSOCIATIONS ===
   app.get("/api/contacts/:id/companies", isDashboardUser, async (req, res) => {
     try {
-      const result = await storage.getContactCompanies(Number(req.params.id));
+      const result = await readContactCompanies(bindWorkActor(req.user),strictRecordId.parse(req.params.id));
       res.json(result);
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid contact ID"});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Get contact companies error:", err.message);
       serverError(res, err);
     }
@@ -119,18 +139,21 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/contacts/:id/companies", isDashboardUser, async (req, res) => {
     try {
-      const input = insertContactCompanySchema.parse({
-        ...req.body,
-        contactId: Number(req.params.id),
-      });
-      const link = await storage.addContactCompany(input);
-      // Re-extract relationships now that company membership is established
-      extractRelationshipsForContact(input.contactId!).catch((err) =>
-        console.warn("[Relationships] Re-extraction after company link failed:", err),
-      );
-      res.status(201).json(link);
+      const input=z.object({companyId:z.number().int().positive().max(2147483647),
+        role:z.string().trim().min(1).max(100).default("Owner"),isPrimary:z.boolean().default(false)}).strict().parse(req.body);
+      const contactId=strictRecordId.parse(req.params.id);
+      const result=await linkCompany(bindWorkActor(req.user),{...input,contactId});
+      // Human membership is accepted locally. Heuristic reconciliation is a
+      // separate outcome and never grants an agent access to foreign members.
+      let extractionState="management_review_required";
+      if(["admin","manager"].includes((req.user as any).role)) {
+        try {await (deps.relationshipExtractor ?? extractRelationshipsForContact)(contactId);extractionState="completed";}
+        catch {extractionState="failed";}
+      }
+      res.status(result.changed?201:200).json({...result.link,changed:result.changed,replayed:result.replayed,extractionState});
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Add contact company error:", err.message);
       serverError(res, err);
     }
@@ -138,12 +161,10 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.delete("/api/contact-companies/:id", isDashboardUser, async (req, res) => {
     try {
-      const associationId = Number(req.params.id);
-      const [association] = await db.select().from(contactCompanies).where(eq(contactCompanies.id, associationId));
-      if (!association?.contactId || !await authorizeContactAccess(req, res, association.contactId)) return;
-      await storage.removeContactCompany(associationId);
-      res.json({ success: true });
+      res.json({success:true,...await unlinkCompany(bindWorkActor(req.user),strictRecordId.parse(req.params.id))});
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid association ID"});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Remove contact company error:", err.message);
       serverError(res, err);
     }
@@ -153,12 +174,13 @@ export function registerCrmOperationsRoutes(app: Express) {
   // === ARCHIVE / RESTORE ===
   app.post("/api/contacts/:id/archive", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const contactId = Number(req.params.id);
-      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
-      const result = await storage.archiveContact(contactId, auditCtx);
-      if (!result) return res.status(404).json({ message: "Not found" });
-      res.json(result);
+      const contactId=strictRecordId.parse(req.params.id),fields=contactLifecycleFields.parse(req.body);
+      if(fields.items.length!==1 || fields.items[0].id!==contactId) return res.status(400).json({message:"Path and selected contact must match"});
+      const result=await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"archive",fields);
+      res.json({...result.contacts[0],lifecycleChanged:result.changed>0,replayed:result.replayed});
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Archive contact error:", err.message);
       serverError(res, err);
     }
@@ -166,11 +188,13 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/contacts/:id/restore", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
-      const result = await storage.restoreContact(Number(req.params.id), auditCtx);
-      if (!result) return res.status(404).json({ message: "Not found" });
-      res.json(result);
+      const contactId=strictRecordId.parse(req.params.id),fields=contactLifecycleFields.parse(req.body);
+      if(fields.items.length!==1 || fields.items[0].id!==contactId) return res.status(400).json({message:"Path and selected contact must match"});
+      const result=await commandContactLifecycle(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),"restore",fields);
+      res.json({...result.contacts[0],lifecycleChanged:result.changed>0,replayed:result.replayed});
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       console.error("Restore contact error:", err.message);
       serverError(res, err);
     }
@@ -261,11 +285,16 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/tasks/bulk-assign", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { taskIds, assignedTo } = req.body;
-      if (!Array.isArray(taskIds) || !assignedTo) return res.status(400).json({ message: "taskIds array and assignedTo required" });
-      await storage.bulkAssignTasks(taskIds, assignedTo);
-      res.json({ success: true, count: taskIds.length });
+      const body = workCommandEnvelope.omit({ expectedFence: true }).extend({
+        items: workSelection, assignedTo: z.string().min(1).max(190),
+      }).strict().parse(req.body);
+      const user = req.user as any;
+      const command = await commandWorkItems({ kind: "task", items: body.items, commandId: body.commandId,
+        recordClass: body.recordClass, actor: bindWorkActor(user, body.expectedActorId,body.expectedAccountVersion), updates: { assignedTo: body.assignedTo } });
+      res.json({ success: true, count: command.changed, replayed: command.replayed });
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message });
       console.error("Bulk assign tasks error:", err.message);
       serverError(res, err);
     }
@@ -273,39 +302,13 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.delete("/api/tasks/:id", isDashboardUser, async (req, res) => {
     try {
-      const taskId = Number(req.params.id);
-      const allTasks = await storage.getTasks({ limit: 5000 });
-      const task = allTasks.find((t: any) => t.id === taskId);
-      const actor = req.user as any;
-      const isAdminOrManager = actor?.role === "admin" || actor?.role === "manager";
-      if (task && !isAdminOrManager && task.assignedTo !== actor?.id && task.assignedTo !== actor?.username) {
-        return res.status(403).json({ message: "You can only delete tasks assigned to you." });
-      }
-      let ghlTaskId: string | null = null;
-      let ghlContactId: string | null = null;
-      if (task?.ghlTaskId && task.contactId) {
-        const contact = await storage.getContact(task.contactId);
-        ghlTaskId = task.ghlTaskId;
-        ghlContactId = contact?.ghlContactId || null;
-      }
-      // C-02 (#1626): propagate to GHL BEFORE the local soft-delete, and only
-      // soft-delete locally once propagation succeeds (or is not needed).
-      // Rationale: soft-deleted tasks are excluded from getTasks(), so a
-      // retry after a local-first delete would lose the GHL task/contact IDs
-      // and silently skip propagation, leaving the external task undeleted.
-      const ghlResult = await propagateTaskDeleteToGhl(taskId, ghlTaskId, ghlContactId);
-      if (!ghlResult.ok) {
-        const status = ghlResult.reason === "paused" ? 503 : 409;
-        return res.status(status).json({
-          message: `GHL delete did not complete (${ghlResult.reason}). Task was NOT deleted locally — retry delete to re-attempt.`,
-          localDeleted: false,
-          ghlPropagated: false,
-          reason: ghlResult.reason,
-        });
-      }
-      await storage.softDeleteTask(taskId);
-      res.json({ success: true });
+      const id = strictRecordId.parse(req.params.id);
+      const body = workCommandEnvelope.strict().parse(req.body);
+      const user = req.user as any;
+      res.json(await deleteTaskCommand({ id, ...body, actor: bindWorkActor(user, body.expectedActorId,body.expectedAccountVersion) }, deps.nativeTaskDeleteTransport));
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message, localDeleted: false });
       console.error("Delete task error:", err.message);
       serverError(res, err);
     }
@@ -313,37 +316,14 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/tasks/bulk-delete", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const { taskIds } = req.body;
-      if (!Array.isArray(taskIds)) return res.status(400).json({ message: "taskIds must be an array" });
-      if (taskIds.length === 0) {
-        return res.json({ deleted: 0 });
-      }
-      if (taskIds.length > 10000) return res.status(400).json({ message: "Cannot delete more than 10,000 tasks at once" });
-      const invalid = taskIds.filter(id => !Number.isInteger(id) || id <= 0);
-      if (invalid.length > 0) return res.status(400).json({ message: "All taskIds must be positive integers" });
-
-      const submittedCount = taskIds.length;
-      const uniqueIds: number[] = [...new Set(taskIds as number[])];
-      const uniqueCount = uniqueIds.length;
-      const actualDeleted = await storage.bulkSoftDeleteTasks(uniqueIds);
-
-      const actor = (req.user as any);
-      await storage.createAuditLog({
-        action: "bulk_soft_delete_tasks",
-        entityType: "task",
-        userId: actor?.id ?? null,
-        details: {
-          actor: actor?.email ?? actor?.username ?? "unknown",
-          submitted: submittedCount,
-          unique: uniqueCount,
-          deleted: actualDeleted,
-          alreadyDeletedOrMissing: uniqueCount - actualDeleted,
-          timestamp: new Date().toISOString(),
-        },
-      });
-
-      res.json({ deleted: actualDeleted });
+      const body = workCommandEnvelope.omit({ expectedFence: true }).extend({ items: workSelection }).strict().parse(req.body);
+      const user = req.user as any;
+      const command = await commandWorkItems({ kind: "task", items: body.items, commandId: body.commandId,
+        recordClass: body.recordClass, actor: bindWorkActor(user, body.expectedActorId,body.expectedAccountVersion), operation: "soft_delete", updates: {} });
+      res.json({ deleted: command.changed, replayed: command.replayed });
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkCommandError) return res.status(err.status).json({ message: err.message });
       console.error("Bulk delete tasks error:", err.message);
       serverError(res, err);
     }

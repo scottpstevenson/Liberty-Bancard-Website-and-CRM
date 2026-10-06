@@ -1,140 +1,123 @@
-import { useState, useEffect, useCallback } from "react";
-import { getCsrfToken } from "@/lib/queryClient";
+import { useState,useEffect,useCallback } from "react";
+import { getCsrfToken,queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { prepareWorkCreation,acknowledgeWorkCreation } from "@/lib/work-create-intent";
+import { OFFLINE_QUEUE_KEY,readOfflineQueue,appendOfflineWork,replayOfflineWork,isReplayableWork,
+  type QueueIO,type QueueActor,type QueueEntry } from "@/lib/offline-work-queue";
 
-const QUEUE_KEY = "lb_mobile_mutation_queue";
-
-interface QueueEntry {
-  id: string;
-  method: string;
-  url: string;
-  body?: any;
-  timestamp: number;
-}
-
-function getQueue(): QueueEntry[] {
-  try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveQueue(q: QueueEntry[]) {
-  try {
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
-  } catch {}
-}
-
-/**
- * Replay all queued mutations from offline storage.
- *
- * CSRF token is acquired at send time (not at enqueue time) so the
- * token is always fresh when the offline replay actually executes.
- *
- * Public flows that do not require authentication (merchant application,
- * statement upload token flows) are NOT routed through this queue —
- * they use their own submission paths without session cookies.
- */
-async function processQueue(onUpdate: (count: number) => void) {
-  const q = getQueue();
-  if (!q.length) return;
-
-  // Acquire CSRF token once per replay batch — all queued mutations are
-  // authenticated (session-cookie) routes that require the token.
-  const csrfToken = getCsrfToken();
-
-  const remaining: QueueEntry[] = [];
-  for (const entry of q) {
-    try {
-      const headers: Record<string, string> = {};
-      if (entry.body) headers["Content-Type"] = "application/json";
-      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-      const res = await fetch(entry.url, {
-        method: entry.method,
-        headers,
-        body: entry.body ? JSON.stringify(entry.body) : undefined,
-        credentials: "include",
-      });
-      if (!res.ok && res.status !== 404) {
-        remaining.push(entry);
-      }
-    } catch {
-      remaining.push(entry);
-    }
-  }
-
-  saveQueue(remaining);
-  onUpdate(remaining.length);
-}
-
-export function useOfflineQueue() {
-  const [queueCount, setQueueCount] = useState(() => getQueue().length);
-
-  const updateCount = useCallback(() => {
-    setQueueCount(getQueue().length);
-  }, []);
-
-  useEffect(() => {
-    updateCount();
-
-    const handleOnline = async () => {
-      console.log("[OfflineQueue] Back online — processing queued mutations");
-      await processQueue(setQueueCount);
-    };
-
-    window.addEventListener("online", handleOnline);
-    return () => window.removeEventListener("online", handleOnline);
-  }, [updateCount]);
-
-  const enqueue = useCallback((method: string, url: string, body?: any) => {
-    const q = getQueue();
-    q.push({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      method,
-      url,
-      body,
-      timestamp: Date.now(),
-    });
-    saveQueue(q);
-    setQueueCount(q.length);
-    console.log(`[OfflineQueue] Queued ${method} ${url}. Queue size: ${q.length}`);
-  }, []);
-
-  const executeOrQueue = useCallback(
-    async (
-      method: string,
-      url: string,
-      body?: any,
-      onSuccess?: () => void
-    ): Promise<{ ok: boolean; queued: boolean }> => {
-      if (!navigator.onLine) {
-        enqueue(method, url, body);
-        return { ok: false, queued: true };
-      }
-
-      try {
-        // Acquire CSRF token at send time for authenticated mutations.
-        const csrfToken = getCsrfToken();
-        const headers: Record<string, string> = {};
-        if (body) headers["Content-Type"] = "application/json";
-        if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-
-        const res = await fetch(url, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-          credentials: "include",
-        });
-
-        if (res.ok && onSuccess) onSuccess();
-        return { ok: res.ok, queued: false };
-      } catch {
-        enqueue(method, url, body);
-        return { ok: false, queued: true };
-      }
+const CHANGED="liberty-offline-work-changed";
+let replayRunning:Promise<{acknowledged:number}>|null=null;
+function browserIO():QueueIO {
+  if (typeof window==="undefined") throw new Error("Offline storage is unavailable.");
+  return {
+    read:()=>localStorage.getItem(OFFLINE_QUEUE_KEY),
+    write:value=>{localStorage.setItem(OFFLINE_QUEUE_KEY,value);window.dispatchEvent(new Event(CHANGED));},
+    lock:fn=>{
+      if (!navigator.locks) return Promise.reject(new Error("Safe offline storage locking is unavailable. Keep the editor open."));
+      return navigator.locks.request(OFFLINE_QUEUE_KEY,fn);
     },
-    [enqueue]
-  );
-
-  return { queueCount, enqueue, executeOrQueue };
+    actor:async()=>{
+      const response=await fetch("/api/auth/user",{credentials:"include",cache:"no-store"});
+      if(!response.ok) throw new Error("Current sign-in cannot be verified. Queued work is retained.");
+      return captureActor(await response.json());
+    },
+    send:async entry=>{
+      const headers:Record<string,string>={"Content-Type":"application/json"};
+      const csrf=getCsrfToken();if(csrf) headers["X-CSRF-Token"]=csrf;
+      const response=await fetch(entry.url,{method:entry.method,headers,
+        body:JSON.stringify(entry.body),credentials:"include"});
+      const receipt=await response.json().catch(()=>null);
+      if (response.ok && /^\/api\/tasks(?:\/[1-9]\d*)?$/.test(entry.url) && !Number.isSafeInteger(receipt?.id)) {
+        throw new Error("Creation receipt unavailable. The original command is retained for safe retry.");
+      }
+      return {ok:response.ok,status:response.status,message:receipt?.message};
+    },
+  };
+}
+function captureActor(user:any):QueueActor {
+  if(!user?.id || !Number.isSafeInteger(user.accountVersion) || user.accountVersion<1 ||
+    user.accountState!=="active") throw new Error("Current account authority is unavailable. Keep the editor open.");
+  return {id:user.id,accountVersion:user.accountVersion};
+}
+async function replay() {
+  if(!replayRunning) replayRunning=replayOfflineWork(browserIO()).then(result=>{
+    if(result.acknowledged) void queryClient.invalidateQueries({predicate:q=>
+      ["/api/tasks","/api/daily-briefing","/api/dashboard","/api/analytics"].some(prefix=>String(q.queryKey[0]).startsWith(prefix))});
+    return result;
+  }).finally(()=>{replayRunning=null;});
+  return replayRunning;
+}
+export function useOfflineQueue() {
+  const {user}=useAuth();
+  const [queueCount,setQueueCount]=useState<number|null>(null);
+  const [queueError,setQueueError]=useState<string|null>(null);
+  const [reviewCount,setReviewCount]=useState(0);
+  const updateCount=useCallback(()=>{
+    try {
+      if(!user?.id) {setQueueCount(null);return;}
+      const own=readOfflineQueue(browserIO()).filter(entry=>entry.actorId===user.id);
+      setQueueCount(own.length);
+      setReviewCount(own.filter(entry=>!!entry.blockedReason || !isReplayableWork(entry) ||
+        entry.accountVersion!==user.accountVersion).length);
+    } catch(error) {setQueueCount(null);setQueueError((error as Error).message);}
+  },[user?.id,user?.accountVersion]);
+  const retryQueue=useCallback(async()=>{
+    setQueueError(null);
+    try {await replay();} catch(error) {setQueueError((error as Error).message);}
+    updateCount();
+  },[updateCount]);
+  useEffect(()=>{
+    updateCount();
+    const online=()=>void retryQueue();
+    window.addEventListener("online",online);
+    window.addEventListener(CHANGED,updateCount);
+    window.addEventListener("storage",updateCount);
+    return ()=>{
+      window.removeEventListener("online",online);window.removeEventListener(CHANGED,updateCount);
+      window.removeEventListener("storage",updateCount);
+    };
+  },[updateCount,retryQueue]);
+  const enqueue=useCallback(async(method:string,url:string,body:any)=>{
+    const actor=captureActor(user);
+    const entry:QueueEntry={id:crypto.randomUUID(),actorId:actor.id,accountVersion:actor.accountVersion,
+      method:method.toUpperCase(),url,body,timestamp:Date.now()};
+    if(!isReplayableWork(entry)) entry.blockedReason="This write has no retained server retry contract. Review it manually; it will not replay automatically.";
+    await appendOfflineWork(browserIO(),entry);
+    updateCount();
+    return entry;
+  },[user,updateCount]);
+  const executeOrQueue=useCallback(async(method:string,url:string,body?:any,onSuccess?:()=>void):
+    Promise<{ok:boolean;queued:boolean;reason?:string}>=>{
+    const creating=method.toUpperCase()==="POST" && url==="/api/tasks";
+    try {
+      const actor=captureActor(user);
+      if (body?.expectedActorId && body.expectedActorId!==actor.id) throw new Error("Sign-in changed. Review the captured work.");
+      if(body?.expectedAccountVersion!==undefined && body.expectedAccountVersion!==actor.accountVersion) {
+        throw new Error("Account authority changed. Review the captured work before retrying.");
+      }
+      if (creating || (method.toUpperCase()==="PUT" && /^\/api\/tasks\/[1-9]\d*$/.test(url))) {
+        body={...body,expectedActorId:actor.id,expectedAccountVersion:actor.accountVersion};
+      }
+      if(creating) body=prepareWorkCreation(actor.id,body);
+      if(navigator.onLine) {
+        let result;
+        try {result=await browserIO().send({id:"online",method:method.toUpperCase(),url,body,timestamp:Date.now()});}
+        catch {result=null;}
+        if(result?.ok) {
+          if(creating) acknowledgeWorkCreation(body);
+          try {onSuccess?.();}
+          catch {return {ok:true,queued:false,reason:"Saved on the server; refresh the work to see the latest state."};}
+          return {ok:true,queued:false};
+        }
+        if(result && result.status<500) return {ok:false,queued:false,reason:result.message || `Not saved (${result.status}). Reload current work.`};
+      }
+      const entry=await enqueue(method,url,body);
+      if(creating) acknowledgeWorkCreation(body); // Verified durable local entry owns the UUID.
+      return {ok:false,queued:true,reason:entry.blockedReason || "Saved locally only; server confirmation is still pending."};
+    } catch(error) {
+      const reason=(error as Error).message;setQueueError(reason);
+      return {ok:false,queued:false,reason};
+    }
+  },[user,enqueue]);
+  return {queueCount,queueError,reviewCount,retryQueue,enqueue,executeOrQueue};
 }

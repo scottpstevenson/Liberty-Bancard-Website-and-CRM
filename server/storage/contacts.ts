@@ -369,9 +369,10 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
 
   async archiveContact(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
-    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
     return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(contacts).set({ archivedAt: new Date() }).where(eq(contacts.id, id)).returning();
+      const [before]=await tx.select().from(contacts).where(eq(contacts.id,id)).for("update");
+      if(!before || before.archivedAt) return before;
+      const [updated] = await tx.update(contacts).set({ archivedAt: new Date(),lifecycleVersion:before.lifecycleVersion+1 }).where(eq(contacts.id, id)).returning();
       if (updated) {
         await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
           action: "contact_archived", entityType: "contact", entityId: id,
@@ -384,9 +385,10 @@ import { createValidationIntent, hashEmailToken, normalizeEmailToken } from "../
 
   async restoreContact(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
-    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
     return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(contacts).set({ archivedAt: null }).where(eq(contacts.id, id)).returning();
+      const [before]=await tx.select().from(contacts).where(eq(contacts.id,id)).for("update");
+      if(!before || !before.archivedAt) return before;
+      const [updated] = await tx.update(contacts).set({ archivedAt: null,lifecycleVersion:before.lifecycleVersion+1 }).where(eq(contacts.id, id)).returning();
       if (updated) {
         await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
           action: "contact_restored", entityType: "contact", entityId: id,

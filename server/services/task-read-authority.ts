@@ -11,6 +11,8 @@ export type TaskReadScope = {
   timezone: string;
   dueFrom?: Date; dueBefore?: Date;
   dealId?: number; source?: "sla" | "manual";
+  /** Retained command receipt authorization only; never exposed by list APIs. */
+  includeDeletedForCommand?: boolean;
 };
 
 /** Authority state wins; legacy values are only a fallback for unmigrated rows. */
@@ -36,7 +38,7 @@ export function taskReadPredicate(scope: TaskReadScope): SQL {
     ${recordClass === "production" ? sql`AND NOT ${sql.raw(syntheticQaIdentitySql(alias))}` : sql``}
     ${agent ? sql`AND ${sql.raw(`${alias}.assigned_to`)}=${owner}` : sql``}`;
   return and(
-    sql`${tasks.deletedAt} IS NULL`,
+    scope.includeDeletedForCommand ? undefined : sql`${tasks.deletedAt} IS NULL`,
     sql`(${tasks.contactId} IS NULL OR EXISTS(SELECT 1 FROM contacts tc
       WHERE tc.id=${tasks.contactId} AND ${contactFilter("tc")}))`,
     sql`(${tasks.dealId} IS NULL OR EXISTS(SELECT 1 FROM deals td WHERE td.id=${tasks.dealId}
@@ -68,4 +70,27 @@ export async function readTaskMetrics(scope: TaskReadScope) {
   return { rows: result.rows as Array<{ total: number; pending: number; in_progress: number; completed: number; cancelled: number; overdue: number }>, meta: { contractVersion: 1, population: "scoped_non_deleted_tasks",
     recordClass: scope.recordClass ?? "production", actorScope: scope.actor?.role === "agent" ? "owned_linked_or_owned_unlinked" : "management",
     timezone: scope.timezone, asOf: scope.asOf.toISOString(), exact: true, snapshot: "statement" } };
+}
+
+/** Management digest rows/counts share ONE statement snapshot and the same
+ * upstream predicate. No scheduler/delivery side effects or fallback zero. */
+export async function readTaskDigestFacts(scope: TaskReadScope, completedSince: Date) {
+  const result = await db.execute(sql`WITH scoped AS (
+    SELECT ${tasks}.*, ${taskStateSql} AS effective_state FROM ${tasks}
+    WHERE ${taskReadPredicate(scope)}
+  ) SELECT
+    COUNT(*) FILTER (WHERE effective_state='completed' AND completed_at>=${completedSince}
+      AND completed_at<=${scope.asOf})::int AS completed,
+    COUNT(*) FILTER (WHERE effective_state IN ('open','in_progress') AND due_date<${scope.asOf})::int AS overdue,
+    (SELECT COALESCE(jsonb_agg(row_to_json(overdue_rows)), '[]'::jsonb) FROM (
+      SELECT id,title,assigned_to,due_date FROM scoped WHERE effective_state IN ('open','in_progress')
+        AND due_date<${scope.asOf} ORDER BY due_date,id LIMIT 10
+    ) overdue_rows) AS overdue_rows
+    FROM scoped`);
+  const row = result.rows[0] as unknown as { completed: number; overdue: number;
+    overdue_rows: Array<{ id: number; title: string; assigned_to: string | null; due_date: string | null }> };
+  if (!row) throw new Error("TASK_DIGEST_FACTS_UNAVAILABLE");
+  return { ...row, contract: { version: 1, population: "scoped_non_deleted_tasks", actorScope: "management",
+    recordClass: scope.recordClass ?? "production", asOf: scope.asOf.toISOString(), timezone: scope.timezone,
+    snapshot: "statement", completedSince: completedSince.toISOString() } };
 }

@@ -2,15 +2,16 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
+import { publicUser } from "@shared/public-user";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
-import { TOTP, generateSecret as totpGenerateSecret } from "otplib";
+import { verifySync as verifyTotp, generateSecret as totpGenerateSecret } from "otplib";
 import QRCode from "qrcode";
 import { authStorage, getSessionLimitForRole, IDLE_TIMEOUT_MS, ABSOLUTE_TTL_MS } from "./storage";
 import { storage } from "../../storage";
-import { isGhlConfigured, sendGhlInternalNotification as sendGhlEmail } from "../../services/ghl";
+import { isGhlConfigured as defaultIsGhlConfigured, sendGhlInternalNotification as defaultSendGhlEmail } from "../../services/ghl";
 import { getEmailSignatureHtml } from "../../services/email-signatures";
 import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
 import { db } from "../../db";
@@ -94,7 +95,7 @@ function buildVerificationEmail(firstName: string, verifyUrl: string): string {
 </div>`;
 }
 
-async function sendAuthEmail(params: {
+async function defaultSendAuthEmail(params: {
   to: string;
   subject: string;
   html: string;
@@ -112,8 +113,8 @@ async function sendAuthEmail(params: {
       category: "security",
     });
     if (result.success) return "sent";
-    if (isGhlConfigured()) {
-      const ghlResult = await sendGhlEmail({
+    if (defaultIsGhlConfigured()) {
+      const ghlResult = await defaultSendGhlEmail({
         email: params.to,
         subject: params.subject,
         body: params.html,
@@ -125,8 +126,8 @@ async function sendAuthEmail(params: {
     return "definite_failure";
   }
 
-  if (isGhlConfigured()) {
-    const result = await sendGhlEmail({
+  if (defaultIsGhlConfigured()) {
+    const result = await defaultSendGhlEmail({
       email: params.to,
       subject: params.subject,
       body: params.html,
@@ -217,10 +218,10 @@ async function seedAdminUser() {
 }
 
 /** Helper to register a new session record after a successful login */
-async function registerLoginSession(req: any, userId: string, role: string): Promise<void> {
+async function registerLoginSession(req: any, userId: string, role: string): Promise<boolean> {
   try {
     const sessionId = req.sessionID;
-    if (!sessionId) return;
+    if (!sessionId) return false;
 
     // Enforce concurrent session limit — remove oldest if over limit
     const limit = getSessionLimitForRole(role);
@@ -232,10 +233,12 @@ async function registerLoginSession(req: any, userId: string, role: string): Pro
     // Upsert: if a session record already exists for this sessionId, skip
     const existing = await authStorage.getUserSession(sessionId);
     if (!existing) {
-      await authStorage.createUserSession({ userId, sessionId, ip, userAgent });
+      await authStorage.createUserSession({ userId, sessionId, ip, userAgent, expectedEpoch: req.user?.authEpoch });
     }
+    return true;
   } catch (err) {
     logOperationalDiagnostic("auth_session_registration", err, "session_registration_failed");
+    return false;
   }
 }
 
@@ -287,11 +290,25 @@ function generateBackupCodes(): { plain: string[]; hashed: Array<{ code: string;
   return { plain, hashed };
 }
 
-export async function setupAuth(app: Express) {
+export async function setupAuth(app: Express, dependencies: {
+  authMail?: {
+    sendAuthEmail:typeof defaultSendAuthEmail;
+    isGhlConfigured:typeof defaultIsGhlConfigured;
+    sendGhlEmail:typeof defaultSendGhlEmail;
+  };
+} = {}) {
+  const sendAuthEmail=dependencies.authMail?.sendAuthEmail ?? defaultSendAuthEmail;
+  const isGhlConfigured=dependencies.authMail?.isGhlConfigured ?? defaultIsGhlConfigured;
+  const sendGhlEmail=dependencies.authMail?.sendGhlEmail ?? defaultSendGhlEmail;
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
-  app.use(passport.session());
+  const passportSession = passport.session();
+  app.use((req, res, next) => passportSession(req, res, (error: any) => {
+    if (error) return res.status(503).json({ message: "Sign-in authority temporarily unavailable. Retry without signing out.",
+      code: "SESSION_VALIDATION_UNAVAILABLE" });
+    next();
+  }));
   app.use(csrfProtection);
 
   passport.use(
@@ -318,14 +335,20 @@ export async function setupAuth(app: Express) {
     )
   );
 
-  passport.serializeUser((user: any, done) => {
-    done(null, user.id);
+  passport.serializeUser(async (user: any, done) => {
+    try {
+      const current = await authStorage.getUser(user.id);
+      if (!current || current.authEpoch !== user.authEpoch) return done(new Error("AUTH_CONTINUATION_STALE"));
+      done(null, { id: current.id, epoch: current.authEpoch });
+    } catch (error) { done(error); }
   });
 
-  passport.deserializeUser(async (id: string, done) => {
+  passport.deserializeUser(async (serialized: any, done) => {
     try {
-      const user = await authStorage.getUser(id);
-      done(null, user || null);
+      const pin = typeof serialized === "string" ? { id: serialized, epoch: 0 } : serialized;
+      if (!pin || typeof pin.id !== "string" || !Number.isSafeInteger(pin.epoch) || pin.epoch < 0) return done(null, false);
+      const user = await authStorage.getUser(pin.id);
+      done(null, user && user.authEpoch === pin.epoch ? user : false);
     } catch (err) {
       done(err, null);
     }
@@ -352,14 +375,15 @@ export async function setupAuth(app: Express) {
                 if (regenErr) return res.status(500).json({ message: "Login failed" });
                 req.logIn(user, async (loginErr) => {
                   if (loginErr) return res.status(500).json({ message: "Login failed" });
-                  await registerLoginSession(req, user.id, user.role || "merchant");
-                  const { passwordHash, totpSecret, ...safeUser } = user;
+                  if (!await registerLoginSession(req, user.id, user.role || "merchant")) return res.status(503).json({ message: "Sign-in state changed or is unavailable; retry." });
+                  const safeUser = publicUser(user);
                   return res.json(safeUser);
                 });
               });
             }
           }
           (req.session as any).pendingMfaUserId = user.id;
+          (req.session as any).pendingMfaEpoch = user.authEpoch;
           return res.status(200).json({ mfa_required: true });
         }
 
@@ -369,8 +393,8 @@ export async function setupAuth(app: Express) {
             if (regenErr) return res.status(500).json({ message: "Login failed" });
             req.logIn(user, async (loginErr) => {
               if (loginErr) return res.status(500).json({ message: "Login failed" });
-              await registerLoginSession(req, user.id, user.role || "merchant");
-              const { passwordHash, totpSecret, ...safeUser } = user;
+              if (!await registerLoginSession(req, user.id, user.role || "merchant")) return res.status(503).json({ message: "Sign-in state changed or is unavailable; retry." });
+              const safeUser = publicUser(user);
               return res.json({ ...safeUser, mfa_enrollment_required: true });
             });
           });
@@ -382,8 +406,8 @@ export async function setupAuth(app: Express) {
           if (regenErr) return res.status(500).json({ message: "Login failed" });
           req.logIn(user, async (loginErr) => {
             if (loginErr) return res.status(500).json({ message: "Login failed" });
-            await registerLoginSession(req, user.id, user.role || "merchant");
-            const { passwordHash, totpSecret, ...safeUser } = user;
+            if (!await registerLoginSession(req, user.id, user.role || "merchant")) return res.status(503).json({ message: "Sign-in state changed or is unavailable; retry." });
+            const safeUser = publicUser(user);
             return res.json(safeUser);
           });
         });
@@ -404,7 +428,7 @@ export async function setupAuth(app: Express) {
 
     try {
       const user = await authStorage.getUser(pendingUserId);
-      if (!user) return res.status(400).json({ message: "Invalid session" });
+      if (!user || user.authEpoch !== (req.session as any).pendingMfaEpoch) return res.status(400).json({ message: "Invalid session" });
 
       const totpData = await authStorage.getTotpData(user.id);
       if (!totpData.enabled || !totpData.secret) {
@@ -419,13 +443,12 @@ export async function setupAuth(app: Express) {
         const codeHash = hashToken(cleanCode.toUpperCase());
         const idx = backupCodes.findIndex(bc => bc.code === codeHash && !bc.used);
         if (idx !== -1) {
-          await authStorage.markBackupCodeUsed(user.id, idx);
+          await authStorage.markBackupCodeUsed(user.id, idx, user.authEpoch);
           verified = true;
         }
       } else {
         try {
-          const totp = new TOTP();
-          verified = !!(totp.verify({ token: cleanCode, secret: totpData.secret } as any));
+          verified = verifyTotp({ token: cleanCode, secret: totpData.secret }).valid === true;
         } catch {
           verified = false;
         }
@@ -436,11 +459,12 @@ export async function setupAuth(app: Express) {
       }
 
       delete (req.session as any).pendingMfaUserId;
+      delete (req.session as any).pendingMfaEpoch;
 
       req.logIn(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ message: "Login failed" });
 
-        await registerLoginSession(req, user.id, user.role || "merchant");
+        if (!await registerLoginSession(req, user.id, user.role || "merchant")) return res.status(503).json({ message: "Sign-in state changed or is unavailable; retry." });
 
         if (rememberDevice) {
           const rawToken = crypto.randomBytes(32).toString("hex");
@@ -451,7 +475,7 @@ export async function setupAuth(app: Express) {
             token: hashedToken,
             name: trustedDeviceName,
             expiresAt: expiresAt.toISOString(),
-          });
+          }, user.authEpoch);
           res.cookie("trusted_device_token", rawToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
@@ -471,7 +495,7 @@ export async function setupAuth(app: Express) {
           }
         }
 
-        const { passwordHash, totpSecret, ...safeUser } = user;
+        const safeUser = publicUser(user);
         return res.json(safeUser);
       });
     } catch (err: any) {
@@ -482,8 +506,9 @@ export async function setupAuth(app: Express) {
   app.post("/api/auth/totp/enroll", isAuthenticated, async (req, res) => {
     const user = req.user as any;
     try {
+      if (user.totpEnabled) return res.status(409).json({ message: "MFA is already configured. Use the verified disable or administrative recovery action first." });
       const secret = totpGenerateSecret();
-      await authStorage.saveTotpSecret(user.id, secret);
+      await authStorage.saveTotpSecret(user.id, secret, user.authEpoch, user.accountVersion);
       const issuer = "Liberty Bancard";
       const label = encodeURIComponent(`${issuer}:${user.email}`);
       const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
@@ -506,15 +531,14 @@ export async function setupAuth(app: Express) {
       const cleanCode = String(code).replace(/\s/g, "");
       let verified = false;
       try {
-        const totp = new TOTP();
-        verified = !!(totp.verify({ token: cleanCode, secret: totpData.secret } as any));
+        verified = verifyTotp({ token: cleanCode, secret: totpData.secret }).valid === true;
       } catch {
         verified = false;
       }
       if (!verified) return res.status(401).json({ message: "Invalid code. Please try again." });
 
       const { plain, hashed } = generateBackupCodes();
-      await authStorage.enableTotp(user.id, hashed);
+      await authStorage.enableTotp(user.id, hashed, user.authEpoch, user.accountVersion);
 
       if (isGhlConfigured()) {
         const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
@@ -546,7 +570,7 @@ export async function setupAuth(app: Express) {
       const isValid = await bcrypt.compare(password, fullUser.passwordHash);
       if (!isValid) return res.status(401).json({ message: "Incorrect password" });
 
-      await authStorage.disableTotp(user.id);
+      await authStorage.disableTotp(user.id, user.authEpoch, user.accountVersion);
       res.clearCookie("trusted_device_token");
 
       if (isGhlConfigured()) {
@@ -604,7 +628,7 @@ export async function setupAuth(app: Express) {
       if (!totpData.enabled) return res.status(400).json({ message: "2FA is not enabled on this account" });
 
       const { plain, hashed } = generateBackupCodes();
-      await authStorage.enableTotp(user.id, hashed);
+      await authStorage.enableTotp(user.id, hashed, user.authEpoch, user.accountVersion);
 
       res.json({ success: true, backupCodes: plain });
     } catch (err: any) {
@@ -694,7 +718,7 @@ export async function setupAuth(app: Express) {
       req.logIn(user, async (err) => {
         if (err) return res.status(500).json({ message: "Signup succeeded but login failed" });
 
-        await registerLoginSession(req, user.id, user.role || "merchant");
+        if (!await registerLoginSession(req, user.id, user.role || "merchant")) return res.status(503).json({ message: "Sign-in state changed or is unavailable; retry." });
 
         storage.createNotification({
           channel: "internal",
@@ -720,7 +744,7 @@ export async function setupAuth(app: Express) {
           }).catch(err => logOperationalDiagnostic("auth_email_delivery", err, "welcome_delivery_failed"));
         }
 
-        const { passwordHash: _, totpSecret: __, ...safeUser } = user;
+        const safeUser = publicUser(user);
         return res.status(201).json(safeUser);
       });
     } catch (error: any) {
@@ -907,7 +931,7 @@ async function checkSessionValidity(req: any): Promise<"session_expired" | "sess
       if (user?.id) {
         const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || undefined;
         const userAgent = req.headers["user-agent"] || undefined;
-        await authStorage.createUserSession({ userId: user.id, sessionId, ip, userAgent });
+        await authStorage.createUserSession({ userId: user.id, sessionId, ip, userAgent, expectedEpoch: user.authEpoch });
       }
       return null;
     }

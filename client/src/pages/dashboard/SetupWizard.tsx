@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -960,12 +961,14 @@ function Phase6GoLive({ flagStates, setFlagStates }: {
   const queryClient = useQueryClient();
 
   const [sequences, setSequences] = useState<any[]>([]);
+  const sequenceIntents=useRetainedLocalIntent();
   const [seqLoading, setSeqLoading] = useState(false);
 
   const loadSequences = async () => {
     setSeqLoading(true);
     try {
       const res = await fetch("/api/sequences?limit=200", { credentials: "include" });
+      if(!res.ok) throw new Error("Sequence list unavailable. Retry before taking action.");
       const data = await res.json();
       const all: any[] = Array.isArray(data) ? data : (data.sequences ?? data.data ?? []);
       setSequences(all.filter((s: any) => s.name?.startsWith("W6")));
@@ -979,14 +982,22 @@ function Phase6GoLive({ flagStates, setFlagStates }: {
   const toggleSequence = async (id: number, currentStatus: string) => {
     const csrfToken = getCsrfToken();
     try {
+      const row=sequences.find(row=>row.id===id);
+      if(!row?.version || row.retiredAt) throw new Error("Sequence unavailable or retired. Reload before changing its state.");
       const res = await fetch(`/api/sequences/${id}/toggle-status`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}) },
+        body:JSON.stringify(sequenceIntents.payload(`toggle:${id}`,{expectedVersion:row.version})),
       });
+      if(!res.ok) {
+        const error=await res.json();
+        throw new Error(error.message || "Sequence change not applied");
+      }
       const updated = await res.json();
+      sequenceIntents.accepted(`toggle:${id}`);
       setSequences((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, status: updated.status } : s))
+        prev.map((s) => (s.id === id ? { ...s, ...updated } : s))
       );
       toast({ title: `Sequence ${updated.status === "active" ? "activated" : "paused"}` });
     } catch (err: any) {

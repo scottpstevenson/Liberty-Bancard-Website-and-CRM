@@ -16,6 +16,9 @@ import { pool, db } from "../db";
 import { eq, and, count, sql } from "drizzle-orm";
 import { campaigns, campaignSteps, campaignApprovals } from "@shared/schema";
 import { serverError } from "../utils/server-error";
+import {commandSequence,sequenceCommandFields,sequenceEditorSteps} from "../services/sequence-command";
+import {bindWorkActor,WorkCommandError} from "../services/work-item-command";
+import {strictRecordId} from "@shared/work-item-commands";
 import { applyConsentCommand, recordReachabilityObservation } from "../services/consent-authority";
 import { decideCr06SequenceLifecycle } from "../services/cr06-promotional-lifecycle-decision";
 
@@ -728,6 +731,8 @@ export function registerCampaignsRoutes(app: Express) {
             s.id,
             s.name,
             s.status,
+            s.version,
+            s.retired_at,
             s.total_steps,
             COUNT(e.id)::int AS enrolled,
             COUNT(CASE WHEN e.current_step >= 1 THEN 1 END)::int AS step1_complete,
@@ -765,6 +770,8 @@ export function registerCampaignsRoutes(app: Express) {
             vertical,
             sequenceType,
             sequenceStatus: row.status,
+            version:row.version,
+            retiredAt:row.retired_at,
             totalSteps: row.total_steps ?? 0,
             enrolled,
             step1Complete: row.step1_complete ?? 0,
@@ -813,22 +820,12 @@ export function registerCampaignsRoutes(app: Express) {
   // fields may change here.
   app.put("/api/sequences/:id/toggle-status", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = Number(req.params.id);
-      const seq = await storage.getFollowUpSequence(id);
-      if (!seq) return res.status(404).json({ message: "Sequence not found" });
-      if (!canMutateOwnedCampaignObject(req, seq.createdBy)) return denyManagerOwnership(res);
-      if (seq.status === "active") {
-        const updated = await storage.updateFollowUpSequence(id, { status: "paused" });
-        await storage.createAuditLog({ action: "sequence_paused", entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
-        return res.json(updated);
-      }
-      if (seq.status === "paused" || seq.status === "draft") {
-        const updated = await storage.updateFollowUpSequence(id, { status: "active" });
-        await storage.createAuditLog({ action: "sequence_activated", entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
-        return res.json(updated);
-      }
-      return res.status(409).json({ message: `Sequence is ${seq.status} and cannot be toggled` });
+      const fields=sequenceCommandFields.parse(req.body);
+      res.json(await commandSequence(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),
+        strictRecordId.parse(req.params.id),"toggle",fields));
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
@@ -859,18 +856,13 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.put("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = Number(req.params.id);
-      const existing = await storage.getFollowUpSequence(id);
-      if (!existing) return res.status(404).json({ message: "Not found" });
-      if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
-      if (existing.status !== "paused" && existing.status !== "draft") {
-        return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
-      }
-      const input = sequenceUpdateSchema.parse(req.body);
-      const updated = await storage.updateFollowUpSequence(id, input);
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
+      const {commandId,expectedVersion,expectedActorId,expectedAccountVersion,steps,...updates}=req.body;
+      const fields=sequenceCommandFields.parse({commandId,expectedVersion,expectedActorId,expectedAccountVersion});
+      const input = sequenceUpdateSchema.parse(updates);
+      res.json(await commandSequence(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),
+        strictRecordId.parse(req.params.id),"edit",fields,input,steps===undefined?undefined:sequenceEditorSteps.parse(steps)));
     } catch (err: any) {
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       serverError(res, err);
     }
@@ -878,17 +870,24 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.delete("/api/sequences/:id", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
     try {
-      const id = Number(req.params.id);
-      const existing = await storage.getFollowUpSequence(id);
-      if (!existing) return res.status(404).json({ message: "Not found" });
-      if (!canMutateOwnedCampaignObject(req, existing.createdBy)) return denyManagerOwnership(res);
-      if (existing.status !== "paused" && existing.status !== "draft") {
-        return res.status(409).json({ message: "Only paused or draft sequences may be deleted" });
-      }
-      await storage.deleteFollowUpSequence(id);
-      res.json({ success: true });
+      const fields=sequenceCommandFields.parse(req.body);
+      res.json({success:true,...await commandSequence(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),
+        strictRecordId.parse(req.params.id),"retire",fields)});
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
+    }
+  });
+  app.post("/api/sequences/:id/restore",isDashboardUser,requireRole("admin","manager"),async(req,res)=>{
+    try {
+      const fields=sequenceCommandFields.parse(req.body);
+      res.json(await commandSequence(bindWorkActor(req.user,fields.expectedActorId,fields.expectedAccountVersion),
+        strictRecordId.parse(req.params.id),"restore",fields));
+    } catch(error:any) {
+      if(error instanceof z.ZodError) return res.status(400).json({message:error.errors[0].message});
+      if(error instanceof WorkCommandError) return res.status(error.status).json({message:error.message});
+      serverError(res,error);
     }
   });
 
@@ -1135,10 +1134,8 @@ export function registerCampaignsRoutes(app: Express) {
       if (seq.status !== "paused" && seq.status !== "draft") {
         return res.status(409).json({ message: "Only paused or draft sequences may be edited" });
       }
-      await storage.deleteSequenceStep(id);
-      const steps = await storage.getSequenceSteps(seq.id);
-      await storage.updateFollowUpSequence(seq.id, { totalSteps: steps.length });
-      res.json({ success: true });
+      res.status(409).json({message:"Step deletion unavailable until retained-history dependencies are certified. Edit this step or retire its sequence; no history or fields were changed.",
+        code:"retention_contract_unverified"});
     } catch (err: any) {
       serverError(res, err);
     }

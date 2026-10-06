@@ -1,4 +1,6 @@
 import { useState } from "react";
+import {useSearch,useLocation} from "wouter";
+import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,6 +50,8 @@ export default function RFIs() {
   const [newContactId, setNewContactId] = useState("");
 
   const { data: allRfis, isLoading } = useQuery<Rfi[]>({ queryKey: ["/api/rfis"] });
+  const selectedContext=useAuthorizedSelectedRecord<Rfi>("/api/rfis",useSearch());
+  const [,navigateRfi]=useLocation();
   const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"] });
   const contacts = contactsRes?.data;
 
@@ -126,6 +130,16 @@ export default function RFIs() {
 
   return (
     <div className="space-y-6" data-testid="page-rfis">
+      {(selectedContext.isError || selectedContext.invalid) && <div role="alert">Requested record unavailable.
+        {!selectedContext.invalid && <Button onClick={()=>void selectedContext.refetch()}>Retry selected record</Button>}
+      </div>}
+      <Dialog open={!!selectedContext.data && selectedContext.id!==null} onOpenChange={open=>{if(!open) navigateRfi("/dashboard/rfis");}}>
+        <DialogContent><DialogHeader><DialogTitle>{selectedContext.data?.subject}</DialogTitle></DialogHeader>
+          <p className="whitespace-pre-wrap">{selectedContext.data?.description}</p>
+          <p>Status: {selectedContext.data?.status}</p>
+          <p className="text-sm text-muted-foreground">Authorized record context. No reply or workflow was executed.</p>
+        </DialogContent>
+      </Dialog>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-semibold" data-testid="text-rfis-title">Requests for Information</h2>

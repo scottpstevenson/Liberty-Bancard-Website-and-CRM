@@ -2359,6 +2359,97 @@
       "when": 1800000015700,
       "tag": "0333_canonical_relationship_lookup_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 337,
+      "version": "7",
+      "when": 1800000015800,
+      "tag": "0334_rep_message_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 338,
+      "version": "7",
+      "when": 1800000015900,
+      "tag": "0335_workflow_recovery_fence",
+      "breakpoints": true
+    },
+    {
+      "idx": 339,
+      "version": "7",
+      "when": 1800000016000,
+      "tag": "0336_recoverable_user_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 340,
+      "version": "7",
+      "when": 1800000016100,
+      "tag": "0337_work_command_identity_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 341,
+      "version": "7",
+      "when": 1800000016200,
+      "tag": "0338_task_native_identity_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx":342,
+      "version":"7",
+      "when":1800000016300,
+      "tag":"0339_inbox_work_commands",
+      "breakpoints":true
+    },
+    {
+      "idx":343,
+      "version":"7",
+      "when":1800000016400,
+      "tag":"0340_notification_actor_state",
+      "breakpoints":true
+    },
+    {
+      "idx":344,
+      "version":"7",
+      "when":1800000016500,
+      "tag":"0341_contact_privacy_lifecycle",
+      "breakpoints":true
+    },
+    {
+      "idx":345,
+      "version":"7",
+      "when":1800000016600,
+      "tag":"0342_contact_lifecycle_receipts",
+      "breakpoints":true
+    },
+    {
+      "idx":346,
+      "version":"7",
+      "when":1800000016700,
+      "tag":"0343_note_commands",
+      "breakpoints":true
+    },
+    {
+      "idx":347,
+      "version":"7",
+      "when":1800000016800,
+      "tag":"0344_company_creator_authority",
+      "breakpoints":true
+    },
+    {
+      "idx":348,
+      "version":"7",
+      "when":1800000016900,
+      "tag":"0345_sequence_retirement",
+      "breakpoints":true
+    },
+    {
+      "idx":349,
+      "version":"7",
+      "when":1800000017000,
+      "tag":"0346_rep_invite_purpose",
+      "breakpoints":true
     }
   ]
 }

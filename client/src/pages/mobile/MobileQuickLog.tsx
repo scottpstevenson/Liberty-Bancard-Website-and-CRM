@@ -80,7 +80,7 @@ export default function MobileQuickLog({
 
   async function logCall() {
     setLoggingCall(true);
-    const { ok, queued } = await executeOrQueue("POST", "/api/call-logs", {
+    const { ok, queued,reason } = await executeOrQueue("POST", "/api/call-logs", {
       contactId: contactId ? Number(contactId) : undefined,
       direction: "outbound",
       outcome,
@@ -88,11 +88,11 @@ export default function MobileQuickLog({
     });
     if (ok || queued) {
       queryClient.invalidateQueries({ queryKey: ["/api/call-logs"] });
-      toast({ title: queued ? "Call queued (offline)" : "Call logged", description: `Outcome: ${outcome}` });
+      toast({ title: queued ? "Call retained locally for review" : "Call logged", description: queued ? reason : `Outcome: ${outcome}` });
       setOutcome("");
       setCallNotes("");
       onClose();
-    }
+    } else toast({title:"Call not confirmed",description:reason,variant:"destructive"});
     setLoggingCall(false);
   }
 
@@ -100,26 +100,26 @@ export default function MobileQuickLog({
     setSendingSms(true);
     const contact = contacts.find((c: any) => String(c.id) === contactId);
     const body = smsBody.replace("{name}", contact?.firstName || "there");
-    const { ok, queued } = await executeOrQueue("POST", "/api/call-logs", {
+    const { ok, queued,reason } = await executeOrQueue("POST", "/api/call-logs", {
       contactId: contactId ? Number(contactId) : undefined,
       direction: "outbound",
-      outcome: "SMS Sent",
-      summary: `SMS sent: ${body.slice(0, 100)}`,
+      outcome: "SMS Draft",
+      summary: `SMS draft prepared (sending not confirmed): ${body.slice(0, 100)}`,
     });
     if (ok || queued) {
       queryClient.invalidateQueries({ queryKey: ["/api/call-logs"] });
       if (contact?.phone) {
         window.location.href = `sms:${contact.phone}?body=${encodeURIComponent(body)}`;
       }
-      toast({ title: queued ? "SMS queued (offline)" : "SMS logged", description: "Opening messaging app..." });
+      toast({ title: "Message draft opened — sending not confirmed", description: queued ? reason : "Opening your messaging app; no send receipt is available." });
       onClose();
-    }
+    } else toast({title:"Message draft log not confirmed",description:reason,variant:"destructive"});
     setSendingSms(false);
   }
 
   async function createTask() {
     setCreatingTask(true);
-    const { ok, queued } = await executeOrQueue("POST", "/api/tasks", {
+    const { ok, queued,reason } = await executeOrQueue("POST", "/api/tasks", {
       title: taskTitle,
       priority: taskPriority,
       dueDate: taskDue ? new Date(taskDue).toISOString() : undefined,
@@ -128,12 +128,12 @@ export default function MobileQuickLog({
     });
     if (ok || queued) {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      toast({ title: queued ? "Task queued (offline)" : "Task created" });
+      toast({ title: queued ? "Task saved locally, server confirmation pending" : "Task created",description:queued ? reason:undefined });
       setTaskTitle("");
       setTaskPriority("normal");
       setTaskDue("");
       onClose();
-    }
+    } else toast({title:"Task not saved",description:reason,variant:"destructive"});
     setCreatingTask(false);
   }
 

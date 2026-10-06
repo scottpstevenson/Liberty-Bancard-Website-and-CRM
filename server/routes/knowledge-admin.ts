@@ -41,6 +41,10 @@ export function registerKnowledgeAdminRoutes(app: Express) {
   app.get("/api/knowledge/sources", adminOrManager, async (req: Request, res: Response) => {
     try {
       const { status, audience } = req.query as Record<string, string>;
+      if(status!==undefined && !["draft","published","archived"].includes(status) ||
+        audience!==undefined && !["public","merchant","staff","all"].includes(audience)) {
+        return res.status(400).json({error:"Unsupported Knowledge status or audience filter."});
+      }
       const sources = await listKnowledgeSources({
         status: status || undefined,
         audience: audience || undefined,

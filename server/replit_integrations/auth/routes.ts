@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { publicUser } from "@shared/public-user";
 import { db } from "../../db";
 import { users } from "../../../shared/models/auth";
 import { and, eq, isNull } from "drizzle-orm";
@@ -16,8 +17,7 @@ export function registerAuthRoutes(app: Express): void {
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
-      const { passwordHash, ...safeUser } = user;
-      res.json(safeUser);
+      res.json(publicUser(user));
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });

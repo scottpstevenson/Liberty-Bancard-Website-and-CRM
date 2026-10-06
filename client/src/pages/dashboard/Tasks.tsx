@@ -1,4 +1,5 @@
 import { useState, Fragment } from "react";
+import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -105,6 +106,7 @@ export default function Tasks() {
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [editTaskId, setEditTaskId] = useState<number | null>(null);
+  const [editTaskFence, setEditTaskFence] = useState(0);
   const [editTaskFields, setEditTaskFields] = useState({
     title: "",
     description: "",
@@ -154,6 +156,7 @@ export default function Tasks() {
     },
   });
 
+  const workCommands = useWorkCommands("task", selectedTaskIds, tasks);
   const createTaskMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const res = await apiRequest("POST", "/api/tasks", data);
@@ -176,7 +179,7 @@ export default function Tasks() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      invalidateWorkFacts();
       toast({ title: "Task updated" });
     },
     onError: (err: Error) => {
@@ -200,15 +203,15 @@ export default function Tasks() {
 
   const bulkAssignMutation = useMutation({
     mutationFn: async ({ taskIds, assignedTo }: { taskIds: number[]; assignedTo: string }) => {
-      const res = await apiRequest("POST", "/api/tasks/bulk-assign", { taskIds, assignedTo });
+      const res = await apiRequest("POST", "/api/tasks/bulk-assign", workCommands.bulk(taskIds, { assignedTo }));
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onSuccess: (data) => {
+      invalidateWorkFacts();
       setSelectedTaskIds(new Set());
       setBulkAssignOpen(false);
       setBulkAssignTo("");
-      toast({ title: "Tasks assigned successfully" });
+      toast({ title: data.replayed ? "Assignment already saved" : `${data.count} tasks reassigned` });
     },
     onError: (err: Error) => {
       toastError(err, { title: "Failed to assign tasks" });
@@ -217,17 +220,13 @@ export default function Tasks() {
 
   const bulkCompleteMutation = useMutation({
     mutationFn: async (taskIds: number[]) => {
-      const results = await Promise.all(
-        taskIds.map((id) =>
-          apiRequest("PUT", `/api/tasks/${id}`, { status: "completed", completedAt: new Date().toISOString() })
-        )
-      );
-      return results;
+      const res = await apiRequest("POST", "/api/tasks/bulk-complete", workCommands.bulk(taskIds));
+      return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onSuccess: (data) => {
+      invalidateWorkFacts();
       setSelectedTaskIds(new Set());
-      toast({ title: "Tasks marked as complete" });
+      toast({ title: data.replayed ? "Completion already saved" : `${data.changed} tasks completed` });
     },
     onError: (err: Error) => {
       toastError(err, { title: "Failed to complete tasks" });
@@ -235,16 +234,18 @@ export default function Tasks() {
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: async (taskIds: number[]): Promise<{ deleted: number; requested: number }> => {
-      const res = await apiRequest("POST", "/api/tasks/bulk-delete", { taskIds });
+    mutationFn: async (taskIds: number[]): Promise<{ deleted: number; requested: number; replayed:boolean }> => {
+      const res = await apiRequest("POST", "/api/tasks/bulk-delete", workCommands.bulk(taskIds));
       const data = await res.json();
-      return { deleted: data.deleted, requested: taskIds.length };
+      return { deleted: data.deleted, requested: taskIds.length,replayed:data.replayed };
     },
-    onSuccess: ({ deleted, requested }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    onSuccess: ({ deleted, requested,replayed }) => {
+      invalidateWorkFacts();
       setSelectedTaskIds(new Set());
       setBulkDeleteConfirmOpen(false);
-      if (deleted < requested) {
+      if (replayed) {
+        toast({title:"Deletion already saved",description:`The original command retired ${deleted} tasks. No new deletion was executed.`});
+      } else if (deleted < requested) {
         toast({ title: `${deleted} of ${requested} tasks deleted`, description: "Some tasks may have already been deleted.", variant: "default" });
       } else {
         toast({ title: `${deleted} task${deleted !== 1 ? "s" : ""} deleted` });
@@ -304,6 +305,7 @@ export default function Tasks() {
       priority: task.priority || "normal",
     });
     setEditTaskId(task.id);
+    setEditTaskFence(task.authorityFence);
   };
 
   const handleSaveEditTask = () => {
@@ -322,7 +324,7 @@ export default function Tasks() {
       dueDate: editTaskFields.dueDate ? new Date(editTaskFields.dueDate).toISOString() : null,
     };
     updateTaskMutation.mutate(
-      { id: editTaskId, ...payload },
+      { id: editTaskId, ...workCommands.edit({ id: editTaskId, authorityFence: editTaskFence }, payload) },
       {
         onSuccess: () => setEditTaskId(null),
       }
@@ -333,8 +335,7 @@ export default function Tasks() {
     const next = getNextStatus(task.status);
     if (!next) return;
     const updates: Record<string, unknown> = { status: next };
-    if (next === "completed") updates.completedAt = new Date().toISOString();
-    updateTaskMutation.mutate({ id: task.id, ...updates });
+    updateTaskMutation.mutate({ id: task.id, ...workCommands.edit(task, updates) });
   };
 
   const filteredTasks = tasks?.filter((t) => {

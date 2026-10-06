@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 import { useSearch } from "wouter";
+import {useAuthorizedSelectedRecord} from "@/hooks/use-authorized-selected-record";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -364,12 +366,13 @@ export default function Tickets() {
   });
   const bulkResolveMutation = useMutation({
     mutationFn: async (ids: number[]) => {
-      await Promise.all(ids.map(id => apiRequest("PUT", `/api/tickets/${id}`, { status: "Resolved", resolvedAt: new Date().toISOString() })));
+      const res = await apiRequest("POST", "/api/tickets/bulk-complete", workCommands.bulk(ids));
+      return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+    onSuccess: (data) => {
+      invalidateWorkFacts();
       setSelectedTicketIds(new Set());
-      toast({ title: `Tickets resolved` });
+      toast({ title: data.replayed ? "Resolution already saved" : `${data.changed} tickets resolved` });
     },
     onError: (err: Error) => { toastError(err, { title: "Bulk resolve failed" }); },
   });
@@ -411,6 +414,7 @@ export default function Tickets() {
     queryKey: ["/api/agents"],
   });
 
+  const workCommands = useWorkCommands("ticket", selectedTicketIds, tickets);
   const createTicketMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
       const res = await apiRequest("POST", "/api/tickets", data);
@@ -433,6 +437,10 @@ export default function Tickets() {
       return res.json();
     },
     onSuccess: (_data, variables) => {
+      setSelectedTicket(_data);
+      setEditStatus(_data.status ?? "");
+      setEditAssignedTo(_data.assignedTo ?? "");
+      invalidateWorkFacts();
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       if (variables.id) {
         queryClient.invalidateQueries({ queryKey: ["/api/tickets", variables.id, "comments"] });
@@ -485,13 +493,10 @@ export default function Tickets() {
     const updates: Record<string, unknown> = {};
     if (editStatus && editStatus !== selectedTicket.status) updates.status = editStatus;
     if (editAssignedTo !== (selectedTicket.assignedTo || "")) updates.assignedTo = editAssignedTo || null;
-    if (editStatus === "Resolved" && selectedTicket.status !== "Resolved") {
-      updates.resolvedAt = new Date().toISOString();
-    }
     if (Object.keys(updates).length === 0) {
       return;
     }
-    updateTicketMutation.mutate({ id: selectedTicket.id, ...updates });
+    updateTicketMutation.mutate({ id: selectedTicket.id, ...workCommands.edit(selectedTicket, updates) });
   };
 
   const openTicketDetail = (ticket: Ticket) => {
@@ -504,15 +509,17 @@ export default function Tickets() {
   };
 
   const search = useSearch();
+  const selectedRecord=useAuthorizedSelectedRecord<Ticket>("/api/tickets",search);
   useEffect(() => {
-    const idStr = new URLSearchParams(search).get("id");
-    const id = idStr ? Number(idStr) : NaN;
-    if (!Number.isFinite(id) || !tickets) return;
-    const ticket = tickets.find((t) => t.id === id);
+    const id=selectedRecord.id;
+    if(id===null) return;
+    const ticket=selectedRecord.data;
     if (ticket && (!detailOpen || selectedTicket?.id !== id)) {
       openTicketDetail(ticket);
     }
-  }, [search, tickets]);
+  }, [selectedRecord.id,selectedRecord.data]);
+  useEffect(()=>{if(selectedRecord.isError || selectedRecord.invalid) {setDetailOpen(false);setSelectedTicket(null);}},
+    [selectedRecord.isError,selectedRecord.invalid]);
 
   if (isError) {
     return <DashboardErrorState title="Failed to load tickets" onRetry={() => refetch()} />;
@@ -520,6 +527,9 @@ export default function Tickets() {
 
   return (
     <div className="space-y-6" data-testid="tickets-page">
+      {(selectedRecord.isError || selectedRecord.invalid) && <div role="alert">Requested record unavailable.
+        {!selectedRecord.invalid && <Button onClick={()=>void selectedRecord.refetch()}>Retry selected record</Button>}
+      </div>}
       <PageHeader
         title={`Support Tickets${tickets ? ` (${tickets.length})` : ""}`}
         testId="text-tickets-title"
@@ -703,12 +713,12 @@ export default function Tickets() {
                 const assignedTo = e.target.value;
                 if (!assignedTo) return;
                 try {
-                  await Promise.all(Array.from(selectedTicketIds).map(id =>
-                    apiRequest("PUT", `/api/tickets/${id}`, { assignedTo }).then(r => r.json())
-                  ));
-                  queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+                  const response = await apiRequest("POST", "/api/tickets/bulk-assign",
+                    workCommands.bulk(Array.from(selectedTicketIds), { assignedTo }));
+                  const outcome = await response.json();
+                  invalidateWorkFacts();
                   setSelectedTicketIds(new Set());
-                  toast({ title: "Tickets reassigned" });
+                  toast({ title: outcome.replayed ? "Assignment already saved" : `${outcome.changed} tickets reassigned` });
                 } catch (err: any) {
                   toast({ title: "Reassign failed", description: err.message, variant: "destructive" });
                 }

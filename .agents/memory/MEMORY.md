@@ -155,3 +155,4 @@
 - [Dependency upgrades and design](dependency-design-preservation.md) — Security upgrades must preserve Liberty's design; installs can reintroduce nonportable mirror sources.
 - [Browser runtime verification](browser-runtime-verification.md) — Prefer the environment Chromium wrapper; cached browsers can lack compatible Nix runtime libraries.
 - [SFP owner lock ordering](sfp-owner-lock-order.md) — Pin selector → owner before graph locks; queued renewal and joined FOR SHARE make inconsistent ordering dangerous.
+- [TOTP verification](totp-functional-api.md) — Use configured functional verification and explicit validity; prove wrong-code rejection and actual continuation.

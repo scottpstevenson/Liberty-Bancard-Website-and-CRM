@@ -11,6 +11,8 @@ const inherited: NodeJS.ProcessEnv = {
   TEST_DATABASE_URL: "postgresql://test:test@127.0.0.1:5432/cert_test",
   REDIS_URL: "redis://127.0.0.1:6379",
   TEST_REDIS_PREFIX: "ci_certification_process_env_12345_",
+  CERTIFICATION_HTTP_HOST: "127.0.0.1",
+  CERTIFICATION_HTTP_NONCE: "a".repeat(64),
   AI_INTEGRATIONS_OPENAI_API_KEY: "must-not-cross-process-boundary",
   GHL_PRIVATE_INTEGRATION_TOKEN: "must-not-cross-process-boundary",
   GHL_API_KEY: "must-not-cross-process-boundary",
@@ -60,6 +62,8 @@ for (const role of ["migration", "integration", "server"]) {
   assert.equal(childEnv.VG_PROVIDER_DENY_MODE, "1");
   assert.equal(childEnv.GHL_TRANSPORT_FAILFAST, "true");
   assert.equal(childEnv.AUTH_ACTION_DB_TEST_OPT_IN, undefined);
+  assert.equal(childEnv.CERTIFICATION_HTTP_HOST, "127.0.0.1");
+  assert.equal(childEnv.CERTIFICATION_HTTP_NONCE, "a".repeat(64));
 }
 
 const authEnvironment = buildCertificationEnvironment(inherited, {

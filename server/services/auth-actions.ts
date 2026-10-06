@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
-import { authActions, AUTH_ACTION_PURPOSES, type AuthActionPurpose } from "@shared/models/auth";
+import { authActions, users, userSessions, AUTH_ACTION_PURPOSES, type AuthActionPurpose } from "@shared/models/auth";
 import { db } from "../db";
 
 export type AuthActionDeliveryDisposition = "pending" | "sent" | "definite_failure" | "ambiguous";
@@ -30,6 +30,12 @@ export async function issueAuthAction(input: {
   const expiresAt = new Date(now.getTime() + input.ttlMs);
   const subjectId = String(input.subject.id);
   return db.transaction(async (tx) => {
+    let issuedAuthEpoch = 0;
+    if (input.subject.type === "user") {
+      const [user] = await tx.select().from(users).where(eq(users.id, subjectId)).for("update");
+      if (!user || user.accountState !== "active") throw new Error("AUTH_SUBJECT_UNAVAILABLE");
+      issuedAuthEpoch = user.authEpoch;
+    }
     // Serialize issuance for one subject + purpose so concurrent resends cannot
     // choose the same version or leave more than one live action.
     await tx.execute(sql`
@@ -46,7 +52,7 @@ export async function issueAuthAction(input: {
     const version = (previous?.version ?? 0) + 1;
     const [action] = await tx.insert(authActions).values({
       purpose: input.purpose, subjectType: input.subject.type, subjectId, tokenHash: tokenHash(token),
-      version, expiresAt, deliveryDisposition: "pending",
+      version, expiresAt, deliveryDisposition: "pending", issuedAuthEpoch,
     }).returning({ id: authActions.id });
     return { id: action.id, token, expiresAt, version };
   });
@@ -79,6 +85,15 @@ export async function consumeAuthAction<T>(input: {
   const rejected = new AuthActionMutationRejected("AUTH_ACTION_MUTATION_REJECTED");
   try {
   return await db.transaction(async (tx) => {
+    // User before bearer is the shared lifecycle lock order. Locking the
+    // bearer first can deadlock with deactivation's user -> bearer revocation.
+    const [candidate] = await tx.select().from(authActions)
+      .where(and(eq(authActions.tokenHash, tokenHash(input.token)), eq(authActions.purpose, input.purpose))).limit(1);
+    if (!candidate) return { ok: false } as const;
+    if (candidate.subjectType === "user") {
+      const [user] = await tx.select().from(users).where(eq(users.id, candidate.subjectId)).for("update");
+      if (!user || user.accountState !== "active" || user.authEpoch !== candidate.issuedAuthEpoch) return { ok: false } as const;
+    }
     const [claimed] = await tx.update(authActions).set({ consumedAt: now })
       .where(and(eq(authActions.tokenHash, tokenHash(input.token)), eq(authActions.purpose, input.purpose),
         gt(authActions.expiresAt, now), isNull(authActions.consumedAt), isNull(authActions.revokedAt)))
@@ -89,6 +104,11 @@ export async function consumeAuthAction<T>(input: {
     // `false` is an authorization/subject rejection, not a successful
     // mutation. Throw so both the claim and any preceding writes roll back.
     if (value === false || value === null || value === undefined) throw rejected;
+    if (subject.type === "user" && ["user_password_reset", "agent_rep_invite"].includes(input.purpose)) {
+      await tx.update(users).set({ authEpoch: sql`${users.authEpoch}+1`,
+        accountVersion: sql`${users.accountVersion}+1`, trustedDevices: [] }).where(eq(users.id, String(subject.id)));
+      await tx.update(userSessions).set({ isInvalidated: true, invalidatedAt: now }).where(eq(userSessions.userId, String(subject.id)));
+    }
     return { ok: true, value, subject } as const;
   });
   } catch (error) {
@@ -108,9 +128,14 @@ export async function revokeAuthActions(subject: AuthActionSubject, purpose?: Au
 export async function isAuthActionValid(token: string, purpose: AuthActionPurpose): Promise<boolean> {
   requirePurpose(purpose);
   if (!token || token.length > 512) return false;
-  const [action] = await db.select({ id: authActions.id }).from(authActions).where(and(
+  const [action] = await db.select().from(authActions).where(and(
     eq(authActions.tokenHash, tokenHash(token)), eq(authActions.purpose, purpose),
     gt(authActions.expiresAt, new Date()), isNull(authActions.consumedAt), isNull(authActions.revokedAt),
   )).limit(1);
-  return !!action;
+  if (!action) return false;
+  if (action.subjectType === "user") {
+    const [user] = await db.select({ state: users.accountState, epoch: users.authEpoch }).from(users).where(eq(users.id, action.subjectId));
+    return !!user && user.state === "active" && user.epoch === action.issuedAuthEpoch;
+  }
+  return true;
 }

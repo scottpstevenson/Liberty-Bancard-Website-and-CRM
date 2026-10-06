@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { prepareWorkCreation, acknowledgeWorkCreation } from "./work-create-intent";
 
 export function getCsrfToken(): string | null {
   const match = document.cookie.match(
@@ -48,6 +49,8 @@ export async function apiRequest(
   if (data) headers["Content-Type"] = "application/json";
 
   const upperMethod = method.toUpperCase();
+  const taskCreation = upperMethod==="POST" && url==="/api/tasks";
+  if (taskCreation) data = prepareWorkCreation(queryClient.getQueryData<{id:string}>(["/api/auth/user"])?.id,data);
   if (upperMethod !== "GET" && upperMethod !== "HEAD" && upperMethod !== "OPTIONS") {
     const csrfToken = getCsrfToken();
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
@@ -61,6 +64,13 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  if (taskCreation) {
+    // Consume a clone before releasing the retry UUID. A failed/truncated
+    // response body remains an unresolved intent, not a new creation.
+    const accepted = await res.clone().json();
+    if (!Number.isSafeInteger(accepted.id) || accepted.id<=0) throw new Error("Creation receipt unavailable. Retry the same intent.");
+    acknowledgeWorkCreation(data);
+  }
   return res;
 }
 

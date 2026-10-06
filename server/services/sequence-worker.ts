@@ -384,7 +384,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
       heartbeat.assertOwned();
       try {
         const sequence = await storage.getFollowUpSequence(enrollment.sequenceId!);
-        if (!sequence || sequence.status !== "active") {
+        if (!sequence || sequence.retiredAt || sequence.status !== "active") {
           continue;
         }
         // This is both the durable-work claim boundary and a final safety net
@@ -2434,7 +2434,7 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
   try {
     const allSequences = await storage.getFollowUpSequences();
     const activeSequences = allSequences.filter(
-      s => s.status === "active" && s.triggerType === triggerType
+      s => !s.retiredAt && s.status === "active" && s.triggerType === triggerType
     );
 
     for (const seq of activeSequences) {

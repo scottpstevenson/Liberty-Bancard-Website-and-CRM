@@ -123,6 +123,10 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
       SELECT id,business_id,email,assigned_to,archived_at,email_mutation_generation,email_status
         FROM contacts WHERE id=${input.contactId} FOR UPDATE
     `))[0];
+    const sequenceState=rows(await tx.execute(sql`SELECT retired_at FROM follow_up_sequences
+      WHERE id=${input.sequenceId} FOR SHARE`))[0];
+    if(!sequenceState) return held("SEQUENCE_UNAVAILABLE");
+    if(sequenceState.retired_at) return held("SEQUENCE_RETIRED");
     if (!contact || contact.archived_at) return held("CURRENT_CONTACT_REQUIRED");
     if (Number(contact.business_id) !== Number(peek.business_id)) {
       return held("CURRENT_BUSINESS_AFFILIATION_CHANGED");
@@ -175,6 +179,7 @@ async function prepareCanonicalRecipientPass(input: CanonicalPreparationInput) {
            sequence.trigger_config->>'canonicalProgramId'=p.id::text
            AND sequence.trigger_config->'canonicalVerticals' ? ${business.vertical}
          ))
+       AND sequence.retired_at IS NULL
        FOR SHARE OF p,sequence
     `));
     if (packages.length !== 1) {
@@ -375,7 +380,7 @@ export async function currentCanonicalValidationSelection(
       FROM cr04_enrollment_intents i JOIN contacts c ON c.id=i.contact_id
       JOIN businesses b ON b.id=i.business_id AND b.id=c.business_id
       JOIN sfp_programs p ON p.id=i.program_id
-      JOIN follow_up_sequences seq ON seq.id=i.sequence_id
+      JOIN follow_up_sequences seq ON seq.id=i.sequence_id AND seq.retired_at IS NULL
       JOIN sequence_enrollments se ON se.id=i.enrollment_id AND se.contact_id=c.id
        AND se.sequence_id=i.sequence_id AND se.status='paused'
         AND se.metadata->>'canonicalPreparationId'=i.id::text

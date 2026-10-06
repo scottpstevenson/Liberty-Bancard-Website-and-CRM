@@ -3,6 +3,9 @@ import crypto from "crypto";
 import { isAuthenticated, isAdmin, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { serverError, safeMessage } from "../utils/server-error";
+import { getRoundRobinPool, assignNextRep, mutateRoundRobinPool, getEligibleRoundRobinReps } from "../services/round-robin-policy";
+import { resolveWorkAssignee, WorkCommandError } from "../services/work-item-command";
+export {getRoundRobinPool,assignNextRep};
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -30,60 +33,6 @@ async function ghlFetch(path: string, options: RequestInit = {}): Promise<any> {
   }
   const text = await response.text();
   return text ? JSON.parse(text) : {};
-}
-
-const ROUND_ROBIN_KEY = "round_robin_pool";
-
-interface RoundRobinRep {
-  userId: string;
-  name: string;
-  email: string;
-  paused: boolean;
-  assignedCount: number;
-}
-
-interface RoundRobinPool {
-  reps: RoundRobinRep[];
-  currentIndex: number;
-  enabled: boolean;
-  log: Array<{
-    contactId: number;
-    contactName: string;
-    assignedTo: string;
-    assignedName: string;
-    assignedAt: string;
-  }>;
-}
-
-export async function getRoundRobinPool(): Promise<RoundRobinPool> {
-  const saved = await storage.getSystemSetting(ROUND_ROBIN_KEY);
-  return saved || { reps: [], currentIndex: 0, enabled: false, log: [] };
-}
-
-export async function assignNextRep(contactId: number, contactName: string): Promise<string | null> {
-  const pool = await getRoundRobinPool();
-  if (!pool.enabled || pool.reps.length === 0) return null;
-
-  const activeReps = pool.reps.filter((r) => !r.paused);
-  if (activeReps.length === 0) return null;
-
-  const currentActiveIdx = pool.currentIndex % activeReps.length;
-  const chosenRep = activeReps[currentActiveIdx];
-
-  chosenRep.assignedCount = (chosenRep.assignedCount || 0) + 1;
-  pool.currentIndex = (pool.currentIndex + 1) % activeReps.length;
-
-  const logEntry = {
-    contactId,
-    contactName,
-    assignedTo: chosenRep.userId,
-    assignedName: chosenRep.name,
-    assignedAt: new Date().toISOString(),
-  };
-  pool.log = [logEntry, ...(pool.log || [])].slice(0, 200);
-
-  await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
-  return chosenRep.userId;
 }
 
 export function registerToolkitRoutes(app: Express) {
@@ -430,77 +379,85 @@ export function registerToolkitRoutes(app: Express) {
 
 
   // === ROUND-ROBIN ASSIGNMENT ===
+  app.get("/api/admin/round-robin/eligible-reps",requireRole("admin","manager"),async(req,res)=>{
+    try {res.json(await getEligibleRoundRobinReps(req.user as any));}
+    catch(err) {if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message}); serverError(res,err);}
+  });
   app.get("/api/admin/round-robin", requireRole("admin", "manager"), async (req, res) => {
-    const pool = await getRoundRobinPool();
-    res.json(pool);
+    try { res.json(await getRoundRobinPool()); } catch (err) { serverError(res,err); }
   });
 
   app.put("/api/admin/round-robin", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const existing = await getRoundRobinPool();
       const { reps, enabled } = req.body;
-      const updated: RoundRobinPool = {
-        reps: Array.isArray(reps)
-          ? reps.map((r: any) => ({
-              userId: String(r.userId || ""),
-              name: String(r.name || ""),
-              email: String(r.email || ""),
-              paused: !!r.paused,
-              assignedCount: r.assignedCount || 0,
-            }))
-          : existing.reps,
-        currentIndex: existing.currentIndex,
-        enabled: enabled !== undefined ? !!enabled : existing.enabled,
-        log: existing.log || [],
-      };
-      await storage.setSystemSetting(ROUND_ROBIN_KEY, updated);
+      if ((enabled!==undefined && typeof enabled!=="boolean") || (reps!==undefined && !Array.isArray(reps))) return res.status(400).json({message:"Unsupported pool configuration"});
+      const updated = await mutateRoundRobinPool(req.user as any,req.body.expectedVersion,async (pool,tx)=>{
+        if (reps!==undefined) {
+          if (reps.length>200 || new Set(reps.map((r:any)=>r.userId)).size!==reps.length) throw new WorkCommandError("Duplicate or oversized roster. Reload before saving.",409);
+          const next=[];
+          for (const rep of reps) {
+            const current=await resolveWorkAssignee(rep.userId,tx,undefined,true);
+            if (typeof rep.paused!=="boolean") throw new WorkCommandError("Paused must be a boolean.",409);
+            next.push({userId:current.id,name:String(rep.name || current.email),email:current.email!,
+              paused:rep.paused,assignedCount:pool.reps.find(r=>r.userId===current.id)?.assignedCount ?? 0});
+          }
+          pool.reps=next;
+        }
+        if (enabled!==undefined) pool.enabled=enabled;
+      });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.patch("/api/admin/round-robin/rep/:userId", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const pool = await getRoundRobinPool();
-      const { userId } = req.params;
+      const userId = String(req.params.userId);
       const { paused, name, email } = req.body;
-      const rep = pool.reps.find((r) => r.userId === userId);
-      if (!rep) return res.status(404).json({ message: "Rep not found in pool" });
-      if (paused !== undefined) rep.paused = !!paused;
-      if (name !== undefined) rep.name = name;
-      if (email !== undefined) rep.email = email;
-      await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
+      const pool=await mutateRoundRobinPool(req.user as any,req.body.expectedVersion,async (pool,tx)=>{
+        const rep=pool.reps.find(r=>r.userId===userId);
+        if (!rep) throw new WorkCommandError("Rep unavailable in this pool.",404);
+        if (paused!==undefined && typeof paused!=="boolean") throw new WorkCommandError("Paused must be a boolean.",409);
+        if (paused===false || email!==undefined) {
+          const current=await resolveWorkAssignee(userId,tx,undefined,true);
+          rep.email=current.email!;
+        }
+        if (paused!==undefined) rep.paused=paused;
+        if (name!==undefined) rep.name=String(name);
+      });
       res.json(pool);
     } catch (err: any) {
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.delete("/api/admin/round-robin/rep/:userId", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const pool = await getRoundRobinPool();
-      pool.reps = pool.reps.filter((r) => r.userId !== req.params.userId);
-      pool.currentIndex = 0;
-      await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
+      const pool=await mutateRoundRobinPool(req.user as any,req.body.expectedVersion,pool=>{
+        pool.reps=pool.reps.filter(r=>r.userId!==req.params.userId); pool.currentIndex=0;
+      });
       res.json(pool);
     } catch (err: any) {
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.post("/api/admin/round-robin/rep", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const pool = await getRoundRobinPool();
       const { userId, name, email } = req.body;
       if (!userId || !name) return res.status(400).json({ message: "userId and name required" });
-      if (pool.reps.find((r) => r.userId === userId)) {
-        return res.status(409).json({ message: "Rep already in pool" });
-      }
-      pool.reps.push({ userId, name, email: email || "", paused: false, assignedCount: 0 });
-      await storage.setSystemSetting(ROUND_ROBIN_KEY, pool);
+      const pool=await mutateRoundRobinPool(req.user as any,req.body.expectedVersion,async(pool,tx)=>{
+        const current=await resolveWorkAssignee(userId,tx,undefined,true);
+        if (pool.reps.some(r=>r.userId===current.id)) throw new WorkCommandError("Rep already in pool.",409);
+        pool.reps.push({userId:current.id,name:String(name),email:current.email!,paused:false,assignedCount:0});
+      });
       res.json(pool);
     } catch (err: any) {
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

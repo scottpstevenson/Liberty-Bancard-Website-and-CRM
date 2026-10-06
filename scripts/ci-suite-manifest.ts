@@ -81,6 +81,78 @@ type SuiteManifestDefinition = Omit<
 >;
 
 const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
+  {name:"Stage 3 B Fake Auth Continuations",script:"scripts/test-stage3-b-auth-continuations.ts",capability:"deterministic-integration",
+    providerDenial:"Guarded disposable DB and Redis; fake all account-security/MFA transports; actual current auth handlers/sessions"},
+  {name:"Stage 3 B Protected Browser Proof",script:"scripts/test-stage3-b-browser.ts",capability:"deterministic-integration",
+    providerDenial:"Explicit disposable browser certification requires current client build and compatible Chromium; real persisted sessions, loopback-only network"},
+  {name:"Stage 3 B Registered Intake and Routing",script:"scripts/test-stage3-b-intake.ts",capability:"deterministic-integration",
+    providerDenial:"Canonical disposable DB and isolated Redis; real public/session handlers; zero external calls, held effects"},
+  {name:"Stage 3 B Fake Invitation Handlers",script:"scripts/test-stage3-b-invitations.ts",capability:"deterministic-integration",
+    providerDenial:"Guarded disposable infrastructure; fake invitation mail dependency; actual auth sessions/CSRF; no real mail"},
+  {name:"Stage 3 B Recoverable Sequences",script:"scripts/test-stage3-b-sequences.ts",
+    capability:"deterministic-integration",providerDenial:"Guarded disposable DB/isolated Redis; actual sessions/CSRF; no enrollment admitted or external effects"},
+  {name:"Stage 3 B Contextual Notes and Companies",script:"scripts/test-stage3-b-context.ts",
+    capability:"deterministic-integration",providerDenial:"Guarded disposable DB/isolated Redis and actual sessions/CSRF; fake extraction; no external calls"},
+  {
+    name:"Stage 3 B Contact and Privacy Lifecycle",
+    script:"scripts/test-stage3-b-lifecycle.ts",
+    capability:"deterministic-integration",
+    providerDenial:"Guarded disposable DB and reserved Redis, actual sessions/CSRF, external calls denied; no deletion executed",
+  },
+  {
+    name:"Stage 3 B Notification Authority",
+    script:"scripts/test-stage3-b-notifications.ts",
+    capability:"deterministic-integration",
+    providerDenial:"Pre-import disposable DB/isolated Redis guard; actual sessions/CSRF; external fetch denied",
+  },
+  {
+    name:"Stage 3 B Registered Inbox Work",
+    script:"scripts/test-stage3-b-inbox-work.ts",
+    capability:"deterministic-integration",
+    providerDenial:"Pre-import disposable DB/isolated Redis guard; actual persisted sessions/CSRF; all external fetch denied",
+  },
+  {
+    name: "Stage 3 B Offline Work Contracts",
+    script: "scripts/test-stage3-b-offline.ts",
+    capability: "deterministic-static",
+    providerDenial: "Pure injected storage/transport/actor tests; no DB import or network",
+  },
+  {
+    name: "Stage 3 B Source Contracts",
+    script: "scripts/test-stage3-b-source-contracts.ts",
+    capability: "deterministic-static",
+    providerDenial: "Pure retention/consent and source assertions; no DB import or network",
+  },
+  {
+    name: "Stage 3 B Registered Draft and Knowledge Handlers",
+    script: "scripts/test-stage3-b-drafts.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Pre-import disposable DB/Redis guard; local password/session/CSRF handlers; provider fetch denied",
+  },
+  {
+    name: "Stage 3 B Recoverable Account Authority",
+    script: "scripts/test-stage3-b-accounts.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Pre-import disposable DB/Redis guard; actual local sessions/CSRF; outbound fetch denied; no auth mail invoked",
+  },
+  {
+    name: "Stage 3 B Atomic Work Commands",
+    script: "scripts/test-stage3-b-work-commands.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Pre-import disposable DB/Redis guard; registered session/CSRF handlers; fake native transport; all external fetch denied",
+  },
+  {
+    name: "Stage 3 B Trusted Work Producers",
+    script: "scripts/test-stage3-b-work-adapters.ts",
+    capability: "deterministic-integration",
+    providerDenial: "Pre-import disposable DB/Redis guard; direct actual GHL ingestion with fixture payload; registered terminal sessions; isolated SLA seam, no worker tick or external calls",
+  },
+  {
+    name: "SSR Style Isolation",
+    script: "scripts/test-ssr-style-isolation.ts",
+    capability: "deterministic-static",
+    providerDenial: "Local shell/PostCSS assertions only; no DB, server or network",
+  },
   {
     name: "Stage 3 A Registered Session Authority and Metrics",
     script: "scripts/test-stage3-a-authority.ts",

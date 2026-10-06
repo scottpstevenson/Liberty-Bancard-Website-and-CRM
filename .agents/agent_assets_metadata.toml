@@ -365,14 +365,14 @@ content_type = "text/markdown"
 id = "l3ae9PYUdjE3hNzguRuhb"
 uri = "file://.local/tasks/liberty-stage3-task-b-review-corrections.md"
 type = "text"
-title = "Task 2070 — Corrected C01–C14 Review"
-description = "Downloadable Markdown review, including the SLA-worker completion caller, source evidence, tests and all amended acceptance requirements. Gate execution is not yet completed."
+title = "Task B — source-checked correction review"
+description = "Downloadable retained correction review used for the implementation; source and runtime evidence remain separate."
 logical_id = "ab1d86ed-69f8-490b-92ff-33b7d179835f"
 content_hash = "sha256:c7fdc8af9651cee9c9d7f03b2e407a01fe5ab3f4604b4ee540f8c7d6a717a7cc"
 size = 68473
 mtime_ms = 1791286384558
-storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/ab1d86ed-69f8-490b-92ff-33b7d179835f/f03333d6-b4f4-4117-a76a-311dbf7d9510"
-storage_version_token = "1791286416966059"
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/ab1d86ed-69f8-490b-92ff-33b7d179835f/52638be4-d632-442a-9c7b-b5f0b566e97b"
+storage_version_token = "1791317331836580"
 content_type = "text/markdown"
 
 [[outputs]]
@@ -416,3 +416,45 @@ mtime_ms = 1791288111274
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/95a3d958-5ac3-4bb4-b4e6-203a1e54bd11/e01e419a-15cf-4027-abcc-bc75867e71a9"
 storage_version_token = "1791288152859254"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "DaYc1dxjIo3Bxogmm2_KP"
+uri = "file://.local/tasks/task-2070.md"
+type = "text"
+title = "Task B — complete implementation contract"
+description = "All14 correction bundles and12 amended gates, with original scope, ownership and safety requirements."
+logical_id = "5bb80821-74fa-4d25-9b6f-85305cfc78fa"
+content_hash = "sha256:f754e3b2d7580dc5b6d402497b6b1fe668d5cb0118f4bc7e6dbd6f42e6af2050"
+size = 162086
+mtime_ms = 1791286590893
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/5bb80821-74fa-4d25-9b6f-85305cfc78fa/94370cf2-5758-4d7d-8062-9a1bd7c2af4b"
+storage_version_token = "1791317332561028"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "4xyqYnFIneoR0lidih5CR"
+uri = "file://deliverables/liberty-stage3-task-b-build-results.md"
+type = "text"
+title = "Task B — final build and validation receipts"
+description = "Updated report includes139/139 role routes, isolated archive/restore/ownership checks, first21 canonical integration passes, original56 outcomes and exact remaining repository/release failures."
+logical_id = "5b32d9e5-96bc-4681-8e85-af1ee22e2665"
+content_hash = "sha256:c5a6ac0849fe6e33bf8ba8c38097be58e75825a98e1f675479b4cbb75edc24d6"
+size = 95234
+mtime_ms = 1791317994540
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/5b32d9e5-96bc-4681-8e85-af1ee22e2665/54d8c73f-ee79-4f8b-81a9-42e3b5e405e3"
+storage_version_token = "1791318026807863"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "u0FwvW1fqZBH3FrYGUT1L"
+uri = "file://deliverables/liberty-stage3-task-b-local-receipts.html"
+type = "html"
+title = "Task B — final readable verification report"
+description = "Self-contained measured handoff, including the repaired completion-validation consumer and safe disposable validation setup. No production deployment, real sends or protected evidence erasure."
+logical_id = "b87bebea-df10-4f0c-b36d-3a5e64965a18"
+content_hash = "sha256:9c8b13842cdca816cca4e199e423ef96130d62713d55fd64424c94fb6efb2aa8"
+size = 96111
+mtime_ms = 1791317994724
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/b87bebea-df10-4f0c-b36d-3a5e64965a18/3252b17d-5a8c-44f1-86cd-d28c62560823"
+storage_version_token = "1791318027508340"
+content_type = "text/html"

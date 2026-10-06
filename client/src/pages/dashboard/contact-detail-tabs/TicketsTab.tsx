@@ -8,25 +8,30 @@ import type { Ticket as TicketType } from "@shared/schema";
 import { formatDate, priorityVariant } from "./shared";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
 
 export function TicketsTab({ tickets, contactId }: { tickets: TicketType[]; contactId?: number }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [escalatingId, setEscalatingId] = useState<number | null>(null);
+  const commands = useWorkCommands("ticket");
 
   // #401 — Escalate ticket to admin (set priority = "Urgent")
   const escalateMutation = useMutation({
     mutationFn: async (ticketId: number) => {
-      await apiRequest("PUT", `/api/tickets/${ticketId}`, { priority: "Urgent" });
+      const ticket = tickets.find(t => t.id === ticketId);
+      if (!ticket) throw new Error("Ticket unavailable. Reload before escalating.");
+      await apiRequest("PUT", `/api/tickets/${ticketId}`, commands.edit(ticket, { priority: "Urgent" }));
     },
     onSuccess: () => {
       toast({ title: "Ticket escalated", description: "Priority set to Urgent." });
       queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      invalidateWorkFacts();
       setEscalatingId(null);
     },
-    onError: () => {
-      toast({ title: "Escalation failed", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Escalation failed", description: error.message, variant: "destructive" });
       setEscalatingId(null);
     },
   });

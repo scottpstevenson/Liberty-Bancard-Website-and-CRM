@@ -7,7 +7,7 @@
  * or replace any existing domain authority.
  */
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
 import {
@@ -20,8 +20,15 @@ import {
   notifications,
   tasks,
   tickets,
+  users,
+  contacts,
+  contactSourceEvents,
   type InboundRequest,
 } from "@shared/schema";
+import { resolveWorkAssignee, workPrincipalFields, WorkCommandError } from "./work-item-command";
+import { auditChange } from "./audit-change";
+import { z } from "zod";
+type InboundTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export const INBOUND_MANIFEST_VERSION = "cro05a-v2";
 const BUSINESS_DAY_START_HOUR_UTC = 9;
@@ -395,8 +402,12 @@ function readAssignmentPolicy(): { policy: AssignmentPolicy | null; hash: string
   const raw = process.env.INBOUND_ASSIGNMENT_POLICY_JSON;
   if (!raw) return { policy: null, hash: hashPayload({ missing: true }) };
   try {
-    const policy = JSON.parse(raw) as AssignmentPolicy;
-    if (!policy.version || !Array.isArray(policy.reps)) return { policy: null, hash: hashPayload({ invalid: true }) };
+    const policy = z.object({version:z.string().min(1).max(190),reps:z.array(z.object({
+      id:z.string().min(1).max(190),active:z.boolean().optional(),territory:z.string().max(190).optional(),
+      capacity:z.number().int().nonnegative().optional(),load:z.number().int().nonnegative().optional(),
+      serviceHours:z.record(z.unknown()).optional(),
+    }).strict()).max(200)}).strict().parse(JSON.parse(raw)) as AssignmentPolicy;
+    if (new Set(policy.reps.map(r=>r.id)).size!==policy.reps.length) return {policy:null,hash:hashPayload({invalid:true})};
     return { policy, hash: hashPayload(policy) };
   } catch {
     return { policy: null, hash: hashPayload({ invalid: true }) };
@@ -409,21 +420,85 @@ export async function evaluateInboundAssignment(input: {
   territory?: string | null;
   actorType?: string;
   actorId?: string | null;
-}): Promise<{ status: string; assignedTo: string | null; reasonCode: string; policyVersion: string }> {
+  contactId?: number | null;
+  dealId?: number | null;
+}, existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]): Promise<{ status: string; assignedTo: string | null; reasonCode: string; policyVersion: string }> {
   const { policy, hash } = readAssignmentPolicy();
-  let result: { status: string; assignedTo: string | null; reasonCode: string; policyVersion: string };
-  if (!policy) {
-    result = { status: "unassigned_policy_missing", assignedTo: null, reasonCode: "UNASSIGNED_POLICY_MISSING", policyVersion: "missing" };
-  } else {
-    const eligible = policy.reps.filter((rep) => rep.active !== false && (!input.territory || !rep.territory || rep.territory === input.territory) && (rep.capacity === undefined || (rep.load || 0) < rep.capacity));
-    const preserved = input.currentOwner && eligible.some((rep) => rep.id === input.currentOwner);
-    const winner = preserved ? input.currentOwner : [...eligible].sort((a, b) => ((a.load || 0) - (b.load || 0)) || a.id.localeCompare(b.id))[0]?.id || null;
-    result = winner
-      ? { status: preserved ? "preserved" : "assigned", assignedTo: winner, reasonCode: preserved ? "OWNER_PRESERVED" : "POLICY_DETERMINISTIC_MATCH", policyVersion: policy.version }
-      : { status: "review_required", assignedTo: null, reasonCode: "CAPACITY_EXHAUSTED", policyVersion: policy.version };
-  }
-  await db.transaction(async (tx) => {
+  if (input.actorType && !["system","user"].includes(input.actorType)) throw new Error("INBOUND_ASSIGNMENT_ACTOR_UNAVAILABLE");
+  const execute = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${input.requestId}))`);
+    const [request] = await tx.select().from(inboundRequests).where(eq(inboundRequests.id,input.requestId));
+    if (!request) throw new Error("INBOUND_REQUEST_NOT_FOUND");
+    const [accepted] = await tx.select().from(inboundAssignmentDecisions)
+      .where(eq(inboundAssignmentDecisions.requestId,input.requestId)).orderBy(asc(inboundAssignmentDecisions.decisionOrdinal)).limit(1);
+    if ((request.contactId && input.contactId && request.contactId!==input.contactId) ||
+      (request.dealId && input.dealId && request.dealId!==input.dealId)) throw new Error("INBOUND_REQUEST_LINK_CHANGED");
+    const contactId = input.contactId ?? request.contactId;
+    const dealId = input.dealId ?? request.dealId;
+    // Trusted occurrence metadata prepares the complete principal lock set.
+    // Actual ownership is rechecked below after user/agent identity pins.
+    const [ownerSnapshot] = contactId ? await tx.select({assignedTo:contacts.assignedTo}).from(contacts).where(eq(contacts.id,contactId)) : [];
+    // Pool identity is user ID/email only. Configured names and emails never
+    // override actual account state. Pin all candidate principals before graph.
+    const identities = [...new Set([...(policy?.reps.map(r=>r.id) ?? []),accepted?.assignedTo,
+      input.currentOwner,request.assignedTo,ownerSnapshot?.assignedTo].filter((id):id is string=>typeof id==="string" && !!id))];
+    const principals = identities.length ? await tx.select(workPrincipalFields).from(users)
+      .where(sql`${users.id} IN (${sql.join(identities.map(id=>sql`${id}`),sql`,`)})
+        OR lower(${users.email}) IN (${sql.join(identities.map(id=>sql`${id.toLowerCase()}`),sql`,`)})`)
+      .orderBy(asc(users.id)).for("share") : [];
+    const resolved = new Map<string,typeof principals[number]>();
+    for (const identity of identities) {
+      try { resolved.set(identity,await resolveWorkAssignee(identity,tx,principals,true)); }
+      catch(error) { if (!(error instanceof WorkCommandError)) throw error; }
+    }
+    const [contact] = contactId ? await tx.select().from(contacts).where(eq(contacts.id,contactId)).for("share") : [];
+    const [deal] = dealId ? await tx.select().from(deals).where(eq(deals.id,dealId)).for("share") : [];
+    // Newly accepted first-party contacts remain unknown until the separate
+    // classification authority acts. Only this exact occurrence's immutable
+    // provenance permits a generic, unlinked management review obligation.
+    // It never admits the contact/deal into rep production work or assigns it.
+    const occurrenceKey=request.sourceCategory==="website_form"
+      ? `form:${request.sourceType}:${request.id}`
+      : request.sourceCategory==="manual_crm" && request.sourceType==="dashboard"
+        ? `manual:${request.id}` : null;
+    const occurrenceEvidence=contact && contact.recordClass==="unknown" && occurrenceKey
+      ? await tx.select({id:contactSourceEvents.id}).from(contactSourceEvents).where(and(
+        eq(contactSourceEvents.contactId,contact.id),
+        eq(contactSourceEvents.sourceCategory,request.sourceCategory),
+        eq(contactSourceEvents.sourceType,request.sourceType),
+        eq(contactSourceEvents.eventKey,occurrenceKey),
+      )).for("share") : [];
+    const classReview=occurrenceEvidence.length===1 && !dealId;
+    if (!contact || contact.archivedAt || (contact.recordClass!=="production" && !classReview) ||
+      (dealId && (!deal || deal.archivedAt || deal.recordClass!=="production" || deal.contactId!==contact.id))) {
+      throw new WorkCommandError("Inbound context is unavailable or changed. Review the retained request; no linked work was created.",409);
+    }
+    const owns = (email:string) => !!contact && !contact.archivedAt && contact.recordClass==="production" &&
+      contact.assignedTo===email && (!dealId || (!!deal && !deal.archivedAt && deal.recordClass==="production" &&
+        deal.contactId===contact.id && deal.owner===email));
+    let result:{status:string;assignedTo:string|null;reasonCode:string;policyVersion:string};
+    if (accepted) {
+      const current = accepted.assignedTo ? resolved.get(accepted.assignedTo) : undefined;
+      result = {...accepted,status:accepted.assignedTo && (!current || !owns(current.email!)) ? "review_required":accepted.status,
+        reasonCode:accepted.assignedTo && (!current || !owns(current.email!)) ? "ACCEPTED_ASSIGNMENT_CURRENTLY_UNAVAILABLE":accepted.reasonCode,
+        policyVersion:accepted.policyVersion ?? "missing"};
+      // Never re-elect or rewrite accepted assignment or its retained task.
+      await tx.update(inboundRequests).set({assignmentStatus:result.status,updatedAt:new Date()}).where(eq(inboundRequests.id,request.id));
+      return result;
+    }
+    const eligible = (policy?.reps ?? []).filter(rep=>rep.active!==false &&
+      (!input.territory || !rep.territory || rep.territory===input.territory) &&
+      (rep.capacity===undefined || (rep.load ?? 0)<rep.capacity) && resolved.has(rep.id));
+    const priorOwner = input.currentOwner ?? contact?.assignedTo;
+    const owner = priorOwner ? resolved.get(priorOwner) : undefined;
+    const selected = owner && owns(owner.email!) ? owner : [...eligible].sort((a,b)=>
+      ((a.load ?? 0)-(b.load ?? 0)) || a.id.localeCompare(b.id)).map(r=>resolved.get(r.id)!).find(u=>owns(u.email!));
+    result = classReview ? {status:"review_required",assignedTo:null,
+      reasonCode:"CONTACT_CLASS_REVIEW_REQUIRED",policyVersion:policy?.version ?? "missing"} :
+      selected ? {status:owner===selected?"preserved":"assigned",assignedTo:selected.email,
+      reasonCode:owner===selected?"OWNER_PRESERVED":"POLICY_DETERMINISTIC_MATCH",policyVersion:policy?.version ?? "existing-owner"}
+      : {status:"review_required",assignedTo:null,reasonCode:!policy?"UNASSIGNED_POLICY_MISSING":
+        !eligible.length?"NO_CURRENT_ELIGIBLE_REP":"OWNERSHIP_HANDOFF_REQUIRED",policyVersion:policy?.version ?? "missing"};
     const [ordinal] = await tx.select({ next: sql<number>`coalesce(max(${inboundAssignmentDecisions.decisionOrdinal}), -1) + 1` }).from(inboundAssignmentDecisions).where(eq(inboundAssignmentDecisions.requestId, input.requestId));
     await tx.insert(inboundAssignmentDecisions).values({
       requestId: input.requestId,
@@ -434,8 +509,9 @@ export async function evaluateInboundAssignment(input: {
       policyVersion: result.policyVersion,
       policyHash: hash,
       territory: input.territory || null,
-      capacitySnapshot: policy?.reps || null,
-      serviceHoursSnapshot: policy ? { configured: true } : { configured: false },
+      capacitySnapshot: {mode:"configured_load_advisory_not_reserved",reps:policy?.reps ?? []},
+      serviceHoursSnapshot: {mode:"not_enforced",configured:(policy?.reps ?? []).some(r=>!!r.serviceHours),
+        reason:"No accepted timezone/interval enforcement contract"},
       actorType: input.actorType || "system",
       actorId: input.actorId || null,
       priorAssignee: input.currentOwner || null,
@@ -446,8 +522,11 @@ export async function evaluateInboundAssignment(input: {
       assignmentStatus: result.status,
       updatedAt: new Date(),
     }).where(eq(inboundRequests.id, input.requestId));
-  });
-  return result;
+    await auditChange({actorType:input.actorType==="user" ? "user":"system",userId:input.actorId,action:"inbound_assignment_decided",
+      entityType:"inbound_request",entityKey:request.id,details:{...result,capacityMode:"advisory_not_reserved",serviceHoursMode:"not_enforced"}},tx);
+    return result;
+  };
+  return existingTx ? execute(existingTx) : db.transaction(execute);
 }
 
 export async function linkInboundWork(input: {
@@ -455,9 +534,10 @@ export async function linkInboundWork(input: {
   workType: "task" | "ticket";
   taskId?: number;
   ticketId?: number;
-}) {
+}, existingTx?: InboundTx) {
+  const executor = existingTx ?? db;
   const commandKey = `inbound:${input.requestId}:${input.workType}`;
-  const [link] = await db.insert(inboundRequestWorkLinks).values({
+  const [link] = await executor.insert(inboundRequestWorkLinks).values({
     requestId: input.requestId,
     workType: input.workType,
     taskId: input.taskId || null,
@@ -465,13 +545,14 @@ export async function linkInboundWork(input: {
     commandKey,
   }).onConflictDoNothing({ target: [inboundRequestWorkLinks.requestId, inboundRequestWorkLinks.workType] }).returning();
   if (link) return link;
-  const [existing] = await db.select().from(inboundRequestWorkLinks).where(and(eq(inboundRequestWorkLinks.requestId, input.requestId), eq(inboundRequestWorkLinks.workType, input.workType))).limit(1);
+  const [existing] = await executor.select().from(inboundRequestWorkLinks).where(and(eq(inboundRequestWorkLinks.requestId, input.requestId), eq(inboundRequestWorkLinks.workType, input.workType))).limit(1);
   return existing || null;
 }
 
-async function completeInternalEffects(requestId: string, effectKeys: readonly string[]): Promise<void> {
+async function completeInternalEffects(requestId: string, effectKeys: readonly string[], existingTx?: InboundTx): Promise<void> {
+  const executor = existingTx ?? db;
   if (!effectKeys.length) return;
-  const updated = await db.update(inboundRequestEffects).set({
+  const updated = await executor.update(inboundRequestEffects).set({
     state: "sent",
     terminalReason: "INTERNAL_AUTHORITY_COMPLETED",
     updatedAt: new Date(),
@@ -483,7 +564,7 @@ async function completeInternalEffects(requestId: string, effectKeys: readonly s
   // A replay can find effects already truthfully completed, but an absent or
   // terminally failed required effect must never be presented as accepted.
   const completed = new Set(updated.map((effect) => effect.effectKey));
-  const existing = await db.select({
+  const existing = await executor.select({
     effectKey: inboundRequestEffects.effectKey,
     state: inboundRequestEffects.state,
   }).from(inboundRequestEffects).where(and(
@@ -507,14 +588,15 @@ async function completeSlaEffectWhenDurable(
   effectKey: string,
   durable: boolean,
   heldReason: string,
+  existingTx?: InboundTx,
 ): Promise<boolean> {
   if (durable) {
-    await completeInternalEffects(requestId, [effectKey]);
+    await completeInternalEffects(requestId, [effectKey],existingTx);
     return true;
   }
   // Correct a previously optimistic state as well as preserving a new held
   // intent. Failed/suppressed effects retain their own terminal evidence.
-  await db.update(inboundRequestEffects).set({
+  await (existingTx ?? db).update(inboundRequestEffects).set({
     state: "held",
     terminalReason: heldReason,
     updatedAt: new Date(),
@@ -561,6 +643,9 @@ export async function orchestrateInboundRequest(input: {
 }): Promise<InboundRequest> {
   const request = await getInboundRequestById(input.requestId);
   if (!request) throw new Error("INBOUND_REQUEST_NOT_FOUND");
+  for (const key of ["contactId","dealId","ticketId"] as const) {
+    if (request[key] && input[key] && request[key]!==input[key]) throw new Error("INBOUND_REQUEST_LINK_CHANGED");
+  }
   const policy = getInboundSourcePolicy(request.sourceCategory, request.sourceType);
   const slaDueAt = inboundSlaDueAt(policy.sourceClass, request.sourceReceivedAt);
 
@@ -575,19 +660,22 @@ export async function orchestrateInboundRequest(input: {
     if (!initialLink) throw new Error("INBOUND_REQUEST_LINK_FAILED");
     let reviewRequired = false;
     if (policy.sourceClass === "sales_request") {
+      const sales = await db.transaction(async tx => {
       const assignment = await evaluateInboundAssignment({
         requestId: request.id,
         currentOwner: request.assignedTo,
         territory: input.territory,
         actorType: "system",
-      });
+        contactId:input.contactId ?? request.contactId,
+        dealId:input.dealId ?? request.dealId,
+      },tx);
       if (!input.contactId) throw new Error("INBOUND_SALES_REQUEST_CONTACT_REQUIRED");
       const task = await storage.createAuthorityTask({
-        contactId: input.contactId,
-        dealId: input.dealId ?? undefined,
-        title: "Follow up inbound sales request",
-        description: `Inbound ${request.sourceType} request`,
-        assignedTo: assignment.assignedTo ?? undefined,
+        contactId: assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? undefined : input.contactId,
+        dealId: assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? undefined : input.dealId ?? undefined,
+        title: assignment.reasonCode==="CONTACT_CLASS_REVIEW_REQUIRED" ? "Review retained inbound request" : "Follow up inbound sales request",
+        description: `Inbound ${request.sourceType} request${!assignment.assignedTo ? ` — Management assignment review: ${assignment.reasonCode}` : ""}`,
+        assignedTo: assignment.status==="review_required" ? undefined : assignment.assignedTo ?? undefined,
         dueDate: slaDueAt ?? undefined,
         status: "pending",
         priority: "normal",
@@ -597,32 +685,37 @@ export async function orchestrateInboundRequest(input: {
         producer: "inbound_request",
         commandKey: `inbound:${request.id}:task`,
         issueKey: `inbound-sales:${request.id}`,
-      });
-      const link = await linkInboundWork({ requestId: request.id, workType: "task", taskId: task.id });
+        context:{requestId:request.id,slaDueAt:slaDueAt?.toISOString() ?? null,assignmentReason:assignment.reasonCode},
+      },tx);
+      const link = await linkInboundWork({ requestId: request.id, workType: "task", taskId: task.id },tx);
       if (!link?.taskId || link.taskId !== task.id) throw new Error("INBOUND_SALES_WORK_LINK_FAILED");
-      // A replay may recover a task created before the deadline was written;
-      // persist the canonical request deadline before certifying the SLA.
-      const [taskWithDueDate] = await db.update(tasks).set({
-        dueDate: slaDueAt ?? null,
-      }).where(eq(tasks.id, task.id)).returning({
+      // Occurrence replay must not overwrite a later human deadline.
+      const [taskWithDueDate] = await tx.select({
         id: tasks.id,
         dueDate: tasks.dueDate,
-      });
-      await completeInternalEffects(request.id, ["sales_work"]);
+      }).from(tasks).where(eq(tasks.id,task.id));
+      await completeInternalEffects(request.id, ["sales_work"],tx);
+      let review = assignment.status==="review_required";
       if (!await completeSlaEffectWhenDurable(
         request.id,
         "sales_sla",
         Boolean(link.taskId && taskWithDueDate?.dueDate && slaDueAt
           && taskWithDueDate.dueDate.getTime() === slaDueAt.getTime()),
         "SALES_SLA_TASK_DUE_DATE_OR_LINK_MISSING",
+        tx,
       )) {
-        reviewRequired = true;
+        review = true;
       }
-      if (assignment.assignedTo) {
-        await completeInternalEffects(request.id, ["assignment"]);
+      if (assignment.assignedTo && !review) {
+        await completeInternalEffects(request.id, ["assignment"],tx);
       } else {
-        reviewRequired = true;
+        review = true;
+        await tx.update(inboundRequestEffects).set({state:"held",terminalReason:assignment.reasonCode,updatedAt:new Date()})
+          .where(and(eq(inboundRequestEffects.requestId,request.id),eq(inboundRequestEffects.effectKey,"assignment")));
       }
+      return {review};
+      });
+      reviewRequired ||= sales.review;
     } else if (policy.sourceClass === "support_request") {
       if (!input.ticketId) throw new Error("INBOUND_SUPPORT_REQUEST_TICKET_REQUIRED");
       const link = await linkInboundWork({ requestId: request.id, workType: "ticket", ticketId: input.ticketId });

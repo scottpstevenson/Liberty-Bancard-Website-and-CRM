@@ -58,11 +58,11 @@ export default function KnowledgeAdmin() {
   const [editSource, setEditSource] = useState<KnowledgeSource | null>(null);
   const [form, setForm] = useState({ title: "", audience: "public", content: "" });
 
-  const { data: statsData } = useQuery<Stats>({
+  const { data: statsData, isError: statsError, refetch: retryStats } = useQuery<Stats>({
     queryKey: ["/api/knowledge/stats"],
   });
 
-  const { data: sourcesData, isLoading } = useQuery<{ sources: KnowledgeSource[] }>({
+  const { data: sourcesData, isLoading, isError: sourcesError, refetch: retrySources } = useQuery<{ sources: KnowledgeSource[] }>({
     queryKey: ["/api/knowledge/sources"],
   });
 
@@ -172,7 +172,11 @@ export default function KnowledgeAdmin() {
       </div>
 
       {/* Stats */}
-      {stats && (
+      {statsError && <div role="alert" className="space-y-2">
+        <p>Whole-library statistics unavailable.</p>
+        <Button variant="outline" onClick={() => void retryStats()}>Retry statistics</Button>
+      </div>}
+      {stats && !statsError && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Total Sources", value: stats.totalSources, icon: <FileText className="w-4 h-4 text-muted-foreground" /> },
@@ -197,7 +201,7 @@ export default function KnowledgeAdmin() {
         </div>
       )}
 
-      {!stats?.openaiConfigured && (
+      {stats && !statsError && !stats.openaiConfigured && (
         <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-800 dark:text-amber-200 text-sm">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           OpenAI is not configured. Sources can be created and published, but embeddings will not be generated and AI retrieval will fall back to keyword search. Configure <code className="mx-1 text-xs bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5 rounded">AI_INTEGRATIONS_OPENAI_API_KEY</code> to enable semantic search.
@@ -206,7 +210,7 @@ export default function KnowledgeAdmin() {
 
       <Tabs defaultValue="sources">
         <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="sources" data-testid="tab-sources">Sources ({sources.length})</TabsTrigger>
+          <TabsTrigger value="sources" data-testid="tab-sources">Sources ({sourcesError ? "unavailable" : isLoading ? "loading" : sources.length})</TabsTrigger>
           <TabsTrigger value="unanswered" data-testid="tab-unanswered">
             Unanswered {unanswered.length > 0 && <Badge variant="destructive" className="ml-1 h-4 text-[10px]">{unanswered.length}</Badge>}
           </TabsTrigger>
@@ -215,7 +219,13 @@ export default function KnowledgeAdmin() {
 
         {/* Sources tab */}
         <TabsContent value="sources" className="mt-4">
-          {isLoading ? (
+          <p className="text-xs text-muted-foreground">Statistics above cover the whole library. This list shows all sources.</p>
+          {sourcesError ? (
+            <div role="alert" className="py-6 space-y-3">
+              <p>Knowledge sources are unavailable. This is not an empty library.</p>
+              <Button variant="outline" onClick={() => void retrySources()}>Retry sources</Button>
+            </div>
+          ) : isLoading ? (
             <div className="text-center py-8 text-muted-foreground text-sm">Loading sources…</div>
           ) : sources.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">

@@ -1,5 +1,8 @@
 import { storage } from "../storage";
-import { normalizeTaskCompletionState } from "./task-normalization";
+import { commandProducedTask } from "./work-item-command";
+import { resolveClearedSlaTasks } from "./sla-task-resolution";
+import { DEFAULT_SLA_RULES } from "@shared/sla-rules";
+import { autoCloseResolvedTickets } from "./ticket-auto-close";
 import { db } from "../db";
 import { tasks, contacts } from "@shared/schema";
 import { isNull, isNotNull, inArray, eq, or, and, lt, gte, sql as drizzleSql } from "drizzle-orm";
@@ -49,57 +52,6 @@ async function isPhase3IndexPresent(): Promise<boolean> {
   }
 }
 
-const DEFAULT_SLA_RULES = [
-  {
-    name: "Speed-to-Lead 60min",
-    entityType: "deal",
-    stage: "New Lead",
-    maxDurationMinutes: 60,
-    escalationAction: "create_task_and_notify",
-  },
-  {
-    name: "Statement Review 2hr SLA",
-    entityType: "deal",
-    stage: "Statement Received",
-    maxDurationMinutes: 120,
-    escalationAction: "create_task_and_notify",
-  },
-  {
-    name: "New Lead 24hr Follow-up",
-    entityType: "deal",
-    stage: "New Lead",
-    maxDurationMinutes: 1440,
-    escalationAction: "create_task_and_notify",
-  },
-  {
-    name: "Statement Requested 48hr Chase",
-    entityType: "deal",
-    stage: "Statement Requested",
-    maxDurationMinutes: 2880,
-    escalationAction: "create_task_and_notify",
-  },
-  {
-    name: "Proposal Follow-up 48hr",
-    entityType: "deal",
-    stage: "Proposal Sent",
-    maxDurationMinutes: 2880,
-    escalationAction: "create_task_and_notify",
-  },
-  {
-    name: "Call Booked No Update 24hr",
-    entityType: "deal",
-    stage: "Call Booked",
-    maxDurationMinutes: 1440,
-    escalationAction: "create_task_and_notify",
-  },
-  {
-    name: "Support Ticket SLA Breach",
-    entityType: "ticket",
-    stage: null,
-    maxDurationMinutes: 0,
-    escalationAction: "escalate_ticket",
-  },
-];
 
 const SLA_THROTTLE_HOURS = 6;
 
@@ -188,41 +140,18 @@ async function collapseBreachIfRecent(
   });
 
   if (existingTaskId) {
-    const tasks = await storage.getTasks();
-    const t = tasks.find((x: any) => x.id === existingTaskId);
+    const t = await storage.getTaskById(existingTaskId);
     if (t) {
       const baseDesc = (t.description || "").replace(/\s*\(\+\d+ repeat breaches.*\)$/, "");
-      await storage.updateTask(existingTaskId, {
-        description: `${baseDesc} (+${nextCount - 1} repeat breaches in last ${SLA_THROTTLE_HOURS}h)`,
-      });
+      await commandProducedTask({id:existingTaskId,producer:"sla",observedFence:t.authorityFence,
+        commandId:`sla-repeat:${existingTaskId}:${nextCount}`,updates:{
+          description:`${baseDesc} (+${nextCount - 1} repeat breaches in last ${SLA_THROTTLE_HOURS}h)`},
+        eligible:async(_tx,row) => row.producer==="sla" && ["open","in_progress"].includes(row.authorityState)});
     }
   }
   return true;
 }
 
-async function autoResolveClearedSlaTasks(activeStuckIds: Set<number>) {
-  try {
-    const allTasks = await storage.getTasks();
-    const pendingSla = allTasks.filter((t: any) =>
-      t.status === "pending" && t.title?.includes("SLA Alert") && t.dealId && !activeStuckIds.has(t.dealId)
-    );
-    for (const t of pendingSla) {
-      const normalized = normalizeTaskCompletionState({ status: "completed" }, t);
-      await storage.updateTask(t.id, normalized);
-      await storage.createAuditLog({
-        action: "sla_breach_resolved",
-        entityType: "deal",
-        entityId: t.dealId!,
-        details: { taskId: t.id, resolvedAt: new Date().toISOString(), reason: "Deal moved out of breached stage" },
-      });
-    }
-    if (pendingSla.length > 0) {
-      console.log(`[SLA] Auto-resolved ${pendingSla.length} cleared SLA breaches`);
-    }
-  } catch (err) {
-    console.error("[SLA] Auto-resolve error:", err);
-  }
-}
 
 async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
   if (!rule.stage) return;
@@ -271,7 +200,9 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
       assignedTo: deal.owner || undefined,
       priority: "high",
       dueDate: new Date(Date.now() + 60 * 60 * 1000),
-    });
+      source:"sla",
+    },{producer:"sla",subjectType:"deal",subjectId:deal.id,issueKey:`deal-sla:${rule.name}`,
+      context:{slaRule:{name:rule.name,stage:rule.stage,maxDurationMinutes:rule.maxDurationMinutes}}});
     if (!task.assignedTo) {
       await auditUnassignedTaskReview({
         taskId: task.id,
@@ -331,32 +262,10 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
   }
 }
 
-// #399 — Auto-close tickets that have been in "Resolved" status for 7+ days
-async function autoCloseResolvedTickets() {
-  try {
-    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const ticketResult = await storage.getTickets();
-    const allTickets = Array.isArray(ticketResult) ? ticketResult : (ticketResult as any).data ?? [];
-    const toClose = allTickets.filter((t: any) => t.status === "Resolved" && t.updatedAt && new Date(t.updatedAt) < cutoff);
-    for (const ticket of toClose) {
-      await storage.updateTicket(ticket.id, { status: "Closed" });
-      await storage.createAuditLog({
-        action: "ticket_auto_closed",
-        entityType: "ticket",
-        entityId: ticket.id,
-        details: { reason: "Resolved for 7+ days", resolvedAt: ticket.updatedAt },
-      });
-    }
-    if (toClose.length > 0) {
-      console.log(`[SLA] Auto-closed ${toClose.length} resolved ticket(s) older than 7 days`);
-    }
-  } catch (err: any) {
-    console.error("[SLA] autoCloseResolvedTickets error:", err.message);
-  }
-}
 
 async function checkTicketSla() {
-  await autoCloseResolvedTickets();
+  const maintenance = await autoCloseResolvedTickets();
+  if (maintenance.closed || maintenance.reviewRequired || maintenance.failed) console.log("[SLA] Ticket maintenance outcomes",maintenance);
   const breachedTickets = await storage.getTicketsBreachingSla();
 
   for (const ticket of breachedTickets) {
@@ -779,20 +688,16 @@ async function runSlaCheck() {
         }))
       : DEFAULT_SLA_RULES;
 
-    const activeStuckDealIds = new Set<number>();
     for (const rule of rules) {
       heartbeat.assertOwned();
       if (rule.entityType === "deal") {
         await checkDealSla(rule);
-        if (rule.stage) {
-          const stuck = await storage.getDealsStuckInStage(rule.stage, rule.maxDurationMinutes);
-          stuck.forEach((d: any) => activeStuckDealIds.add(d.id));
-        }
       } else if (rule.entityType === "ticket") {
         await checkTicketSla();
       }
     }
-    await autoResolveClearedSlaTasks(activeStuckDealIds);
+    const resolution = await resolveClearedSlaTasks();
+    if (resolution.resolved || resolution.reviewRequired || resolution.failed) console.log("[SLA] Resolution outcomes",resolution);
     // #1403 — Alert on overdue underwriting conditions (merchant hasn't submitted docs)
     await checkUnderwritingConditionSlas().catch((err: Error) =>
       console.error("[SlaLoop] underwriting conditions SLA error:", err.message),

@@ -1,0 +1,45 @@
+import { useEffect, useRef } from "react";
+import { queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+
+type VersionedWork = { id: number; authorityFence: number };
+/** Capture selection versions, not whichever version a background refetch
+ * happens to return when Save is clicked. Retry identical intent with its UUID. */
+export function useWorkCommands(kind: "task" | "ticket", selected?: Set<number>, records?: VersionedWork[]) {
+  const { user } = useAuth();
+  const versions = useRef(new Map<number, number>());
+  const commands = useRef(new Map<string, string>());
+  useEffect(() => { versions.current.clear(); commands.current.clear(); }, [user?.id]);
+  useEffect(() => {
+    if (!selected) return;
+    for (const id of versions.current.keys()) if (!selected.has(id)) versions.current.delete(id);
+    for (const row of records ?? []) if (selected.has(row.id) && !versions.current.has(row.id)) versions.current.set(row.id, row.authorityFence);
+  }, [selected, records, user?.id]);
+  function command(payload: Record<string, unknown>) {
+    if (!user?.id) throw new Error("Sign-in unavailable. Reload before saving work.");
+    const key = JSON.stringify([user.id, kind, payload]);
+    if (!commands.current.has(key)) commands.current.set(key, crypto.randomUUID());
+    return { ...payload, expectedActorId: user.id, commandId: commands.current.get(key)! };
+  }
+  return {
+    edit(row: VersionedWork, fields: Record<string, unknown>) {
+      if (!row || !Number.isInteger(row.authorityFence)) throw new Error("Work version unavailable. Reload before saving.");
+      return command({ ...fields, expectedFence: row.authorityFence });
+    },
+    bulk(ids: number[], fields: Record<string, unknown> = {}) {
+      const items = [...new Set(ids)].sort((a,b) => a-b).map(id => {
+        const expectedFence = versions.current.get(id);
+        if (!Number.isInteger(expectedFence)) throw new Error("Selected work version unavailable. Reload and select the current work.");
+        return { id, expectedFence };
+      });
+      return command({ ...fields, items });
+    },
+  };
+}
+
+export function invalidateWorkFacts() {
+  return queryClient.invalidateQueries({ predicate: query => {
+    const path = String(query.queryKey[0]);
+    return ["/api/tasks","/api/tickets","/api/analytics","/api/daily-briefing"].some(prefix => path.startsWith(prefix));
+  } });
+}

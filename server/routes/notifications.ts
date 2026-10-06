@@ -8,6 +8,9 @@ import { requireQueueManagerReady, QUEUE_NAMES } from "../services/queue-manager
 import type { InsertNotificationPreference } from "@shared/schema";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import {z} from "zod";
+import {strictRecordId} from "@shared/work-item-commands";
+import {resolveActorNotification,hasActorNotification} from "../services/notification-authority";
 
 async function computeDigestHealth() {
   const ghlConfigured = isGhlConfigured();
@@ -68,9 +71,9 @@ export function registerNotificationsRoutes(app: Express) {
   // Paginated list with optional category filter, scoped to current user
   app.get("/api/notifications", isAuthenticated, async (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit) || 25, 100);
-      const offset = Number(req.query.offset) || 0;
-      const category = ((req.query.category || req.query.type) as string) || "all";
+      const limit=z.coerce.number().int().min(1).max(100).parse(req.query.limit ?? 25);
+      const offset=z.coerce.number().int().min(0).max(100000).parse(req.query.offset ?? 0);
+      const category=z.enum(["all","leads","deals","sla","system"]).parse(req.query.category ?? req.query.type ?? "all");
 
       const userId = (req.user as any)?.id;
       const { data, total } = await storage.getNotificationsPaginated({ limit, offset, category, userId });
@@ -80,6 +83,7 @@ export function registerNotificationsRoutes(app: Express) {
       const hasMore = total > offset + limit;
       res.json({ data, total, limit, offset, hasMore });
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid notification pagination or category"});
       console.error("Get notifications error:", err.message);
       serverError(res, err);
     }
@@ -91,8 +95,8 @@ export function registerNotificationsRoutes(app: Express) {
   app.post("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
-      await storage.markAllNotificationsRead(userId);
-      res.json({ success: true });
+      const changed=await storage.markAllNotificationsRead(userId);
+      res.json({success:true,changed});
     } catch (err: any) {
       serverError(res, err);
     }
@@ -102,8 +106,8 @@ export function registerNotificationsRoutes(app: Express) {
   app.put("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
-      await storage.markAllNotificationsRead(userId);
-      res.json({ success: true });
+      const changed=await storage.markAllNotificationsRead(userId);
+      res.json({success:true,changed});
     } catch (err: any) {
       console.error("Mark all read error:", err.message);
       serverError(res, err);
@@ -126,8 +130,8 @@ export function registerNotificationsRoutes(app: Express) {
   app.delete("/api/notifications/clear-all", isAuthenticated, async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
-      await storage.clearAllNotifications(userId);
-      res.json({ success: true });
+      const changed=await storage.clearAllNotifications(userId);
+      res.json({success:true,changed});
     } catch (err: any) {
       console.error("Clear all notifications error:", err.message);
       serverError(res, err);
@@ -138,9 +142,11 @@ export function registerNotificationsRoutes(app: Express) {
   app.put("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
-      await storage.markNotificationRead(Number(req.params.id), userId);
-      res.json({ success: true });
+      const changed=await storage.markNotificationRead(strictRecordId.parse(req.params.id), userId);
+      if(!changed && !await hasActorNotification(userId,strictRecordId.parse(req.params.id))) return res.status(404).json({message:"Notification unavailable"});
+      res.json({success:true,changed});
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid notification ID"});
       console.error("Mark notification read error:", err.message);
       serverError(res, err);
     }
@@ -150,14 +156,23 @@ export function registerNotificationsRoutes(app: Express) {
   app.delete("/api/notifications/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = (req.user as any)?.id;
-      const deleted = await storage.deleteNotification(Number(req.params.id), userId);
+      const deleted = await storage.deleteNotification(strictRecordId.parse(req.params.id), userId);
       if (!deleted) {
-        return res.status(403).json({ message: "Not authorized to delete this notification" });
+        return res.status(404).json({message:"Notification unavailable"});
       }
       res.json({ success: true });
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid notification ID"});
       console.error("Delete notification error:", err.message);
       serverError(res, err);
+    }
+  });
+
+  app.get("/api/notifications/:id/target",isAuthenticated,async(req,res)=>{
+    try {res.json(await resolveActorNotification((req.user as any).id,strictRecordId.parse(req.params.id)));}
+    catch(error) {
+      if(error instanceof z.ZodError) return res.status(400).json({message:"Invalid notification ID"});
+      serverError(res,error);
     }
   });
 

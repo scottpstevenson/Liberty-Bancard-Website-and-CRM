@@ -17,7 +17,10 @@
 
 import bcrypt from "bcryptjs";
 import { readFileSync } from "node:fs";
-import { db } from "../server/db";
+import { randomUUID } from "node:crypto";
+import { assertDisposableTestInfrastructure } from "./test-infrastructure-guard";
+await assertDisposableTestInfrastructure({operation:"Role-guard mutation smoke",requireRedis:true});
+const { db } = await import("../server/db");
 import { users } from "../shared/models/auth";
 import { campaignSteps, campaigns, contacts, documents, followUpSequences, sequenceSteps } from "../shared/schema";
 import { eq, sql as drizzleSql } from "drizzle-orm";
@@ -29,9 +32,12 @@ if (contactArchiveStart < 0 || contactRestoreStart <= contactArchiveStart) {
   throw new Error("Contact archive/restore route boundaries were not found");
 }
 const contactArchiveHandlerSource = crmOperationsSource.slice(contactArchiveStart, contactRestoreStart);
-if (!contactArchiveHandlerSource.includes("storage.archiveContact") ||
+const contactLifecycleCommandSource = readFileSync(new URL("../server/services/contact-lifecycle-command.ts", import.meta.url), "utf8");
+if (!contactArchiveHandlerSource.includes("commandContactLifecycle") ||
+    !contactArchiveHandlerSource.includes(',"archive",fields)') ||
     contactArchiveHandlerSource.includes("propagateContactDeleteToGhl") ||
-    /(?:delete|remove)[A-Za-z]*Ghl|Ghl[A-Za-z]*(?:delete|remove)/i.test(contactArchiveHandlerSource)) {
+    /(?:delete|remove)[A-Za-z]*Ghl|Ghl[A-Za-z]*(?:delete|remove)/i.test(contactArchiveHandlerSource) ||
+    /(?:delete|remove)[A-Za-z]*Ghl|Ghl[A-Za-z]*(?:delete|remove)|\.delete\(/i.test(contactLifecycleCommandSource)) {
   throw new Error("Contact archive handler must only archive locally and must not invoke GHL deletion");
 }
 
@@ -180,7 +186,7 @@ const CASES: GuardCase[] = [
   { method: "GET",    path: "/api/sdr/compliance-channel-status",    anon: [401], merchant: [403], admin: [200], description: "SDR compliance channel status (isDashboardUser)" },
 
   // ── Auth-gate hardening (launch remediation) — formerly isAuthenticated, now isDashboardUser/requireRole ──
-  { method: "GET",    path: "/api/notes?entityType=contact&entityId=1",      anon: [401], merchant: [403], admin: [200], description: "notes list (isDashboardUser — merchants blocked)" },
+  { method: "GET",    path: "/api/notes?entityType=contact&entityId=1",      anon: [401], merchant: [403], admin: [404], description: "notes on unavailable seeded context (merchant blocked; no parent existence disclosure)" },
   { method: "GET",    path: "/api/forecasting/summary",               anon: [401], merchant: [403], admin: [200], description: "forecasting summary (isDashboardUser — merchants blocked)" },
   { method: "GET",    path: "/api/residuals/imports",                 anon: [401], merchant: [403], admin: [200], description: "residuals import list (requireRole admin/manager — merchants blocked)" },
   { method: "GET",    path: "/api/kpi/summary",                      anon: [401], merchant: [403], admin: [200], description: "KPI summary (isDashboardUser — merchants blocked)" },
@@ -630,17 +636,35 @@ async function run(): Promise<void> {
       const { token } = await response.json() as { token: string };
       const setCookie = response.headers.get("set-cookie") ?? "";
       const csrfCookie = setCookie.split(";")[0];
-      return { cookie: csrfCookie ? `${cookie}; ${csrfCookie}` : cookie, token };
+      const principalResponse=await fetch(`${BASE_URL}/api/auth/user`,{headers:{cookie}});
+      if(!principalResponse.ok) throw new Error("Role fixture principal unavailable");
+      const principal=await principalResponse.json() as {id:string;accountVersion:number};
+      if(!principal.id || !Number.isInteger(principal.accountVersion)) throw new Error("Role fixture principal pin unavailable");
+      return { cookie: csrfCookie ? `${cookie}; ${csrfCookie}` : cookie, token,principal };
     };
     const managerAuth = await csrfAuth(managerCookie);
     const adminAuth = await csrfAuth(adminCookie);
     const agentAuth = await csrfAuth(agentCookie);
-    const mutate = (auth: { cookie: string; token: string }, method: string, path: string, body?: unknown) =>
-      fetch(`${BASE_URL}${path}`, {
+    const mutate = async (auth: Awaited<ReturnType<typeof csrfAuth>>, method: string, path: string, body?: unknown) => {
+      const contactMatch=path.match(/^\/api\/contacts\/(\d+)\/(?:archive|restore)$/);
+      const sequenceMatch=path.match(/^\/api\/sequences\/(\d+)(?:\/toggle-status)?$/);
+      if(contactMatch) {
+        const [row]=await db.select().from(contacts).where(eq(contacts.id,Number(contactMatch[1])));
+        if(!row || !fixtureIds.contacts.includes(row.id)) throw new Error("Lifecycle command must select this suite's fixture");
+        body={commandId:randomUUID(),expectedActorId:auth.principal.id,expectedAccountVersion:auth.principal.accountVersion,
+          items:[{id:row.id,expectedVersion:row.lifecycleVersion,expectedOwner:row.assignedTo,expectedRecordClass:row.recordClass}]};
+      } else if(sequenceMatch) {
+        const [row]=await db.select().from(followUpSequences).where(eq(followUpSequences.id,Number(sequenceMatch[1])));
+        if(!row || !fixtureIds.sequences.includes(row.id)) throw new Error("Sequence command must select this suite's fixture");
+        body={...(body as Record<string,unknown> ?? {}),commandId:randomUUID(),expectedVersion:row.version,
+          expectedActorId:auth.principal.id,expectedAccountVersion:auth.principal.accountVersion};
+      }
+      return fetch(`${BASE_URL}${path}`, {
         method,
         headers: { cookie: auth.cookie, "x-csrf-token": auth.token, "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
+    };
 
     const [archiveContactFixture] = await db.insert(contacts).values({
       firstName: "SmokeArchive",
@@ -783,7 +807,8 @@ async function run(): Promise<void> {
     ];
     for (const [method, path] of forbiddenCases) {
       const status = (await mutate(managerAuth, method, path, {})).status;
-      if (status !== 403) { console.log(`✗ ${method} ${path}: expected ownership 403, got ${status}`); failures++; }
+      const expected=/^\/api\/sequences\/\d+(?:\/toggle-status)?$/.test(path)?404:403;
+      if (status !== expected) { console.log(`✗ ${method} ${path}: expected ownership denial ${expected}, got ${status}`); failures++; }
     }
     const activeEdit = await mutate(managerAuth, "PUT", `/api/sequences/${activeSequence.id}`, { description: "blocked" });
     const activeDelete = await mutate(managerAuth, "DELETE", `/api/sequences/${activeSequence.id}`);

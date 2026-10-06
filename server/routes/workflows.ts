@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated,isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertRfiSchema, insertWorkflowSchema } from "@shared/schema";
@@ -8,6 +8,7 @@ import { parse } from "csv-parse/sync";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 import { serverError } from "../utils/server-error";
 import { authorizeContactAccess, authorizeDealAccess } from "../services/crm-object-access";
+import { WorkflowCommandError } from "../services/workflow-command-error";
 
 const positiveId = z.coerce.number().int().positive().safe();
 
@@ -26,12 +27,16 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/rfis/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/rfis/:id", isDashboardUser, async (req, res) => {
     try {
-      const rfi = await storage.getRfi(Number(req.params.id));
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const id=strictRecordId.parse(req.params.id);
+      const {readActorRfi}=await import("../services/notification-authority");
+      const rfi=await readActorRfi((req.user as any).id,id);
       if (!rfi) return res.status(404).json({ message: "Not found" });
       res.json(rfi);
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:"Invalid RFI ID"});
       serverError(res, err);
     }
   });
@@ -141,7 +146,7 @@ export function registerWorkflowsRoutes(app: Express) {
 
   app.post("/api/workflows", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const input = insertWorkflowSchema.parse(req.body);
+      const input = insertWorkflowSchema.omit({ version: true, retiredAt: true }).parse(req.body);
       const wf = await storage.createWorkflow(input);
       await storage.createAuditLog({ action: "workflow_created", entityType: "workflow", entityId: wf.id, details: { name: wf.name, trigger: wf.triggerType } });
       res.status(201).json(wf);
@@ -155,12 +160,14 @@ export function registerWorkflowsRoutes(app: Express) {
     try {
       const id = positiveId.safeParse(req.params.id);
       if (!id.success) return res.status(400).json({ message: "Invalid workflow id" });
-      const allowed = insertWorkflowSchema.partial().parse(req.body);
-      const updated = await storage.updateWorkflow(id.data, allowed);
+      const { expectedVersion, ...allowed } = insertWorkflowSchema.omit({ version: true, retiredAt: true }).partial()
+        .extend({ expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      const updated = await storage.updateWorkflow(id.data, allowed, { expectedVersion, actorId: String((req.user as any).id) });
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -169,10 +176,25 @@ export function registerWorkflowsRoutes(app: Express) {
     try {
       const id = positiveId.safeParse(req.params.id);
       if (!id.success) return res.status(400).json({ message: "Invalid workflow id" });
-      if (!await storage.getWorkflow(id.data)) return res.status(404).json({ message: "Not found" });
-      await storage.deleteWorkflow(id.data);
-      res.json({ success: true });
+      const { expectedVersion } = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      const workflow = await storage.deleteWorkflow(id.data, { expectedVersion, actorId: String((req.user as any).id) });
+      res.json({ success: true, retired: true, historyRetained: true, workflow });
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
+      serverError(res, err);
+    }
+  });
+
+  app.post("/api/workflows/:id/restore", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = positiveId.parse(req.params.id);
+      const { expectedVersion } = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      const workflow = await storage.commandWorkflow(id, "restore", { expectedVersion, actorId: String((req.user as any).id) });
+      res.json({ workflow, restored: true, enabled: false });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
   });
@@ -203,16 +225,17 @@ export function registerWorkflowsRoutes(app: Express) {
       if ("archivedAt" in authorized && authorized.archivedAt) return res.status(404).json({ message: "Not found" });
       const wf = await storage.getWorkflow(id.data);
       if (!wf) return res.status(404).json({ message: "Workflow not found" });
-      if (!wf.enabled) return res.status(400).json({ message: "Workflow is disabled" });
+      if (!wf.enabled || wf.retiredAt) return res.status(400).json({ message: "Workflow is disabled or retired" });
 
       const actions = (wf.actions as any[]) || [];
       const result = await executeWorkflowActions(wf.id, actions, {
         entityType: entity.data.entityType,
         entityId: entity.data.entityId,
       });
-
+      if (result.status === "blocked") return res.status(409).json({ message: "Workflow changed or its run is unavailable; no run was started", result });
       res.json({ success: true, runId: result.runId, status: result.status, steps: result.log });
     } catch (err: any) {
+      if (err instanceof WorkflowCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
   });

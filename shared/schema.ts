@@ -71,6 +71,7 @@ export type InsertImportExecution = typeof importExecutions.$inferInsert;
 
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
+  lifecycleVersion:integer("lifecycle_version").notNull().default(1),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   email: text("email").notNull(),
@@ -1713,6 +1714,7 @@ export type InsertContactLifecycleHistory = typeof contactLifecycleHistory.$infe
 
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
+  createdByUserId:varchar("created_by_user_id").references(()=>users.id),
   legalName: text("legal_name").notNull(),
   dba: text("dba"),
   vertical: text("vertical"),
@@ -1729,6 +1731,7 @@ export const companies = pgTable("companies", {
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
+  createdByUserId:true,
   recordClass: true,
   createdAt: true,
 });
@@ -1937,6 +1940,7 @@ export const ticketAuthorityEvents = pgTable("ticket_authority_events", {
 }, (table) => [
   uniqueIndex("ticket_authority_events_ticket_key_uidx").on(table.ticketId, table.eventKey),
   index("ticket_authority_events_ticket_created_idx").on(table.ticketId, table.createdAt),
+  index("ticket_authority_events_command_idx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
 ]);
 
 export const DOCUMENT_CATEGORIES = [
@@ -2033,6 +2037,7 @@ export const tasks = pgTable("tasks", {
     .on(table.producer, table.issueKey, table.subjectType, table.subjectId)
     .where(sql`producer IS NOT NULL AND issue_key IS NOT NULL AND authority_state IN ('open', 'in_progress')`),
   index("tasks_subject_identity_idx").on(table.subjectType, table.subjectId, table.generation),
+  index("tasks_native_contact_identity_idx").on(table.contactId,table.ghlTaskId).where(sql`ghl_task_id IS NOT NULL`),
   check("tasks_authority_state_check", sql`authority_state IN ('open', 'in_progress', 'completed', 'cancelled')`),
 ]);
 
@@ -2054,6 +2059,7 @@ export const taskAuthorityEvents = pgTable("task_authority_events", {
 }, (table) => [
   uniqueIndex("task_authority_events_task_key_uidx").on(table.taskId, table.eventKey),
   index("task_authority_events_task_created_idx").on(table.taskId, table.createdAt),
+  index("task_authority_events_command_idx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
 ]);
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
@@ -2107,8 +2113,35 @@ export const workflows = pgTable("workflows", {
   triggerConditions: jsonb("trigger_conditions"),
   actions: jsonb("actions"),
   enabled: boolean("enabled").default(true),
+  version: integer("version").notNull().default(1),
+  retiredAt: timestamp("retired_at"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, t => [check("workflows_version_positive", sql`${t.version}>0`)]);
+
+export const repMessageDrafts = pgTable("rep_message_drafts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorId: varchar("actor_id").notNull().references(() => users.id),
+  contextType: text("context_type").notNull(),
+  contextId: text("context_id").notNull(),
+  channel: text("channel").notNull(),
+  subject: text("subject").notNull().default(""),
+  body: text("body").notNull().default(""),
+  version: integer("version").notNull().default(1),
+  savedAt: timestamp("saved_at").notNull().defaultNow(),
+}, t => [
+  unique("rep_message_drafts_context_key").on(t.actorId, t.contextType, t.contextId, t.channel),
+  check("rep_message_drafts_context_type_check", sql`${t.contextType} IN ('global','contact','prospect','inbox')`),
+  check("rep_message_drafts_channel_check", sql`${t.channel} IN ('email','sms','ghl_chat','voicemail','site')`),
+  check("rep_message_drafts_version_check", sql`${t.version}>0`),
+]);
+
+export const repMessageDraftCommands = pgTable("rep_message_draft_commands", {
+  actorId: varchar("actor_id").notNull().references(() => users.id),
+  commandId: uuid("command_id").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [primaryKey({ columns: [t.actorId, t.commandId] })]);
 
 export const workflowRuns = pgTable("workflow_runs", {
   id: serial("id").primaryKey(),
@@ -2139,6 +2172,18 @@ export const notifications = pgTable("notifications", {
   uniqueIndex("notifications_command_key_uidx").on(table.commandKey).where(sql`command_key IS NOT NULL`),
   index("notifications_inbound_request_idx").on(table.inboundRequestId),
 ]);
+
+export const notificationActorStates=pgTable("notification_actor_states",{
+  actorId:varchar("actor_id").notNull().references(()=>users.id),
+  notificationId:integer("notification_id").notNull().references(()=>notifications.id),
+  readAt:timestamp("read_at"),dismissedAt:timestamp("dismissed_at"),
+},table=>[primaryKey({columns:[table.actorId,table.notificationId]})]);
+
+export const contactLifecycleReceipts=pgTable("contact_lifecycle_receipts",{
+  actorId:varchar("actor_id").notNull().references(()=>users.id),
+  commandId:uuid("command_id").notNull(),payloadHash:text("payload_hash").notNull(),
+  result:jsonb("result").notNull(),createdAt:timestamp("created_at").notNull().defaultNow(),
+},table=>[primaryKey({columns:[table.actorId,table.commandId]})]);
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({
   id: true,
@@ -3117,6 +3162,8 @@ export const notes = pgTable("notes", {
   entityType: text("entity_type").notNull(),
   entityId: integer("entity_id").notNull(),
   content: text("content").notNull(),
+  version:integer("version").notNull().default(1),
+  deletedAt:timestamp("deleted_at"),
   authorId: text("author_id"),
   authorName: text("author_name"),
   pinned: boolean("pinned").default(false),
@@ -3128,7 +3175,15 @@ export const insertNoteSchema = createInsertSchema(notes).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  version:true,deletedAt:true,
 });
+
+export const noteCommandReceipts=pgTable("note_command_receipts",{
+  actorId:varchar("actor_id").notNull().references(()=>users.id),
+  commandId:uuid("command_id").notNull(),noteId:integer("note_id").notNull().references(()=>notes.id),
+  payloadHash:text("payload_hash").notNull(),result:jsonb("result").notNull(),
+  createdAt:timestamp("created_at").notNull().defaultNow(),
+},table=>[primaryKey({columns:[table.actorId,table.commandId]})]);
 
 export type Note = typeof notes.$inferSelect;
 export type InsertNote = z.infer<typeof insertNoteSchema>;
@@ -3242,6 +3297,8 @@ export const STAGE_AUTOMATION_ACTIONS = [
 
 export const followUpSequences = pgTable("follow_up_sequences", {
   id: serial("id").primaryKey(),
+  version:integer("version").notNull().default(1),
+  retiredAt:timestamp("retired_at"),
   name: text("name").notNull(),
   description: text("description"),
   triggerType: text("trigger_type").notNull().default("manual"),
@@ -3262,7 +3319,14 @@ export const insertFollowUpSequenceSchema = createInsertSchema(followUpSequences
   id: true,
   createdAt: true,
   updatedAt: true,
+  version:true,retiredAt:true,
 });
+export const sequenceCommandReceipts=pgTable("sequence_command_receipts",{
+  actorId:varchar("actor_id").notNull().references(()=>users.id),commandId:uuid("command_id").notNull(),
+  sequenceId:integer("sequence_id").notNull().references(()=>followUpSequences.id),
+  payloadHash:text("payload_hash").notNull(),result:jsonb("result").notNull(),
+  createdAt:timestamp("created_at").notNull().defaultNow(),
+},table=>[primaryKey({columns:[table.actorId,table.commandId]})]);
 
 export type FollowUpSequence = typeof followUpSequences.$inferSelect;
 export type InsertFollowUpSequence = z.infer<typeof insertFollowUpSequenceSchema>;
@@ -4597,11 +4661,18 @@ export const dataDeleteRequests = pgTable("data_delete_requests", {
   status: text("status").default("pending"),
   processedBy: text("processed_by"),
   processedAt: timestamp("processed_at"),
+  version:integer("version").notNull().default(1),
+  subjectContactId:integer("subject_contact_id").references(()=>contacts.id),
+  reviewEvidence:text("review_evidence"),
+  retentionReason:text("retention_reason"),
+  executionState:text("execution_state").notNull().default("not_executed"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertDataDeleteRequestSchema = createInsertSchema(dataDeleteRequests).omit({
   id: true,
+  status:true,processedBy:true,processedAt:true,version:true,subjectContactId:true,
+  reviewEvidence:true,retentionReason:true,executionState:true,
   createdAt: true,
 });
 
@@ -7462,6 +7533,7 @@ export const inboxItems = pgTable("inbox_items", {
   nextAction: text("next_action"),
   escalationPath: text("escalation_path"),
   notes: text("notes"),
+  version:integer("version").notNull().default(1),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -7471,7 +7543,16 @@ export const inboxItems = pgTable("inbox_items", {
   index("inbox_items_sla_due_at_idx").on(table.slaDueAt),
 ]);
 
-export const insertInboxItemSchema = createInsertSchema(inboxItems).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertInboxItemSchema = createInsertSchema(inboxItems).omit({ id: true, version:true,createdAt: true, updatedAt: true });
+export const inboxActionReceipts=pgTable("inbox_action_receipts",{
+  id:uuid("id").primaryKey().defaultRandom(),
+  itemId:integer("item_id").notNull().references(()=>inboxItems.id),
+  actorId:varchar("actor_id").notNull().references(()=>users.id),
+  commandId:uuid("command_id").notNull(),
+  payloadHash:text("payload_hash").notNull(),
+  result:jsonb("result").notNull(),
+  createdAt:timestamp("created_at").notNull().defaultNow(),
+},table=>[uniqueIndex("inbox_action_receipts_actor_command_uidx").on(table.actorId,table.commandId)]);
 export type InboxItemRow = typeof inboxItems.$inferSelect;
 export type InsertInboxItem = z.infer<typeof insertInboxItemSchema>;
 

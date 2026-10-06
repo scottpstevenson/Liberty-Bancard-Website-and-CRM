@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import { publicUser } from "@shared/public-user";
+import { commandAccount, AccountCommandError } from "../services/account-lifecycle";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { storage } from "../storage";
@@ -243,6 +245,8 @@ export function registerAdminRoutes(app: Express) {
         emailVerified: users.emailVerified,
         totpEnabled: users.totpEnabled,
         permissions: users.permissions,
+        accountState: users.accountState,
+        accountVersion: users.accountVersion,
         createdAt: users.createdAt,
       }).from(users).orderBy(desc(users.createdAt));
       res.json(allUsers);
@@ -327,53 +331,43 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/users/:id/reset-2fa", requireRole('admin'), async (req, res) => {
     try {
-      const { authStorage } = await import("../replit_integrations/auth/storage");
-      const userId = String(String(req.params.id));
-      const [before] = await db.select().from(users).where(eq(users.id, userId));
-      await authStorage.adminResetTotp(userId);
-      const [updated] = await db.update(users).set({ updatedAt: new Date() }).where(eq(users.id, userId)).returning();
-      if (!updated) return res.status(404).json({ message: "User not found" });
-      auditChange({ actorType: "user", userId: (req.user as any)?.id ?? null, action: "user_2fa_admin_reset",
-        entityType: "user", entityKey: userId,
-        before: before ? { totpEnabled: before.totpEnabled } : null,
-        after: { totpEnabled: false, totpSecret: null } });
-      const { passwordHash, ...safeUser } = updated;
-      res.json(safeUser);
+      const { expectedVersion } = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      const result = await commandAccount({ actorId: String((req.user as any).id), userId: String(req.params.id),
+        expectedVersion, action: "reset_mfa" });
+      res.json(result.user);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof AccountCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
   });
 
   app.put("/api/admin/users/:id/role", requireRole('admin'), async (req, res) => {
     try {
-      const { role } = req.body;
-      if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
-      const [existing] = await db.select().from(users).where(eq(users.id, String(String(req.params.id))));
-      const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(String(req.params.id)))).returning();
-      if (!updated) return res.status(404).json({ message: "User not found" });
-      auditChange({
-        action: "user_role_changed",
-        entityType: "user",
-        entityId: null,
-        entityKey: updated.id,
-        before: existing ? { userId: existing.id, role: existing.role } : null,
-        after: { userId: updated.id, role: updated.role },
-        userId: (req.user as any)?.id ?? null,
-        actorType: "user",
-      }).catch(() => {});
-      // Invalidate all existing sessions immediately — the user must re-login to get the new role
-      authStorage.invalidateAllUserSessions(updated.id).catch((err) =>
-        console.error("[Admin] Failed to invalidate sessions after role change:", err)
-      );
-      const { passwordHash, ...safeUser } = updated;
-      res.json(safeUser);
+      const { role, expectedVersion } = z.object({ role: z.enum(["admin", "manager", "agent", "merchant"]),
+        expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      const result = await commandAccount({ actorId: String((req.user as any).id), userId: String(req.params.id),
+        expectedVersion, action: "role", role });
+      res.json(result.user);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof AccountCommandError) return res.status(err.status).json({ message: err.message });
       serverError(res, err);
     }
   });
 
+  app.post("/api/admin/users/:id/lifecycle", requireRole("admin"), async (req, res) => {
+    try {
+      const { action, expectedVersion } = z.object({ action: z.enum(["deactivate", "reactivate"]),
+        expectedVersion: z.number().int().positive() }).strict().parse(req.body);
+      res.json(await commandAccount({ actorId: String((req.user as any).id), userId: String(req.params.id),
+        action, expectedVersion }));
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (err instanceof AccountCommandError) return res.status(err.status).json({ message: err.message });
+      serverError(res, err);
+    }
+  });
 
   // === AGENTS ===
   app.get("/api/agents", requireRole('admin', 'manager'), async (req, res) => {
@@ -705,8 +699,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       const agent = await storage.getAgent(Number(String(req.params.id)));
       if (!agent) return res.status(404).json({ message: "Not found" });
-      await storage.updateAgent(Number(String(req.params.id)), { status: "inactive" });
-      res.status(204).send();
+      res.status(409).json({ message: "Rep profile retirement does not deactivate its login. Use User Management's recoverable account controls.", code: "ACCOUNT_LIFECYCLE_COMMAND_REQUIRED" });
     } catch (err: any) {
       serverError(res, err);
     }
@@ -1158,10 +1151,16 @@ export function registerAdminRoutes(app: Express) {
 
   app.put("/api/data-requests/:id", requireRole('admin'), async (req, res) => {
     try {
-      const updated = await storage.updateDataDeleteRequest(Number(String(req.params.id)), req.body);
-      if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
+      const {privacyReviewCommand,reviewPrivacyRequest}=await import("../services/privacy-review-command");
+      const {bindWorkActor}=await import("../services/work-item-command");
+      const {strictRecordId}=await import("@shared/work-item-commands");
+      const input=privacyReviewCommand.parse(req.body);
+      res.json(await reviewPrivacyRequest(strictRecordId.parse(req.params.id),
+        bindWorkActor(req.user,input.expectedActorId,input.expectedAccountVersion),input));
     } catch (err: any) {
+      if(err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      const {WorkCommandError}=await import("../services/work-item-command");
+      if(err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

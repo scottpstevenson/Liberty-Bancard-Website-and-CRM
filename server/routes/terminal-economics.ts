@@ -2,7 +2,10 @@ import type { Express } from "express";
 import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { computeDealTerminalEconomics, getEconomicsConfig } from "../services/terminal-economics";
-import { normalizeTaskCompletionState } from "../services/task-normalization";
+import { decideTerminalWork } from "../services/terminal-work-command";
+import { bindWorkActor, WorkCommandError } from "../services/work-item-command";
+import { strictRecordId } from "@shared/work-item-commands";
+import { z } from "zod";
 import { serverError } from "../utils/server-error";
 import { readTerminalRecommendationReport } from "../services/terminal-report-authority";
 
@@ -148,24 +151,10 @@ export function registerTerminalEconomicsRoutes(app: Express) {
 
   app.post("/api/deals/:id/terminal-economics/approve", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const dealId = Number(req.params.id);
-      const deal = await storage.getDeal(dealId);
-      if (!deal) return res.status(404).json({ message: "Deal not found" });
-
-      await storage.updateDeal(dealId, { terminalApprovalStatus: "approved" } as any);
-
-      if (deal.terminalApprovalTaskId) {
-        const existingTask = await storage.getTaskById(deal.terminalApprovalTaskId);
-        const approveUpdate = normalizeTaskCompletionState(
-          {
-            status: "completed",
-            completedAt: new Date(),
-            description: `APPROVED by manager (${(req.user as any)?.email ?? "manager"}).\n\nDeal: /dashboard/pipeline?deal=${dealId}`,
-          },
-          existingTask ?? { status: "pending", completedAt: null },
-        );
-        await storage.updateTask(deal.terminalApprovalTaskId, approveUpdate);
-      }
+      const dealId = strictRecordId.parse(req.params.id);
+      const decision = await decideTerminalWork({dealId,decision:"approved",actor:bindWorkActor(req.user)});
+      const deal = decision.deal;
+      if (decision.replayed) return res.json({success:true,terminalApprovalStatus:"approved",replayed:true});
 
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       const merchantName = contact?.companyName || `Deal #${dealId}`;
@@ -179,36 +168,21 @@ export function registerTerminalEconomicsRoutes(app: Express) {
         metadata: { dealId },
       });
 
-      await storage.createAuditLog({
-        action: "terminal_approval_approved",
-        entityType: "deal",
-        entityId: dealId,
-        details: { approvedBy: (req.user as any)?.id, terminalModel: deal.terminalRecommendation },
-      });
-
       res.json({ success: true, terminalApprovalStatus: "approved" });
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });
 
   app.post("/api/deals/:id/terminal-economics/reject", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const dealId = Number(req.params.id);
-      const deal = await storage.getDeal(dealId);
-      if (!deal) return res.status(404).json({ message: "Deal not found" });
-
-      const { reason } = req.body;
-      await storage.updateDeal(dealId, { terminalApprovalStatus: "rejected" } as any);
-
-      if (deal.terminalApprovalTaskId) {
-        const existingTask = await storage.getTaskById(deal.terminalApprovalTaskId);
-        const rejectUpdate = normalizeTaskCompletionState(
-          { status: "completed", completedAt: new Date() },
-          existingTask ?? { status: "pending", completedAt: null },
-        );
-        await storage.updateTask(deal.terminalApprovalTaskId, rejectUpdate);
-      }
+      const dealId = strictRecordId.parse(req.params.id);
+      const {reason} = z.object({reason:z.string().trim().max(2000).optional()}).strict().parse(req.body);
+      const decision = await decideTerminalWork({dealId,decision:"rejected",actor:bindWorkActor(req.user),reason});
+      const deal = decision.deal;
+      if (decision.replayed) return res.json({success:true,terminalApprovalStatus:"rejected",replayed:true});
 
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
       const merchantName = contact?.companyName || `Deal #${dealId}`;
@@ -222,15 +196,10 @@ export function registerTerminalEconomicsRoutes(app: Express) {
         metadata: { dealId, reason },
       });
 
-      await storage.createAuditLog({
-        action: "terminal_approval_rejected",
-        entityType: "deal",
-        entityId: dealId,
-        details: { rejectedBy: (req.user as any)?.id, reason, terminalModel: deal.terminalRecommendation },
-      });
-
       res.json({ success: true, terminalApprovalStatus: "rejected" });
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({message:err.errors[0].message});
+      if (err instanceof WorkCommandError) return res.status(err.status).json({message:err.message});
       serverError(res, err);
     }
   });

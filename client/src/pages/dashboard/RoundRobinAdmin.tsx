@@ -21,6 +21,7 @@ interface RoundRobinRep {
 }
 
 interface RoundRobinPool {
+  version:number;
   reps: RoundRobinRep[];
   currentIndex: number;
   enabled: boolean;
@@ -63,16 +64,16 @@ export default function RoundRobinAdmin() {
     return params.toString();
   }, [page, repFilter, startDate, endDate]);
 
-  const { data: pool, isLoading } = useQuery<RoundRobinPool>({
+  const { data: pool, isLoading, isError:poolError, error:poolFailure, refetch:reloadPool } = useQuery<RoundRobinPool>({
     queryKey: ["/api/admin/round-robin"],
     refetchInterval: 30000,
   });
 
-  const { data: adminUsers } = useQuery<Array<{ id: string; email: string | null; firstName: string | null; lastName: string | null }>>({
-    queryKey: ["/api/admin/users"],
+  const { data: adminUsers,isError:rosterError,refetch:reloadRoster } = useQuery<Array<{ id: string; email: string | null; firstName: string | null; lastName: string | null }>>({
+    queryKey: ["/api/admin/round-robin/eligible-reps"],
   });
 
-  const { data: logData, isLoading: logLoading } = useQuery<LogResponse>({
+  const { data: logData, isLoading: logLoading,isError:logError,refetch:reloadLog } = useQuery<LogResponse>({
     queryKey: ["/api/admin/round-robin/log", page, repFilter, startDate, endDate],
     queryFn: async () => {
       const res = await fetch(`/api/admin/round-robin/log?${buildLogParams()}`, { credentials: "include" });
@@ -83,22 +84,24 @@ export default function RoundRobinAdmin() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const res = await apiRequest("PUT", "/api/admin/round-robin", { enabled });
+      const res = await apiRequest("PUT", "/api/admin/round-robin", { enabled,expectedVersion:pool?.version });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (saved:RoundRobinPool) => {
+      queryClient.setQueryData(["/api/admin/round-robin"],saved);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/round-robin"] });
-      toast({ title: pool?.enabled ? "Round-robin disabled" : "Round-robin enabled" });
+      toast({ title: saved.enabled ? "Toolkit pool enabled" : "Toolkit pool disabled" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const addRepMutation = useMutation({
     mutationFn: async (rep: { userId: string; name: string; email: string }) => {
-      const res = await apiRequest("POST", "/api/admin/round-robin/rep", rep);
+      const res = await apiRequest("POST", "/api/admin/round-robin/rep", {...rep,expectedVersion:pool?.version});
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (saved:RoundRobinPool) => {
+      queryClient.setQueryData(["/api/admin/round-robin"],saved);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/round-robin"] });
       setNewRep({ userId: "", name: "", email: "" });
       toast({ title: "Rep added to rotation" });
@@ -108,10 +111,11 @@ export default function RoundRobinAdmin() {
 
   const togglePauseMutation = useMutation({
     mutationFn: async ({ userId, paused }: { userId: string; paused: boolean }) => {
-      const res = await apiRequest("PATCH", `/api/admin/round-robin/rep/${userId}`, { paused });
+      const res = await apiRequest("PATCH", `/api/admin/round-robin/rep/${userId}`, { paused,expectedVersion:pool?.version });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (saved:RoundRobinPool) => {
+      queryClient.setQueryData(["/api/admin/round-robin"],saved);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/round-robin"] });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -119,10 +123,11 @@ export default function RoundRobinAdmin() {
 
   const removeRepMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const res = await apiRequest("DELETE", `/api/admin/round-robin/rep/${userId}`);
+      const res = await apiRequest("DELETE", `/api/admin/round-robin/rep/${userId}`, {expectedVersion:pool?.version});
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (saved:RoundRobinPool) => {
+      queryClient.setQueryData(["/api/admin/round-robin"],saved);
       queryClient.invalidateQueries({ queryKey: ["/api/admin/round-robin"] });
       toast({ title: "Rep removed from rotation" });
     },
@@ -147,7 +152,12 @@ export default function RoundRobinAdmin() {
     );
   }
 
-  const reps = pool?.reps || [];
+  if (poolError || !pool) return <Card><CardContent className="p-6 space-y-3" role="alert">
+    <p>Pool configuration is unavailable. No roster or assignment count can be certified.</p>
+    <p className="text-sm text-muted-foreground">{poolFailure instanceof Error ? poolFailure.message:"Reload to retry."}</p>
+    <Button onClick={()=>void reloadPool()}>Retry configuration</Button>
+  </CardContent></Card>;
+  const reps = pool.reps;
   const log = logData?.log || [];
   const activeCount = reps.filter((r) => !r.paused).length;
 
@@ -230,7 +240,7 @@ export default function RoundRobinAdmin() {
         </Card>
         <Card data-testid="stat-rr-active-reps">
           <CardContent className="pt-4 pb-3">
-            <p className="text-xs text-muted-foreground flex items-center gap-1"><Play className="w-3 h-3" /> Active</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1"><Play className="w-3 h-3" /> Configured unpaused seats</p>
             <p className="text-2xl font-bold text-green-600">{activeCount}</p>
           </CardContent>
         </Card>
@@ -242,7 +252,7 @@ export default function RoundRobinAdmin() {
         </Card>
         <Card data-testid="stat-rr-total-assigned">
           <CardContent className="pt-4 pb-3">
-            <p className="text-xs text-muted-foreground flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Assigned</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Recorded pool selections</p>
             <p className="text-2xl font-bold">{totalEntries}</p>
           </CardContent>
         </Card>
@@ -271,7 +281,7 @@ export default function RoundRobinAdmin() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
-                  <TableHead>Assigned</TableHead>
+                  <TableHead>Recorded selections</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -286,7 +296,7 @@ export default function RoundRobinAdmin() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={rep.paused ? "secondary" : "default"} className="text-xs">
-                        {rep.paused ? "Paused" : "Active"}
+                        {rep.paused ? "Paused in pool" : "Unpaused in pool"}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -373,6 +383,9 @@ export default function RoundRobinAdmin() {
                 </Button>
               </div>
             </div>
+            {rosterError && <div role="alert" className="text-sm">
+              Eligible staff are unavailable, not an empty roster. <Button variant="outline" onClick={()=>void reloadRoster()}>Retry staff</Button>
+            </div>}
             {adminUsers && adminUsers.length > 0 && (
               <div className="mt-3">
                 <p className="text-xs text-muted-foreground mb-2">Or pick from existing users:</p>
@@ -404,7 +417,7 @@ export default function RoundRobinAdmin() {
                 Assignment Log
               </CardTitle>
               <CardDescription>
-                Full assignment history — paginated, filterable, and exportable
+                Retained pool selections (up to 200). Legacy selections do not certify current ownership, eligibility or capacity. Inbound requests use their independent declared policy.
               </CardDescription>
             </div>
             <Button
@@ -480,7 +493,9 @@ export default function RoundRobinAdmin() {
             </div>
           </div>
 
-          {logLoading ? (
+          {logError ? <div role="alert" className="p-4 text-sm">
+            Retained selections are unavailable, not zero. <Button variant="outline" onClick={()=>void reloadLog()}>Retry selections</Button>
+          </div> : logLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>

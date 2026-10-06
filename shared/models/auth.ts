@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, timestamp, uniqueIndex, uuid, varchar, text } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, pgTable, timestamp, uniqueIndex, uuid, varchar, text } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -22,6 +22,9 @@ export const users = pgTable("users", {
   passwordHash: varchar("password_hash"),
   role: varchar("role").default("merchant"),
   authProvider: varchar("auth_provider").default("local"),
+  accountState: varchar("account_state", { length: 16 }).notNull().default("active"),
+  accountVersion: integer("account_version").notNull().default(1),
+  authEpoch: integer("auth_epoch").notNull().default(0),
   emailVerified: timestamp("email_verified"),
   verificationToken: varchar("verification_token"),
   verificationExpiresAt: timestamp("verification_expires_at"),
@@ -36,7 +39,10 @@ export const users = pgTable("users", {
   tourCompletedAt: timestamp("tour_completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, t => [
+  check("users_account_state_supported", sql`${t.accountState} IN ('active','deactivated')`),
+  check("users_account_fence_positive", sql`${t.accountVersion}>0 AND ${t.authEpoch}>=0`),
+]);
 
 export const userSessions = pgTable(
   "user_sessions",
@@ -87,6 +93,7 @@ export const authActions = pgTable("auth_actions", {
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   deliveryDisposition: varchar("delivery_disposition", { length: 32 }).notNull().default("pending"),
+  issuedAuthEpoch: integer("issued_auth_epoch").notNull().default(0),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

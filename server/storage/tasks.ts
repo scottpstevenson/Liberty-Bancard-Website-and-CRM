@@ -2,6 +2,8 @@
   // Methods are mixed into DatabaseStorage in server/storage.ts.
   import { db, pool } from "../db";
 import type { InternalTaskInsert } from "../types/task-types";
+import { legacyTaskStatusToAuthorityState, authorityStateToLegacyTaskStatus } from "@shared/work-item-commands";
+export { legacyTaskStatusToAuthorityState, authorityStateToLegacyTaskStatus } from "@shared/work-item-commands";
 import { taskReadPredicate, type TaskReadScope } from "../services/task-read-authority";
 import {
   liveChats, liveChatMessages,
@@ -107,31 +109,6 @@ export const TASK_AUTHORITY_STATES = ["open", "in_progress", "completed", "cance
 export type TaskAuthorityState = typeof TASK_AUTHORITY_STATES[number];
 
 // Explicit compatibility mapping for legacy task readers and writers.
-export function legacyTaskStatusToAuthorityState(status?: string | null): TaskAuthorityState {
-  switch ((status ?? "").toLowerCase()) {
-    case "in progress":
-    case "in_progress":
-      return "in_progress";
-    case "completed":
-    case "complete":
-    case "done":
-      return "completed";
-    case "cancelled":
-    case "canceled":
-      return "cancelled";
-    default:
-      return "open";
-  }
-}
-
-export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): string {
-  return ({
-    open: "pending",
-    in_progress: "in_progress",
-    completed: "completed",
-    cancelled: "cancelled",
-  })[state];
-}
 
   export class TasksStorage {
     async getTasks(opts?: { limit?: number; offset?: number; source?: "sla" | "manual"; scope?: TaskReadScope }) {
@@ -254,7 +231,10 @@ export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): str
       generation?: number;
       commandKey?: string;
       issueKey?: string;
+      context?: Record<string, unknown>;
+      actorId?: string;
     } = {},
+    existingTx?: Parameters<Parameters<typeof db.transaction>[0]>[0],
   ) {
     await this.assertTaskLinkedObjectScope(insertTask);
     const subjectType = authority.subjectType ?? (insertTask.ticketId ? "ticket" : insertTask.dealId ? "deal" : insertTask.contactId ? "contact" : "task");
@@ -264,7 +244,7 @@ export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): str
     // with more precise business identity may supply commandKey explicitly.
     const issueKey = authority.issueKey ?? (insertTask.automationKey ?? insertTask.title).trim().toLowerCase();
     const identityKey = `${producer}:${issueKey}:${subjectType}:${subjectId}`;
-    return db.transaction(async tx => {
+    const execute = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`);
       if (authority.commandKey) {
         const [replay] = await tx.select().from(tasks).where(eq(tasks.commandKey, authority.commandKey));
@@ -286,6 +266,7 @@ export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): str
       const commandKey = authority.commandKey ?? `${identityKey}:g${generation}`;
       const values = {
         ...insertTask, producer, issueKey, subjectType, subjectId, generation,
+        completedAt: legacyTaskStatusToAuthorityState(insertTask.status) === "completed" ? insertTask.completedAt ?? new Date() : null,
         canonicalAssignee: insertTask.assignedTo ?? null, commandKey,
         authorityState: legacyTaskStatusToAuthorityState(insertTask.status), terminalReason: null,
       } as typeof tasks.$inferInsert;
@@ -295,9 +276,14 @@ export function authorityStateToLegacyTaskStatus(state: TaskAuthorityState): str
       await tx.insert(taskAuthorityEvents).values({
         taskId: task.id, eventKey: `create:${commandKey}`, eventType: "created",
         producer, commandKey, fence: task.authorityFence, toState: task.authorityState,
+        payload: authority.context ? { context: authority.context } : null,
       }).onConflictDoNothing({ target: [taskAuthorityEvents.taskId, taskAuthorityEvents.eventKey] });
+      const { auditChange } = await import("../services/audit-change");
+      await auditChange({ actorType: authority.actorId ? "user":"system",userId:authority.actorId ?? null, action: "task_created", entityType: "task",
+        entityId: task.id, before: null, after: task }, tx);
       return task;
-    });
+    };
+    return existingTx ? execute(existingTx) : db.transaction(execute);
   }
 
   async appendTaskAuthorityEvent(taskId: number, event: {

@@ -4,6 +4,8 @@ import { queryClient } from "@/lib/queryClient";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import { CheckSquare, Plus, Loader2, AlertTriangle, Clock, CheckCircle2, X } from "lucide-react";
 import type { Task } from "@shared/schema";
+import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
+import { useToast } from "@/hooks/use-toast";
 
 function isOverdue(task: Task): boolean {
   if (!task.dueDate || task.status === "completed") return false;
@@ -33,6 +35,8 @@ function formatDue(dateStr: string | null | undefined): string {
 const PRIORITY_OPTIONS = ["normal", "high", "urgent"] as const;
 
 export default function MobileTasks() {
+  const workCommands = useWorkCommands("task");
+  const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [filter, setFilter] = useState<"today" | "all" | "completed">("today");
   const [newTitle, setNewTitle] = useState("");
@@ -50,16 +54,20 @@ export default function MobileTasks() {
   const [creating, setCreating] = useState(false);
 
   async function completeTask(id: number) {
-    setCompletingIds(prev => new Set(prev).add(id));
-    const { queued } = await executeOrQueue("PUT", `/api/tasks/${id}`, { status: "completed" }, () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-    });
-    if (queued) {
-      queryClient.setQueryData<Task[]>(["/api/tasks"], old =>
-        (old || []).map(t => t.id === id ? { ...t, status: "completed" } : t)
-      );
+    const task = tasks?.find(t => t.id === id);
+    if (!task || !Number.isInteger(task.authorityFence)) {
+      return toast({ title: "Work version unavailable", description: "Reload before completing this task.", variant: "destructive" });
     }
-    setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    setCompletingIds(prev => new Set(prev).add(id));
+    try {
+      const result = await executeOrQueue("PUT", `/api/tasks/${id}`, workCommands.edit(task, { status: "completed" }), invalidateWorkFacts);
+      toast({ title: result.ok ? "Task completed" : result.queued ? "Completion queued, not yet saved" : "Completion not saved",
+        description: result.ok ? undefined : result.reason || "Keep the work open until its server confirmation is available.", variant: result.ok || result.queued ? "default" : "destructive" });
+    } catch (error) {
+      toast({ title: "Completion not saved", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    }
   }
 
   async function createTask(data: { title: string; priority: string; dueDate?: string; description?: string }) {

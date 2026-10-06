@@ -31,6 +31,10 @@ const CERTIFICATION_ENV_ALLOWLIST = [
   "BASE_URL",
   "PORT",
   "HOST",
+  // Preserve the already-validated private listener identity through the
+  // canonical server child. No provider credential or transport is enabled.
+  "CERTIFICATION_HTTP_HOST",
+  "CERTIFICATION_HTTP_NONCE",
   "ALLOWED_ORIGINS",
   "SESSION_SECRET",
   "CREDENTIAL_ENCRYPTION_KEY",

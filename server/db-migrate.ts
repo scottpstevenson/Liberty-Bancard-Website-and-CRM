@@ -451,6 +451,14 @@ export async function runDrizzleMigrations(): Promise<void> {
   // This call is a no-op if the index already exists or if conflicts remain.
   await applyPhase3IndexIfReady();
 
+  // All canonical DDL/journal checks above still run in disposable certification.
+  // Optional content bootstrap is not migration proof and can invoke embeddings.
+  // Tests own their fixtures; never seed or call that provider boundary in test.
+  if (process.env.NODE_ENV === "test") {
+    console.log("[DB Migrate] Test schema complete; optional Knowledge content/embedding bootstrap not invoked.");
+    return;
+  }
+
   // Seed the AI assistant knowledge base (idempotent — skips if data exists).
   try {
     const { seedKnowledgeBase } = await import("./services/knowledge-seed");

@@ -64,3 +64,27 @@ for a failure of the feature under test.
 is not the subject of the test. For intentional raw native-contract fixtures,
 inspect the migrated required fields and identity constraints before insertion,
 and distinguish setup failures from assertions on the feature.
+
+Disposable infrastructure does not imply an empty database for every suite.
+Bind absolute row-count assertions to the fixture's explicit IDs or actor;
+use a measured before/after delta when proving a whole-table invariant.
+
+**Why:** The canonical integration roster can share one migrated disposable
+database. Individually passing suites then see retained rows from earlier
+suites, so absolute global counts falsely report lifecycle or retention errors.
+
+**How to apply:** Keep prior evidence intact. Scope assertions rather than
+deleting earlier fixtures or loosening expected outcomes. Run the canonical
+roster as well as bounded fresh-database checks.
+
+Authorization-negative fixtures for fenced commands still need a valid,
+current actor/version/command envelope.
+
+**Why:** An obsolete empty-body caller reaches input rejection, not ownership
+authorization. A 400 then falsely looks like a role-policy regression, and
+changing accepted statuses would conceal the missing authorization proof.
+
+**How to apply:** Pin the suite's own principal and record versions, submit
+valid command fields even for nonowners, assert the exact denied response and
+retain the existing zero-effect/readback checks. Run mutating registered checks
+through their dedicated disposable launcher, never the shared preview database.

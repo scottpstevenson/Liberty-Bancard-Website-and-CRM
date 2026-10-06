@@ -8,13 +8,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ShieldCheck, ShieldOff, MessageSquare, Mail } from "lucide-react";
 import { useState, useMemo } from "react";
 import type { ConsentAuditLog } from "@shared/schema";
+import { consentEventLabel } from "@shared/consent-event-label";
+import { Button } from "@/components/ui/button";
 
 export default function ConsentAudit() {
   const [channelFilter, setChannelFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
   const [contactSearch, setContactSearch] = useState("");
 
-  const { data: logs, isLoading } = useQuery<ConsentAuditLog[]>({
+  const { data: logs, isLoading, isError, refetch } = useQuery<ConsentAuditLog[]>({
     queryKey: ["/api/consent-audit"],
   });
 
@@ -57,6 +59,11 @@ export default function ConsentAudit() {
       </div>
     );
   }
+
+  if (isError) return <div role="alert" className="p-6 space-y-3">
+    <p>Consent history unavailable. No consent conclusion can be drawn.</p>
+    <Button variant="outline" onClick={() => void refetch()}>Retry consent history</Button>
+  </div>;
 
   return (
     <div className="p-6 space-y-6" data-testid="consent-audit-page">
@@ -172,10 +179,10 @@ export default function ConsentAudit() {
                     </TableCell>
                     <TableCell data-testid={`badge-action-${log.id}`}>
                       <Badge
-                        variant={log.action === "opt_in" ? "default" : "destructive"}
+                        variant={log.action === "opt_in" ? "default" : log.action === "opt_out" ? "destructive" : "outline"}
                         className={`text-xs ${log.action === "opt_in" ? "bg-green-600 hover:bg-green-700" : ""}`}
                       >
-                        {log.action === "opt_in" ? "Opt In" : "Opt Out"}
+                        {consentEventLabel(log.action)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground" data-testid={`text-source-${log.id}`}>

@@ -40,13 +40,22 @@ export async function certifyStage3Creates(ctx: {
       const again = await create(input, key);
       assert.ok([200, 202].includes(again.status), JSON.stringify(again.body));
       assert.equal(again.body.id, retry.body.id);
-      assert.equal(again.body._ghlSyncPending, true);
+      assert.equal(again.body._ghlSyncPending, true, JSON.stringify(again.body));
       assert.equal(again.body._handoff.providerProjection, "pending");
       assert.equal(again.body._handoff.providerDelivery, "not_observed");
       const contacts = await pool.query("SELECT count(*)::int AS n FROM contacts WHERE email=$1", [input.email]);
       assert.equal(contacts.rows[0].n, 1);
-      const tasks = await pool.query("SELECT count(*)::int AS n FROM tasks WHERE contact_id=$1 AND source='inbound_request'", [retry.body.id]);
+      // The occurrence owns the work even when an unknown-class contact
+      // requires an unlinked management review, never production admission.
+      const tasks = await pool.query(`SELECT count(*)::int AS n FROM tasks t
+        JOIN inbound_request_work_links w ON w.task_id=t.id
+        JOIN inbound_requests r ON r.id=w.request_id
+        WHERE r.idempotency_key=$1 AND t.source='inbound_request'`, [key]);
       assert.equal(tasks.rows[0].n, 1);
+      assert.equal(retry.body.recordClass,"unknown","fixture label never grants production classification");
+      const review=await pool.query(`SELECT t.contact_id,t.canonical_assignee FROM tasks t
+        JOIN inbound_request_work_links w ON w.task_id=t.id WHERE w.request_id=$1`,[again.body._handoff.requestId]);
+      assert.equal(review.rows[0].contact_id,null);assert.equal(review.rows[0].canonical_assignee,null);
       const effects = await pool.query(`SELECT e.state FROM inbound_request_effects e JOIN inbound_requests r ON r.id=e.request_id
         WHERE r.idempotency_key=$1 AND e.external_side_effect=true`, [key]);
       assert.ok(effects.rows.every(r => r.state === "held"), "retries never release provider/sending effects");
@@ -59,7 +68,10 @@ export async function certifyStage3Creates(ctx: {
     assert.equal(attempts[0].body.id, attempts[1].body.id);
     const rows = await pool.query("SELECT count(*)::int AS n FROM contacts WHERE email=$1", [concurrentInput.email]);
     assert.equal(rows.rows[0].n, 1);
-    const tasks = await pool.query("SELECT count(*)::int AS n FROM tasks WHERE contact_id=$1 AND source='inbound_request'", [attempts[0].body.id]);
+    const tasks = await pool.query(`SELECT count(*)::int AS n FROM tasks t
+      JOIN inbound_request_work_links w ON w.task_id=t.id
+      JOIN inbound_requests r ON r.id=w.request_id
+      WHERE r.idempotency_key=$1 AND t.source='inbound_request'`,[key]);
     assert.equal(tasks.rows[0].n, 1);
     for (const mode of ["link", "work_link", "effect"] as const) {
       const input = payload(mode); const key = randomUUID();
@@ -87,7 +99,10 @@ export async function certifyStage3Creates(ctx: {
       assert.equal(recovered.status, 202);
       assert.equal(recovered.body.id, degraded!.body.id);
       assert.equal(recovered.body.firstName, input.firstName);
-      assert.equal((await pool.query("SELECT count(*)::int AS n FROM tasks WHERE contact_id=$1 AND source='inbound_request'", [recovered.body.id])).rows[0].n, 1);
+      assert.equal((await pool.query(`SELECT count(*)::int AS n FROM tasks t
+        JOIN inbound_request_work_links w ON w.task_id=t.id
+        JOIN inbound_requests r ON r.id=w.request_id
+        WHERE r.idempotency_key=$1 AND t.source='inbound_request'`,[key])).rows[0].n,1);
     }
     console.log("PASS real manual-create pre/postcommit timeout, orchestration/task failures, stable identity, conflict/scope denial and concurrent replay; one contact/task, external effects held");
     console.log("PASS actual DB link/work-link/effect boundary faults recover the persisted contact and canonical one-task obligation; pending provider projection remains visible");

@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Edit2, Save, X, Pin, PinOff } from "lucide-react";
+import { Plus, Edit2, Save, X, Pin, PinOff,Trash2 } from "lucide-react";
 import type { Note } from "@shared/schema";
 import { formatRelativeTime } from "./shared";
 
@@ -15,11 +15,12 @@ interface NotesTabProps {
   onUpdateNote?: (noteId: number, content: string) => Promise<void>;
   // #1475 — pin toggle support
   onPinNote?: (noteId: number, pinned: boolean) => Promise<void>;
+  onDeleteNote?:(noteId:number)=>Promise<void>;
 }
 
 const NOTES_PAGE_SIZE = 10;
 
-export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, onUpdateNote, onPinNote }: NotesTabProps) {
+export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, onUpdateNote, onPinNote,onDeleteNote }: NotesTabProps) {
   // #268 — pagination
   const [notesPage, setNotesPage] = useState(1);
 
@@ -43,6 +44,14 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [togglingPin, setTogglingPin] = useState<number | null>(null);
+  const [actionError,setActionError]=useState("");
+  const [removing,setRemoving]=useState<number|null>(null);
+  const removeNote=async(note:Note)=>{
+    if(!onDeleteNote || !window.confirm("Remove this note from the current list? Its record and audit history will be retained.")) return;
+    setRemoving(note.id);setActionError("");
+    try {await onDeleteNote(note.id);} catch(error:any) {setActionError(error.message ?? "Note removal unavailable");}
+    finally {setRemoving(null);}
+  };
 
   const startEdit = (note: Note) => {
     setEditingId(note.id!);
@@ -61,6 +70,8 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
       await onUpdateNote(noteId, editContent.trim());
       setEditingId(null);
       setEditContent("");
+    } catch(error:any) {
+      setActionError(error.message ?? "Note save unavailable. Your edit is retained.");
     } finally {
       setSaving(false);
     }
@@ -71,6 +82,8 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
     setTogglingPin(note.id!);
     try {
       await onPinNote(note.id!, !note.pinned);
+    } catch(error:any) {
+      setActionError(error.message ?? "Note pin update unavailable");
     } finally {
       setTogglingPin(null);
     }
@@ -78,10 +91,12 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
 
   return (
     <>
+      {actionError && <p role="alert" className="text-destructive">{actionError}</p>}
       <Card className="mb-4">
         <CardContent className="pt-4 pb-4">
           <div className="space-y-2">
             <Textarea
+              aria-label="New contact note"
               value={noteContent}
               onChange={e => setNoteContent(e.target.value)}
               placeholder="Write a note..."
@@ -150,6 +165,7 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
                       <div className="ml-auto flex items-center gap-1">
                         {onPinNote && (
                           <button
+                            aria-label={note.pinned?"Unpin note":"Pin note"}
                             onClick={() => togglePin(note)}
                             disabled={togglingPin === note.id}
                             className="flex items-center gap-0.5 hover:text-foreground transition-colors"
@@ -171,6 +187,10 @@ export function NotesTab({ sortedNotes, noteContent, setNoteContent, addNote, on
                             <Edit2 className="h-3 w-3" /> Edit
                           </button>
                         )}
+                        {onDeleteNote && <Button variant="ghost" size="sm" disabled={removing===note.id}
+                          onClick={()=>void removeNote(note)} aria-label="Remove note while retaining history">
+                          <Trash2 className="h-3 w-3" /> Remove
+                        </Button>}
                       </div>
                     </div>
                   </>

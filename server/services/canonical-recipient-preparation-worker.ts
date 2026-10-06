@@ -66,7 +66,7 @@ export async function processCanonicalRecipientPreparationTick(
   const bindingJoins=sql`JOIN businesses b ON b.id=c.business_id
     JOIN sfp_programs p ON p.is_active AND p.taxonomy_version=2
       AND ${sql.raw(effectiveBusinessVerticalSql("b"))}=ANY(p.vertical_ids)
-    JOIN follow_up_sequences seq ON (
+    JOIN follow_up_sequences seq ON seq.retired_at IS NULL AND (
       seq.trigger_config->>'canonicalProgramId'=p.id::text
       AND seq.trigger_config->'canonicalVerticals' ? ${sql.raw(effectiveBusinessVerticalSql("b"))}
       OR EXISTS(SELECT 1 FROM sfp_campaign_package_versions pkg

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { ContentOrganicKpiPanel } from "@/components/ContentOrganicKpiPanel";
 import { PageHeader } from "@/components/ui/page-header";
+import {useRetainedLocalIntent} from "@/hooks/use-retained-local-intent";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -5267,6 +5268,8 @@ function RegistryImportPanel() {
 
 interface VerticalCoverageRow {
   id: number;
+  version:number;
+  retiredAt:string|null;
   sequenceName: string;
   vertical: string;
   sequenceType: string;
@@ -5282,6 +5285,7 @@ interface VerticalCoverageRow {
 }
 
 function VerticalCoveragePanel() {
+  const sequenceIntents=useRetainedLocalIntent();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
@@ -5298,8 +5302,12 @@ function VerticalCoveragePanel() {
 
   const toggleMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("PUT", `/api/sequences/${id}/toggle-status`);
+      const row=rows.find(row=>row.id===id);
+      if(!row?.version || row.retiredAt) throw new Error("Sequence unavailable or retired. Reload before changing its state.");
+      const res = await apiRequest("PUT", `/api/sequences/${id}/toggle-status`,
+        sequenceIntents.payload(`toggle:${id}`,{expectedVersion:row.version}));
       if (!res.ok) throw new Error("Failed to toggle sequence status");
+      sequenceIntents.accepted(`toggle:${id}`);
       return res.json();
     },
     onSuccess: (updated: any) => {

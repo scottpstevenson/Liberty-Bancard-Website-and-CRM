@@ -36,7 +36,8 @@ export async function upsertInboxItem(
   if (created) return created;
   const existing = await getInboxItem(`${normalized.sourceNamespace}::${normalized.sourceItemId}`);
   if (!existing) throw new Error("Inbox source identity conflict could not be resolved");
-  return (await updateInboxItem(`${normalized.sourceNamespace}::${normalized.sourceItemId}`, normalized)) || existing;
+  // Re-observing a source must not reset a human's status/owner/deadline.
+  return existing;
 }
 
 /** Persist an observed source item once. Immutable content is never refreshed
@@ -60,6 +61,12 @@ export async function getInboxItem(sourceItemId: string): Promise<InboxItemRow |
   return row;
 }
 
+export async function getInboxAccessMetadata(sourceItemId:string) {
+  const [row]=await db.select({id:inboxItems.id,contactId:inboxItems.contactId}).from(inboxItems)
+    .where(sourceIdentityWhere(parseInboxSourceIdentity(sourceItemId))).limit(1);
+  return row;
+}
+
 export async function updateInboxItem(
   sourceItemId: string,
   updates: Partial<InsertInboxItem>
@@ -78,7 +85,7 @@ export async function updateInboxItem(
   }
   const [updated] = await db
     .update(inboxItems)
-    .set({ ...operationalUpdates, updatedAt: new Date() })
+    .set({ ...operationalUpdates,version:sql`${inboxItems.version}+1`,updatedAt: new Date() })
     .where(sourceIdentityWhere(identity))
     .returning();
   return updated;

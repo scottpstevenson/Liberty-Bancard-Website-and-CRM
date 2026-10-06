@@ -4,10 +4,10 @@
  * Returns a morning briefing for the authenticated user:
  * - Tasks due today
  * - Overdue SLA alerts
- * - Unread inbox messages
+ * - Scoped contact inbound audit events (not unread messages)
  * - Hot leads (score >= 70) ready for outreach
  * - Yesterday's closed/won deals
- * - AI-generated 2-3 sentence morning summary (cached per user per calendar day)
+ * - Deterministic factual summary, labelled daily snapshot
  *
  * Admins/managers get team-wide numbers; agents/reps see only their own pipeline.
  */
@@ -16,6 +16,7 @@ import { isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
+import { briefingFactsSummary, type BriefingFacts } from "@shared/briefing-facts";
 import { serverError } from "../utils/server-error";
 import { queryCr04ReadyProjection } from "../services/cr04-cohort-ready-authority";
 import { taskReadPredicate, readTaskMetrics } from "../services/task-read-authority";
@@ -42,54 +43,9 @@ function getTodayRange(): { start: Date; end: Date } {
   return { start, end };
 }
 
-async function generateAiBriefing(stats: {
-  tasksDueToday: number | null;
-  overdueSlaCount: number;
-  unreadCount: number;
-  outreachReadyCount: number | null;
-  closedWonYesterday: number;
-  role: string;
-}): Promise<string | null> {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  const baseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "https://api.openai.com/v1";
-  if (!apiKey) return null;
-
-  try {
-    const prompt = `You are a brief morning briefing assistant for a payment processing sales team.
-
-Based on the following stats, write a concise 2-3 sentence morning summary to orient the rep for today. Be specific, encouraging, and action-oriented. Focus on what matters most.
-
-Stats:
-- Tasks due today: ${stats.tasksDueToday}
-- Overdue SLA alerts: ${stats.overdueSlaCount}
-- Unread messages: ${stats.unreadCount}
-- Leads ready for outreach: ${stats.outreachReadyCount}
-- Deals closed/won yesterday: ${stats.closedWonYesterday}
-- User role: ${stats.role}
-
-Write only the summary, no headers or labels.`;
-
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 200,
-        temperature: 0.7,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!response.ok) return null;
-    const data = await response.json() as any;
-    return data?.choices?.[0]?.message?.content?.trim() || null;
-  } catch {
-    return null;
-  }
+async function generateAiBriefing(stats: BriefingFacts): Promise<string> {
+  // Kept as a compatibility name; this factual summary invokes no AI transport.
+  return briefingFactsSummary(stats);
 }
 
 async function buildDailyBriefing(user: any, bypassCache = false) {
@@ -100,9 +56,8 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       const sectionStatus: Record<string, "ok" | "degraded"> = {};
 
       // Check cache: per user per calendar day
-      // V2 avoids serving the old hot-lead contract after the shared
-      // Ready-for-Outreach membership predicate replaced it.
-      const cacheKey = `daily_briefing_v3_${userId}_${role}_${getTodayStr()}`;
+      // V4 versions the null/degraded/scoped-event factual contract.
+      const cacheKey = `daily_briefing_v4_${userId}_${role}_${getTodayStr()}`;
       const cached = await storage.getSystemSetting(cacheKey);
       if (!bypassCache && cached && typeof cached === "object" && (cached as any).generatedAt) {
         return cached;
@@ -126,28 +81,34 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       } catch { sectionStatus.tasks = "degraded"; }
 
       // ── 2. Overdue SLA alerts ───────────────────────────────────────────────
-      let overdueSlaCount = 0;
+      let overdueSlaCount: number | null = null;
       try {
         const slaRows = await db.execute(sql`
-          SELECT COUNT(*) AS cnt FROM inbox_items
-          WHERE sla_due_at < NOW()
-            AND status NOT IN ('resolved', 'escalated')
-            ${!isAdminOrManager ? sql`AND owner_id = ${userEmail}` : sql``}
+          SELECT COUNT(*) AS cnt FROM inbox_items i
+          JOIN contacts c ON c.id=i.contact_id
+          WHERE i.sla_due_at < ${taskAsOf.toISOString()}
+            AND i.status NOT IN ('resolved', 'escalated')
+            AND c.archived_at IS NULL AND c.record_class='production'
+            ${!isAdminOrManager ? sql`AND c.assigned_to = ${userEmail}` : sql``}
         `);
         overdueSlaCount = Number((slaRows.rows[0] as any)?.cnt || 0);
         sectionStatus.sla = "ok";
       } catch { sectionStatus.sla = "degraded"; }
 
-      // ── 3. Unread messages (inbox items) ────────────────────────────────────
-      // We use a simple proxy from audit_logs for inbound unread
-      let unreadCount = 0;
+      // ── 3. Scoped contact inbound audit events today (NOT unread messages) ──
+      let inboundEventCount: number | null = null;
+      const unreadCount = null; // legacy DTO compatibility; never a proxy count
       try {
         const unreadRows = await db.execute(sql`
-          SELECT COUNT(*) AS cnt FROM audit_logs
-          WHERE action IN ('inbound_message_processed', 'inbound_email_received', 'email_inbound')
-            AND created_at >= ${todayRange.start.toISOString()}
+          SELECT COUNT(*) AS cnt FROM audit_logs a
+          JOIN contacts c ON a.entity_type='contact' AND a.entity_id=c.id
+          WHERE a.action IN ('inbound_message_processed', 'inbound_email_received', 'email_inbound')
+            AND a.created_at >= ${todayRange.start.toISOString()}
+            AND a.created_at <= ${taskAsOf.toISOString()}
+            AND c.archived_at IS NULL AND c.record_class='production'
+            ${!isAdminOrManager ? sql`AND c.assigned_to = ${userEmail}` : sql``}
         `);
-        unreadCount = Number((unreadRows.rows[0] as any)?.cnt || 0);
+        inboundEventCount = Number((unreadRows.rows[0] as any)?.cnt || 0);
         sectionStatus.inbox = "ok";
       } catch { sectionStatus.inbox = "degraded"; }
 
@@ -165,14 +126,14 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
       } catch { sectionStatus.outreach = "degraded"; }
 
       // ── 5. Yesterday's closed/won deals ─────────────────────────────────────
-      let closedWonYesterday = 0;
+      let closedWonYesterday: number | null = null;
       try {
         const values: unknown[] = [yesterdayRange.start, yesterdayRange.end];
         const predicate = dealReadPredicate(user, {}, values);
         const wonRows = await pool.query(`
           SELECT COUNT(*) AS cnt FROM deals d
           WHERE stage = 'Closed Won'
-            AND updated_at >= $1 AND updated_at < $2 AND ${predicate}
+            AND closed_at >= $1 AND closed_at < $2 AND ${predicate}
         `, values);
         closedWonYesterday = Number((wonRows.rows[0] as any)?.cnt || 0);
         sectionStatus.closedWon = "ok";
@@ -186,14 +147,14 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
         sectionStatus.overdueTasks = "ok";
       } catch { sectionStatus.overdueTasks = "degraded"; }
 
-      // ── 7. AI morning summary ────────────────────────────────────────────────
+      // ── 7. Deterministic factual summary; no model/transport ─────────────────
       const aiSummary = await generateAiBriefing({
         tasksDueToday,
+        overdueTaskCount,
         overdueSlaCount,
-        unreadCount,
+        inboundEventCount,
         outreachReadyCount,
         closedWonYesterday,
-        role,
       });
 
       const briefing = {
@@ -201,6 +162,7 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
         overdueTaskCount,
         overdueSlaCount,
         unreadCount,
+        inboundEventCount,
         outreachReadyCount,
         closedWonYesterday,
         aiSummary,
@@ -208,6 +170,8 @@ async function buildDailyBriefing(user: any, bypassCache = false) {
         generatedAt: new Date().toISOString(),
         dateKey: getTodayStr(),
         sectionStatus,
+        factPopulation: { inbox: "authorized_production_contact_inbound_audit_events_today",
+          closedWon: "closed_at_yesterday", asOf: taskAsOf.toISOString(), snapshot: "separate_statements" },
         taskMetricContract: { version: 1, population: "scoped_non_deleted_tasks", recordClass: "production",
           asOf: taskAsOf.toISOString(), timezone: taskScope.timezone, snapshot: "separate_statements",
           cachedDailySnapshot: true },
@@ -235,7 +199,7 @@ export function registerDailyBriefingRoutes(app: Express) {
     try {
       const user = req.user as any;
       const userId = String(user?.id || "");
-      const cacheKey = `daily_briefing_v2_${userId}_${getTodayStr()}`;
+      const cacheKey = `daily_briefing_v4_${userId}_${user.role || "agent"}_${getTodayStr()}`;
       await storage.setSystemSetting(cacheKey, null).catch(() => {});
       res.json(await buildDailyBriefing(user, true));
     } catch (err: any) {

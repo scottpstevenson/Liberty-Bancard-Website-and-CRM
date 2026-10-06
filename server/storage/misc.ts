@@ -244,8 +244,7 @@ import { coerceDateFields } from "../utils/date-coerce";
 
 
   async updateDataDeleteRequest(id: number, data: Partial<DataDeleteRequest>): Promise<DataDeleteRequest | undefined> {
-    const [updated] = await db.update(dataDeleteRequests).set(data).where(eq(dataDeleteRequests.id, id)).returning();
-    return updated;
+    throw new Error("Use the versioned, actor-authorized administrative review command; raw privacy updates are prohibited");
   }
 
 

@@ -110,7 +110,9 @@ export default function Workflows() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: number; enabled: boolean }) => {
-      const res = await apiRequest("PUT", `/api/workflows/${id}`, { enabled });
+      const expectedVersion = workflows?.find(w => w.id === id)?.version;
+      if (!expectedVersion) throw new Error("Reload the workflow before changing it");
+      const res = await apiRequest("PUT", `/api/workflows/${id}`, { enabled, expectedVersion });
       return res.json();
     },
     onSuccess: () => {
@@ -123,15 +125,17 @@ export default function Workflows() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiRequest("DELETE", `/api/workflows/${id}`);
+      const expectedVersion = workflows?.find(w => w.id === id)?.version;
+      if (!expectedVersion) throw new Error("Reload the workflow before retiring it");
+      await apiRequest("DELETE", `/api/workflows/${id}`, { expectedVersion });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/workflows"] });
       queryClient.invalidateQueries({ queryKey: ["/api/workflow-runs"] });
-      toast({ title: "Workflow deleted" });
+      toast({ title: "Workflow retired", description: "History is retained. Restore returns it disabled." });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to delete workflow", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to retire workflow", description: err.message, variant: "destructive" });
     },
   });
 
@@ -212,6 +216,7 @@ export default function Workflows() {
     const body: any = {
       name: editName,
       actions: editActions,
+      expectedVersion: detailWorkflow.version,
     };
     if (detailWorkflow.triggerType === "inbound_message" && editClassification) {
       body.triggerConditions = { classification: editClassification };
@@ -385,9 +390,10 @@ export default function Workflows() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">{wf.enabled ? "Active" : "Disabled"}</span>
+                            <span className="text-xs text-muted-foreground">{wf.retiredAt ? "Retired · history retained" : wf.enabled ? "Active" : "Disabled"}</span>
                             <Switch
                               checked={!!wf.enabled}
+                              disabled={!!wf.retiredAt || toggleMutation.isPending}
                               onCheckedChange={(checked) => toggleMutation.mutate({ id: wf.id, enabled: checked })}
                               data-testid={`switch-workflow-${wf.id}`}
                             />
@@ -416,8 +422,15 @@ export default function Workflows() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label="Delete workflow"
-                            onClick={() => deleteMutation.mutate(wf.id)}
+                            aria-label={wf.retiredAt ? "Restore workflow disabled" : "Retire workflow"}
+                            disabled={deleteMutation.isPending}
+                            onClick={() => {
+                              if (wf.retiredAt) {
+                                apiRequest("POST", `/api/workflows/${wf.id}/restore`, { expectedVersion: wf.version })
+                                  .then(() => { queryClient.invalidateQueries({ queryKey: ["/api/workflows"] }); toast({ title: "Restored disabled; no run started" }); })
+                                  .catch((err: Error) => toast({ title: "Restore failed", description: err.message, variant: "destructive" }));
+                              } else if (window.confirm("Retire this workflow? History will be kept and it can be restored disabled.")) deleteMutation.mutate(wf.id);
+                            }}
                             data-testid={`button-delete-workflow-${wf.id}`}
                           >
                             <Trash2 className="w-4 h-4" />

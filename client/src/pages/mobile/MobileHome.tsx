@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import MobileQuickLog from "./MobileQuickLog";
 import type { Task } from "@shared/schema";
+import { useWorkCommands, invalidateWorkFacts } from "@/hooks/use-work-commands";
+import { useToast } from "@/hooks/use-toast";
 
 function formatTime(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -32,6 +34,8 @@ function isOverdue(task: Task): boolean {
 }
 
 export default function MobileHome() {
+  const workCommands = useWorkCommands("task");
+  const { toast } = useToast();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [quickLogOpen, setQuickLogOpen] = useState(false);
@@ -92,16 +96,20 @@ export default function MobileHome() {
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
 
   async function completeTask(id: number) {
-    setCompletingIds(prev => new Set(prev).add(id));
-    const { queued } = await executeOrQueue("PUT", `/api/tasks/${id}`, { status: "completed" }, () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-    });
-    if (queued) {
-      queryClient.setQueryData<Task[]>(["/api/tasks"], old =>
-        (old || []).map(t => t.id === id ? { ...t, status: "completed" } : t)
-      );
+    const task = tasks.find(t => t.id === id);
+    if (!task || !Number.isInteger(task.authorityFence)) {
+      return toast({ title: "Work version unavailable", description: "Reload before completing this task.", variant: "destructive" });
     }
-    setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    setCompletingIds(prev => new Set(prev).add(id));
+    try {
+      const result = await executeOrQueue("PUT", `/api/tasks/${id}`, workCommands.edit(task, { status: "completed" }), invalidateWorkFacts);
+      toast({ title: result.ok ? "Task completed" : result.queued ? "Completion queued, not yet saved" : "Completion not saved",
+        description: result.ok ? undefined : result.reason || "Keep the work open until its server confirmation is available.", variant: result.ok || result.queued ? "default" : "destructive" });
+    } catch (error) {
+      toast({ title: "Completion not saved", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setCompletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    }
   }
 
   const firstName = user?.firstName || "Rep";

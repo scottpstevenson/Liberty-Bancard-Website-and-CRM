@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect,useRef } from "react";
 import { useContacts, useContactsFacets, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
 import { useConfirmationFailedBatch } from "@/hooks/use-confirmation-failed-batch";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -534,14 +534,39 @@ export default function Contacts() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager"; // #422
+  const lifecycleIntents=useRef<Record<string,{key:string;payload:any}>>({});
+  const lifecyclePayload=(operation:string,ids:number[])=>{
+    const items=ids.map(id=>{
+      const row=contacts?.find((contact:any)=>contact.id===id);
+      if(!row || !Number.isSafeInteger(row.lifecycleVersion) || !row.recordClass) {
+        throw new Error("Selected contact snapshot unavailable. Reload before archiving or restoring.");
+      }
+      return {id,expectedVersion:row.lifecycleVersion,expectedOwner:row.assignedTo ?? null,expectedRecordClass:row.recordClass};
+    }).sort((a,b)=>a.id-b.id);
+    if(!user?.id) throw new Error("Current account unavailable");
+    const key=JSON.stringify([items,user.id,user.accountVersion]);
+    const slot=`${operation}:${ids.slice().sort((a,b)=>a-b).join(",")}`;
+    if(lifecycleIntents.current[slot]?.key!==key) lifecycleIntents.current[slot]={key,payload:{
+      commandId:crypto.randomUUID(),expectedActorId:user.id,expectedAccountVersion:user.accountVersion,items}};
+    return lifecycleIntents.current[slot].payload;
+  };
+  const refreshContactWork=()=>{
+    for(const key of ["/api/contacts","/api/tasks","/api/analytics","/api/daily-briefing","/api/notifications"]) {
+      void queryClient.invalidateQueries({queryKey:[key]});
+    }
+  };
+  const bulkArchive=async(ids:number[])=>{
+    const response=await apiRequest("POST","/api/contacts/bulk-archive",lifecyclePayload("bulk-archive",ids));
+    const result=await response.json();refreshContactWork();return result;
+  };
 
   const archiveContactMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/contacts/${id}/archive`);
+      const res = await apiRequest("POST", `/api/contacts/${id}/archive`,lifecyclePayload("archive",[id]));
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      refreshContactWork();
       toast({ title: "Contact archived" });
     },
     onError: (err: Error) => {
@@ -551,11 +576,11 @@ export default function Contacts() {
 
   const restoreContactMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/contacts/${id}/restore`);
+      const res = await apiRequest("POST", `/api/contacts/${id}/restore`,lifecyclePayload("restore",[id]));
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      refreshContactWork();
       toast({ title: "Contact restored" });
     },
     onError: (err: Error) => {
@@ -1289,9 +1314,7 @@ export default function Contacts() {
                       if (!confirm(`Archive ${selectedIds.size} contact(s)?`)) return;
                       setBulkUpdating(true);
                       try {
-                        await Promise.all(Array.from(selectedIds).map(id =>
-                          apiRequest("POST", `/api/contacts/${id}/archive`).then(r => r.json())
-                        ));
+                        await bulkArchive(Array.from(selectedIds));
                         queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
                         toast({ title: "Contacts archived", description: `${selectedIds.size} contacts archived` });
                         setSelectedIds(new Set());
@@ -1649,9 +1672,7 @@ export default function Contacts() {
                 if (!confirm(`Archive ${selectedContacts.length} contact(s)? They will be hidden but recoverable.`)) return;
                 setBulkUpdating(true);
                 try {
-                  await Promise.all(Array.from(selectedIds).filter(id => id > 0).map(id =>
-                    apiRequest("POST", `/api/contacts/${id}/archive`).then(r => r.json())
-                  ));
+                  await bulkArchive(Array.from(selectedIds));
                   queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
                   toast({ title: "Contacts archived", description: `${selectedContacts.length} contacts archived` });
                   setSelectedIds(new Set());
@@ -2134,7 +2155,9 @@ export default function Contacts() {
                                 <RotateCcw className="w-4 h-4 mr-2" /> Restore
                               </DropdownMenuItem>
                             ) : (
-                              <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation(); archiveContactMutation.mutate(contact.id); }} data-testid={`menu-archive-contact-${contact.id}`}>
+                              <DropdownMenuItem onClick={(e: React.MouseEvent) => { e.stopPropagation();
+                                if(window.confirm("Archive this contact? Existing history will be retained. You can restore it from the archived list.")) archiveContactMutation.mutate(contact.id);
+                              }} data-testid={`menu-archive-contact-${contact.id}`}>
                                 <Archive className="w-4 h-4 mr-2" /> Archive
                               </DropdownMenuItem>
                             ))}

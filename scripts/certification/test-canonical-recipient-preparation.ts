@@ -144,6 +144,39 @@ try {
     contactId:first.contactId,sequenceId:badSequence,programId,actor,source:prefix,
   });
   check(unbound.blocked && unbound.enrollmentId == null, "Never fall back to an arbitrary active sequence");
+  // Retirement is an additional parent authority; live paused preparation
+  // above remains admitted. No provider/enrollment dispatch is performed.
+  const retainedMember=(await pool.query("SELECT * FROM sequence_enrollments WHERE id=$1",[prepared.enrollmentId])).rows[0];
+  await pool.query("UPDATE follow_up_sequences SET retired_at=NOW(),status='active' WHERE id=$1",[sequenceId]);
+  const retired=await call(first.contactId);
+  check(retired.blocked && retired.reasonCode==="SEQUENCE_RETIRED" && retired.enrollmentId==null,
+    "Retired plus legacy-active status blocks the actual preparer, including existing paused-slot replay");
+  check((await pool.query("SELECT count(*)::int n FROM sequence_enrollments WHERE id=$1",[retainedMember.id])).rows[0].n===1,
+    "Retirement preserves existing paused membership and historical intent");
+  check(await currentCanonicalValidationSelection(first.contactId,
+    (await pool.query("SELECT email_token_hash FROM contacts WHERE id=$1",[first.contactId])).rows[0].email_token_hash)===null,
+    "Retired parent never admits validation from a historical preparation snapshot");
+  await pool.query("UPDATE follow_up_sequences SET retired_at=NULL,status='paused' WHERE id=$1",[sequenceId]);
+  // Hold the parent lock acquired by the actual preparer through its final
+  // write. A concurrent retirement must wait, then affect the next admission.
+  const racing=await fixture();
+  let finish!:()=>void,atFinal!:()=>void;
+  const release=new Promise<void>(resolve=>finish=resolve);
+  const final=new Promise<void>(resolve=>atFinal=resolve);
+  let fences=0;
+  const inFlight=prepareCanonicalRecipient({contactId:racing.contactId,sequenceId,programId,actor,source:prefix,
+    beforeWrite:async()=>{if(++fences===2){atFinal();await release;}}});
+  await final;
+  let retiredCommitted=false;
+  const concurrentRetire=pool.query("UPDATE follow_up_sequences SET retired_at=NOW(),status='paused' WHERE id=$1",[sequenceId])
+    .then(()=>{retiredCommitted=true;});
+  await new Promise(resolve=>setTimeout(resolve,60));
+  check(!retiredCommitted,"Retirement cannot pass the real preparation parent lock during admission");
+  finish();
+  check((await inFlight).enrollmentId!=null,"Earlier live paused admission commits its retained paused membership");
+  await concurrentRetire;
+  check((await call(racing.contactId)).reasonCode==="SEQUENCE_RETIRED","Next direct admission observes committed retirement");
+  await pool.query("UPDATE follow_up_sequences SET retired_at=NULL,status='paused' WHERE id=$1",[sequenceId]);
   const after = (await pool.query(`SELECT
     (SELECT count(*) FROM sfp_cohort_runs)::int cohorts,
     (SELECT count(*) FROM provider_operations)::int operations,
