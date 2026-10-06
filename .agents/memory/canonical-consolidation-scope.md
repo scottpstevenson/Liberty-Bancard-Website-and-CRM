@@ -44,8 +44,14 @@ Complete available read-only tracing, auditing and verification in Plan mode;
 do not defer those checks to Build or stop at an initial production snapshot.
 
 **Why:** The user explicitly rejected another incomplete recovery audit and
-required the full read-only investigation in Plan mode.
+required the full read-only investigation in Plan mode. They also rejected
+updating an archived task as a usable plan and offering a new task instead of
+performing the remaining trace.
 
 **How to apply:** Separate evidence gathering from mutations. Exhaust the
 available read-only evidence, report failed and unverified checks precisely,
 and reserve code, control and replay changes for an authorized execution mode.
+An inaccessible authenticated primary observation is an explicit audit blocker,
+not permission to claim the cause is established. Do not substitute proposed
+tracing steps for available investigation or present an archived task as an
+executable handoff.
