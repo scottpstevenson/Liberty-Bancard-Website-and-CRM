@@ -360,3 +360,31 @@ mtime_ms = 1790987861866
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/cfe356dc-ca3b-45b2-8a77-4337da94836b/e131aede-809b-44d7-80c4-84c0965a9d31"
 storage_version_token = "1790987866954879"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "l3ae9PYUdjE3hNzguRuhb"
+uri = "file://.local/tasks/liberty-stage3-task-b-review-corrections.md"
+type = "text"
+title = "Task 2070 — Corrected C01–C14 Review"
+description = "Downloadable Markdown review, including the SLA-worker completion caller, source evidence, tests and all amended acceptance requirements. Gate execution is not yet completed."
+logical_id = "ab1d86ed-69f8-490b-92ff-33b7d179835f"
+content_hash = "sha256:c7fdc8af9651cee9c9d7f03b2e407a01fe5ab3f4604b4ee540f8c7d6a717a7cc"
+size = 68473
+mtime_ms = 1791286384558
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/ab1d86ed-69f8-490b-92ff-33b7d179835f/f03333d6-b4f4-4117-a76a-311dbf7d9510"
+storage_version_token = "1791286416966059"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "sD03cE3aOWwMRc9N4JQWH"
+uri = "file://.local/tasks/liberty-stage3-task-b-build.md"
+type = "text"
+title = "Task 2070 — Corrected Implementation Plan"
+description = "Downloadable full implementation contract for the single existing Task B: amended B-G01–B-G12, populated 56-row register and outbound-pause/incoming-sync constraints."
+logical_id = "ef3d6d03-6ea9-4e9b-bdab-2a5766bb755e"
+content_hash = "sha256:280885a7759ffd62e330f49a860b4ff9235a381bcd55cbd1d546996eeb058acb"
+size = 162002
+mtime_ms = 1791286384794
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/ef3d6d03-6ea9-4e9b-bdab-2a5766bb755e/e5db52f4-9cc0-4e5d-bcf0-eb31f5c02361"
+storage_version_token = "1791286417659228"
+content_type = "text/markdown"
