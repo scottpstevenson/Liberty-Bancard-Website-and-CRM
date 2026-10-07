@@ -6,6 +6,10 @@ import {assertDisposableTestInfrastructure} from "../test-infrastructure-guard";
 import {applyCertificationProviderDenyBoundary} from "../certification-provider-deny";
 await assertDisposableTestInfrastructure({operation:"canonical transaction and lease certification"});
 applyCertificationProviderDenyBoundary();
+// This suite certifies recycling and contention on one application connection,
+// not the release server's pool configuration. Pin the child before db import
+// so standalone and release executions exercise the same stronger boundary.
+process.env.DB_POOL_MAX="1";
 const {db,pool}=await import("../../server/db");
 const {observeTransactionConnections,withTransactionPhase}=await import("../../server/lib/transaction-observability");
 const {runWithDbContext}=await import("../../server/lib/db-context");

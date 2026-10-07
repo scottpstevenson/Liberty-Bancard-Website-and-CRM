@@ -1,16 +1,20 @@
-import {spawn} from "node:child_process";
-import {randomUUID} from "node:crypto";
+import {spawn,execFileSync} from "node:child_process";
+import {randomUUID,randomBytes} from "node:crypto";
+import {createServer} from "node:net";
+import path from "node:path";
 import {existsSync} from "node:fs";
 import {userInfo} from "node:os";
 import {buildLocalRehearsalEnvironment,launchLocalPostgres16,withLocalClient} from "./local-rehearsal-core";
+import {launchSfp2060DisposableRedis} from "./sfp2060-disposable-redis";
 
 const input=process.argv[2];
 if(!input || !existsSync(input))throw new Error("RETAINED_INPUT_DIRECTORY_REQUIRED");
 const cluster=await launchLocalPostgres16();
+let redis:Awaited<ReturnType<typeof launchSfp2060DisposableRedis>>|undefined;
 const env=buildLocalRehearsalEnvironment({NODE_ENV:"test",VG_PROVIDER_DENY_MODE:"1",
   BACKGROUND_JOB_PROFILE:"off",GHL_TRANSPORT_FAILFAST:"true",EMAIL_TRANSPORT_FAILFAST:"true",
-  SMS_TRANSPORT_FAILFAST:"true",CREDENTIAL_ENCRYPTION_KEY:"retained-disposable-only",
-  MERCHANT_DATA_ENCRYPTION_KEY:"retained-disposable-only",RETAINED_INPUT_DIR:input,
+   SMS_TRANSPORT_FAILFAST:"true",CREDENTIAL_ENCRYPTION_KEY:randomBytes(32).toString("base64"),
+   MERCHANT_DATA_ENCRYPTION_KEY:randomBytes(32).toString("base64"),RETAINED_INPUT_DIR:input,
   XDG_CONFIG_HOME:process.env.XDG_CONFIG_HOME || "/tmp"});
 const build=randomUUID();
 Object.assign(env,{SFP_PUBLISH_BUILD_ID:build,SFP_PUBLISH_ARTIFACT_SHA:"e".repeat(40),
@@ -27,9 +31,65 @@ function point(database:string){
   env.DATABASE_URL=url;env.TEST_DATABASE_URL=url;
 }
 try {
+  redis=await launchSfp2060DisposableRedis(env);
+  Object.assign(env,{REDIS_URL:redis.url,REDIS_PREFIX:redis.prefix,TEST_REDIS_PREFIX:redis.prefix});
   await withLocalClient(cluster.admin,client=>client.query('CREATE DATABASE "test_retained_template"'));
   point("test_retained_template");
   await run(["scripts/migrate.ts"]);
+  if(process.argv.includes("--configured-release-only")){
+    await withLocalClient(cluster.admin,client=>client.query(
+      'CREATE DATABASE "test_sfp2060_retained_release" TEMPLATE "test_retained_template"'));
+    point("test_sfp2060_retained_release");
+    const port=await new Promise<number>((resolve,reject)=>{
+      const server=createServer();server.once("error",reject);
+      server.listen(0,"127.0.0.1",()=>{const address=server.address();
+        if(!address || typeof address==="string")return reject(new Error("PRIVATE_CERTIFICATION_PORT_REQUIRED"));
+        server.close(()=>resolve(address.port));});
+    });
+    const workdirIndex=process.argv.indexOf("--release-workdir");
+    const cwd=workdirIndex>=0 ? path.resolve(process.argv[workdirIndex+1]) : process.cwd();
+    const sha=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8",cwd}).trim();
+    Object.assign(env,{PORT:String(port),BASE_URL:`http://127.0.0.1:${port}`,TEST_BASE_URL:`http://127.0.0.1:${port}`,
+      CERTIFICATION_HTTP_HOST:"127.0.0.1",CERTIFICATION_HTTP_NONCE:randomBytes(32).toString("hex"),
+      SESSION_SECRET:randomBytes(32).toString("hex"),ADMIN_SEED_EMAIL:"admin@retained.test",
+      ADMIN_SEED_PASSWORD:randomBytes(32).toString("hex"),AI_INTEGRATIONS_OPENAI_API_KEY:"disposable-constructor-only",
+      OPENAI_API_KEY:"disposable-constructor-only",RELEASE_SHA:sha,SFP_PUBLISH_ARTIFACT_SHA:sha});
+    const code=await new Promise<number>((resolve,reject)=>{
+      const child=spawn("bash",["-c",'RELEASE_SHA=$(git rev-parse HEAD) bash scripts/run-pre-deploy.sh'],
+        {env,stdio:"inherit",cwd});child.once("error",reject);child.once("exit",code=>resolve(code ?? 1));
+    });
+    if(code!==0)throw new Error(`CONFIGURED_RELEASE_CHECK_FAILED:${code}`);
+  } else if(process.argv.includes("--native-topology-only")) {
+    await withLocalClient(cluster.admin,client=>client.query(
+      'CREATE DATABASE "test_retained_native_topology" TEMPLATE "test_retained_template"'));
+    point("test_retained_native_topology");
+    for(const phase of ["seed","recover","replay"]) {
+      console.log(`RETAINED_NATIVE_CERTIFICATION_PHASE ${phase}`);
+      await run(["scripts/certification/test-retained-canonical-import-recovery.ts",phase]);
+    }
+  } else if(process.argv.includes("--recovery-fixture-only")) {
+    await withLocalClient(cluster.admin,client=>client.query(
+      'CREATE DATABASE "test_retained_provider_recovery" TEMPLATE "test_retained_template"'));
+    point("test_retained_provider_recovery");
+    await run(["scripts/certification/prepare-provider-import-recovery-input.ts"]);
+    await run(["scripts/certification/test-provider-import-recovery.ts"]);
+  } else {
+  for(const [database,script] of [
+    ["test_retained_audited","scripts/certification/test-audited-retained-import-recovery.ts"],
+    ["test_retained_original_identity","scripts/certification/test-audited-retained-import-recovery.ts"],
+    ["test_retained_provider","scripts/certification/test-canonical-provider-import.ts"],
+    ["test_retained_retry","scripts/test-canonical-transaction-retry.ts"],
+  ]) {
+    if(process.argv.includes("--audited-only") && database!=="test_retained_audited")continue;
+    if(process.argv.includes("--identity-only") &&
+      !["test_retained_audited","test_retained_original_identity"].includes(database))continue;
+    await withLocalClient(cluster.admin,client=>client.query(`CREATE DATABASE "${database}" TEMPLATE "test_retained_template"`));
+    point(database);await run([script,...(database==="test_retained_original_identity" ? ["private"]
+      : database==="test_retained_audited" ? ["--native-fixture-child"] : [])]);
+  }
+  if(process.argv.includes("--audited-only") || process.argv.includes("--identity-only")) {
+    console.log("AUDITED_FOCUSED_CERTIFICATION_PASS");
+  } else {
   for(const [database,script] of [
     ["test_retained_publish","scripts/test-sfp-publish-handoff-disposable.ts"],
     ["test_retained_workbook","scripts/certification/test-canonical-workbook-intake.ts"],
@@ -50,7 +110,10 @@ try {
     await run(["scripts/certification/test-retained-canonical-import-recovery.ts",phase]);
   }
   console.log("RETAINED_CANONICAL_IMPORT_CERTIFICATION_PASS");
+  }
+  }
 }finally{
+  await redis?.stop();
   await cluster.stop();
   console.log("RETAINED_DISPOSABLE_CLUSTER_DESTROYED");
 }

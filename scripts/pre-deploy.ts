@@ -102,10 +102,21 @@ export interface Suite {
 // Explicit local certification uses the SAME isolated launcher, without making
 // missing private fixtures a new mandatory release failure.
 export const CERTIFICATION_FIXTURE_SUITES: Suite[] = [
+  {name:"Original provider-import restart and immutable retained evidence",
+    script:"scripts/certification/test-provider-import-recovery.ts",
+    timeoutSecs:900,requiresDisposableTestDatabase:true},
   {name:"Full actual canonical workbook intake",script:"scripts/certification/test-canonical-workbook-intake.ts",
     timeoutSecs:900,requiresDisposableTestDatabase:true},
 ];
 export const MANDATORY_SUITES: Suite[] = [
+  {name:"Canonical native transaction and lease boundaries",
+    script:"scripts/certification/test-canonical-transaction-leases.ts",
+    timeoutSecs:180,requiresDisposableTestDatabase:true},
+  {name:"Canonical bounded deadlock-only transaction retries",
+    script:"scripts/test-canonical-transaction-retry.ts",timeoutSecs:60},
+  {name:"Audited retained original identity and fair recovery",
+    script:"scripts/certification/test-audited-retained-import-recovery.ts",
+    timeoutSecs:300,requiresDisposableTestDatabase:true},
   {name:"Canonical address/preparation owner delivery",script:"scripts/certification/test-canonical-address-preparation-owner-repair.ts",
     timeoutSecs:180,requiresDisposableTestDatabase:true},
   {name:"Canonical registry original retention",script:"scripts/certification/test-canonical-registry-originals.ts",

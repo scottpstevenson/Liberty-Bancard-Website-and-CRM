@@ -1,6 +1,7 @@
 import pg from "pg";
 import {randomUUID} from "node:crypto";
-import {fingerprintQuery, readLockTrace, safeDatabaseFailure} from "../lib/lock-trace";
+import {monitorEventLoopDelay,performance} from "node:perf_hooks";
+import {fingerprintQuery, readLockTrace, safeDatabaseFailure,lockTraceProcessInstanceId} from "../lib/lock-trace";
 
 /** Only live connection/lock metadata; never business tables or provider I/O.
  * UNION deduplicates the recursive PID walk, including cycles. */
@@ -72,6 +73,8 @@ export class PrimaryLockCapture {
   private startedAt: string | null = null;
   private finishedAt: string | null = null;
   private running: Promise<void> = Promise.resolve();
+  private runtimeDiagnostics=false;
+  private runtime: Record<string,number>|null=null;
   constructor(private options: {
     createClient?: () => DiagnosticClient;
     emit?: (event: Record<string, unknown>) => void;
@@ -86,12 +89,14 @@ export class PrimaryLockCapture {
     // No caller can mutate retained evidence.
     return structuredClone({state:this.state,captureId:this.captureId,startedAt:this.startedAt,
       finishedAt:this.finishedAt,samples:this.samples,blockedSamples:this.blockedSamples,
-      failure:this.failure,recent:this.recent});
+      failure:this.failure,recent:this.recent,runtime:this.runtime,
+      runtimeProcessInstanceId:this.runtimeDiagnostics ? lockTraceProcessInstanceId() : null});
   }
-  start() {
+  start(options:{runtimeDiagnostics?:boolean}={}) {
     if (this.state === "connecting" || this.state === "capturing") return this.status();
     this.captureId=randomUUID(); this.samples=0; this.blockedSamples=0; this.recent=[];
     this.failure=null; this.startedAt=new Date().toISOString(); this.finishedAt=null;
+    this.runtimeDiagnostics=options.runtimeDiagnostics===true;this.runtime=null;
     this.state="connecting"; this.running=this.run();
     return this.status();
   }
@@ -111,6 +116,21 @@ export class PrimaryLockCapture {
       try { await client.end(); } catch { /* Preserve original observation error. */ }
     };
     const deadline=Date.now()+(this.options.durationMs ?? 60_000);
+    // Explicit admin opt-in only; no business transaction, pool slot, SQL body,
+    // customer data or authority mutation enters these process-level metrics.
+    const loop=this.runtimeDiagnostics ? monitorEventLoopDelay({resolution:20}) : null;
+    const started=performance.now(),cpu=process.cpuUsage();
+    let lastRoundTripMs=0,maxRoundTripMs=0;
+    loop?.enable();
+    const updateRuntime=()=>{
+      if(!loop)return;
+      const used=process.cpuUsage(cpu);
+      this.runtime={elapsedMs:performance.now()-started,cpuUserMs:used.user/1000,
+        cpuSystemMs:used.system/1000,eventLoopSamples:loop.count,
+        observationSamples:this.samples,eventLoopP99Ms:Number.isFinite(loop.percentile(99)) ? loop.percentile(99)/1e6 : 0,
+        eventLoopMaxMs:Number.isFinite(loop.max) ? loop.max/1e6 : 0,
+        lastRoundTripMs,maxRoundTripMs};
+    };
     try {
       client=(this.options.createClient ?? (()=>new pg.Client({
         connectionString:process.env.DATABASE_URL,
@@ -133,7 +153,13 @@ export class PrimaryLockCapture {
         primaryConfirmed:true,durationMs:this.options.durationMs ?? 60_000});
       while (Date.now()<deadline && !ended && this.samples<240) {
         if (connectionError) throw connectionError;
-        const rows=(await client.query(PRIMARY_LOCK_SNAPSHOT_SQL)).rows;
+        const queryStarted=performance.now();
+        let rows:any[];
+        try { rows=(await client.query(PRIMARY_LOCK_SNAPSHOT_SQL)).rows; }
+        finally {
+          lastRoundTripMs=performance.now()-queryStarted;
+          maxRoundTripMs=Math.max(maxRoundTripMs,lastRoundTripMs);updateRuntime();
+        }
         this.samples++;
         if (rows.length) {
           this.blockedSamples++;
@@ -155,11 +181,13 @@ export class PrimaryLockCapture {
         this.report({event:"db:primary_lock_capture_unavailable",reason:"OBSERVATION_FAILED",failure:this.failure});
       }
     } finally {
+      updateRuntime();loop?.disable();
       if (hardStop) clearTimeout(hardStop);
       await close();
       this.finishedAt=new Date().toISOString();
       this.report({event:"db:primary_lock_capture_finished",state:this.state,samples:this.samples,
-        blockedSamples:this.blockedSamples});
+        blockedSamples:this.blockedSamples,...(this.runtime ? {runtime:this.runtime,
+          runtimeProcessInstanceId:lockTraceProcessInstanceId()} : {})});
     }
   }
 }

@@ -23,6 +23,7 @@ async function main() {
   const { createCro03SourceBatch } = await import("../../server/services/cro03/source-staging");
   const { providerCsvSourceSubject } = await import("../../server/services/cro03a/adapters");
   const { mapProviderCsvRow } = await import("../../server/services/provider-import-columns");
+  const { providerImportEmails } = await import("../../server/services/canonical-provider-import");
   const { computeFileHash } = await import("../../server/services/import-normalizer");
   const fixtureDirectory = process.argv[2] ?? "/tmp/canonical-enrichment-workbooks";
   const manifest = JSON.parse(fs.readFileSync(path.join(fixtureDirectory, "manifest.json"), "utf8"));
@@ -70,9 +71,41 @@ async function main() {
         actor: { actorType: "system", actorId: "startup-resumer" }, filename: fixture.name,
       });
       const ledger = await getImportLedgerSummary(executionClaim.execution.id);
-      assert.equal(ledger.counts.deferred, fixture.rows);
+      console.log(JSON.stringify({event:"provider_recovery_ledger",fileIndex:index,
+        expectedRows:fixture.rows,counts:ledger.counts}));
+      if(ledger.counts.failed>0) {
+        const reasons=(await pool.query(`SELECT reason_code,count(*)::int rows,
+          diagnostic->>'error' error FROM import_row_dispositions
+          WHERE execution_id=$1 AND disposition='failed'
+          GROUP BY reason_code,diagnostic->>'error'`,[executionClaim.execution.id])).rows;
+        // Report stable error classes only; diagnostics can contain customer
+        // text and must not be copied into certification output.
+        console.log(JSON.stringify({event:"provider_recovery_failure_classes",
+          reasons:reasons.map(row=>({reasonCode:row.reason_code,rows:row.rows,
+            errorClass:String(row.error).match(/^[A-Z][A-Z0-9_]+/)?.[0] ?? "opaque"}))}));
+      }
+      // The persisted processor now runs canonical native intake, rather than
+      // blanket source staging. Certify real row outcomes and source identity;
+      // calling every committed native creation "deferred" is not truthful.
+      assert.equal(Object.values(ledger.counts).reduce((sum,n)=>sum+Number(n),0),fixture.rows);
       assert.equal(ledger.counts.failed, 0);
-      assert.equal(ledger.counts.created, 0);
+      const receipts=(await pool.query(`SELECT source_row_number,row_fingerprint,disposition
+        FROM import_row_dispositions WHERE execution_id=$1 ORDER BY source_row_number`,
+      [executionClaim.execution.id])).rows;
+      assert.equal(receipts.length,records.length);
+      const provenance=(await pool.query(`SELECT ev.source_row_number,ev.row_fingerprint,
+        lower(trim(c.email)) email FROM contact_source_events ev
+        JOIN contacts c ON c.id=ev.contact_id WHERE ev.import_execution_id=$1`,
+      [executionClaim.execution.id])).rows;
+      for(const [i,receipt] of receipts.entries()){
+        assert.equal(receipt.source_row_number,i+1);
+        assert.equal(receipt.row_fingerprint,computeFileHash(Buffer.from(JSON.stringify(records[i]))));
+        const events=provenance.filter(event=>event.source_row_number===i+1);
+        assert(events.every(event=>event.row_fingerprint===receipt.row_fingerprint));
+        if(["created","updated","matched_noop"].includes(receipt.disposition))
+          assert.deepEqual([...new Set(events.map(event=>event.email))].sort(),providerImportEmails(records[i]));
+        if(!providerImportEmails(records[i]).length)assert.equal(events.length,0);
+      }
       const stored = (await pool.query(`
         SELECT (o.payload->>'sourceRowNumber')::int row_number,o.payload->'rawSourceRow' raw,
                o.payload->'sourceCoordinate' coordinate,o.payload->>'fileName' filename
@@ -91,6 +124,7 @@ async function main() {
         actorType: "user", actorId: "certification", sourcePayload: records,
       });
       assert.equal(replay.claimed, false);
+      const beforeRetentionReplay=await safetyCounts();
       await retainProviderImportRow({
         executionId: executionClaim.execution.id, sourceRowNumber: 1,
         sourceFormat: "google_maps_outscraper", actorId: "startup-resumer", rawRow: records[0],
@@ -102,28 +136,35 @@ async function main() {
         rawRow: { ...records[0], email: "different@example.invalid" },
         sourceCoordinate: coordinates[0], fileName: fixture.name,
       }), /ORIGINAL_EVIDENCE_MISMATCH/);
+      assert.deepEqual(await safetyCounts(),beforeRetentionReplay);
       checkedRows += records.length;
     }
     assert.equal(checkedRows, 2914);
     assert.equal(forbiddenNetworkAttempts, 0);
-    assert.deepEqual(await safetyCounts(), before);
+    const after=await safetyCounts();
+    for(const table of safetyTables.filter(table=>!["contacts","businesses"].includes(table)))
+      assert.equal(after[table],before[table],`No provider, staging purchase, enrollment or message in ${table}`);
+    assert.equal((await pool.query(`SELECT count(*)::int n FROM
+      (SELECT lower(trim(email)) FROM contacts WHERE email IS NOT NULL
+       GROUP BY lower(trim(email)) HAVING count(*)>1) duplicates`)).rows[0].n,0);
     const legacy = (await pool.query(`SELECT count(*)::int n FROM cro03_source_observations
       WHERE payload->>'legacyMarker'='true'`)).rows[0];
     assert.equal(legacy.n, 1);
     const { readCanonicalEnrichmentStatus } = await import("../../server/services/canonical-enrichment-status");
     const status = await readCanonicalEnrichmentStatus();
-    assert.equal(status.contacts.total, Number(before.contacts));
-    assert.equal(status.businesses.total, Number(before.businesses));
+    assert.equal(status.contacts.total, Number(after.contacts));
+    assert.equal(status.businesses.total, Number(after.businesses));
     assert.equal(status.imports.byState.completed, 5);
     assert.equal(status.providers.total, Number(before.provider_operations));
     assert.equal(status.scope, "production_records_with_historical_work");
     const result = { observedAt: new Date().toISOString(), rows: checkedRows, files: manifest.files.length,
       actualRecovery: "PASS", exactRawCells: "PASS", originalEvidencePreserved: "PASS",
       originalWorksheetRowCoordinates: "PASS",
-      replay: "PASS", changedRowRejected: "PASS", truthfulDeferredLedger: "PASS",
-      crmProviderPreparationEnrollmentCountsUnchanged: true, forbiddenNetworkAttempts,
+      replay: "PASS", changedRowRejected: "PASS", truthfulNativeOutcomeLedger: "PASS",
+      nativeMailboxesAndFingerprintProvenance: "PASS", businessOnlyCreatesNoContact: "PASS",
+      providerPreparationEnrollmentCountsUnchanged: true, forbiddenNetworkAttempts,
       productionExecution: false, fullTaskCertification: false };
-    fs.writeFileSync("docs/certification/canonical-enrichment-upload-recovery.json", JSON.stringify(result, null, 2) + "\n");
+    fs.writeFileSync("/tmp/retained-provider-import-recovery-report.json", JSON.stringify(result, null, 2) + "\n");
     console.log(JSON.stringify(result));
   } finally { await pool.end(); }
 }

@@ -1,0 +1,59 @@
+---
+name: Retained native snapshot parity
+description: Safe restoration of private native graphs when production and disposable schemas differ.
+---
+
+Prove the source column inventory separately from the retained rows. A missing
+source column is not a source NULL: use the actual additive migration default,
+while retaining every explicit source value and checking every original field.
+
+**Why:** Inserting every destination column through jsonb_populate_recordset
+turned source-absent additive columns into NULL, bypassing their real defaults.
+
+**How to apply:** Reject missing original fields and unsupported non-null
+additions. Verify all source fields after insertion under real native guards.
+
+Audit production/disposable constraint parity before claiming that an exact
+historical graph can be restored. Do not merge/archive retained contacts or
+remove a uniqueness constraint merely to make certification pass.
+
+**Why:** The extended production export contained active duplicate email
+identities, while production lacked the unarchived-email unique index required
+by both the declared application schema and disposable migrations. A narrow
+original-row duplicate census does not prove an expanded graph is duplicate-free.
+
+**How to apply:** Treat an unexplained constraint mismatch as an open gate.
+Resolve schema ownership/parity explicitly; preserve original topology.
+
+The production SQL reader can truncate a complete result near one MiB and can
+cancel a read because of replica recovery. Successful bounded exports do not
+by themselves prove an atomic, complete graph.
+
+**Why:** Large native exports failed or lost their result, and ongoing recovery
+added receipts while tables were captured separately.
+
+**How to apply:** Keep inputs private, export bounded data, and independently
+prove inventory completeness and revision coherence before accepting a snapshot.
+
+Keep source verification SQL compact. Large inline per-row hash inventories can
+fail the production reader's command-argument limit; a single scoped table-hash
+census avoids that while retaining a coherent comparison across tables.
+
+**Why:** A multi-megabyte verification statement failed with `spawn E2BIG`;
+separate successful data exports were still rejected by the coherent hash census
+because automatic recovery changed the mutable graph during extraction.
+
+**How to apply:** Persist private per-chunk proof rather than accumulating large
+decoded results in the notebook. Do not issue a verified manifest when any
+required source table or scope inventory differs.
+
+Do not depend on /tmp as the only copy of long-running private certification
+inputs. It can disappear on a workspace restart; losing it is not loss of live
+import data.
+
+**Why:** A workspace restart removed temporary retained exports and interrupted
+the release run while the source execution still retained all original raw rows.
+
+**How to apply:** Use explicitly ignored private workspace storage with restrictive
+permissions when authorized; never commit raw data or authority tokens, and do
+not call separately captured mutable records an atomic native snapshot.

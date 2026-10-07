@@ -68,15 +68,25 @@ try {
         options:"-c default_transaction_read_only=on -c statement_timeout=750"});
       return observer;
     }});
-  capture.start();const id=capture.status().captureId;
+   capture.start({runtimeDiagnostics:true});const id=capture.status().captureId;
   check(capture.start().captureId===id,"Overlapping starts reuse one observer, not parallel captures");
   await capture.finished();
   const snapshots=captureEvents.filter(event=>event.event==="db:primary_lock_snapshot");
   check(capture.status().state==="completed" && snapshots.length>0,"Real primary contention is captured in a bounded window");
+   const runtime=capture.status().runtime!;
+   check(runtime.elapsedMs>=600 && runtime.elapsedMs<1600,
+     "Opt-in runtime sampling and cleanup stay inside a measured bounded window");
+   check(runtime.cpuUserMs+runtime.cpuSystemMs<500 && runtime.maxRoundTripMs>=0,
+     "Measured process CPU including observer overhead remains bounded in isolated contention");
+   check(Object.values(runtime).every(value=>Number.isFinite(value) && value>=0),
+     "Runtime diagnostics contain finite numeric CPU, round-trip and scheduling measurements only");
+   console.log(JSON.stringify({event:"primary_runtime_observer_measurement",runtime}));
   const backends=snapshots.flatMap(snapshot=>snapshot.backends);
   const observedWaiter=backends.find(backend=>backend.backendPid===nativePid && backend.trace?.phase==="import_materialize");
   check(observedWaiter?.trace?.worker==="BullMQ canonical-import-recovery",
     "Native primary PID maps to the real worker/phase/checkout despite a negative protocol PID");
+   check(observedWaiter.trace.instanceId===capture.status().runtimeProcessInstanceId,
+     "Process CPU/scheduling metrics bind to the SQL-tagged process, not an assumed blocker process");
   check(observedWaiter.queryHash===fingerprintQuery(query2),"Trace comments preserve stable SQL fingerprints");
   check(observedWaiter.blockingPids.length>0 && observedWaiter.locks.some((lock:any)=>!lock.granted),
     "Snapshot includes actual blocking PIDs and ungranted native locks");
@@ -130,6 +140,7 @@ try {
     query:async text=>{if(text===PRIMARY_LOCK_SNAPSHOT_SQL)replicaSnapshots++;return {rows:[{is_replica:true}]};},
   })});
   replica.start();await replica.finished();
+   check(replica.status().runtime===null,"Runtime instrumentation is disabled unless explicitly selected");
   check(replica.status().state==="refused_replica" && replicaSnapshots===0 && replicaClosed===1,
     "Replica connections are explicitly refused, not mislabeled as primary evidence");
   let permissionClosed=0;
@@ -138,7 +149,9 @@ try {
     query:async text=>{if(text===PRIMARY_LOCK_SNAPSHOT_SQL)
       throw Object.assign(new Error("private-source@example.test"),{code:"42501"});return {rows:[{is_replica:false}]};},
   })});
-  denied.start();await denied.finished();
+  denied.start({runtimeDiagnostics:true});await denied.finished();
+  check(denied.status().runtime?.observationSamples===0 && denied.status().state==="failed",
+    "Failed opt-in observations report zero acquired samples, not a successful no-blocker result");
   check(denied.status().state==="failed" && denied.status().failure?.causes[0].sqlState==="42501" && permissionClosed===1,
     "Unavailable primary permissions are reported truthfully and the observer closes");
   const suspicious=JSON.stringify(sanitizeLockSnapshot([{pid:1,query:"SELECT 'private-source@example.test'",

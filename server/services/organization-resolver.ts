@@ -1,12 +1,14 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { businesses, type InsertBusiness } from "@shared/schema";
+import {hashCro03Evidence} from "./cro03/source-staging";
 type ResolutionTransaction=Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type OrganizationResolution =
   | { kind: "created"; business: typeof businesses.$inferSelect }
   | { kind: "matched"; business: typeof businesses.$inferSelect }
-  | { kind: "deferred"; reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE" | "AMBIGUOUS_ORGANIZATION_MATCH"; candidateIds: number[] };
+  | { kind: "deferred"; reasonCode: "INSUFFICIENT_ORGANIZATION_EVIDENCE" | "AMBIGUOUS_ORGANIZATION_MATCH";
+      candidateIds: number[]; snapshotHash?:string;candidateRevisions?:Array<{id:number;revision:string}> };
 
 export type OrganizationPeekResult =
   | { kind: "would_create" }
@@ -81,6 +83,12 @@ export async function resolveOrganization(input: {
              AND normalized_name = ${name} AND lower(coalesce(city, '')) = ${city ?? ""}
              AND lower(coalesce(state, '')) = ${state ?? ""})
     `).for("update");
+    const deferred=(candidateIds:number[]):OrganizationResolution=>({
+      kind:"deferred",reasonCode:"AMBIGUOUS_ORGANIZATION_MATCH",candidateIds,
+      snapshotHash:hashCro03Evidence(candidates.slice().sort((a,b)=>a.id-b.id)),
+      candidateRevisions:candidates.map(candidate=>({id:candidate.id,
+        revision:hashCro03Evidence(candidate)})).sort((a,b)=>a.id-b.id),
+    });
     if (candidates.length === 1) {
       const candidate = candidates[0];
       // A candidate found by one identifier cannot silently absorb a different
@@ -90,12 +98,12 @@ export async function resolveOrganization(input: {
         (domain && candidate.websiteDomain && normal(candidate.websiteDomain) !== domain) ||
         (phone && candidate.mainPhone && candidate.mainPhone.replace(/\D/g, "") !== phone);
       if (conflicts) {
-        return { kind: "deferred", reasonCode: "AMBIGUOUS_ORGANIZATION_MATCH", candidateIds: [candidate.id] };
+        return deferred([candidate.id]);
       }
       return { kind: "matched", business: candidate };
     }
     if (candidates.length > 1) {
-      return { kind: "deferred", reasonCode: "AMBIGUOUS_ORGANIZATION_MATCH", candidateIds: candidates.map((row) => row.id) };
+      return deferred(candidates.map((row) => row.id).sort((a,b)=>a-b));
     }
     if (input.authorityCheck && !(await input.authorityCheck(tx))) {
       throw new Error("ORGANIZATION_RESOLUTION_AUTHORITY_FENCE_LOST");

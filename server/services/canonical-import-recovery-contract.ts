@@ -1,4 +1,5 @@
 import {sql} from "drizzle-orm";
+import {retainedResolvedIdentitySql,verifyProviderImportIdentity} from "./provider-import-identity";
 
 export type CanonicalImportRecoveryClaim={itemId:string;claimToken:string};
 export const CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION="mailbox_business_link_v1";
@@ -32,17 +33,35 @@ export async function hasCanonicalImportRecoveryClaim(tx:any,input:{
       AND item.current_provider='canonical_local_import'
       AND batch.purpose='staging_review'
       AND batch.idempotency_key=${`csv-source:${input.executionId}:${input.sourceRowNumber}`}
-      AND observation.payload->>'rowFingerprint'=${input.rowFingerprint}
+       AND ${retainedResolvedIdentitySql()}
     FOR UPDATE OF item`;
-  const result=await tx.execute(input.renew
-    ? sql`WITH pinned AS MATERIALIZED (${pinned})
+  const result=await tx.execute(sql`WITH pinned AS MATERIALIZED (${pinned})
+    SELECT pinned.id,COALESCE(raw.original_raw,
+      execution.source_payload->(${input.sourceRowNumber}-1)) raw_row
+    FROM pinned JOIN import_executions execution ON execution.id=${input.executionId}::uuid
+    LEFT JOIN LATERAL (
+      SELECT observation.payload->'rawSourceRow' original_raw FROM cro03_enrichment_batches batch
+      JOIN cro03_batch_memberships member ON member.batch_id=batch.id
+      JOIN cro03_source_observations observation ON observation.id=member.source_observation_id
+      WHERE batch.idempotency_key IN (${`csv-source-raw-v2:${input.executionId}:${input.sourceRowNumber}`},
+        ${`csv-source-raw-v3:${input.executionId}:${input.sourceRowNumber}`})
+        AND jsonb_typeof(observation.payload->'rawSourceRow')='object'
+      ORDER BY batch.idempotency_key DESC LIMIT 1
+    ) raw ON TRUE
+    WHERE pinned.lease_expires_at>clock_timestamp()`);
+  const records=result?.rows ?? result ?? [];
+  if(records.length!==1)return false;
+  const identity=await verifyProviderImportIdentity(tx,{executionId:input.executionId,
+    sourceRowNumber:input.sourceRowNumber,rawRow:records[0].raw_row});
+  if(!identity || identity.fingerprint!==input.rowFingerprint)return false;
+  const renewed=await tx.execute(input.renew ? sql`WITH pinned AS MATERIALIZED (${pinned})
       UPDATE cro03_enrichment_items item SET
         lease_expires_at=clock_timestamp()+INTERVAL '2 minutes'
       FROM pinned WHERE item.id=pinned.id
         AND pinned.lease_expires_at>clock_timestamp()
         AND item.claim_token=${input.recoveryClaim.claimToken}::uuid AND item.state='running'
-      RETURNING item.id`
+       RETURNING item.id`
     : sql`WITH pinned AS MATERIALIZED (${pinned})
-      SELECT id FROM pinned WHERE lease_expires_at>clock_timestamp()`);
-  return (result?.rows ?? result ?? []).length===1;
+        SELECT id FROM pinned WHERE lease_expires_at>clock_timestamp()`);
+  return (renewed?.rows ?? renewed ?? []).length===1;
 }

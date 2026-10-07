@@ -11,6 +11,8 @@ import type { ImportSourceCoordinate } from "./tabular-import-reader";
 import {hasCanonicalImportRecoveryClaim,type CanonicalImportRecoveryClaim} from "./canonical-import-recovery-contract";
 import {runCanonicalTransaction,boundCanonicalWriteTransaction} from "./canonical-transaction-retry";
 import {recordCro03bLegacyWriterDisposition} from "./cro03/admission-service";
+import {verifyProviderImportIdentity} from "./provider-import-identity";
+import {loadEvidenceRelationshipPage} from "./contact-business-evidence-page";
 
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const sourceValue=(raw:Record<string,string>,...keys:string[])=>{
@@ -132,18 +134,34 @@ export async function materializeCanonicalProviderImportRow(input:{
       businessId:original.diagnostic?.businessId ?? (linked.length===1 ? Number(linked[0].business_id) : null)};
   }
   const name=mapped.companyName?.trim();
-  const hold=async(reasonCode:string,diagnostic?:Record<string,unknown>)=>{
+  const hold=async(reasonCode:string,diagnostic?:Record<string,unknown>,
+    recheck?:(tx:any)=>Promise<void>)=>{
     if (input.recoveryClaim) {
-      await db.transaction(async tx=>{
+      await runCanonicalTransaction("import_materialize",()=>db.transaction(async tx=>{
+        if (!await authorityCheck(tx)) throw new Error("CANONICAL_IMPORT_RECOVERY_CLAIM_LOST");
+        await recheck?.(tx);
+        const identity=await verifyProviderImportIdentity(tx,input);
+        if(!identity || identity.fingerprint!==fingerprint)
+          throw new Error("CANONICAL_IMPORT_HOLD_IDENTITY_CHANGED");
         if (!await authorityCheck(tx)) throw new Error("CANONICAL_IMPORT_RECOVERY_CLAIM_LOST");
         await tx.execute(sql`UPDATE cro03_enrichment_items SET state='blocked',terminal_code=${reasonCode},
-          claim_token=NULL,lease_expires_at=NULL,current_provider=NULL,updated_at=clock_timestamp()
+          claim_token=NULL,lease_expires_at=NULL,current_provider=NULL,completed_at=NULL,
+          next_attempt_at=clock_timestamp()+INTERVAL '1 hour',updated_at=clock_timestamp()
           WHERE id=${input.recoveryClaim!.itemId}::uuid`);
         await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
           VALUES('canonical_import_row_held','cro03_enrichment_item',${input.recoveryClaim!.itemId},
             ${JSON.stringify({executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
               rowFingerprint:fingerprint,reasonCode,diagnostic})}::jsonb,'system',${input.actorId})`);
-      });
+        await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
+          VALUES('canonical_import_hold_evidence','cro03_enrichment_item',${input.recoveryClaim!.itemId},
+            ${JSON.stringify({holdEvidenceVersion:"native_revision_bound_v1",
+              executionId:input.executionId,sourceRowNumber:input.sourceRowNumber,
+              originalObservationId:identity.id,originalPayloadHash:identity.payload_hash,
+              mappedFingerprint:identity.mappedFingerprint,rowFingerprint:fingerprint,
+              rawEvidenceHash:identity.rawEvidenceHash,bridgeHash:identity.bridgeHash ?? null,
+              coordinate:identity.coordinate ?? {format:"retained_logical",recordNumber:input.sourceRowNumber},
+              reasonCode,diagnostic})}::jsonb,'system',${input.actorId})`);
+      }));
     } else {
       if (!input.claimToken) throw new Error("IMPORT_EXECUTION_CLAIM_REQUIRED");
       await recordImportRowDisposition({...input,claimToken:input.claimToken,rowFingerprint:fingerprint,
@@ -157,14 +175,23 @@ export async function materializeCanonicalProviderImportRow(input:{
     return hold("CANONICAL_IMPORT_BUSINESS_IDENTITY_MISSING");
   }
   const place=sourceValue(input.rawRow,"place_id","google_place_id","placeid");
-  const resolution=await commit(tx=>resolveOrganization({
+  const organizationInput={
     canonicalName:name,websiteDomain:normalizeDomain(mapped.website),googlePlaceId:place,
-    mainPhone:normalizePhoneE164(mapped.phone),city:mapped.city,state:mapped.state,authorityCheck,transaction:tx,
+    mainPhone:normalizePhoneE164(mapped.phone),city:mapped.city,state:mapped.state,authorityCheck,
     create:{recordClass:"canonical",streetAddress:mapped.address,postalCode:mapped.zip,
       vertical:mapped.vertical ?? mapped.industry,lastSourceType:input.sourceFormat},
-  }));
+  };
+  const resolution=await commit(tx=>resolveOrganization({...organizationInput,transaction:tx}));
   if (resolution.kind==="deferred") {
-    return hold(`CANONICAL_IMPORT_${resolution.reasonCode}`,{candidateIds:resolution.candidateIds});
+    return hold(`CANONICAL_IMPORT_${resolution.reasonCode}`,{
+      candidateIds:resolution.candidateIds,snapshotHash:resolution.snapshotHash ?? null,
+      candidateRevisions:resolution.candidateRevisions ?? [],
+    },async tx=>{
+      const current=await resolveOrganization({...organizationInput,transaction:tx});
+      if(current.kind!=="deferred" || current.reasonCode!==resolution.reasonCode
+        || current.snapshotHash!==resolution.snapshotHash)
+        throw new Error("CANONICAL_IMPORT_HOLD_SNAPSHOT_CHANGED");
+    });
   }
   const businessId=Number(resolution.business.id);
   // Never import provider validity claims as hygiene. Restrictive source facts
@@ -284,7 +311,14 @@ export async function materializeCanonicalProviderImportRow(input:{
       await recordCro03bLegacyWriterDisposition((error as any).cro03bLegacyWriterDisposition);
     }
     if (error instanceof Error && error.message==="CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT")
-      return hold("CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT",{businessId,stableKey,sourceSystem});
+      return hold("CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT",{businessId,stableKey,sourceSystem},
+        async tx=>{
+          const conflict=rows(await tx.execute(sql`SELECT id,business_id,updated_at::text revision
+            FROM canonical_source_links WHERE source_system=${sourceSystem}
+              AND source_type=${place ? "place" : "provider_import"} AND stable_key=${stableKey} FOR SHARE`))[0];
+          if(!conflict || Number(conflict.business_id)===businessId)
+            throw new Error("CANONICAL_IMPORT_HOLD_SNAPSHOT_CHANGED");
+        });
     throw error;
   }
   const affiliationOutcomes=await resumeImportedAffiliations(result.contactIds,authorityCheck);
@@ -299,8 +333,32 @@ export async function materializeCanonicalProviderImportRow(input:{
     // a created contact/provenance receipt is NOT authority to transfer it.
     // Keep the native decision/preview in the hold evidence, never manufacture
     // another person or silently certify a different business relationship.
+    // Pin fresh post-apply native snapshots, including preserved foreign
+    // decisions and every alternative, then compare again under the live claim.
+    const snapshots:Array<Awaited<ReturnType<typeof loadEvidenceRelationshipPage>>["previews"][number]>=[];
+    for(const contactId of result.contactIds)
+      snapshots.push((await loadEvidenceRelationshipPage(db,0,1,contactId)).previews[0]);
     return hold("CANONICAL_IMPORT_CONTACT_AFFILIATION_HELD",{
-      businessId,contactIds:result.contactIds,incomplete,affiliationOutcomes});
+      businessId,contactIds:result.contactIds,incomplete,affiliationOutcomes,
+      nativeSnapshots:snapshots,
+    },async tx=>{
+      const contactIds=snapshots.map(snapshot=>snapshot.contactId).sort((a,b)=>a-b);
+      await tx.execute(sql`SELECT id FROM contacts
+        WHERE id IN (${sql.join(contactIds.map(id=>sql`${id}`),sql`,`)}) ORDER BY id FOR UPDATE`);
+      const businessIds=[...new Set(snapshots.flatMap(snapshot=>
+        snapshot.candidateEvidence.map(candidate=>candidate.businessId)))].sort((a,b)=>a-b);
+      if(businessIds.length)await tx.execute(sql`SELECT id FROM businesses
+        WHERE id IN (${sql.join(businessIds.map(id=>sql`${id}`),sql`,`)}) ORDER BY id FOR SHARE`);
+      const sourceIds=[...new Set(snapshots.flatMap(snapshot=>
+        snapshot.candidateEvidence.map(candidate=>candidate.sourceLinkId)))].sort();
+      if(sourceIds.length)await tx.execute(sql`SELECT id FROM canonical_source_links
+        WHERE id IN (${sql.join(sourceIds.map(id=>sql`${id}::uuid`),sql`,`)}) ORDER BY id FOR SHARE`);
+      for(const snapshot of snapshots) {
+        const current=(await loadEvidenceRelationshipPage(tx,0,1,snapshot.contactId)).previews[0];
+        if(!current || current.snapshotHash!==snapshot.snapshotHash)
+          throw new Error("CANONICAL_IMPORT_HOLD_SNAPSHOT_CHANGED");
+      }
+    });
   }
   await commit(async tx=>{
     if (result.contactIds.length) {

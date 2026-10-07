@@ -86,8 +86,15 @@ export async function loadEvidenceRelationshipPage(
       contactId: Number(c.contact_id),businessId: winner ? Number(winner.business_id) : null,
       companyName: c.company_name ?? null,sourceLinkId: facts?.sourceLinkId ?? null,
       sourceEntityId: facts?.sourceEntityId ?? null,eligible: !!winner,reasons,
-      snapshotHash: hash(facts ? [facts.contactId,facts.businessId,facts.sourceLinkId,
-        facts.sourceEntityId,facts.identityRevision] : [c.contact_id,reasons]),
+      // Negative and positive snapshots pin ALL competing evidence and revisions.
+      // An unchanged reason string does not prove an unchanged native decision.
+      snapshotHash: hash([c,alternatives,reasons]),
+      contactRevision:c.contact_revision,currentDecisionId:c.current_decision_id ?? null,
+      projectedBusinessId:c.projected_business_id ?? null,
+      candidateEvidence:alternatives.map((m:any)=>({businessId:Number(m.business_id),
+        sourceLinkId:String(m.source_link_id),sourceEntityId:m.source_entity_id ?? null,
+        businessRevision:m.business_revision,sourceRevision:m.source_revision,
+        entityRevision:m.entity_revision,reasons:m.relationship_reasons})),
     };
   });
   return { previews,selectedFacts: onlyContactId === undefined ? undefined : selected[0],

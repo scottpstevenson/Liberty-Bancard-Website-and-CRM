@@ -9,6 +9,8 @@ import {captureRecoveryFailure,safeDatabaseFailure} from "../lib/lock-trace";
 import {CanonicalImportRecoveryFailure,isRecoverableImportRowFailure} from "./canonical-import-recovery-outcomes";
 import {startAutomaticImportLockCapture} from "./primary-lock-capture";
 import {canonicalRecoverableImportAccountingSql,CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION} from "./canonical-import-recovery-contract";
+import {retainedResolvedIdentitySql,verifyProviderImportIdentity} from "./provider-import-identity";
+export type RecoveryWorkClass="ordinary"|"legacy"|"hold";
 const rows=(value:any):any[]=>value?.rows ?? value ?? [];
 const MAX_ITEMS_PER_TICK=250;
 const MAX_TICK_DURATION_MS=30_000;
@@ -17,31 +19,41 @@ const MAX_TICK_DURATION_MS=30_000;
  * let a fingerprint join turn into a scan/de-TOAST of every source observation.
  * Open the execution's original raw JSON only AFTER the ordered one-row claim;
  * it may contain the entire workbook, not just the chosen row. */
-export function canonicalImportRecoveryClaimSql() {
+export function canonicalImportRecoveryClaimSql(preferred:RecoveryWorkClass="ordinary") {
+  const workClass=sql`CASE WHEN item.state='completed' THEN 'legacy'
+    WHEN item.state='blocked' AND item.terminal_code IN (
+      'CANONICAL_IMPORT_AMBIGUOUS_ORGANIZATION_MATCH','CANONICAL_IMPORT_INSUFFICIENT_ORGANIZATION_EVIDENCE',
+      'CANONICAL_IMPORT_CONTACT_AFFILIATION_HELD','CANONICAL_IMPORT_STABLE_SOURCE_CONFLICT',
+      'CANONICAL_IMPORT_BUSINESS_IDENTITY_MISSING') THEN 'hold'
+    ELSE 'ordinary' END`;
   return sql`WITH selected_import AS MATERIALIZED (
     SELECT item.id,execution.id execution_id,accounting.source_row_number,
       observation.payload->>'sourceFormat' source_format,
-      raw_observation.id raw_observation_id
+      raw_member.source_observation_id raw_observation_id,${workClass} work_class
     FROM cro03_enrichment_items item
     JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id AND batch.purpose='staging_review'
     JOIN cro03_batch_memberships member ON member.id=item.membership_id
     JOIN LATERAL (
-      SELECT original.payload FROM cro03_source_observations original
+      SELECT original.id,original.source_subject_id,original.payload_hash,original.payload
+      FROM cro03_source_observations original
        WHERE original.id=member.source_observation_id OFFSET 0
     ) observation ON TRUE
     JOIN import_row_dispositions accounting ON
       batch.idempotency_key='csv-source:'||accounting.execution_id::text||':'||accounting.source_row_number::text
        AND ${canonicalRecoverableImportAccountingSql()}
-      AND observation.payload->>'rowFingerprint'=accounting.row_fingerprint
+      AND (${retainedResolvedIdentitySql()} OR (
+        accounting.disposition='failed' AND accounting.reason_code='RECOVERY_PROVIDER_STAGING_FAILED'
+        AND accounting.diagnostic->>'error'='CRO03_IDEMPOTENCY_PAYLOAD_MISMATCH'))
     JOIN import_executions execution ON execution.id=accounting.execution_id AND execution.status='completed'
-    LEFT JOIN cro03_enrichment_batches raw_batch ON
-      raw_batch.idempotency_key='csv-source-raw-v2:'||execution.id::text||':'||accounting.source_row_number::text
-    LEFT JOIN cro03_batch_memberships raw_member ON raw_member.batch_id=raw_batch.id
-    LEFT JOIN cro03_source_observations raw_observation ON raw_observation.id=raw_member.source_observation_id
+    LEFT JOIN LATERAL (
+      SELECT raw_member.source_observation_id FROM cro03_enrichment_batches raw_batch
+      JOIN cro03_batch_memberships raw_member ON raw_member.batch_id=raw_batch.id
+      WHERE raw_batch.idempotency_key IN (
+        'csv-source-raw-v2:'||execution.id::text||':'||accounting.source_row_number::text,
+        'csv-source-raw-v3:'||execution.id::text||':'||accounting.source_row_number::text)
+      ORDER BY raw_batch.idempotency_key DESC LIMIT 1
+    ) raw_member ON TRUE
     WHERE observation.payload->>'sourceFormat' IN ('google_maps_outscraper','apollo_lead_list')
-      AND (item.terminal_code IS DISTINCT FROM 'CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE'
-        OR jsonb_typeof(raw_observation.payload->'rawSourceRow')='object'
-        OR jsonb_typeof(execution.source_payload->(accounting.source_row_number-1))='object')
       AND ((item.state='blocked' AND (
         item.terminal_code='STAGING_RECIPE_DISABLED' OR item.terminal_code LIKE 'CANONICAL_IMPORT_%'))
         OR (item.state='running' AND item.current_provider='canonical_local_import'
@@ -52,10 +64,11 @@ export function canonicalImportRecoveryClaimSql() {
                AND fulfillment.action='canonical_import_row_fulfilled'
                AND fulfillment.details->>'qualificationVersion'=${CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION})))
       AND item.next_attempt_at<=clock_timestamp()
-    ORDER BY item.next_attempt_at,item.id LIMIT 1 FOR UPDATE OF item SKIP LOCKED
+    ORDER BY CASE WHEN ${workClass}=${preferred} THEN 0 ELSE 1 END,
+      item.next_attempt_at,item.id LIMIT 1 FOR UPDATE OF item SKIP LOCKED
   )
   SELECT selected_import.id,selected_import.execution_id,selected_import.source_row_number,
-    selected_import.source_format,
+    selected_import.source_format,selected_import.work_class,
     COALESCE(CASE WHEN jsonb_typeof(raw_observation.payload->'rawSourceRow')='object'
       THEN raw_observation.payload->'rawSourceRow' END,
       CASE WHEN jsonb_typeof(execution.source_payload->(selected_import.source_row_number-1))='object'
@@ -115,12 +128,19 @@ export async function processCanonicalImportRecoveryTick(
     const token=randomUUID();
     const candidate=await runCanonicalTransaction("import_cursor_claim",()=>db.transaction(async tx=>{
       await ownerAuthorityCheck(tx);
-       const selected=rows(await tx.execute(canonicalImportRecoveryClaimSql()))[0];
+       // Durable round-robin survives short ticks and restarts. Only a committed
+       // original-item claim advances the lane, not a failed/empty cursor read.
+       const last=rows(await tx.execute(sql`SELECT details->>'workClass' work_class FROM audit_logs
+         WHERE action='canonical_import_row_claimed' AND actor_id='system:canonical-import-recovery'
+         ORDER BY id DESC LIMIT 1`))[0]?.work_class;
+       const preferred:RecoveryWorkClass=last==="ordinary" ? "legacy" : last==="legacy" ? "hold" : "ordinary";
+        const selected=rows(await tx.execute(canonicalImportRecoveryClaimSql(preferred)))[0];
       if (!selected) return null;
       if (selected.raw_row == null) {
         await tx.execute(sql`UPDATE cro03_enrichment_items
           SET terminal_code='CANONICAL_IMPORT_ORIGINAL_RAW_UNAVAILABLE',state='blocked',
             claim_token=NULL,lease_expires_at=NULL,current_provider=NULL,
+             next_attempt_at=clock_timestamp()+INTERVAL '1 hour',
             updated_at=clock_timestamp()
           WHERE id=${String(selected.id)}::uuid`);
         return {...selected,originalUnavailable:true};
@@ -130,6 +150,16 @@ export async function processCanonicalImportRecoveryTick(
         lease_expires_at=clock_timestamp()+INTERVAL '2 minutes',execution_fence=execution_fence+1,
         attempt_count=attempt_count+1,next_attempt_at=clock_timestamp()+INTERVAL '5 minutes',
         completed_at=NULL,updated_at=clock_timestamp() WHERE id=${String(selected.id)}::uuid`);
+       const identity=await verifyProviderImportIdentity(tx,{executionId:String(selected.execution_id),
+         sourceRowNumber:Number(selected.source_row_number),rawRow:selected.raw_row},
+         {createBridge:true,itemId:String(selected.id),claimToken:token,authorityCheck:ownerAuthorityCheck});
+       if(!identity)throw new Error("PROVIDER_IMPORT_ORIGINAL_EVIDENCE_MISMATCH");
+       await ownerAuthorityCheck(tx);
+       await tx.execute(sql`INSERT INTO audit_logs(action,entity_type,entity_key,details,actor_type,actor_id)
+         VALUES('canonical_import_row_claimed','cro03_enrichment_item',${String(selected.id)},
+           ${JSON.stringify({executionId:selected.execution_id,sourceRowNumber:selected.source_row_number,
+             workClass:selected.work_class,rowFingerprint:identity.fingerprint,
+             bridgeHash:identity.bridgeHash ?? null})}::jsonb,'system','system:canonical-import-recovery')`);
       return selected;
     }));
     if (!candidate) break;
@@ -155,6 +185,8 @@ export async function processCanonicalImportRecoveryTick(
              AND claim_token=${token}::uuid FOR UPDATE
          ) SELECT id FROM pinned WHERE lease_expires_at>clock_timestamp()`));
          if (!liveItem.length) throw new Error("CANONICAL_IMPORT_RECOVERY_FINALIZATION_LEASE_LOST");
+          const identity=await verifyProviderImportIdentity(tx,{executionId:String(candidate.execution_id),
+            sourceRowNumber:Number(candidate.source_row_number),rawRow:candidate.raw_row});
          const business=rows(await tx.execute(sql`SELECT id FROM businesses
            WHERE id=${result.businessId} FOR SHARE`));
          const contacts=result.contactIds.length ? rows(await tx.execute(sql`
@@ -183,6 +215,7 @@ export async function processCanonicalImportRecoveryTick(
             ${JSON.stringify({executionId:candidate.execution_id,sourceRowNumber:candidate.source_row_number,
               originalDisposition:result.disposition,businessId:result.businessId,contactIds:result.contactIds,
                qualificationVersion:CANONICAL_IMPORT_FULFILLMENT_QUALIFICATION_VERSION,
+               rowFingerprint:identity?.fingerprint,bridgeHash:identity?.bridgeHash ?? null,
               paidProviderCalls:0,outboundChanges:0})}::jsonb,'system','system:canonical-import-recovery')`);
       }));
       fulfilled++;

@@ -42,3 +42,16 @@ suggested every original item was selectable.
 fixture rather than normalizing them into agreement. Prove reachability through
 selection, renewal and fingerprint retrieval, including inconsistent historical
 evidence, while keeping immutable observations and accounting unchanged.
+
+Retained recovery cannot be certified from raw rows and mutable item states alone;
+its native relationship, decision, projection and historical receipt topology must
+also be reproduced.
+
+**Why:** An empty-CRM reconstruction can turn a protected foreign relationship or
+a real name conflict into a newly fulfilled contact, hiding the very defects the
+retained-population certification is meant to detect.
+
+**How to apply:** Separate focused identity reachability and ordinary-upload
+restart proof from full retained-topology acceptance. Refuse full-population
+certification until the original native graph is captured and faithfully seeded;
+never interpret a raw-only reconstruction pass as recovery acceptance.

@@ -305,6 +305,12 @@ try {
   check(!boundedThird.ran,"Missing-original exception replay performs no additional work");
   await pool.query("UPDATE import_executions SET source_payload=$2::jsonb WHERE id=$1",
     [boundedClaim.execution.id,JSON.stringify([boundedRows[0]])]);
+  // Availability is now rechecked on bounded due-item opportunities instead of
+  // opening every original workbook during scalar selection. Advance only this
+  // disposable fixture's due time to exercise its next ordinary opportunity.
+  await pool.query(`UPDATE cro03_enrichment_items item SET next_attempt_at=clock_timestamp()-interval '1 second'
+    FROM cro03_enrichment_batches batch WHERE batch.id=item.batch_id AND batch.idempotency_key=$1`,
+    [`csv-source:${boundedClaim.execution.id}:1`]);
   const restored=await processCanonicalImportRecoveryTick();
   check(restored.fulfilled===1 && restored.held===0,
     "A genuinely restored original can recover through its existing source item");

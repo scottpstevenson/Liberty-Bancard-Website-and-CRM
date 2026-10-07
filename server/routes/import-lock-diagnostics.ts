@@ -10,6 +10,6 @@ export function registerImportLockDiagnosticRoutes(app: Express) {
   app.post("/api/admin/import-recovery/lock-capture",isDashboardUser,requireRole("admin"),(req,res)=>{
     if (req.body && Object.keys(req.body).length)
       return res.status(400).json({message:"Lock capture accepts no parameters"});
-    res.set("Cache-Control","no-store").status(202).json(importLockCapture.start());
+    res.set("Cache-Control","no-store").status(202).json(importLockCapture.start({runtimeDiagnostics:true}));
   });
 }

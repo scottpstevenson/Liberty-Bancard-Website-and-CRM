@@ -1,6 +1,8 @@
 import {createHash, randomUUID} from "node:crypto";
 
 const instanceId = randomUUID();
+/** Correlate process-only diagnostics with SQL tags; never a session/owner token. */
+export function lockTraceProcessInstanceId() { return instanceId; }
 const marker = /^\/\*lbc_lock_trace:([A-Za-z0-9_-]{1,700})\*\/\s*/;
 export function fingerprintQuery(text: string) {
   return createHash("sha256").update(text.replace(marker, "").replace(/\s+/g, " ").trim())

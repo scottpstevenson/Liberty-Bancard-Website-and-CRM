@@ -317,6 +317,24 @@ const RAW_SUITE_MANIFEST: SuiteManifestDefinition[] = [
     providerDenial: "disposable PostgreSQL with fatal external-network denial; no send or provider operations",
   },
   {
+    name:"Audited retained original identity and fair recovery",
+    script:"scripts/certification/test-audited-retained-import-recovery.ts",
+    capability:"deterministic-integration",
+    providerDenial:"private migrated PostgreSQL with fatal external transport denial; no paid providers or sends",
+  },
+  {
+    name:"Canonical native transaction and lease boundaries",
+    script:"scripts/certification/test-canonical-transaction-leases.ts",
+    capability:"deterministic-integration",
+    providerDenial:"private PostgreSQL with external transport denied; native lock, timeout and token-negative fixtures only",
+  },
+  {
+    name:"Canonical bounded deadlock-only transaction retries",
+    script:"scripts/test-canonical-transaction-retry.ts",
+    capability:"deterministic-static",
+    providerDenial:"injected transaction callbacks only; no database connection or provider transport",
+  },
+  {
     name:"Canonical provider intake and recovery",
     script:"scripts/certification/test-canonical-provider-import.ts",
     capability:"deterministic-integration",

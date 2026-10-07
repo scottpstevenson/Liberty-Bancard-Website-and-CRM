@@ -5,7 +5,9 @@ import pg from "pg";
 import {assertDisposableTestInfrastructure} from "../test-infrastructure-guard";
 import {applyCertificationProviderDenyBoundary,getBlockedCertificationNetworkAttemptCount} from "../certification-provider-deny";
 
-await assertDisposableTestInfrastructure({operation:"retained canonical recovery",requireRedis:false});
+const certificationEnvironment=Object.freeze({...process.env});
+await assertDisposableTestInfrastructure({operation:"retained canonical recovery",requireRedis:false,
+  env:certificationEnvironment});
 applyCertificationProviderDenyBoundary({fatal:true});
 process.env.NODE_ENV="production";process.env.REPLIT_DEPLOYMENT="1";
 // Install before the app instruments physical clients. Its per-connection
@@ -27,6 +29,7 @@ const {providerImportEmails,materializeCanonicalProviderImportRow}=await import(
 const {LADDER_BUDGET_LOCK_KEY}=await import("../../server/services/cro03/shared-paid-budget-ledger");
 const {CanonicalImportRecoveryFailure}=await import("../../server/services/canonical-import-recovery-outcomes");
 const {inputRows,seedExecution,syntheticRows,dispatchStoppedAfterBudget}=await import("./retained-recovery-fixtures");
+const {seedNativeRetainedTopology,retainedNativeExecutionId}=await import("./retained-native-topology");
 const phase=process.argv[2];
 const probe=new pg.Client({connectionString:process.env.DATABASE_URL});await probe.connect();
 let checks=0;
@@ -35,7 +38,10 @@ const delay=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 const items=async(execution:string)=>(await probe.query(`SELECT item.*,split_part(batch.idempotency_key,':',3)::int row_number
   FROM cro03_enrichment_items item JOIN cro03_enrichment_batches batch ON batch.id=item.batch_id
   WHERE batch.idempotency_key LIKE $1 ORDER BY row_number`,[`csv-source:${execution}:%`])).rows;
-const executions=async(kind:string)=>(await probe.query("SELECT id,metadata FROM import_executions WHERE metadata->>'certificationKind'=$1",[kind])).rows;
+const executions=async(kind:string)=>kind==="retained_original"
+  ? (await probe.query("SELECT id,metadata FROM import_executions WHERE id=$1",
+    [retainedNativeExecutionId()])).rows
+  : (await probe.query("SELECT id,metadata FROM import_executions WHERE metadata->>'certificationKind'=$1",[kind])).rows;
 const baseline=async()=>(await probe.query(`SELECT
   (SELECT count(*)::int FROM contacts) contacts,(SELECT count(*)::int FROM businesses) businesses,
   (SELECT count(*)::int FROM contact_source_events) provenance,
@@ -210,7 +216,8 @@ try {
     check(reclaimed.ownerEpoch>owner.ownerEpoch && reclaimed.ownerToken!==owner.ownerToken,
       "Expired authority cannot renew; legitimate reclamation rotates epoch and token");
   }else if(phase==="seed"){
-    const rows=inputRows();const execution=await seedExecution(rows,"retained_original");
+    const rows=inputRows();
+    const execution=await seedNativeRetainedTopology(rows,certificationEnvironment);
     check((await items(execution)).length===1472,"All original retained raw rows have one indexed source work item");
     check(rows.filter(row=>row.disposition==="failed" && row.reasonCode==="RECOVERY_PROVIDER_STAGING_FAILED").length===1,
       "The original infrastructure-failed row is preserved rather than rewritten as deferred");
@@ -305,7 +312,10 @@ try {
   status=1;
   const {safeDatabaseFailure}=await import("../../server/lib/lock-trace");
   console.error("RETAINED_RECOVERY_PHASE_FAILED",phase,error?.message?.startsWith("Unexplained") ? error.message : error?.name,
-    JSON.stringify(safeDatabaseFailure(error)),String(error?.stack).split("\n")
+    JSON.stringify(safeDatabaseFailure(error)),
+    /^[A-Z0-9_:]+$/.test(error?.message ?? "") ? error.message : null,
+    String(error?.stack).split("\n").find(line=>line.includes("retained-native-topology.ts")) ?? "",
+    String(error?.stack).split("\n")
       .find(line=>line.includes("test-retained-canonical-import-recovery.ts")) ?? "");
 }finally{
   afterCommit=null;
