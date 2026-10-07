@@ -67,3 +67,13 @@ An inaccessible authenticated primary observation is an explicit audit blocker,
 not permission to claim the cause is established. Do not substitute proposed
 tracing steps for available investigation or present an archived task as an
 executable handoff.
+
+Audit the enrichment system across legacy and current paths, including every
+supplied screenshot, rather than presenting selected counts as a complete audit.
+
+**Why:** The user repeated that there are many enrichment paths and that a
+narrow investigation does not establish the scope of the disconnected system.
+
+**How to apply:** Map screenshots to UI/API/worker/storage paths and downstream
+handoffs. Distinguish registered routes, scheduled workers, historical records,
+current selection and observed production effects; label remaining unknowns.
