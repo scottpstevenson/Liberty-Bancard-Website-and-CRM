@@ -458,3 +458,17 @@ mtime_ms = 1791317994724
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/b87bebea-df10-4f0c-b36d-3a5e64965a18/3252b17d-5a8c-44f1-86cd-d28c62560823"
 storage_version_token = "1791318027508340"
 content_type = "text/html"
+
+[[outputs]]
+id = "lKJlwosleWwO7DvtiOYlU"
+uri = "file://.local/tasks/enrichment-system-audit.md"
+type = "text"
+title = "Enrichment audit — causes, required fixes and recovery"
+description = "Expanded diagnosis across 23 paths, with 24 corrective areas, recovery steps, acceptance checks and explicit unresolved items. No application or production changes applied."
+logical_id = "e31804e8-3e81-4cec-a720-873607aaf2d8"
+content_hash = "sha256:338d13044e919e93b8c5a9108540be0c8cff7548c56751720d90d90ef99a4bc6"
+size = 56637
+mtime_ms = 1791410529270
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:92fd513c-d028-45ae-b664-31ad54630ef0/e31804e8-3e81-4cec-a720-873607aaf2d8/3d36874e-02dd-4e66-a3d4-dd28458fe03a"
+storage_version_token = "1791410613720813"
+content_type = "text/markdown"

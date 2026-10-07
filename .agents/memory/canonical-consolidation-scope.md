@@ -77,3 +77,15 @@ narrow investigation does not establish the scope of the disconnected system.
 **How to apply:** Map screenshots to UI/API/worker/storage paths and downstream
 handoffs. Distinguish registered routes, scheduled workers, historical records,
 current selection and observed production effects; label remaining unknowns.
+
+Provider-specific investigations are examples within the whole-system audit,
+not permission to narrow its scope. Each affected path needs its actual cause,
+exact corrective changes, existing-data recovery and acceptance checks.
+
+**Why:** The user again rejected focusing on only ZeroBounce and OpenAI and
+repeated that many other enrichment paths had not been covered.
+
+**How to apply:** Keep ingestion, identity, geography, classification, discovery,
+validation, preparation, enrollment, UI truthfulness and operational recovery in
+the same scope. Do not stop at a counts/path inventory, substitute a new task,
+or call a diagnosis complete while available causal evidence remains unexamined.
