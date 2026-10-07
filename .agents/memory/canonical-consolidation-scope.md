@@ -3,6 +3,18 @@ name: Canonical consolidation acceptance
 description: Finish the original scope and distinguish implementation handoff from actual production acceptance.
 ---
 
+Make the normal enrichment workflow understandable without requiring the owner
+to navigate separate programs, run jobs, approve routine rows or link records
+manually. Navigation and automatic record progression are both part of completion.
+
+**Why:** The user said the many tabs, names, routes and disconnected enrichment
+paths leave them unable to use the system despite completing many tasks.
+
+**How to apply:** Present one source-to-recipient workflow with consistent
+record-level statuses and traceable imports. Reserve manual work for genuine
+exceptions; do not answer this requirement with another diagnostic screen or
+instructions to operate each separate program.
+
 Finish independent implementation and verification before requesting another
 owner action. Do not redefine unfinished original requirements as new features
 or equate disposable certification with production execution. When diagnosis
