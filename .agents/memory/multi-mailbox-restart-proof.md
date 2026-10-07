@@ -3,6 +3,17 @@ name: Multi-mailbox restart proof
 description: Why shared importer certification must cover both ordinary execution and deferred-item recovery protocols.
 ---
 
+Distinguish the original retained production import from later uploaded workbook
+test populations before answering where imported records are.
+
+**Why:** The user's production-recovery audit was incorrectly answered with
+disposable workbook-test results, leading to the false claim that their recovered
+production contacts had never been imported.
+
+**How to apply:** Pin the execution and source population from the referenced
+audit, inspect production provenance, and report actual contacts separately from
+source rows, historical import counters, and mutable completion claims.
+
 Certify ordinary upload restart separately from deferred-source recovery,
 including both originally created and matched primary contacts.
 
